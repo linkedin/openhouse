@@ -11,8 +11,8 @@ import org.junit.jupiter.api.Test;
 /**
  * Black-box tests (real embedded OpenHouse server + real Spark SQL) that RTAS ({@code
  * replace.enabled}) cannot be enabled on a table alongside WAP ({@code write.wap.enabled}) or
- * replication. They are mutually exclusive: a staged WAP write or a replicated table and a
- * whole-table replace do not compose.
+ * replication. A staged WAP write, or a replicated table, does not compose with a whole-table
+ * replace, so enabling one is rejected while the other is enabled.
  */
 public class RtasWapExclusivityTest extends OpenHouseSparkITest {
 
@@ -34,7 +34,7 @@ public class RtasWapExclusivityTest extends OpenHouseSparkITest {
                   spark.sql(
                       "ALTER TABLE " + table + " SET TBLPROPERTIES ('replace.enabled'='true')"));
       assertTrue(
-          exception.getMessage().contains("mutually exclusive"),
+          exception.getMessage().contains("Disable"),
           "Expected an RTAS/WAP exclusivity error but got: " + exception.getMessage());
 
       spark.sql("DROP TABLE IF EXISTS " + table);
@@ -59,7 +59,7 @@ public class RtasWapExclusivityTest extends OpenHouseSparkITest {
                   spark.sql(
                       "ALTER TABLE " + table + " SET TBLPROPERTIES ('write.wap.enabled'='true')"));
       assertTrue(
-          exception.getMessage().contains("mutually exclusive"),
+          exception.getMessage().contains("Disable"),
           "Expected an RTAS/WAP exclusivity error but got: " + exception.getMessage());
 
       spark.sql("DROP TABLE IF EXISTS " + table);
@@ -82,7 +82,7 @@ public class RtasWapExclusivityTest extends OpenHouseSparkITest {
                           + " (id bigint, data string) USING iceberg "
                           + "TBLPROPERTIES ('replace.enabled'='true', 'write.wap.enabled'='true')"));
       assertTrue(
-          exception.getMessage().contains("mutually exclusive"),
+          exception.getMessage().contains("Disable"),
           "Expected an RTAS/WAP exclusivity error but got: " + exception.getMessage());
 
       spark.sql("DROP TABLE IF EXISTS " + table);
@@ -105,7 +105,7 @@ public class RtasWapExclusivityTest extends OpenHouseSparkITest {
                   spark.sql(
                       "ALTER TABLE " + table + " SET TBLPROPERTIES ('replace.enabled'='true')"));
       assertTrue(
-          exception.getMessage().contains("mutually exclusive"),
+          exception.getMessage().contains("Disable"),
           "Expected an RTAS/replication exclusivity error but got: " + exception.getMessage());
 
       spark.sql("DROP TABLE IF EXISTS " + table);

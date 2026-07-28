@@ -9,6 +9,9 @@ import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PoliciesSpecMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
@@ -16,6 +19,7 @@ import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -169,5 +173,43 @@ public class OpenHouseInternalRepositoryImplTest {
         .tableVersion("v1")
         .tableType(TableType.PRIMARY_TABLE)
         .build();
+  }
+
+  @Test
+  void isReplicationConfiguredReturnsFalseWhenNoDestinations() {
+    Assertions.assertFalse(
+        OpenHouseInternalRepositoryImpl.isReplicationConfigured(Optional.empty()),
+        "no policies means replication is not configured");
+    Assertions.assertFalse(
+        OpenHouseInternalRepositoryImpl.isReplicationConfigured(
+            Optional.of(Policies.builder().build())),
+        "policies with no replication block means replication is not configured");
+    Assertions.assertFalse(
+        OpenHouseInternalRepositoryImpl.isReplicationConfigured(
+            Optional.of(Policies.builder().replication(Replication.builder().build()).build())),
+        "a replication block with a null config list means replication is not configured");
+    Assertions.assertFalse(
+        OpenHouseInternalRepositoryImpl.isReplicationConfigured(
+            Optional.of(
+                Policies.builder()
+                    .replication(Replication.builder().config(Collections.emptyList()).build())
+                    .build())),
+        "a replication block with an empty config list means replication is not configured");
+  }
+
+  @Test
+  void isReplicationConfiguredReturnsTrueWithADestination() {
+    Assertions.assertTrue(
+        OpenHouseInternalRepositoryImpl.isReplicationConfigured(
+            Optional.of(
+                Policies.builder()
+                    .replication(
+                        Replication.builder()
+                            .config(
+                                Collections.singletonList(
+                                    ReplicationConfig.builder().destination("z").build()))
+                            .build())
+                    .build())),
+        "a replication block with at least one destination means replication is configured");
   }
 }
