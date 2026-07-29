@@ -10,6 +10,8 @@ import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
 import com.linkedin.openhouse.tables.common.TableType;
 import java.util.ArrayDeque;
@@ -24,6 +26,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import javax.validation.ConstraintViolation;
 import javax.validation.Validator;
@@ -148,6 +151,7 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
       throw new RequestValidationFailureException(validationFailures);
     }
     validatePolicies(createUpdateTableRequestBody);
+    validateFeatureCompatibility(createUpdateTableRequestBody);
     if (createUpdateTableRequestBody.getClustering() != null) {
       clusteringSpecValidator.validate(
           createUpdateTableRequestBody.getClustering(),
@@ -236,6 +240,94 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     }
   }
 
+  /**
+   * A table feature that participates in mutual-exclusivity checks: a human-readable {@code label}
+   * and a predicate that reports whether the request would enable the feature.
+   */
+  private static final class Feature {
+    private final String label;
+    private final Predicate<CreateUpdateTableRequestBody> enabled;
+
+    private Feature(String label, Predicate<CreateUpdateTableRequestBody> enabled) {
+      this.label = label;
+      this.enabled = enabled;
+    }
+
+    private boolean isEnabledOn(CreateUpdateTableRequestBody body) {
+      return enabled.test(body);
+    }
+  }
+
+  /**
+   * An ordered pair of features that cannot both be enabled on the same table: enabling {@link
+   * #feature} while {@link #conflictsWith} is enabled is rejected, and the client is told to
+   * disable {@link #conflictsWith}.
+   */
+  private static final class IncompatibleFeatures {
+    private final Feature feature;
+    private final Feature conflictsWith;
+
+    private IncompatibleFeatures(Feature feature, Feature conflictsWith) {
+      this.feature = feature;
+      this.conflictsWith = conflictsWith;
+    }
+  }
+
+  private static boolean isTablePropEnabled(CreateUpdateTableRequestBody body, String property) {
+    Map<String, String> props = body.getTableProperties();
+    return props != null && Boolean.parseBoolean(props.get(property));
+  }
+
+  private static boolean isReplicationConfigured(CreateUpdateTableRequestBody body) {
+    return Optional.ofNullable(body.getPolicies())
+        .map(Policies::getReplication)
+        .map(Replication::getConfig)
+        .map(config -> !config.isEmpty())
+        .orElse(false);
+  }
+
+  private static final Feature RTAS_FEATURE =
+      new Feature(
+          "RTAS", body -> isTablePropEnabled(body, CatalogConstants.RTAS_ENABLED_TABLE_PROP));
+  private static final Feature WAP_FEATURE =
+      new Feature("WAP", body -> isTablePropEnabled(body, CatalogConstants.WAP_ENABLED_TABLE_PROP));
+  private static final Feature REPLICATION_FEATURE =
+      new Feature("replication", OpenHouseTablesApiValidator::isReplicationConfigured);
+
+  /**
+   * The feature-compatibility matrix: pairs of features that cannot be enabled on the same table.
+   * Adding a new mutually-exclusive relationship is just adding a tuple here. This is
+   * enable/disable validation on the requested table metadata; the replace-time gate that inspects
+   * the persisted table lives in the repository.
+   */
+  private static final List<IncompatibleFeatures> MUTUALLY_EXCLUSIVE_FEATURES =
+      Arrays.asList(
+          new IncompatibleFeatures(RTAS_FEATURE, WAP_FEATURE),
+          new IncompatibleFeatures(RTAS_FEATURE, REPLICATION_FEATURE));
+
+  /**
+   * Rejects a create or update whose requested metadata would enable two mutually-exclusive
+   * features on the same table (see {@link #MUTUALLY_EXCLUSIVE_FEATURES}). For example a table
+   * cannot enable both RTAS and WAP, or RTAS and replication.
+   *
+   * @param body the requested table metadata
+   */
+  private void validateFeatureCompatibility(CreateUpdateTableRequestBody body) {
+    for (IncompatibleFeatures pair : MUTUALLY_EXCLUSIVE_FEATURES) {
+      if (pair.feature.isEnabledOn(body) && pair.conflictsWith.isEnabledOn(body)) {
+        throw new RequestValidationFailureException(
+            String.format(
+                "Table %s.%s cannot enable %s while %s is enabled. Disable %s to enable %s.",
+                body.getDatabaseId(),
+                body.getTableId(),
+                pair.feature.label,
+                pair.conflictsWith.label,
+                pair.conflictsWith.label,
+                pair.feature.label));
+      }
+    }
+  }
+
   @SuppressWarnings("checkstyle:OperatorWrap")
   @Override
   public void validateUpdateTable(
@@ -301,6 +393,7 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
       throw new RequestValidationFailureException(validationFailures);
     }
     validatePolicies(createUpdateTableRequestBody);
+    validateFeatureCompatibility(createUpdateTableRequestBody);
     if (createUpdateTableRequestBody.getClustering() != null) {
       clusteringSpecValidator.validate(
           createUpdateTableRequestBody.getClustering(),

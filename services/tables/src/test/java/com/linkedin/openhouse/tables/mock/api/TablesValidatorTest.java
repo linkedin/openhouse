@@ -1572,4 +1572,100 @@ public class TablesValidatorTest {
                     .tableType(TableType.PRIMARY_TABLE)
                     .build()));
   }
+
+  @Test
+  public void validateCreateTableRejectsRtasWithWap() {
+    RequestValidationFailureException e =
+        assertThrows(
+            RequestValidationFailureException.class,
+            () ->
+                tablesApiValidator.validateCreateTable(
+                    "c",
+                    "d",
+                    CreateUpdateTableRequestBody.builder()
+                        .databaseId("d")
+                        .tableId("t")
+                        .clusterId("c")
+                        .schema(HEALTH_SCHEMA_LITERAL)
+                        .tableProperties(
+                            ImmutableMap.of(
+                                CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true",
+                                CatalogConstants.WAP_ENABLED_TABLE_PROP, "true"))
+                        .baseTableVersion("base")
+                        .build()));
+    Assertions.assertTrue(
+        e.getMessage().contains("Disable"), "expected an actionable disable message: " + e);
+  }
+
+  @Test
+  public void validateUpdateTableRejectsRtasWithWap() {
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            tablesApiValidator.validateUpdateTable(
+                "c",
+                "d",
+                "t",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(HEALTH_SCHEMA_LITERAL)
+                    .tableProperties(
+                        ImmutableMap.of(
+                            CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true",
+                            CatalogConstants.WAP_ENABLED_TABLE_PROP, "true"))
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
+  @Test
+  public void validateUpdateTableRejectsRtasWithReplication() {
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            tablesApiValidator.validateUpdateTable(
+                "c",
+                "d",
+                "t",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(HEALTH_SCHEMA_LITERAL)
+                    .tableProperties(
+                        ImmutableMap.of(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true"))
+                    .policies(
+                        Policies.builder()
+                            .replication(
+                                Replication.builder()
+                                    .config(
+                                        Arrays.asList(
+                                            ReplicationConfig.builder()
+                                                .destination("z")
+                                                .interval("12H")
+                                                .build()))
+                                    .build())
+                            .build())
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
+  @Test
+  public void validateCreateTableAllowsRtasAlone() {
+    assertDoesNotThrow(
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(HEALTH_SCHEMA_LITERAL)
+                    .tableProperties(
+                        ImmutableMap.of(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true"))
+                    .baseTableVersion("base")
+                    .build()));
+  }
 }

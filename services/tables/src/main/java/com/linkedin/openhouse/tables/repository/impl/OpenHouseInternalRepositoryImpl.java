@@ -39,13 +39,11 @@ import com.linkedin.openhouse.tables.repository.SchemaValidator;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
@@ -120,7 +118,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         TableIdentifier.of(tableDto.getDatabaseId(), tableDto.getTableId());
     Table table;
     Schema writeSchema = IcebergSchemaHelper.getSchemaFromSchemaJson(tableDto.getSchema());
-    validateFeatureCompatibility(tableDto);
     boolean existed =
         existsById(
             TableDtoPrimaryKey.builder()
@@ -321,85 +318,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   }
 
   /**
-   * A table feature that participates in mutual-exclusivity checks: a human-readable {@code label}
-   * and a predicate that reports whether the feature is enabled on a given {@link TableDto}.
-   */
-  private static final class Feature {
-    private final String label;
-    private final Predicate<TableDto> enabled;
-
-    private Feature(String label, Predicate<TableDto> enabled) {
-      this.label = label;
-      this.enabled = enabled;
-    }
-
-    private boolean isEnabledOn(TableDto tableDto) {
-      return enabled.test(tableDto);
-    }
-  }
-
-  private static boolean isTablePropEnabled(TableDto tableDto, String property) {
-    Map<String, String> props = tableDto.getTableProperties();
-    return props != null && Boolean.parseBoolean(props.get(property));
-  }
-
-  private static final Feature RTAS_FEATURE =
-      new Feature("RTAS", tableDto -> isTablePropEnabled(tableDto, RTAS_ENABLED_TABLE_PROP));
-  private static final Feature WAP_FEATURE =
-      new Feature("WAP", tableDto -> isTablePropEnabled(tableDto, WAP_ENABLED_TABLE_PROP));
-  private static final Feature REPLICATION_FEATURE =
-      new Feature(
-          "replication",
-          tableDto -> isReplicationConfigured(Optional.ofNullable(tableDto.getPolicies())));
-
-  /**
-   * An ordered pair of features that cannot both be enabled on the same table: enabling {@link
-   * #feature} while {@link #conflictsWith} is enabled is rejected, and the client is told to
-   * disable {@link #conflictsWith}.
-   */
-  private static final class IncompatibleFeatures {
-    private final Feature feature;
-    private final Feature conflictsWith;
-
-    private IncompatibleFeatures(Feature feature, Feature conflictsWith) {
-      this.feature = feature;
-      this.conflictsWith = conflictsWith;
-    }
-  }
-
-  /**
-   * The declared feature incompatibilities. Adding a new mutually-exclusive relationship is just
-   * adding a tuple here; the validation code below stays generic.
-   */
-  private static final List<IncompatibleFeatures> MUTUALLY_EXCLUSIVE_FEATURES =
-      Arrays.asList(
-          new IncompatibleFeatures(RTAS_FEATURE, WAP_FEATURE),
-          new IncompatibleFeatures(RTAS_FEATURE, REPLICATION_FEATURE));
-
-  /**
-   * Rejects any create or update whose resulting metadata would enable two mutually-exclusive
-   * features on the same table (see {@link #MUTUALLY_EXCLUSIVE_FEATURES}). For example a staged WAP
-   * write, or a replicated table, does not compose with a whole-table RTAS replace.
-   *
-   * @param tableDto container of the requested table metadata
-   */
-  private void validateFeatureCompatibility(TableDto tableDto) {
-    for (IncompatibleFeatures pair : MUTUALLY_EXCLUSIVE_FEATURES) {
-      if (pair.feature.isEnabledOn(tableDto) && pair.conflictsWith.isEnabledOn(tableDto)) {
-        throw new RequestValidationFailureException(
-            String.format(
-                "Table %s.%s cannot enable %s while %s is enabled. Disable %s to enable %s.",
-                tableDto.getDatabaseId(),
-                tableDto.getTableId(),
-                pair.feature.label,
-                pair.conflictsWith.label,
-                pair.conflictsWith.label,
-                pair.feature.label));
-      }
-    }
-  }
-
-  /**
    * Whether replication is actually configured on a table, i.e. it has a replication policy with at
    * least one destination. A {@link Policies} object may carry a replication block whose
    * destination list is null or empty (for example a table that never enabled replication, or had
@@ -439,7 +357,12 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
               RTAS_ENABLED_TABLE_PROP));
     }
 
-    // RTAS is incompatible with WAP or replication.
+    // Defense-in-depth: reject a replace on a table that already has WAP or replication enabled.
+    // Today the enable-time feature-compatibility validator prevents a table from enabling RTAS
+    // alongside WAP or replication, so this state is unreachable through the API. This check
+    // inspects the persisted table state and becomes the durable protection once the
+    // 'replace.enabled' opt-in flag is removed at GA and the enable-time RTAS gate no longer
+    // applies.
     boolean wapEnabled = Boolean.parseBoolean(existingProperties.get(WAP_ENABLED_TABLE_PROP));
     boolean replicationEnabled =
         isReplicationConfigured(
