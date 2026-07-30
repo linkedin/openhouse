@@ -50,6 +50,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.util.AopTestUtils;
 
 @SpringBootTest
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
@@ -897,9 +898,15 @@ public class RepositoryTest {
             .tableProperties(userPropsWithFormat)
             .build();
 
+    PreservedKeyChecker targetPreservedKeyChecker =
+        AopTestUtils.getUltimateTargetObject(preservedKeyChecker);
+
     // Mock the preservedKeyChecker to simulate toggle disabled (don't allow user override)
+    Mockito.doReturn(true)
+        .when(targetPreservedKeyChecker)
+        .isKeyPreservedForTable(Mockito.eq(TableProperties.DEFAULT_FILE_FORMAT), Mockito.any());
     Mockito.doReturn(false)
-        .when(preservedKeyChecker)
+        .when(targetPreservedKeyChecker)
         .allowKeyInCreation(Mockito.eq(TableProperties.DEFAULT_FILE_FORMAT), Mockito.any());
 
     TableDto createdDto1 = openHouseInternalRepository.save(tableDto1);
@@ -920,9 +927,9 @@ public class RepositoryTest {
             .build();
 
     // Mock the preservedKeyChecker to simulate toggle enabled (allow user override)
-    Mockito.doReturn(true)
-        .when(preservedKeyChecker)
-        .allowKeyInCreation(Mockito.eq(TableProperties.DEFAULT_FILE_FORMAT), Mockito.any());
+    Mockito.doReturn(false)
+        .when(targetPreservedKeyChecker)
+        .isKeyPreservedForTable(Mockito.eq(TableProperties.DEFAULT_FILE_FORMAT), Mockito.any());
 
     TableDto createdDto2 = openHouseInternalRepository.save(tableDto2);
 

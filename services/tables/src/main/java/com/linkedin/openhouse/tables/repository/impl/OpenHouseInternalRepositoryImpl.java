@@ -469,7 +469,10 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     // Populate non-preserved keys, mainly user defined properties.
     Map<String, String> propertiesMap =
         tableDto.getTableProperties().entrySet().stream()
-            .filter(entry -> preservedKeyChecker.allowKeyInCreation(entry.getKey(), tableDto))
+            .filter(
+                entry ->
+                    !preservedKeyChecker.isKeyPreservedForTable(entry.getKey(), tableDto)
+                        || preservedKeyChecker.allowKeyInCreation(entry.getKey(), tableDto))
             .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 
     // Only set cluster default for DEFAULT_FILE_FORMAT if user hasn't provided a value
