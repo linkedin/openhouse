@@ -454,6 +454,68 @@ public class RepositoryTest {
   }
 
   @Test
+  public void testReplaceWithPartialPoliciesPreservesColumnTags() {
+    // Create a table whose only policy is a column tag on col1, RTAS enabled.
+    Map<String, String> props = new HashMap<>();
+    props.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    TableDto createDto =
+        TABLE_DTO
+            .toBuilder()
+            .tableId("tblReplacePreservesColumnTags")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .tableProperties(props)
+            .policies(
+                Policies.builder()
+                    .columnTags(
+                        Collections.singletonMap(
+                            "col1",
+                            PolicyTag.builder()
+                                .tags(Collections.singleton(PolicyTag.Tag.PII))
+                                .build()))
+                    .build())
+            .build();
+    TableDto createdDto = openHouseInternalRepository.save(createDto);
+    Assertions.assertTrue(createdDto.getPolicies().getColumnTags().containsKey("col1"));
+
+    // RTAS with a non-empty policies payload that provides retention but omits column tags. Because
+    // column tags treat an absent or empty map the same as "not provided," the existing tags must
+    // be carried forward rather than wiped.
+    TableDto replaceDto =
+        createdDto
+            .toBuilder()
+            .tableVersion(createdDto.getTableLocation())
+            .policies(
+                Policies.builder()
+                    .retention(
+                        Retention.builder()
+                            .count(8)
+                            .granularity(TimePartitionSpec.Granularity.HOUR)
+                            .build())
+                    .build())
+            .replaceCommit(true)
+            .build();
+    TableDto replacedDto = openHouseInternalRepository.save(replaceDto);
+
+    Assertions.assertEquals(
+        8,
+        replacedDto.getPolicies().getRetention().getCount(),
+        "RTAS should apply the retention policy provided on the request");
+    Assertions.assertTrue(
+        replacedDto.getPolicies().getColumnTags().containsKey("col1"),
+        "RTAS with a partial policies payload dropped the existing column tags (expected them to be "
+            + "carried forward)");
+
+    // Cleanup
+    TableDtoPrimaryKey pk =
+        TableDtoPrimaryKey.builder()
+            .tableId("tblReplacePreservesColumnTags")
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .build();
+    openHouseInternalRepository.deleteById(pk);
+    Assertions.assertFalse(openHouseInternalRepository.existsById(pk));
+  }
+
+  @Test
   public void testOpenHouseRepository() {
     TableDto creationDTO = TABLE_DTO.toBuilder().tableVersion(INITIAL_TABLE_VERSION).build();
 
