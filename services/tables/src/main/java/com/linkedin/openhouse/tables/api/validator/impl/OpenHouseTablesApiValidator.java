@@ -151,7 +151,7 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
       throw new RequestValidationFailureException(validationFailures);
     }
     validatePolicies(createUpdateTableRequestBody);
-    validateFeatureCompatibility(createUpdateTableRequestBody);
+    validateFeatureCompatibility(createUpdateTableRequestBody, MUTUALLY_EXCLUSIVE_FEATURES);
     if (createUpdateTableRequestBody.getClustering() != null) {
       clusteringSpecValidator.validate(
           createUpdateTableRequestBody.getClustering(),
@@ -307,13 +307,16 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
 
   /**
    * Rejects a create or update whose requested metadata would enable two mutually-exclusive
-   * features on the same table (see {@link #MUTUALLY_EXCLUSIVE_FEATURES}). For example a table
-   * cannot enable both RTAS and WAP, or RTAS and replication.
+   * features on the same table. The incompatibilities to enforce are supplied by the caller (see
+   * {@link #MUTUALLY_EXCLUSIVE_FEATURES}), so this method stays generic over the feature-pair
+   * rules.
    *
    * @param body the requested table metadata
+   * @param incompatibleFeatures the ordered feature pairs that cannot both be enabled on a table
    */
-  private void validateFeatureCompatibility(CreateUpdateTableRequestBody body) {
-    for (IncompatibleFeatures pair : MUTUALLY_EXCLUSIVE_FEATURES) {
+  private void validateFeatureCompatibility(
+      CreateUpdateTableRequestBody body, List<IncompatibleFeatures> incompatibleFeatures) {
+    for (IncompatibleFeatures pair : incompatibleFeatures) {
       if (pair.feature.isEnabledOn(body) && pair.conflictsWith.isEnabledOn(body)) {
         throw new RequestValidationFailureException(
             String.format(
@@ -393,7 +396,7 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
       throw new RequestValidationFailureException(validationFailures);
     }
     validatePolicies(createUpdateTableRequestBody);
-    validateFeatureCompatibility(createUpdateTableRequestBody);
+    validateFeatureCompatibility(createUpdateTableRequestBody, MUTUALLY_EXCLUSIVE_FEATURES);
     if (createUpdateTableRequestBody.getClustering() != null) {
       clusteringSpecValidator.validate(
           createUpdateTableRequestBody.getClustering(),
