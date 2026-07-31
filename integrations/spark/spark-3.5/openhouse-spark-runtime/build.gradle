@@ -25,6 +25,16 @@ configurations {
   antlr
 }
 
+// The root build forces jackson-databind to 2.13.4; align jackson-module-scala to the same
+// version so the runtime module's own unit tests can (de)serialize the clustering state. Spark
+// provides a consistent jackson at itest/production runtime (this force only affects this module's
+// dependency resolution, and jackson is not bundled into the shadow jar).
+configurations.all {
+  resolutionStrategy {
+    force 'com.fasterxml.jackson.module:jackson-module-scala_2.12:2.13.4'
+  }
+}
+
 // Set source for antlr generated directory
 sourceSets {
   main {
