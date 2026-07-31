@@ -1,0 +1,74 @@
+# Self-hosted Renovate that constantly syncs the linkedin/iceberg fork
+# (com.linkedin.iceberg) within its 1.2.x and 1.5.x lines.
+#
+# Behavior is defined in .github/renovate.json:
+#   - iceberg_1_2_version  (root build.gradle)                  -> capped to 1.2.x
+#   - iceberg_1_5_version  (root build.gradle)                  -> capped to 1.5.x
+# Only the custom regex manager is enabled, so Renovate touches nothing else.
+#
+# ── One-time setup ───────────────────────────────────────────────────────────
+# Create a repo (or org) secret named RENOVATE_TOKEN so Renovate can open PRs
+# AND so CI runs on those PRs (PRs opened with the default GITHUB_TOKEN do NOT
+# trigger other workflows). Use either:
+#   - a classic PAT with `repo` + `workflow` scope, or
+#   - a fine-grained PAT / GitHub App installation token with read+write on
+#     Contents and Pull requests.
+# If RENOVATE_TOKEN is absent the run falls back to GITHUB_TOKEN: PRs are still
+# created, but CI will not auto-run on them.
+name: Renovate (linkedin/iceberg sync)
+
+on:
+  schedule:
+    # Hourly — "constantly" sync. Renovate is idempotent: a run is a no-op when
+    # the pinned versions are already the newest within their line.
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    inputs:
+      logLevel:
+        description: Renovate log level
+        required: false
+        default: info
+        type: choice
+        options:
+          - info
+          - debug
+      dryRun:
+        description: Dry run (extract & log only, open no PRs)
+        required: false
+        default: false
+        type: boolean
+
+# When a dedicated RENOVATE_TOKEN is set, Renovate uses it and these job-token
+# permissions are unused. They exist so the GITHUB_TOKEN fallback can still
+# create branches and PRs (CI just won't auto-run on those PRs).
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: renovate
+  cancel-in-progress: false
+
+jobs:
+  renovate:
+    name: Renovate
+    runs-on: ubuntu-latest
+    steps:
+      # Set RENOVATE_DRY_RUN only when explicitly requested; leaving it unset on
+      # scheduled runs avoids a config-validation warning for an invalid value.
+      - name: Enable dry run
+        if: ${{ inputs.dryRun }}
+        run: echo "RENOVATE_DRY_RUN=full" >> "$GITHUB_ENV"
+
+      - name: Run Renovate
+        # renovatebot/github-action publishes only full vX.Y.Z tags (no moving
+        # major tag); the github-actions Dependabot updater keeps this current.
+        uses: renovatebot/github-action@v46.1.15
+        with:
+          token: ${{ secrets.RENOVATE_TOKEN || secrets.GITHUB_TOKEN }}
+        env:
+          # Only operate on this repository; do not crawl the whole org.
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          RENOVATE_AUTODISCOVER: 'false'
+          # Per-repo config lives in .github/renovate.json (auto-detected).
+          LOG_LEVEL: ${{ inputs.logLevel || 'info' }}
