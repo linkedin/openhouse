@@ -90,7 +90,9 @@ class OpenhouseSparkSqlExtensionsParser (delegate: ParserInterface) extends Pars
       normalized.startsWith("grant") ||
       normalized.startsWith("revoke") ||
       normalized.startsWith("show grants") ||
-      normalized.startsWith("optimize")
+      normalized.startsWith("optimize") ||
+      (normalized.startsWith("analyze table") &&
+        normalized.contains("compute clustering quality"))
 
   }
 
