@@ -387,9 +387,20 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   }
 
   /**
-   * Per-plane merge of table policies for a replace: a plane set on {@code requested} wins; a plane
-   * absent from {@code requested} is carried forward from {@code existing}. {@code sharingEnabled}
-   * is a primitive boolean with no "unset" state, so the requested value is kept.
+   * Per-plane merge of table policies for a replace. The builder is based on {@code existing}, so
+   * any plane the request does not override is carried forward from the existing table.
+   *
+   * <ul>
+   *   <li>{@code retention}, {@code replication}, {@code history}, {@code lockState}: the request
+   *       wins when it provides the plane (non-null); otherwise the existing plane is kept.
+   *   <li>{@code columnTags}: overwrite semantics -- a non-empty request map replaces the existing
+   *       column tags wholesale; an absent or empty map keeps the existing tags. Clearing all tags
+   *       cannot be expressed through a replace (use {@code ALTER TABLE ... MODIFY COLUMN ... UNSET
+   *       TAG}).
+   *   <li>{@code sharingEnabled}: a primitive boolean with no "unset" state, so it cannot be
+   *       distinguished from a request that simply omits it. It is preserved from the existing
+   *       table across a replace; change it with {@code ALTER TABLE ... SET POLICY (SHARING=...)}.
+   * </ul>
    */
   static Policies mergePolicies(Policies existing, Policies requested) {
     if (existing == null) {
@@ -398,7 +409,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     if (requested == null) {
       return existing;
     }
-    return requested
+    return existing
         .toBuilder()
         .retention(
             requested.getRetention() != null ? requested.getRetention() : existing.getRetention())
