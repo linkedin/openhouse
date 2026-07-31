@@ -2,7 +2,7 @@ package com.linkedin.openhouse.spark.sql.catalyst.parser.extensions
 
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes
 import com.linkedin.openhouse.spark.sql.catalyst.parser.extensions.OpenhouseSqlExtensionsParser._
-import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement, UnSetReplicationPolicy}
+import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement, UnSetReplicationPolicy, VacuumTable}
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes.GrantableResourceType
 import com.linkedin.openhouse.gen.tables.client.model.TimePartitionSpec
 import org.antlr.v4.runtime.tree.ParseTree
@@ -195,6 +195,13 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
 
   override def visitVersions(ctx: VersionsContext): Integer = {
     ctx.POSITIVE_INTEGER().getText.toInt
+  }
+
+  override def visitVacuumTable(ctx: VacuumTableContext): VacuumTable = {
+    val tableName = typedVisit[Seq[String]](ctx.multipartIdentifier)
+    val removeOrphanFiles = ctx.REMOVE() != null
+    val retainHours = Option(ctx.POSITIVE_INTEGER()).map(_.getText.toInt)
+    VacuumTable(tableName, removeOrphanFiles, retainHours)
   }
 
   private def toBuffer[T](list: java.util.List[T]) = list.asScala
