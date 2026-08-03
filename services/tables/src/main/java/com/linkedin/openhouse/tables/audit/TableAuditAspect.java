@@ -28,6 +28,8 @@ import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.iceberg.MetadataUpdate;
+import org.apache.iceberg.MetadataUpdateParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotParser;
 import org.apache.iceberg.SnapshotRef;
@@ -46,6 +48,13 @@ import org.springframework.stereotype.Component;
 @Aspect
 @Component
 public class TableAuditAspect {
+
+  /**
+   * The {@code type} discriminator the Iceberg REST spec assigns to branch refs in a {@code
+   * set-snapshot-ref} action (the alternative being {@code tag}). Iceberg's {@code SnapshotRefType}
+   * enum is package-private, so the spec's wire value is matched directly.
+   */
+  private static final String BRANCH_REF_TYPE = "branch";
 
   @Autowired private ClusterProperties clusterProperties;
 
@@ -415,22 +424,26 @@ public class TableAuditAspect {
   }
 
   /**
-   * Extracts snapshot ID and timestamp of the main branch from the request body. The snapshotRefs
-   * map contains branch name to JSON-serialized SnapshotRef. We read the main branch's snapshot-id
-   * (this is what Iceberg treats as current-snapshot-id — see TableMetadata.Builder.setRef()) and
-   * then find the matching snapshot in jsonSnapshots to get its timestamp-ms.
+   * Extracts snapshot ID, timestamp, and branch ref name from the request body.
    *
-   * <p>Leaves both fields null if the main branch ref is absent (e.g. branch-only commits where
-   * main didn't advance, or non-commit operations) or if the matching snapshot can't be found.
+   * <p>currentSnapshotId and currentSnapshotTimestampMs track the main branch ref for backwards
+   * compatibility. They are null when main is absent from snapshotRefs.
    */
   private void extractSnapshotInfo(
       IcebergSnapshotsRequestBody requestBody,
       TableAuditEvent.TableAuditEventBuilder eventBuilder) {
     try {
       Map<String, String> snapshotRefs = requestBody.getSnapshotRefs();
-      if (snapshotRefs == null) {
+      List<String> jsonSnapshots = requestBody.getJsonSnapshots();
+
+      extractBranchRefName(requestBody, eventBuilder);
+
+      if (snapshotRefs == null || jsonSnapshots == null || jsonSnapshots.isEmpty()) {
         return;
       }
+
+      // Extract snapshot ID and timestamp for main branch (backwards-compatible).
+      // Iterate jsonSnapshots in reverse: main's snapshot is typically the most recent.
       String mainRefJson = snapshotRefs.get(SnapshotRef.MAIN_BRANCH);
       if (mainRefJson == null) {
         return;
@@ -438,14 +451,6 @@ public class TableAuditAspect {
       long mainSnapshotId = SnapshotRefParser.fromJson(mainRefJson).snapshotId();
       eventBuilder.currentSnapshotId(mainSnapshotId);
 
-      // Find the matching snapshot in jsonSnapshots to get its timestamp-ms. Iterate in reverse
-      // because Iceberg appends snapshots chronologically and main's snapshot is typically the
-      // most recent. Skip snapshots whose JSON doesn't contain the target id as a cheap
-      // pre-filter before invoking the JSON parser.
-      List<String> jsonSnapshots = requestBody.getJsonSnapshots();
-      if (jsonSnapshots == null) {
-        return;
-      }
       String mainSnapshotIdStr = Long.toString(mainSnapshotId);
       for (int i = jsonSnapshots.size() - 1; i >= 0; i--) {
         String snapshotJson = jsonSnapshots.get(i);
@@ -461,6 +466,49 @@ public class TableAuditAspect {
     } catch (Exception e) {
       // Snapshot extraction is best-effort; don't fail the audit event
       log.warn("Failed to extract snapshot info for audit event", e);
+    }
+  }
+
+  /**
+   * Sets branchRefName from the commit's Iceberg REST spec {@code TableUpdate} actions.
+   *
+   * <p>The client sends the deltas it applied, so the branch that was written is stated outright by
+   * a {@code set-snapshot-ref} action rather than inferred. This matters most for operations that
+   * commit no snapshot at all: {@code CREATE BRANCH b} produces a lone {@code set-snapshot-ref}
+   * naming {@code b}, where the resulting table state is indistinguishable from a no-op on main.
+   *
+   * <p>Only branch-typed refs qualify; a {@code CREATE TAG} carries {@code type: tag} and is
+   * correctly ignored. When several branches move in one commit the first is reported, matching the
+   * order the client applied them.
+   *
+   * <p>Clients predating {@code jsonMetadataUpdates} omit it, in which case branchRefName is left
+   * unset. The previous behavior guessed by matching refs against the last snapshot in the list,
+   * which returned an arbitrary branch whenever two refs shared a snapshot — exactly what {@code
+   * CREATE BRANCH} produces. An absent field is preferable to a coin-flip one in an audit log.
+   */
+  private void extractBranchRefName(
+      IcebergSnapshotsRequestBody requestBody,
+      TableAuditEvent.TableAuditEventBuilder eventBuilder) {
+    List<String> jsonMetadataUpdates = requestBody.getJsonMetadataUpdates();
+    if (jsonMetadataUpdates == null || jsonMetadataUpdates.isEmpty()) {
+      return;
+    }
+    for (String jsonMetadataUpdate : jsonMetadataUpdates) {
+      MetadataUpdate update;
+      try {
+        update = MetadataUpdateParser.fromJson(jsonMetadataUpdate);
+      } catch (Exception e) {
+        // A single unparseable action must not hide the rest of the commit's updates.
+        log.debug("Skipping unparseable metadata update in audit extraction", e);
+        continue;
+      }
+      if (update instanceof MetadataUpdate.SetSnapshotRef) {
+        MetadataUpdate.SetSnapshotRef setSnapshotRef = (MetadataUpdate.SetSnapshotRef) update;
+        if (BRANCH_REF_TYPE.equalsIgnoreCase(setSnapshotRef.type())) {
+          eventBuilder.branchRefName(setSnapshotRef.name());
+          return;
+        }
+      }
     }
   }
 
