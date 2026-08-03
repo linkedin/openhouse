@@ -565,6 +565,38 @@ public class OpenHouseTableOperationsTest {
   }
 
   /**
+   * The read-bridge decode must happen BEFORE the metadata load, not inside it. loadMetadata is the
+   * loader Iceberg wraps in {@code Tasks.retry(20)} with exponential backoff; a malformed config
+   * entry is deterministic, so decoding there would re-read the metadata file 21 times over ~87s to
+   * reproduce an error already available on the first attempt. Asserting FileIO is never touched
+   * pins the fix: we fail fast, before any storage access.
+   */
+  @Test
+  public void testMalformedConfigFailsBeforeTouchingStorage() {
+    TableApi mockTableApi = mock(TableApi.class);
+    FileIO mockFileIO = mock(FileIO.class);
+    GetTableResponseBody body = mock(GetTableResponseBody.class);
+    // Non-null location, so a metadata load would otherwise be attempted.
+    when(body.getTableLocation()).thenReturn("/tmp/does-not-matter/metadata.json");
+    when(body.getConfig())
+        .thenReturn(
+            Collections.singletonMap("openhouse.read-bridge.column-default.7", "{bad json"));
+    when(mockTableApi.getTableV1(anyString(), anyString())).thenReturn(Mono.just(body));
+
+    OpenHouseTableOperations ops =
+        OpenHouseTableOperations.builder()
+            .tableIdentifier(TableIdentifier.of("db", "tbl"))
+            .fileIO(mockFileIO)
+            .tableApi(mockTableApi)
+            .snapshotApi(mock(SnapshotApi.class))
+            .cluster("cluster")
+            .build();
+
+    Assertions.assertThrows(IllegalStateException.class, ops::doRefresh);
+    verifyNoInteractions(mockFileIO);
+  }
+
+  /**
    * Wire contract: a server-stamped config map deserializes on the client (the Iceberg REST {@code
    * LoadTableResponse.config} convention — a string map). This is how the value actually arrives on
    * a real table-load response.
