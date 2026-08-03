@@ -442,6 +442,10 @@ public class OperationTasksBuilder {
             () -> {
               operationTaskManager.updateDataGenerationCompletion();
               log.info(
+                  "OH_SCHED_ELIGIBLE job_type={} count={}",
+                  jobType,
+                  operationTaskManager.getTotalDataCount());
+              log.info(
                   "The metadata fetched count: {} for the job type: {}",
                   operationTaskManager.getTotalDataCount(),
                   jobType);
@@ -486,6 +490,10 @@ public class OperationTasksBuilder {
             () -> {
               operationTaskManager.updateDataGenerationCompletion();
               log.info(
+                  "OH_SCHED_ELIGIBLE job_type={} count={}",
+                  jobType,
+                  operationTaskManager.getTotalDataCount());
+              log.info(
                   "The metadata fetched count: {} for the job type: {}",
                   operationTaskManager.getTotalDataCount(),
                   jobType);
@@ -516,6 +524,10 @@ public class OperationTasksBuilder {
         .doAfterTerminate(
             () -> {
               operationTaskManager.updateDataGenerationCompletion();
+              log.info(
+                  "OH_SCHED_ELIGIBLE job_type={} count={}",
+                  jobType,
+                  operationTaskManager.getTotalDataCount());
               log.info(
                   "The metadata fetched count: {} for the job type: {}",
                   operationTaskManager.getTotalDataCount(),
