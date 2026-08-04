@@ -278,26 +278,6 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     return props != null && Boolean.parseBoolean(props.get(property));
   }
 
-  /**
-   * Whether feature-compatibility validation is enabled for the requested table. It is enabled
-   * unless the table explicitly sets {@value
-   * CatalogConstants#FEATURE_COMPATIBILITY_VALIDATION_ENABLED_TABLE_PROP} to {@code false}. That
-   * property is an escape hatch that lets a table enable otherwise mutually-exclusive features (for
-   * example RTAS alongside WAP or replication) so downstream behavior that only such a table can
-   * reach can be exercised.
-   */
-  private static boolean isFeatureCompatibilityValidationEnabled(
-      CreateUpdateTableRequestBody body) {
-    Map<String, String> props = body.getTableProperties();
-    if (props == null
-        || !props.containsKey(
-            CatalogConstants.FEATURE_COMPATIBILITY_VALIDATION_ENABLED_TABLE_PROP)) {
-      return true;
-    }
-    return Boolean.parseBoolean(
-        props.get(CatalogConstants.FEATURE_COMPATIBILITY_VALIDATION_ENABLED_TABLE_PROP));
-  }
-
   private static boolean isReplicationConfigured(CreateUpdateTableRequestBody body) {
     return Optional.ofNullable(body.getPolicies())
         .map(Policies::getReplication)
@@ -336,7 +316,8 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
    */
   private void validateFeatureCompatibility(
       CreateUpdateTableRequestBody body, List<IncompatibleFeatures> incompatibleFeatures) {
-    if (!isFeatureCompatibilityValidationEnabled(body)) {
+    if (isTablePropEnabled(
+        body, CatalogConstants.FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP)) {
       return;
     }
     for (IncompatibleFeatures pair : incompatibleFeatures) {
