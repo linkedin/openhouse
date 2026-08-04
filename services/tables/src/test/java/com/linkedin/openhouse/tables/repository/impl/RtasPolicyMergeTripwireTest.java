@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.repository.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.History;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
@@ -29,13 +30,12 @@ import org.junit.jupiter.api.Test;
 public class RtasPolicyMergeTripwireTest {
 
   /**
-   * Behavioral guard: merging an existing table that has every object policy plane populated with a
-   * request that omits them must carry every plane forward. A new object plane that {@code
-   * mergePolicies} forgets to handle flows through {@code requested.toBuilder()} as {@code null}
-   * and is caught here reflectively.
+   * Behavioral guard: merging an existing table that has every policy plane populated with a
+   * request that omits them must carry every plane forward. The reflective loop covers nullable
+   * object planes; the sharing assertion covers the primitive flag.
    */
   @Test
-  public void mergeCarriesForwardEveryObjectPolicyPlane() throws Exception {
+  public void mergeCarriesForwardEveryPolicyPlane() throws Exception {
     Policies existing =
         Policies.builder()
             .retention(
@@ -65,8 +65,8 @@ public class RtasPolicyMergeTripwireTest {
             .lockState(LockState.builder().locked(true).build())
             .sharingEnabled(true)
             .build();
-    // Request omits every object plane (as a Spark RTAS does) but keeps the primitive flag.
-    Policies requested = Policies.builder().sharingEnabled(true).build();
+    // Request omits every policy plane, matching the sparse policies payload Spark RTAS sends.
+    Policies requested = Policies.builder().build();
 
     Policies merged = OpenHouseInternalRepositoryImpl.mergePolicies(existing, requested);
 
@@ -74,8 +74,6 @@ public class RtasPolicyMergeTripwireTest {
       if (field.isSynthetic()
           || Modifier.isStatic(field.getModifiers())
           || field.getType().isPrimitive()) {
-        // Primitives (e.g. sharingEnabled) have no "unset" state and follow the request; the
-        // structural test below covers them.
         continue;
       }
       field.setAccessible(true);
@@ -86,6 +84,10 @@ public class RtasPolicyMergeTripwireTest {
               + " — a new policy plane was likely added. Update "
               + "OpenHouseInternalRepositoryImpl.mergePolicies to carry it forward across CREATE OR REPLACE.");
     }
+    assertTrue(
+        merged.isSharingEnabled(),
+        "RTAS policy merge dropped Policies.sharingEnabled — update "
+            + "OpenHouseInternalRepositoryImpl.mergePolicies to carry it forward across CREATE OR REPLACE.");
   }
 
   /**
