@@ -951,6 +951,7 @@ public class TablesControllerTest {
     Map<String, String> props = new HashMap<>(baseTable.getTableProperties());
     props.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
     props.put(CatalogConstants.WAP_ENABLED_TABLE_PROP, "true");
+    props.put(CatalogConstants.FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP, "true");
     GetTableResponseBody table =
         baseTable.toBuilder().tableProperties(props).policies(null).build();
     MvcResult createResult =
@@ -990,6 +991,8 @@ public class TablesControllerTest {
         TableModelConstants.buildGetTableResponseBodyWithDbTbl("d_sr", "t_sr");
     Map<String, String> propsWithRtas = new HashMap<>(baseTable.getTableProperties());
     propsWithRtas.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    propsWithRtas.put(
+        CatalogConstants.FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP, "true");
     GetTableResponseBody table = baseTable.toBuilder().tableProperties(propsWithRtas).build();
     MvcResult createResult =
         RequestAndValidateHelper.createTableAndValidateResponse(table, mvc, storageManager);
