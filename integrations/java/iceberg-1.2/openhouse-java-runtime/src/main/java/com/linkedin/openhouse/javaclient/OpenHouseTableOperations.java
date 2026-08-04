@@ -70,6 +70,12 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   private final AtomicReference<Map<String, String>> config = new AtomicReference<>();
 
   /**
+   * The read-bridge behavior decoded from the most recent {@link #config}. Held decoded so the
+   * decode stays off Iceberg's metadata-load retry path — see {@link ReadBridge}.
+   */
+  private final AtomicReference<ReadBridge> readBridge = new AtomicReference<>(ReadBridge.INERT);
+
+  /**
    * The server-stamped per-table client config from the last {@code doRefresh}, or {@code null}
    * when absent. Subclasses read it to gate read-time behavior.
    */
@@ -115,12 +121,18 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
             .blockOptional();
     // Capture the server-stamped per-table config so subclasses can gate read-time behavior via
     // currentConfig(); absent => null. Side-channel only: never sent back on writes.
-    this.config.set(tableResponse.map(GetTableResponseBody::getConfig).orElse(null));
+    Map<String, String> serverConfig =
+        tableResponse.map(GetTableResponseBody::getConfig).orElse(null);
+    this.config.set(serverConfig);
     Optional<String> tableLocation = tableResponse.map(GetTableResponseBody::getTableLocation);
     if (!tableLocation.isPresent() && currentMetadataLocation() != null) {
       throw new NoSuchTableException(
           "Cannot find table %s after refresh, maybe another process deleted it", tableName());
     }
+    // Decode the read-bridge config ONCE, here, rather than inside loadMetadata: the loader below
+    // runs inside Iceberg's Tasks.retry(20) loop, and a decode failure is deterministic, so
+    // retrying it would only re-read the metadata file 21 times to reproduce the same error.
+    this.readBridge.set(ReadBridge.from(serverConfig));
     // Route the parse through loadMetadata() so subclasses can transform metadata as it loads;
     // (null, 20) preserves the stock refresh behavior.
     super.refreshFromMetadataLocation(tableLocation.orElse(null), null, 20, this::loadMetadata);
@@ -128,11 +140,15 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   }
 
   /**
-   * Loads the table metadata at the given location. Defaults to the stock parser; subclasses may
-   * override to transform the metadata (e.g. attach column defaults) as it loads.
+   * Loads the table metadata from storage, then overlays the read-time behavior the server stamped
+   * onto {@link #currentConfig()}, already decoded by {@code doRefresh}. Absent config, or config
+   * carrying nothing to bridge, leaves the raw metadata untouched.
+   *
+   * <p>Called once per attempt inside Iceberg's retry loop, so it deliberately holds no failure
+   * mode that a retry cannot fix; decoding — which does — happens eagerly in {@code doRefresh}.
    */
   protected TableMetadata loadMetadata(String metadataLocation) {
-    return TableMetadataParser.read(io(), metadataLocation);
+    return readBridge.get().apply(TableMetadataParser.read(io(), metadataLocation));
   }
 
   @Override
