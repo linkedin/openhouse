@@ -96,4 +96,11 @@ public class ClusterProperties {
   // string
   @Value("${cluster.tables.allowed-client-name-values:}")
   private List<String> allowedClientNameValues;
+
+  // Escape hatch for the enable-time feature-compatibility validation (for example the rule that a
+  // table cannot enable RTAS alongside WAP or replication). Enabled by default; set to false to
+  // allow requests that enable otherwise mutually-exclusive features, e.g. to exercise downstream
+  // behavior that can only be reached once such a table exists.
+  @Value("${cluster.tables.feature-compatibility-validation-enabled:true}")
+  private boolean featureCompatibilityValidationEnabled;
 }

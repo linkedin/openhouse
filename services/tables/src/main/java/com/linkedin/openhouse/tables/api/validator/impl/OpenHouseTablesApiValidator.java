@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.api.validator.impl;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.*;
 import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
 
+import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.api.validator.ApiValidatorUtil;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
@@ -62,6 +63,8 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
   @Autowired private ReplicationConfigValidator replicationConfigValidator;
 
   @Autowired private HistoryPolicySpecValidator historyPolicySpecValidator;
+
+  @Autowired private ClusterProperties clusterProperties;
 
   @Override
   public void validateGetTable(String databaseId, String tableId) {
@@ -316,6 +319,9 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
    */
   private void validateFeatureCompatibility(
       CreateUpdateTableRequestBody body, List<IncompatibleFeatures> incompatibleFeatures) {
+    if (!clusterProperties.isFeatureCompatibilityValidationEnabled()) {
+      return;
+    }
     for (IncompatibleFeatures pair : incompatibleFeatures) {
       if (pair.feature.isEnabledOn(body) && pair.conflictsWith.isEnabledOn(body)) {
         throw new RequestValidationFailureException(

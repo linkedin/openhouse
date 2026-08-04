@@ -25,7 +25,6 @@ import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
-import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PartitionSpecMapper;
@@ -318,24 +317,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   }
 
   /**
-   * Whether replication is actually configured on a table, i.e. it has a replication policy with at
-   * least one destination. A {@link Policies} object may carry a replication block whose
-   * destination list is null or empty (for example a table that never enabled replication, or had
-   * it disabled); those do not count as configured.
-   *
-   * @param policies the table's policies, if any
-   * @return true iff replication has at least one destination configured
-   */
-  @VisibleForTesting
-  static boolean isReplicationConfigured(Optional<Policies> policies) {
-    return policies
-        .map(Policies::getReplication)
-        .map(Replication::getConfig)
-        .map(config -> !config.isEmpty())
-        .orElse(false);
-  }
-
-  /**
    * RTAS is only permitted when the {@value CatalogConstants#RTAS_ENABLED_TABLE_PROP} table
    * property is set. And it is not allowed on table where WAP or replication is enabled.
    *
@@ -357,17 +338,15 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
               RTAS_ENABLED_TABLE_PROP));
     }
 
-    // Defense-in-depth: reject a replace on a table that already has WAP or replication enabled.
-    // Today the enable-time feature-compatibility validator prevents a table from enabling RTAS
-    // alongside WAP or replication, so this state is unreachable through the API. This check
-    // inspects the persisted table state and becomes the durable protection once the
-    // 'replace.enabled' opt-in flag is removed at GA and the enable-time RTAS gate no longer
-    // applies.
+    // RTAS is incompatible with WAP or replication.
     boolean wapEnabled = Boolean.parseBoolean(existingProperties.get(WAP_ENABLED_TABLE_PROP));
+    Policies existingPolicies =
+        policiesMapper.toPoliciesObject(existingProperties.get(POLICIES_KEY));
     boolean replicationEnabled =
-        isReplicationConfigured(
-            Optional.ofNullable(
-                policiesMapper.toPoliciesObject(existingProperties.get(POLICIES_KEY))));
+        existingPolicies != null
+            && existingPolicies.getReplication() != null
+            && existingPolicies.getReplication().getConfig() != null
+            && !existingPolicies.getReplication().getConfig().isEmpty();
     if (wapEnabled || replicationEnabled) {
       List<String> conflictingFeatures = new ArrayList<>();
       if (wapEnabled) {
