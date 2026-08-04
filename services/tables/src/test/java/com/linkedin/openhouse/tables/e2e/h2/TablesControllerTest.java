@@ -83,7 +83,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
@@ -96,11 +95,6 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
       PropertyOverrideContextInitializer.class,
       AuthorizationPropertiesInitializer.class
     })
-// Disable the enable-time feature-compatibility validation so these tests can create tables with
-// otherwise mutually-exclusive features enabled (for example RTAS alongside WAP or replication) and
-// exercise the replace-time behavior that only such a table can reach. The enable-time rejection
-// itself is covered by TablesValidatorTest and the black-box RtasWapExclusivityTest.
-@TestPropertySource(properties = "cluster.tables.feature-compatibility-validation-enabled=false")
 public class TablesControllerTest {
 
   @Autowired OpenHouseInternalRepository openHouseInternalRepository;
@@ -957,6 +951,10 @@ public class TablesControllerTest {
     Map<String, String> props = new HashMap<>(baseTable.getTableProperties());
     props.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
     props.put(CatalogConstants.WAP_ENABLED_TABLE_PROP, "true");
+    // Escape hatch: create the table with RTAS and WAP enabled together (a combination the
+    // enable-time feature-compatibility validation would otherwise reject) so this test can
+    // exercise the replace-time gate that only such a table can reach.
+    props.put(CatalogConstants.FEATURE_COMPATIBILITY_VALIDATION_ENABLED_TABLE_PROP, "false");
     GetTableResponseBody table =
         baseTable.toBuilder().tableProperties(props).policies(null).build();
     MvcResult createResult =
@@ -996,6 +994,11 @@ public class TablesControllerTest {
         TableModelConstants.buildGetTableResponseBodyWithDbTbl("d_sr", "t_sr");
     Map<String, String> propsWithRtas = new HashMap<>(baseTable.getTableProperties());
     propsWithRtas.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    // Escape hatch: the replace below adds replication while RTAS is enabled, a combination the
+    // enable-time feature-compatibility validation would otherwise reject. Disable that validation
+    // for this table so the request reaches the replace-time gate under test.
+    propsWithRtas.put(
+        CatalogConstants.FEATURE_COMPATIBILITY_VALIDATION_ENABLED_TABLE_PROP, "false");
     GetTableResponseBody table = baseTable.toBuilder().tableProperties(propsWithRtas).build();
     MvcResult createResult =
         RequestAndValidateHelper.createTableAndValidateResponse(table, mvc, storageManager);
