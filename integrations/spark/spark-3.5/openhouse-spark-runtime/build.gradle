@@ -8,6 +8,19 @@ plugins {
 ext {
   icebergVersion = rootProject.ext.iceberg_1_5_version
   sparkVersion = '3.5.2'
+  // Spark 3.5 fails to initialise (ErrorClassesJsonReader) with the Jackson version the root build
+  // pins for the rest of the repo, so the test classpath - and only the test classpath - uses the
+  // version Spark 3.5 ships with. The sibling 3.5 itest/apps projects are exempted from that pin in
+  // the root build for the same reason.
+  testJacksonVersion = '2.15.2'
+}
+
+configurations.matching { it.name.toLowerCase().startsWith('test') }.configureEach {
+  resolutionStrategy.eachDependency { details ->
+    if (details.requested.group.startsWith('com.fasterxml.jackson')) {
+      details.useVersion testJacksonVersion
+    }
+  }
 }
 
 configurations {
@@ -71,6 +84,19 @@ shadowJar {
   mergeServiceFiles()
   archiveClassifier.set('uber')
   zip64 true
+}
+
+test {
+  // Spark needs these to run on JDK 9+.
+  if (JavaVersion.current() >= JavaVersion.VERSION_1_9) {
+    jvmArgs \
+        '--add-opens=java.base/java.nio=ALL-UNNAMED',
+        '--add-opens=java.base/java.util=ALL-UNNAMED',
+        '--add-opens=java.base/java.lang=ALL-UNNAMED',
+        '--add-opens=java.base/java.lang.invoke=ALL-UNNAMED',
+        '--add-opens=java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-exports=java.base/sun.nio.ch=ALL-UNNAMED'
+  }
 }
 
 jar.enabled=true
