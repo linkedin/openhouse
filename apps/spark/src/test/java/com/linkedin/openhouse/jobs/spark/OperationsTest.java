@@ -14,6 +14,8 @@ import com.linkedin.openhouse.tables.client.model.Policies;
 import com.linkedin.openhouse.tables.client.model.Retention;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
@@ -43,6 +45,8 @@ import org.apache.spark.sql.Row;
 import org.assertj.core.util.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mockito;
 
 @Slf4j
 public class OperationsTest extends OpenHouseSparkITest {
@@ -312,7 +316,8 @@ public class OperationsTest extends OpenHouseSparkITest {
   @Test
   public void testRetentionWithBackupFailsWhenColumnPatternMismatchesPartition() throws Exception {
     final String tableName = "db.test_retention_backup_pattern_mismatch";
-    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+    OtelEmitter spyEmitter = Mockito.spy(otelEmitter);
+    try (Operations ops = Operations.withCatalog(getSparkSession(), spyEmitter)) {
       // The table is partitioned on `datepartition`, but retention will filter
       // on `time_col` using a pattern unrelated to the partitioning. For each
       // file's per-file min/max to actually straddle the cutoff (and produce
@@ -352,6 +357,14 @@ public class OperationsTest extends OpenHouseSparkITest {
       Assertions.assertTrue(
           ex.getMessage().contains("metadata-only delete"),
           "Expected metadata-only delete error, got: " + ex.getMessage());
+      // The misconfiguration is alertable: a metric tagged with the table name is emitted.
+      Mockito.verify(spyEmitter)
+          .count(
+              ArgumentMatchers.anyString(),
+              ArgumentMatchers.eq(AppConstants.HCR_MISCONFIGURED_TABLE_COUNT),
+              ArgumentMatchers.eq(1L),
+              ArgumentMatchers.eq(
+                  Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), tableName)));
       // DELETE should not have executed: all 4 rows remain.
       verifyRowCount(ops, tableName, 4);
     }

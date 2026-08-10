@@ -20,6 +20,7 @@ public final class AppConstants {
   public static final String REWRITTEN_DATA_FILE_COUNT = "rewritten_data_file_count";
   public static final String REWRITTEN_DATA_FILE_BYTES = "rewritten_data_file_bytes";
   public static final String REWRITTEN_DATA_FILE_GROUP_COUNT = "rewritten_data_file_group_count";
+  public static final String HCR_MISCONFIGURED_TABLE_COUNT = "hcr_misconfigured_table_count";
 
   // Openhouse jobs status tags
   public static final String STATUS = "status";
