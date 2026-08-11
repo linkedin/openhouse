@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.authorization;
 
+import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -16,7 +17,9 @@ public enum Privileges {
   UPDATE_ACL(Privilege.UPDATE_ACL),
   SYSTEM_ADMIN(Privilege.SYSTEM_ADMIN),
   LOCK_ADMIN(Privilege.LOCK_ADMIN),
-  SELECT(Privilege.SELECT);
+  SELECT(Privilege.SELECT),
+  SELECT_PII(Privilege.SELECT_PII),
+  SELECT_HC(Privilege.SELECT_HC);
 
   private String privilege;
 
@@ -33,6 +36,23 @@ public enum Privileges {
     return privilege;
   }
 
+  /**
+   * Resolves the column-level read privilege guarding columns tagged with {@code tagName}, e.g.
+   * {@code PII} maps to {@link #SELECT_PII}.
+   *
+   * @param tagName name of a {@link
+   *     com.linkedin.openhouse.tables.api.spec.v0.request.components.PolicyTag.Tag}
+   * @return the privilege guarding the tag
+   */
+  public static Privileges forPolicyTag(String tagName) {
+    try {
+      return Privileges.valueOf("SELECT_" + tagName.toUpperCase(Locale.ROOT));
+    } catch (IllegalArgumentException e) {
+      throw new IllegalArgumentException(
+          String.format("No column-level privilege is defined for policy tag '%s'", tagName), e);
+    }
+  }
+
   public static class Privilege {
     public static final String CREATE_TABLE = "CREATE_TABLE";
     public static final String UPDATE_TABLE_METADATA = "UPDATE_TABLE_METADATA";
@@ -43,6 +63,16 @@ public enum Privileges {
     public static final String LOCK_ADMIN = "LOCK_ADMIN";
 
     public static final String SELECT = "SELECT";
+
+    /**
+     * Column-level read privileges. Each one authorizes reading the columns carrying the
+     * correspondingly named policy tag, see {@link
+     * com.linkedin.openhouse.tables.api.spec.v0.request.components.PolicyTag.Tag}.
+     */
+    public static final String SELECT_PII = "SELECT_PII";
+
+    public static final String SELECT_HC = "SELECT_HC";
+
     private static final Set<String> SUPPORTED_PRIVILEGES =
         Stream.of(Privileges.values()).map(Privileges::getPrivilege).collect(Collectors.toSet());
 

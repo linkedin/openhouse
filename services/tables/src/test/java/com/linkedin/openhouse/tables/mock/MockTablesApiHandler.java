@@ -17,6 +17,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesReques
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetColumnEntitlementsResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetSoftDeletedTableResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import java.util.ArrayList;
@@ -217,6 +218,26 @@ public class MockTablesApiHandler implements TablesApiHandler {
         return ApiResponse.<GetAclPoliciesResponseBody>builder()
             .httpStatus(HttpStatus.OK)
             .responseBody(RequestConstants.TEST_GET_ACL_POLICIES_RESPONSE_BODY)
+            .build();
+      case "d400":
+        throw new RequestValidationFailureException();
+      case "d404":
+        throw new NoSuchUserTableException(databaseId, "");
+      case "d503":
+        throw new AuthorizationServiceException("Internal authz service not available");
+      default:
+        return null;
+    }
+  }
+
+  @Override
+  public ApiResponse<GetColumnEntitlementsResponseBody> getColumnEntitlements(
+      String databaseId, String tableId, String actingPrincipal) {
+    switch (databaseId) {
+      case "d200":
+        return ApiResponse.<GetColumnEntitlementsResponseBody>builder()
+            .httpStatus(HttpStatus.OK)
+            .responseBody(RequestConstants.TEST_GET_COLUMN_ENTITLEMENTS_RESPONSE_BODY)
             .build();
       case "d400":
         throw new RequestValidationFailureException();

@@ -9,6 +9,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesReques
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetColumnEntitlementsResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
@@ -174,6 +175,16 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
                         .stream()
                         .collect(Collectors.toList()))
                 .build())
+        .build();
+  }
+
+  @Override
+  public ApiResponse<GetColumnEntitlementsResponseBody> getColumnEntitlements(
+      String databaseId, String tableId, String actingPrincipal) {
+    tablesApiValidator.validateGetAclPolicies(databaseId, tableId);
+    return ApiResponse.<GetColumnEntitlementsResponseBody>builder()
+        .httpStatus(HttpStatus.OK)
+        .responseBody(tableService.getColumnEntitlements(databaseId, tableId, actingPrincipal))
         .build();
   }
 

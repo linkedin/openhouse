@@ -9,6 +9,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesReques
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetColumnEntitlementsResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import io.swagger.v3.oas.annotations.Operation;
@@ -362,6 +363,38 @@ public class TablesController {
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetAclPoliciesResponseBody> apiResponse =
         tablesApiHandler.getAclPoliciesForUserPrincipal(
             databaseId, tableId, extractAuthenticatedUserPrincipal(), principal);
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Get column entitlements for the caller on a Table",
+      description =
+          "Resolves the authenticated caller's grants against the policy tags on the table's "
+              + "columns and returns the granted tags plus the columns the caller may not read. "
+              + "Query engines use this to mask restricted columns.",
+      tags = {"Table"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "ColumnEntitlements GET: OK"),
+        @ApiResponse(responseCode = "400", description = "ColumnEntitlements GET: BAD_REQUEST"),
+        @ApiResponse(responseCode = "401", description = "ColumnEntitlements GET: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "403", description = "ColumnEntitlements GET: FORBIDDEN"),
+        @ApiResponse(responseCode = "404", description = "ColumnEntitlements GET: TABLE_NOT_FOUND")
+      })
+  @GetMapping(
+      value = {
+        "/v0/databases/{databaseId}/tables/{tableId}/columnEntitlements",
+        "/v1/databases/{databaseId}/tables/{tableId}/columnEntitlements"
+      },
+      produces = {"application/json"})
+  public ResponseEntity<GetColumnEntitlementsResponseBody> getColumnEntitlements(
+      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
+      @Parameter(description = "Table ID", required = true) @PathVariable String tableId) {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<GetColumnEntitlementsResponseBody>
+        apiResponse =
+            tablesApiHandler.getColumnEntitlements(
+                databaseId, tableId, extractAuthenticatedUserPrincipal());
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

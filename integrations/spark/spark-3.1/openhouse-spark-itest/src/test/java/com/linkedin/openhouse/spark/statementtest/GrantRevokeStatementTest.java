@@ -48,6 +48,28 @@ public class GrantRevokeStatementTest {
   }
 
   @Test
+  public void testGrantColumnLevelPrivilege() {
+    for (String privilege : ImmutableList.of("SELECT PII", "SELECT HC")) {
+      spark.sql(String.format("GRANT %s ON TABLE openhouse.db.table TO sraikar", privilege));
+      assertPlanValid(true, "TABLE", "db.table", privilege, "sraikar");
+    }
+  }
+
+  @Test
+  public void testRevokeColumnLevelPrivilege() {
+    for (String privilege : ImmutableList.of("SELECT PII", "SELECT HC")) {
+      spark.sql(String.format("REVOKE %s ON TABLE openhouse.db.table FROM sraikar", privilege));
+      assertPlanValid(false, "TABLE", "db.table", privilege, "sraikar");
+    }
+  }
+
+  @Test
+  public void testGrantColumnLevelPrivilegeLowerCase() {
+    spark.sql("grant select pii on table openhouse.db.table to sraikar");
+    assertPlanValid(true, "TABLE", "db.table", "SELECT PII", "sraikar");
+  }
+
+  @Test
   public void testSimpleGrantLowerCase() {
     spark.sql("grant select on table openhouse.db.table to sraikar");
     assertPlanValid(true, "TABLE", "db.table", "SELECT", "sraikar");

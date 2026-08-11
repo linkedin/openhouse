@@ -9,6 +9,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetColumnEntitlementsResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetDatabaseResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
@@ -140,4 +141,10 @@ public final class RequestConstants {
 
   public static final CreateUpdateLockRequestBody TEST_UPDATE_LOCK_POLICIES_REQUEST_BODY =
       CreateUpdateLockRequestBody.builder().locked(true).message("").build();
+
+  public static final GetColumnEntitlementsResponseBody TEST_GET_COLUMN_ENTITLEMENTS_RESPONSE_BODY =
+      GetColumnEntitlementsResponseBody.builder()
+          .grantedTags(Collections.singletonList("HC"))
+          .restrictedColumns(Collections.singletonList("ssn"))
+          .build();
 }

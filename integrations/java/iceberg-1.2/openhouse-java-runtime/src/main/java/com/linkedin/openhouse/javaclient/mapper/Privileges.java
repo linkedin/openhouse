@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.javaclient.mapper;
 
 import java.util.Arrays;
+import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
@@ -11,7 +12,9 @@ public enum Privileges {
   DESCRIBE("DESCRIBE", "TABLE_VIEWER"),
   GRANT_REVOKE("MANAGE GRANTS", "ACL_EDITOR"),
   ALTER("ALTER", "TABLE_ADMIN"),
-  CREATE_TABLE("CREATE TABLE", "TABLE_CREATOR");
+  CREATE_TABLE("CREATE TABLE", "TABLE_CREATOR"),
+  SELECT_PII("SELECT PII", "PII_VIEWER"),
+  SELECT_HC("SELECT HC", "HC_VIEWER");
 
   private final String privilege;
   private final String role;
@@ -20,13 +23,26 @@ public enum Privileges {
     return Arrays.stream(Privileges.values())
         .filter(x -> x.getPrivilege().equals(privilegeString))
         .findFirst()
-        .get();
+        .orElseThrow(
+            () ->
+                new IllegalArgumentException(
+                    String.format(
+                        "Unsupported privilege '%s', expected one of %s",
+                        privilegeString, supportedPrivileges())));
   }
 
   public static Privileges fromRole(String roleString) {
     return Arrays.stream(Privileges.values())
         .filter(x -> x.getRole().equals(roleString))
         .findFirst()
-        .get();
+        .orElseThrow(
+            () -> new IllegalArgumentException(String.format("Unsupported role '%s'", roleString)));
+  }
+
+  private static String supportedPrivileges() {
+    return Arrays.stream(Privileges.values())
+        .map(Privileges::getPrivilege)
+        .distinct()
+        .collect(Collectors.joining(", "));
   }
 }

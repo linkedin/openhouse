@@ -19,7 +19,9 @@ import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.PolicyTag;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetColumnEntitlementsResponseBody;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.common.TableType;
@@ -35,6 +37,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
 import java.util.UUID;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.types.Types;
@@ -496,6 +501,101 @@ public class TablesServiceTest {
         () ->
             tablesService.getAclPolicies(
                 TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER, TEST_USER_PRINCIPAL));
+  }
+
+  @Test
+  public void testGetColumnEntitlementsOnUntaggedTable() {
+    verifyPutTableRequest(TABLE_DTO, null, true);
+
+    GetColumnEntitlementsResponseBody response =
+        tablesService.getColumnEntitlements(
+            TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+
+    Assertions.assertTrue(response.getGrantedTags().isEmpty());
+    Assertions.assertTrue(response.getRestrictedColumns().isEmpty());
+
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+  }
+
+  @Test
+  public void testGetColumnEntitlementsWithAllTagsGranted() {
+    verifyPutTableRequest(taggedTable(), null, true);
+
+    GetColumnEntitlementsResponseBody response =
+        tablesService.getColumnEntitlements(
+            TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+
+    Assertions.assertEquals(Arrays.asList("HC", "PII"), response.getGrantedTags());
+    Assertions.assertTrue(response.getRestrictedColumns().isEmpty());
+
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+  }
+
+  @Test
+  public void testGetColumnEntitlementsRestrictsColumnsWithDeniedTag() {
+    verifyPutTableRequest(taggedTable(), null, true);
+    denyPrivilege(Privileges.SELECT_PII);
+
+    GetColumnEntitlementsResponseBody response =
+        tablesService.getColumnEntitlements(
+            TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+
+    Assertions.assertEquals(Collections.singletonList("HC"), response.getGrantedTags());
+    // Both the PII-only column and the column carrying PII alongside a granted tag are restricted.
+    Assertions.assertEquals(Arrays.asList("both", "ssn"), response.getRestrictedColumns());
+
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+  }
+
+  @Test
+  public void testGetColumnEntitlementsRestrictsEverythingWhenAllTagsDenied() {
+    verifyPutTableRequest(taggedTable(), null, true);
+    denyPrivilege(Privileges.SELECT_PII);
+    denyPrivilege(Privileges.SELECT_HC);
+
+    GetColumnEntitlementsResponseBody response =
+        tablesService.getColumnEntitlements(
+            TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+
+    Assertions.assertTrue(response.getGrantedTags().isEmpty());
+    Assertions.assertEquals(
+        Arrays.asList("both", "salary", "ssn"), response.getRestrictedColumns());
+
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+  }
+
+  @Test
+  public void testGetColumnEntitlementsOnTableThatDoesNotExist() {
+    Assertions.assertThrows(
+        NoSuchUserTableException.class,
+        () ->
+            tablesService.getColumnEntitlements(
+                TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+  }
+
+  /** A table whose columns carry one PII column, one HC column and one column carrying both. */
+  private TableDto taggedTable() {
+    Map<String, PolicyTag> columnTags = new HashMap<>();
+    columnTags.put(
+        "ssn", PolicyTag.builder().tags(Collections.singleton(PolicyTag.Tag.PII)).build());
+    columnTags.put(
+        "salary", PolicyTag.builder().tags(Collections.singleton(PolicyTag.Tag.HC)).build());
+    columnTags.put(
+        "both",
+        PolicyTag.builder()
+            .tags(new HashSet<>(Arrays.asList(PolicyTag.Tag.PII, PolicyTag.Tag.HC)))
+            .build());
+    return TABLE_DTO
+        .toBuilder()
+        .policies(TABLE_POLICIES.toBuilder().columnTags(columnTags).build())
+        .build();
+  }
+
+  private void denyPrivilege(Privileges privilege) {
+    Mockito.when(
+            authorizationHandler.checkAccessDecision(
+                Mockito.any(), (TableDto) Mockito.any(), Mockito.eq(privilege)))
+        .thenReturn(false);
   }
 
   @Test

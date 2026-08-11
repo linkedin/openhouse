@@ -76,7 +76,21 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
   }
 
   override def visitPrivilege(ctx: PrivilegeContext): String = {
-    ctx.getText.toUpperCase
+    if (ctx.columnLevelPrivilege() != null) {
+      typedVisit[String](ctx.columnLevelPrivilege())
+    } else {
+      ctx.getText.toUpperCase
+    }
+  }
+
+  /**
+   * Renders a column-level privilege as `SELECT <TAG>`.
+   *
+   * The tokens cannot be recovered with `ctx.getText` because whitespace is emitted on the hidden
+   * channel, which would collapse `SELECT PII` into `SELECTPII`.
+   */
+  override def visitColumnLevelPrivilege(ctx: ColumnLevelPrivilegeContext): String = {
+    s"${ctx.SELECT().getText.toUpperCase} ${ctx.policyTag().getText.toUpperCase}"
   }
 
   override def visitGrantableResource(ctx: GrantableResourceContext): (GrantableResourceType, Seq[String]) = {

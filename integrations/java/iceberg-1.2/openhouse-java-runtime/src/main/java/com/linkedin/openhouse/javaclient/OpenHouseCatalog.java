@@ -4,6 +4,7 @@ import static com.linkedin.openhouse.javaclient.OpenHouseTableOperations.*;
 
 import com.linkedin.openhouse.client.ssl.HttpConnectionStrategy;
 import com.linkedin.openhouse.client.ssl.TablesApiClientFactory;
+import com.linkedin.openhouse.javaclient.api.SupportsColumnEntitlements;
 import com.linkedin.openhouse.javaclient.api.SupportsGrantRevoke;
 import com.linkedin.openhouse.javaclient.builder.ClusteringSpecBuilder;
 import com.linkedin.openhouse.javaclient.builder.TimePartitionSpecBuilder;
@@ -19,12 +20,14 @@ import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.client.model.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.client.model.GetColumnEntitlementsResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.UpdateAclPoliciesRequestBody;
 import java.net.MalformedURLException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.net.ssl.SSLException;
@@ -70,7 +73,7 @@ import reactor.core.publisher.Mono;
  */
 @Slf4j
 public class OpenHouseCatalog extends BaseMetastoreCatalog
-    implements Configurable, SupportsNamespaces, SupportsGrantRevoke {
+    implements Configurable, SupportsNamespaces, SupportsGrantRevoke, SupportsColumnEntitlements {
 
   private TableApi tableApi;
 
@@ -463,6 +466,35 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
     log.debug("Calling getTableAclPolicies succeeded");
     return aclPolicies;
+  }
+
+  @Override
+  public ColumnEntitlementsDto getColumnEntitlements(TableIdentifier tableIdentifier) {
+    log.info("Calling getColumnEntitlements with identifier: {}", tableIdentifier.toString());
+    if (tableIdentifier.namespace().levels().length > 1) {
+      throw new ValidationException(
+          "Input namespace has more than one levels "
+              + String.join(".", tableIdentifier.namespace().levels()));
+    }
+    GetColumnEntitlementsResponseBody responseBody =
+        tableApi
+            .getColumnEntitlementsV1(tableIdentifier.namespace().toString(), tableIdentifier.name())
+            .onErrorResume(
+                WebClientResponseException.class,
+                e -> Mono.error(new WebClientResponseWithMessageException(e)))
+            .onErrorResume(
+                WebClientRequestException.class,
+                e -> Mono.error(new WebClientRequestWithMessageException(e)))
+            .blockOptional()
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "Empty column entitlements response for " + tableIdentifier));
+
+    log.debug("Calling getColumnEntitlements succeeded");
+    return new ColumnEntitlementsDto(
+        Optional.ofNullable(responseBody.getGrantedTags()).orElse(Collections.emptyList()),
+        Optional.ofNullable(responseBody.getRestrictedColumns()).orElse(Collections.emptyList()));
   }
 
   @Override

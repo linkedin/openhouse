@@ -4,6 +4,7 @@ import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetColumnEntitlementsResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.List;
@@ -139,6 +140,18 @@ public interface TablesService {
    */
   List<AclPolicy> getAclPolicies(
       String databaseId, String tableId, String actingPrincipal, String userPrincipal);
+
+  /**
+   * Given a databaseId and tableId, resolve the column-level read entitlements of actingPrincipal
+   * against the policy tags carried by the table's columns.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param actingPrincipal authenticated caller whose entitlements are resolved
+   * @return granted policy tags and the columns the caller may not read
+   */
+  GetColumnEntitlementsResponseBody getColumnEntitlements(
+      String databaseId, String tableId, String actingPrincipal);
 
   /**
    * @param databaseId

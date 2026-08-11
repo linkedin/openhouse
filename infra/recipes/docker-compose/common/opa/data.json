@@ -15,6 +15,12 @@
     ],
     "TABLE_CREATOR": [
       "CREATE_TABLE"
+    ],
+    "PII_VIEWER": [
+      "SELECT_PII"
+    ],
+    "HC_VIEWER": [
+      "SELECT_HC"
     ]
   }
 }

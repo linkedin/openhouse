@@ -16,6 +16,8 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.PolicyTag;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetColumnEntitlementsResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
@@ -27,9 +29,15 @@ import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
@@ -324,6 +332,53 @@ public class TablesServiceImpl implements TablesService {
       String databaseId, String tableId, String actingPrincipal, String userPrincipal) {
     TableDto tableDto = getTableOrThrow(databaseId, tableId);
     return authorizationHandler.listAclPolicies(tableDto, userPrincipal);
+  }
+
+  @Override
+  public GetColumnEntitlementsResponseBody getColumnEntitlements(
+      String databaseId, String tableId, String actingPrincipal) {
+    TableDto tableDto = getTableOrThrow(databaseId, tableId);
+    authorizationUtils.checkTablePrivilege(
+        tableDto, actingPrincipal, Privileges.GET_TABLE_METADATA);
+
+    Map<String, PolicyTag> columnTags =
+        Optional.ofNullable(tableDto.getPolicies())
+            .map(Policies::getColumnTags)
+            .orElse(Collections.emptyMap());
+
+    Set<String> grantedTags =
+        columnTags.values().stream()
+            .flatMap(policyTag -> tagsOf(policyTag).stream())
+            .distinct()
+            .filter(
+                tag ->
+                    authorizationHandler.checkAccessDecision(
+                        actingPrincipal, tableDto, Privileges.forPolicyTag(tag)))
+            .collect(Collectors.toCollection(TreeSet::new));
+
+    // A column is readable only when every tag it carries has been granted; tags are additive
+    // restrictions rather than alternatives.
+    List<String> restrictedColumns =
+        columnTags.entrySet().stream()
+            .filter(entry -> !tagsOf(entry.getValue()).isEmpty())
+            .filter(entry -> !grantedTags.containsAll(tagsOf(entry.getValue())))
+            .map(Map.Entry::getKey)
+            .sorted()
+            .collect(Collectors.toList());
+
+    return GetColumnEntitlementsResponseBody.builder()
+        .grantedTags(new ArrayList<>(grantedTags))
+        .restrictedColumns(restrictedColumns)
+        .build();
+  }
+
+  /** Tag names carried by a {@link PolicyTag}, tolerating partially populated policy documents. */
+  private static Set<String> tagsOf(PolicyTag policyTag) {
+    return Optional.ofNullable(policyTag).map(PolicyTag::getTags).orElse(Collections.emptySet())
+        .stream()
+        .filter(Objects::nonNull)
+        .map(Enum::name)
+        .collect(Collectors.toCollection(TreeSet::new));
   }
 
   /**

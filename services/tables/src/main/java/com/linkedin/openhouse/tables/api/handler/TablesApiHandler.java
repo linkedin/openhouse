@@ -7,6 +7,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesReques
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetColumnEntitlementsResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import java.util.List;
 
@@ -150,6 +151,18 @@ public interface TablesApiHandler {
    */
   ApiResponse<GetAclPoliciesResponseBody> getAclPoliciesForUserPrincipal(
       String databaseId, String tableId, String actingPrincipal, String userPrincipal);
+
+  /**
+   * Function to resolve the column-level read entitlements of actingPrincipal on a Table Resource
+   * identified by tableId in a given databaseId.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param actingPrincipal authenticated caller whose entitlements are resolved
+   * @return granted policy tags and restricted columns for the caller
+   */
+  ApiResponse<GetColumnEntitlementsResponseBody> getColumnEntitlements(
+      String databaseId, String tableId, String actingPrincipal);
 
   /**
    * @param databaseId
