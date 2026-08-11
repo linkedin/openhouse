@@ -361,7 +361,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       Mockito.verify(spyEmitter)
           .count(
               ArgumentMatchers.anyString(),
-              ArgumentMatchers.eq(AppConstants.HCR_MISCONFIGURED_TABLE_COUNT),
+              ArgumentMatchers.eq(AppConstants.RETENTION_POLICY_MISCONFIGURED_TABLE_COUNT),
               ArgumentMatchers.eq(1L),
               ArgumentMatchers.eq(
                   Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), tableName)));

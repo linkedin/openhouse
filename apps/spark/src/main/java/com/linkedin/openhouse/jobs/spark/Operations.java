@@ -353,7 +353,7 @@ public final class Operations implements AutoCloseable {
                 // so the misconfiguration can be alerted on instead of only failing the job.
                 otelEmitter.count(
                     METRICS_SCOPE,
-                    AppConstants.HCR_MISCONFIGURED_TABLE_COUNT,
+                    AppConstants.RETENTION_POLICY_MISCONFIGURED_TABLE_COUNT,
                     1,
                     Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
                 throw new IllegalStateException(
