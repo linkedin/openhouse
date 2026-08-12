@@ -100,6 +100,23 @@ public class ReadBridgeConfigResolverTest {
     Assertions.assertTrue(config.isEmpty());
   }
 
+  /**
+   * A buggy deployment source must not 500 GET. Not bridging is today's NULL, same as a toggle
+   * outage.
+   */
+  @Test
+  public void testSourceFailureDegradesInsteadOfFailingTheRead() {
+    ColumnDefaultsSource exploding =
+        tableDto -> {
+          throw new IllegalStateException("encoder exploded");
+        };
+
+    Map<String, String> config =
+        resolverFor(exploding).resolve(TableDto.builder().databaseId("db").tableId("tbl").build());
+
+    Assertions.assertTrue(config.isEmpty());
+  }
+
   /** Gate 3: a table the ramp has not activated is not bridged, and its source is never asked. */
   @Test
   public void testUnrampedTableIsNotBridgedAndSourceNotConsulted() {
