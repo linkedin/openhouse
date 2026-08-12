@@ -17,10 +17,7 @@ public class ApiConfig {
     return new OpenHouseTablesApiHandler();
   }
 
-  /**
-   * Prefer {@link ObjectProvider} over a {@code @ConditionalOnMissingBean} noop so a deployment
-   * {@code @Bean} source cannot collide with an OSS default.
-   */
+  /** ObjectProvider so a deployment bean does not collide with an OSS default. */
   @Bean
   public ReadBridgeConfigResolver readBridgeConfigResolver(
       ObjectProvider<ColumnDefaultsSource> columnDefaultsSource, TableFeatureToggle featureToggle) {

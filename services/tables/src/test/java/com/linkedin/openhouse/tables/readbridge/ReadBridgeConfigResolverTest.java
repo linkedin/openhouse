@@ -30,12 +30,11 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 public class ReadBridgeConfigResolverTest {
 
-  /** Open-source default source: supplies nothing, so the feature is inert. */
   private static final ColumnDefaultsSource NONE = ColumnDefaultsSource.NONE;
 
   private static final String PREFIX = ReadBridgeConfigResolver.COLUMN_DEFAULT_PREFIX;
 
-  /** A toggle that ramps everything, so a test isolates the encoder rather than the ramp. */
+  /** Isolates encoding from ramp. */
   private static final TableFeatureToggle ALL_ON =
       new TableFeatureToggle() {
         @Override
@@ -52,7 +51,7 @@ public class ReadBridgeConfigResolverTest {
     return tableDto -> Collections.singletonMap(5, TextNode.valueOf("US"));
   }
 
-  /** A table carrying an explicit self-service opt-in/opt-out property. */
+  /** Table with an explicit {@code .enabled} property. */
   private static TableDto tableWithOverride(String value) {
     return TableDto.builder()
         .databaseId("db")
@@ -65,7 +64,7 @@ public class ReadBridgeConfigResolverTest {
         .build();
   }
 
-  /** Gate 1: no deployment-supplied source => inert, and crucially no toggle lookup at all. */
+  /** No source → no HouseTables call. */
   @Test
   public void testInertAndSkipsToggleWhenNoSourceSupplied() {
     TableFeatureToggle toggle = mock(TableFeatureToggle.class);
@@ -73,16 +72,10 @@ public class ReadBridgeConfigResolverTest {
         new ReadBridgeConfigResolver(ColumnDefaultsSource.NONE, toggle);
 
     Assertions.assertTrue(resolver.resolve(mock(TableDto.class)).isEmpty());
-    // The toggle is a remote HouseTables call on the table-load path; it must not be made.
     verifyNoInteractions(toggle);
   }
 
-  /**
-   * The ramp lookup is a blocking HouseTables call, and this is the table-load path — a path
-   * toggles are not otherwise on. A HouseTables outage must degrade bridging, not fail reads. Sound
-   * only because not bridging is exactly today's behavior; a capability where ignoring is unsafe
-   * (deletion vectors) would have to fail the read instead.
-   */
+  /** HouseTables down → unbridged, not a failed read. */
   @Test
   public void testToggleLookupFailureDegradesInsteadOfFailingTheRead() {
     TableFeatureToggle exploding =
@@ -100,7 +93,7 @@ public class ReadBridgeConfigResolverTest {
     Assertions.assertTrue(config.isEmpty());
   }
 
-  /** Gate 3: a table the ramp has not activated is not bridged, and its source is never asked. */
+  /** Unramped table is not asked for defaults. */
   @Test
   public void testUnrampedTableIsNotBridgedAndSourceNotConsulted() {
     ColumnDefaultsSource source = mock(ColumnDefaultsSource.class);
@@ -116,15 +109,14 @@ public class ReadBridgeConfigResolverTest {
         new ReadBridgeConfigResolver(source, allOff)
             .resolve(TableDto.builder().databaseId("db").tableId("tbl").build())
             .isEmpty());
-    // Deriving defaults can be expensive (a deployment may parse a schema); gate first.
+    // Deriving defaults can be expensive; check the ramp first.
     verifyNoInteractions(source);
   }
 
-  /** The self-service property opts a table in even when the server-managed ramp says no. */
+  /** {@code .enabled=true} wins over a server-side off. */
   @Test
   public void testTablePropertyOptsInOverServerToggle() {
-    // CALLS_REAL_METHODS so the override-honoring default reads the table property; stub the
-    // server-side form so an accidental HTS call would return false.
+    // Real override method; stub HTS so an accidental call would return false.
     TableFeatureToggle toggle = mock(TableFeatureToggle.class, CALLS_REAL_METHODS);
     when(toggle.isFeatureActivated(anyString(), anyString(), anyString())).thenReturn(false);
 
@@ -132,20 +124,16 @@ public class ReadBridgeConfigResolverTest {
         new ReadBridgeConfigResolver(oneDefault(), toggle).resolve(tableWithOverride("true"));
 
     Assertions.assertEquals("\"US\"", config.get(PREFIX + "5"));
-    // Explicit opt-in is decided from the table property alone; no HouseTables round-trip.
     verify(toggle, never()).isFeatureActivated(anyString(), anyString(), anyString());
   }
 
-  /** ...and opts it out even when the server-managed ramp says yes. */
+  /** {@code .enabled=false} wins over a server-side on. */
   @Test
   public void testTablePropertyOptsOutOverServerToggle() {
     Assertions.assertTrue(resolverFor(oneDefault()).resolve(tableWithOverride("false")).isEmpty());
   }
 
-  /**
-   * Source present and table ramped, but the source has nothing to stamp — still empty config. Not
-   * the same as {@link ColumnDefaultsSource#NONE}: the toggle ran and the source was asked.
-   */
+  /** Ramped table whose source has nothing to stamp. */
   @Test
   public void testEmptyWhenSourceReturnsNoDefaults() {
     ColumnDefaultsSource emptySource = mock(ColumnDefaultsSource.class);
@@ -158,13 +146,7 @@ public class ReadBridgeConfigResolverTest {
     verify(emptySource).defaults(any());
   }
 
-  /**
-   * The capability's feature id, its self-service property and its wire keys are one token. Pinned
-   * as literals because all three are external contracts: the id is stored in HouseTables toggle
-   * rules, the property is set on customer tables, and the prefix is mirrored by the client
-   * decoder. Deriving them from each other keeps them consistent; asserting the literals keeps a
-   * refactor from silently renaming all three at once.
-   */
+  /** Id, property, and prefix are external contracts; keep them one token. */
   @Test
   public void testFeatureIdPropertyAndKeysAreOneToken() {
     Assertions.assertEquals(
@@ -177,16 +159,7 @@ public class ReadBridgeConfigResolverTest {
         "openhouse.read-bridge.column-default.", ReadBridgeConfigResolver.COLUMN_DEFAULT_PREFIX);
   }
 
-  /**
-   * Rollout is per capability, never for read-bridge as a whole: capabilities share only the
-   * transport. A table opted out of column defaults must not thereby be opted out of a capability
-   * added later, and vice versa. Pinned because the id is baked into a customer-set property, so
-   * splitting it after the fact means a migration.
-   *
-   * <p>The bare "read-bridge" id staying unclaimed is also the room a future superset ramp (e.g.
-   * "v3-read-bridge", activating every capability at once) needs in order to exist without
-   * colliding with a capability's own id.
-   */
+  /** Ramp is per capability, not a blanket read-bridge id. */
   @Test
   public void testRolloutIdIsScopedToTheCapabilityNotTheMechanism() {
     Assertions.assertNotEquals("read-bridge", ReadBridgeConfigResolver.COLUMN_DEFAULT_FEATURE_ID);
@@ -205,7 +178,7 @@ public class ReadBridgeConfigResolverTest {
   public void testStampsColumnDefaultEntry() {
     ColumnDefaultsSource source = tableDto -> Collections.singletonMap(5, TextNode.valueOf("US"));
     Map<String, String> config = resolverFor(source).resolve(mock(TableDto.class));
-    // value is the single-value JSON for the default ("US" -> "\"US\"").
+    // "US" as Iceberg single-value JSON.
     Assertions.assertEquals("\"US\"", config.get(PREFIX + "5"));
   }
 
@@ -224,7 +197,7 @@ public class ReadBridgeConfigResolverTest {
     Assertions.assertEquals("0", config.get(PREFIX + "7"));
   }
 
-  /** getTable stamps the resolver's config onto the response body. */
+  /** getTable puts resolver output on the response. */
   @Test
   public void testGetTableStampsResolvedConfig() {
     TablesService tableService = mock(TablesService.class);
@@ -246,7 +219,7 @@ public class ReadBridgeConfigResolverTest {
     Assertions.assertSame(resolved, response.getResponseBody().getConfig());
   }
 
-  /** With the behaviorless open-source source wired in, getTable leaves config empty. */
+  /** OSS source → empty config on getTable. */
   @Test
   public void testGetTableLeavesConfigEmptyWithNoColumnDefaults() {
     TablesService tableService = mock(TablesService.class);

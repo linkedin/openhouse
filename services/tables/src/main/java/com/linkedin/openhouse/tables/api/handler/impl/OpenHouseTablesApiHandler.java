@@ -38,7 +38,7 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
 
   @Autowired private ReadBridgeConfigResolver readBridgeConfigResolver;
 
-  /** Request-time {@code config} stamp; mapper leaves it null. */
+  /** Config is request-time; the mapper does not persist it. */
   private GetTableResponseBody withConfig(GetTableResponseBody body, TableDto tableDto) {
     return body.toBuilder().config(readBridgeConfigResolver.resolve(tableDto)).build();
   }

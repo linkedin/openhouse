@@ -9,16 +9,16 @@ import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Stamps per-table {@code config} for read-bridge capabilities. Owns policy (feature id, ramp,
- * keys); deployments supply data via {@link ColumnDefaultsSource}.
+ * Builds the per-table {@code config} map the client reads. OpenHouse owns ramp and keys; {@link
+ * ColumnDefaultsSource} supplies the values.
  */
 @Slf4j
 public class ReadBridgeConfigResolver {
 
-  /** Capability id; also names {@code <id>.enabled} and the config key prefix below. */
+  /** Also names {@code <id>.enabled} and the config key prefix. */
   public static final String COLUMN_DEFAULT_FEATURE_ID = "read-bridge.column-default";
 
-  /** Client contract: {@code openhouse.read-bridge.column-default.<fieldId>}. */
+  /** {@code openhouse.read-bridge.column-default.<fieldId>}. */
   public static final String COLUMN_DEFAULT_PREFIX = "openhouse." + COLUMN_DEFAULT_FEATURE_ID + ".";
 
   private final ColumnDefaultsSource columnDefaultsSource;
@@ -31,7 +31,7 @@ public class ReadBridgeConfigResolver {
     this.featureToggle = featureToggle;
   }
 
-  /** Merges independently gated capabilities; empty when nothing is bridged. */
+  /** Per-table config the client applies at load. Empty when nothing is bridged. */
   public Map<String, String> resolve(TableDto tableDto) {
     Map<String, String> config = new HashMap<>();
     config.putAll(columnDefaultConfig(tableDto));
@@ -39,7 +39,7 @@ public class ReadBridgeConfigResolver {
   }
 
   private Map<String, String> columnDefaultConfig(TableDto tableDto) {
-    // No deployment source → skip HTS entirely.
+    // No source registered: skip the HouseTables lookup.
     if (columnDefaultsSource == ColumnDefaultsSource.NONE) {
       return Collections.emptyMap();
     }
@@ -57,9 +57,8 @@ public class ReadBridgeConfigResolver {
   }
 
   /**
-   * Uses {@link TableFeatureToggle#isFeatureActivatedWithOverride} so {@code
-   * read-bridge.column-default.enabled} can opt in/out without HTS. Fail-open on lookup errors: not
-   * bridging equals today's NULL reads.
+   * Table property {@code read-bridge.column-default.enabled} overrides HouseTables. A lookup
+   * failure leaves the table unbridged (same as today's NULL reads).
    */
   private boolean isColumnDefaultRamped(TableDto tableDto) {
     try {
