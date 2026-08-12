@@ -13,6 +13,8 @@ import com.linkedin.openhouse.gen.tables.client.model.PolicyTag;
 import com.linkedin.openhouse.gen.tables.client.model.Retention;
 import com.linkedin.openhouse.javaclient.exception.WebClientWithMessageException;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.ObjectMapper;
+import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.node.ArrayNode;
+import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.node.ObjectNode;
 import com.linkedin.openhouse.relocated.org.springframework.http.HttpStatus;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientRequestException;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -29,12 +31,14 @@ import org.apache.commons.compress.utils.Lists;
 import org.apache.iceberg.Files;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
@@ -740,5 +744,73 @@ public class OpenHouseTableOperationsTest {
     Map<String, String> config = body.getConfig();
     Assertions.assertNotNull(config);
     Assertions.assertEquals("whatever", config.get("openhouse.unknown-feature"));
+  }
+
+  @Test
+  public void constructMetadataRequestBody_stripsStampedIdsKeepsUnstampedColumnDefaults() {
+    TableMetadata commit =
+        tableWithSchema(
+            "file:/tmp/rb-sanitize-ops-c",
+            new Schema(
+                NestedField.optional(1, "id", Types.IntegerType.get()),
+                NestedField.from(NestedField.optional(2, "country", Types.StringType.get()))
+                    .withInitialDefault(Expressions.lit("US"))
+                    .build(),
+                NestedField.from(NestedField.optional(3, "email", Types.StringType.get()))
+                    .withInitialDefault(Expressions.lit("none"))
+                    .build()));
+
+    OpenHouseTableOperations ops = refreshableOps(mock(TableApi.class));
+    ops.setCurrentConfig(
+        Collections.singletonMap(ReadBridge.COLUMN_DEFAULT_PREFIX + "2", "\"US\""));
+
+    CreateUpdateTableRequestBody body = ops.constructMetadataRequestBody(null, commit);
+    Schema sent = SchemaParser.fromJson(body.getSchema());
+
+    Assertions.assertNull(sent.findField(2).initialDefault());
+    Assertions.assertEquals("none", sent.findField(3).initialDefault());
+    Assertions.assertEquals("email", sent.findField(3).name());
+  }
+
+  @Test
+  public void constructMetadataRequestBody_withoutConfigLeavesWriterDefaults() {
+    TableMetadata commit =
+        tableWithSchema(
+            "file:/tmp/rb-sanitize-create",
+            new Schema(
+                NestedField.from(NestedField.optional(1, "country", Types.StringType.get()))
+                    .withInitialDefault(Expressions.lit("US"))
+                    .build()));
+
+    CreateUpdateTableRequestBody body =
+        refreshableOps(mock(TableApi.class)).constructMetadataRequestBody(null, commit);
+
+    Assertions.assertEquals(
+        "US", SchemaParser.fromJson(body.getSchema()).findField(1).initialDefault());
+  }
+
+  /**
+   * {@link TableMetadata#newTableMetadata} reassigns ids and drops defaults. Put this schema back
+   * so sanitize tests can see writer/overlay defaults.
+   */
+  private static TableMetadata tableWithSchema(String location, Schema schema) {
+    TableMetadata created =
+        TableMetadata.newTableMetadata(
+            schema, PartitionSpec.unpartitioned(), location, Collections.emptyMap());
+    try {
+      ObjectMapper mapper = new ObjectMapper();
+      ObjectNode root = (ObjectNode) mapper.readTree(TableMetadataParser.toJson(created));
+      Schema kept =
+          new Schema(
+              created.currentSchemaId(),
+              schema.columns(),
+              schema.getAliases(),
+              schema.identifierFieldIds());
+      ((ArrayNode) root.get("schemas")).set(0, mapper.readTree(SchemaParser.toJson(kept)));
+      return TableMetadataParser.fromJson(
+          created.metadataFileLocation(), mapper.writeValueAsString(root));
+    } catch (Exception e) {
+      throw new IllegalStateException(e);
+    }
   }
 }
