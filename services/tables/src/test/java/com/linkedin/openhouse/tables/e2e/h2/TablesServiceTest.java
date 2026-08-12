@@ -20,6 +20,8 @@ import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
@@ -845,6 +847,34 @@ public class TablesServiceTest {
     tablesService.deleteLock(created.getDatabaseId(), created.getTableId(), TEST_USER);
     Assertions.assertDoesNotThrow(
         () -> tablesService.putTable(stageReplaceRequestBody, TEST_USER, false));
+
+    tablesService.deleteTable(created.getDatabaseId(), created.getTableId(), TEST_USER);
+  }
+
+  @Test
+  public void testStageReplaceCannotSmuggleLockStateChange() {
+    TableDto tableDtoCopy =
+        TABLE_DTO
+            .toBuilder()
+            .tableProperties(ImmutableMap.of(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true"))
+            .policies(
+                Policies.builder().lockState(LockState.builder().locked(false).build()).build())
+            .build();
+    TableDto created = verifyPutTableRequest(tableDtoCopy, null, true);
+
+    // Table is not locked. A stage-replace request that also tries to flip the lock state to
+    // locked=true in the same call must be rejected, just like the ordinary update path already
+    // rejects lock-state changes via checkIfLockPoliciesUpdated.
+    CreateUpdateTableRequestBody stageReplaceWithLockChangeRequestBody =
+        buildCreateUpdateTableRequestBody(created)
+            .toBuilder()
+            .stageReplace(true)
+            .policies(
+                Policies.builder().lockState(LockState.builder().locked(true).build()).build())
+            .build();
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> tablesService.putTable(stageReplaceWithLockChangeRequestBody, TEST_USER, false));
 
     tablesService.deleteTable(created.getDatabaseId(), created.getTableId(), TEST_USER);
   }

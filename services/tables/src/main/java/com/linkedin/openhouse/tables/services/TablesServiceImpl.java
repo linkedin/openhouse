@@ -111,6 +111,7 @@ public class TablesServiceImpl implements TablesService {
 
     // Special case handling
     if (tableDto.isPresent() && createUpdateTableRequestBody.isStageReplace()) {
+      checkIfLockPoliciesUpdated(tableDto.get(), createUpdateTableRequestBody);
       if (isTableLocked(tableDto.get())) {
         throw new UnsupportedClientOperationException(
             UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,
