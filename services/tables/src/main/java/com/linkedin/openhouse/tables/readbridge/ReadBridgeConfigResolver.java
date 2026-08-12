@@ -59,19 +59,22 @@ import lombok.extern.slf4j.Slf4j;
  *       inert, and notably makes no toggle lookup, so open-source and dev deployments add nothing
  *       to the table-load path.
  *   <li>{@link TableFeatureToggle#isFeatureActivatedWithOverride} — the per-table ramp: an explicit
- *       {@code read-bridge.column-default.enabled} table property opts a table in or out, otherwise
- *       the server-managed toggle decides. Rules match database and table as globs, so a {@code *}
- *       / {@code *} rule ramps or un-ramps the fleet as data, taking effect immediately. That is
- *       the kill switch; there is deliberately no cluster property duplicating it, which would only
- *       add a second place to look and a slower one, since it would need a redeploy to change.
+ *       {@code read-bridge.column-default.enabled} table property opts a table in or out without a
+ *       HouseTables call; when absent, the server-managed toggle decides via an exact {@code
+ *       (databaseId, tableId, featureId)} lookup ({@link
+ *       com.linkedin.openhouse.tables.toggle.BaseTableFeatureToggle}). There is no glob / {@code *}
+ *       matcher today — fleet ramp means writing {@code ACTIVE} rows (or setting the table
+ *       property) per table. That HTS row (or the property) is the kill switch; there is
+ *       deliberately no cluster property duplicating it, which would only add a second place to
+ *       look and a slower one, since it would need a redeploy to change.
  * </ol>
  *
  * <h3>The toggle is on the read path, so it fails open</h3>
  *
- * Consulting the ramp here puts a blocking HouseTables call on every table load, which is a path it
- * is not otherwise on — elsewhere toggles gate writes and table-property changes. A HouseTables
- * blip must therefore not fail table reads, so a lookup failure is logged and treated as "not
- * bridged".
+ * Consulting the ramp here can put a blocking HouseTables call on table load when the self-service
+ * property is absent — a path toggles are not otherwise on (elsewhere they gate writes and
+ * table-property changes). A HouseTables blip must therefore not fail table reads, so a lookup
+ * failure is logged and treated as "not bridged".
  *
  * <p>That is safe for exactly the same reason old clients may ignore unknown keys: not bridging
  * leaves the reader at today's behavior. The two are the same property of a capability, used twice.
