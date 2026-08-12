@@ -68,6 +68,12 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
    */
   private final AtomicReference<Map<String, String>> config = new AtomicReference<>();
 
+  /**
+   * On-disk metadata from the last successful load, before apply. Commit restores default slots
+   * from this copy so overlays cannot persist.
+   */
+  private final AtomicReference<TableMetadata> lastRawMetadata = new AtomicReference<>();
+
   /** Config from the last refresh, or {@code null}. */
   protected Map<String, String> currentConfig() {
     return config.get();
@@ -136,7 +142,9 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     }
     TableMetadata raw = TableMetadataParser.read(io(), metadataLocation);
     try {
-      return bridge.apply(raw);
+      TableMetadata loaded = bridge.apply(raw);
+      lastRawMetadata.set(raw);
+      return loaded;
     } catch (IllegalStateException e) {
       throw new Tasks.UnrecoverableException(e);
     }
@@ -208,6 +216,8 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
 
   protected CreateUpdateTableRequestBody constructMetadataRequestBody(
       TableMetadata base, TableMetadata metadata) {
+    // Iceberg commit() requires base == current(); strip overlays here, not by swapping base.
+    metadata = ReadBridge.sanitize(lastRawMetadata.get(), metadata);
     CreateUpdateTableRequestBody createUpdateTableRequestBody = new CreateUpdateTableRequestBody();
     createUpdateTableRequestBody.setBaseTableVersion(
         base == null ? INITIAL_TABLE_VERSION : base.metadataFileLocation());
@@ -250,6 +260,11 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
       createUpdateTableRequestBody.setTableProperties(newTblProperties);
     }
     return createUpdateTableRequestBody;
+  }
+
+  @VisibleForTesting
+  void stashRawMetadata(TableMetadata raw) {
+    lastRawMetadata.set(raw);
   }
 
   /**

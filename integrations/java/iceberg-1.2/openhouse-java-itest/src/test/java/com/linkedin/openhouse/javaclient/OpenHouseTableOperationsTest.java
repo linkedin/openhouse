@@ -25,14 +25,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.apache.commons.compress.utils.Lists;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.types.Types;
+import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.Tasks;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -616,5 +621,68 @@ public class OpenHouseTableOperationsTest {
     Map<String, String> config = body.getConfig();
     Assertions.assertNotNull(config);
     Assertions.assertEquals("whatever", config.get("openhouse.unknown-feature"));
+  }
+
+  @Test
+  public void constructMetadataRequestBody_stripsOverlayOnExistingIdsKeepsNewColumnDefaults() {
+    TableMetadata raw =
+        tableWithSchema(
+            "file:/tmp/rb-sanitize-ops",
+            new Schema(
+                NestedField.optional(1, "id", Types.IntegerType.get()),
+                NestedField.optional(2, "country", Types.StringType.get())));
+    TableMetadata commit =
+        tableWithSchema(
+            "file:/tmp/rb-sanitize-ops-c",
+            new Schema(
+                NestedField.optional(1, "id", Types.IntegerType.get()),
+                NestedField.from(NestedField.optional(2, "country", Types.StringType.get()))
+                    .withInitialDefault(Expressions.lit("US"))
+                    .build(),
+                NestedField.from(NestedField.optional(3, "email", Types.StringType.get()))
+                    .withInitialDefault(Expressions.lit("none"))
+                    .build()));
+
+    OpenHouseTableOperations ops = refreshableOps(mock(TableApi.class));
+    ops.stashRawMetadata(raw);
+
+    CreateUpdateTableRequestBody body = ops.constructMetadataRequestBody(raw, commit);
+    Schema sent = SchemaParser.fromJson(body.getSchema());
+
+    Assertions.assertNull(sent.findField(2).initialDefault());
+    Assertions.assertEquals("none", sent.findField(3).initialDefault());
+    Assertions.assertEquals("email", sent.findField(3).name());
+  }
+
+  @Test
+  public void constructMetadataRequestBody_withoutRawLeavesWriterDefaults() {
+    TableMetadata commit =
+        tableWithSchema(
+            "file:/tmp/rb-sanitize-create",
+            new Schema(
+                NestedField.from(NestedField.optional(1, "country", Types.StringType.get()))
+                    .withInitialDefault(Expressions.lit("US"))
+                    .build()));
+
+    CreateUpdateTableRequestBody body =
+        refreshableOps(mock(TableApi.class)).constructMetadataRequestBody(null, commit);
+
+    Assertions.assertEquals(
+        "US", SchemaParser.fromJson(body.getSchema()).findField(1).initialDefault());
+  }
+
+  private static TableMetadata tableWithSchema(String location, Schema schema) {
+    TableMetadata created =
+        TableMetadata.newTableMetadata(
+            schema, PartitionSpec.unpartitioned(), location, Collections.emptyMap());
+    return ReadBridge.replaceSchemas(
+        created,
+        Collections.singletonMap(
+            created.currentSchemaId(),
+            new Schema(
+                created.currentSchemaId(),
+                schema.columns(),
+                schema.getAliases(),
+                schema.identifierFieldIds())));
   }
 }
