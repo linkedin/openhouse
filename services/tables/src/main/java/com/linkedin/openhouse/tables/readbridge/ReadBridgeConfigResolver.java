@@ -46,7 +46,17 @@ public class ReadBridgeConfigResolver {
     if (!isColumnDefaultRamped(tableDto)) {
       return Collections.emptyMap();
     }
-    Map<Integer, JsonNode> columnDefaults = columnDefaultsSource.defaults(tableDto);
+    Map<Integer, JsonNode> columnDefaults;
+    try {
+      columnDefaults = columnDefaultsSource.defaults(tableDto);
+    } catch (RuntimeException e) {
+      log.warn(
+          "read-bridge: column-defaults source failed for {}.{}; treating as not bridged",
+          tableDto.getDatabaseId(),
+          tableDto.getTableId(),
+          e);
+      return Collections.emptyMap();
+    }
     if (columnDefaults == null || columnDefaults.isEmpty()) {
       return Collections.emptyMap();
     }
