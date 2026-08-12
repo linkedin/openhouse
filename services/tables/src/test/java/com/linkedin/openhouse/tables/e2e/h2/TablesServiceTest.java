@@ -18,6 +18,7 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
@@ -815,6 +816,37 @@ public class TablesServiceTest {
         () ->
             tablesService.deleteTable(
                 tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+  }
+
+  @Test
+  public void testStageReplaceBlockedOnLockedTable() {
+    TableDto tableDtoCopy =
+        TABLE_DTO
+            .toBuilder()
+            .tableProperties(ImmutableMap.of(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true"))
+            .policies(null)
+            .build();
+    TableDto created = verifyPutTableRequest(tableDtoCopy, null, true);
+    tablesService.createLock(
+        created.getDatabaseId(),
+        created.getTableId(),
+        CreateUpdateLockRequestBody.builder().locked(true).expirationInDays(4).build(),
+        TEST_USER);
+
+    CreateUpdateTableRequestBody stageReplaceRequestBody =
+        buildCreateUpdateTableRequestBody(created).toBuilder().stageReplace(true).build();
+
+    // Stage-replace (CREATE OR REPLACE TABLE) must be rejected while the table is locked, just
+    // like the ordinary update path already is.
+    Assertions.assertThrows(
+        UnsupportedClientOperationException.class,
+        () -> tablesService.putTable(stageReplaceRequestBody, TEST_USER, false));
+
+    tablesService.deleteLock(created.getDatabaseId(), created.getTableId(), TEST_USER);
+    Assertions.assertDoesNotThrow(
+        () -> tablesService.putTable(stageReplaceRequestBody, TEST_USER, false));
+
+    tablesService.deleteTable(created.getDatabaseId(), created.getTableId(), TEST_USER);
   }
 
   @Test

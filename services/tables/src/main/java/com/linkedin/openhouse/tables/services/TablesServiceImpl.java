@@ -111,6 +111,12 @@ public class TablesServiceImpl implements TablesService {
 
     // Special case handling
     if (tableDto.isPresent() && createUpdateTableRequestBody.isStageReplace()) {
+      if (isTableLocked(tableDto.get())) {
+        throw new UnsupportedClientOperationException(
+            UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,
+            String.format(
+                "Table %s.%s is in locked state and cannot be replaced.", databaseId, tableId));
+      }
       // Check if table creator has the privilege to replace the table.
       authorizationUtils.checkReplaceTablePrivilege(tableDto.get(), tableCreatorUpdater);
     } else if (tableDto.isPresent()) {
