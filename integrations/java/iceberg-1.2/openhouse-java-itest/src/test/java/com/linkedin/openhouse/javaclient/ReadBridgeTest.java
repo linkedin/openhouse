@@ -10,18 +10,14 @@ import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
-/**
- * Unit tests for the client-side read-bridge config decoder ({@link ReadBridge#from}), exercised in
- * isolation. Mirrors the server-side encoder {@code ReadBridgeConfigResolver}.
- */
+/** Decoder for {@link ReadBridge#from}. */
 class ReadBridgeTest {
 
   private static final String PREFIX = ReadBridge.COLUMN_DEFAULT_PREFIX;
 
   @Test
   void decodesColumnDefaultsByFieldId() {
-    // Inline calls avoid naming Jackson's JsonNode, which is relocated in the shaded client uber
-    // (and this module compiles at a source level without `var`).
+    // Avoid naming JsonNode: it is relocated in the shaded client, and this module has no `var`.
     Map<String, String> config = new HashMap<>();
     config.put(PREFIX + "5", "\"US\"");
     config.put(PREFIX + "7", "0");
@@ -39,8 +35,7 @@ class ReadBridgeTest {
 
   @Test
   void failsLoudOnKnownEntryWithBadFieldId() {
-    // A non-integer field-id on a key we own can't come from the server encoder (it stamps int
-    // field-ids and JsonNode values), so it's a bug/corruption and throws rather than degrading.
+    // Non-integer suffix on a key we own is a bug, not a missing default.
     Map<String, String> config = new HashMap<>();
     config.put(PREFIX + "5", "\"US\"");
     config.put(PREFIX + "notAnInt", "\"x\"");
@@ -56,8 +51,7 @@ class ReadBridgeTest {
 
   @Test
   void ignoresUnknownKeysWithoutFailing() {
-    // Forward compatibility: a key outside the column-default prefix (e.g. a newer server feature)
-    // is ignored, never enforced — even if its value would not parse as a default.
+    // Keys outside the prefix are ignored so a newer server stays readable.
     Map<String, String> config = new HashMap<>();
     config.put(PREFIX + "5", "\"US\"");
     config.put("openhouse.read-bridge.some-future-feature.3", "{not a default}");

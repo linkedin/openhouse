@@ -64,16 +64,11 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   private String cluster;
 
   /**
-   * The per-table client {@code config} (Iceberg REST {@code LoadTableResponse.config} convention)
-   * the OH server stamped onto the most recent table-load response (or {@code null} if none / not
-   * yet refreshed). A final holder keeps Lombok's all-args constructor unchanged.
+   * Config from the last refresh, or {@code null}. Atomic so Lombok's constructor stays unchanged.
    */
   private final AtomicReference<Map<String, String>> config = new AtomicReference<>();
 
-  /**
-   * The server-stamped per-table client config from the last {@code doRefresh}, or {@code null}
-   * when absent. Subclasses read it to gate read-time behavior.
-   */
+  /** Config from the last refresh, or {@code null}. */
   protected Map<String, String> currentConfig() {
     return config.get();
   }
@@ -114,29 +109,23 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
                 WebClientRequestException.class,
                 e -> Mono.error(new WebClientRequestWithMessageException(e)))
             .blockOptional();
-    // Capture the server-stamped per-table config so subclasses can gate read-time behavior via
-    // currentConfig(); absent => null. Side-channel only: never sent back on writes.
+    // Keep config from the GET response; it is not a table property.
     this.config.set(tableResponse.map(GetTableResponseBody::getConfig).orElse(null));
     Optional<String> tableLocation = tableResponse.map(GetTableResponseBody::getTableLocation);
     if (!tableLocation.isPresent() && currentMetadataLocation() != null) {
       throw new NoSuchTableException(
           "Cannot find table %s after refresh, maybe another process deleted it", tableName());
     }
-    // Route the parse through loadMetadata() so subclasses can transform metadata as it loads;
-    // (null, 20) preserves the stock refresh behavior.
+    // Parse via loadMetadata so ReadBridge can overlay after the file read.
     super.refreshFromMetadataLocation(tableLocation.orElse(null), null, 20, this::loadMetadata);
     log.debug("Calling doRefresh succeeded");
   }
 
   /**
-   * Loads table metadata from storage and overlays the read-time {@link ReadBridge} behavior the
-   * server stamped onto {@link #currentConfig()}.
+   * Decode config, then read the metadata file, then overlay.
    *
-   * <p>Decode runs <em>before</em> the file read so a malformed config never touches storage.
-   * Bridge failures ({@link IllegalStateException}) are wrapped as {@link
-   * Tasks.UnrecoverableException} so Iceberg's {@code Tasks.retry(20)} around this loader does not
-   * re-read the metadata file to reproduce a deterministic error. IO / parse failures from the file
-   * read remain retryable.
+   * <p>Decode first so a bad config never hits storage. {@link IllegalStateException} is wrapped as
+   * {@link Tasks.UnrecoverableException} so Iceberg's retry loop does not re-read the file.
    */
   protected TableMetadata loadMetadata(String metadataLocation) {
     final ReadBridge bridge;
