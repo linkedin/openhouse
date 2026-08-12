@@ -23,18 +23,18 @@ import lombok.extern.slf4j.Slf4j;
  *
  * This class owns the <em>policy</em> — the feature id, the ramp, and the wire keys — and a
  * deployment supplies only the <em>data</em>, via {@link ColumnDefaultsSource}. Keeping the ramp
- * here means every deployment inherits it, the self-service property {@code read-bridge.enabled} is
- * documented alongside the {@code openhouse.read-bridge.*} keys it controls, and a deployment's
- * source is never asked to derive defaults for a table that is not bridged.
+ * here means every deployment inherits it, the self-service property {@code
+ * read-bridge.column-default.enabled} is documented alongside the {@code openhouse.read-bridge.*}
+ * keys it controls, and a deployment's source is never asked to derive defaults for a table that is
+ * not bridged.
  *
  * <h3>What capabilities share, and what they don't</h3>
  *
  * Capabilities bridged through this class share the <em>infrastructure</em> and nothing else: the
  * per-table {@code config} channel, the {@code openhouse.read-bridge.*} namespace, and the client's
- * decode/apply path. Rollout is never shared. Each capability has its own source, feature id,
- * self-service table property and cluster kill switch, so it can be ramped, paused or killed
- * without touching any other. There is deliberately no single switch, toggle id or property meaning
- * "all of read-bridge".
+ * decode/apply path. Rollout is never shared. Each capability has its own source, feature id, and
+ * self-service table property, so it can be ramped, paused or killed without touching any other.
+ * There is deliberately no single switch, toggle id or property meaning "all of read-bridge".
  *
  * <p>{@link #resolve(TableDto)} therefore contains no cross-capability gate at all — it only merges
  * what each capability decided for itself. A shared short-circuit there would couple rollouts that

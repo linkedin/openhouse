@@ -3,7 +3,10 @@ package com.linkedin.openhouse.tables.readbridge;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -120,23 +123,39 @@ public class ReadBridgeConfigResolverTest {
   /** The self-service property opts a table in even when the server-managed ramp says no. */
   @Test
   public void testTablePropertyOptsInOverServerToggle() {
-    TableFeatureToggle allOff =
-        new TableFeatureToggle() {
-          @Override
-          public boolean isFeatureActivated(String databaseId, String tableId, String featureId) {
-            return false;
-          }
-        };
+    // CALLS_REAL_METHODS so the override-honoring default reads the table property; stub the
+    // server-side form so an accidental HTS call would return false.
+    TableFeatureToggle toggle = mock(TableFeatureToggle.class, CALLS_REAL_METHODS);
+    when(toggle.isFeatureActivated(anyString(), anyString(), anyString())).thenReturn(false);
+
     Map<String, String> config =
-        new ReadBridgeConfigResolver(oneDefault(), allOff).resolve(tableWithOverride("true"));
+        new ReadBridgeConfigResolver(oneDefault(), toggle).resolve(tableWithOverride("true"));
 
     Assertions.assertEquals("\"US\"", config.get(PREFIX + "5"));
+    // Explicit opt-in is decided from the table property alone; no HouseTables round-trip.
+    verify(toggle, never()).isFeatureActivated(anyString(), anyString(), anyString());
   }
 
   /** ...and opts it out even when the server-managed ramp says yes. */
   @Test
   public void testTablePropertyOptsOutOverServerToggle() {
     Assertions.assertTrue(resolverFor(oneDefault()).resolve(tableWithOverride("false")).isEmpty());
+  }
+
+  /**
+   * Source present and table ramped, but the source has nothing to stamp — still empty config. Not
+   * the same as {@link ColumnDefaultsSource#NONE}: the toggle ran and the source was asked.
+   */
+  @Test
+  public void testEmptyWhenSourceReturnsNoDefaults() {
+    ColumnDefaultsSource emptySource = mock(ColumnDefaultsSource.class);
+    when(emptySource.defaults(any())).thenReturn(Collections.emptyMap());
+
+    Assertions.assertTrue(
+        resolverFor(emptySource)
+            .resolve(TableDto.builder().databaseId("db").tableId("tbl").build())
+            .isEmpty());
+    verify(emptySource).defaults(any());
   }
 
   /**
