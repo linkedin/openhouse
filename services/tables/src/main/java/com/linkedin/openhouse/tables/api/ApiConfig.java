@@ -4,8 +4,8 @@ import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.handler.impl.OpenHouseTablesApiHandler;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultsSource;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
-import java.util.Collections;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -18,22 +18,26 @@ public class ApiConfig {
   }
 
   /**
-   * Open-source default {@link ColumnDefaultsSource}: supplies none, so read-bridge stays inert.
+   * Server-side encoder that stamps the read-bridge {@code config}.
+   *
+   * <p>{@link ColumnDefaultsSource} is the column-default capability's single extension point, and
+   * it is resolved here rather than declared as an overridable default bean. A deployment supplies
+   * one; with none present that capability is inert and never consults the feature toggle. Each
+   * capability is wired, and rolled out, on its own.
+   *
+   * <p>Deliberately not a {@code @ConditionalOnMissingBean} default bean. Spring Boot documents
+   * that condition as safe only inside auto-configuration, and this is an ordinary
+   * {@code @Configuration}: a component-scanned override happens to work, because {@code
+   * ConfigurationClassPostProcessor} finishes scanning before it evaluates {@code @Bean}
+   * conditions, but a deployment declaring its source with {@code @Bean} in a configuration class
+   * parsed after this one would get a competing no-op bean and need {@code @Primary} to avoid a
+   * {@code NoUniqueBeanDefinitionException}. With {@link ObjectProvider} no default bean is ever
+   * registered, so exactly one bean of the type exists however it was declared.
    */
   @Bean
-  @ConditionalOnMissingBean(ColumnDefaultsSource.class)
-  public ColumnDefaultsSource columnDefaultsSource() {
-    return tableDto -> Collections.emptyMap();
-  }
-
-  /**
-   * Server-side encoder that stamps the read-bridge {@code config} from {@link
-   * ColumnDefaultsSource}.
-   */
-  @Bean
-  @ConditionalOnMissingBean(ReadBridgeConfigResolver.class)
   public ReadBridgeConfigResolver readBridgeConfigResolver(
-      ColumnDefaultsSource columnDefaultsSource) {
-    return new ReadBridgeConfigResolver(columnDefaultsSource);
+      ObjectProvider<ColumnDefaultsSource> columnDefaultsSource, TableFeatureToggle featureToggle) {
+    return new ReadBridgeConfigResolver(
+        columnDefaultsSource.getIfAvailable(() -> ColumnDefaultsSource.NONE), featureToggle);
   }
 }

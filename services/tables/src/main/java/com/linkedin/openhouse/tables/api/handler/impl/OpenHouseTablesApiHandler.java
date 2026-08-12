@@ -43,11 +43,8 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
    * LoadTableResponse.config} convention) onto a freshly mapped response body. The mapper leaves
    * {@code config} null; it is a request-time decision resolved here.
    */
-  private GetTableResponseBody withConfig(
-      GetTableResponseBody body, String databaseId, String tableId, TableDto tableDto) {
-    return body.toBuilder()
-        .config(readBridgeConfigResolver.resolve(databaseId, tableId, tableDto))
-        .build();
+  private GetTableResponseBody withConfig(GetTableResponseBody body, TableDto tableDto) {
+    return body.toBuilder().config(readBridgeConfigResolver.resolve(tableDto)).build();
   }
 
   @Override
@@ -57,9 +54,7 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
     TableDto tableDto = tableService.getTable(databaseId, tableId, actingPrincipal);
     return ApiResponse.<GetTableResponseBody>builder()
         .httpStatus(HttpStatus.OK)
-        .responseBody(
-            withConfig(
-                tablesMapper.toGetTableResponseBody(tableDto), databaseId, tableId, tableDto))
+        .responseBody(withConfig(tablesMapper.toGetTableResponseBody(tableDto), tableDto))
         .build();
   }
 
@@ -111,12 +106,7 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
     TableDto tableDto = putResult.getFirst();
     return ApiResponse.<GetTableResponseBody>builder()
         .httpStatus(HttpStatus.CREATED)
-        .responseBody(
-            withConfig(
-                tablesMapper.toGetTableResponseBody(tableDto),
-                databaseId,
-                tableDto.getTableId(),
-                tableDto))
+        .responseBody(withConfig(tablesMapper.toGetTableResponseBody(tableDto), tableDto))
         .build();
   }
 
@@ -134,9 +124,7 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
     TableDto tableDto = putResult.getFirst();
     return ApiResponse.<GetTableResponseBody>builder()
         .httpStatus(status)
-        .responseBody(
-            withConfig(
-                tablesMapper.toGetTableResponseBody(tableDto), databaseId, tableId, tableDto))
+        .responseBody(withConfig(tablesMapper.toGetTableResponseBody(tableDto), tableDto))
         .build();
   }
 
