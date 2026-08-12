@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import lombok.AccessLevel;
@@ -64,8 +65,8 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   private String cluster;
 
   /**
-   * Config last applied to {@code current()}, or {@code null}. Bound in {@link #loadMetadata} after
-   * apply so skip-reload cannot desync stamps from overlays.
+   * Config last applied to {@code current()}, or {@code null}. Bound after Iceberg accepts a reload
+   * so skip-reload and a failed UUID check cannot desync stamps from overlays.
    */
   private final AtomicReference<Map<String, String>> config = new AtomicReference<>();
 
@@ -116,10 +117,21 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
           "Cannot find table %s after refresh, maybe another process deleted it", tableName());
     }
     Map<String, String> fetched = tableResponse.map(GetTableResponseBody::getConfig).orElse(null);
-    // Bind config in loadMetadata after apply. Iceberg skips the loader when tableLocation is
-    // unchanged; leaving config alone keeps stamps paired with the in-memory overlay.
+    AtomicBoolean loaded = new AtomicBoolean();
+    // Iceberg skips the loader when tableLocation is unchanged. UUID is checked after the loader
+    // returns; bind only if this call actually accepted a reload.
     super.refreshFromMetadataLocation(
-        tableLocation.orElse(null), null, 20, location -> loadMetadata(location, fetched));
+        tableLocation.orElse(null),
+        null,
+        20,
+        location -> {
+          TableMetadata bridged = loadMetadata(location, fetched);
+          loaded.set(true);
+          return bridged;
+        });
+    if (loaded.get()) {
+      config.set(fetched);
+    }
     log.debug("Calling doRefresh succeeded");
   }
 
@@ -127,8 +139,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
    * Decode {@code fetched}, then read the metadata file, then overlay.
    *
    * <p>Decode first so a bad config never hits storage. {@link IllegalStateException} is wrapped as
-   * {@link Tasks.UnrecoverableException} so Iceberg's retry loop does not re-read the file. {@link
-   * #currentConfig()} is updated only after apply succeeds.
+   * {@link Tasks.UnrecoverableException} so Iceberg's retry loop does not re-read the file.
    */
   protected TableMetadata loadMetadata(String metadataLocation, Map<String, String> fetched) {
     final ReadBridge bridge;
@@ -139,9 +150,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     }
     TableMetadata raw = TableMetadataParser.read(io(), metadataLocation);
     try {
-      TableMetadata bridged = bridge.apply(raw);
-      config.set(fetched);
-      return bridged;
+      return bridge.apply(raw);
     } catch (IllegalStateException e) {
       throw new Tasks.UnrecoverableException(e);
     }

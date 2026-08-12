@@ -608,6 +608,40 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertNull(ops.currentConfig());
   }
 
+  /**
+   * Iceberg rejects a UUID change after the loader returns. Config must stay paired with the
+   * in-memory metadata that is still installed.
+   */
+  @Test
+  public void testDoRefreshKeepsConfigWhenUuidCheckFails() {
+    String first = writeTempMetadata();
+    String second = writeTempMetadata();
+    Map<String, String> stamped =
+        Collections.singletonMap("openhouse.read-bridge", "{\"read\":\"ON\"}");
+    Map<String, String> other =
+        Collections.singletonMap("openhouse.read-bridge", "{\"read\":\"OFF\"}");
+
+    GetTableResponseBody withConfig = mock(GetTableResponseBody.class);
+    when(withConfig.getTableLocation()).thenReturn(first);
+    when(withConfig.getConfig()).thenReturn(stamped);
+
+    GetTableResponseBody mismatched = mock(GetTableResponseBody.class);
+    when(mismatched.getTableLocation()).thenReturn(second);
+    when(mismatched.getConfig()).thenReturn(other);
+
+    TableApi mockTableApi = mock(TableApi.class);
+    when(mockTableApi.getTableV1(anyString(), anyString()))
+        .thenReturn(Mono.just(withConfig))
+        .thenReturn(Mono.just(mismatched));
+
+    OpenHouseTableOperations ops = refreshableOps(mockTableApi, localFileIO());
+    ops.doRefresh();
+    Assertions.assertSame(stamped, ops.currentConfig());
+
+    Assertions.assertThrows(IllegalStateException.class, ops::doRefresh);
+    Assertions.assertSame(stamped, ops.currentConfig());
+  }
+
   private static String writeTempMetadata() {
     return writeTempMetadataPair()[0];
   }
