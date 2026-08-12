@@ -494,13 +494,13 @@ public class OpenHouseTableOperationsTest {
         .build();
   }
 
-  /** Before any refresh, there is no server-stamped config, so the safe default is null. */
+  /** No refresh yet → no config. */
   @Test
   public void testCurrentConfigNullBeforeRefresh() {
     Assertions.assertNull(refreshableOps(mock(TableApi.class)).currentConfig());
   }
 
-  /** doRefresh stashes the server-stamped config so subclasses can read it back. */
+  /** doRefresh stores the response config. */
   @Test
   public void testDoRefreshCapturesConfig() {
     TableApi mockTableApi = mock(TableApi.class);
@@ -517,7 +517,7 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertSame(stamped, ops.currentConfig());
   }
 
-  /** Absent config on the response => null, the consumer's safe default. */
+  /** Missing config on the response is stored as null. */
   @Test
   public void testDoRefreshNullConfigWhenAbsent() {
     TableApi mockTableApi = mock(TableApi.class);
@@ -532,11 +532,7 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertNull(ops.currentConfig());
   }
 
-  /**
-   * The held config is a snapshot of the latest refresh, never sticky: once the server stops
-   * stamping config, a subsequent refresh must clear the previously-captured value back to null.
-   * Guards against a stale directive lingering after the server turns it off.
-   */
+  /** A later refresh without config clears the previous value. */
   @Test
   public void testDoRefreshClearsStaleConfig() {
     TableApi mockTableApi = mock(TableApi.class);
@@ -551,7 +547,7 @@ public class OpenHouseTableOperationsTest {
     when(withoutConfig.getTableLocation()).thenReturn(null);
     when(withoutConfig.getConfig()).thenReturn(null);
 
-    // First refresh stamps config, second refresh stops stamping it.
+    // Second refresh has no config.
     when(mockTableApi.getTableV1(anyString(), anyString()))
         .thenReturn(Mono.just(withConfig))
         .thenReturn(Mono.just(withoutConfig));
@@ -565,17 +561,13 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertNull(ops.currentConfig());
   }
 
-  /**
-   * Bridge failures must not ride Iceberg's metadata-read retry. Decode runs before any FileIO
-   * access; {@link Tasks.UnrecoverableException} keeps {@code Tasks.retry(20)} from re-reading
-   * storage ~21 times (~90s) to reproduce a deterministic config error.
-   */
+  /** Bad config fails before FileIO so Iceberg does not retry the metadata read. */
   @Test
   public void testMalformedConfigFailsBeforeTouchingStorage() {
     TableApi mockTableApi = mock(TableApi.class);
     FileIO mockFileIO = mock(FileIO.class);
     GetTableResponseBody body = mock(GetTableResponseBody.class);
-    // Non-null location, so a metadata load would otherwise be attempted.
+    // Non-null location would otherwise trigger a metadata load.
     when(body.getTableLocation()).thenReturn("/tmp/does-not-matter/metadata.json");
     when(body.getConfig())
         .thenReturn(
@@ -597,11 +589,7 @@ public class OpenHouseTableOperationsTest {
     verifyNoInteractions(mockFileIO);
   }
 
-  /**
-   * Wire contract: a server-stamped config map deserializes on the client (the Iceberg REST {@code
-   * LoadTableResponse.config} convention — a string map). This is how the value actually arrives on
-   * a real table-load response.
-   */
+  /** Config arrives as a string map on the table-load JSON. */
   @Test
   public void testConfigDeserializeFromResponse() throws Exception {
     ObjectMapper mapper = ApiClient.createDefaultObjectMapper(null);
@@ -612,14 +600,11 @@ public class OpenHouseTableOperationsTest {
     GetTableResponseBody body = mapper.readValue(json, GetTableResponseBody.class);
     Map<String, String> config = body.getConfig();
     Assertions.assertNotNull(config);
-    // value stays an opaque JSON string; the channel never parses it.
+    // Channel does not parse the value.
     Assertions.assertEquals("{\"read\":\"ON\"}", config.get("openhouse.read-bridge"));
   }
 
-  /**
-   * Unknown future fields must not break deserialization — older clients ignore what they do not
-   * understand (FAIL_ON_UNKNOWN_PROPERTIES=false), and unknown config keys are simply carried.
-   */
+  /** Unknown JSON fields and unknown config keys are carried, not rejected. */
   @Test
   public void testConfigToleratesUnknownFields() throws Exception {
     ObjectMapper mapper = ApiClient.createDefaultObjectMapper(null);
