@@ -17,27 +17,28 @@ import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
 import org.junit.jupiter.api.Test;
 
-/** Decoder and sanitize path for {@link ReadBridge}. */
+/** Decoder, apply, and sanitize path for {@link ReadBridge}. */
 class ReadBridgeTest {
 
   private static final String PREFIX = ReadBridge.COLUMN_DEFAULT_PREFIX;
 
   @Test
   void decodesColumnDefaultsByFieldId() {
-    // Avoid naming JsonNode: it is relocated in the shaded client, and this module has no `var`.
     Map<String, String> config = new HashMap<>();
     config.put(PREFIX + "5", "\"US\"");
     config.put(PREFIX + "7", "0");
-    assertEquals(2, ReadBridge.from(config).columnDefaults().size());
-    assertEquals("US", ReadBridge.from(config).columnDefaults().get(5).asText());
-    assertEquals(0, ReadBridge.from(config).columnDefaults().get(7).asInt());
+    ReadBridge bridge = ReadBridge.from(config);
+    assertEquals(2, bridge.columnDefaults().size());
+    // Original JSON strings so apply can bind without a relocated JsonNode.
+    assertEquals("\"US\"", bridge.columnDefaults().get(5));
+    assertEquals("0", bridge.columnDefaults().get(7));
   }
 
   @Test
   void inertWhenConfigNullOrNoReadBridgeKeys() {
     assertSame(ReadBridge.INERT, ReadBridge.from(null));
     assertSame(ReadBridge.INERT, ReadBridge.from(Collections.singletonMap("other.key", "x")));
-    assertTrue(ReadBridge.INERT.columnDefaults().isEmpty());
+    assertTrue(ReadBridge.from(null).columnDefaults().isEmpty());
   }
 
   @Test
@@ -62,8 +63,125 @@ class ReadBridgeTest {
     Map<String, String> config = new HashMap<>();
     config.put(PREFIX + "5", "\"US\"");
     config.put("openhouse.read-bridge.some-future-feature.3", "{not a default}");
-    assertEquals(1, ReadBridge.from(config).columnDefaults().size());
-    assertEquals("US", ReadBridge.from(config).columnDefaults().get(5).asText());
+    ReadBridge bridge = ReadBridge.from(config);
+    assertEquals(1, bridge.columnDefaults().size());
+    assertEquals("\"US\"", bridge.columnDefaults().get(5));
+  }
+
+  @Test
+  void applyReturnsSameInstanceWhenNothingToBridge() {
+    TableMetadata raw = newTable("file:/tmp/rb-inert");
+    assertSame(raw, ReadBridge.INERT.apply(raw));
+    assertSame(raw, ReadBridge.from(Collections.singletonMap("other.key", "x")).apply(raw));
+  }
+
+  @Test
+  void applySetsInitialDefaultOnMatchingField() {
+    TableMetadata raw = newTable("file:/tmp/rb-apply");
+    Map<String, String> config = Collections.singletonMap(PREFIX + "2", "\"US\"");
+
+    TableMetadata bridged = ReadBridge.from(config).apply(raw);
+
+    assertEquals("US", bridged.schema().findField(2).initialDefault());
+    assertNull(bridged.schema().findField(1).initialDefault());
+    // Disk identity is unchanged; only in-memory schemas carry the overlay.
+    assertEquals(raw.uuid(), bridged.uuid());
+    assertEquals(raw.currentSchemaId(), bridged.currentSchemaId());
+    assertEquals(raw.metadataFileLocation(), bridged.metadataFileLocation());
+  }
+
+  @Test
+  void applyOverlaysEverySchemaId() {
+    Schema v0 =
+        new Schema(
+            0,
+            Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+            Types.NestedField.optional(2, "country", Types.StringType.get()));
+    Schema v1 =
+        new Schema(
+            1,
+            Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+            Types.NestedField.optional(2, "country", Types.StringType.get()),
+            Types.NestedField.optional(3, "region", Types.StringType.get()));
+    TableMetadata raw =
+        TableMetadata.buildFrom(
+                TableMetadata.newTableMetadata(
+                    v0,
+                    PartitionSpec.unpartitioned(),
+                    "file:/tmp/rb-multischema",
+                    Collections.emptyMap()))
+            .addSchema(v1, 3)
+            .setCurrentSchema(1)
+            .build();
+
+    Map<String, String> config = new HashMap<>();
+    config.put(PREFIX + "2", "\"US\"");
+    config.put(PREFIX + "3", "\"west\"");
+
+    TableMetadata bridged = ReadBridge.from(config).apply(raw);
+
+    assertEquals(2, bridged.schemas().size());
+    for (Schema schema : bridged.schemas()) {
+      assertEquals("US", schema.findField(2).initialDefault());
+    }
+    // Field 3 exists only on schema 1.
+    assertNull(bridged.schemasById().get(0).findField(3));
+    assertEquals("west", bridged.schemasById().get(1).findField(3).initialDefault());
+  }
+
+  @Test
+  void applyIgnoresFieldIdsAbsentFromAllSchemas() {
+    TableMetadata raw = newTable("file:/tmp/rb-gap");
+    Map<String, String> config = Collections.singletonMap(PREFIX + "99", "\"x\"");
+    assertSame(raw, ReadBridge.from(config).apply(raw));
+  }
+
+  @Test
+  void applyFailsLoudWhenDefaultCannotBindToColumnType() {
+    TableMetadata raw = newTable("file:/tmp/rb-bad-bind");
+    // Field 1 is int; a string default cannot bind.
+    Map<String, String> config = Collections.singletonMap(PREFIX + "1", "\"not-an-int\"");
+    assertThrows(IllegalStateException.class, () -> ReadBridge.from(config).apply(raw));
+  }
+
+  @Test
+  void applySetsDefaultOnNestedStructField() {
+    Schema schema =
+        new Schema(
+            Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+            Types.NestedField.optional(
+                2,
+                "address",
+                Types.StructType.of(
+                    Types.NestedField.optional(3, "country", Types.StringType.get()))));
+    TableMetadata raw =
+        TableMetadata.newTableMetadata(
+            schema, PartitionSpec.unpartitioned(), "file:/tmp/rb-nested", Collections.emptyMap());
+    Map<String, String> config = Collections.singletonMap(PREFIX + "3", "\"US\"");
+
+    TableMetadata bridged = ReadBridge.from(config).apply(raw);
+
+    assertEquals(
+        "US", bridged.schema().findField(2).type().asStructType().field(3).initialDefault());
+  }
+
+  @Test
+  void sanitizeAfterApplyRestoresOnDiskSchema() {
+    TableMetadata raw = newTable("file:/tmp/rb-roundtrip");
+    Map<String, String> config = Collections.singletonMap(PREFIX + "2", "\"US\"");
+
+    TableMetadata sanitized = ReadBridge.sanitize(raw, ReadBridge.from(config).apply(raw));
+
+    assertEquals(raw.schema().asStruct(), sanitized.schema().asStruct());
+  }
+
+  private static TableMetadata newTable(String location) {
+    Schema schema =
+        new Schema(
+            Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+            Types.NestedField.optional(2, "country", Types.StringType.get()));
+    return TableMetadata.newTableMetadata(
+        schema, PartitionSpec.unpartitioned(), location, Collections.emptyMap());
   }
 
   @Test

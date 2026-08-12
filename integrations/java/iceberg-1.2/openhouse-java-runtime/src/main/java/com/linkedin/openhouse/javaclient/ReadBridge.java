@@ -13,8 +13,10 @@ import java.util.Map;
 import java.util.Objects;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
+import org.apache.iceberg.SingleValueParser;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
+import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
@@ -26,6 +28,10 @@ import org.apache.iceberg.types.Types.NestedField;
  * <p>Keys: {@code openhouse.read-bridge.column-default.<fieldId> = <single-value-json>}. {@link
  * #from} decodes; {@link #apply} overlays. Unknown keys are ignored. A malformed known entry throws
  * — that is an encoder or transport bug, not a missing default.
+ *
+ * <p>Apply rebuilds schemas with {@code NestedField.withInitialDefault} and puts them back through
+ * {@link TableMetadataParser} JSON. Missing field-id on a schema is a gap (NULL); a default that
+ * cannot bind throws.
  *
  * <p>{@link #sanitize} restores default slots on field-ids that existed in the last on-disk
  * metadata so an overlay cannot persist. New field-ids keep the writer's defaults.
@@ -45,9 +51,10 @@ final class ReadBridge {
   private static final String SCHEMAS = "schemas";
   private static final String SCHEMA_ID = "schema-id";
 
-  private final Map<Integer, JsonNode> columnDefaults;
+  /** JSON strings, not JsonNodes — Jackson is relocated in the shaded client. */
+  private final Map<Integer, String> columnDefaults;
 
-  private ReadBridge(Map<Integer, JsonNode> columnDefaults) {
+  private ReadBridge(Map<Integer, String> columnDefaults) {
     this.columnDefaults = columnDefaults;
   }
 
@@ -57,7 +64,7 @@ final class ReadBridge {
    * @throws IllegalStateException if a key this client owns is malformed
    */
   static ReadBridge from(Map<String, String> config) {
-    Map<Integer, JsonNode> columnDefaults = columnDefaults(config);
+    Map<Integer, String> columnDefaults = decodeColumnDefaults(config);
     return columnDefaults.isEmpty() ? INERT : new ReadBridge(columnDefaults);
   }
 
@@ -66,8 +73,19 @@ final class ReadBridge {
     if (columnDefaults.isEmpty()) {
       return raw;
     }
-    // TODO(read-bridge): overlay columnDefaults onto schemas.
-    return raw;
+
+    Map<Integer, Schema> overlaidById = new HashMap<>();
+    for (Schema schema : raw.schemas()) {
+      Schema overlaid = overlaySchema(schema, columnDefaults);
+      if (overlaid != schema) {
+        overlaidById.put(schema.schemaId(), overlaid);
+      }
+    }
+    if (overlaidById.isEmpty()) {
+      // Every stamped field-id is missing from every schema — leave metadata as-is.
+      return raw;
+    }
+    return replaceSchemas(raw, overlaidById);
   }
 
   /**
@@ -96,22 +114,24 @@ final class ReadBridge {
     return replaceSchemas(metadata, restoredById);
   }
 
-  Map<Integer, JsonNode> columnDefaults() {
+  Map<Integer, String> columnDefaults() {
     return columnDefaults;
   }
 
-  private static Map<Integer, JsonNode> columnDefaults(Map<String, String> config) {
+  private static Map<Integer, String> decodeColumnDefaults(Map<String, String> config) {
     if (config == null) {
       return Collections.emptyMap();
     }
-    Map<Integer, JsonNode> byFieldId = new HashMap<>();
+    Map<Integer, String> byFieldId = new HashMap<>();
     for (Map.Entry<String, String> entry : config.entrySet()) {
       if (!entry.getKey().startsWith(COLUMN_DEFAULT_PREFIX)) {
         continue;
       }
       try {
         int fieldId = Integer.parseInt(entry.getKey().substring(COLUMN_DEFAULT_PREFIX.length()));
-        byFieldId.put(fieldId, MAPPER.readTree(entry.getValue()));
+        // Validate JSON; keep the original string so apply can bind without a relocated JsonNode.
+        MAPPER.readTree(entry.getValue());
+        byFieldId.put(fieldId, entry.getValue());
       } catch (RuntimeException | JsonProcessingException e) {
         // Known keys are stamped as int field-id + JSON; anything else is a bug.
         throw new IllegalStateException(
@@ -125,6 +145,94 @@ final class ReadBridge {
       }
     }
     return byFieldId;
+  }
+
+  private static Schema overlaySchema(Schema schema, Map<Integer, String> columnDefaults) {
+    List<NestedField> columns = schema.columns();
+    List<NestedField> overlaid = new ArrayList<>(columns.size());
+    boolean changed = false;
+    for (NestedField column : columns) {
+      NestedField next = overlayField(column, columnDefaults);
+      overlaid.add(next);
+      if (next != column) {
+        changed = true;
+      }
+    }
+    if (!changed) {
+      return schema;
+    }
+    return new Schema(
+        schema.schemaId(), overlaid, schema.getAliases(), schema.identifierFieldIds());
+  }
+
+  private static NestedField overlayField(NestedField field, Map<Integer, String> columnDefaults) {
+    Type type = field.type();
+    Type overlaidType = overlayType(type, columnDefaults);
+    String defaultJson = columnDefaults.get(field.fieldId());
+
+    if (defaultJson == null && overlaidType == type) {
+      return field;
+    }
+
+    NestedField.Builder builder = NestedField.from(field);
+    if (overlaidType != type) {
+      builder.ofType(overlaidType);
+    }
+    if (defaultJson != null) {
+      try {
+        Object value = SingleValueParser.fromJson(overlaidType, defaultJson);
+        builder.withInitialDefault(Expressions.lit(value));
+      } catch (RuntimeException e) {
+        throw new IllegalStateException(
+            "read-bridge: cannot bind "
+                + COLUMN_DEFAULT_PREFIX
+                + field.fieldId()
+                + "="
+                + defaultJson
+                + " to "
+                + field,
+            e);
+      }
+    }
+    return builder.build();
+  }
+
+  private static Type overlayType(Type type, Map<Integer, String> columnDefaults) {
+    if (type.isStructType()) {
+      List<NestedField> fields = type.asStructType().fields();
+      List<NestedField> overlaid = new ArrayList<>(fields.size());
+      boolean changed = false;
+      for (NestedField field : fields) {
+        NestedField next = overlayField(field, columnDefaults);
+        overlaid.add(next);
+        if (next != field) {
+          changed = true;
+        }
+      }
+      return changed ? Types.StructType.of(overlaid) : type;
+    }
+    if (type.isListType()) {
+      Types.ListType list = type.asListType();
+      Type element = overlayType(list.elementType(), columnDefaults);
+      if (element == list.elementType()) {
+        return type;
+      }
+      return list.isElementRequired()
+          ? Types.ListType.ofRequired(list.elementId(), element)
+          : Types.ListType.ofOptional(list.elementId(), element);
+    }
+    if (type.isMapType()) {
+      Types.MapType map = type.asMapType();
+      Type key = overlayType(map.keyType(), columnDefaults);
+      Type value = overlayType(map.valueType(), columnDefaults);
+      if (key == map.keyType() && value == map.valueType()) {
+        return type;
+      }
+      return map.isValueRequired()
+          ? Types.MapType.ofRequired(map.keyId(), map.valueId(), key, value)
+          : Types.MapType.ofOptional(map.keyId(), map.valueId(), key, value);
+    }
+    return type;
   }
 
   private static Map<Integer, NestedField> indexFields(TableMetadata raw) {
