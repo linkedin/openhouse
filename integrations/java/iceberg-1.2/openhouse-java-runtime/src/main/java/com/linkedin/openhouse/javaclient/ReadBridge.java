@@ -28,7 +28,7 @@ final class ReadBridge {
   /** Same prefix the server encoder stamps. */
   static final String COLUMN_DEFAULT_PREFIX = "openhouse.read-bridge.column-default.";
 
-  /** {@link #apply} is a no-op. */
+  /** Nothing to overlay. */
   static final ReadBridge INERT = new ReadBridge(Collections.emptyMap());
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -59,8 +59,16 @@ final class ReadBridge {
     if (columnDefaults.isEmpty()) {
       return raw;
     }
-    // TODO(read-bridge): overlay columnDefaults onto schemas.
-    return raw;
+    ObjectNode root = metadataJson(raw);
+    boolean changed = false;
+    for (JsonNode field : fieldObjects(root)) {
+      String defaultJson = columnDefaults.get(field.get(ID).asInt());
+      if (defaultJson != null) {
+        ((ObjectNode) field).set(INITIAL_DEFAULT, readTree(defaultJson));
+        changed = true;
+      }
+    }
+    return changed ? fromMetadataJson(raw, root) : raw;
   }
 
   /**
