@@ -38,6 +38,7 @@ import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.util.Tasks;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
@@ -128,14 +129,28 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   }
 
   /**
-   * Loads the table metadata from storage, then runs the read-time {@link ReadBridge} over it using
-   * the per-table behavior the server stamped onto {@link #currentConfig()}. Absent config, or
-   * config carrying nothing to bridge, leaves the raw metadata untouched; a malformed known entry
-   * fails loud (see {@link ReadBridge}).
+   * Loads table metadata from storage and overlays the read-time {@link ReadBridge} behavior the
+   * server stamped onto {@link #currentConfig()}.
+   *
+   * <p>Decode runs <em>before</em> the file read so a malformed config never touches storage.
+   * Bridge failures ({@link IllegalStateException}) are wrapped as {@link
+   * Tasks.UnrecoverableException} so Iceberg's {@code Tasks.retry(20)} around this loader does not
+   * re-read the metadata file to reproduce a deterministic error. IO / parse failures from the file
+   * read remain retryable.
    */
   protected TableMetadata loadMetadata(String metadataLocation) {
+    final ReadBridge bridge;
+    try {
+      bridge = ReadBridge.from(currentConfig());
+    } catch (IllegalStateException e) {
+      throw new Tasks.UnrecoverableException(e);
+    }
     TableMetadata raw = TableMetadataParser.read(io(), metadataLocation);
-    return ReadBridge.apply(raw, currentConfig());
+    try {
+      return bridge.apply(raw);
+    } catch (IllegalStateException e) {
+      throw new Tasks.UnrecoverableException(e);
+    }
   }
 
   @Override

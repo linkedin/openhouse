@@ -33,6 +33,7 @@ import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.util.Tasks;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -562,6 +563,38 @@ public class OpenHouseTableOperationsTest {
 
     ops.doRefresh();
     Assertions.assertNull(ops.currentConfig());
+  }
+
+  /**
+   * Bridge failures must not ride Iceberg's metadata-read retry. Decode runs before any FileIO
+   * access; {@link Tasks.UnrecoverableException} keeps {@code Tasks.retry(20)} from re-reading
+   * storage ~21 times (~90s) to reproduce a deterministic config error.
+   */
+  @Test
+  public void testMalformedConfigFailsBeforeTouchingStorage() {
+    TableApi mockTableApi = mock(TableApi.class);
+    FileIO mockFileIO = mock(FileIO.class);
+    GetTableResponseBody body = mock(GetTableResponseBody.class);
+    // Non-null location, so a metadata load would otherwise be attempted.
+    when(body.getTableLocation()).thenReturn("/tmp/does-not-matter/metadata.json");
+    when(body.getConfig())
+        .thenReturn(
+            Collections.singletonMap("openhouse.read-bridge.column-default.7", "{bad json"));
+    when(mockTableApi.getTableV1(anyString(), anyString())).thenReturn(Mono.just(body));
+
+    OpenHouseTableOperations ops =
+        OpenHouseTableOperations.builder()
+            .tableIdentifier(TableIdentifier.of("db", "tbl"))
+            .fileIO(mockFileIO)
+            .tableApi(mockTableApi)
+            .snapshotApi(mock(SnapshotApi.class))
+            .cluster("cluster")
+            .build();
+
+    Tasks.UnrecoverableException thrown =
+        Assertions.assertThrows(Tasks.UnrecoverableException.class, ops::doRefresh);
+    Assertions.assertInstanceOf(IllegalStateException.class, thrown.getCause());
+    verifyNoInteractions(mockFileIO);
   }
 
   /**
