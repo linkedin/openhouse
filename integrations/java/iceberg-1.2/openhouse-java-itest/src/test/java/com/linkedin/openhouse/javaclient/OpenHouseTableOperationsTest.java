@@ -17,6 +17,7 @@ import com.linkedin.openhouse.relocated.org.springframework.http.HttpStatus;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientRequestException;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientResponseException;
 import com.linkedin.openhouse.relocated.reactor.core.publisher.Mono;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -25,14 +26,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.apache.commons.compress.utils.Lists;
+import org.apache.iceberg.Files;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.types.Types;
+import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.Tasks;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -485,80 +493,162 @@ public class OpenHouseTableOperationsTest {
   }
 
   private OpenHouseTableOperations refreshableOps(TableApi tableApi) {
+    return refreshableOps(tableApi, mock(FileIO.class));
+  }
+
+  private OpenHouseTableOperations refreshableOps(TableApi tableApi, FileIO fileIO) {
     return OpenHouseTableOperations.builder()
         .tableIdentifier(TableIdentifier.of("db", "tbl"))
-        .fileIO(mock(FileIO.class))
+        .fileIO(fileIO)
         .tableApi(tableApi)
         .snapshotApi(mock(SnapshotApi.class))
         .cluster("cluster")
         .build();
   }
 
-  /** No refresh yet → no config. */
+  /** No load yet → no config. */
   @Test
   public void testCurrentConfigNullBeforeRefresh() {
     Assertions.assertNull(refreshableOps(mock(TableApi.class)).currentConfig());
   }
 
-  /** doRefresh stores the response config. */
+  /** Config is captured when Iceberg actually reloads metadata, not merely on GET. */
   @Test
   public void testDoRefreshCapturesConfig() {
-    TableApi mockTableApi = mock(TableApi.class);
+    String location = writeTempMetadata();
     Map<String, String> stamped =
         Collections.singletonMap("openhouse.read-bridge", "{\"read\":\"ON\"}");
+    TableApi mockTableApi = mock(TableApi.class);
     GetTableResponseBody body = mock(GetTableResponseBody.class);
-    when(body.getTableLocation()).thenReturn(null);
+    when(body.getTableLocation()).thenReturn(location);
     when(body.getConfig()).thenReturn(stamped);
     when(mockTableApi.getTableV1(anyString(), anyString())).thenReturn(Mono.just(body));
 
-    OpenHouseTableOperations ops = refreshableOps(mockTableApi);
+    OpenHouseTableOperations ops = refreshableOps(mockTableApi, localFileIO());
     ops.doRefresh();
 
     Assertions.assertSame(stamped, ops.currentConfig());
   }
 
-  /** Missing config on the response is stored as null. */
+  /** Absent config on a real load => null. */
   @Test
   public void testDoRefreshNullConfigWhenAbsent() {
+    String location = writeTempMetadata();
     TableApi mockTableApi = mock(TableApi.class);
     GetTableResponseBody body = mock(GetTableResponseBody.class);
-    when(body.getTableLocation()).thenReturn(null);
+    when(body.getTableLocation()).thenReturn(location);
     when(body.getConfig()).thenReturn(null);
     when(mockTableApi.getTableV1(anyString(), anyString())).thenReturn(Mono.just(body));
 
-    OpenHouseTableOperations ops = refreshableOps(mockTableApi);
+    OpenHouseTableOperations ops = refreshableOps(mockTableApi, localFileIO());
     ops.doRefresh();
 
     Assertions.assertNull(ops.currentConfig());
   }
 
-  /** A later refresh without config clears the previous value. */
+  /**
+   * Same metadata location: Iceberg skips reload, so a later GET that stops stamping must not clear
+   * the config still paired with in-memory overlays.
+   */
   @Test
-  public void testDoRefreshClearsStaleConfig() {
-    TableApi mockTableApi = mock(TableApi.class);
+  public void testDoRefreshKeepsConfigWhenLocationUnchanged() {
+    String location = writeTempMetadata();
     Map<String, String> stamped =
         Collections.singletonMap("openhouse.read-bridge", "{\"read\":\"ON\"}");
 
     GetTableResponseBody withConfig = mock(GetTableResponseBody.class);
-    when(withConfig.getTableLocation()).thenReturn(null);
+    when(withConfig.getTableLocation()).thenReturn(location);
     when(withConfig.getConfig()).thenReturn(stamped);
 
     GetTableResponseBody withoutConfig = mock(GetTableResponseBody.class);
-    when(withoutConfig.getTableLocation()).thenReturn(null);
+    when(withoutConfig.getTableLocation()).thenReturn(location);
     when(withoutConfig.getConfig()).thenReturn(null);
 
-    // Second refresh has no config.
+    TableApi mockTableApi = mock(TableApi.class);
     when(mockTableApi.getTableV1(anyString(), anyString()))
         .thenReturn(Mono.just(withConfig))
         .thenReturn(Mono.just(withoutConfig));
 
-    OpenHouseTableOperations ops = refreshableOps(mockTableApi);
+    OpenHouseTableOperations ops = refreshableOps(mockTableApi, localFileIO());
+    ops.doRefresh();
+    Assertions.assertSame(stamped, ops.currentConfig());
 
+    ops.doRefresh();
+    Assertions.assertSame(stamped, ops.currentConfig());
+  }
+
+  /** A later load from a new metadata location binds that response's config. */
+  @Test
+  public void testDoRefreshBindsNewConfigWhenLocationChanges() {
+    // Same table UUID, two files: Iceberg reloads on location change and rejects a UUID mismatch.
+    String[] locations = writeTempMetadataPair();
+    String first = locations[0];
+    String second = locations[1];
+    Map<String, String> stamped =
+        Collections.singletonMap("openhouse.read-bridge", "{\"read\":\"ON\"}");
+
+    GetTableResponseBody withConfig = mock(GetTableResponseBody.class);
+    when(withConfig.getTableLocation()).thenReturn(first);
+    when(withConfig.getConfig()).thenReturn(stamped);
+
+    GetTableResponseBody withoutConfig = mock(GetTableResponseBody.class);
+    when(withoutConfig.getTableLocation()).thenReturn(second);
+    when(withoutConfig.getConfig()).thenReturn(null);
+
+    TableApi mockTableApi = mock(TableApi.class);
+    when(mockTableApi.getTableV1(anyString(), anyString()))
+        .thenReturn(Mono.just(withConfig))
+        .thenReturn(Mono.just(withoutConfig));
+
+    OpenHouseTableOperations ops = refreshableOps(mockTableApi, localFileIO());
     ops.doRefresh();
     Assertions.assertSame(stamped, ops.currentConfig());
 
     ops.doRefresh();
     Assertions.assertNull(ops.currentConfig());
+  }
+
+  private static String writeTempMetadata() {
+    return writeTempMetadataPair()[0];
+  }
+
+  private static String[] writeTempMetadataPair() {
+    TableMetadata created =
+        TableMetadata.newTableMetadata(
+            new Schema(NestedField.optional(1, "id", Types.IntegerType.get())),
+            PartitionSpec.unpartitioned(),
+            "file:/tmp/rb-refresh",
+            Collections.emptyMap());
+    try {
+      Path first = java.nio.file.Files.createTempFile("oh-rb-", ".metadata.json");
+      Path second = java.nio.file.Files.createTempFile("oh-rb-", ".metadata.json");
+      first.toFile().deleteOnExit();
+      second.toFile().deleteOnExit();
+      TableMetadataParser.overwrite(created, Files.localOutput(first.toFile()));
+      TableMetadataParser.overwrite(created, Files.localOutput(second.toFile()));
+      return new String[] {first.toAbsolutePath().toString(), second.toAbsolutePath().toString()};
+    } catch (Exception e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
+  private static FileIO localFileIO() {
+    return new FileIO() {
+      @Override
+      public InputFile newInputFile(String path) {
+        return Files.localInput(path);
+      }
+
+      @Override
+      public OutputFile newOutputFile(String path) {
+        return Files.localOutput(path);
+      }
+
+      @Override
+      public void deleteFile(String path) {
+        new java.io.File(path).delete();
+      }
+    };
   }
 
   /** Bad config fails before FileIO so Iceberg does not retry the metadata read. */

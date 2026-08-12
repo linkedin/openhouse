@@ -64,11 +64,12 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   private String cluster;
 
   /**
-   * Config from the last refresh, or {@code null}. Atomic so Lombok's constructor stays unchanged.
+   * Config last applied to {@code current()}, or {@code null}. Bound in {@link #loadMetadata} after
+   * apply so skip-reload cannot desync stamps from overlays.
    */
   private final AtomicReference<Map<String, String>> config = new AtomicReference<>();
 
-  /** Config from the last refresh, or {@code null}. */
+  /** Stamps last applied to {@code current()}, or {@code null}. */
   protected Map<String, String> currentConfig() {
     return config.get();
   }
@@ -109,34 +110,38 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
                 WebClientRequestException.class,
                 e -> Mono.error(new WebClientRequestWithMessageException(e)))
             .blockOptional();
-    // Keep config from the GET response; it is not a table property.
-    this.config.set(tableResponse.map(GetTableResponseBody::getConfig).orElse(null));
     Optional<String> tableLocation = tableResponse.map(GetTableResponseBody::getTableLocation);
     if (!tableLocation.isPresent() && currentMetadataLocation() != null) {
       throw new NoSuchTableException(
           "Cannot find table %s after refresh, maybe another process deleted it", tableName());
     }
-    // Parse via loadMetadata so ReadBridge can overlay after the file read.
-    super.refreshFromMetadataLocation(tableLocation.orElse(null), null, 20, this::loadMetadata);
+    Map<String, String> fetched = tableResponse.map(GetTableResponseBody::getConfig).orElse(null);
+    // Bind config in loadMetadata after apply. Iceberg skips the loader when tableLocation is
+    // unchanged; leaving config alone keeps stamps paired with the in-memory overlay.
+    super.refreshFromMetadataLocation(
+        tableLocation.orElse(null), null, 20, location -> loadMetadata(location, fetched));
     log.debug("Calling doRefresh succeeded");
   }
 
   /**
-   * Decode config, then read the metadata file, then overlay.
+   * Decode {@code fetched}, then read the metadata file, then overlay.
    *
    * <p>Decode first so a bad config never hits storage. {@link IllegalStateException} is wrapped as
-   * {@link Tasks.UnrecoverableException} so Iceberg's retry loop does not re-read the file.
+   * {@link Tasks.UnrecoverableException} so Iceberg's retry loop does not re-read the file. {@link
+   * #currentConfig()} is updated only after apply succeeds.
    */
-  protected TableMetadata loadMetadata(String metadataLocation) {
+  protected TableMetadata loadMetadata(String metadataLocation, Map<String, String> fetched) {
     final ReadBridge bridge;
     try {
-      bridge = ReadBridge.from(currentConfig());
+      bridge = ReadBridge.from(fetched);
     } catch (IllegalStateException e) {
       throw new Tasks.UnrecoverableException(e);
     }
     TableMetadata raw = TableMetadataParser.read(io(), metadataLocation);
     try {
-      return bridge.apply(raw);
+      TableMetadata bridged = bridge.apply(raw);
+      config.set(fetched);
+      return bridged;
     } catch (IllegalStateException e) {
       throw new Tasks.UnrecoverableException(e);
     }
