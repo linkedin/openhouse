@@ -581,6 +581,50 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertSame(stamped, ops.currentConfig());
   }
 
+  /**
+   * Skip-reload after a GET that stops stamping must still sanitize with the bound config. Empty GET
+   * must not let overlays persist.
+   */
+  @Test
+  public void testDoRefreshSkipReloadStillStripsStampedDefaults() {
+    String location = writeTempMetadata();
+    Map<String, String> stamped =
+        Collections.singletonMap(ReadBridge.COLUMN_DEFAULT_PREFIX + "2", "\"US\"");
+
+    GetTableResponseBody withConfig = mock(GetTableResponseBody.class);
+    when(withConfig.getTableLocation()).thenReturn(location);
+    when(withConfig.getConfig()).thenReturn(stamped);
+
+    GetTableResponseBody withoutConfig = mock(GetTableResponseBody.class);
+    when(withoutConfig.getTableLocation()).thenReturn(location);
+    when(withoutConfig.getConfig()).thenReturn(null);
+
+    TableApi mockTableApi = mock(TableApi.class);
+    when(mockTableApi.getTableV1(anyString(), anyString()))
+        .thenReturn(Mono.just(withConfig))
+        .thenReturn(Mono.just(withoutConfig));
+
+    OpenHouseTableOperations ops = refreshableOps(mockTableApi, localFileIO());
+    ops.doRefresh();
+    Assertions.assertSame(stamped, ops.currentConfig());
+
+    ops.doRefresh();
+    Assertions.assertSame(stamped, ops.currentConfig());
+
+    TableMetadata commit =
+        tableWithSchema(
+            "file:/tmp/rb-sanitize-skip-reload",
+            new Schema(
+                NestedField.optional(1, "id", Types.IntegerType.get()),
+                NestedField.from(NestedField.optional(2, "country", Types.StringType.get()))
+                    .withInitialDefault(Expressions.lit("US"))
+                    .build()));
+    Assertions.assertNull(
+        SchemaParser.fromJson(ops.constructMetadataRequestBody(null, commit).getSchema())
+            .findField(2)
+            .initialDefault());
+  }
+
   /** A later load from a new metadata location binds that response's config. */
   @Test
   public void testDoRefreshBindsNewConfigWhenLocationChanges() {
