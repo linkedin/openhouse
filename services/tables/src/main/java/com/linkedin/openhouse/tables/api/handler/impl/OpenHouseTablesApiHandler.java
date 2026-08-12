@@ -38,11 +38,7 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
 
   @Autowired private ReadBridgeConfigResolver readBridgeConfigResolver;
 
-  /**
-   * Stamp the server-resolved, per-table client {@code config} (Iceberg REST {@code
-   * LoadTableResponse.config} convention) onto a freshly mapped response body. The mapper leaves
-   * {@code config} null; it is a request-time decision resolved here.
-   */
+  /** Request-time {@code config} stamp; mapper leaves it null. */
   private GetTableResponseBody withConfig(GetTableResponseBody body, TableDto tableDto) {
     return body.toBuilder().config(readBridgeConfigResolver.resolve(tableDto)).build();
   }
