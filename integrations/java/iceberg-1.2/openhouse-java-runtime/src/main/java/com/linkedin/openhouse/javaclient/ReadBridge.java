@@ -18,14 +18,21 @@ import org.apache.iceberg.TableMetadata;
  * ReadBridgeConfigResolver} (services/tables). The contract is flat, namespaced config keys (no
  * envelope/POJO): {@code openhouse.read-bridge.column-default.<fieldId> = <single-value-json>}.
  *
- * <p>Kept out of {@link OpenHouseTableOperations} so the read path stays slim. A read-bridge entry
- * is produced by the server encoder ({@code ReadBridgeConfigResolver}) from typed {@code JsonNode}s
- * keyed by integer field-id, so its value always round-trips through {@code readTree} and its
- * suffix always parses as an int. A decode failure on a *known* entry is therefore a bug or
- * transport corruption, not an expected runtime state, and this fails loud rather than silently
- * degrading to NULL. An *unknown* key (a newer server feature this client doesn't recognize) is
- * ignored, preserving forward compatibility. With nothing to apply, {@code raw} is returned
- * unchanged.
+ * <h3>Decode before IO; mark bridge failures unrecoverable</h3>
+ *
+ * <p>{@link #from(Map)} decodes the config; {@link #apply(TableMetadata)} overlays the result onto
+ * loaded metadata. {@link OpenHouseTableOperations#loadMetadata} calls {@code from} <em>before</em>
+ * reading the metadata file so a malformed config never touches storage, then {@code apply} after.
+ * Both steps throw {@link IllegalStateException} on invariant violations; the loader wraps those as
+ * Iceberg's {@code Tasks.UnrecoverableException} so {@code Tasks.retry(20)} around the metadata
+ * read does not burn ~90s re-reading the file to reproduce a deterministic failure.
+ *
+ * <p>A read-bridge entry is produced by the server encoder from typed {@code JsonNode}s keyed by
+ * integer field-id, so its value always round-trips through {@code readTree} and its suffix always
+ * parses as an int. A decode failure on a <em>known</em> entry is therefore a bug or transport
+ * corruption, not an expected runtime state, and this fails loud rather than silently degrading to
+ * NULL. An <em>unknown</em> key (a newer server feature this client doesn't recognize) is ignored,
+ * preserving forward compatibility. With nothing to bridge, metadata is returned unchanged.
  *
  * <p>Note this guarantees only that a stamped value is <em>well-formed</em>, not that it is the
  * <em>correct</em> default for its column — that semantic (default-to-schema) consistency is a
@@ -36,16 +43,34 @@ final class ReadBridge {
   /** Mirror of {@code ReadBridgeConfigResolver.COLUMN_DEFAULT_PREFIX}. */
   static final String COLUMN_DEFAULT_PREFIX = "openhouse.read-bridge.column-default.";
 
+  /** Nothing to bridge; {@link #apply(TableMetadata)} returns metadata untouched. */
+  static final ReadBridge INERT = new ReadBridge(Collections.emptyMap());
+
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
-  private ReadBridge() {}
+  private final Map<Integer, JsonNode> columnDefaults;
+
+  private ReadBridge(Map<Integer, JsonNode> columnDefaults) {
+    this.columnDefaults = columnDefaults;
+  }
 
   /**
-   * Applies the bridged read-time behavior the server stamped into {@code config} onto {@code raw},
-   * returning the transformed metadata (or {@code raw} when there is nothing to bridge).
+   * Decodes the read-bridge behavior the server stamped into {@code config}, returning {@link
+   * #INERT} when there is nothing to bridge.
+   *
+   * @throws IllegalStateException if an entry this client owns is malformed (encoder bug or
+   *     transport corruption); unknown keys are ignored.
    */
-  static TableMetadata apply(TableMetadata raw, Map<String, String> config) {
+  static ReadBridge from(Map<String, String> config) {
     Map<Integer, JsonNode> columnDefaults = columnDefaults(config);
+    return columnDefaults.isEmpty() ? INERT : new ReadBridge(columnDefaults);
+  }
+
+  /**
+   * Applies the bridged read-time behavior onto {@code raw}, returning the transformed metadata (or
+   * {@code raw} when there is nothing to bridge).
+   */
+  TableMetadata apply(TableMetadata raw) {
     if (columnDefaults.isEmpty()) {
       return raw;
     }
@@ -56,15 +81,19 @@ final class ReadBridge {
     return raw;
   }
 
+  /** The decoded {@code field-id -> initial-default} entries. Package-visible for testing. */
+  Map<Integer, JsonNode> columnDefaults() {
+    return columnDefaults;
+  }
+
   /**
    * Decodes {@code field-id -> initial-default} from the {@code
    * openhouse.read-bridge.column-default.*} config entries; empty when there are none. On a known
    * entry, the server encoder guarantees an integer field-id and a value that round-trips through
    * {@code readTree}, so a non-integer field-id or an unparseable value is an encoder bug or
    * transport corruption — it throws rather than degrading. Unknown keys are ignored above.
-   * Package-visible for unit testing in isolation.
    */
-  static Map<Integer, JsonNode> columnDefaults(Map<String, String> config) {
+  private static Map<Integer, JsonNode> columnDefaults(Map<String, String> config) {
     if (config == null) {
       return Collections.emptyMap();
     }

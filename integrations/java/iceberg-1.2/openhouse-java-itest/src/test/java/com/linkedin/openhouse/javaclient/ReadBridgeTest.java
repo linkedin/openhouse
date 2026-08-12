@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.javaclient;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -10,8 +11,8 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for the client-side read-bridge config decoder ({@link ReadBridge#columnDefaults}),
- * exercised in isolation. Mirrors the server-side encoder {@code ReadBridgeConfigResolver}.
+ * Unit tests for the client-side read-bridge config decoder ({@link ReadBridge#from}), exercised in
+ * isolation. Mirrors the server-side encoder {@code ReadBridgeConfigResolver}.
  */
 class ReadBridgeTest {
 
@@ -24,15 +25,16 @@ class ReadBridgeTest {
     Map<String, String> config = new HashMap<>();
     config.put(PREFIX + "5", "\"US\"");
     config.put(PREFIX + "7", "0");
-    assertEquals(2, ReadBridge.columnDefaults(config).size());
-    assertEquals("US", ReadBridge.columnDefaults(config).get(5).asText());
-    assertEquals(0, ReadBridge.columnDefaults(config).get(7).asInt());
+    assertEquals(2, ReadBridge.from(config).columnDefaults().size());
+    assertEquals("US", ReadBridge.from(config).columnDefaults().get(5).asText());
+    assertEquals(0, ReadBridge.from(config).columnDefaults().get(7).asInt());
   }
 
   @Test
-  void emptyWhenConfigNullOrNoReadBridgeKeys() {
-    assertTrue(ReadBridge.columnDefaults(null).isEmpty());
-    assertTrue(ReadBridge.columnDefaults(Collections.singletonMap("other.key", "x")).isEmpty());
+  void inertWhenConfigNullOrNoReadBridgeKeys() {
+    assertSame(ReadBridge.INERT, ReadBridge.from(null));
+    assertSame(ReadBridge.INERT, ReadBridge.from(Collections.singletonMap("other.key", "x")));
+    assertTrue(ReadBridge.INERT.columnDefaults().isEmpty());
   }
 
   @Test
@@ -42,14 +44,14 @@ class ReadBridgeTest {
     Map<String, String> config = new HashMap<>();
     config.put(PREFIX + "5", "\"US\"");
     config.put(PREFIX + "notAnInt", "\"x\"");
-    assertThrows(IllegalStateException.class, () -> ReadBridge.columnDefaults(config));
+    assertThrows(IllegalStateException.class, () -> ReadBridge.from(config));
   }
 
   @Test
   void failsLoudOnKnownEntryWithUnparseableValue() {
     Map<String, String> config = new HashMap<>();
     config.put(PREFIX + "7", "{bad json");
-    assertThrows(IllegalStateException.class, () -> ReadBridge.columnDefaults(config));
+    assertThrows(IllegalStateException.class, () -> ReadBridge.from(config));
   }
 
   @Test
@@ -59,7 +61,7 @@ class ReadBridgeTest {
     Map<String, String> config = new HashMap<>();
     config.put(PREFIX + "5", "\"US\"");
     config.put("openhouse.read-bridge.some-future-feature.3", "{not a default}");
-    assertEquals(1, ReadBridge.columnDefaults(config).size());
-    assertEquals("US", ReadBridge.columnDefaults(config).get(5).asText());
+    assertEquals(1, ReadBridge.from(config).columnDefaults().size());
+    assertEquals("US", ReadBridge.from(config).columnDefaults().get(5).asText());
   }
 }
