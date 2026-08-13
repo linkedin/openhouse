@@ -1,0 +1,48 @@
+plugins {
+  id 'openhouse.java-minimal-conventions'
+  id 'openhouse.maven-publish'
+  id 'scala'
+}
+
+// The delta-harness behavioral matrix, published as a portable Scala library so it can be authored
+// and run ONCE and consumed in two homes:
+//   1. LOCALLY in this repo against the embedded catalog (see Env.scala + run-openhouse.sh), and
+//   2. As an acceptance test in a downstream environment against a real cluster, which depends on this
+//      published artifact and supplies only its own environment adapter.
+//
+// Only the portable scenario/framework sources are published. Env.scala boots the embedded OpenHouse
+// server + House Table Service and pulls in Spring/housetables/tables-test-fixtures, so it is EXCLUDED
+// from the published library and compiled separately for the local run (it depends on this library).
+
+ext {
+  icebergVersion = rootProject.ext.iceberg_1_5_version
+  sparkVersion = '3.5.2'
+  scalaLibVersion = '2.12.18'
+}
+
+sourceSets {
+  main {
+    scala {
+      srcDirs = ['src/main/scala']
+      // Embedded-only boot/run wiring — not part of the portable, publishable library.
+      exclude 'harness/openhouse/Env.scala'
+    }
+  }
+}
+
+dependencies {
+  implementation "org.scala-lang:scala-library:${scalaLibVersion}"
+
+  // Compile-only: the consumer (Env.scala locally, or a downstream environment adapter) provides the
+  // actual Spark, Iceberg and OpenHouse client runtime. The library jar carries only the harness classes.
+  compileOnly("org.apache.spark:spark-sql_2.12:${sparkVersion}") {
+    exclude group: 'io.netty'
+  }
+  compileOnly("com.linkedin.iceberg:iceberg-spark-runtime-3.5_2.12:${icebergVersion}") {
+    exclude group: 'io.netty'
+  }
+  // Provides com.linkedin.openhouse.javaclient.* (WebClientResponseWithMessageException, etc.).
+  compileOnly(project(path: ':integrations:spark:spark-3.5:openhouse-spark-3.5-runtime_2.12', configuration: 'shadow'))
+}
+
+jar.enabled = true
