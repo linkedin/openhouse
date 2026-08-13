@@ -24,5 +24,6 @@ public class UnsupportedClientOperationException extends RuntimeException {
     RTAS_DISABLED,
     COLUMN_DEFAULT_REWRITE,
     COLUMN_DEFAULT_REMOVED,
+    COLUMN_DEFAULT_UNUSABLE,
   }
 }

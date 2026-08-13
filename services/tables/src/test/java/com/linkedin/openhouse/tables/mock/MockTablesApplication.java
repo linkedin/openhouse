@@ -2,7 +2,11 @@ package com.linkedin.openhouse.tables.mock;
 
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultsSource;
+import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
+import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
+import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.actuate.autoconfigure.security.servlet.ManagementWebSecurityAutoConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -11,6 +15,7 @@ import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.FilterType;
 
@@ -25,7 +30,6 @@ import org.springframework.context.annotation.FilterType;
       "com.linkedin.openhouse.cluster.configs",
       "com.linkedin.openhouse.cluster.storage",
       "com.linkedin.openhouse.tables.services",
-      "com.linkedin.openhouse.tables.readbridge",
       "com.linkedin.openhouse.tables.utils",
       "com.linkedin.openhouse.common.audit",
       "com.linkedin.openhouse.common.exception",
@@ -53,4 +57,21 @@ public class MockTablesApplication {
   @MockBean OpenHouseInternalCatalog openHouseInternalCatalog;
 
   @MockBean HouseTableRepository houseTableRepository;
+
+  /**
+   * Mock tests scan {@code tables.api.validator}, not {@code tables.api}, so {@code ApiConfig} is
+   * not loaded. Wire a no-op strip guard rather than component-scanning {@code tables.readbridge}.
+   */
+  @Bean
+  public ReadBridgeStripProtection readBridgeStripProtection() {
+    TableFeatureToggle unused =
+        new TableFeatureToggle() {
+          @Override
+          public boolean isFeatureActivated(String databaseId, String tableId, String featureId) {
+            return false;
+          }
+        };
+    return new ReadBridgeStripProtection(
+        new ReadBridgeConfigResolver(ColumnDefaultsSource.NONE, unused));
+  }
 }
