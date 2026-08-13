@@ -2,6 +2,8 @@ package com.linkedin.openhouse.housetables.api.spec.model;
 
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.ALPHA_NUM_UNDERSCORE_ERROR_MSG;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.ALPHA_NUM_UNDERSCORE_REGEX;
+import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.ENTITY_TYPE_ERROR_MSG;
+import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.ENTITY_TYPE_REGEX;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.gson.Gson;
@@ -60,6 +62,15 @@ public class UserTable {
   @Schema(description = "Creation time of the table.", example = "1651002318265")
   @JsonProperty(value = "creationTime")
   private Long creationTime;
+
+  @Schema(
+      description =
+          "Type of the catalog object occupying this (databaseId, tableId) key. Null or 'TABLE' "
+              + "means a table; 'VIEW' means a view. Matched case-insensitively.",
+      example = "TABLE")
+  @JsonProperty(value = "entityType")
+  @Pattern(regexp = ENTITY_TYPE_REGEX, message = ENTITY_TYPE_ERROR_MSG)
+  private String entityType;
 
   @Schema(
       description =

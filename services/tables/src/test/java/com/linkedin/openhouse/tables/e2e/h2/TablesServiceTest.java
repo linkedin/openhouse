@@ -15,8 +15,10 @@ import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitial
 import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
+import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
+import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
@@ -28,19 +30,29 @@ import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.services.TablesService;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
+import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.types.Types;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -1016,5 +1028,315 @@ public class TablesServiceTest {
         () ->
             tablesService.restoreTable(
                 nonExistentDbId, "nonexistent_table", deletedAtMs, TEST_USER));
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Shared-key occupancy and wrong-type guards on the table service
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * Raw pointer rows must be seeded through the pointer repository directly, because a VIEW row is
+   * invisible to the table API and therefore cannot be created — or cleaned up — through it. Every
+   * seeded key is removed in {@link #deleteSeededPointers()}.
+   */
+  @Autowired HouseTableRepository houseTablesRepository;
+
+  private final List<HouseTablePrimaryKey> seededPointerKeys = new ArrayList<>();
+
+  private final List<Path> seededDirectories = new ArrayList<>();
+
+  @AfterEach
+  public void deleteSeededPointers() throws IOException {
+    for (HouseTablePrimaryKey key : seededPointerKeys) {
+      try {
+        houseTablesRepository.deleteById(key);
+      } catch (Exception e) {
+        // Best effort: cleanup must not mask the real assertion failure.
+      }
+    }
+    seededPointerKeys.clear();
+    for (Path directory : seededDirectories) {
+      try (Stream<Path> paths = Files.walk(directory)) {
+        paths.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+      } catch (Exception e) {
+        // Best effort.
+      }
+    }
+    seededDirectories.clear();
+  }
+
+  private static final String OCCUPANCY_DB = "entity_type_occupancy_db";
+
+  /**
+   * Seeds a raw pointer whose {@code tableLocation} points at a real on-disk metadata.json under
+   * the storage root, so a purge attempt would be observable as a missing file.
+   */
+  private HouseTablePrimaryKey seedRawPointer(String databaseId, String tableId, String entityType)
+      throws IOException {
+    Path tableDirectory =
+        Paths.get(
+            storageManager.getDefaultStorage().getClient().getRootPrefix(),
+            databaseId,
+            tableId + "-" + UUID.randomUUID());
+    Files.createDirectories(tableDirectory);
+    Path metadataFile = tableDirectory.resolve("00001-seeded.metadata.json");
+    Files.write(metadataFile, "{\"not\":\"parsed by these tests\"}".getBytes());
+    seededDirectories.add(tableDirectory);
+
+    houseTablesRepository.save(
+        HouseTable.builder()
+            .databaseId(databaseId)
+            .tableId(tableId)
+            .clusterId(TABLE_DTO.getClusterId())
+            .tableUri(String.format("%s.%s.%s", TABLE_DTO.getClusterId(), databaseId, tableId))
+            .tableUUID(UUID.randomUUID().toString())
+            .tableLocation(metadataFile.toString())
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .entityType(entityType)
+            .build());
+
+    HouseTablePrimaryKey key =
+        HouseTablePrimaryKey.builder().databaseId(databaseId).tableId(tableId).build();
+    seededPointerKeys.add(key);
+    return key;
+  }
+
+  private HouseTable reloadPointer(HouseTablePrimaryKey key) {
+    return houseTablesRepository
+        .findById(key)
+        .orElseThrow(
+            () ->
+                new AssertionError(
+                    "Raw pointer " + key.getDatabaseId() + "." + key.getTableId() + " is gone"));
+  }
+
+  /** Snapshot of every metadata.json under a database's storage root. */
+  private Set<String> metadataFilesUnder(String databaseId) throws IOException {
+    Path databaseRoot =
+        Paths.get(storageManager.getDefaultStorage().getClient().getRootPrefix(), databaseId);
+    if (!Files.exists(databaseRoot)) {
+      return Collections.emptySet();
+    }
+    try (Stream<Path> paths = Files.walk(databaseRoot)) {
+      return paths
+          .filter(p -> p.toString().endsWith(".metadata.json"))
+          .map(Path::toString)
+          .collect(Collectors.toSet());
+    }
+  }
+
+  /**
+   * CREATE TABLE at a view-occupied name must be rejected with an accurate typed 409 BEFORE any
+   * authorization decision and BEFORE any metadata file is written.
+   *
+   * <p>This is the test that fails against a naive design that only guards the table {@code
+   * doRefresh}: with that design the typed load reports "no table", so the create proceeds through
+   * authorization, allocates a location, and writes a candidate metadata.json — leaving an orphaned
+   * file and surfacing a misleading concurrency 409 from the HTS publish boundary. The load-bearing
+   * assertions here are therefore the unchanged metadata-file set and the never-authorized
+   * verification, not the exception type.
+   */
+  @Test
+  public void testCreateTableRejectsViewOccupancyBeforeAuthorizationOrMetadata()
+      throws IOException {
+    HouseTablePrimaryKey viewKey = seedRawPointer(OCCUPANCY_DB, "occupied_by_view", "VIEW");
+    HouseTable before = reloadPointer(viewKey);
+    Set<String> metadataFilesBefore = metadataFilesUnder(OCCUPANCY_DB);
+
+    // Nothing authorizes during raw-repository seeding, so a plain never() verification is enough.
+    Mockito.verify(authorizationHandler, Mockito.never())
+        .checkAccessDecision(Mockito.any(), (DatabaseDto) Mockito.any(), Mockito.any());
+
+    TableDto createDto =
+        TABLE_DTO
+            .toBuilder()
+            .databaseId(OCCUPANCY_DB)
+            .tableId("occupied_by_view")
+            .tableUri(TABLE_DTO.getClusterId() + "." + OCCUPANCY_DB + ".occupied_by_view")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .build();
+
+    AlreadyExistsException thrown =
+        Assertions.assertThrows(
+            AlreadyExistsException.class,
+            () ->
+                tablesService.putTable(
+                    buildCreateUpdateTableRequestBody(createDto), TEST_USER, true));
+    Assertions.assertEquals(
+        "Table name " + OCCUPANCY_DB + ".occupied_by_view is occupied by a view",
+        thrown.getMessage());
+
+    HouseTable after = reloadPointer(viewKey);
+    Assertions.assertEquals("VIEW", after.getEntityType());
+    Assertions.assertEquals(before.getEntityType(), after.getEntityType());
+    Assertions.assertEquals(before.getTableLocation(), after.getTableLocation());
+    Assertions.assertEquals(before.getTableUUID(), after.getTableUUID());
+
+    Assertions.assertEquals(
+        metadataFilesBefore,
+        metadataFilesUnder(OCCUPANCY_DB),
+        "A rejected create must not write a candidate metadata.json");
+
+    Mockito.verify(authorizationHandler, Mockito.never())
+        .checkAccessDecision(Mockito.any(), (DatabaseDto) Mockito.any(), Mockito.any());
+    Mockito.verify(authorizationHandler, Mockito.never())
+        .checkAccessDecision(Mockito.any(), (TableDto) Mockito.any(), Mockito.any());
+  }
+
+  /** A view (any spelling) or unknown type can never be dropped through the table API. */
+  @ParameterizedTest
+  @ValueSource(strings = {"VIEW", "view", "ViEw", "UNKNOWN"})
+  public void testDeleteTableRejectsNonTableAndPreservesPointer(String entityType)
+      throws IOException {
+    HouseTablePrimaryKey key = seedRawPointer(OCCUPANCY_DB, "no_drop_target", entityType);
+    HouseTable before = reloadPointer(key);
+    Path metadataFile = Paths.get(before.getTableLocation());
+    Assertions.assertTrue(Files.exists(metadataFile));
+
+    Assertions.assertThrows(
+        NoSuchUserTableException.class,
+        () -> tablesService.deleteTable(OCCUPANCY_DB, "no_drop_target", TEST_USER));
+
+    HouseTable after = reloadPointer(key);
+    Assertions.assertEquals(entityType, after.getEntityType());
+    Assertions.assertEquals(before.getTableLocation(), after.getTableLocation());
+    Assertions.assertTrue(
+        Files.exists(metadataFile), "A rejected drop must not purge the object's storage prefix");
+  }
+
+  /** A wrong-type rename SOURCE reads as "no such table" and nothing is created or moved. */
+  @ParameterizedTest
+  @ValueSource(strings = {"VIEW", "view", "ViEw", "UNKNOWN"})
+  public void testRenameTableRejectsNonTableSourceAndPreservesPointer(String entityType)
+      throws IOException {
+    HouseTablePrimaryKey sourceKey = seedRawPointer(OCCUPANCY_DB, "no_rename_source", entityType);
+    HouseTable before = reloadPointer(sourceKey);
+
+    Assertions.assertThrows(
+        NoSuchUserTableException.class,
+        () ->
+            tablesService.renameTable(
+                OCCUPANCY_DB, "no_rename_source", OCCUPANCY_DB, "renamed_target", TEST_USER));
+
+    HouseTable after = reloadPointer(sourceKey);
+    Assertions.assertEquals(entityType, after.getEntityType());
+    Assertions.assertEquals(before.getTableLocation(), after.getTableLocation());
+    Assertions.assertFalse(
+        houseTablesRepository
+            .findById(
+                HouseTablePrimaryKey.builder()
+                    .databaseId(OCCUPANCY_DB)
+                    .tableId("renamed_target")
+                    .build())
+            .isPresent(),
+        "A rejected rename must not create the destination pointer");
+  }
+
+  /**
+   * Renaming a real table onto a view-occupied destination must fail with an accurate typed 409
+   * BEFORE authorization, before any pointer mutation, and before any metadata is written.
+   *
+   * <p>The exception TYPE alone proves nothing here: the shared primary key would eventually raise
+   * the same {@link AlreadyExistsException} from the storage layer. What kills that accidental
+   * fallback is (a) the byte-identical destination pointer, (b) the unchanged source {@code
+   * *.metadata.json} file set — the fallback only triggers after a candidate file is written — and
+   * (c) the verification that no authorization decision was ever taken.
+   */
+  @Test
+  public void testRenameTableRejectsViewDestinationBeforeAuthorizationOrMetadata()
+      throws IOException {
+    TableDto sourceDto =
+        TABLE_DTO
+            .toBuilder()
+            .databaseId(OCCUPANCY_DB)
+            .tableId("rename_source")
+            .tableUri(TABLE_DTO.getClusterId() + "." + OCCUPANCY_DB + ".rename_source")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .build();
+    TableDto created = verifyPutTableRequest(sourceDto, null, true);
+    HouseTablePrimaryKey sourceKey =
+        HouseTablePrimaryKey.builder().databaseId(OCCUPANCY_DB).tableId("rename_source").build();
+    Path sourceDirectory = Paths.get(URI.create(created.getTableLocation())).getParent();
+    // Register the real source table for teardown immediately after creation, so it cannot survive
+    // the class if any assertion below fails. @AfterEach removes both the pointer and the files.
+    seededPointerKeys.add(sourceKey);
+    seededDirectories.add(sourceDirectory);
+
+    HouseTablePrimaryKey destinationKey = seedRawPointer(OCCUPANCY_DB, "rename_dest_view", "VIEW");
+
+    HouseTable sourceBefore = reloadPointer(sourceKey);
+    HouseTable destinationBefore = reloadPointer(destinationKey);
+    Set<String> sourceMetadataBefore = metadataFilesIn(sourceDirectory);
+
+    // Source setup legitimately authorizes; clear the recorded invocations (but keep the stubs) so
+    // the never() verification below is about the rename only.
+    Mockito.clearInvocations(authorizationHandler);
+
+    AlreadyExistsException thrown =
+        Assertions.assertThrows(
+            AlreadyExistsException.class,
+            () ->
+                tablesService.renameTable(
+                    OCCUPANCY_DB, "rename_source", OCCUPANCY_DB, "rename_dest_view", TEST_USER));
+    Assertions.assertEquals(
+        "Table name " + OCCUPANCY_DB + ".rename_dest_view is occupied by a view",
+        thrown.getMessage());
+
+    HouseTable destinationAfter = reloadPointer(destinationKey);
+    Assertions.assertEquals("VIEW", destinationAfter.getEntityType());
+    Assertions.assertEquals(
+        destinationBefore.getTableLocation(), destinationAfter.getTableLocation());
+    Assertions.assertEquals(destinationBefore.getTableUUID(), destinationAfter.getTableUUID());
+
+    HouseTable sourceAfter = reloadPointer(sourceKey);
+    Assertions.assertEquals(sourceBefore.getTableLocation(), sourceAfter.getTableLocation());
+    Assertions.assertEquals(sourceBefore.getEntityType(), sourceAfter.getEntityType());
+
+    Assertions.assertEquals(
+        sourceMetadataBefore,
+        metadataFilesIn(sourceDirectory),
+        "A rejected rename must not write a new source metadata.json");
+
+    Mockito.verify(authorizationHandler, Mockito.never())
+        .checkAccessDecision(Mockito.any(), (DatabaseDto) Mockito.any(), Mockito.any());
+    Mockito.verify(authorizationHandler, Mockito.never())
+        .checkAccessDecision(Mockito.any(), (TableDto) Mockito.any(), Mockito.any());
+    // No explicit deleteTable here: sourceKey/sourceDirectory are registered for @AfterEach
+    // teardown above, so cleanup happens even if an assertion between here and there fails.
+  }
+
+  /**
+   * Service-layer complement to the HTTP 404 tests: reading a view (any spelling) or an unknown
+   * discriminator through the table API is indistinguishable from "no such table", and the read
+   * itself must not disturb the pointer.
+   */
+  @ParameterizedTest
+  @ValueSource(strings = {"VIEW", "view", "ViEw", "UNKNOWN"})
+  public void testGetTableRejectsNonTableAndPreservesPointer(String entityType) throws IOException {
+    HouseTablePrimaryKey key = seedRawPointer(OCCUPANCY_DB, "read_as_table", entityType);
+    HouseTable before = reloadPointer(key);
+
+    Assertions.assertThrows(
+        NoSuchUserTableException.class,
+        () -> tablesService.getTable(OCCUPANCY_DB, "read_as_table", TEST_USER));
+
+    HouseTable after = reloadPointer(key);
+    Assertions.assertEquals(entityType, after.getEntityType());
+    Assertions.assertEquals(before.getTableLocation(), after.getTableLocation());
+    Assertions.assertTrue(
+        Files.exists(Paths.get(before.getTableLocation())),
+        "A rejected read must not touch the object's files");
+  }
+
+  private Set<String> metadataFilesIn(Path directory) throws IOException {
+    if (directory == null || !Files.exists(directory)) {
+      return Collections.emptySet();
+    }
+    try (Stream<Path> paths = Files.walk(directory)) {
+      return paths
+          .filter(p -> p.toString().endsWith(".metadata.json"))
+          .map(Path::toString)
+          .collect(Collectors.toSet());
+    }
   }
 }

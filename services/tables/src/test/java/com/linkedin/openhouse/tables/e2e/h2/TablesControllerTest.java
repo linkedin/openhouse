@@ -23,7 +23,9 @@ import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitial
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
+import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
+import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
@@ -57,6 +59,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import lombok.SneakyThrows;
 import org.apache.commons.lang.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -67,8 +70,11 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.types.Types;
 import org.json.JSONObject;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mockito;
@@ -2060,5 +2066,303 @@ public class TablesControllerTest {
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
         .andReturn();
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // View isolation and shared-key collisions over the table HTTP API
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * Raw pointer rows must be seeded through the pointer repository directly, because a VIEW row is
+   * invisible to the table HTTP API and therefore cannot be created — or cleaned up — through it.
+   * Every seeded key is removed in {@link #deleteSeededPointers()}.
+   */
+  @Autowired HouseTableRepository houseTablesRepository;
+
+  private final List<HouseTablePrimaryKey> seededPointerKeys = new ArrayList<>();
+
+  @AfterEach
+  void deleteSeededPointers() {
+    for (HouseTablePrimaryKey key : seededPointerKeys) {
+      try {
+        houseTablesRepository.deleteById(key);
+      } catch (Exception e) {
+        // Best effort: cleanup must not mask the real assertion failure.
+      }
+    }
+    seededPointerKeys.clear();
+  }
+
+  private static final String VIEW_MIX_DB = "viewmixdb";
+
+  private void seedRawPointer(String databaseId, String tableId, String entityType) {
+    houseTablesRepository.save(
+        HouseTable.builder()
+            .databaseId(databaseId)
+            .tableId(tableId)
+            .clusterId("test-cluster")
+            .tableUri(String.format("test-cluster.%s.%s", databaseId, tableId))
+            .tableUUID(UUID.randomUUID().toString())
+            .tableLocation(
+                String.format("/base/%s/%s-uuid/00001-x.metadata.json", databaseId, tableId))
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .entityType(entityType)
+            .build());
+    seededPointerKeys.add(
+        HouseTablePrimaryKey.builder().databaseId(databaseId).tableId(tableId).build());
+  }
+
+  /**
+   * Canonical interleaved fixture: four visible tables (two legacy NULL, two explicit TABLE)
+   * interleaved with three VIEW rows. A fetch-then-filter implementation returns a SHORT first page
+   * (1 row) with totalElements=7/totalPages=4.
+   */
+  private void seedCanonicalPointers() {
+    seedRawPointer(VIEW_MIX_DB, "t00_legacy", null);
+    seedRawPointer(VIEW_MIX_DB, "t01_view", "VIEW");
+    seedRawPointer(VIEW_MIX_DB, "t02_explicit", "TABLE");
+    seedRawPointer(VIEW_MIX_DB, "t03_view", "VIEW");
+    seedRawPointer(VIEW_MIX_DB, "t04_legacy", null);
+    seedRawPointer(VIEW_MIX_DB, "t05_view", "VIEW");
+    seedRawPointer(VIEW_MIX_DB, "t06_explicit", "TABLE");
+  }
+
+  @Test
+  public void testSearchTablesExcludesInterleavedViews() throws Exception {
+    seedCanonicalPointers();
+
+    mvc.perform(
+            MockMvcRequestBuilders.post(
+                    String.format(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                            + "/databases/%s/tables/search",
+                        VIEW_MIX_DB))
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.results", hasSize(4)))
+        .andExpect(
+            jsonPath(
+                "$.results[*].tableId",
+                containsInAnyOrder("t00_legacy", "t02_explicit", "t04_legacy", "t06_explicit")))
+        .andExpect(jsonPath("$.results[*].tableId", not(hasItem("t01_view"))))
+        .andExpect(jsonPath("$.results[*].tableId", not(hasItem("t03_view"))))
+        .andExpect(jsonPath("$.results[*].tableId", not(hasItem("t05_view"))));
+  }
+
+  @Test
+  public void testSearchTablesFiltersBeforePagination() throws Exception {
+    seedCanonicalPointers();
+
+    mvc.perform(
+            MockMvcRequestBuilders.post("/v2/databases/" + VIEW_MIX_DB + "/tables/search")
+                .param("page", "0")
+                .param("size", "2")
+                .param("sortBy", "tableId")
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pageResults.totalElements", is(4)))
+        .andExpect(jsonPath("$.pageResults.totalPages", is(2)))
+        .andExpect(jsonPath("$.pageResults.content", hasSize(2)))
+        .andExpect(jsonPath("$.pageResults.content[0].tableId", is("t00_legacy")))
+        .andExpect(jsonPath("$.pageResults.content[1].tableId", is("t02_explicit")));
+
+    mvc.perform(
+            MockMvcRequestBuilders.post("/v2/databases/" + VIEW_MIX_DB + "/tables/search")
+                .param("page", "1")
+                .param("size", "2")
+                .param("sortBy", "tableId")
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pageResults.totalElements", is(4)))
+        .andExpect(jsonPath("$.pageResults.totalPages", is(2)))
+        .andExpect(jsonPath("$.pageResults.content", hasSize(2)))
+        .andExpect(jsonPath("$.pageResults.content[0].tableId", is("t04_legacy")))
+        .andExpect(jsonPath("$.pageResults.content[1].tableId", is("t06_explicit")));
+  }
+
+  @Test
+  public void testSearchTablesWithFieldsFiltersBeforePagination() throws Exception {
+    seedCanonicalPointers();
+
+    mvc.perform(
+            MockMvcRequestBuilders.post("/v2/databases/" + VIEW_MIX_DB + "/tables/search")
+                .param("page", "0")
+                .param("size", "2")
+                .param("sortBy", "tableId")
+                .param("fields", "tableLocation")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pageResults.totalElements", is(4)))
+        .andExpect(jsonPath("$.pageResults.totalPages", is(2)))
+        .andExpect(jsonPath("$.pageResults.content", hasSize(2)))
+        .andExpect(jsonPath("$.pageResults.content[0].tableId", is("t00_legacy")))
+        .andExpect(jsonPath("$.pageResults.content[1].tableId", is("t02_explicit")))
+        .andExpect(
+            jsonPath(
+                "$.pageResults.content[0].tableLocation",
+                is("/base/" + VIEW_MIX_DB + "/t00_legacy-uuid/00001-x.metadata.json")))
+        .andExpect(
+            jsonPath(
+                "$.pageResults.content[1].tableLocation",
+                is("/base/" + VIEW_MIX_DB + "/t02_explicit-uuid/00001-x.metadata.json")));
+
+    mvc.perform(
+            MockMvcRequestBuilders.post("/v2/databases/" + VIEW_MIX_DB + "/tables/search")
+                .param("page", "1")
+                .param("size", "2")
+                .param("sortBy", "tableId")
+                .param("fields", "tableLocation")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pageResults.totalElements", is(4)))
+        .andExpect(jsonPath("$.pageResults.totalPages", is(2)))
+        .andExpect(jsonPath("$.pageResults.content", hasSize(2)))
+        .andExpect(jsonPath("$.pageResults.content[0].tableId", is("t04_legacy")))
+        .andExpect(jsonPath("$.pageResults.content[1].tableId", is("t06_explicit")));
+  }
+
+  /**
+   * CREATE TABLE at a name already occupied by a view must be an accurate 409 with a message that
+   * names the real condition. A guard implemented only in the table {@code doRefresh} would let the
+   * create proceed all the way to the HTS publish boundary and surface a misleading concurrent
+   * modification error instead.
+   */
+  @Test
+  public void testCreateTableOnViewNameReturnsTypedCollision() throws Exception {
+    seedRawPointer(VIEW_MIX_DB, "occupied_by_view", "VIEW");
+
+    GetTableResponseBody createBody =
+        buildGetTableResponseBodyWithDbTbl(VIEW_MIX_DB, "occupied_by_view");
+
+    mvc.perform(
+            MockMvcRequestBuilders.post(
+                    String.format(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/",
+                        VIEW_MIX_DB))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    buildCreateUpdateTableRequestBody(createBody)
+                        .toBuilder()
+                        .baseTableVersion(INITIAL_TABLE_VERSION)
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isConflict())
+        .andExpect(
+            jsonPath(
+                "$.message",
+                is("Table name " + VIEW_MIX_DB + ".occupied_by_view is occupied by a view")));
+  }
+
+  /** Renaming a real table onto a view's name is the same accurate 409. */
+  @Test
+  public void testRenameTableToViewNameReturnsTypedCollision() throws Exception {
+    GetTableResponseBody source = buildGetTableResponseBodyWithDbTbl(VIEW_MIX_DB, "rename_source");
+    RequestAndValidateHelper.createTableAndValidateResponse(source, mvc, storageManager);
+    seedRawPointer(VIEW_MIX_DB, "rename_dest_view", "VIEW");
+
+    try {
+      mvc.perform(
+              MockMvcRequestBuilders.patch(
+                      String.format(
+                          ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                              + "/databases/%s/tables/%s/rename",
+                          VIEW_MIX_DB,
+                          "rename_source"))
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .param("toTableId", "rename_dest_view")
+                  .param("toDatabaseId", VIEW_MIX_DB)
+                  .accept(MediaType.APPLICATION_JSON))
+          .andExpect(status().isConflict())
+          .andExpect(
+              jsonPath(
+                  "$.message",
+                  is("Table name " + VIEW_MIX_DB + ".rename_dest_view is occupied by a view")));
+
+      // The source table must still be there under its original name.
+      getTable(VIEW_MIX_DB, "rename_source");
+    } finally {
+      RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, source);
+    }
+  }
+
+  /**
+   * HTTP contract for reading a view through the table API: <b>404, not 400</b>.
+   *
+   * <p>The status code is the assertion, not the exception type. The Java/Spark client's {@code
+   * OpenHouseTableOperations.doRefresh} resumes as an empty {@code Optional} on <em>both</em> 404
+   * and 400, so an implementation that surfaced a 400 (or a 200 with an empty body, or a 500 from
+   * an unguarded NPE) would look correct to every Spark/Java client while being wrong for the REST
+   * contract, curl, and the audit log. Only an explicit status assertion pins it.
+   *
+   * <p>UNKNOWN is included because an unrecognized discriminator must fail closed the same way,
+   * rather than being read as a legacy table.
+   */
+  @ParameterizedTest
+  @ValueSource(strings = {"VIEW", "view", "ViEw", "UNKNOWN"})
+  public void testGetTableOnViewNameReturnsNotFound(String entityType) throws Exception {
+    seedRawPointer(VIEW_MIX_DB, "read_as_table", entityType);
+
+    mvc.perform(
+            MockMvcRequestBuilders.get(
+                    String.format(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                            + "/databases/%s/tables/%s",
+                        VIEW_MIX_DB,
+                        "read_as_table"))
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.status", is(equalTo(HttpStatus.NOT_FOUND.name()))))
+        .andExpect(jsonPath("$.error", is(equalTo(HttpStatus.NOT_FOUND.getReasonPhrase()))));
+
+    // The pointer is hidden from the table API, not destroyed by reading it.
+    Assertions.assertTrue(
+        houseTablesRepository
+            .findById(
+                HouseTablePrimaryKey.builder()
+                    .databaseId(VIEW_MIX_DB)
+                    .tableId("read_as_table")
+                    .build())
+            .isPresent());
+  }
+
+  /**
+   * HTTP contract for dropping a view through the table API: <b>404, not 400</b>, and the pointer
+   * plus its files survive.
+   *
+   * <p>This is the path where a {@code doRefresh}-only guard does nothing at all: {@code
+   * TablesServiceImpl.deleteTable} deliberately bypasses {@code loadTable} via {@code
+   * findTableRefById} so that drop still works on corrupted metadata. The guard therefore has to
+   * live in the table-ref projection, and this test is what proves it does.
+   */
+  @ParameterizedTest
+  @ValueSource(strings = {"VIEW", "view", "ViEw", "UNKNOWN"})
+  public void testDeleteTableOnViewNameReturnsNotFound(String entityType) throws Exception {
+    seedRawPointer(VIEW_MIX_DB, "drop_as_table", entityType);
+
+    mvc.perform(
+            MockMvcRequestBuilders.delete(
+                    String.format(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                            + "/databases/%s/tables/%s",
+                        VIEW_MIX_DB,
+                        "drop_as_table"))
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.status", is(equalTo(HttpStatus.NOT_FOUND.name()))))
+        .andExpect(jsonPath("$.error", is(equalTo(HttpStatus.NOT_FOUND.getReasonPhrase()))));
+
+    Assertions.assertTrue(
+        houseTablesRepository
+            .findById(
+                HouseTablePrimaryKey.builder()
+                    .databaseId(VIEW_MIX_DB)
+                    .tableId("drop_as_table")
+                    .build())
+            .isPresent(),
+        "A rejected drop must leave the view pointer in place");
   }
 }
