@@ -9,6 +9,7 @@ import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
+import com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
@@ -105,9 +106,14 @@ public class TablesServiceImpl implements TablesService {
     String databaseId = createUpdateTableRequestBody.getDatabaseId();
     String tableId = createUpdateTableRequestBody.getTableId();
 
-    Optional<TableDto> tableDto =
-        openHouseInternalRepository.findById(
-            TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build());
+    TableDtoPrimaryKey tableDtoPrimaryKey =
+        TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build();
+
+    // The typed load below hides non-table rows, so without this preflight a CREATE at a view's
+    // name would look free and fail only after writing a candidate metadata.json.
+    rejectNonTableNameOccupancy(tableDtoPrimaryKey);
+
+    Optional<TableDto> tableDto = openHouseInternalRepository.findById(tableDtoPrimaryKey);
 
     // Special case handling
     if (tableDto.isPresent() && createUpdateTableRequestBody.isStageReplace()) {
@@ -212,6 +218,29 @@ public class TablesServiceImpl implements TablesService {
     return !tablesMapper.toTableDto(existingTableDto, requestBody).equals(existingTableDto);
   }
 
+  /**
+   * {@code TABLE} occupancy returns normally so that {@code failOnExist=false} updates still work
+   * and the existing table-collision handling downstream owns that message.
+   */
+  private void rejectNonTableNameOccupancy(TableDtoPrimaryKey key) {
+    Optional<String> occupyingEntityType =
+        openHouseInternalRepository.findOccupyingEntityTypeById(key);
+    if (!occupyingEntityType.isPresent()) {
+      return;
+    }
+    String entityType = occupyingEntityType.get();
+    if (HouseTableSerdeUtils.TABLE_ENTITY_TYPE.equals(entityType)) {
+      return;
+    }
+    String qualifiedName = String.format("%s.%s", key.getDatabaseId(), key.getTableId());
+    String reason =
+        HouseTableSerdeUtils.VIEW_ENTITY_TYPE.equals(entityType)
+            ? "is occupied by a view"
+            : String.format("is occupied by a catalog object of type %s", entityType);
+    throw new AlreadyExistsException(
+        "Table", qualifiedName, String.format("Table name %s %s", qualifiedName, reason), null);
+  }
+
   @Override
   public void deleteTable(String databaseId, String tableId, String actingPrincipal) {
     TableDtoPrimaryKey tableDtoPrimaryKey =
@@ -243,6 +272,13 @@ public class TablesServiceImpl implements TablesService {
     if (!existingTableDto.isPresent()) {
       throw new NoSuchUserTableException(fromDatabaseId, fromTableId);
     }
+
+    // Check raw destination occupancy after the source is known to exist, but before
+    // the typed destination load (which hides views), the lock check, all authorization, and any
+    // mutation. A TABLE destination continues through the existing collision check below so its
+    // message and behavior are unchanged.
+    rejectNonTableNameOccupancy(
+        TableDtoPrimaryKey.builder().databaseId(toDatabaseId).tableId(toTableId).build());
 
     Optional<TableDto> targetedTableDto =
         openHouseInternalRepository.findById(

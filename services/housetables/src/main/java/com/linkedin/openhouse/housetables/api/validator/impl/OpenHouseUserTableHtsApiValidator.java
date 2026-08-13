@@ -110,7 +110,16 @@ public class OpenHouseUserTableHtsApiValidator
         && userTable.getMetadataLocation() == null
         && userTable.getStorageType() == null
         && userTable.getCreationTime() == null)) {
-      validationFailures.add("Only databaseId and tableId are supported for the query");
+      validationFailures.add("Only databaseId, tableId and entityType are supported for the query");
+    }
+
+    // entityType is the one additional permitted query filter. Reject garbage here so
+    // an unknown discriminator fails as a validation error rather than as a silently empty result.
+    if (userTable.getEntityType() != null
+        && !userTable.getEntityType().matches(ENTITY_TYPE_REGEX)) {
+      validationFailures.add(
+          String.format(
+              "entityType provided: %s, %s", userTable.getEntityType(), ENTITY_TYPE_ERROR_MSG));
     }
 
     if (userTable.getDatabaseId() != null

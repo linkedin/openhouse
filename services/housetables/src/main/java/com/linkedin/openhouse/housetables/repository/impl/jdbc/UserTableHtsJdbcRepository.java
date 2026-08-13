@@ -39,56 +39,112 @@ public interface UserTableHtsJdbcRepository
 
   void deleteByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(String databaseId, String tableId);
 
-  @Query("SELECT DISTINCT databaseId FROM UserTableRow")
+  /**
+   * Excludes views from table listings. Applied in the query — never by filtering a returned {@link
+   * Page} — so content and counts agree. {@code IS NULL} is mandatory because the discriminator is
+   * nullable with no backfill; {@code upper(...)} avoids depending on collation, which differs
+   * between H2 in {@code MODE=MySQL} (case-sensitive) and production MySQL.
+   */
+  String TABLE_ROW_PREDICATE = "(u.entityType IS NULL OR upper(u.entityType) = 'TABLE')";
+
+  @Query("SELECT DISTINCT u.databaseId FROM UserTableRow u WHERE " + TABLE_ROW_PREDICATE)
   Iterable<String> findAllDistinctDatabaseIds();
 
-  Iterable<UserTableRow> findAllByDatabaseIdIgnoreCase(String databaseId);
+  @Query(
+      "SELECT u FROM UserTableRow u WHERE "
+          + "lower(u.databaseId) = lower(:databaseId) AND "
+          + TABLE_ROW_PREDICATE)
+  Iterable<UserTableRow> findAllByDatabaseIdIgnoreCase(@Param("databaseId") String databaseId);
 
+  @Query(
+      "SELECT u FROM UserTableRow u WHERE "
+          + "lower(u.databaseId) = lower(:databaseId) AND "
+          + "lower(u.tableId) LIKE lower(:tableIdPattern) AND "
+          + TABLE_ROW_PREDICATE)
   Iterable<UserTableRow> findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-      String databaseId, String tableIdPattern);
+      @Param("databaseId") String databaseId, @Param("tableIdPattern") String tableIdPattern);
 
   @Query(
-      "SELECT DISTINCT databaseId FROM UserTableRow u where "
-          + "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId))")
-  Page<String> findAllDistinctDatabaseIds(String databaseId, Pageable pageable);
+      value =
+          "SELECT DISTINCT u.databaseId FROM UserTableRow u WHERE "
+              + "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId)) AND "
+              + TABLE_ROW_PREDICATE,
+      countQuery =
+          "SELECT COUNT(DISTINCT u.databaseId) FROM UserTableRow u WHERE "
+              + "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId)) AND "
+              + TABLE_ROW_PREDICATE)
+  Page<String> findAllDistinctDatabaseIds(
+      @Param("databaseId") String databaseId, Pageable pageable);
 
-  Page<UserTableRow> findAllByDatabaseIdIgnoreCase(String databaseId, Pageable pageable);
+  @Query(
+      value =
+          "SELECT u FROM UserTableRow u WHERE "
+              + "lower(u.databaseId) = lower(:databaseId) AND "
+              + TABLE_ROW_PREDICATE,
+      countQuery =
+          "SELECT COUNT(u) FROM UserTableRow u WHERE "
+              + "lower(u.databaseId) = lower(:databaseId) AND "
+              + TABLE_ROW_PREDICATE)
+  Page<UserTableRow> findAllByDatabaseIdIgnoreCase(
+      @Param("databaseId") String databaseId, Pageable pageable);
 
+  @Query(
+      value =
+          "SELECT u FROM UserTableRow u WHERE "
+              + "lower(u.databaseId) = lower(:databaseId) AND "
+              + "lower(u.tableId) LIKE lower(:tableIdPattern) AND "
+              + TABLE_ROW_PREDICATE,
+      countQuery =
+          "SELECT COUNT(u) FROM UserTableRow u WHERE "
+              + "lower(u.databaseId) = lower(:databaseId) AND "
+              + "lower(u.tableId) LIKE lower(:tableIdPattern) AND "
+              + TABLE_ROW_PREDICATE)
   Page<UserTableRow> findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-      String databaseId, String tableIdPattern, Pageable pageable);
-
-  @Query(
-      "select DISTINCT u from UserTableRow u where "
-          + "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId)) AND "
-          + "(:tableId IS NULL OR lower(u.tableId) = lower(:tableId)) AND "
-          + "(:tableVersion IS NULL OR u.version = :tableVersion) AND "
-          + "(:metadataLocation IS NULL OR u.metadataLocation = :metadataLocation) AND "
-          + "(:storageType IS NULL OR u.storageType = :storageType) AND "
-          + "(:creationTime IS NULL OR u.creationTime = :creationTime)")
-  Page<UserTableRow> findAllByFilters(
-      String databaseId,
-      String tableId,
-      String tableVersion,
-      String metadataLocation,
-      String storageType,
-      Long creationTime,
+      @Param("databaseId") String databaseId,
+      @Param("tableIdPattern") String tableIdPattern,
       Pageable pageable);
 
-  @Query(
-      "select DISTINCT u from UserTableRow u where "
-          + "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId)) AND "
+  /**
+   * A null or {@code TABLE} request means tables, including legacy null rows; {@code VIEW} means
+   * views only. An unknown value matches neither branch, so garbage fails closed here even if it
+   * bypasses API validation.
+   */
+  String ENTITY_TYPE_FILTER_PREDICATE =
+      "(((:entityType IS NULL OR upper(:entityType) = 'TABLE') "
+          + "AND (u.entityType IS NULL OR upper(u.entityType) = 'TABLE')) "
+          + "OR (upper(:entityType) = 'VIEW' AND upper(u.entityType) = 'VIEW'))";
+
+  String GENERAL_FILTER_PREDICATE =
+      "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId)) AND "
           + "(:tableId IS NULL OR lower(u.tableId) = lower(:tableId)) AND "
           + "(:tableVersion IS NULL OR u.version = :tableVersion) AND "
           + "(:metadataLocation IS NULL OR u.metadataLocation = :metadataLocation) AND "
           + "(:storageType IS NULL OR u.storageType = :storageType) AND "
-          + "(:creationTime IS NULL OR u.creationTime = :creationTime)")
+          + "(:creationTime IS NULL OR u.creationTime = :creationTime) AND "
+          + ENTITY_TYPE_FILTER_PREDICATE;
+
+  @Query(
+      value = "select DISTINCT u from UserTableRow u where " + GENERAL_FILTER_PREDICATE,
+      countQuery = "select COUNT(DISTINCT u) from UserTableRow u where " + GENERAL_FILTER_PREDICATE)
+  Page<UserTableRow> findAllByFilters(
+      @Param("databaseId") String databaseId,
+      @Param("tableId") String tableId,
+      @Param("tableVersion") String tableVersion,
+      @Param("metadataLocation") String metadataLocation,
+      @Param("storageType") String storageType,
+      @Param("creationTime") Long creationTime,
+      @Param("entityType") String entityType,
+      Pageable pageable);
+
+  @Query("select DISTINCT u from UserTableRow u where " + GENERAL_FILTER_PREDICATE)
   Iterable<UserTableRow> findAllByFilters(
-      String databaseId,
-      String tableId,
-      String tableVersion,
-      String metadataLocation,
-      String storageType,
-      Long creationTime);
+      @Param("databaseId") String databaseId,
+      @Param("tableId") String tableId,
+      @Param("tableVersion") String tableVersion,
+      @Param("metadataLocation") String metadataLocation,
+      @Param("storageType") String storageType,
+      @Param("creationTime") Long creationTime,
+      @Param("entityType") String entityType);
 
   /*
    * The following methods are required to maintain the generality of the interface {@link com.linkedin.openhouse.housetables.repository.HtsRepository}
