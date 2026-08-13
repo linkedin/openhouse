@@ -23,6 +23,7 @@ import org.springframework.context.annotation.ComponentScan;
       "com.linkedin.openhouse.tables.dto.mapper",
       "com.linkedin.openhouse.tables.controller",
       "com.linkedin.openhouse.tables.services",
+      "com.linkedin.openhouse.tables.readbridge",
       "com.linkedin.openhouse.tables.config",
       "com.linkedin.openhouse.internal.catalog.toggle",
       "com.linkedin.openhouse.internal.catalog",

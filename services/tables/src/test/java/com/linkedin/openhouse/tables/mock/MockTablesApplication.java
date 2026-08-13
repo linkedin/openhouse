@@ -25,6 +25,7 @@ import org.springframework.context.annotation.FilterType;
       "com.linkedin.openhouse.cluster.configs",
       "com.linkedin.openhouse.cluster.storage",
       "com.linkedin.openhouse.tables.services",
+      "com.linkedin.openhouse.tables.readbridge",
       "com.linkedin.openhouse.tables.utils",
       "com.linkedin.openhouse.common.audit",
       "com.linkedin.openhouse.common.exception",

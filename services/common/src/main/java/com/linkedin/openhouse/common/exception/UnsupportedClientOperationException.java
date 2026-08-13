@@ -22,5 +22,7 @@ public class UnsupportedClientOperationException extends RuntimeException {
     GRANT_ON_LOCKED_TABLES,
     LOCKED_TABLE_OPERATION,
     RTAS_DISABLED,
+    COLUMN_DEFAULT_REWRITE,
+    COLUMN_DEFAULT_REMOVED,
   }
 }

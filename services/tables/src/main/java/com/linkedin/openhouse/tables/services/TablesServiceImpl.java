@@ -23,6 +23,7 @@ import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
+import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
@@ -52,6 +53,8 @@ public class TablesServiceImpl implements TablesService {
   @Autowired AuthorizationHandler authorizationHandler;
 
   @Autowired TableUUIDGenerator tableUUIDGenerator;
+
+  @Autowired ReadBridgeStripProtection readBridgeStripProtection;
   /**
    * Lookup a table by databaseId and tableId in OpenHouse's Internal Catalog.
    *
@@ -161,6 +164,7 @@ public class TablesServiceImpl implements TablesService {
                         .tableCreator(tableCreatorUpdater)
                         .build()),
             createUpdateTableRequestBody);
+    tableDtoToSave = readBridgeStripProtection.prepare(tableDto.orElse(null), tableDtoToSave);
     return saveTableDto(tableDtoToSave, tableDto);
   }
 
