@@ -19,6 +19,11 @@ public class ReadBridgeStripProtectionTest {
           + "{\"id\":1,\"required\":false,\"name\":\"id\",\"type\":\"int\"},"
           + "{\"id\":2,\"required\":false,\"name\":\"country\",\"type\":\"string\","
           + "\"initial-default\":\"US\"}]}";
+  private static final String SCHEMA_WITH_DUMMY_DEFAULT =
+      "{\"type\":\"struct\",\"fields\":["
+          + "{\"id\":1,\"required\":false,\"name\":\"id\",\"type\":\"int\"},"
+          + "{\"id\":2,\"required\":false,\"name\":\"country\",\"type\":\"string\","
+          + "\"initial-default\":\"x\"}]}";
   private static final String SCHEMA_WITHOUT_DEFAULT =
       "{\"type\":\"struct\",\"fields\":["
           + "{\"id\":1,\"required\":false,\"name\":\"id\",\"type\":\"int\"},"
@@ -26,6 +31,13 @@ public class ReadBridgeStripProtectionTest {
   private static final String SCHEMA_WITHOUT_COUNTRY =
       "{\"type\":\"struct\",\"fields\":["
           + "{\"id\":1,\"required\":false,\"name\":\"id\",\"type\":\"int\"}]}";
+  private static final String NESTED_WITH_DEFAULT =
+      "{\"type\":\"struct\",\"fields\":["
+          + "{\"id\":1,\"required\":false,\"name\":\"id\",\"type\":\"int\"},"
+          + "{\"id\":2,\"required\":false,\"name\":\"addr\",\"type\":{"
+          + "\"type\":\"struct\",\"fields\":["
+          + "{\"id\":10,\"required\":false,\"name\":\"country\",\"type\":\"string\","
+          + "\"initial-default\":\"US\"}]}}]}";
 
   private static final String ENABLED_PROP =
       ReadBridgeConfigResolver.COLUMN_DEFAULT_FEATURE_ID
@@ -47,8 +59,7 @@ public class ReadBridgeStripProtectionTest {
     TableDto incoming = ramped(SCHEMA_WITH_DEFAULT, overwrite(10));
     ReadBridgeStripProtection protection =
         new ReadBridgeStripProtection(
-            new ReadBridgeConfigResolver(ColumnDefaultsSource.NONE, ALL_ON),
-            ColumnDefaultsSource.NONE);
+            new ReadBridgeConfigResolver(ColumnDefaultsSource.NONE, ALL_ON));
 
     Assertions.assertSame(incoming, protection.prepare(ramped(SCHEMA_WITHOUT_DEFAULT), incoming));
   }
@@ -67,14 +78,27 @@ public class ReadBridgeStripProtectionTest {
   }
 
   @Test
-  public void overwriteWithInitialDefault_stripsBeforeReturning() {
+  public void overwriteWithDummyInitialDefault_rejected() {
+    ReadBridgeStripProtection protection = protection(FIELD_2);
+    TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
+    TableDto incoming = ramped(SCHEMA_WITH_DUMMY_DEFAULT, overwrite(10));
+
+    UnsupportedClientOperationException thrown =
+        Assertions.assertThrows(
+            UnsupportedClientOperationException.class,
+            () -> protection.prepare(existing, incoming));
+    Assertions.assertTrue(thrown.getMessage().contains("matching"));
+  }
+
+  @Test
+  public void overwriteWithMatchingInitialDefault_stripsBeforeReturning() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming = ramped(SCHEMA_WITH_DEFAULT, overwrite(10));
 
     TableDto prepared = protection.prepare(existing, incoming);
     Assertions.assertFalse(prepared.getSchema().contains("initial-default"));
-    Assertions.assertTrue(ReadBridgeStripProtection.fieldIds(prepared.getSchema()).contains(2));
+    Assertions.assertTrue(prepared.getSchema().contains("\"id\":2"));
   }
 
   @Test
@@ -138,6 +162,39 @@ public class ReadBridgeStripProtectionTest {
   }
 
   @Test
+  public void optOutSchemaOnly_doesNotType1() {
+    ReadBridgeStripProtection protection = protection(FIELD_2);
+    TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
+    TableDto incoming =
+        TableDto.builder()
+            .databaseId("db")
+            .tableId("tbl")
+            .schema(SCHEMA_WITHOUT_DEFAULT)
+            .tableProperties(Collections.singletonMap(ENABLED_PROP, "false"))
+            .build();
+
+    Assertions.assertSame(incoming, protection.prepare(existing, incoming));
+  }
+
+  @Test
+  public void optOutOverwriteWithoutOverlay_stillType2() {
+    ReadBridgeStripProtection protection = protection(FIELD_2);
+    TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
+    TableDto incoming =
+        TableDto.builder()
+            .databaseId("db")
+            .tableId("tbl")
+            .schema(SCHEMA_WITHOUT_DEFAULT)
+            .tableProperties(Collections.singletonMap(ENABLED_PROP, "false"))
+            .jsonSnapshots(Collections.singletonList(overwriteJson(10)))
+            .snapshotRefs(refs(10))
+            .build();
+
+    Assertions.assertThrows(
+        UnsupportedClientOperationException.class, () -> protection.prepare(existing, incoming));
+  }
+
+  @Test
   public void createWithOverlay_stripsStampedIds() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto incoming = ramped(SCHEMA_WITH_DEFAULT);
@@ -158,8 +215,17 @@ public class ReadBridgeStripProtectionTest {
     TableDto prepared = protection.prepare(null, ramped(schema));
 
     Assertions.assertTrue(prepared.getSchema().contains("\"initial-default\":0"));
-    Assertions.assertFalse(
-        ReadBridgeStripProtection.fieldIdsWithInitialDefault(prepared.getSchema()).contains(2));
+    Assertions.assertFalse(prepared.getSchema().contains("\"initial-default\":\"US\""));
+  }
+
+  @Test
+  public void nestedStampedDefault_stripped() {
+    ColumnDefaultsSource nested = tableDto -> Collections.singletonMap(10, TextNode.valueOf("US"));
+    ReadBridgeStripProtection protection = protection(nested);
+    TableDto prepared = protection.prepare(null, ramped(NESTED_WITH_DEFAULT));
+
+    Assertions.assertFalse(prepared.getSchema().contains("initial-default"));
+    Assertions.assertTrue(prepared.getSchema().contains("\"id\":10"));
   }
 
   @Test
@@ -176,19 +242,22 @@ public class ReadBridgeStripProtectionTest {
           return Collections.singletonMap(Integer.parseInt(raw), TextNode.valueOf("US"));
         };
     ReadBridgeStripProtection protection = protection(fromProp);
+    Map<String, String> previousProps = new HashMap<>();
+    previousProps.put(ENABLED_PROP, "true");
+    previousProps.put("default-field", "2");
     TableDto existing =
         TableDto.builder()
             .databaseId("db")
             .tableId("tbl")
             .schema(SCHEMA_WITHOUT_DEFAULT)
-            .tableProperties(Collections.singletonMap("default-field", "2"))
+            .tableProperties(previousProps)
             .build();
     TableDto incoming =
         TableDto.builder()
             .databaseId("db")
             .tableId("tbl")
             .schema(SCHEMA_WITHOUT_DEFAULT)
-            .tableProperties(Collections.emptyMap())
+            .tableProperties(optIn())
             .build();
 
     UnsupportedClientOperationException thrown =
@@ -212,19 +281,22 @@ public class ReadBridgeStripProtectionTest {
           return Collections.singletonMap(Integer.parseInt(raw), TextNode.valueOf("US"));
         };
     ReadBridgeStripProtection protection = protection(fromProp);
+    Map<String, String> previousProps = new HashMap<>();
+    previousProps.put(ENABLED_PROP, "true");
+    previousProps.put("default-field", "2");
     TableDto existing =
         TableDto.builder()
             .databaseId("db")
             .tableId("tbl")
             .schema(SCHEMA_WITHOUT_DEFAULT)
-            .tableProperties(Collections.singletonMap("default-field", "2"))
+            .tableProperties(previousProps)
             .build();
     TableDto incoming =
         TableDto.builder()
             .databaseId("db")
             .tableId("tbl")
             .schema(SCHEMA_WITHOUT_COUNTRY)
-            .tableProperties(Collections.emptyMap())
+            .tableProperties(optIn())
             .build();
 
     Assertions.assertSame(incoming, protection.prepare(existing, incoming));
@@ -239,8 +311,58 @@ public class ReadBridgeStripProtectionTest {
     Assertions.assertSame(incoming, protection.prepare(existing, incoming));
   }
 
+  @Test
+  public void sourceThrow_failsClosed() {
+    ColumnDefaultsSource exploding =
+        tableDto -> {
+          throw new IllegalStateException("encoder exploded");
+        };
+    ReadBridgeStripProtection protection = protection(exploding);
+    TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
+    TableDto incoming = ramped(SCHEMA_WITHOUT_DEFAULT, overwrite(10));
+
+    UnsupportedClientOperationException thrown =
+        Assertions.assertThrows(
+            UnsupportedClientOperationException.class,
+            () -> protection.prepare(existing, incoming));
+    Assertions.assertTrue(thrown.getMessage().contains("cannot apply column-default protection"));
+  }
+
+  @Test
+  public void unreadableSchema_failsClosedWhenRampedRewrite() {
+    ReadBridgeStripProtection protection = protection(FIELD_2);
+    TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
+    TableDto incoming = ramped("{", overwrite(10));
+
+    UnsupportedClientOperationException thrown =
+        Assertions.assertThrows(
+            UnsupportedClientOperationException.class,
+            () -> protection.prepare(existing, incoming));
+    Assertions.assertTrue(thrown.getMessage().contains("cannot apply column-default protection"));
+  }
+
+  @Test
+  public void unreadableSnapshots_failsClosedWhenRamped() {
+    ReadBridgeStripProtection protection = protection(FIELD_2);
+    TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
+    TableDto incoming =
+        TableDto.builder()
+            .databaseId("db")
+            .tableId("tbl")
+            .schema(SCHEMA_WITHOUT_DEFAULT)
+            .tableProperties(optIn())
+            .jsonSnapshots(Collections.singletonList("not-a-snapshot"))
+            .build();
+
+    UnsupportedClientOperationException thrown =
+        Assertions.assertThrows(
+            UnsupportedClientOperationException.class,
+            () -> protection.prepare(existing, incoming));
+    Assertions.assertTrue(thrown.getMessage().contains("cannot apply column-default protection"));
+  }
+
   private static ReadBridgeStripProtection protection(ColumnDefaultsSource source) {
-    return new ReadBridgeStripProtection(new ReadBridgeConfigResolver(source, ALL_ON), source);
+    return new ReadBridgeStripProtection(new ReadBridgeConfigResolver(source, ALL_ON));
   }
 
   private static TableDto ramped(String schema) {
@@ -250,10 +372,6 @@ public class ReadBridgeStripProtectionTest {
         .schema(schema)
         .tableProperties(optIn())
         .build();
-  }
-
-  private static TableDto ramped(String schema, TableDto snapshots) {
-    return snapshots.toBuilder().schema(schema).tableProperties(optIn()).build();
   }
 
   private static TableDto ramped(String schema, String jsonSnapshot) {
@@ -303,7 +421,6 @@ public class ReadBridgeStripProtectionTest {
   }
 
   private static Map<String, String> refsFrom(String jsonSnapshot) {
-    // Tests that pass a single snapshot JSON use that snapshot as main.
     if (jsonSnapshot.contains("\"snapshot-id\":10")
         || jsonSnapshot.contains("\"snapshot-id\" : 10")) {
       return refs(10);
