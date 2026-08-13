@@ -23,6 +23,8 @@ public class UserTableDto {
 
   Long creationTime;
 
+  String entityType;
+
   Long deletedAtMs;
 
   Long purgeAfterMs;

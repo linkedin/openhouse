@@ -32,4 +32,7 @@ public class UserTableRow {
   String storageType;
 
   Long creationTime;
+
+  /** Nullable and without a default so existing rows need no backfill. */
+  String entityType;
 }

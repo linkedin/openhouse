@@ -51,4 +51,11 @@ public class HouseTable {
    * with this table.
    */
   private String storageType;
+
+  /**
+   * As a private non-static field this is picked up automatically by {@link
+   * com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils#HTS_FIELD_NAMES}, so it
+   * serializes as the {@code openhouse.entityType} table property.
+   */
+  private String entityType;
 }

@@ -12,12 +12,14 @@ import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import com.linkedin.openhouse.housetables.e2e.SpringH2HtsApplication;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
+import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.SoftDeletedUserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.services.UserTablesService;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -636,5 +638,198 @@ public class UserTablesServiceTest {
         .tableVersion("")
         .build()
         .equals(actual.toBuilder().tableVersion("").build());
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // entityType discriminator at the service call sites
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * Canonical interleaved fixture. Seeded into its own database so it never perturbs the
+   * pre-existing per-database counts asserted by the tests above.
+   */
+  private static final String ENTITY_TYPE_DB = "entity_type_db";
+
+  private static final List<String> CANONICAL_TABLE_IDS =
+      Arrays.asList("t00_legacy", "t02_explicit", "t04_legacy", "t06_explicit");
+
+  private static final List<String> CANONICAL_VIEW_IDS =
+      Arrays.asList("t01_view", "t03_view", "t05_view");
+
+  private UserTableRow entityTypeRow(String databaseId, String tableId, String entityType) {
+    return UserTableRow.builder()
+        .databaseId(databaseId)
+        .tableId(tableId)
+        .version(null)
+        .metadataLocation(String.format("/openhouse/%s/%s/v0_metadata.json", databaseId, tableId))
+        .storageType(TEST_DEFAULT_STORAGE_TYPE)
+        .creationTime(TEST_CREATION_TIME)
+        .entityType(entityType)
+        .build();
+  }
+
+  private void seedCanonicalRows(String prefix) {
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t00_legacy", null));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t01_view", "VIEW"));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t02_explicit", "TABLE"));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t03_view", "VIEW"));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t04_legacy", null));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t05_view", "VIEW"));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t06_explicit", "TABLE"));
+  }
+
+  private static List<String> sortedIds(List<UserTableDto> dtos) {
+    return dtos.stream().map(UserTableDto::getTableId).sorted().collect(Collectors.toList());
+  }
+
+  private static List<String> pageIds(Page<UserTableDto> page) {
+    return page.getContent().stream().map(UserTableDto::getTableId).collect(Collectors.toList());
+  }
+
+  /** Plain per-database listing through the service hides views and keeps legacy NULL rows. */
+  @Test
+  public void testListTablesCallSiteFiltersViewsAndKeepsNullRows() {
+    seedCanonicalRows("");
+
+    List<UserTableDto> result =
+        userTablesService.getAllUserTables(UserTable.builder().databaseId(ENTITY_TYPE_DB).build());
+
+    assertThat(sortedIds(result)).isEqualTo(CANONICAL_TABLE_IDS);
+  }
+
+  /**
+   * Anti-post-filter assertion at the service layer, and the pin for routing the paged per-database
+   * listing through the table-predicated query rather than the untyped {@code findAllByFilters}. A
+   * fetch-then-filter implementation yields a 1-row page 0 with totalElements=7/totalPages=4.
+   */
+  @Test
+  public void testListTablesCallSiteFiltersBeforePagination() {
+    seedCanonicalRows("");
+    UserTable searchBy = UserTable.builder().databaseId(ENTITY_TYPE_DB).build();
+
+    Page<UserTableDto> page0 = userTablesService.getAllUserTables(searchBy, 0, 2, "tableId");
+    Assertions.assertEquals(4, page0.getTotalElements());
+    Assertions.assertEquals(2, page0.getTotalPages());
+    Assertions.assertEquals(2, page0.getContent().size());
+    assertThat(pageIds(page0)).containsExactly("t00_legacy", "t02_explicit");
+
+    Page<UserTableDto> page1 = userTablesService.getAllUserTables(searchBy, 1, 2, "tableId");
+    Assertions.assertEquals(4, page1.getTotalElements());
+    Assertions.assertEquals(2, page1.getTotalPages());
+    Assertions.assertEquals(2, page1.getContent().size());
+    assertThat(pageIds(page1)).containsExactly("t04_legacy", "t06_explicit");
+
+    assertThat(pageIds(page0)).doesNotContainAnyElementsOf(CANONICAL_VIEW_IDS);
+    assertThat(pageIds(page1)).doesNotContainAnyElementsOf(CANONICAL_VIEW_IDS);
+  }
+
+  /** The pattern-listing call sites (plain and paged) apply the same predicate. */
+  @Test
+  public void testPatternCallSitesFilterViewsPlainAndPaged() {
+    seedCanonicalRows("match_");
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "nomatch_table", "TABLE"));
+    UserTable searchBy = UserTable.builder().databaseId(ENTITY_TYPE_DB).tableId("match_%").build();
+
+    assertThat(sortedIds(userTablesService.getAllUserTables(searchBy)))
+        .containsExactly(
+            "match_t00_legacy", "match_t02_explicit", "match_t04_legacy", "match_t06_explicit");
+
+    Page<UserTableDto> page0 = userTablesService.getAllUserTables(searchBy, 0, 2, "tableId");
+    Assertions.assertEquals(4, page0.getTotalElements());
+    Assertions.assertEquals(2, page0.getTotalPages());
+    assertThat(pageIds(page0)).containsExactly("match_t00_legacy", "match_t02_explicit");
+
+    Page<UserTableDto> page1 = userTablesService.getAllUserTables(searchBy, 1, 2, "tableId");
+    Assertions.assertEquals(4, page1.getTotalElements());
+    Assertions.assertEquals(2, page1.getTotalPages());
+    assertThat(pageIds(page1)).containsExactly("match_t04_legacy", "match_t06_explicit");
+  }
+
+  /**
+   * Pins the routing predicate. The request carries <b>only</b> {@code databaseId} plus {@code
+   * entityType=VIEW} and no other filter, so if {@code isNonKeyFieldsNullForUserTable} is not
+   * extended to consider entityType, this request is classified as a plain "list tables" request
+   * and returns the four tables instead of the three views.
+   */
+  @Test
+  public void testGeneralSearchHonorsEntityType() {
+    seedCanonicalRows("");
+
+    List<UserTableDto> views =
+        userTablesService.getAllUserTables(
+            UserTable.builder().databaseId(ENTITY_TYPE_DB).entityType("VIEW").build());
+    assertThat(sortedIds(views)).isEqualTo(CANONICAL_VIEW_IDS);
+
+    for (String tableSpelling : new String[] {"TABLE", "table", "TaBlE"}) {
+      List<UserTableDto> tables =
+          userTablesService.getAllUserTables(
+              UserTable.builder().databaseId(ENTITY_TYPE_DB).entityType(tableSpelling).build());
+      assertThat(sortedIds(tables))
+          .as("entityType=%s must resolve to the four visible tables", tableSpelling)
+          .isEqualTo(CANONICAL_TABLE_IDS);
+    }
+
+    // Default (no entityType) still means tables.
+    assertThat(
+            sortedIds(
+                userTablesService.getAllUserTables(
+                    UserTable.builder().databaseId(ENTITY_TYPE_DB).build())))
+        .isEqualTo(CANONICAL_TABLE_IDS);
+
+    // Paged entityType-only VIEW request routes the same way.
+    Page<UserTableDto> viewPage =
+        userTablesService.getAllUserTables(
+            UserTable.builder().databaseId(ENTITY_TYPE_DB).entityType("VIEW").build(),
+            0,
+            2,
+            "tableId");
+    Assertions.assertEquals(3, viewPage.getTotalElements());
+    Assertions.assertEquals(2, viewPage.getTotalPages());
+    assertThat(pageIds(viewPage)).containsExactly("t01_view", "t03_view");
+  }
+
+  /**
+   * Defense in depth for the shared key space: if a rename ever reaches the HTS storage layer with
+   * an occupied destination, the primary-key violation must roll back cleanly and leave BOTH JPA
+   * rows byte-identical — same numeric {@code version}, {@code metadataLocation} and {@code
+   * entityType}. The table-service tests prove correct code never reaches this fallback; this pins
+   * that the fallback itself is non-mutating.
+   */
+  @Test
+  public void testRenameCollisionLeavesJPARowsUnchanged() {
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "rename_src_table", "TABLE"));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "rename_dst_view", "VIEW"));
+
+    UserTableRow sourceBefore = findRow(ENTITY_TYPE_DB, "rename_src_table");
+    UserTableRow destinationBefore = findRow(ENTITY_TYPE_DB, "rename_dst_view");
+
+    Assertions.assertThrows(
+        AlreadyExistsException.class,
+        () ->
+            userTablesService.renameUserTable(
+                ENTITY_TYPE_DB,
+                "rename_src_table",
+                ENTITY_TYPE_DB,
+                "rename_dst_view",
+                "/openhouse/entity_type_db/rename_dst_view/v1_metadata.json"));
+
+    UserTableRow sourceAfter = findRow(ENTITY_TYPE_DB, "rename_src_table");
+    UserTableRow destinationAfter = findRow(ENTITY_TYPE_DB, "rename_dst_view");
+
+    Assertions.assertEquals(sourceBefore.getVersion(), sourceAfter.getVersion());
+    Assertions.assertEquals(sourceBefore.getMetadataLocation(), sourceAfter.getMetadataLocation());
+    Assertions.assertEquals(sourceBefore.getEntityType(), sourceAfter.getEntityType());
+
+    Assertions.assertEquals(destinationBefore.getVersion(), destinationAfter.getVersion());
+    Assertions.assertEquals(
+        destinationBefore.getMetadataLocation(), destinationAfter.getMetadataLocation());
+    Assertions.assertEquals("VIEW", destinationAfter.getEntityType());
+  }
+
+  private UserTableRow findRow(String databaseId, String tableId) {
+    return htsRepository
+        .findById(UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
+        .orElseThrow(
+            () -> new AssertionError("Expected row " + databaseId + "." + tableId + " to exist"));
   }
 }

@@ -35,6 +35,24 @@ public final class HouseTableSerdeUtils {
     // no-op for util class constructor
   }
 
+  @VisibleForTesting public static final String ENTITY_TYPE_FIELD_NAME = "entityType";
+
+  public static final String TABLE_ENTITY_TYPE = "TABLE";
+
+  public static final String VIEW_ENTITY_TYPE = "VIEW";
+
+  /**
+   * {@code null} means table: the column is nullable and not backfilled. Any other unrecognized
+   * value is neither a table nor a view, so table operations fail closed on it.
+   */
+  public static boolean isTableEntityType(String entityType) {
+    return entityType == null || TABLE_ENTITY_TYPE.equalsIgnoreCase(entityType);
+  }
+
+  public static boolean isViewEntityType(String entityType) {
+    return VIEW_ENTITY_TYPE.equalsIgnoreCase(entityType);
+  }
+
   @VisibleForTesting
   public static String getCanonicalFieldName(String htsField) {
     return OPENHOUSE_NAMESPACE + htsField;
