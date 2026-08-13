@@ -222,8 +222,6 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
 
   protected CreateUpdateTableRequestBody constructMetadataRequestBody(
       TableMetadata base, TableMetadata metadata) {
-    // Iceberg commit() requires base == current(); strip overlays here, not by swapping base.
-    metadata = ReadBridge.from(currentConfig()).sanitize(metadata);
     CreateUpdateTableRequestBody createUpdateTableRequestBody = new CreateUpdateTableRequestBody();
     createUpdateTableRequestBody.setBaseTableVersion(
         base == null ? INITIAL_TABLE_VERSION : base.metadataFileLocation());

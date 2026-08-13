@@ -582,11 +582,11 @@ public class OpenHouseTableOperationsTest {
   }
 
   /**
-   * Skip-reload after a GET that stops stamping must still sanitize with the bound config. Empty GET
-   * must not let overlays persist.
+   * Skip-reload after a GET that stops stamping must still send overlays from the bound config. The
+   * server drops them; the client must not strip the default-aware signal.
    */
   @Test
-  public void testDoRefreshSkipReloadStillStripsStampedDefaults() {
+  public void testDoRefreshSkipReloadStillSendsStampedDefaults() {
     String location = writeTempMetadata();
     Map<String, String> stamped =
         Collections.singletonMap(ReadBridge.COLUMN_DEFAULT_PREFIX + "2", "\"US\"");
@@ -613,13 +613,14 @@ public class OpenHouseTableOperationsTest {
 
     TableMetadata commit =
         tableWithSchema(
-            "file:/tmp/rb-sanitize-skip-reload",
+            "file:/tmp/rb-signal-skip-reload",
             new Schema(
                 NestedField.optional(1, "id", Types.IntegerType.get()),
                 NestedField.from(NestedField.optional(2, "country", Types.StringType.get()))
                     .withInitialDefault(Expressions.lit("US"))
                     .build()));
-    Assertions.assertNull(
+    Assertions.assertEquals(
+        "US",
         SchemaParser.fromJson(ops.constructMetadataRequestBody(null, commit).getSchema())
             .findField(2)
             .initialDefault());
@@ -791,7 +792,7 @@ public class OpenHouseTableOperationsTest {
   }
 
   @Test
-  public void constructMetadataRequestBody_stripsStampedIdsKeepsUnstampedColumnDefaults() {
+  public void constructMetadataRequestBody_sendsStampedIdsKeepsUnstampedColumnDefaults() {
     TableMetadata commit =
         tableWithSchema(
             "file:/tmp/rb-sanitize-ops-c",
@@ -811,7 +812,7 @@ public class OpenHouseTableOperationsTest {
     CreateUpdateTableRequestBody body = ops.constructMetadataRequestBody(null, commit);
     Schema sent = SchemaParser.fromJson(body.getSchema());
 
-    Assertions.assertNull(sent.findField(2).initialDefault());
+    Assertions.assertEquals("US", sent.findField(2).initialDefault());
     Assertions.assertEquals("none", sent.findField(3).initialDefault());
     Assertions.assertEquals("email", sent.findField(3).name());
   }
@@ -835,7 +836,7 @@ public class OpenHouseTableOperationsTest {
 
   /**
    * {@link TableMetadata#newTableMetadata} reassigns ids and drops defaults. Put this schema back
-   * so sanitize tests can see writer/overlay defaults.
+   * so PUT tests can see writer/overlay defaults.
    */
   private static TableMetadata tableWithSchema(String location, Schema schema) {
     TableMetadata created =

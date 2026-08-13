@@ -20,8 +20,8 @@ import org.apache.iceberg.TableMetadataParser;
  * #from} decodes; {@link #apply} overlays. Unknown keys are ignored. A malformed known entry throws
  * — that is an encoder or transport bug, not a missing default.
  *
- * <p>{@link #sanitize} strips {@code initial-default} on stamped field-ids so overlays cannot
- * persist. Unstamped ids keep writer defaults.
+ * <p>Overlays stay on the wire so the server can treat {@code initial-default} as the default-aware
+ * signal; the server drops them before persist.
  */
 final class ReadBridge {
 
@@ -69,25 +69,6 @@ final class ReadBridge {
       }
     }
     return changed ? fromMetadataJson(raw, root) : raw;
-  }
-
-  /**
-   * Strip {@code initial-default} on field-ids this bridge stamped. Name, type, nullability, doc,
-   * order, write-default, and unstamped ids stay on {@code metadata}.
-   */
-  TableMetadata sanitize(TableMetadata metadata) {
-    if (columnDefaults.isEmpty() || metadata == null) {
-      return metadata;
-    }
-    ObjectNode root = metadataJson(metadata);
-    boolean changed = false;
-    for (JsonNode field : fieldObjects(root)) {
-      if (columnDefaults.containsKey(field.get(ID).asInt())
-          && ((ObjectNode) field).remove(INITIAL_DEFAULT) != null) {
-        changed = true;
-      }
-    }
-    return changed ? fromMetadataJson(metadata, root) : metadata;
   }
 
   Map<Integer, String> columnDefaults() {
