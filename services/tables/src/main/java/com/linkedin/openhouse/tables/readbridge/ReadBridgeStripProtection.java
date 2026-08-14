@@ -39,7 +39,10 @@ public class ReadBridgeStripProtection {
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
   private static final String ID = "id";
+  private static final String NAME = "name";
   private static final String INITIAL_DEFAULT = "initial-default";
+  private static final String SUPPORTED_CLIENTS =
+      "Retry from Spark 3.1 or Spark 3.5 using the jars on the standard client image.";
 
   private final ReadBridgeConfigResolver resolver;
 
@@ -69,7 +72,7 @@ public class ReadBridgeStripProtection {
       throw e;
     } catch (IllegalStateException e) {
       // Source/toggle/parse failures are ISE and must 400. A bug (NPE) must stay 500.
-      throw unusable(incoming, e);
+      throw unusable(incoming, existing, e);
     }
   }
 
@@ -78,14 +81,19 @@ public class ReadBridgeStripProtection {
     if (previous.isEmpty() || !resolver.isRampedForCommit(incoming)) {
       return;
     }
-    Set<Integer> remaining = fieldIds(tree(incoming.getSchema()));
+    JsonNode schema = tree(incoming.getSchema());
+    Set<Integer> remaining = fieldIds(schema);
     for (Integer fieldId : previous.keySet()) {
       if (remaining.contains(fieldId) && !incomingStamped.containsKey(fieldId)) {
         throw new UnsupportedClientOperationException(
             UnsupportedClientOperationException.Operation.COLUMN_DEFAULT_REMOVED,
             String.format(
-                "Table %s.%s cannot drop the column default on field-id %s while the column remains",
-                incoming.getDatabaseId(), incoming.getTableId(), fieldId));
+                "COLUMN_DEFAULT_REMOVED: %s.%s still has a column default on %s. This commit"
+                    + " omitted it. %s Column defaults cannot be removed or changed.",
+                incoming.getDatabaseId(),
+                incoming.getTableId(),
+                fieldLabel(schema, fieldId),
+                SUPPORTED_CLIENTS));
       }
     }
   }
@@ -105,9 +113,13 @@ public class ReadBridgeStripProtection {
         throw new UnsupportedClientOperationException(
             UnsupportedClientOperationException.Operation.COLUMN_DEFAULT_REWRITE,
             String.format(
-                "Table %s.%s declares column defaults; overwrite/replace requires matching"
-                    + " initial-default on field-ids %s",
-                incoming.getDatabaseId(), incoming.getTableId(), previous.keySet()));
+                "COLUMN_DEFAULT_REWRITE: %s.%s still has a column default on %s. This"
+                    + " overwrite/replace did not send a matching initial-default. %s Unaware"
+                    + " clients cannot overwrite or replace a table that has column defaults.",
+                incoming.getDatabaseId(),
+                incoming.getTableId(),
+                fieldLabel(schema, stamp.getKey()),
+                SUPPORTED_CLIENTS));
       }
     }
   }
@@ -224,6 +236,19 @@ public class ReadBridgeStripProtection {
     return ids;
   }
 
+  private static String fieldLabel(JsonNode schema, int fieldId) {
+    for (JsonNode field : fieldObjects(schema)) {
+      if (field.has(ID) && field.get(ID).asInt() == fieldId) {
+        JsonNode name = field.get(NAME);
+        if (name != null && name.isTextual() && !name.asText().isEmpty()) {
+          return name.asText() + " (field-id " + fieldId + ")";
+        }
+        break;
+      }
+    }
+    return "field-id " + fieldId;
+  }
+
   private static JsonNode initialDefault(JsonNode schema, int fieldId) {
     for (JsonNode field : fieldObjects(schema)) {
       if (field.has(ID) && field.get(ID).asInt() == fieldId) {
@@ -247,12 +272,31 @@ public class ReadBridgeStripProtection {
   }
 
   private static UnsupportedClientOperationException unusable(
-      TableDto incoming, IllegalStateException cause) {
+      TableDto incoming, TableDto existing, IllegalStateException cause) {
     String reason = cause.getMessage() == null ? cause.toString() : cause.getMessage();
     return new UnsupportedClientOperationException(
         UnsupportedClientOperationException.Operation.COLUMN_DEFAULT_UNUSABLE,
         String.format(
-            "Table %s.%s cannot apply column-default protection: %s",
-            incoming.getDatabaseId(), incoming.getTableId(), reason));
+            "COLUMN_DEFAULT_UNUSABLE: OpenHouse could not validate column defaults on %s.%s, so"
+                + " the commit was rejected. Retry. If it persists, contact the OpenHouse team"
+                + " with the Spark application logs and the table metadata path: %s. Cause: %s",
+            incoming.getDatabaseId(),
+            incoming.getTableId(),
+            metadataPath(incoming, existing),
+            reason));
+  }
+
+  private static String metadataPath(TableDto incoming, TableDto existing) {
+    if (incoming != null
+        && incoming.getTableLocation() != null
+        && !incoming.getTableLocation().isEmpty()) {
+      return incoming.getTableLocation();
+    }
+    if (existing != null
+        && existing.getTableLocation() != null
+        && !existing.getTableLocation().isEmpty()) {
+      return existing.getTableLocation();
+    }
+    return "unavailable";
   }
 }

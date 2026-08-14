@@ -42,6 +42,8 @@ public class ReadBridgeStripProtectionTest {
   private static final String ENABLED_PROP =
       ReadBridgeConfigResolver.COLUMN_DEFAULT_FEATURE_ID
           + TableFeatureToggle.ENABLED_PROPERTY_SUFFIX;
+  private static final String METADATA_LOCATION =
+      "file:/data/openhouse/db/tbl-uuid/00001-x.metadata.json";
 
   private static final TableFeatureToggle ALL_ON =
       new TableFeatureToggle() {
@@ -74,7 +76,9 @@ public class ReadBridgeStripProtectionTest {
         Assertions.assertThrows(
             UnsupportedClientOperationException.class,
             () -> protection.prepare(existing, incoming));
-    Assertions.assertTrue(thrown.getMessage().contains("overwrite/replace"));
+    Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_REWRITE"));
+    Assertions.assertTrue(thrown.getMessage().contains("country (field-id 2)"));
+    Assertions.assertTrue(thrown.getMessage().contains("Spark 3.1"));
   }
 
   @Test
@@ -87,7 +91,9 @@ public class ReadBridgeStripProtectionTest {
         Assertions.assertThrows(
             UnsupportedClientOperationException.class,
             () -> protection.prepare(existing, incoming));
-    Assertions.assertTrue(thrown.getMessage().contains("matching"));
+    Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_REWRITE"));
+    Assertions.assertTrue(thrown.getMessage().contains("matching initial-default"));
+    Assertions.assertTrue(thrown.getMessage().contains("country (field-id 2)"));
   }
 
   @Test
@@ -264,7 +270,9 @@ public class ReadBridgeStripProtectionTest {
         Assertions.assertThrows(
             UnsupportedClientOperationException.class,
             () -> protection.prepare(existing, incoming));
-    Assertions.assertTrue(thrown.getMessage().contains("cannot drop the column default"));
+    Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_REMOVED"));
+    Assertions.assertTrue(thrown.getMessage().contains("country (field-id 2)"));
+    Assertions.assertTrue(thrown.getMessage().contains("cannot be removed or changed"));
   }
 
   @Test
@@ -325,7 +333,9 @@ public class ReadBridgeStripProtectionTest {
         Assertions.assertThrows(
             UnsupportedClientOperationException.class,
             () -> protection.prepare(existing, incoming));
-    Assertions.assertTrue(thrown.getMessage().contains("cannot apply column-default protection"));
+    Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_UNUSABLE"));
+    Assertions.assertTrue(thrown.getMessage().contains("column-defaults source failed"));
+    Assertions.assertTrue(thrown.getMessage().contains(METADATA_LOCATION));
   }
 
   @Test
@@ -338,7 +348,9 @@ public class ReadBridgeStripProtectionTest {
         Assertions.assertThrows(
             UnsupportedClientOperationException.class,
             () -> protection.prepare(existing, incoming));
-    Assertions.assertTrue(thrown.getMessage().contains("cannot apply column-default protection"));
+    Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_UNUSABLE"));
+    Assertions.assertTrue(thrown.getMessage().contains("unreadable json"));
+    Assertions.assertTrue(thrown.getMessage().contains(METADATA_LOCATION));
   }
 
   @Test
@@ -358,7 +370,9 @@ public class ReadBridgeStripProtectionTest {
         Assertions.assertThrows(
             UnsupportedClientOperationException.class,
             () -> protection.prepare(existing, incoming));
-    Assertions.assertTrue(thrown.getMessage().contains("cannot apply column-default protection"));
+    Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_UNUSABLE"));
+    Assertions.assertTrue(thrown.getMessage().contains("unreadable snapshot"));
+    Assertions.assertTrue(thrown.getMessage().contains(METADATA_LOCATION));
   }
 
   private static ReadBridgeStripProtection protection(ColumnDefaultsSource source) {
@@ -369,6 +383,7 @@ public class ReadBridgeStripProtectionTest {
     return TableDto.builder()
         .databaseId("db")
         .tableId("tbl")
+        .tableLocation(METADATA_LOCATION)
         .schema(schema)
         .tableProperties(optIn())
         .build();
@@ -383,6 +398,7 @@ public class ReadBridgeStripProtectionTest {
     return TableDto.builder()
         .databaseId("db")
         .tableId("tbl")
+        .tableLocation(METADATA_LOCATION)
         .schema(schema)
         .tableProperties(optIn())
         .jsonSnapshots(jsonSnapshots)
