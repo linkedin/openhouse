@@ -336,12 +336,8 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
           tableIdentifier.namespace().toString(),
           tableIdentifier.name());
     }
-    // A non-table pointer is invisible here for the same reason it is invisible to doRefresh, so
-    // storage resolution falls back to the selector exactly as for an absent row.
     StorageType.Type type =
-        houseTable
-                .filter(row -> HouseTableSerdeUtils.isTableEntityType(row.getEntityType()))
-                .isPresent()
+        houseTable.isPresent()
             ? storageType.fromString(houseTable.get().getStorageType())
             : storageSelector
                 .selectStorage(tableIdentifier.namespace().toString(), tableIdentifier.name())
