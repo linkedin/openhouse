@@ -24,7 +24,6 @@ import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
-import com.linkedin.openhouse.internal.catalog.utils.MetadataLocationUtils;
 import com.linkedin.openhouse.internal.catalog.utils.MetadataUpdateUtils;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.trace.Span;
@@ -41,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
@@ -197,9 +197,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    * List Files and Manifest Files. Finally, the data sub-directory ./table_directory/data holds all
    * the Data Files.
    *
-   * <p>Naming itself lives in the metadata-type-neutral {@link MetadataLocationUtils} so the
-   * sibling view commit path shares it; only the codec resolution is table-specific here.
-   *
    * @param metadata {@link TableMetadata} for which the metadata file location needs to be derived.
    * @param newVersion new table version.
    * @return path to the root table metadata location.
@@ -208,8 +205,12 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     String codecName =
         metadata.property(
             TableProperties.METADATA_COMPRESSION, TableProperties.METADATA_COMPRESSION_DEFAULT);
-    return MetadataLocationUtils.rootMetadataFileLocation(
-        metadata.location(), codecName, newVersion);
+    return String.format(
+        "%s/%s",
+        metadata.location(),
+        String.format(
+            "%05d-%s%s",
+            newVersion, UUID.randomUUID(), TableMetadataParser.getFileExtension(codecName)));
   }
 
   /**
