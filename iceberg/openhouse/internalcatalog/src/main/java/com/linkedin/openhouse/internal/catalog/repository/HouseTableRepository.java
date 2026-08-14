@@ -5,9 +5,7 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.PagingAndSortingRepository;
-import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -18,18 +16,7 @@ import org.springframework.stereotype.Repository;
 public interface HouseTableRepository
     extends PagingAndSortingRepository<HouseTable, HouseTablePrimaryKey> {
 
-  /**
-   * Excludes views from table listings. The predicate lives in the query — never in a stream over a
-   * returned {@link Page} — so content and counts agree. {@code IS NULL} is mandatory because the
-   * discriminator is nullable with no backfill; {@code upper(...)} avoids depending on collation.
-   *
-   * <p>Spring Data proxies in services/tables and in the published tables-test-fixtures module
-   * inherit these predicates without an edit.
-   */
-  String TABLE_ROW_PREDICATE = "(h.entityType IS NULL OR upper(h.entityType) = 'TABLE')";
-
-  @Query("SELECT h FROM HouseTable h WHERE h.databaseId = :databaseId AND " + TABLE_ROW_PREDICATE)
-  List<HouseTable> findAllByDatabaseId(@Param("databaseId") String databaseId);
+  List<HouseTable> findAllByDatabaseId(String databaseId);
 
   /**
    * Delete a table by its primary key with purge option
@@ -39,24 +26,7 @@ public interface HouseTableRepository
    */
   void deleteById(HouseTablePrimaryKey houseTablePrimaryKey, boolean purge);
 
-  @Query(
-      value =
-          "SELECT h FROM HouseTable h WHERE h.databaseId = :databaseId AND " + TABLE_ROW_PREDICATE,
-      countQuery =
-          "SELECT COUNT(h) FROM HouseTable h WHERE h.databaseId = :databaseId AND "
-              + TABLE_ROW_PREDICATE)
-  Page<HouseTable> findAllByDatabaseId(@Param("databaseId") String databaseId, Pageable pageable);
-
-  /** Redeclared only to add the table-only predicate; cardinality and dedup are unchanged. */
-  @Override
-  @Query("SELECT h FROM HouseTable h WHERE " + TABLE_ROW_PREDICATE)
-  Iterable<HouseTable> findAll();
-
-  @Override
-  @Query(
-      value = "SELECT h FROM HouseTable h WHERE " + TABLE_ROW_PREDICATE,
-      countQuery = "SELECT COUNT(h) FROM HouseTable h WHERE " + TABLE_ROW_PREDICATE)
-  Page<HouseTable> findAll(Pageable pageable);
+  Page<HouseTable> findAllByDatabaseId(String databaseId, Pageable pageable);
 
   void rename(
       String fromDatabaseId,
