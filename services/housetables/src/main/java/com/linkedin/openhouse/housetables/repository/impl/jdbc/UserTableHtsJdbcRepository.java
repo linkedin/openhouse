@@ -42,10 +42,10 @@ public interface UserTableHtsJdbcRepository
   String TABLE_ROW_PREDICATE = "(u.entityType IS NULL OR upper(u.entityType) = 'TABLE')";
 
   /**
-   * Table-scoped point read. Serves {@code getUserTable}, which is the single HTS endpoint behind
-   * every table point read in the tables service, so a view reads as absent there without any
-   * caller-side check. The neutral {@link #findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase} above
-   * stays unfiltered because the writers need to see a row of any type to detect a collision.
+   * Table-scoped point read serving {@code getUserTable}, the single HTS endpoint behind every
+   * table point read in the tables service. The neutral {@link
+   * #findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase} above stays unfiltered because the writers
+   * must see a row of any type to detect a collision at a shared key.
    */
   @Query(
       "SELECT u FROM UserTableRow u WHERE "
@@ -63,6 +63,49 @@ public interface UserTableHtsJdbcRepository
           + "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId))")
   Page<String> findAllDistinctDatabaseIds(String databaseId, Pageable pageable);
 
+  @Query(
+      "SELECT u FROM UserTableRow u WHERE "
+          + "lower(u.databaseId) = lower(:databaseId) AND "
+          + TABLE_ROW_PREDICATE)
+  Iterable<UserTableRow> findAllTablesByDatabaseIdIgnoreCase(
+      @Param("databaseId") String databaseId);
+
+  @Query(
+      value =
+          "SELECT u FROM UserTableRow u WHERE "
+              + "lower(u.databaseId) = lower(:databaseId) AND "
+              + TABLE_ROW_PREDICATE,
+      countQuery =
+          "SELECT COUNT(u) FROM UserTableRow u WHERE "
+              + "lower(u.databaseId) = lower(:databaseId) AND "
+              + TABLE_ROW_PREDICATE)
+  Page<UserTableRow> findAllTablesByDatabaseIdIgnoreCase(
+      @Param("databaseId") String databaseId, Pageable pageable);
+
+  @Query(
+      "SELECT u FROM UserTableRow u WHERE "
+          + "lower(u.databaseId) = lower(:databaseId) AND "
+          + "lower(u.tableId) LIKE lower(:tableIdPattern) AND "
+          + TABLE_ROW_PREDICATE)
+  Iterable<UserTableRow> findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
+      @Param("databaseId") String databaseId, @Param("tableIdPattern") String tableIdPattern);
+
+  @Query(
+      value =
+          "SELECT u FROM UserTableRow u WHERE "
+              + "lower(u.databaseId) = lower(:databaseId) AND "
+              + "lower(u.tableId) LIKE lower(:tableIdPattern) AND "
+              + TABLE_ROW_PREDICATE,
+      countQuery =
+          "SELECT COUNT(u) FROM UserTableRow u WHERE "
+              + "lower(u.databaseId) = lower(:databaseId) AND "
+              + "lower(u.tableId) LIKE lower(:tableIdPattern) AND "
+              + TABLE_ROW_PREDICATE)
+  Page<UserTableRow> findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
+      @Param("databaseId") String databaseId,
+      @Param("tableIdPattern") String tableIdPattern,
+      Pageable pageable);
+
   /**
    * A null or {@code TABLE} request means tables, including legacy null rows; {@code VIEW} means
    * views only. An unknown value matches neither branch, so garbage fails closed here even if it
@@ -72,33 +115,6 @@ public interface UserTableHtsJdbcRepository
       "(((:entityType IS NULL OR upper(:entityType) = 'TABLE') AND "
           + TABLE_ROW_PREDICATE
           + ") OR (upper(:entityType) = 'VIEW' AND upper(u.entityType) = 'VIEW'))";
-
-  @Query(
-      "SELECT u FROM UserTableRow u WHERE "
-          + "lower(u.databaseId) = lower(:databaseId) AND "
-          + "lower(u.tableId) LIKE lower(:tableIdPattern) AND "
-          + ENTITY_TYPE_FILTER_PREDICATE)
-  Iterable<UserTableRow> findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-      @Param("databaseId") String databaseId,
-      @Param("tableIdPattern") String tableIdPattern,
-      @Param("entityType") String entityType);
-
-  @Query(
-      value =
-          "SELECT u FROM UserTableRow u WHERE "
-              + "lower(u.databaseId) = lower(:databaseId) AND "
-              + "lower(u.tableId) LIKE lower(:tableIdPattern) AND "
-              + ENTITY_TYPE_FILTER_PREDICATE,
-      countQuery =
-          "SELECT COUNT(u) FROM UserTableRow u WHERE "
-              + "lower(u.databaseId) = lower(:databaseId) AND "
-              + "lower(u.tableId) LIKE lower(:tableIdPattern) AND "
-              + ENTITY_TYPE_FILTER_PREDICATE)
-  Page<UserTableRow> findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-      @Param("databaseId") String databaseId,
-      @Param("tableIdPattern") String tableIdPattern,
-      @Param("entityType") String entityType,
-      Pageable pageable);
 
   String GENERAL_FILTER_PREDICATE =
       "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId)) AND "
