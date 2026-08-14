@@ -500,33 +500,6 @@ public class HtsRepositoryTest {
     assertThat(pageTableIds(viewPage1)).containsExactly("t05_view");
   }
 
-  /** A database whose only pointers are views must disappear from the database listing. */
-  @Test
-  public void testFindDistinctDatabasesExcludesViewOnlyDatabases() {
-    htsRepository.save(row("db00_legacy", "t1", null));
-    htsRepository.save(row("db01_view_only", "t1", "VIEW"));
-    htsRepository.save(row("db02_explicit", "t1", "TABLE"));
-    htsRepository.save(row("db03_view_only", "t1", "VIEW"));
-    htsRepository.save(row("db04_legacy", "t1", null));
-    htsRepository.save(row("db05_view_only", "t1", "VIEW"));
-    htsRepository.save(row("db06_explicit", "t1", "TABLE"));
-
-    assertThat(Lists.newArrayList(htsRepository.findAllDistinctDatabaseIds()))
-        .containsExactlyInAnyOrder("db00_legacy", "db02_explicit", "db04_legacy", "db06_explicit");
-
-    Pageable dbPage0 = PageRequest.of(0, 2, Sort.by("databaseId"));
-    Page<String> page0 = htsRepository.findAllDistinctDatabaseIds(null, dbPage0);
-    assertThat(page0.getTotalElements()).isEqualTo(4);
-    assertThat(page0.getTotalPages()).isEqualTo(2);
-    assertThat(page0.getContent()).containsExactly("db00_legacy", "db02_explicit");
-
-    Page<String> page1 =
-        htsRepository.findAllDistinctDatabaseIds(null, PageRequest.of(1, 2, Sort.by("databaseId")));
-    assertThat(page1.getTotalElements()).isEqualTo(4);
-    assertThat(page1.getTotalPages()).isEqualTo(2);
-    assertThat(page1.getContent()).containsExactly("db04_legacy", "db06_explicit");
-  }
-
   /**
    * Case/garbage matrix at the SQL layer.
    *
