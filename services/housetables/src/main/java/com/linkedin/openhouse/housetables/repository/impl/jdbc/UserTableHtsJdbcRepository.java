@@ -47,7 +47,7 @@ public interface UserTableHtsJdbcRepository
    */
   String TABLE_ROW_PREDICATE = "(u.entityType IS NULL OR upper(u.entityType) = 'TABLE')";
 
-  @Query("SELECT DISTINCT u.databaseId FROM UserTableRow u WHERE " + TABLE_ROW_PREDICATE)
+  @Query("SELECT DISTINCT databaseId FROM UserTableRow")
   Iterable<String> findAllDistinctDatabaseIds();
 
   @Query(
@@ -65,16 +65,9 @@ public interface UserTableHtsJdbcRepository
       @Param("databaseId") String databaseId, @Param("tableIdPattern") String tableIdPattern);
 
   @Query(
-      value =
-          "SELECT DISTINCT u.databaseId FROM UserTableRow u WHERE "
-              + "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId)) AND "
-              + TABLE_ROW_PREDICATE,
-      countQuery =
-          "SELECT COUNT(DISTINCT u.databaseId) FROM UserTableRow u WHERE "
-              + "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId)) AND "
-              + TABLE_ROW_PREDICATE)
-  Page<String> findAllDistinctDatabaseIds(
-      @Param("databaseId") String databaseId, Pageable pageable);
+      "SELECT DISTINCT databaseId FROM UserTableRow u where "
+          + "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId))")
+  Page<String> findAllDistinctDatabaseIds(String databaseId, Pageable pageable);
 
   @Query(
       value =
