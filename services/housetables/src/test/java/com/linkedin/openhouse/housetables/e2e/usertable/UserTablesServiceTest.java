@@ -27,6 +27,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -655,6 +658,67 @@ public class UserTablesServiceTest {
 
   private static final List<String> CANONICAL_VIEW_IDS =
       Arrays.asList("t01_view", "t03_view", "t05_view");
+
+  /**
+   * {@code getUserTable} is the single HTS endpoint behind every table point read in the tables
+   * service, so filtering it here is what makes doRefresh, dropTable, the rename source and
+   * findTableRefById all treat a view as absent without a check of their own.
+   */
+  @ParameterizedTest
+  @ValueSource(strings = {"VIEW", "view", "ViEw", "UNKNOWN"})
+  public void testGetUserTableHidesNonTableRows(String entityType) {
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "point_read", entityType));
+
+    Assertions.assertThrows(
+        NoSuchUserTableException.class,
+        () -> userTablesService.getUserTable(ENTITY_TYPE_DB, "point_read"));
+
+    // Hidden from the table read, not deleted.
+    assertThat(
+            htsRepository
+                .findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(ENTITY_TYPE_DB, "point_read")
+                .isPresent())
+        .isTrue();
+  }
+
+  @ParameterizedTest
+  @CsvSource(
+      nullValues = "NULL",
+      value = {"NULL", "TABLE", "table", "TaBlE"})
+  public void testGetUserTableResolvesNullAndTableRows(String entityType) {
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "point_read", entityType));
+
+    UserTableDto dto = userTablesService.getUserTable(ENTITY_TYPE_DB, "point_read");
+    assertThat(dto.getTableId()).isEqualTo("point_read");
+    assertThat(dto.getEntityType()).isEqualTo(entityType);
+  }
+
+  /**
+   * The writers must still see a view at a shared key, otherwise a table create or delete would
+   * silently act on a name another entity already holds.
+   */
+  @Test
+  public void testWritersStillSeeNonTableRowsAtTheSameKey() {
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "shared_key", "VIEW"));
+
+    UserTableRow seenByWriter =
+        htsRepository
+            .findById(
+                UserTableRowPrimaryKey.builder()
+                    .databaseId(ENTITY_TYPE_DB)
+                    .tableId("shared_key")
+                    .build())
+            .orElseThrow(() -> new AssertionError("writer read must see the view row"));
+    assertThat(seenByWriter.getEntityType()).isEqualTo("VIEW");
+
+    // deleteUserTable resolves through the same neutral read, so it can still remove the row.
+    userTablesService.deleteUserTable(ENTITY_TYPE_DB, "shared_key", false);
+    assertThat(
+            htsRepository
+                .findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(ENTITY_TYPE_DB, "shared_key")
+                .isPresent())
+        .isFalse();
+  }
 
   private UserTableRow entityTypeRow(String databaseId, String tableId, String entityType) {
     return UserTableRow.builder()

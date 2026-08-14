@@ -39,6 +39,22 @@ public interface UserTableHtsJdbcRepository
 
   void deleteByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(String databaseId, String tableId);
 
+  String TABLE_ROW_PREDICATE = "(u.entityType IS NULL OR upper(u.entityType) = 'TABLE')";
+
+  /**
+   * Table-scoped point read. Serves {@code getUserTable}, which is the single HTS endpoint behind
+   * every table point read in the tables service, so a view reads as absent there without any
+   * caller-side check. The neutral {@link #findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase} above
+   * stays unfiltered because the writers need to see a row of any type to detect a collision.
+   */
+  @Query(
+      "SELECT u FROM UserTableRow u WHERE "
+          + "lower(u.databaseId) = lower(:databaseId) AND "
+          + "lower(u.tableId) = lower(:tableId) AND "
+          + TABLE_ROW_PREDICATE)
+  Optional<UserTableRow> findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
+      @Param("databaseId") String databaseId, @Param("tableId") String tableId);
+
   @Query("SELECT DISTINCT databaseId FROM UserTableRow")
   Iterable<String> findAllDistinctDatabaseIds();
 
@@ -53,9 +69,9 @@ public interface UserTableHtsJdbcRepository
    * bypasses API validation.
    */
   String ENTITY_TYPE_FILTER_PREDICATE =
-      "(((:entityType IS NULL OR upper(:entityType) = 'TABLE') "
-          + "AND (u.entityType IS NULL OR upper(u.entityType) = 'TABLE')) "
-          + "OR (upper(:entityType) = 'VIEW' AND upper(u.entityType) = 'VIEW'))";
+      "(((:entityType IS NULL OR upper(:entityType) = 'TABLE') AND "
+          + TABLE_ROW_PREDICATE
+          + ") OR (upper(:entityType) = 'VIEW' AND upper(u.entityType) = 'VIEW'))";
 
   @Query(
       "SELECT u FROM UserTableRow u WHERE "
