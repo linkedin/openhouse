@@ -1010,9 +1010,6 @@ public class HtsControllerTest {
    * different candidate metadataLocation. The pointer must be rejected with 409 and left
    * byte-identical — same numeric JPA {@code version}, {@code entityType} and {@code
    * metadataLocation}.
-   *
-   * <p>The Tables Service occupancy tests prove a real CREATE never reaches this boundary; this
-   * test proves the boundary itself does not lose the view.
    */
   @Test
   public void testCreateTablePointerPublishCannotOverwriteView() throws Exception {

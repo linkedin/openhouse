@@ -10,8 +10,6 @@ import java.util.HashSet;
 import java.util.Set;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
 
 public class HouseTableTest {
 
@@ -85,58 +83,5 @@ public class HouseTableTest {
     Assertions.assertEquals(
         "openhouse.entityType",
         HouseTableSerdeUtils.getCanonicalFieldName(HouseTableSerdeUtils.ENTITY_TYPE_FIELD_NAME));
-
-    Assertions.assertEquals("TABLE", HouseTableSerdeUtils.TABLE_ENTITY_TYPE);
-    Assertions.assertEquals("VIEW", HouseTableSerdeUtils.VIEW_ENTITY_TYPE);
-  }
-
-  /**
-   * Authoritative case-sensitivity contract. H2 (MODE=MySQL) is case-sensitive while production
-   * MySQL default collation is not, so no SQL-level test can certify these semantics across
-   * providers. These Java guards are what every point read, drop, rename, and occupancy check
-   * actually consults, so they are pinned here independently of any database.
-   *
-   * <p>NULL and every spelling of TABLE classify as a table; every spelling of VIEW classifies as a
-   * view; anything else is neither, so table APIs fail closed rather than treating an unknown
-   * discriminator as a legacy table.
-   *
-   * <p>The empty-string row goes beyond the plan, which only named NULL/TABLE/VIEW/garbage. It is
-   * included deliberately because {@code entity_type} is a nullable {@code VARCHAR} that can hold
-   * {@code ''}, and "unknown non-null fails closed" must cover it. The natural implementation
-   * ({@code entityType == null || entityType.equalsIgnoreCase(TABLE)}) satisfies it for free —
-   * implementers must not special-case {@code ""} as blank/absent.
-   */
-  @ParameterizedTest
-  @CsvSource(
-      nullValues = "NULL",
-      value = {
-        "NULL,  true,  false",
-        "TABLE, true,  false",
-        "table, true,  false",
-        "TaBlE, true,  false",
-        "VIEW,  false, true",
-        "view,  false, true",
-        "ViEw,  false, true",
-        "UNKNOWN, false, false",
-        "'', false, false"
-      })
-  public void testEntityTypeClassification(
-      String entityType, boolean expectedTable, boolean expectedView) {
-    Assertions.assertEquals(
-        expectedTable,
-        HouseTableSerdeUtils.isTableEntityType(entityType),
-        "isTableEntityType(" + entityType + ")");
-    Assertions.assertEquals(
-        expectedView,
-        HouseTableSerdeUtils.isViewEntityType(entityType),
-        "isViewEntityType(" + entityType + ")");
-
-    // The same classification must hold when read off a real pointer row.
-    HouseTable row =
-        HouseTable.builder().databaseId("d1").tableId("t1").entityType(entityType).build();
-    Assertions.assertEquals(
-        expectedTable, HouseTableSerdeUtils.isTableEntityType(row.getEntityType()));
-    Assertions.assertEquals(
-        expectedView, HouseTableSerdeUtils.isViewEntityType(row.getEntityType()));
   }
 }

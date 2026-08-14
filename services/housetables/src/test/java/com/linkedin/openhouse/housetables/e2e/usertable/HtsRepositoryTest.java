@@ -511,10 +511,8 @@ public class HtsRepositoryTest {
    * production MySQL's default collation is case-INSENSITIVE. This test therefore proves that the
    * query normalizes explicitly (e.g. {@code upper(u.entityType) = 'TABLE'}) rather than leaning on
    * a provider collation: an implementation using a bare {@code = 'TABLE'} comparison would hide
-   * {@code table}/{@code TaBlE} here and fail. It does NOT certify production MySQL behavior — the
-   * authoritative case-insensitivity contract is pinned at the Java guard layer in {@code
-   * HouseTableTest#testEntityTypeClassification} and the catalog guard tests, and a MySQL staging
-   * smoke test is still required before views are enabled.
+   * {@code table}/{@code TaBlE} here and fail. It does NOT certify production MySQL behavior — a
+   * MySQL staging smoke test is still required before views are enabled.
    */
   @Test
   public void testEntityTypePredicatesAreCaseInsensitiveAndGarbageFailsClosed() {

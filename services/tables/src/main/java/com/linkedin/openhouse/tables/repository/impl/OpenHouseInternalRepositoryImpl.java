@@ -22,8 +22,6 @@ import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.SnapshotsUtil;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
-import com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils;
-import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
@@ -810,10 +808,13 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   @Override
   public Optional<TableDto> findTableRefById(TableDtoPrimaryKey tableDtoPrimaryKey) {
-    // Backs table-only operations, notably drop, which avoids loadTable so it survives corrupted
-    // metadata. That bypass is why the discriminator must be filtered explicitly here.
-    return findRawPointerById(tableDtoPrimaryKey)
-        .filter(houseTable -> HouseTableSerdeUtils.isTableEntityType(houseTable.getEntityType()))
+    if (!(catalog instanceof OpenHouseInternalCatalog)) {
+      throw new UnsupportedOperationException(
+          "findTableRefById is not supported for catalog type: " + catalog.getClass().getName());
+    }
+    return ((OpenHouseInternalCatalog) catalog)
+        .findHouseTable(
+            TableIdentifier.of(tableDtoPrimaryKey.getDatabaseId(), tableDtoPrimaryKey.getTableId()))
         .map(
             houseTable ->
                 TableDto.builder()
@@ -822,40 +823,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
                     .tableUUID(houseTable.getTableUUID())
                     .tableLocation(houseTable.getTableLocation())
                     .build());
-  }
-
-  @Override
-  public Optional<String> findOccupyingEntityTypeById(TableDtoPrimaryKey tableDtoPrimaryKey) {
-    // Unlike findTableRefById, this must see EVERY raw pointer: a name taken by a view or by an
-    // unrecognized type is still taken. Repository errors intentionally propagate.
-    return findRawPointerById(tableDtoPrimaryKey)
-        .map(
-            houseTable -> {
-              String entityType = houseTable.getEntityType();
-              if (HouseTableSerdeUtils.isTableEntityType(entityType)) {
-                return HouseTableSerdeUtils.TABLE_ENTITY_TYPE;
-              }
-              if (HouseTableSerdeUtils.isViewEntityType(entityType)) {
-                return HouseTableSerdeUtils.VIEW_ENTITY_TYPE;
-              }
-              return entityType;
-            });
-  }
-
-  /**
-   * Single raw pointer lookup shared by the two public projections above, so the "can this be
-   * loaded as a table?" and "is this name taken?" answers cannot drift apart. Never calls
-   * loadTable.
-   */
-  private Optional<HouseTable> findRawPointerById(TableDtoPrimaryKey tableDtoPrimaryKey) {
-    if (!(catalog instanceof OpenHouseInternalCatalog)) {
-      throw new UnsupportedOperationException(
-          "Raw pointer lookup is not supported for catalog type: " + catalog.getClass().getName());
-    }
-    return ((OpenHouseInternalCatalog) catalog)
-        .findHouseTable(
-            TableIdentifier.of(
-                tableDtoPrimaryKey.getDatabaseId(), tableDtoPrimaryKey.getTableId()));
   }
 
   // FIXME: Likely need a cache layer to avoid expensive tableScan.

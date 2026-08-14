@@ -72,9 +72,6 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
@@ -2130,91 +2127,6 @@ public class OpenHouseInternalTableOperationsTest {
     Assertions.assertThrows(
         InvalidTableMetadataException.class,
         () -> openHouseInternalTableOperations.refreshMetadata(nonExistentPath));
-  }
-
-  // ---------------------------------------------------------------------------------------------
-  // Table point loading must fail closed on non-table pointer rows
-  // ---------------------------------------------------------------------------------------------
-
-  private static final String TYPED_METADATA_LOCATION = "typed_metadata_location";
-
-  private static HouseTablePrimaryKey testTablePrimaryKey() {
-    return HouseTablePrimaryKey.builder()
-        .databaseId(TEST_TABLE_IDENTIFIER.namespace().toString())
-        .tableId(TEST_TABLE_IDENTIFIER.name())
-        .build();
-  }
-
-  private static HouseTable typedPointer(String entityType) {
-    return HouseTable.builder()
-        .databaseId(TEST_TABLE_IDENTIFIER.namespace().toString())
-        .tableId(TEST_TABLE_IDENTIFIER.name())
-        .tableLocation(TYPED_METADATA_LOCATION)
-        .entityType(entityType)
-        .build();
-  }
-
-  /**
-   * A shared-key row that is a VIEW (any spelling) or an unknown type is not a table. The table
-   * path must treat it as absent and must never hand its metadata location to {@link
-   * TableMetadataParser} — a view metadata.json is not parseable as table metadata, and parsing an
-   * unknown type would leak a foreign object into the table API.
-   */
-  @ParameterizedTest
-  @ValueSource(strings = {"VIEW", "view", "ViEw", "UNKNOWN"})
-  void doRefreshTreatsViewRowAsNoSuchTableWithoutOpeningMetadata(String entityType) {
-    when(mockHouseTableRepository.findById(testTablePrimaryKey()))
-        .thenReturn(Optional.of(typedPointer(entityType)));
-
-    try (MockedStatic<TableMetadataParser> parserMock =
-        Mockito.mockStatic(TableMetadataParser.class, Mockito.CALLS_REAL_METHODS)) {
-      parserMock
-          .when(
-              () ->
-                  TableMetadataParser.read(
-                      Mockito.any(FileIO.class), Mockito.eq(TYPED_METADATA_LOCATION)))
-          .thenReturn(BASE_TABLE_METADATA);
-
-      openHouseInternalTableOperations.refresh();
-
-      Assertions.assertNull(
-          openHouseInternalTableOperations.currentMetadataLocation(),
-          "A " + entityType + " pointer must not become the table's current metadata location");
-      Assertions.assertNull(
-          openHouseInternalTableOperations.current(),
-          "A " + entityType + " pointer must not produce table metadata");
-
-      parserMock.verify(
-          () -> TableMetadataParser.read(Mockito.any(FileIO.class), Mockito.anyString()), never());
-    }
-  }
-
-  /** The complement: null and every spelling of TABLE still refresh normally. */
-  @ParameterizedTest
-  @CsvSource(
-      nullValues = "NULL",
-      value = {"NULL", "TABLE", "table", "TaBlE"})
-  void doRefreshAcceptsNullAndExplicitTableRows(String entityType) {
-    when(mockHouseTableRepository.findById(testTablePrimaryKey()))
-        .thenReturn(Optional.of(typedPointer(entityType)));
-
-    try (MockedStatic<TableMetadataParser> parserMock =
-        Mockito.mockStatic(TableMetadataParser.class, Mockito.CALLS_REAL_METHODS)) {
-      parserMock
-          .when(
-              () ->
-                  TableMetadataParser.read(
-                      Mockito.any(FileIO.class), Mockito.eq(TYPED_METADATA_LOCATION)))
-          .thenReturn(BASE_TABLE_METADATA);
-
-      openHouseInternalTableOperations.refresh();
-
-      Assertions.assertEquals(
-          TYPED_METADATA_LOCATION,
-          openHouseInternalTableOperations.currentMetadataLocation(),
-          "entityType=" + entityType + " must be treated as a table");
-      Assertions.assertNotNull(openHouseInternalTableOperations.current());
-    }
   }
 
   /**
