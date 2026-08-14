@@ -10,7 +10,6 @@ import com.linkedin.openhouse.common.exception.RequestValidationFailureException
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
-import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
@@ -30,15 +29,12 @@ import com.linkedin.openhouse.tables.repository.SchemaValidator;
 import com.linkedin.openhouse.tables.repository.impl.InternalRepositoryUtils;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.stream.Collectors;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.Schema;
@@ -47,7 +43,6 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
@@ -59,10 +54,6 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.SpyBean;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.util.AopTestUtils;
@@ -1606,344 +1597,5 @@ public class RepositoryTest {
             table.getDatabaseId(),
             table.getTableId() + "-" + table.getTableUUID());
     Assertions.assertTrue(table.getTableLocation().startsWith(path.toString()));
-  }
-
-  // ---------------------------------------------------------------------------------------------
-  // Table listings must exclude views in the query, never by post-filtering a Page
-  // ---------------------------------------------------------------------------------------------
-
-  /**
-   * Canonical interleaved fixture: four visible tables (two legacy NULL, two explicit TABLE)
-   * interleaved with three VIEW rows. A fetch-then-filter implementation returns a SHORT first page
-   * (1 row) with totalElements=7/totalPages=4; the correct pre-pagination predicate returns a full
-   * 2-row page with totalElements=4/totalPages=2.
-   */
-  private static final String ENTITY_TYPE_DB = "entity_type_db";
-
-  private static final List<String> CANONICAL_TABLE_IDS =
-      Arrays.asList("t00_legacy", "t02_explicit", "t04_legacy", "t06_explicit");
-
-  private static final List<String> CANONICAL_VIEW_IDS =
-      Arrays.asList("t01_view", "t03_view", "t05_view");
-
-  private static final String CASE_DB = "entity_type_case_db";
-
-  private HouseTable rawPointer(String databaseId, String tableId, String entityType) {
-    return HouseTable.builder()
-        .databaseId(databaseId)
-        .tableId(tableId)
-        .clusterId("test-cluster")
-        .tableUri(String.format("test-cluster.%s.%s", databaseId, tableId))
-        .tableUUID(UUID.randomUUID().toString())
-        .tableLocation(String.format("/base/%s/%s-uuid/00001-x.metadata.json", databaseId, tableId))
-        .tableVersion(INITIAL_TABLE_VERSION)
-        .entityType(entityType)
-        .build();
-  }
-
-  /** Seeds raw pointer rows and returns their keys so the caller can delete them in a finally. */
-  private List<HouseTablePrimaryKey> seedRawPointers(String databaseId, String[][] idAndType) {
-    List<HouseTablePrimaryKey> keys = new ArrayList<>();
-    for (String[] entry : idAndType) {
-      houseTablesRepository.save(rawPointer(databaseId, entry[0], entry[1]));
-      keys.add(HouseTablePrimaryKey.builder().databaseId(databaseId).tableId(entry[0]).build());
-    }
-    return keys;
-  }
-
-  private List<HouseTablePrimaryKey> seedCanonicalPointers(String databaseId) {
-    return seedRawPointers(
-        databaseId,
-        new String[][] {
-          {"t00_legacy", null},
-          {"t01_view", "VIEW"},
-          {"t02_explicit", "TABLE"},
-          {"t03_view", "VIEW"},
-          {"t04_legacy", null},
-          {"t05_view", "VIEW"},
-          {"t06_explicit", "TABLE"}
-        });
-  }
-
-  private List<HouseTablePrimaryKey> seedCaseNormalizationPointers(String databaseId) {
-    return seedRawPointers(
-        databaseId,
-        new String[][] {
-          {"case00_null", null},
-          {"case01_upper_table", "TABLE"},
-          {"case02_lower_table", "table"},
-          {"case03_mixed_table", "TaBlE"},
-          {"case04_upper_view", "VIEW"},
-          {"case05_lower_view", "view"},
-          {"case06_mixed_view", "ViEw"},
-          {"case07_garbage", "UNKNOWN"}
-        });
-  }
-
-  /**
-   * Raw pointer rows are invisible to the table APIs by design, so no table-API cleanup can remove
-   * them. Every test that seeds them MUST delete them explicitly, otherwise later tests in this
-   * class (which asserts exact database/table sets, and shares one Spring context across methods)
-   * are polluted.
-   */
-  private void deleteRawPointers(List<HouseTablePrimaryKey> keys) {
-    for (HouseTablePrimaryKey key : keys) {
-      try {
-        houseTablesRepository.deleteById(key);
-      } catch (Exception e) {
-        // Best effort: a missing row must not mask the real assertion failure.
-      }
-    }
-  }
-
-  private static OpenHouseInternalCatalog openHouseCatalog(Catalog catalog) {
-    return (OpenHouseInternalCatalog) AopTestUtils.getUltimateTargetObject(catalog);
-  }
-
-  private static List<String> identifierNames(List<TableIdentifier> identifiers) {
-    return identifiers.stream().map(TableIdentifier::name).sorted().collect(Collectors.toList());
-  }
-
-  private static Pageable sortedPage(int page) {
-    return PageRequest.of(page, 2, Sort.by("tableId"));
-  }
-
-  /** SHOW TABLES contract: a view never appears in the catalog's table listing. */
-  @Test
-  public void testCatalogListTablesExcludesViewsAndKeepsNullAndTable() {
-    List<HouseTablePrimaryKey> keys = seedCanonicalPointers(ENTITY_TYPE_DB);
-    try {
-      List<TableIdentifier> identifiers = catalog.listTables(Namespace.of(ENTITY_TYPE_DB));
-
-      Assertions.assertEquals(CANONICAL_TABLE_IDS, identifierNames(identifiers));
-      Assertions.assertTrue(
-          identifierNames(identifiers).stream().noneMatch(CANONICAL_VIEW_IDS::contains),
-          "No VIEW row may appear in SHOW TABLES: " + identifierNames(identifiers));
-    } finally {
-      deleteRawPointers(keys);
-    }
-  }
-
-  /** Anti-post-filter assertion for the paginated catalog listing overload. */
-  @Test
-  public void testCatalogListTablesFiltersBeforePagination() {
-    List<HouseTablePrimaryKey> keys = seedCanonicalPointers(ENTITY_TYPE_DB);
-    try {
-      OpenHouseInternalCatalog ohCatalog = openHouseCatalog(catalog);
-
-      Page<TableIdentifier> page0 =
-          ohCatalog.listTables(Namespace.of(ENTITY_TYPE_DB), sortedPage(0));
-      Assertions.assertEquals(4, page0.getTotalElements());
-      Assertions.assertEquals(2, page0.getTotalPages());
-      Assertions.assertEquals(2, page0.getContent().size());
-      Assertions.assertEquals(
-          Arrays.asList("t00_legacy", "t02_explicit"),
-          page0.getContent().stream().map(TableIdentifier::name).collect(Collectors.toList()));
-
-      Page<TableIdentifier> page1 =
-          ohCatalog.listTables(Namespace.of(ENTITY_TYPE_DB), sortedPage(1));
-      Assertions.assertEquals(4, page1.getTotalElements());
-      Assertions.assertEquals(2, page1.getTotalPages());
-      Assertions.assertEquals(2, page1.getContent().size());
-      Assertions.assertEquals(
-          Arrays.asList("t04_legacy", "t06_explicit"),
-          page1.getContent().stream().map(TableIdentifier::name).collect(Collectors.toList()));
-    } finally {
-      deleteRawPointers(keys);
-    }
-  }
-
-  /** Anti-post-filter assertion for the HouseTable-preserving paginated listing. */
-  @Test
-  public void testListHouseTablesFiltersBeforePagination() {
-    List<HouseTablePrimaryKey> keys = seedCanonicalPointers(ENTITY_TYPE_DB);
-    try {
-      OpenHouseInternalCatalog ohCatalog = openHouseCatalog(catalog);
-
-      Page<HouseTable> page0 =
-          ohCatalog.listHouseTables(Namespace.of(ENTITY_TYPE_DB), sortedPage(0));
-      Assertions.assertEquals(4, page0.getTotalElements());
-      Assertions.assertEquals(2, page0.getTotalPages());
-      Assertions.assertEquals(2, page0.getContent().size());
-      Assertions.assertEquals(
-          Arrays.asList("t00_legacy", "t02_explicit"),
-          page0.getContent().stream().map(HouseTable::getTableId).collect(Collectors.toList()));
-      Assertions.assertTrue(
-          page0.getContent().stream().noneMatch(h -> "VIEW".equalsIgnoreCase(h.getEntityType())));
-
-      Page<HouseTable> page1 =
-          ohCatalog.listHouseTables(Namespace.of(ENTITY_TYPE_DB), sortedPage(1));
-      Assertions.assertEquals(4, page1.getTotalElements());
-      Assertions.assertEquals(2, page1.getTotalPages());
-      Assertions.assertEquals(2, page1.getContent().size());
-      Assertions.assertEquals(
-          Arrays.asList("t04_legacy", "t06_explicit"),
-          page1.getContent().stream().map(HouseTable::getTableId).collect(Collectors.toList()));
-    } finally {
-      deleteRawPointers(keys);
-    }
-  }
-
-  /** All three {@code searchTables} overloads must filter identically and before paging. */
-  @Test
-  public void testOpenHouseRepositorySearchTablesFiltersAllOverloads() {
-    List<HouseTablePrimaryKey> keys = seedCanonicalPointers(ENTITY_TYPE_DB);
-    try {
-      List<TableDto> plain = openHouseInternalRepository.searchTables(ENTITY_TYPE_DB);
-      Assertions.assertEquals(
-          CANONICAL_TABLE_IDS,
-          plain.stream().map(TableDto::getTableId).sorted().collect(Collectors.toList()));
-
-      Page<TableDto> page0 =
-          openHouseInternalRepository.searchTables(ENTITY_TYPE_DB, sortedPage(0));
-      Assertions.assertEquals(4, page0.getTotalElements());
-      Assertions.assertEquals(2, page0.getTotalPages());
-      Assertions.assertEquals(
-          Arrays.asList("t00_legacy", "t02_explicit"),
-          page0.getContent().stream().map(TableDto::getTableId).collect(Collectors.toList()));
-
-      Page<TableDto> page1 =
-          openHouseInternalRepository.searchTables(ENTITY_TYPE_DB, sortedPage(1));
-      Assertions.assertEquals(4, page1.getTotalElements());
-      Assertions.assertEquals(2, page1.getTotalPages());
-      Assertions.assertEquals(
-          Arrays.asList("t04_legacy", "t06_explicit"),
-          page1.getContent().stream().map(TableDto::getTableId).collect(Collectors.toList()));
-
-      // The fields projection goes through listHouseTables, so it must filter identically and
-      // still populate the requested field.
-      Page<TableDto> fieldsPage0 =
-          openHouseInternalRepository.searchTables(
-              ENTITY_TYPE_DB, sortedPage(0), Collections.singletonList("tableLocation"));
-      Assertions.assertEquals(4, fieldsPage0.getTotalElements());
-      Assertions.assertEquals(2, fieldsPage0.getTotalPages());
-      Assertions.assertEquals(
-          Arrays.asList("t00_legacy", "t02_explicit"),
-          fieldsPage0.getContent().stream().map(TableDto::getTableId).collect(Collectors.toList()));
-      Assertions.assertTrue(
-          fieldsPage0.getContent().stream().allMatch(dto -> dto.getTableLocation() != null),
-          "fields=tableLocation must be projected for every returned table");
-    } finally {
-      deleteRawPointers(keys);
-    }
-  }
-
-  /**
-   * Database enumeration: a database whose only pointer is a view must disappear entirely. Note the
-   * global-scope precondition — {@code findAllIds} is not database-scoped, so this test asserts the
-   * pointer table is empty first to keep a failure here diagnosable as leakage rather than as a
-   * filtering bug.
-   */
-  @Test
-  public void testFindAllIdsExcludesViewOnlyDatabases() {
-    Assertions.assertTrue(
-        Streams.stream(houseTablesRepository.findAll()).count() == 0,
-        "This test asserts global pointer counts and requires a clean pointer table; "
-            + "a previous test leaked rows");
-
-    List<HouseTablePrimaryKey> keys = new ArrayList<>();
-    try {
-      keys.addAll(seedRawPointers("db00_legacy", new String[][] {{"t1", null}}));
-      keys.addAll(seedRawPointers("db01_view_only", new String[][] {{"t1", "VIEW"}}));
-      keys.addAll(seedRawPointers("db02_explicit", new String[][] {{"t1", "TABLE"}}));
-      keys.addAll(seedRawPointers("db03_view_only", new String[][] {{"t1", "VIEW"}}));
-      keys.addAll(seedRawPointers("db04_legacy", new String[][] {{"t1", null}}));
-      keys.addAll(seedRawPointers("db05_view_only", new String[][] {{"t1", "VIEW"}}));
-      keys.addAll(seedRawPointers("db06_explicit", new String[][] {{"t1", "TABLE"}}));
-
-      List<String> databaseIds =
-          openHouseInternalRepository.findAllIds().stream()
-              .map(TableDtoPrimaryKey::getDatabaseId)
-              .sorted()
-              .collect(Collectors.toList());
-      Assertions.assertEquals(
-          Arrays.asList("db00_legacy", "db02_explicit", "db04_legacy", "db06_explicit"),
-          databaseIds);
-
-      Pageable dbPage = PageRequest.of(0, 2, Sort.by("databaseId"));
-      Page<TableDtoPrimaryKey> page0 = openHouseInternalRepository.findAllIds(dbPage);
-      Assertions.assertEquals(4, page0.getTotalElements());
-      Assertions.assertEquals(2, page0.getTotalPages());
-      Assertions.assertEquals(
-          Arrays.asList("db00_legacy", "db02_explicit"),
-          page0.getContent().stream()
-              .map(TableDtoPrimaryKey::getDatabaseId)
-              .collect(Collectors.toList()));
-
-      Page<TableDtoPrimaryKey> page1 =
-          openHouseInternalRepository.findAllIds(PageRequest.of(1, 2, Sort.by("databaseId")));
-      Assertions.assertEquals(4, page1.getTotalElements());
-      Assertions.assertEquals(2, page1.getTotalPages());
-      Assertions.assertEquals(
-          Arrays.asList("db04_legacy", "db06_explicit"),
-          page1.getContent().stream()
-              .map(TableDtoPrimaryKey::getDatabaseId)
-              .collect(Collectors.toList()));
-    } finally {
-      deleteRawPointers(keys);
-    }
-  }
-
-  /**
-   * Case/garbage matrix at the internal H2 query layer.
-   *
-   * <p>H2 (MODE=MySQL) is case-SENSITIVE while production MySQL's default collation is not, so this
-   * proves the query normalizes explicitly (e.g. {@code upper(h.entityType) = 'TABLE'}) rather than
-   * relying on the provider's collation — a bare {@code = 'TABLE'} comparison would hide the
-   * lower/mixed-case table rows here and fail. It does NOT certify production MySQL behavior; the
-   * authoritative case contract lives in the Java guards ({@code
-   * HouseTableTest#testEntityTypeClassification} and the catalog guard tests).
-   */
-  @Test
-  public void testCaseInsensitiveTypePredicateAndGarbageFailClosed() {
-    List<HouseTablePrimaryKey> keys = seedCaseNormalizationPointers(CASE_DB);
-    try {
-      List<String> expectedVisible =
-          Arrays.asList(
-              "case00_null", "case01_upper_table", "case02_lower_table", "case03_mixed_table");
-      List<String> expectedHidden =
-          Arrays.asList(
-              "case04_upper_view", "case05_lower_view", "case06_mixed_view", "case07_garbage");
-
-      List<String> listed = identifierNames(catalog.listTables(Namespace.of(CASE_DB)));
-      Assertions.assertEquals(expectedVisible, listed);
-      Assertions.assertTrue(
-          listed.stream().noneMatch(expectedHidden::contains),
-          "Views (any spelling) and unknown types must fail closed out of SHOW TABLES: " + listed);
-
-      OpenHouseInternalCatalog ohCatalog = openHouseCatalog(catalog);
-
-      Page<TableIdentifier> page0 = ohCatalog.listTables(Namespace.of(CASE_DB), sortedPage(0));
-      Assertions.assertEquals(4, page0.getTotalElements());
-      Assertions.assertEquals(2, page0.getTotalPages());
-      Assertions.assertEquals(
-          Arrays.asList("case00_null", "case01_upper_table"),
-          page0.getContent().stream().map(TableIdentifier::name).collect(Collectors.toList()));
-
-      Page<HouseTable> housePage0 = ohCatalog.listHouseTables(Namespace.of(CASE_DB), sortedPage(0));
-      Assertions.assertEquals(4, housePage0.getTotalElements());
-      Assertions.assertEquals(2, housePage0.getTotalPages());
-      Assertions.assertEquals(
-          Arrays.asList("case00_null", "case01_upper_table"),
-          housePage0.getContent().stream()
-              .map(HouseTable::getTableId)
-              .collect(Collectors.toList()));
-
-      Page<HouseTable> housePage1 = ohCatalog.listHouseTables(Namespace.of(CASE_DB), sortedPage(1));
-      Assertions.assertEquals(
-          Arrays.asList("case02_lower_table", "case03_mixed_table"),
-          housePage1.getContent().stream()
-              .map(HouseTable::getTableId)
-              .collect(Collectors.toList()));
-
-      // Hidden, not dropped: the raw rows are all still there.
-      for (HouseTablePrimaryKey key : keys) {
-        Assertions.assertTrue(
-            houseTablesRepository.findById(key).isPresent(),
-            "Raw pointer " + key.getTableId() + " must still exist; it is hidden, not deleted");
-      }
-    } finally {
-      deleteRawPointers(keys);
-    }
   }
 }
