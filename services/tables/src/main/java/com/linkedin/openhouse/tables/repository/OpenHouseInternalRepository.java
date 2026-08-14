@@ -28,17 +28,6 @@ public interface OpenHouseInternalRepository
    */
   Optional<TableDto> findTableRefById(TableDtoPrimaryKey tableDtoPrimaryKey);
 
-  /**
-   * Name occupancy, not table existence: unlike {@link #findById}/{@link #findTableRefById} this
-   * sees every pointer row and never parses metadata.json. Empty means no row exists; a null or
-   * {@code TABLE} discriminator returns {@code "TABLE"}, and an unrecognized value is returned as
-   * stored so an occupied name fails closed.
-   *
-   * <p>HTS errors must propagate — swallowing them into an empty result would read as "this name is
-   * free" and let a CREATE clobber an existing view.
-   */
-  Optional<String> findOccupyingEntityTypeById(TableDtoPrimaryKey tableDtoPrimaryKey);
-
   List<TableDtoPrimaryKey> findAllIds();
 
   Page<TableDtoPrimaryKey> findAllIds(Pageable pageable);

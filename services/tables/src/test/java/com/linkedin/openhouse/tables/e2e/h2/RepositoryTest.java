@@ -1237,9 +1237,8 @@ public class RepositoryTest {
         renamedTable.get().getTableProperties().get("openhouse.tableUri"),
         "local-cluster.d1.t1_renamed");
 
-    // The rename destination is now guarded: an occupied destination pointer is a collision rather
-    // than something a later rename silently overwrites. Leaving d1.t1_renamed behind would
-    // therefore collide with other tests in this class, which share one Spring context.
+    // Leaving d1.t1_renamed behind would leak into other tests in this class, which share one
+    // Spring context.
     openHouseInternalRepository.deleteById(
         TableDtoPrimaryKey.builder().databaseId("d1").tableId("t1_renamed").build());
   }
