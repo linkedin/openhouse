@@ -13,7 +13,6 @@ import com.linkedin.openhouse.common.utils.NamespaceUtil;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
-import com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
@@ -158,11 +157,8 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   public boolean dropTable(TableIdentifier identifier, boolean purge) {
     // Look up the HouseTable row directly instead of calling loadTable(), so drop works even when
     // the table's metadata.json is corrupted and cannot be parsed by TableMetadataParser.
-    // This path bypasses loadTable(), so the doRefresh guard is inert here and the discriminator
-    // must be checked explicitly — otherwise a view could be dropped and purged.
     HouseTable houseTable =
         findHouseTable(identifier)
-            .filter(row -> HouseTableSerdeUtils.isTableEntityType(row.getEntityType()))
             .orElseThrow(() -> new NoSuchTableException("Table does not exist: %s", identifier));
 
     HouseTablePrimaryKey primaryKey =
@@ -214,24 +210,6 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Override
   public void renameTable(TableIdentifier from, TableIdentifier to) {
-    // Defense in depth for direct catalog callers; both checks run before loadTable(), so a
-    // rejection reads no metadata, opens no transaction and writes no pointer. A wrong-type source
-    // is "no such table"; an occupied destination of ANY type is a collision.
-    findHouseTable(from)
-        .filter(row -> HouseTableSerdeUtils.isTableEntityType(row.getEntityType()))
-        .orElseThrow(() -> new NoSuchTableException("Table does not exist: %s", from));
-
-    findHouseTable(to)
-        .ifPresent(
-            occupant -> {
-              throw new AlreadyExistsException(
-                  "Table",
-                  to.namespace().toString() + "." + to.name(),
-                  String.format(
-                      "Cannot rename %s to %s because that name is already occupied", from, to),
-                  null);
-            });
-
     Table fromTable = loadTable(from);
     String tableClusterId = fromTable.properties().get(CatalogConstants.OPENHOUSE_CLUSTERID_KEY);
 

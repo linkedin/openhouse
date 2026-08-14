@@ -17,7 +17,6 @@ import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
-import com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
@@ -123,18 +122,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           tableIdentifier.namespace().toString(),
           tableIdentifier.name());
       metricsReporter.count(InternalCatalogMetricsConstant.NO_TABLE_WHEN_REFRESH);
-    }
-    // A non-table row must act absent and never reach TableMetadataParser: view metadata.json is
-    // not parseable as table metadata, and an unknown type must fail closed.
-    if (houseTable.isPresent()
-        && !HouseTableSerdeUtils.isTableEntityType(houseTable.get().getEntityType())) {
-      log.debug(
-          "Key {}.{} is occupied by a non-table entity of type {}; treating it as absent for the "
-              + "table path",
-          tableIdentifier.namespace().toString(),
-          tableIdentifier.name(),
-          houseTable.get().getEntityType());
-      houseTable = Optional.empty();
     }
     if (!houseTable.isPresent() && currentMetadataLocation() != null) {
       throw new IllegalStateException(
