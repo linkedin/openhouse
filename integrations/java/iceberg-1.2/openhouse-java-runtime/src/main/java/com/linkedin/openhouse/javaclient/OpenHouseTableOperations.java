@@ -272,6 +272,11 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     return createUpdateTableRequestBody;
   }
 
+  @VisibleForTesting
+  void setCurrentConfig(Map<String, String> value) {
+    config.set(value);
+  }
+
   /**
    * If request is coming from replication process, createUpdateTableRequestBody.tableType should be
    * REPLICA_TABLE Replication process requests are identified based on difference between table
