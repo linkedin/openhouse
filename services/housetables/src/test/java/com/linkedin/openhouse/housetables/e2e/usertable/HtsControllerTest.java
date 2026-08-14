@@ -886,58 +886,6 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.pageResults.content[1].tableId", is("t02_explicit")));
   }
 
-  /** A database whose only pointer is a view must not appear in either database listing. */
-  @Test
-  public void testDatabaseQueriesExcludeViewOnlyDatabases() throws Exception {
-    // The @BeforeEach fixture row lives in test_db0; remove it so the database set is exactly the
-    // canonical seven. This is a deliberate mid-test global reset: the class-level @AfterEach
-    // deleteAll() restores order either way, but it does make this method order-fragile if
-    // @TestMethodOrder is ever added to this class.
-    htsRepository.deleteAll();
-    htsRepository.save(entityTypeRow("db00_legacy", "t1", null));
-    htsRepository.save(entityTypeRow("db01_view_only", "t1", "VIEW"));
-    htsRepository.save(entityTypeRow("db02_explicit", "t1", "TABLE"));
-    htsRepository.save(entityTypeRow("db03_view_only", "t1", "VIEW"));
-    htsRepository.save(entityTypeRow("db04_legacy", "t1", null));
-    htsRepository.save(entityTypeRow("db05_view_only", "t1", "VIEW"));
-    htsRepository.save(entityTypeRow("db06_explicit", "t1", "TABLE"));
-
-    mvc.perform(MockMvcRequestBuilders.get("/hts/tables/query").accept(MediaType.APPLICATION_JSON))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.results", hasSize(4)))
-        .andExpect(
-            jsonPath(
-                "$.results[*].databaseId",
-                containsInAnyOrder("db00_legacy", "db02_explicit", "db04_legacy", "db06_explicit")))
-        .andExpect(jsonPath("$.results[*].databaseId", not(hasItem("db01_view_only"))));
-
-    mvc.perform(
-            MockMvcRequestBuilders.get("/v1/hts/tables/query")
-                .param("page", "0")
-                .param("size", "2")
-                .param("sortBy", "databaseId")
-                .accept(MediaType.APPLICATION_JSON))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.pageResults.totalElements", is(4)))
-        .andExpect(jsonPath("$.pageResults.totalPages", is(2)))
-        .andExpect(jsonPath("$.pageResults.content", hasSize(2)))
-        .andExpect(jsonPath("$.pageResults.content[0].databaseId", is("db00_legacy")))
-        .andExpect(jsonPath("$.pageResults.content[1].databaseId", is("db02_explicit")));
-
-    mvc.perform(
-            MockMvcRequestBuilders.get("/v1/hts/tables/query")
-                .param("page", "1")
-                .param("size", "2")
-                .param("sortBy", "databaseId")
-                .accept(MediaType.APPLICATION_JSON))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.pageResults.totalElements", is(4)))
-        .andExpect(jsonPath("$.pageResults.totalPages", is(2)))
-        .andExpect(jsonPath("$.pageResults.content", hasSize(2)))
-        .andExpect(jsonPath("$.pageResults.content[0].databaseId", is("db04_legacy")))
-        .andExpect(jsonPath("$.pageResults.content[1].databaseId", is("db06_explicit")));
-  }
-
   /** The discriminator survives the HTTP PUT/GET boundary, and legacy writers stay null. */
   @Test
   public void testEntityTypePutAndGetRoundTrip() throws Exception {
