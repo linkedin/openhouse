@@ -15,9 +15,6 @@ import org.apache.iceberg.TableMetadata;
  * <p>Keys: {@code openhouse.read-bridge.column-default.<fieldId> = <single-value-json>}. {@link
  * #from} decodes; {@link #apply} overlays. Unknown keys are ignored. A malformed known entry throws
  * — that is an encoder or transport bug, not a missing default.
- *
- * <p>Overlays stay on the wire so the server can treat {@code initial-default} as the default-aware
- * signal; the server drops them before persist.
  */
 final class ReadBridge {
 
