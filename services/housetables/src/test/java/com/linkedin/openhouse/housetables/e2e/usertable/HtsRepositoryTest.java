@@ -16,6 +16,8 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -561,6 +563,72 @@ public class HtsRepositoryTest {
 
     // The garbage row is still stored — it is hidden, not dropped.
     assertThat(findRow(CASE_DB, CASE_GARBAGE_ID).getEntityType()).isEqualTo("UNKNOWN");
+  }
+
+  /**
+   * Table-scoped point read: the query, not any caller, is what makes a view unreadable through the
+   * table path. NULL and every spelling of TABLE resolve; every spelling of VIEW and an
+   * unrecognized value resolve to empty.
+   */
+  @ParameterizedTest
+  @CsvSource(
+      nullValues = "NULL",
+      value = {
+        "case00_null,        true",
+        "case01_upper_table, true",
+        "case02_lower_table, true",
+        "case03_mixed_table, true",
+        "case04_upper_view,  false",
+        "case05_lower_view,  false",
+        "case06_mixed_view,  false",
+        "case07_garbage,     false"
+      })
+  public void testFindTableByKeyResolvesOnlyTableRows(String tableId, boolean expectedVisible) {
+    seedCaseNormalizationRows();
+
+    assertThat(
+            htsRepository
+                .findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(CASE_DB, tableId)
+                .isPresent())
+        .as("findTableBy... for %s", tableId)
+        .isEqualTo(expectedVisible);
+
+    // Case-insensitive on the key itself, exactly like the neutral read.
+    assertThat(
+            htsRepository
+                .findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
+                    CASE_DB.toUpperCase(), tableId.toUpperCase())
+                .isPresent())
+        .isEqualTo(expectedVisible);
+  }
+
+  /**
+   * The neutral read must keep seeing every row type. It backs {@code findById}/{@code existsById},
+   * which the HTS writers use to detect a collision at a key held by another entity type; filtering
+   * it would make a view invisible to the very code that must refuse to overwrite it.
+   */
+  @Test
+  public void testNeutralPointReadStillSeesEveryEntityType() {
+    seedCaseNormalizationRows();
+
+    for (String tableId :
+        new String[] {
+          "case00_null",
+          "case01_upper_table",
+          "case04_upper_view",
+          "case06_mixed_view",
+          CASE_GARBAGE_ID
+        }) {
+      assertThat(
+              htsRepository
+                  .findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(CASE_DB, tableId)
+                  .isPresent())
+          .as("neutral read must still see %s", tableId)
+          .isTrue();
+      assertThat(htsRepository.existsByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(CASE_DB, tableId))
+          .as("neutral exists must still see %s", tableId)
+          .isTrue();
+    }
   }
 
   private UserTableRow findRow(String databaseId, String tableId) {

@@ -57,8 +57,7 @@ public class UserTablesServiceImpl implements UserTablesService {
     try {
       userTableRow =
           htsJdbcRepository
-              .findById(
-                  UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
+              .findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(databaseId, tableId)
               .orElseThrow(NoSuchElementException::new);
     } catch (NoSuchElementException ne) {
       throw new NoSuchUserTableException(databaseId, tableId, ne);
