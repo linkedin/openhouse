@@ -30,6 +30,9 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -773,6 +776,50 @@ public class HtsControllerTest {
    */
   private static final String ENTITY_TYPE_DB = "entity_type_db";
 
+  /**
+   * The HTTP contract the tables service actually consumes: a view at a table's key is a 404, the
+   * same response an absent row produces, so no client-side check is needed to hide it.
+   */
+  @ParameterizedTest
+  @ValueSource(strings = {"VIEW", "view", "ViEw", "UNKNOWN"})
+  public void testGetUserTableReturnsNotFoundForNonTableRow(String entityType) throws Exception {
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "point_read", entityType));
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/tables")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "point_read")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.status", is(equalTo(HttpStatus.NOT_FOUND.name()))));
+
+    assertThat(
+            htsRepository
+                .findById(
+                    UserTableRowPrimaryKey.builder()
+                        .databaseId(ENTITY_TYPE_DB)
+                        .tableId("point_read")
+                        .build())
+                .isPresent())
+        .isTrue();
+  }
+
+  @ParameterizedTest
+  @CsvSource(
+      nullValues = "NULL",
+      value = {"NULL", "TABLE", "table", "TaBlE"})
+  public void testGetUserTableReturnsNullAndTableRows(String entityType) throws Exception {
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "point_read", entityType));
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/tables")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "point_read")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.entity.tableId", is(equalTo("point_read"))));
+  }
+
   private UserTableRow entityTypeRow(String databaseId, String tableId, String entityType) {
     return UserTableRow.builder()
         .databaseId(databaseId)
@@ -886,7 +933,11 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.pageResults.content[1].tableId", is("t02_explicit")));
   }
 
-  /** The discriminator survives the HTTP PUT/GET boundary, and legacy writers stay null. */
+  /**
+   * The discriminator survives the HTTP write boundary, and legacy writers stay null. A view cannot
+   * be read back through {@code GET /hts/tables} because that read is table-scoped; the neutral
+   * entity read is deferred, so the PUT response and the persisted row are what pin the write.
+   */
   @Test
   public void testEntityTypePutAndGetRoundTrip() throws Exception {
     UserTable viewEntity =
@@ -915,8 +966,7 @@ public class HtsControllerTest {
                 .param("databaseId", ENTITY_TYPE_DB)
                 .param("tableId", "put_view")
                 .accept(MediaType.APPLICATION_JSON))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.entity.entityType", is("VIEW")));
+        .andExpect(status().isNotFound());
 
     assertThat(
             htsRepository
