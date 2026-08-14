@@ -141,8 +141,7 @@ public class HtsRepositoryTest {
     htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
     htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
     List<UserTableRow> result =
-        Lists.newArrayList(
-            htsRepository.findAllByFilters("test_db0", null, null, null, null, null, null));
+        Lists.newArrayList(htsRepository.findAllTablesByDatabaseIdIgnoreCase("test_db0"));
     Assertions.assertEquals(
         Lists.newArrayList("test_table1", "test_table2"),
         result.stream().map(UserTableRow::getTableId).collect(Collectors.toList()));
@@ -155,8 +154,8 @@ public class HtsRepositoryTest {
     htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
     List<UserTableRow> result =
         Lists.newArrayList(
-            htsRepository.findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-                "test_db0", "test_table%", null));
+            htsRepository.findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
+                "test_db0", "test_table%"));
     Assertions.assertEquals(
         Lists.newArrayList("test_table1", "test_table2"),
         result.stream().map(UserTableRow::getTableId).collect(Collectors.toList()));
@@ -169,8 +168,8 @@ public class HtsRepositoryTest {
     htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
     List<UserTableRow> result =
         Lists.newArrayList(
-            htsRepository.findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-                "test_db0", "test_table1", null));
+            htsRepository.findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
+                "test_db0", "test_table1"));
     Assertions.assertEquals(
         Lists.newArrayList("test_table1"),
         result.stream().map(UserTableRow::getTableId).collect(Collectors.toList()));
@@ -374,8 +373,7 @@ public class HtsRepositoryTest {
     htsRepository.save(row("other_db", "t00_legacy", null));
 
     List<UserTableRow> result =
-        Lists.newArrayList(
-            htsRepository.findAllByFilters(ENTITY_TYPE_DB, null, null, null, null, null, null));
+        Lists.newArrayList(htsRepository.findAllTablesByDatabaseIdIgnoreCase(ENTITY_TYPE_DB));
 
     assertThat(tableIds(result)).containsExactly(CANONICAL_TABLE_IDS);
     assertThat(result)
@@ -392,16 +390,14 @@ public class HtsRepositoryTest {
     seedCanonicalRows(ENTITY_TYPE_DB, "");
 
     Page<UserTableRow> page0 =
-        htsRepository.findAllByFilters(
-            ENTITY_TYPE_DB, null, null, null, null, null, null, sortedPage(0));
+        htsRepository.findAllTablesByDatabaseIdIgnoreCase(ENTITY_TYPE_DB, sortedPage(0));
     assertThat(page0.getTotalElements()).isEqualTo(4);
     assertThat(page0.getTotalPages()).isEqualTo(2);
     assertThat(page0.getContent()).hasSize(2);
     assertThat(pageTableIds(page0)).containsExactly("t00_legacy", "t02_explicit");
 
     Page<UserTableRow> page1 =
-        htsRepository.findAllByFilters(
-            ENTITY_TYPE_DB, null, null, null, null, null, null, sortedPage(1));
+        htsRepository.findAllTablesByDatabaseIdIgnoreCase(ENTITY_TYPE_DB, sortedPage(1));
     assertThat(page1.getTotalElements()).isEqualTo(4);
     assertThat(page1.getTotalPages()).isEqualTo(2);
     assertThat(page1.getContent()).hasSize(2);
@@ -420,8 +416,8 @@ public class HtsRepositoryTest {
 
     List<UserTableRow> result =
         Lists.newArrayList(
-            htsRepository.findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-                ENTITY_TYPE_DB, "match_%", null));
+            htsRepository.findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
+                ENTITY_TYPE_DB, "match_%"));
 
     assertThat(tableIds(result))
         .containsExactly(
@@ -435,16 +431,16 @@ public class HtsRepositoryTest {
     htsRepository.save(row(ENTITY_TYPE_DB, "nomatch_table", "TABLE"));
 
     Page<UserTableRow> page0 =
-        htsRepository.findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-            ENTITY_TYPE_DB, "match_%", null, sortedPage(0));
+        htsRepository.findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
+            ENTITY_TYPE_DB, "match_%", sortedPage(0));
     assertThat(page0.getTotalElements()).isEqualTo(4);
     assertThat(page0.getTotalPages()).isEqualTo(2);
     assertThat(page0.getContent()).hasSize(2);
     assertThat(pageTableIds(page0)).containsExactly("match_t00_legacy", "match_t02_explicit");
 
     Page<UserTableRow> page1 =
-        htsRepository.findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-            ENTITY_TYPE_DB, "match_%", null, sortedPage(1));
+        htsRepository.findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
+            ENTITY_TYPE_DB, "match_%", sortedPage(1));
     assertThat(page1.getTotalElements()).isEqualTo(4);
     assertThat(page1.getTotalPages()).isEqualTo(2);
     assertThat(page1.getContent()).hasSize(2);
@@ -520,24 +516,23 @@ public class HtsRepositoryTest {
   public void testEntityTypePredicatesAreCaseInsensitiveAndGarbageFailsClosed() {
     seedCaseNormalizationRows();
 
-    assertThat(
-            tableIds(htsRepository.findAllByFilters(CASE_DB, null, null, null, null, null, null)))
+    assertThat(tableIds(htsRepository.findAllTablesByDatabaseIdIgnoreCase(CASE_DB)))
         .containsExactly(CASE_VISIBLE_TABLE_IDS);
     assertThat(
             tableIds(
-                htsRepository.findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-                    CASE_DB, "case%", null)))
+                htsRepository.findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
+                    CASE_DB, "case%")))
         .containsExactly(CASE_VISIBLE_TABLE_IDS);
 
     Page<UserTableRow> dbPage0 =
-        htsRepository.findAllByFilters(CASE_DB, null, null, null, null, null, null, sortedPage(0));
+        htsRepository.findAllTablesByDatabaseIdIgnoreCase(CASE_DB, sortedPage(0));
     assertThat(dbPage0.getTotalElements()).isEqualTo(4);
     assertThat(dbPage0.getTotalPages()).isEqualTo(2);
     assertThat(pageTableIds(dbPage0)).containsExactly("case00_null", "case01_upper_table");
 
     Page<UserTableRow> patternPage0 =
-        htsRepository.findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-            CASE_DB, "case%", null, sortedPage(0));
+        htsRepository.findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
+            CASE_DB, "case%", sortedPage(0));
     assertThat(patternPage0.getTotalElements()).isEqualTo(4);
     assertThat(patternPage0.getTotalPages()).isEqualTo(2);
     assertThat(pageTableIds(patternPage0)).containsExactly("case00_null", "case01_upper_table");
@@ -557,8 +552,7 @@ public class HtsRepositoryTest {
             Lists.newArrayList(
                 htsRepository.findAllByFilters(CASE_DB, null, null, null, null, null, "UNKNOWN")))
         .isEmpty();
-    assertThat(
-            tableIds(htsRepository.findAllByFilters(CASE_DB, null, null, null, null, null, null)))
+    assertThat(tableIds(htsRepository.findAllTablesByDatabaseIdIgnoreCase(CASE_DB)))
         .doesNotContain(CASE_GARBAGE_ID);
 
     // The garbage row is still stored — it is hidden, not dropped.
