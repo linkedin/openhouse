@@ -288,7 +288,14 @@ public class UserTablesServiceImpl implements UserTablesService {
         () ->
             StreamSupport.stream(
                     htsJdbcRepository
-                        .findAllByDatabaseIdIgnoreCase(userTable.getDatabaseId())
+                        .findAllByFilters(
+                            userTable.getDatabaseId(),
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            userTable.getEntityType())
                         .spliterator(),
                     false)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
@@ -302,7 +309,15 @@ public class UserTablesServiceImpl implements UserTablesService {
     return METRICS_REPORTER.executeWithStats(
         () ->
             htsJdbcRepository
-                .findAllByDatabaseIdIgnoreCase(userTable.getDatabaseId(), pageable)
+                .findAllByFilters(
+                    userTable.getDatabaseId(),
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    userTable.getEntityType(),
+                    pageable)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
         MetricsConstant.HTS_PAGE_TABLES_TIME);
   }
@@ -314,7 +329,9 @@ public class UserTablesServiceImpl implements UserTablesService {
             StreamSupport.stream(
                     htsJdbcRepository
                         .findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-                            userTable.getDatabaseId(), userTable.getTableId())
+                            userTable.getDatabaseId(),
+                            userTable.getTableId(),
+                            userTable.getEntityType())
                         .spliterator(),
                     false)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
@@ -330,7 +347,10 @@ public class UserTablesServiceImpl implements UserTablesService {
         () ->
             htsJdbcRepository
                 .findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-                    userTable.getDatabaseId(), userTable.getTableId(), pageable)
+                    userTable.getDatabaseId(),
+                    userTable.getTableId(),
+                    userTable.getEntityType(),
+                    pageable)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
         MetricsConstant.HTS_PAGE_TABLES_TIME);
   }
