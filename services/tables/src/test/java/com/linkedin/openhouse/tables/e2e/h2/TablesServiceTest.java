@@ -1092,6 +1092,7 @@ public class TablesServiceTest {
             .tableUUID(UUID.randomUUID().toString())
             .tableLocation(metadataFile.toString())
             .tableVersion(INITIAL_TABLE_VERSION)
+            .storageType(storageManager.getDefaultStorage().getType().getValue())
             .entityType(entityType)
             .build());
 

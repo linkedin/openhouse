@@ -2106,6 +2106,7 @@ public class TablesControllerTest {
             .tableLocation(
                 String.format("/base/%s/%s-uuid/00001-x.metadata.json", databaseId, tableId))
             .tableVersion(INITIAL_TABLE_VERSION)
+            .storageType(storageManager.getDefaultStorage().getType().getValue())
             .entityType(entityType)
             .build());
     seededPointerKeys.add(
