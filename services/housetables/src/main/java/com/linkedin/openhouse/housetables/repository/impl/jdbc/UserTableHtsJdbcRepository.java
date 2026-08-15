@@ -4,7 +4,6 @@ import com.linkedin.openhouse.housetables.config.db.jdbc.JdbcProviderConfigurati
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.HtsRepository;
-import java.util.Iterator;
 import java.util.Optional;
 import org.jetbrains.annotations.NotNull;
 import org.springframework.data.domain.Page;
@@ -40,149 +39,120 @@ public interface UserTableHtsJdbcRepository
 
   void deleteByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(String databaseId, String tableId);
 
-  String TABLE_ENTITY_TYPE = "TABLE";
+  String COMMON_FILTER_CLAUSES =
+      "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId)) AND "
+          + "(:tableId IS NULL OR lower(u.tableId) = lower(:tableId)) AND "
+          + "(:tableVersion IS NULL OR u.version = :tableVersion) AND "
+          + "(:metadataLocation IS NULL OR u.metadataLocation = :metadataLocation) AND "
+          + "(:storageType IS NULL OR u.storageType = :storageType) AND "
+          + "(:creationTime IS NULL OR u.creationTime = :creationTime)";
+
+  String TABLE_ROW_PREDICATE = "(u.entityType IS NULL OR upper(u.entityType) = 'TABLE')";
+
+  String PATTERN_KEY_CLAUSES =
+      "lower(u.databaseId) = lower(:databaseId) AND "
+          + "lower(u.tableId) LIKE lower(:tableIdPattern)";
 
   /**
-   * {@code null} matches any type. {@code TABLE} also matches a stored null, because the column is
-   * nullable with no backfill and an absent discriminator means a table. An unrecognized request
-   * value matches neither branch, so garbage fails closed.
+   * Table-scoped point read serving {@code getUserTable}, the single HTS endpoint behind every
+   * table point read in the tables service. The neutral {@link
+   * #findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase} above stays unfiltered because the writers
+   * must see a row of any type to detect a collision at a shared key.
    */
-  String ENTITY_TYPE_PREDICATE =
-      "(:entityType IS NULL "
-          + "OR (upper(:entityType) = 'TABLE' "
-          + "AND (u.entityType IS NULL OR upper(u.entityType) = 'TABLE')) "
-          + "OR (upper(:entityType) = 'VIEW' AND upper(u.entityType) = 'VIEW'))";
+  @Query(
+      "SELECT u FROM UserTableRow u WHERE "
+          + "lower(u.databaseId) = lower(:databaseId) AND "
+          + "lower(u.tableId) = lower(:tableId) AND "
+          + TABLE_ROW_PREDICATE)
+  Optional<UserTableRow> findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
+      @Param("databaseId") String databaseId, @Param("tableId") String tableId);
 
   @Query("SELECT DISTINCT databaseId FROM UserTableRow")
   Iterable<String> findAllDistinctDatabaseIds();
+
+  Iterable<UserTableRow> findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
+      String databaseId, String tableIdPattern);
 
   @Query(
       "SELECT DISTINCT databaseId FROM UserTableRow u where "
           + "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId))")
   Page<String> findAllDistinctDatabaseIds(String databaseId, Pageable pageable);
 
-  String PATTERN_FILTER_PREDICATE =
-      "lower(u.databaseId) = lower(:databaseId) AND "
-          + "lower(u.tableId) LIKE lower(:tableIdPattern) AND "
-          + ENTITY_TYPE_PREDICATE;
-
-  /**
-   * Kept separate from {@link #findAllByFilters} because that query matches {@code tableId}
-   * exactly. Folding a LIKE into it would make {@code _} a wildcard, and OpenHouse identifiers
-   * routinely contain underscores.
-   */
-  @Query("SELECT u FROM UserTableRow u WHERE " + PATTERN_FILTER_PREDICATE)
-  Iterable<UserTableRow> findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-      @Param("databaseId") String databaseId,
-      @Param("tableIdPattern") String tableIdPattern,
-      @Param("entityType") String entityType);
-
-  @Query(
-      value = "SELECT u FROM UserTableRow u WHERE " + PATTERN_FILTER_PREDICATE,
-      countQuery = "SELECT COUNT(u) FROM UserTableRow u WHERE " + PATTERN_FILTER_PREDICATE)
   Page<UserTableRow> findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-      @Param("databaseId") String databaseId,
-      @Param("tableIdPattern") String tableIdPattern,
-      @Param("entityType") String entityType,
-      Pageable pageable);
+      String databaseId, String tableIdPattern, Pageable pageable);
 
-  String GENERAL_FILTER_PREDICATE =
-      "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId)) AND "
-          + "(:tableId IS NULL OR lower(u.tableId) = lower(:tableId)) AND "
-          + "(:tableVersion IS NULL OR u.version = :tableVersion) AND "
-          + "(:metadataLocation IS NULL OR u.metadataLocation = :metadataLocation) AND "
-          + "(:storageType IS NULL OR u.storageType = :storageType) AND "
-          + "(:creationTime IS NULL OR u.creationTime = :creationTime) AND "
-          + ENTITY_TYPE_PREDICATE;
-
-  @Query(
-      value = "select DISTINCT u from UserTableRow u where " + GENERAL_FILTER_PREDICATE,
-      countQuery = "select COUNT(DISTINCT u) from UserTableRow u where " + GENERAL_FILTER_PREDICATE)
+  @Query("select DISTINCT u from UserTableRow u where " + COMMON_FILTER_CLAUSES)
   Page<UserTableRow> findAllByFilters(
-      @Param("databaseId") String databaseId,
-      @Param("tableId") String tableId,
-      @Param("tableVersion") String tableVersion,
-      @Param("metadataLocation") String metadataLocation,
-      @Param("storageType") String storageType,
-      @Param("creationTime") Long creationTime,
-      @Param("entityType") String entityType,
-      Pageable pageable);
-
-  @Query("select DISTINCT u from UserTableRow u where " + GENERAL_FILTER_PREDICATE)
-  Iterable<UserTableRow> findAllByFilters(
-      @Param("databaseId") String databaseId,
-      @Param("tableId") String tableId,
-      @Param("tableVersion") String tableVersion,
-      @Param("metadataLocation") String metadataLocation,
-      @Param("storageType") String storageType,
-      @Param("creationTime") Long creationTime,
-      @Param("entityType") String entityType);
-
-  /*
-   * Table-scoped views onto the general queries above. They pin the discriminator and own no JPQL,
-   * so a table caller cannot drift from the general semantics.
-   */
-
-  default Page<UserTableRow> findAllTablesByFilters(
       String databaseId,
       String tableId,
       String tableVersion,
       String metadataLocation,
       String storageType,
       Long creationTime,
-      Pageable pageable) {
-    return findAllByFilters(
-        databaseId,
-        tableId,
-        tableVersion,
-        metadataLocation,
-        storageType,
-        creationTime,
-        TABLE_ENTITY_TYPE,
-        pageable);
-  }
+      Pageable pageable);
 
-  default Iterable<UserTableRow> findAllTablesByFilters(
+  @Query("select DISTINCT u from UserTableRow u where " + COMMON_FILTER_CLAUSES)
+  Iterable<UserTableRow> findAllByFilters(
       String databaseId,
       String tableId,
       String tableVersion,
       String metadataLocation,
       String storageType,
-      Long creationTime) {
-    return findAllByFilters(
-        databaseId,
-        tableId,
-        tableVersion,
-        metadataLocation,
-        storageType,
-        creationTime,
-        TABLE_ENTITY_TYPE);
-  }
+      Long creationTime);
 
-  default Iterable<UserTableRow> findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
-      String databaseId, String tableIdPattern) {
-    return findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-        databaseId, tableIdPattern, TABLE_ENTITY_TYPE);
-  }
+  @Query(
+      "SELECT u FROM UserTableRow u WHERE " + PATTERN_KEY_CLAUSES + " AND " + TABLE_ROW_PREDICATE)
+  Iterable<UserTableRow> findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
+      @Param("databaseId") String databaseId, @Param("tableIdPattern") String tableIdPattern);
 
-  default Page<UserTableRow> findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
-      String databaseId, String tableIdPattern, Pageable pageable) {
-    return findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-        databaseId, tableIdPattern, TABLE_ENTITY_TYPE, pageable);
-  }
+  @Query(
+      value =
+          "SELECT u FROM UserTableRow u WHERE "
+              + PATTERN_KEY_CLAUSES
+              + " AND "
+              + TABLE_ROW_PREDICATE,
+      countQuery =
+          "SELECT COUNT(u) FROM UserTableRow u WHERE "
+              + PATTERN_KEY_CLAUSES
+              + " AND "
+              + TABLE_ROW_PREDICATE)
+  Page<UserTableRow> findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
+      @Param("databaseId") String databaseId,
+      @Param("tableIdPattern") String tableIdPattern,
+      Pageable pageable);
 
-  /**
-   * Table-scoped point read serving {@code getUserTable}, the single HTS endpoint behind every
-   * table point read in the tables service. The key is the primary key, so at most one row can
-   * match. The neutral {@link #findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase} stays unfiltered
-   * because the writers must see a row of any type to detect a collision at a shared key.
-   */
-  default Optional<UserTableRow> findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
-      String databaseId, String tableId) {
-    Iterator<UserTableRow> matches =
-        findAllTablesByFilters(databaseId, tableId, null, null, null, null).iterator();
-    return matches.hasNext() ? Optional.of(matches.next()) : Optional.empty();
-  }
+  @Query(
+      value =
+          "select DISTINCT u from UserTableRow u where "
+              + COMMON_FILTER_CLAUSES
+              + " AND "
+              + TABLE_ROW_PREDICATE,
+      countQuery =
+          "select COUNT(DISTINCT u) from UserTableRow u where "
+              + COMMON_FILTER_CLAUSES
+              + " AND "
+              + TABLE_ROW_PREDICATE)
+  Page<UserTableRow> findAllTablesByFilters(
+      @Param("databaseId") String databaseId,
+      @Param("tableId") String tableId,
+      @Param("tableVersion") String tableVersion,
+      @Param("metadataLocation") String metadataLocation,
+      @Param("storageType") String storageType,
+      @Param("creationTime") Long creationTime,
+      Pageable pageable);
+
+  @Query(
+      "select DISTINCT u from UserTableRow u where "
+          + COMMON_FILTER_CLAUSES
+          + " AND "
+          + TABLE_ROW_PREDICATE)
+  Iterable<UserTableRow> findAllTablesByFilters(
+      @Param("databaseId") String databaseId,
+      @Param("tableId") String tableId,
+      @Param("tableVersion") String tableVersion,
+      @Param("metadataLocation") String metadataLocation,
+      @Param("storageType") String storageType,
+      @Param("creationTime") Long creationTime);
 
   /*
    * The following methods are required to maintain the generality of the interface {@link com.linkedin.openhouse.housetables.repository.HtsRepository}
