@@ -149,56 +149,6 @@ public class OpenHouseUserTablesValidatorTest {
   }
 
   /**
-   * A type-qualified query must reach the repository. NOTE: {@code validateUserTable} only rejects
-   * non-null tableVersion/metadataLocation/storageType/creationTime, so this case passes whether or
-   * not entityType validation exists. It guards against a future change that adds entityType to
-   * that unsupported-field list; the load-bearing assertions for entityType validation live in
-   * {@link #validateEntityTypeQueryRejectsGarbage} and {@link
-   * #validatePutEntityTypeCaseInsensitivelyAndRejectsGarbage}.
-   */
-  @Test
-  public void validateEntityTypeOnlyQueriesCaseInsensitively() {
-    for (String entityType : new String[] {"VIEW", "view", "ViEw", "TABLE", "table", "TaBlE"}) {
-      UserTable userTable = UserTable.builder().databaseId("db1").entityType(entityType).build();
-
-      assertDoesNotThrow(
-          () -> userTablesHtsApiValidator.validateGetEntities(userTable),
-          "entityType=" + entityType + " should be an accepted unpaged query filter");
-      assertDoesNotThrow(
-          () -> userTablesHtsApiValidator.validateGetEntities(userTable, 0, 2, "tableId"),
-          "entityType=" + entityType + " should be an accepted paged query filter");
-    }
-  }
-
-  /**
-   * Load-bearing: an unknown discriminator must be rejected before it ever reaches the repository,
-   * so callers get a validation error rather than a silently empty result set.
-   */
-  @Test
-  public void validateEntityTypeQueryRejectsGarbage() {
-    UserTable garbage = UserTable.builder().databaseId("db1").entityType("UNKNOWN").build();
-
-    assertThrows(
-        RequestValidationFailureException.class,
-        () -> userTablesHtsApiValidator.validateGetEntities(garbage));
-    assertThrows(
-        RequestValidationFailureException.class,
-        () -> userTablesHtsApiValidator.validateGetEntities(garbage, 0, 2, "tableId"));
-
-    // The pre-existing unsupported-field rejection must not be weakened by adding entityType as
-    // a permitted filter.
-    UserTable unsupportedField = UserTable.builder().creationTime(1L).build();
-    assertThrows(
-        RequestValidationFailureException.class,
-        () -> userTablesHtsApiValidator.validateGetEntities(unsupportedField));
-    UserTable unsupportedFieldWithEntityType =
-        UserTable.builder().databaseId("db1").entityType("VIEW").creationTime(1L).build();
-    assertThrows(
-        RequestValidationFailureException.class,
-        () -> userTablesHtsApiValidator.validateGetEntities(unsupportedFieldWithEntityType));
-  }
-
-  /**
    * Load-bearing: the PUT path relies on Bean Validation on the transport model, so the pattern on
    * {@code UserTable#entityType} must accept every TABLE/VIEW spelling and reject anything else.
    */

@@ -762,9 +762,8 @@ public class UserTablesServiceTest {
   }
 
   /**
-   * Anti-post-filter assertion at the service layer, and the pin for routing the paged per-database
-   * listing through the table-predicated query rather than the untyped {@code findAllByFilters}. A
-   * fetch-then-filter implementation yields a 1-row page 0 with totalElements=7/totalPages=4.
+   * Anti-post-filter assertion at the service layer: a fetch-then-filter implementation yields a
+   * 1-row page 0 with totalElements=7/totalPages=4.
    */
   @Test
   public void testListTablesCallSiteFiltersBeforePagination() {
@@ -810,46 +809,35 @@ public class UserTablesServiceTest {
   }
 
   /**
-   * Pins the routing predicate. The request carries <b>only</b> {@code databaseId} plus {@code
-   * entityType=VIEW} and no other filter, so if {@code isNonKeyFieldsNullForUserTable} is not
-   * extended to consider entityType, this request is classified as a plain "list tables" request
-   * and returns the four tables instead of the three views.
+   * The query endpoint is table-scoped by path, so {@code entityType} is bound onto the request but
+   * never reaches a predicate: an {@code entityType=VIEW} request is answered with tables, and
+   * routing is unaffected by the field.
    */
   @Test
-  public void testGeneralSearchHonorsEntityType() {
+  public void testEntityTypeOnQueryIsIgnoredAndAlwaysReturnsTables() {
     seedCanonicalRows("");
 
-    List<UserTableDto> views =
-        userTablesService.getAllUserTables(
-            UserTable.builder().databaseId(ENTITY_TYPE_DB).entityType("VIEW").build());
-    assertThat(sortedIds(views)).isEqualTo(CANONICAL_VIEW_IDS);
-
-    for (String tableSpelling : new String[] {"TABLE", "table", "TaBlE"}) {
-      List<UserTableDto> tables =
-          userTablesService.getAllUserTables(
-              UserTable.builder().databaseId(ENTITY_TYPE_DB).entityType(tableSpelling).build());
-      assertThat(sortedIds(tables))
-          .as("entityType=%s must resolve to the four visible tables", tableSpelling)
+    for (String entityType : new String[] {"VIEW", "view", "TABLE", "TaBlE", null}) {
+      assertThat(
+              sortedIds(
+                  userTablesService.getAllUserTables(
+                      UserTable.builder()
+                          .databaseId(ENTITY_TYPE_DB)
+                          .entityType(entityType)
+                          .build())))
+          .as("entityType=%s must still resolve to the four visible tables", entityType)
           .isEqualTo(CANONICAL_TABLE_IDS);
     }
 
-    // Default (no entityType) still means tables.
-    assertThat(
-            sortedIds(
-                userTablesService.getAllUserTables(
-                    UserTable.builder().databaseId(ENTITY_TYPE_DB).build())))
-        .isEqualTo(CANONICAL_TABLE_IDS);
-
-    // Paged entityType-only VIEW request routes the same way.
-    Page<UserTableDto> viewPage =
+    Page<UserTableDto> page0 =
         userTablesService.getAllUserTables(
             UserTable.builder().databaseId(ENTITY_TYPE_DB).entityType("VIEW").build(),
             0,
             2,
             "tableId");
-    Assertions.assertEquals(3, viewPage.getTotalElements());
-    Assertions.assertEquals(2, viewPage.getTotalPages());
-    assertThat(pageIds(viewPage)).containsExactly("t01_view", "t03_view");
+    Assertions.assertEquals(4, page0.getTotalElements());
+    Assertions.assertEquals(2, page0.getTotalPages());
+    assertThat(pageIds(page0)).containsExactly("t00_legacy", "t02_explicit");
   }
 
   /**

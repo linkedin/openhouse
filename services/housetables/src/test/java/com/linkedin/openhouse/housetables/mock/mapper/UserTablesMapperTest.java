@@ -125,12 +125,12 @@ public class UserTablesMapperTest {
   }
 
   /**
-   * The /hts query endpoint hands raw request parameters to {@code mapToUserTable}. If entityType
-   * is not recognized there, an {@code entityType=VIEW} query silently degrades to an unfiltered
-   * table listing.
+   * {@code mapToUserTable} still binds an {@code entityType} request parameter onto the model, but
+   * the query endpoint is table-scoped by path so nothing consumes it. This pins where the value
+   * stops: bound here, never reaching a predicate.
    */
   @Test
-  void mapToUserTableRecognizesEntityType() {
+  void mapToUserTableBindsButDoesNotConsumeEntityType() {
     Map<String, String> parameters = new HashMap<>();
     parameters.put("databaseId", "test_db0");
     parameters.put("entityType", "VIEW");

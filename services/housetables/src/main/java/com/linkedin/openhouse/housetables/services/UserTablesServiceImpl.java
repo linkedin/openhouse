@@ -342,14 +342,13 @@ public class UserTablesServiceImpl implements UserTablesService {
     return METRICS_REPORTER.executeWithStats(
         () ->
             htsJdbcRepository
-                .findAllByFilters(
+                .findAllTablesByFilters(
                     userTable.getDatabaseId(),
                     userTable.getTableId(),
                     userTable.getTableVersion(),
                     userTable.getMetadataLocation(),
                     userTable.getStorageType(),
                     userTable.getCreationTime(),
-                    userTable.getEntityType(),
                     pageable)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
         MetricsConstant.HTS_PAGE_SEARCH_TABLES_TIME);
@@ -363,14 +362,13 @@ public class UserTablesServiceImpl implements UserTablesService {
         () ->
             StreamSupport.stream(
                     htsJdbcRepository
-                        .findAllByFilters(
+                        .findAllTablesByFilters(
                             userTable.getDatabaseId(),
                             userTable.getTableId(),
                             userTable.getTableVersion(),
                             userTable.getMetadataLocation(),
                             userTable.getStorageType(),
-                            userTable.getCreationTime(),
-                            userTable.getEntityType())
+                            userTable.getCreationTime())
                         .spliterator(),
                     false)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
@@ -396,16 +394,10 @@ public class UserTablesServiceImpl implements UserTablesService {
         && userTable.getTableId() != null;
   }
 
-  /**
-   * The list/pattern queries hard-code the table predicate, so {@code entityType} must count as a
-   * non-key field — otherwise a {@code databaseId + entityType=VIEW} request would route there and
-   * silently return tables instead of going through {@code findAllByFilters}.
-   */
   private boolean isNonKeyFieldsNullForUserTable(UserTable userTable) {
     return userTable.getTableVersion() == null
         && userTable.getMetadataLocation() == null
         && userTable.getStorageType() == null
-        && userTable.getCreationTime() == null
-        && userTable.getEntityType() == null;
+        && userTable.getCreationTime() == null;
   }
 }

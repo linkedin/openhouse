@@ -106,16 +106,6 @@ public interface UserTableHtsJdbcRepository
       @Param("tableIdPattern") String tableIdPattern,
       Pageable pageable);
 
-  /**
-   * A null or {@code TABLE} request means tables, including legacy null rows; {@code VIEW} means
-   * views only. An unknown value matches neither branch, so garbage fails closed here even if it
-   * bypasses API validation.
-   */
-  String ENTITY_TYPE_FILTER_PREDICATE =
-      "(((:entityType IS NULL OR upper(:entityType) = 'TABLE') AND "
-          + TABLE_ROW_PREDICATE
-          + ") OR (upper(:entityType) = 'VIEW' AND upper(u.entityType) = 'VIEW'))";
-
   String GENERAL_FILTER_PREDICATE =
       "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId)) AND "
           + "(:tableId IS NULL OR lower(u.tableId) = lower(:tableId)) AND "
@@ -123,30 +113,28 @@ public interface UserTableHtsJdbcRepository
           + "(:metadataLocation IS NULL OR u.metadataLocation = :metadataLocation) AND "
           + "(:storageType IS NULL OR u.storageType = :storageType) AND "
           + "(:creationTime IS NULL OR u.creationTime = :creationTime) AND "
-          + ENTITY_TYPE_FILTER_PREDICATE;
+          + TABLE_ROW_PREDICATE;
 
   @Query(
       value = "select DISTINCT u from UserTableRow u where " + GENERAL_FILTER_PREDICATE,
       countQuery = "select COUNT(DISTINCT u) from UserTableRow u where " + GENERAL_FILTER_PREDICATE)
-  Page<UserTableRow> findAllByFilters(
+  Page<UserTableRow> findAllTablesByFilters(
       @Param("databaseId") String databaseId,
       @Param("tableId") String tableId,
       @Param("tableVersion") String tableVersion,
       @Param("metadataLocation") String metadataLocation,
       @Param("storageType") String storageType,
       @Param("creationTime") Long creationTime,
-      @Param("entityType") String entityType,
       Pageable pageable);
 
   @Query("select DISTINCT u from UserTableRow u where " + GENERAL_FILTER_PREDICATE)
-  Iterable<UserTableRow> findAllByFilters(
+  Iterable<UserTableRow> findAllTablesByFilters(
       @Param("databaseId") String databaseId,
       @Param("tableId") String tableId,
       @Param("tableVersion") String tableVersion,
       @Param("metadataLocation") String metadataLocation,
       @Param("storageType") String storageType,
-      @Param("creationTime") Long creationTime,
-      @Param("entityType") String entityType);
+      @Param("creationTime") Long creationTime);
 
   /*
    * The following methods are required to maintain the generality of the interface {@link com.linkedin.openhouse.housetables.repository.HtsRepository}
