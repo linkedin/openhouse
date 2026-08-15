@@ -1021,12 +1021,12 @@ public class HtsControllerTest {
   }
 
   /**
-   * Pins validator + service routing over HTTP, not merely repository behavior: the request carries
-   * only databaseId and entityType=VIEW. It fails if the validator rejects the parameter or if the
-   * routing predicate still classifies this as a plain table listing.
+   * {@code /hts/tables/query} is table-scoped by path, so {@code entityType} is not a supported
+   * query parameter. It is mapped onto the request object but never reaches a predicate, so a
+   * client that sends one is silently answered with tables.
    */
   @Test
-  public void testEntityTypeOnlyViewQueryRoutesToGeneralSearch() throws Exception {
+  public void testEntityTypeQueryParameterIsIgnored() throws Exception {
     seedCanonicalRows("");
 
     mvc.perform(
@@ -1034,24 +1034,11 @@ public class HtsControllerTest {
                 .params(queryParams("databaseId", ENTITY_TYPE_DB, "entityType", "VIEW"))
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.results", hasSize(3)))
+        .andExpect(jsonPath("$.results", hasSize(4)))
         .andExpect(
             jsonPath(
-                "$.results[*].tableId", containsInAnyOrder("t01_view", "t03_view", "t05_view")));
-
-    mvc.perform(
-            MockMvcRequestBuilders.get("/v1/hts/tables/query")
-                .params(queryParams("databaseId", ENTITY_TYPE_DB, "entityType", "VIEW"))
-                .param("page", "0")
-                .param("size", "2")
-                .param("sortBy", "tableId")
-                .accept(MediaType.APPLICATION_JSON))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.pageResults.totalElements", is(3)))
-        .andExpect(jsonPath("$.pageResults.totalPages", is(2)))
-        .andExpect(jsonPath("$.pageResults.content", hasSize(2)))
-        .andExpect(jsonPath("$.pageResults.content[0].tableId", is("t01_view")))
-        .andExpect(jsonPath("$.pageResults.content[1].tableId", is("t03_view")));
+                "$.results[*].tableId",
+                containsInAnyOrder("t00_legacy", "t02_explicit", "t04_legacy", "t06_explicit")));
   }
 
   /**

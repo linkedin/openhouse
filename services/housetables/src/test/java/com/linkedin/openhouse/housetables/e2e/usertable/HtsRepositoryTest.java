@@ -53,10 +53,6 @@ public class HtsRepositoryTest {
     "case00_null", "case01_upper_table", "case02_lower_table", "case03_mixed_table"
   };
 
-  private static final String[] CASE_VIEW_IDS = {
-    "case04_upper_view", "case05_lower_view", "case06_mixed_view"
-  };
-
   private static final String CASE_GARBAGE_ID = "case07_garbage";
 
   @Autowired UserTableHtsJdbcRepository htsRepository;
@@ -447,59 +443,35 @@ public class HtsRepositoryTest {
     assertThat(pageTableIds(page1)).containsExactly("match_t04_legacy", "match_t06_explicit");
   }
 
-  /**
-   * The general-filter query defaults to tables (null and any TABLE spelling) and can be asked
-   * explicitly for views. This is the only query family that can return VIEW rows.
-   */
+  /** The general-filter query is table-scoped too: no overload can return a VIEW row. */
   @Test
-  public void testFindAllByFiltersDefaultsToTablesAndCanSelectViews() {
+  public void testFindAllTablesByFiltersReturnsOnlyTables() {
     seedCanonicalRows(ENTITY_TYPE_DB, "");
 
-    // entityType == null means "tables", not "everything".
     assertThat(
             tableIds(
-                htsRepository.findAllByFilters(
-                    ENTITY_TYPE_DB, null, null, null, null, null, (String) null)))
+                htsRepository.findAllTablesByFilters(ENTITY_TYPE_DB, null, null, null, null, null)))
         .containsExactly(CANONICAL_TABLE_IDS);
 
-    for (String tableSpelling : new String[] {"TABLE", "table", "TaBlE"}) {
-      assertThat(
-              tableIds(
-                  htsRepository.findAllByFilters(
-                      ENTITY_TYPE_DB, null, null, null, null, null, tableSpelling)))
-          .as("entityType=%s must resolve to the four visible tables", tableSpelling)
-          .containsExactly(CANONICAL_TABLE_IDS);
-    }
+    Page<UserTableRow> page0 =
+        htsRepository.findAllTablesByFilters(
+            ENTITY_TYPE_DB, null, null, null, null, null, sortedPage(0));
+    assertThat(page0.getTotalElements()).isEqualTo(4);
+    assertThat(page0.getTotalPages()).isEqualTo(2);
+    assertThat(pageTableIds(page0)).containsExactly("t00_legacy", "t02_explicit");
 
-    for (String viewSpelling : new String[] {"VIEW", "view", "ViEw"}) {
-      assertThat(
-              tableIds(
-                  htsRepository.findAllByFilters(
-                      ENTITY_TYPE_DB, null, null, null, null, null, viewSpelling)))
-          .as("entityType=%s must resolve to exactly the three views", viewSpelling)
-          .containsExactly(CANONICAL_VIEW_IDS);
-    }
+    Page<UserTableRow> page1 =
+        htsRepository.findAllTablesByFilters(
+            ENTITY_TYPE_DB, null, null, null, null, null, sortedPage(1));
+    assertThat(page1.getTotalElements()).isEqualTo(4);
+    assertThat(pageTableIds(page1)).containsExactly("t04_legacy", "t06_explicit");
 
-    // Pageable overload: default (tables) and explicit VIEW both count in the database.
-    Page<UserTableRow> defaultPage0 =
-        htsRepository.findAllByFilters(
-            ENTITY_TYPE_DB, null, null, null, null, null, (String) null, sortedPage(0));
-    assertThat(defaultPage0.getTotalElements()).isEqualTo(4);
-    assertThat(defaultPage0.getTotalPages()).isEqualTo(2);
-    assertThat(pageTableIds(defaultPage0)).containsExactly("t00_legacy", "t02_explicit");
-
-    Page<UserTableRow> viewPage0 =
-        htsRepository.findAllByFilters(
-            ENTITY_TYPE_DB, null, null, null, null, null, "VIEW", sortedPage(0));
-    assertThat(viewPage0.getTotalElements()).isEqualTo(3);
-    assertThat(viewPage0.getTotalPages()).isEqualTo(2);
-    assertThat(pageTableIds(viewPage0)).containsExactly("t01_view", "t03_view");
-
-    Page<UserTableRow> viewPage1 =
-        htsRepository.findAllByFilters(
-            ENTITY_TYPE_DB, null, null, null, null, null, "VIEW", sortedPage(1));
-    assertThat(viewPage1.getTotalElements()).isEqualTo(3);
-    assertThat(pageTableIds(viewPage1)).containsExactly("t05_view");
+    // A view is unreachable through this family, by tableId as well as by database.
+    assertThat(
+            Lists.newArrayList(
+                htsRepository.findAllTablesByFilters(
+                    ENTITY_TYPE_DB, "t01_view", null, null, null, null)))
+        .isEmpty();
   }
 
   /**
@@ -537,21 +509,12 @@ public class HtsRepositoryTest {
     assertThat(patternPage0.getTotalPages()).isEqualTo(2);
     assertThat(pageTableIds(patternPage0)).containsExactly("case00_null", "case01_upper_table");
 
-    // Every VIEW spelling is selectable and the garbage row is never one of them.
-    for (String viewSpelling : new String[] {"VIEW", "view", "ViEw"}) {
-      assertThat(
-              tableIds(
-                  htsRepository.findAllByFilters(
-                      CASE_DB, null, null, null, null, null, viewSpelling)))
-          .as("entityType=%s", viewSpelling)
-          .containsExactly(CASE_VIEW_IDS);
-    }
-
-    // Garbage fails closed on the repository: it is neither a table nor a view.
+    // The general filter family is table-scoped as well, so no view spelling leaks through it.
     assertThat(
-            Lists.newArrayList(
-                htsRepository.findAllByFilters(CASE_DB, null, null, null, null, null, "UNKNOWN")))
-        .isEmpty();
+            tableIds(htsRepository.findAllTablesByFilters(CASE_DB, null, null, null, null, null)))
+        .containsExactly(CASE_VISIBLE_TABLE_IDS);
+
+    // Garbage fails closed everywhere: it is neither a table nor a view.
     assertThat(tableIds(htsRepository.findAllTablesByDatabaseIdIgnoreCase(CASE_DB)))
         .doesNotContain(CASE_GARBAGE_ID);
 
