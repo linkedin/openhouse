@@ -597,12 +597,12 @@ public class HtsRepositoryTest {
   }
 
   /**
-   * The general query is genuinely general: a null discriminator means any type, not a table
-   * default. TABLE additionally absorbs legacy stored nulls, VIEW selects views, and an
-   * unrecognized request value matches nothing.
+   * The type is chosen by which method you call, not by an argument. {@code findAllByFilters} is
+   * the general query and returns both types; its table-scoped sibling adds only the table
+   * predicate, which also matches a legacy stored null.
    */
   @Test
-  public void testFindAllByFiltersTreatsNullEntityTypeAsAnyType() {
+  public void testGeneralFiltersReturnBothTypesAndTableFiltersReturnOnlyTables() {
     seedCanonicalRows(ENTITY_TYPE_DB, "");
 
     List<String> everything = new ArrayList<>(Arrays.asList(CANONICAL_TABLE_IDS));
@@ -610,60 +610,60 @@ public class HtsRepositoryTest {
     Collections.sort(everything);
 
     assertThat(
-            tableIds(
-                htsRepository.findAllByFilters(
-                    ENTITY_TYPE_DB, null, null, null, null, null, (String) null)))
-        .as("entityType=null must return tables and views together")
+            tableIds(htsRepository.findAllByFilters(ENTITY_TYPE_DB, null, null, null, null, null)))
+        .as("the general query must return tables and views together")
         .isEqualTo(everything);
 
-    for (String tableSpelling : new String[] {"TABLE", "table", "TaBlE"}) {
-      assertThat(
-              tableIds(
-                  htsRepository.findAllByFilters(
-                      ENTITY_TYPE_DB, null, null, null, null, null, tableSpelling)))
-          .as("entityType=%s must include legacy null rows", tableSpelling)
-          .containsExactly(CANONICAL_TABLE_IDS);
-    }
+    assertThat(
+            tableIds(
+                htsRepository.findAllTablesByFilters(ENTITY_TYPE_DB, null, null, null, null, null)))
+        .as("the table query must return tables and legacy nulls only")
+        .containsExactly(CANONICAL_TABLE_IDS);
 
-    for (String viewSpelling : new String[] {"VIEW", "view", "ViEw"}) {
-      assertThat(
-              tableIds(
-                  htsRepository.findAllByFilters(
-                      ENTITY_TYPE_DB, null, null, null, null, null, viewSpelling)))
-          .as("entityType=%s must resolve to exactly the three views", viewSpelling)
-          .containsExactly(CANONICAL_VIEW_IDS);
-    }
-
+    // A view is unreachable through the table family, by tableId as well as by database.
     assertThat(
             Lists.newArrayList(
-                htsRepository.findAllByFilters(
-                    ENTITY_TYPE_DB, null, null, null, null, null, "UNKNOWN")))
-        .as("an unrecognized discriminator must fail closed")
+                htsRepository.findAllTablesByFilters(
+                    ENTITY_TYPE_DB, "t01_view", null, null, null, null)))
         .isEmpty();
 
-    // The paged overload agrees, including its count.
+    // Paged overloads agree, counts included.
     Page<UserTableRow> anyPage0 =
-        htsRepository.findAllByFilters(
-            ENTITY_TYPE_DB, null, null, null, null, null, (String) null, sortedPage(0));
+        htsRepository.findAllByFilters(ENTITY_TYPE_DB, null, null, null, null, null, sortedPage(0));
     assertThat(anyPage0.getTotalElements()).isEqualTo(7);
     assertThat(pageTableIds(anyPage0)).containsExactly("t00_legacy", "t01_view");
+
+    Page<UserTableRow> tablePage0 =
+        htsRepository.findAllTablesByFilters(
+            ENTITY_TYPE_DB, null, null, null, null, null, sortedPage(0));
+    assertThat(tablePage0.getTotalElements()).isEqualTo(4);
+    assertThat(tablePage0.getTotalPages()).isEqualTo(2);
+    assertThat(pageTableIds(tablePage0)).containsExactly("t00_legacy", "t02_explicit");
   }
 
-  /** The pattern family is general in the same way. */
+  /** The pattern family splits the same way. */
   @Test
-  public void testFindAllByPatternHonorsEntityType() {
+  public void testGeneralPatternReturnsBothTypesAndTablePatternOnlyTables() {
     seedCanonicalRows(ENTITY_TYPE_DB, "match_");
 
     assertThat(
             tableIds(
                 htsRepository.findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-                    ENTITY_TYPE_DB, "match_%", null)))
+                    ENTITY_TYPE_DB, "match_%")))
         .hasSize(7);
+
     assertThat(
             tableIds(
-                htsRepository.findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
-                    ENTITY_TYPE_DB, "match_%", "VIEW")))
-        .containsExactly("match_t01_view", "match_t03_view", "match_t05_view");
+                htsRepository.findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
+                    ENTITY_TYPE_DB, "match_%")))
+        .containsExactly(
+            "match_t00_legacy", "match_t02_explicit", "match_t04_legacy", "match_t06_explicit");
+
+    Page<UserTableRow> tablePage0 =
+        htsRepository.findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
+            ENTITY_TYPE_DB, "match_%", sortedPage(0));
+    assertThat(tablePage0.getTotalElements()).isEqualTo(4);
+    assertThat(tablePage0.getTotalPages()).isEqualTo(2);
   }
 
   private UserTableRow findRow(String databaseId, String tableId) {
