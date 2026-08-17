@@ -32,6 +32,7 @@ import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Triple;
+import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.Schema;
@@ -898,6 +899,148 @@ public class OperationsTest extends OpenHouseSparkITest {
       // verify that new apps see snapshots correctly
       checkSnapshots(
           ops, tableName, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+    }
+  }
+
+  // The following two tests exercise Operations#buildFileDeleteHandler, the delete-handling logic
+  // shared between Snapshot Expiration (SE) and Orphan File Deletion (OFD), from the SE side.
+  // This ensures both jobs stay consistent instead of maintaining separate implementations.
+  // Table content is replaced via RTAS (rather than plain appends) so that the original data
+  // files actually become unreferenced by the current snapshot and are therefore eligible for
+  // physical deletion/backup once their originating snapshots expire.
+  @Test
+  public void testSnapshotsExpirationWithBackupMovesDataFilesToBackupDir() throws Exception {
+    final String tableName = "db.test_es_backup_delete_files";
+    final String sourceName = "db.test_es_backup_delete_files_source";
+    final int numInserts = 3;
+    final int maxAge = 0;
+    final String timeGranularity = "DAYS";
+
+    List<Long> snapshotIds;
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      ops.spark()
+          .sql(
+              String.format(
+                  "CREATE TABLE %s (data string, ts timestamp) USING iceberg", sourceName));
+      ops.spark()
+          .sql(
+              String.format(
+                  "INSERT INTO %s VALUES ('a', current_timestamp()), ('b', current_timestamp())",
+                  sourceName));
+
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, numInserts);
+
+      // RTAS is disabled by default; opt the table in before replacing it.
+      ops.spark()
+          .sql(
+              String.format(
+                  "ALTER TABLE %s SET TBLPROPERTIES ('replace.enabled'='true')", tableName));
+      // replace the table so original data files become unreferenced by the current snapshot
+      ops.spark()
+          .sql(
+              String.format(
+                  "REPLACE TABLE %s USING iceberg AS SELECT * FROM %s", tableName, sourceName));
+
+      Table table = ops.getTable(tableName);
+      snapshotIds = getSnapshotIds(ops, tableName);
+      Assertions.assertTrue(
+          snapshotIds.size() > 1, "Should have multiple snapshots after inserts and RTAS");
+      FileSystem fs = ops.fs();
+
+      // Simulate an existing backup manifest for the data partition so the shared delete handler
+      // treats expired data files as already backed-up (mirrors OFD's backup-manifest check) and
+      // moves them to the backup directory instead of deleting them outright.
+      Path dataManifestPath =
+          new Path(table.location(), BACKUP_DIR + "/data/data_manifest_pre.json");
+      fs.createNewFile(dataManifestPath);
+
+      org.apache.iceberg.actions.ExpireSnapshots.Result result =
+          ops.expireSnapshots(table, maxAge, timeGranularity, 0, true, true, BACKUP_DIR);
+      Assertions.assertNotNull(result, "Result should not be null");
+
+      // Only retain the last snapshot (the RTAS one)
+      checkSnapshots(table, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+
+      // The original (pre-RTAS) data files should have been moved to the backup directory rather
+      // than deleted, since a data manifest already exists for their backup partition.
+      FileStatus[] backedUpDataFiles =
+          fs.globStatus(new Path(table.location(), BACKUP_DIR + "/data/*.orc"));
+      Assertions.assertNotNull(backedUpDataFiles);
+      Assertions.assertTrue(
+          backedUpDataFiles.length > 0,
+          "Expired data files should be backed up when a data manifest already exists for the"
+              + " partition");
+    }
+
+    // restart the app to reload catalog cache
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      checkSnapshots(
+          ops, tableName, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+      ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", sourceName));
+    }
+  }
+
+  @Test
+  public void testSnapshotsExpirationWithoutBackupDeletesDataFilesDirectly() throws Exception {
+    final String tableName = "db.test_es_no_backup_delete_files";
+    final String sourceName = "db.test_es_no_backup_delete_files_source";
+    final int numInserts = 3;
+    final int maxAge = 0;
+    final String timeGranularity = "DAYS";
+
+    List<Long> snapshotIds;
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      ops.spark()
+          .sql(
+              String.format(
+                  "CREATE TABLE %s (data string, ts timestamp) USING iceberg", sourceName));
+      ops.spark()
+          .sql(
+              String.format(
+                  "INSERT INTO %s VALUES ('a', current_timestamp()), ('b', current_timestamp())",
+                  sourceName));
+
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, numInserts);
+
+      ops.spark()
+          .sql(
+              String.format(
+                  "ALTER TABLE %s SET TBLPROPERTIES ('replace.enabled'='true')", tableName));
+      ops.spark()
+          .sql(
+              String.format(
+                  "REPLACE TABLE %s USING iceberg AS SELECT * FROM %s", tableName, sourceName));
+
+      Table table = ops.getTable(tableName);
+      snapshotIds = getSnapshotIds(ops, tableName);
+      Assertions.assertTrue(
+          snapshotIds.size() > 1, "Should have multiple snapshots after inserts and RTAS");
+      FileSystem fs = ops.fs();
+
+      // A data manifest is present, but backup is disabled: the shared delete handler must still
+      // delete the expired data files directly rather than moving them to the backup directory.
+      Path dataManifestPath =
+          new Path(table.location(), BACKUP_DIR + "/data/data_manifest_pre.json");
+      fs.createNewFile(dataManifestPath);
+
+      ops.expireSnapshots(table, maxAge, timeGranularity, 0, true, false, BACKUP_DIR);
+
+      checkSnapshots(table, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+
+      FileStatus[] backedUpDataFiles =
+          fs.globStatus(new Path(table.location(), BACKUP_DIR + "/data/*.orc"));
+      Assertions.assertTrue(
+          backedUpDataFiles == null || backedUpDataFiles.length == 0,
+          "No data files should be backed up when backupEnabled=false");
+    }
+
+    // restart the app to reload catalog cache
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      checkSnapshots(
+          ops, tableName, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+      ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", sourceName));
     }
   }
 
