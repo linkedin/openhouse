@@ -375,17 +375,40 @@ public final class Operations implements AutoCloseable {
                 table, expireBeforeTimestampMs, null, backupEnabled, backupDir)
             : expireSnapshotsMetadataOnly(table, expireBeforeTimestampMs, null);
 
-    // Second expiration: based on versions (if needed)
+    // Second expiration: based on versions (if needed). Both phases can delete files, so their
+    // results are combined rather than the second phase's result silently replacing the first's
+    // and dropping its deleted-file/manifest counts from observability (metrics and logs).
     if (versions > 0 && Iterators.size(table.snapshots().iterator()) > versions) {
       log.info("Expiring snapshots for table: {} retaining last {} versions", table, versions);
-      result =
+      ExpireSnapshots.Result versionsResult =
           deleteFiles
               ? expireSnapshotsWithFiles(
                   table, System.currentTimeMillis(), versions, backupEnabled, backupDir)
               : expireSnapshotsMetadataOnly(table, System.currentTimeMillis(), versions);
+      result = combineResults(result, versionsResult);
     }
 
     return result;
+  }
+
+  /**
+   * Combine two {@link ExpireSnapshots.Result} instances by summing their deleted-file/manifest
+   * counts. Used to accumulate results across the maxAge-based and versions-based expiration phases
+   * so metrics/logs reflect files deleted by both phases instead of only the last one run.
+   */
+  @VisibleForTesting
+  static ExpireSnapshots.Result combineResults(
+      ExpireSnapshots.Result first, ExpireSnapshots.Result second) {
+    return ImmutableExpireSnapshots.Result.builder()
+        .deletedDataFilesCount(first.deletedDataFilesCount() + second.deletedDataFilesCount())
+        .deletedManifestsCount(first.deletedManifestsCount() + second.deletedManifestsCount())
+        .deletedManifestListsCount(
+            first.deletedManifestListsCount() + second.deletedManifestListsCount())
+        .deletedPositionDeleteFilesCount(
+            first.deletedPositionDeleteFilesCount() + second.deletedPositionDeleteFilesCount())
+        .deletedEqualityDeleteFilesCount(
+            first.deletedEqualityDeleteFilesCount() + second.deletedEqualityDeleteFilesCount())
+        .build();
   }
 
   /**
@@ -415,8 +438,9 @@ public final class Operations implements AutoCloseable {
   }
 
   /**
-   * Expire snapshots using SparkActions API with file deletion. Distributed execution via Spark,
-   * with optional backup support.
+   * Expire snapshots using SparkActions API with file deletion. Snapshot planning/manifest
+   * enumeration is distributed via Spark, with optional backup support; the delete/backup callback
+   * itself runs driver-side (see {@link #createExpireSnapshotsActionWithBackup}).
    */
   private ExpireSnapshots.Result expireSnapshotsWithFiles(
       Table table,
@@ -440,8 +464,9 @@ public final class Operations implements AutoCloseable {
   }
 
   /**
-   * Create ExpireSnapshots action with custom backup logic for data files. Backup logic runs
-   * distributed on Spark executors.
+   * Create ExpireSnapshots action with custom backup logic for data files. The {@code deleteWith}
+   * callback (backup-or-delete decision) runs driver-side via Iceberg's internal executor pool, not
+   * distributed across Spark executors; only manifest/snapshot planning is distributed.
    */
   private ExpireSnapshots createExpireSnapshotsActionWithBackup(Table table, String backupDir) {
     Map<String, Boolean> dataManifestsCache = new ConcurrentHashMap<>();

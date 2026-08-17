@@ -40,6 +40,8 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.actions.DeleteOrphanFiles;
+import org.apache.iceberg.actions.ExpireSnapshots;
+import org.apache.iceberg.actions.ImmutableExpireSnapshots;
 import org.apache.iceberg.actions.RewriteDataFiles;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Row;
@@ -602,6 +604,38 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
+  public void testCombineResultsSumsCountsAcrossPhases() {
+    // Regression test for a bug where Operations#expireSnapshots overwrote the maxAge-phase
+    // Result with the versions-phase Result instead of accumulating them, silently dropping the
+    // first phase's deleted file/manifest counts from metrics and logs.
+    ExpireSnapshots.Result maxAgePhaseResult =
+        ImmutableExpireSnapshots.Result.builder()
+            .deletedDataFilesCount(2L)
+            .deletedManifestsCount(3L)
+            .deletedManifestListsCount(1L)
+            .deletedPositionDeleteFilesCount(4L)
+            .deletedEqualityDeleteFilesCount(5L)
+            .build();
+    ExpireSnapshots.Result versionsPhaseResult =
+        ImmutableExpireSnapshots.Result.builder()
+            .deletedDataFilesCount(10L)
+            .deletedManifestsCount(20L)
+            .deletedManifestListsCount(30L)
+            .deletedPositionDeleteFilesCount(40L)
+            .deletedEqualityDeleteFilesCount(50L)
+            .build();
+
+    ExpireSnapshots.Result combined =
+        Operations.combineResults(maxAgePhaseResult, versionsPhaseResult);
+
+    Assertions.assertEquals(12L, combined.deletedDataFilesCount());
+    Assertions.assertEquals(23L, combined.deletedManifestsCount());
+    Assertions.assertEquals(31L, combined.deletedManifestListsCount());
+    Assertions.assertEquals(44L, combined.deletedPositionDeleteFilesCount());
+    Assertions.assertEquals(55L, combined.deletedEqualityDeleteFilesCount());
+  }
+
+  @Test
   public void testSnapshotsExpirationVersions() throws Exception {
     final String tableName = "db.test_es_versions_java";
     final int numInserts = 3;
@@ -666,6 +700,72 @@ public class OperationsTest extends OpenHouseSparkITest {
           ops,
           tableName,
           snapshotIds.subList(snapshotIds.size() - versionsToKeep, snapshotIds.size()));
+    }
+  }
+
+  @Test
+  public void testSnapshotsExpirationAccumulatesResultsAcrossBothPhases() throws Exception {
+    // Regression test for a bug where, when both the maxAge-based and versions-based expiration
+    // phases run and delete files, the versions-phase Result silently replaced (instead of being
+    // combined with) the maxAge-phase Result, dropping the first phase's deleted-file counts from
+    // the returned Result (and therefore from SnapshotsExpirationSparkApp's logs/metrics).
+    //
+    // Setup: an old snapshot (S1) is created, its data file is orphaned via RTAS (S2), then a
+    // recent append (S3) is added. maxAge expires only S1 (deleting its now-orphaned data file);
+    // versions (retain last 1) then further expires S2. Only the maxAge phase deletes a data
+    // file; if its contribution were dropped, the final result would incorrectly show 0.
+    final String tableName = "db.test_es_accumulate_results";
+    final String sourceName = "db.test_es_accumulate_results_source";
+    final int maxAge = 20;
+    final String timeGranularity = "SECONDS";
+    final int versionsToKeep = 1;
+
+    List<Long> snapshotIds;
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, 1);
+      Thread.sleep(30000); // Sleep to age the first snapshot past maxAge
+
+      ops.spark()
+          .sql(
+              String.format(
+                  "CREATE TABLE %s (data string, ts timestamp) USING iceberg", sourceName));
+      ops.spark()
+          .sql(String.format("INSERT INTO %s VALUES ('a', current_timestamp())", sourceName));
+      ops.spark()
+          .sql(
+              String.format(
+                  "ALTER TABLE %s SET TBLPROPERTIES ('replace.enabled'='true')", tableName));
+      // RTAS orphans the original (now-aged) data file from the first insert.
+      ops.spark()
+          .sql(
+              String.format(
+                  "REPLACE TABLE %s USING iceberg AS SELECT * FROM %s", tableName, sourceName));
+      populateTable(ops, tableName, 1); // recent append on top of the RTAS snapshot
+
+      Table table = ops.getTable(tableName);
+      snapshotIds = getSnapshotIds(ops, tableName);
+      Assertions.assertEquals(
+          3, snapshotIds.size(), "Should have 3 snapshots: original insert, RTAS, and append");
+
+      ExpireSnapshots.Result result =
+          ops.expireSnapshots(table, maxAge, timeGranularity, versionsToKeep, true);
+      Assertions.assertNotNull(result, "Result should not be null");
+
+      // Only retain the last (most recent append) snapshot.
+      checkSnapshots(table, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+
+      Assertions.assertTrue(
+          result.deletedDataFilesCount() > 0,
+          "The maxAge phase's deleted data file (orphaned by RTAS) must be reflected in the "
+              + "combined result, not dropped by the subsequent versions phase");
+    }
+
+    // restart the app to reload catalog cache
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      checkSnapshots(
+          ops, tableName, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+      ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", sourceName));
     }
   }
 
