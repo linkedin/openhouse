@@ -154,9 +154,10 @@ public class UserTablesMapperTest {
   }
 
   /**
-   * Backward compatibility: legacy writers omit the field entirely. No layer may default it to
-   * "TABLE", because that would start stamping a value on every existing table write and mask the
-   * null-means-table compatibility contract.
+   * Backward compatibility: legacy writers omit the field entirely, and the mapping chain must
+   * carry that null through untouched so the write stores a null column. Defaulting a null to
+   * "TABLE" belongs to the storage read, not here, otherwise every legacy table write would start
+   * stamping a value the writer never asked for.
    */
   @Test
   void nullEntityTypeRemainsNullAcrossLegacyMappings() {

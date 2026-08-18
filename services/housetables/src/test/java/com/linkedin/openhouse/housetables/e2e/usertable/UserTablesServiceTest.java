@@ -98,37 +98,37 @@ public class UserTablesServiceTest {
     // TODO: Use service layer function to create/update the repository.
     Assertions.assertTrue(
         isUserTableDtoEqual(
-            TestHouseTableModelConstants.TEST_USER_TABLE_DTO,
+            asStored(TestHouseTableModelConstants.TEST_USER_TABLE_DTO),
             userTablesService.getUserTable(
                 TestHouseTableModelConstants.TEST_DB_ID,
                 TestHouseTableModelConstants.TEST_TABLE_ID)));
     Assertions.assertTrue(
         isUserTableDtoEqual(
-            TEST_TUPLE_1_0.get_userTableDto(),
+            asStored(TEST_TUPLE_1_0.get_userTableDto()),
             userTablesService.getUserTable(
                 TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId())));
     Assertions.assertTrue(
         isUserTableDtoEqual(
-            TestHouseTableModelConstants.TEST_TUPLE_1_1.get_userTableDto(),
+            asStored(TestHouseTableModelConstants.TEST_TUPLE_1_1.get_userTableDto()),
             userTablesService.getUserTable(
                 TestHouseTableModelConstants.TEST_TUPLE_1_1.getDatabaseId(),
                 TestHouseTableModelConstants.TEST_TUPLE_1_1.getTableId())));
     // testing case insensitivity when lookup by repeating the lookup again
     Assertions.assertTrue(
         isUserTableDtoEqual(
-            TestHouseTableModelConstants.TEST_USER_TABLE_DTO,
+            asStored(TestHouseTableModelConstants.TEST_USER_TABLE_DTO),
             userTablesService.getUserTable(
                 TestHouseTableModelConstants.TEST_DB_ID.toLowerCase(),
                 TestHouseTableModelConstants.TEST_TABLE_ID.toLowerCase())));
     Assertions.assertTrue(
         isUserTableDtoEqual(
-            TEST_TUPLE_1_0.get_userTableDto(),
+            asStored(TEST_TUPLE_1_0.get_userTableDto()),
             userTablesService.getUserTable(
                 TEST_TUPLE_1_0.getDatabaseId().toLowerCase(),
                 TEST_TUPLE_1_0.getTableId().toLowerCase())));
     Assertions.assertTrue(
         isUserTableDtoEqual(
-            TestHouseTableModelConstants.TEST_TUPLE_1_1.get_userTableDto(),
+            asStored(TestHouseTableModelConstants.TEST_TUPLE_1_1.get_userTableDto()),
             userTablesService.getUserTable(
                 TestHouseTableModelConstants.TEST_TUPLE_1_1.getDatabaseId().toUpperCase(),
                 TestHouseTableModelConstants.TEST_TUPLE_1_1.getTableId().toUpperCase())));
@@ -262,35 +262,11 @@ public class UserTablesServiceTest {
   @Test
   public void testUserTableQuery() {
     List<UserTableDto> results = new ArrayList<>();
-    results.add(
-        TEST_TUPLE_1_0
-            .get_userTableDto()
-            .toBuilder()
-            .tableVersion(TEST_TUPLE_1_0.get_userTableDto().getMetadataLocation())
-            .build());
-    results.add(
-        TEST_TUPLE_2_0
-            .get_userTableDto()
-            .toBuilder()
-            .tableVersion(TEST_TUPLE_2_0.get_userTableDto().getMetadataLocation())
-            .build());
-    results.add(
-        TEST_TUPLE_3_0
-            .get_userTableDto()
-            .toBuilder()
-            .tableVersion(TEST_TUPLE_3_0.get_userTableDto().getMetadataLocation())
-            .build());
-    results.add(
-        TEST_TUPLE_4_0
-            .get_userTableDto()
-            .toBuilder()
-            .tableVersion(TEST_TUPLE_4_0.get_userTableDto().getMetadataLocation())
-            .build());
-    results.add(
-        TEST_USER_TABLE_DTO
-            .toBuilder()
-            .tableVersion(TEST_USER_TABLE_DTO.getMetadataLocation())
-            .build());
+    results.add(asStored(TEST_TUPLE_1_0.get_userTableDto()));
+    results.add(asStored(TEST_TUPLE_2_0.get_userTableDto()));
+    results.add(asStored(TEST_TUPLE_3_0.get_userTableDto()));
+    results.add(asStored(TEST_TUPLE_4_0.get_userTableDto()));
+    results.add(asStored(TEST_USER_TABLE_DTO));
 
     // No filter, should return all tables.
     List<UserTableDto> actual = userTablesService.getAllUserTables(UserTable.builder().build());
@@ -317,7 +293,8 @@ public class UserTablesServiceTest {
         userTablesService.getAllUserTables(
             UserTable.builder().tableId(TEST_TUPLE_2_0.getTableId()).build());
     assertThat(actual.size()).isEqualTo(3);
-    assertThat(isUserTableDtoEqual(actual.get(0), TEST_TUPLE_2_0.get_userTableDto())).isTrue();
+    assertThat(isUserTableDtoEqual(actual.get(0), asStored(TEST_TUPLE_2_0.get_userTableDto())))
+        .isTrue();
   }
 
   @Test
@@ -636,6 +613,17 @@ public class UserTablesServiceTest {
         userTablesService.getAllSoftDeletedTables(searchByTableId, 0, 10, null).getTotalElements());
   }
 
+  /**
+   * The DTO a stored tuple reads back as: HTS answers with the metadata location as the version,
+   * and a stored null entity type is a legacy table.
+   */
+  private static UserTableDto asStored(UserTableDto dto) {
+    return dto.toBuilder()
+        .tableVersion(dto.getMetadataLocation())
+        .entityType(EntityType.TABLE)
+        .build();
+  }
+
   private Boolean isUserTableDtoEqual(UserTableDto expected, UserTableDto actual) {
     return expected
         .toBuilder()
@@ -689,7 +677,8 @@ public class UserTablesServiceTest {
 
     UserTableDto dto = userTablesService.getUserTable(ENTITY_TYPE_DB, "point_read");
     assertThat(dto.getTableId()).isEqualTo("point_read");
-    assertThat(dto.getEntityType()).isEqualTo(entityType);
+    // A stored null is a legacy table, so the DTO carries a type either way.
+    assertThat(dto.getEntityType()).isEqualTo(EntityType.TABLE);
   }
 
   /**

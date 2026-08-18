@@ -816,7 +816,8 @@ public class HtsControllerTest {
                 .param("tableId", "point_read")
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.entity.tableId", is(equalTo("point_read"))));
+        .andExpect(jsonPath("$.entity.tableId", is(equalTo("point_read"))))
+        .andExpect(jsonPath("$.entity.entityType", is("TABLE")));
   }
 
   private UserTableRow entityTypeRow(String databaseId, String tableId, EntityType entityType) {
@@ -933,9 +934,10 @@ public class HtsControllerTest {
   }
 
   /**
-   * The discriminator survives the HTTP write boundary, and legacy writers stay null. A view cannot
-   * be read back through {@code GET /hts/tables} because that read is table-scoped; the neutral
-   * entity read is deferred, so the PUT response and the persisted row are what pin the write.
+   * The discriminator survives the HTTP write boundary; a legacy writer that omits it stores a null
+   * column, and every read of that row answers TABLE. A view cannot be read back through {@code GET
+   * /hts/tables} because that read is table-scoped; the neutral entity read is deferred, so the PUT
+   * response and the persisted row are what pin the write.
    */
   @Test
   public void testEntityTypePutAndGetRoundTrip() throws Exception {
@@ -978,7 +980,7 @@ public class HtsControllerTest {
                 .getEntityType())
         .isEqualTo(EntityType.VIEW);
 
-    // A legacy PUT that omits the field must stay null end-to-end.
+    // A legacy PUT that omits the field writes a null column, which reads back as TABLE.
     UserTable legacyEntity =
         UserTable.builder()
             .databaseId(ENTITY_TYPE_DB)
@@ -987,6 +989,7 @@ public class HtsControllerTest {
             .metadataLocation("/openhouse/entity_type_db/put_legacy/v0_metadata.json")
             .build();
 
+    // The PUT response is built from the request-derived row, which never saw the column.
     mvc.perform(
             MockMvcRequestBuilders.put("/hts/tables")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -1005,7 +1008,7 @@ public class HtsControllerTest {
                 .param("tableId", "put_legacy")
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.entity.entityType").doesNotExist());
+        .andExpect(jsonPath("$.entity.entityType", is("TABLE")));
 
     assertThat(
             htsRepository
@@ -1016,7 +1019,7 @@ public class HtsControllerTest {
                         .build())
                 .get()
                 .getEntityType())
-        .isNull();
+        .isEqualTo(EntityType.TABLE);
   }
 
   /**
