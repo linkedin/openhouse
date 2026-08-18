@@ -124,7 +124,7 @@ public class HtsRepositoryTest {
   /**
    * Seeds {@link #CASE_DB} with the two canonical visible rows plus every non-table spelling a
    * legacy writer could have left behind. Only spellings the table predicate excludes are planted
-   * here, so nothing in this fixture is ever hydrated back into an entity.
+   * here, so the table-scoped queries never return one.
    */
   private void seedCaseNormalizationRows() {
     htsRepository.save(row(CASE_DB, "case00_null", null));
@@ -224,7 +224,9 @@ public class HtsRepositoryTest {
                     .build())
             .orElse(UserTableRow.builder().build());
 
-    Assertions.assertEquals(testUserTableRow, actual);
+    // A row built in memory carries no type; storage is what resolves a stored null to TABLE.
+    Assertions.assertEquals(
+        testUserTableRow.toBuilder().entityType(EntityType.TABLE).build(), actual);
     htsRepository.delete(actual);
   }
 
@@ -386,9 +388,11 @@ public class HtsRepositoryTest {
     assertThat(findRow(ENTITY_TYPE_DB, "persist_view").getEntityType()).isEqualTo(EntityType.VIEW);
     assertThat(findRow(ENTITY_TYPE_DB, "persist_table").getEntityType())
         .isEqualTo(EntityType.TABLE);
-    assertThat(findRow(ENTITY_TYPE_DB, "persist_legacy").getEntityType()).isNull();
+    assertThat(findRow(ENTITY_TYPE_DB, "persist_legacy").getEntityType())
+        .isEqualTo(EntityType.TABLE);
 
     // The stored column text is the constant name, so the enum changes no byte in the database.
+    // The null stays null: only the read defaults, the write stores what it was handed.
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "persist_view")).isEqualTo("VIEW");
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "persist_table")).isEqualTo("TABLE");
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "persist_legacy")).isNull();
@@ -406,6 +410,53 @@ public class HtsRepositoryTest {
     assertThat(updated.getEntityType()).isEqualTo(EntityType.VIEW);
     assertThat(findRow(ENTITY_TYPE_DB, "persist_view").getEntityType()).isEqualTo(EntityType.VIEW);
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "persist_view")).isEqualTo("VIEW");
+  }
+
+  /**
+   * The column is nullable, the Java field is not. A row whose {@code entity_type} is null reads
+   * back as {@link EntityType#TABLE} through every read on the entity, so no caller downstream of
+   * the repository has to re-state the null-means-table rule.
+   */
+  @Test
+  public void testStoredNullHydratesAsTable() {
+    htsRepository.save(row(ENTITY_TYPE_DB, "legacy_null", null));
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "legacy_null")).isNull();
+
+    assertThat(findRow(ENTITY_TYPE_DB, "legacy_null").getEntityType()).isEqualTo(EntityType.TABLE);
+    assertThat(
+            htsRepository
+                .findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(ENTITY_TYPE_DB, "legacy_null")
+                .orElseThrow(() -> new AssertionError("table read must resolve a legacy null"))
+                .getEntityType())
+        .isEqualTo(EntityType.TABLE);
+    assertThat(
+            Lists.newArrayList(
+                htsRepository.findAllTablesByFilters(
+                    ENTITY_TYPE_DB, "legacy_null", null, null, null, null)))
+        .singleElement()
+        .satisfies(r -> assertThat(r.getEntityType()).isEqualTo(EntityType.TABLE));
+
+    // Hydrating a default must not write one back.
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "legacy_null")).isNull();
+  }
+
+  /**
+   * A value the column should never hold must not silently become a table. Only a null carries the
+   * legacy meaning; anything else outside the vocabulary is corrupt and fails loudly, naming the
+   * column and the offending value.
+   */
+  @Test
+  public void testUnrecognizedStoredValueFailsLoudly() {
+    insertRawEntityType(CASE_DB, "garbage_row", "FOO");
+
+    assertThatThrownBy(
+            () ->
+                htsRepository.findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
+                    CASE_DB, "garbage_row"))
+        .hasStackTraceContaining("user_table_row.entity_type")
+        .hasStackTraceContaining("FOO");
+
+    assertThat(readRawEntityType(CASE_DB, "garbage_row")).isEqualTo("FOO");
   }
 
   /** SHOW-TABLES-equivalent plain listing hides views and keeps legacy NULL rows. */
@@ -564,28 +615,48 @@ public class HtsRepositoryTest {
   }
 
   /**
-   * The table predicate still normalizes case in SQL, and {@link EntityType} is what now fixes the
-   * column's vocabulary.
+   * SQL matching and hydration must agree on case. The table predicate normalizes explicitly
+   * ({@code upper(u.entityType) = 'TABLE'}), so hydration does too — otherwise a legacy row would
+   * be selected by the query and then explode while loading, which is worse than either matching or
+   * skipping it consistently.
    *
    * <p>H2 runs in {@code MODE=MySQL} which is case-SENSITIVE for string comparison, so a bare
    * {@code = 'TABLE'} predicate would leave the planted row unmatched and the read would simply
-   * come back empty. It is matched, which is what proves the query normalizes explicitly (e.g.
-   * {@code upper(u.entityType) = 'TABLE'}) rather than leaning on a provider collation — and the
-   * enum then refuses to hydrate it, so a legacy spelling fails loudly instead of resolving
-   * silently. No writer can produce such a row: the enum boundary normalizes before the value
-   * reaches the column.
+   * come back empty. It is matched, which is what proves the query normalizes rather than leaning
+   * on a provider collation. No writer can produce such a row: the enum boundary normalizes before
+   * the value reaches the column.
    */
   @Test
-  public void testLegacyNonCanonicalTableSpellingIsMatchedButRefusesToHydrate() {
+  public void testLegacyNonCanonicalSpellingIsMatchedAndHydrates() {
     insertRawEntityType(CASE_DB, "case02_lower_table", "table");
+    insertRawEntityType(CASE_DB, "case03_mixed_table", "TaBlE");
+    insertRawEntityType(CASE_DB, "case05_lower_view", "view");
 
-    assertThatThrownBy(
-            () ->
-                htsRepository.findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
-                    CASE_DB, "case02_lower_table"))
-        .hasStackTraceContaining("No enum constant");
+    assertThat(
+            htsRepository
+                .findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(CASE_DB, "case02_lower_table")
+                .orElseThrow(() -> new AssertionError("the table predicate must match 'table'"))
+                .getEntityType())
+        .isEqualTo(EntityType.TABLE);
+    assertThat(
+            htsRepository
+                .findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(CASE_DB, "case03_mixed_table")
+                .orElseThrow(() -> new AssertionError("the table predicate must match 'TaBlE'"))
+                .getEntityType())
+        .isEqualTo(EntityType.TABLE);
 
+    // The view spellings the table predicate excludes still hydrate through the neutral read.
+    assertThat(
+            htsRepository
+                .findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(CASE_DB, "case05_lower_view")
+                .orElseThrow(() -> new AssertionError("the neutral read must see 'view'"))
+                .getEntityType())
+        .isEqualTo(EntityType.VIEW);
+
+    // Reading normalizes; the column text does not change.
     assertThat(readRawEntityType(CASE_DB, "case02_lower_table")).isEqualTo("table");
+    assertThat(readRawEntityType(CASE_DB, "case03_mixed_table")).isEqualTo("TaBlE");
+    assertThat(readRawEntityType(CASE_DB, "case05_lower_view")).isEqualTo("view");
   }
 
   /**
