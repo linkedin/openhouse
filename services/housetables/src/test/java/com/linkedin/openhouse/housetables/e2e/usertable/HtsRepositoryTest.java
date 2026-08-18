@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.*;
 import com.google.common.collect.Lists;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
+import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
@@ -15,6 +16,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -27,6 +29,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.context.ContextConfiguration;
 
@@ -51,20 +54,23 @@ public class HtsRepositoryTest {
   /** Case-normalization fixture; see {@code CASE_DB}. */
   private static final String CASE_DB = "entity_type_case_db";
 
-  private static final String[] CASE_VISIBLE_TABLE_IDS = {
-    "case00_null", "case01_upper_table", "case02_lower_table", "case03_mixed_table"
-  };
+  private static final String[] CASE_VISIBLE_TABLE_IDS = {"case00_null", "case01_upper_table"};
 
   private static final String CASE_GARBAGE_ID = "case07_garbage";
 
   @Autowired UserTableHtsJdbcRepository htsRepository;
 
+  @Autowired DataSource dataSource;
+
   @AfterEach
   public void tearDown() {
+    // The JPA cleanup loads every row, so a planted non-canonical spelling must go first.
+    new JdbcTemplate(dataSource)
+        .update("DELETE FROM user_table_row WHERE entity_type NOT IN ('TABLE', 'VIEW')");
     htsRepository.deleteAll();
   }
 
-  private UserTableRow row(String databaseId, String tableId, String entityType) {
+  private UserTableRow row(String databaseId, String tableId, EntityType entityType) {
     return UserTableRow.builder()
         .databaseId(databaseId)
         .tableId(tableId)
@@ -76,27 +82,57 @@ public class HtsRepositoryTest {
         .build();
   }
 
+  /**
+   * The enum-typed entity cannot express a non-canonical spelling, so a row holding one can only be
+   * planted through the column itself.
+   */
+  private void insertRawEntityType(String databaseId, String tableId, String entityType) {
+    new JdbcTemplate(dataSource)
+        .update(
+            "INSERT INTO user_table_row "
+                + "(database_id, table_id, version, metadata_location, storage_type, creation_time, entity_type) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            databaseId,
+            tableId,
+            0L,
+            String.format("/openhouse/%s/%s/v0_metadata.json", databaseId, tableId),
+            TEST_DEFAULT_STORAGE_TYPE,
+            TEST_CREATION_TIME,
+            entityType);
+  }
+
+  private String readRawEntityType(String databaseId, String tableId) {
+    return new JdbcTemplate(dataSource)
+        .queryForObject(
+            "SELECT entity_type FROM user_table_row WHERE database_id = ? AND table_id = ?",
+            String.class,
+            databaseId,
+            tableId);
+  }
+
   /** Seeds the canonical 7-row interleaved fixture into {@code databaseId} under {@code prefix}. */
   private void seedCanonicalRows(String databaseId, String prefix) {
     htsRepository.save(row(databaseId, prefix + "t00_legacy", null));
-    htsRepository.save(row(databaseId, prefix + "t01_view", "VIEW"));
-    htsRepository.save(row(databaseId, prefix + "t02_explicit", "TABLE"));
-    htsRepository.save(row(databaseId, prefix + "t03_view", "VIEW"));
+    htsRepository.save(row(databaseId, prefix + "t01_view", EntityType.VIEW));
+    htsRepository.save(row(databaseId, prefix + "t02_explicit", EntityType.TABLE));
+    htsRepository.save(row(databaseId, prefix + "t03_view", EntityType.VIEW));
     htsRepository.save(row(databaseId, prefix + "t04_legacy", null));
-    htsRepository.save(row(databaseId, prefix + "t05_view", "VIEW"));
-    htsRepository.save(row(databaseId, prefix + "t06_explicit", "TABLE"));
+    htsRepository.save(row(databaseId, prefix + "t05_view", EntityType.VIEW));
+    htsRepository.save(row(databaseId, prefix + "t06_explicit", EntityType.TABLE));
   }
 
-  /** Seeds the 8-row case-normalization fixture into {@link #CASE_DB}. */
+  /**
+   * Seeds {@link #CASE_DB} with the two canonical visible rows plus every non-table spelling a
+   * legacy writer could have left behind. Only spellings the table predicate excludes are planted
+   * here, so nothing in this fixture is ever hydrated back into an entity.
+   */
   private void seedCaseNormalizationRows() {
     htsRepository.save(row(CASE_DB, "case00_null", null));
-    htsRepository.save(row(CASE_DB, "case01_upper_table", "TABLE"));
-    htsRepository.save(row(CASE_DB, "case02_lower_table", "table"));
-    htsRepository.save(row(CASE_DB, "case03_mixed_table", "TaBlE"));
-    htsRepository.save(row(CASE_DB, "case04_upper_view", "VIEW"));
-    htsRepository.save(row(CASE_DB, "case05_lower_view", "view"));
-    htsRepository.save(row(CASE_DB, "case06_mixed_view", "ViEw"));
-    htsRepository.save(row(CASE_DB, CASE_GARBAGE_ID, "UNKNOWN"));
+    htsRepository.save(row(CASE_DB, "case01_upper_table", EntityType.TABLE));
+    insertRawEntityType(CASE_DB, "case04_upper_view", "VIEW");
+    insertRawEntityType(CASE_DB, "case05_lower_view", "view");
+    insertRawEntityType(CASE_DB, "case06_mixed_view", "ViEw");
+    insertRawEntityType(CASE_DB, CASE_GARBAGE_ID, "UNKNOWN");
   }
 
   private static List<String> tableIds(Iterable<UserTableRow> rows) {
@@ -337,8 +373,9 @@ public class HtsRepositoryTest {
   /** The discriminator must persist verbatim and must not perturb version/metadata behavior. */
   @Test
   public void testEntityTypePersistenceRoundTrip() {
-    UserTableRow viewRow = htsRepository.save(row(ENTITY_TYPE_DB, "persist_view", "VIEW"));
-    UserTableRow tableRow = htsRepository.save(row(ENTITY_TYPE_DB, "persist_table", "TABLE"));
+    UserTableRow viewRow = htsRepository.save(row(ENTITY_TYPE_DB, "persist_view", EntityType.VIEW));
+    UserTableRow tableRow =
+        htsRepository.save(row(ENTITY_TYPE_DB, "persist_table", EntityType.TABLE));
     UserTableRow legacyRow = htsRepository.save(row(ENTITY_TYPE_DB, "persist_legacy", null));
 
     // Insert still yields version 0 for all three; the discriminator is orthogonal to versioning.
@@ -346,9 +383,15 @@ public class HtsRepositoryTest {
     assertThat(tableRow.getVersion()).isEqualTo(0L);
     assertThat(legacyRow.getVersion()).isEqualTo(0L);
 
-    assertThat(findRow(ENTITY_TYPE_DB, "persist_view").getEntityType()).isEqualTo("VIEW");
-    assertThat(findRow(ENTITY_TYPE_DB, "persist_table").getEntityType()).isEqualTo("TABLE");
+    assertThat(findRow(ENTITY_TYPE_DB, "persist_view").getEntityType()).isEqualTo(EntityType.VIEW);
+    assertThat(findRow(ENTITY_TYPE_DB, "persist_table").getEntityType())
+        .isEqualTo(EntityType.TABLE);
     assertThat(findRow(ENTITY_TYPE_DB, "persist_legacy").getEntityType()).isNull();
+
+    // The stored column text is the constant name, so the enum changes no byte in the database.
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "persist_view")).isEqualTo("VIEW");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "persist_table")).isEqualTo("TABLE");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "persist_legacy")).isNull();
 
     assertThat(findRow(ENTITY_TYPE_DB, "persist_view").getMetadataLocation())
         .isEqualTo(viewRow.getMetadataLocation());
@@ -360,8 +403,9 @@ public class HtsRepositoryTest {
                 .toBuilder()
                 .metadataLocation("/openhouse/entity_type_db/persist_view/v1_metadata.json")
                 .build());
-    assertThat(updated.getEntityType()).isEqualTo("VIEW");
-    assertThat(findRow(ENTITY_TYPE_DB, "persist_view").getEntityType()).isEqualTo("VIEW");
+    assertThat(updated.getEntityType()).isEqualTo(EntityType.VIEW);
+    assertThat(findRow(ENTITY_TYPE_DB, "persist_view").getEntityType()).isEqualTo(EntityType.VIEW);
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "persist_view")).isEqualTo("VIEW");
   }
 
   /** SHOW-TABLES-equivalent plain listing hides views and keeps legacy NULL rows. */
@@ -376,8 +420,7 @@ public class HtsRepositoryTest {
             htsRepository.findAllTablesByFilters(ENTITY_TYPE_DB, null, null, null, null, null));
 
     assertThat(tableIds(result)).containsExactly(CANONICAL_TABLE_IDS);
-    assertThat(result)
-        .allSatisfy(r -> assertThat(r.getEntityType()).isNotEqualToIgnoringCase("VIEW"));
+    assertThat(result).allSatisfy(r -> assertThat(r.getEntityType()).isNotEqualTo(EntityType.VIEW));
   }
 
   /**
@@ -414,7 +457,7 @@ public class HtsRepositoryTest {
   public void testFindAllByPatternFiltersViewsAndKeepsLegacyTables() {
     seedCanonicalRows(ENTITY_TYPE_DB, "match_");
     // Non-matching table in the same database must be excluded by the pattern, not by type.
-    htsRepository.save(row(ENTITY_TYPE_DB, "nomatch_table", "TABLE"));
+    htsRepository.save(row(ENTITY_TYPE_DB, "nomatch_table", EntityType.TABLE));
 
     List<UserTableRow> result =
         Lists.newArrayList(
@@ -430,7 +473,7 @@ public class HtsRepositoryTest {
   @Test
   public void testFindAllByPatternFiltersBeforePagination() {
     seedCanonicalRows(ENTITY_TYPE_DB, "match_");
-    htsRepository.save(row(ENTITY_TYPE_DB, "nomatch_table", "TABLE"));
+    htsRepository.save(row(ENTITY_TYPE_DB, "nomatch_table", EntityType.TABLE));
 
     Page<UserTableRow> page0 =
         htsRepository.findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
@@ -481,17 +524,12 @@ public class HtsRepositoryTest {
   }
 
   /**
-   * Case/garbage matrix at the SQL layer.
-   *
-   * <p>H2 runs in {@code MODE=MySQL} which is case-SENSITIVE for string comparison, whereas
-   * production MySQL's default collation is case-INSENSITIVE. This test therefore proves that the
-   * query normalizes explicitly (e.g. {@code upper(u.entityType) = 'TABLE'}) rather than leaning on
-   * a provider collation: an implementation using a bare {@code = 'TABLE'} comparison would hide
-   * {@code table}/{@code TaBlE} here and fail. It does NOT certify production MySQL behavior — a
-   * MySQL staging smoke test is still required before views are enabled.
+   * Every non-table spelling fails closed. Two rows are visible: the legacy NULL and the canonical
+   * TABLE. Every spelling of VIEW and an unrecognized value are excluded before pagination, and
+   * excluded rows are hidden rather than dropped.
    */
   @Test
-  public void testEntityTypePredicatesAreCaseInsensitiveAndGarbageFailsClosed() {
+  public void testEveryNonTableSpellingAndGarbageFailsClosed() {
     seedCaseNormalizationRows();
 
     assertThat(
@@ -505,49 +543,65 @@ public class HtsRepositoryTest {
 
     Page<UserTableRow> dbPage0 =
         htsRepository.findAllTablesByFilters(CASE_DB, null, null, null, null, null, sortedPage(0));
-    assertThat(dbPage0.getTotalElements()).isEqualTo(4);
-    assertThat(dbPage0.getTotalPages()).isEqualTo(2);
-    assertThat(pageTableIds(dbPage0)).containsExactly("case00_null", "case01_upper_table");
+    assertThat(dbPage0.getTotalElements()).isEqualTo(2);
+    assertThat(dbPage0.getTotalPages()).isEqualTo(1);
+    assertThat(pageTableIds(dbPage0)).containsExactly(CASE_VISIBLE_TABLE_IDS);
 
     Page<UserTableRow> patternPage0 =
         htsRepository.findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
             CASE_DB, "case%", sortedPage(0));
-    assertThat(patternPage0.getTotalElements()).isEqualTo(4);
-    assertThat(patternPage0.getTotalPages()).isEqualTo(2);
-    assertThat(pageTableIds(patternPage0)).containsExactly("case00_null", "case01_upper_table");
+    assertThat(patternPage0.getTotalElements()).isEqualTo(2);
+    assertThat(patternPage0.getTotalPages()).isEqualTo(1);
+    assertThat(pageTableIds(patternPage0)).containsExactly(CASE_VISIBLE_TABLE_IDS);
 
-    // The general filter family is table-scoped as well, so no view spelling leaks through it.
-    assertThat(
-            tableIds(htsRepository.findAllTablesByFilters(CASE_DB, null, null, null, null, null)))
-        .containsExactly(CASE_VISIBLE_TABLE_IDS);
-
-    // Garbage fails closed everywhere: it is neither a table nor a view.
+    // Garbage fails closed: it is neither a table nor a view.
     assertThat(
             tableIds(htsRepository.findAllTablesByFilters(CASE_DB, null, null, null, null, null)))
         .doesNotContain(CASE_GARBAGE_ID);
 
     // The garbage row is still stored — it is hidden, not dropped.
-    assertThat(findRow(CASE_DB, CASE_GARBAGE_ID).getEntityType()).isEqualTo("UNKNOWN");
+    assertThat(readRawEntityType(CASE_DB, CASE_GARBAGE_ID)).isEqualTo("UNKNOWN");
+  }
+
+  /**
+   * The table predicate still normalizes case in SQL, and {@link EntityType} is what now fixes the
+   * column's vocabulary.
+   *
+   * <p>H2 runs in {@code MODE=MySQL} which is case-SENSITIVE for string comparison, so a bare
+   * {@code = 'TABLE'} predicate would leave the planted row unmatched and the read would simply
+   * come back empty. It is matched, which is what proves the query normalizes explicitly (e.g.
+   * {@code upper(u.entityType) = 'TABLE'}) rather than leaning on a provider collation — and the
+   * enum then refuses to hydrate it, so a legacy spelling fails loudly instead of resolving
+   * silently. No writer can produce such a row: the enum boundary normalizes before the value
+   * reaches the column.
+   */
+  @Test
+  public void testLegacyNonCanonicalTableSpellingIsMatchedButRefusesToHydrate() {
+    insertRawEntityType(CASE_DB, "case02_lower_table", "table");
+
+    assertThatThrownBy(
+            () ->
+                htsRepository.findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
+                    CASE_DB, "case02_lower_table"))
+        .hasStackTraceContaining("No enum constant");
+
+    assertThat(readRawEntityType(CASE_DB, "case02_lower_table")).isEqualTo("table");
   }
 
   /**
    * Table-scoped point read: the query, not any caller, is what makes a view unreadable through the
-   * table path. NULL and every spelling of TABLE resolve; every spelling of VIEW and an
-   * unrecognized value resolve to empty.
+   * table path. NULL and TABLE resolve; every spelling of VIEW and an unrecognized value resolve to
+   * empty.
    */
   @ParameterizedTest
-  @CsvSource(
-      nullValues = "NULL",
-      value = {
-        "case00_null,        true",
-        "case01_upper_table, true",
-        "case02_lower_table, true",
-        "case03_mixed_table, true",
-        "case04_upper_view,  false",
-        "case05_lower_view,  false",
-        "case06_mixed_view,  false",
-        "case07_garbage,     false"
-      })
+  @CsvSource({
+    "case00_null,        true",
+    "case01_upper_table, true",
+    "case04_upper_view,  false",
+    "case05_lower_view,  false",
+    "case06_mixed_view,  false",
+    "case07_garbage,     false"
+  })
   public void testFindTableByKeyResolvesOnlyTableRows(String tableId, boolean expectedVisible) {
     seedCaseNormalizationRows();
 
@@ -576,14 +630,7 @@ public class HtsRepositoryTest {
   public void testNeutralPointReadStillSeesEveryEntityType() {
     seedCaseNormalizationRows();
 
-    for (String tableId :
-        new String[] {
-          "case00_null",
-          "case01_upper_table",
-          "case04_upper_view",
-          "case06_mixed_view",
-          CASE_GARBAGE_ID
-        }) {
+    for (String tableId : new String[] {"case00_null", "case01_upper_table", "case04_upper_view"}) {
       assertThat(
               htsRepository
                   .findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(CASE_DB, tableId)

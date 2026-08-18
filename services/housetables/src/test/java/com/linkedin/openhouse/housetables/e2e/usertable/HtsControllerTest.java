@@ -12,6 +12,7 @@ import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateUpdateEntityRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.response.GetAllEntityResponseBody;
 import com.linkedin.openhouse.housetables.dto.mapper.SoftDeletedUserTablesMapper;
+import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRow;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.model.TestHtsApiConstants;
@@ -31,8 +32,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.NullSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -780,10 +781,9 @@ public class HtsControllerTest {
    * The HTTP contract the tables service actually consumes: a view at a table's key is a 404, the
    * same response an absent row produces, so no client-side check is needed to hide it.
    */
-  @ParameterizedTest
-  @ValueSource(strings = {"VIEW", "view", "ViEw", "UNKNOWN"})
-  public void testGetUserTableReturnsNotFoundForNonTableRow(String entityType) throws Exception {
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "point_read", entityType));
+  @Test
+  public void testGetUserTableReturnsNotFoundForNonTableRow() throws Exception {
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "point_read", EntityType.VIEW));
 
     mvc.perform(
             MockMvcRequestBuilders.get("/hts/tables")
@@ -805,10 +805,9 @@ public class HtsControllerTest {
   }
 
   @ParameterizedTest
-  @CsvSource(
-      nullValues = "NULL",
-      value = {"NULL", "TABLE", "table", "TaBlE"})
-  public void testGetUserTableReturnsNullAndTableRows(String entityType) throws Exception {
+  @NullSource
+  @EnumSource(value = EntityType.class, names = "TABLE")
+  public void testGetUserTableReturnsNullAndTableRows(EntityType entityType) throws Exception {
     htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "point_read", entityType));
 
     mvc.perform(
@@ -820,7 +819,7 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.entity.tableId", is(equalTo("point_read"))));
   }
 
-  private UserTableRow entityTypeRow(String databaseId, String tableId, String entityType) {
+  private UserTableRow entityTypeRow(String databaseId, String tableId, EntityType entityType) {
     return UserTableRow.builder()
         .databaseId(databaseId)
         .tableId(tableId)
@@ -834,12 +833,12 @@ public class HtsControllerTest {
 
   private void seedCanonicalRows(String prefix) {
     htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t00_legacy", null));
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t01_view", "VIEW"));
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t02_explicit", "TABLE"));
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t03_view", "VIEW"));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t01_view", EntityType.VIEW));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t02_explicit", EntityType.TABLE));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t03_view", EntityType.VIEW));
     htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t04_legacy", null));
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t05_view", "VIEW"));
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t06_explicit", "TABLE"));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t05_view", EntityType.VIEW));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t06_explicit", EntityType.TABLE));
   }
 
   private static MultiValueMap<String, String> queryParams(String... keyValues) {
@@ -977,7 +976,7 @@ public class HtsControllerTest {
                         .build())
                 .get()
                 .getEntityType())
-        .isEqualTo("VIEW");
+        .isEqualTo(EntityType.VIEW);
 
     // A legacy PUT that omits the field must stay null end-to-end.
     UserTable legacyEntity =
@@ -1021,6 +1020,84 @@ public class HtsControllerTest {
   }
 
   /**
+   * The API accepts the discriminator case-insensitively but HTS stores and returns the canonical
+   * constant, so the column vocabulary stays exactly TABLE/VIEW/NULL.
+   */
+  @Test
+  public void testEntityTypePutNormalizesSpellingToCanonicalConstant() throws Exception {
+    UserTable lowercaseView =
+        UserTable.builder()
+            .databaseId(ENTITY_TYPE_DB)
+            .tableId("put_lower_view")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .metadataLocation("/openhouse/entity_type_db/put_lower_view/v0_metadata.json")
+            .entityType("view")
+            .build();
+
+    mvc.perform(
+            MockMvcRequestBuilders.put("/hts/tables")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    CreateUpdateEntityRequestBody.<UserTable>builder()
+                        .entity(lowercaseView)
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.entity.entityType", is("VIEW")));
+
+    assertThat(
+            htsRepository
+                .findById(
+                    UserTableRowPrimaryKey.builder()
+                        .databaseId(ENTITY_TYPE_DB)
+                        .tableId("put_lower_view")
+                        .build())
+                .get()
+                .getEntityType())
+        .isEqualTo(EntityType.VIEW);
+  }
+
+  /**
+   * An unrecognized discriminator is a bad request, not a server error: validation rejects it
+   * before the enum boundary is reached, and the enum boundary would reject it as a request failure
+   * too.
+   */
+  @Test
+  public void testEntityTypePutWithUnknownValueIsBadRequest() throws Exception {
+    UserTable garbage =
+        UserTable.builder()
+            .databaseId(ENTITY_TYPE_DB)
+            .tableId("put_garbage")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .metadataLocation("/openhouse/entity_type_db/put_garbage/v0_metadata.json")
+            .entityType("UNKNOWN")
+            .build();
+
+    mvc.perform(
+            MockMvcRequestBuilders.put("/hts/tables")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    CreateUpdateEntityRequestBody.<UserTable>builder()
+                        .entity(garbage)
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.status", is(equalTo(HttpStatus.BAD_REQUEST.name()))));
+
+    assertThat(
+            htsRepository
+                .findById(
+                    UserTableRowPrimaryKey.builder()
+                        .databaseId(ENTITY_TYPE_DB)
+                        .tableId("put_garbage")
+                        .build())
+                .isPresent())
+        .isFalse();
+  }
+
+  /**
    * {@code /hts/tables/query} is table-scoped by path, so {@code entityType} is not a supported
    * query parameter. It is mapped onto the request object but never reaches a predicate, so a
    * client that sends one is silently answered with tables.
@@ -1050,7 +1127,7 @@ public class HtsControllerTest {
    */
   @Test
   public void testCreateTablePointerPublishCannotOverwriteView() throws Exception {
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "occupied_by_view", "VIEW"));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "occupied_by_view", EntityType.VIEW));
 
     UserTableRowPrimaryKey key =
         UserTableRowPrimaryKey.builder()
@@ -1080,7 +1157,7 @@ public class HtsControllerTest {
         .andExpect(status().isConflict());
 
     UserTableRow after = htsRepository.findById(key).get();
-    assertThat(after.getEntityType()).isEqualTo("VIEW");
+    assertThat(after.getEntityType()).isEqualTo(EntityType.VIEW);
     assertThat(after.getEntityType()).isEqualTo(before.getEntityType());
     assertThat(after.getVersion()).isEqualTo(before.getVersion());
     assertThat(after.getMetadataLocation()).isEqualTo(before.getMetadataLocation());

@@ -1,8 +1,10 @@
 package com.linkedin.openhouse.housetables.mock.mapper;
 
+import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
+import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import java.util.HashMap;
@@ -79,10 +81,10 @@ public class UserTablesMapperTest {
         TestHouseTableModelConstants.TEST_USER_TABLE.toBuilder().entityType("VIEW").build();
 
     UserTableRow row = userTablesMapper.toUserTableRow(viewUserTable, Optional.empty());
-    Assertions.assertEquals("VIEW", row.getEntityType());
+    Assertions.assertEquals(EntityType.VIEW, row.getEntityType());
 
     UserTableDto dto = userTablesMapper.toUserTableDto(row);
-    Assertions.assertEquals("VIEW", dto.getEntityType());
+    Assertions.assertEquals(EntityType.VIEW, dto.getEntityType());
 
     UserTable roundTripped = userTablesMapper.toUserTable(dto);
     Assertions.assertEquals("VIEW", roundTripped.getEntityType());
@@ -96,7 +98,59 @@ public class UserTablesMapperTest {
     Assertions.assertEquals(viewUserTable.getCreationTime(), roundTripped.getCreationTime());
 
     // fromUserTable is the other API -> DTO direction and must carry it too.
-    Assertions.assertEquals("VIEW", userTablesMapper.fromUserTable(viewUserTable).getEntityType());
+    Assertions.assertEquals(
+        EntityType.VIEW, userTablesMapper.fromUserTable(viewUserTable).getEntityType());
+  }
+
+  /**
+   * The transport model validates the discriminator case-insensitively, so the enum boundary must
+   * resolve every spelling it lets through. The canonical constant name is what reaches storage and
+   * the wire.
+   */
+  @Test
+  void entityTypeSpellingsNormalizeToTheCanonicalConstant() {
+    Map<String, EntityType> spellings = new HashMap<>();
+    spellings.put("VIEW", EntityType.VIEW);
+    spellings.put("view", EntityType.VIEW);
+    spellings.put("ViEw", EntityType.VIEW);
+    spellings.put("TABLE", EntityType.TABLE);
+    spellings.put("table", EntityType.TABLE);
+    spellings.put("TaBlE", EntityType.TABLE);
+
+    for (Map.Entry<String, EntityType> spelling : spellings.entrySet()) {
+      UserTable userTable =
+          TestHouseTableModelConstants.TEST_USER_TABLE
+              .toBuilder()
+              .entityType(spelling.getKey())
+              .build();
+
+      UserTableRow row = userTablesMapper.toUserTableRow(userTable, Optional.empty());
+      Assertions.assertEquals(spelling.getValue(), row.getEntityType(), spelling.getKey());
+      Assertions.assertEquals(
+          spelling.getValue().name(),
+          userTablesMapper.toUserTable(userTablesMapper.toUserTableDto(row)).getEntityType(),
+          spelling.getKey());
+    }
+  }
+
+  /**
+   * An unrecognized spelling must stay a client error at every entry point. Bean Validation rejects
+   * it first on the PUT path; this pins that a caller reaching the mapper directly still gets a
+   * request failure rather than the raw {@link IllegalArgumentException} MapStruct's implicit
+   * conversion would raise.
+   */
+  @Test
+  void unknownEntityTypeIsARequestFailureNotAnInternalError() {
+    UserTable garbage =
+        TestHouseTableModelConstants.TEST_USER_TABLE.toBuilder().entityType("UNKNOWN").build();
+
+    Assertions.assertThrows(
+        RequestValidationFailureException.class,
+        () -> userTablesMapper.toUserTableRow(garbage, Optional.empty()));
+    Assertions.assertThrows(
+        RequestValidationFailureException.class, () -> userTablesMapper.fromUserTable(garbage));
+    Assertions.assertThrows(
+        RequestValidationFailureException.class, () -> userTablesMapper.toEntityType("VIEWS"));
   }
 
   /**
