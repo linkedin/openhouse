@@ -10,6 +10,7 @@ import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import com.linkedin.openhouse.housetables.e2e.SpringH2HtsApplication;
+import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
@@ -28,8 +29,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.NullSource;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -664,10 +665,9 @@ public class UserTablesServiceTest {
    * service, so filtering it here is what makes doRefresh, dropTable, the rename source and
    * findTableRefById all treat a view as absent without a check of their own.
    */
-  @ParameterizedTest
-  @ValueSource(strings = {"VIEW", "view", "ViEw", "UNKNOWN"})
-  public void testGetUserTableHidesNonTableRows(String entityType) {
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "point_read", entityType));
+  @Test
+  public void testGetUserTableHidesNonTableRows() {
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "point_read", EntityType.VIEW));
 
     Assertions.assertThrows(
         NoSuchUserTableException.class,
@@ -682,10 +682,9 @@ public class UserTablesServiceTest {
   }
 
   @ParameterizedTest
-  @CsvSource(
-      nullValues = "NULL",
-      value = {"NULL", "TABLE", "table", "TaBlE"})
-  public void testGetUserTableResolvesNullAndTableRows(String entityType) {
+  @NullSource
+  @EnumSource(value = EntityType.class, names = "TABLE")
+  public void testGetUserTableResolvesNullAndTableRows(EntityType entityType) {
     htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "point_read", entityType));
 
     UserTableDto dto = userTablesService.getUserTable(ENTITY_TYPE_DB, "point_read");
@@ -699,7 +698,7 @@ public class UserTablesServiceTest {
    */
   @Test
   public void testWritersStillSeeNonTableRowsAtTheSameKey() {
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "shared_key", "VIEW"));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "shared_key", EntityType.VIEW));
 
     UserTableRow seenByWriter =
         htsRepository
@@ -709,7 +708,7 @@ public class UserTablesServiceTest {
                     .tableId("shared_key")
                     .build())
             .orElseThrow(() -> new AssertionError("writer read must see the view row"));
-    assertThat(seenByWriter.getEntityType()).isEqualTo("VIEW");
+    assertThat(seenByWriter.getEntityType()).isEqualTo(EntityType.VIEW);
 
     // deleteUserTable resolves through the same neutral read, so it can still remove the row.
     userTablesService.deleteUserTable(ENTITY_TYPE_DB, "shared_key", false);
@@ -720,7 +719,7 @@ public class UserTablesServiceTest {
         .isFalse();
   }
 
-  private UserTableRow entityTypeRow(String databaseId, String tableId, String entityType) {
+  private UserTableRow entityTypeRow(String databaseId, String tableId, EntityType entityType) {
     return UserTableRow.builder()
         .databaseId(databaseId)
         .tableId(tableId)
@@ -734,12 +733,12 @@ public class UserTablesServiceTest {
 
   private void seedCanonicalRows(String prefix) {
     htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t00_legacy", null));
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t01_view", "VIEW"));
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t02_explicit", "TABLE"));
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t03_view", "VIEW"));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t01_view", EntityType.VIEW));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t02_explicit", EntityType.TABLE));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t03_view", EntityType.VIEW));
     htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t04_legacy", null));
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t05_view", "VIEW"));
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t06_explicit", "TABLE"));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t05_view", EntityType.VIEW));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t06_explicit", EntityType.TABLE));
   }
 
   private static List<String> sortedIds(List<UserTableDto> dtos) {
@@ -790,7 +789,7 @@ public class UserTablesServiceTest {
   @Test
   public void testPatternCallSitesFilterViewsPlainAndPaged() {
     seedCanonicalRows("match_");
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "nomatch_table", "TABLE"));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "nomatch_table", EntityType.TABLE));
     UserTable searchBy = UserTable.builder().databaseId(ENTITY_TYPE_DB).tableId("match_%").build();
 
     assertThat(sortedIds(userTablesService.getAllUserTables(searchBy)))
@@ -849,8 +848,8 @@ public class UserTablesServiceTest {
    */
   @Test
   public void testRenameCollisionLeavesJPARowsUnchanged() {
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "rename_src_table", "TABLE"));
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "rename_dst_view", "VIEW"));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "rename_src_table", EntityType.TABLE));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "rename_dst_view", EntityType.VIEW));
 
     UserTableRow sourceBefore = findRow(ENTITY_TYPE_DB, "rename_src_table");
     UserTableRow destinationBefore = findRow(ENTITY_TYPE_DB, "rename_dst_view");
@@ -875,7 +874,7 @@ public class UserTablesServiceTest {
     Assertions.assertEquals(destinationBefore.getVersion(), destinationAfter.getVersion());
     Assertions.assertEquals(
         destinationBefore.getMetadataLocation(), destinationAfter.getMetadataLocation());
-    Assertions.assertEquals("VIEW", destinationAfter.getEntityType());
+    Assertions.assertEquals(EntityType.VIEW, destinationAfter.getEntityType());
   }
 
   private UserTableRow findRow(String databaseId, String tableId) {

@@ -1,6 +1,8 @@
 package com.linkedin.openhouse.housetables.model;
 
 import javax.persistence.Entity;
+import javax.persistence.EnumType;
+import javax.persistence.Enumerated;
 import javax.persistence.Id;
 import javax.persistence.IdClass;
 import javax.persistence.Version;
@@ -34,5 +36,6 @@ public class UserTableRow {
   Long creationTime;
 
   /** Nullable and without a default so existing rows need no backfill. */
-  String entityType;
+  @Enumerated(EnumType.STRING)
+  EntityType entityType;
 }

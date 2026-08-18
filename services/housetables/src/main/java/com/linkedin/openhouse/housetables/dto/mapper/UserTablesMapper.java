@@ -1,9 +1,13 @@
 package com.linkedin.openhouse.housetables.dto.mapper;
 
+import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.ENTITY_TYPE_ERROR_MSG;
+
+import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTableKey;
 import com.linkedin.openhouse.housetables.api.spec.response.EntityResponseBody;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
+import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRow;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
@@ -103,4 +107,24 @@ public interface UserTablesMapper {
 
   /** Map a {@link SoftDeletedUserTableRow} to a {@link UserTableRow} */
   UserTableRow toUserTableRow(SoftDeletedUserTableRow softDeletedUserTableRow);
+
+  /**
+   * The single {@code String -> EntityType} hop, picked up implicitly wherever the transport model
+   * meets an HTS-internal one. Bean Validation on {@link UserTable} rejects an unrecognized
+   * spelling before any mapping runs; this keeps a caller that bypasses it on the client-error path
+   * instead of letting {@link Enum#valueOf} escape as a server error.
+   */
+  default EntityType toEntityType(String entityType) {
+    try {
+      return EntityType.fromName(entityType);
+    } catch (IllegalArgumentException e) {
+      throw new RequestValidationFailureException(
+          String.format("entityType provided: %s, %s", entityType, ENTITY_TYPE_ERROR_MSG), e);
+    }
+  }
+
+  /** The reverse hop, kept explicit so the wire text stays the constant name. */
+  default String fromEntityType(EntityType entityType) {
+    return entityType == null ? null : entityType.name();
+  }
 }
