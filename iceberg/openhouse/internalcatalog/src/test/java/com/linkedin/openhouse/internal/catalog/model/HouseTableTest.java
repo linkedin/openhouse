@@ -60,28 +60,4 @@ public class HouseTableTest {
       Assertions.fail(e);
     }
   }
-
-  /**
-   * {@code HTS_FIELD_NAMES} is derived reflectively from HouseTable's private fields, and {@code
-   * HouseTableMapper.extractRawHTSFields} only carries properties whose stripped key is in that
-   * set. So the discriminator is only serialized through Iceberg table properties if it is a real
-   * private field named exactly {@code entityType}, and its canonical property key must be {@code
-   * openhouse.entityType}.
-   */
-  @Test
-  public void testEntityTypeDefaultAndSerdeRegistration() {
-    Assertions.assertNull(
-        HouseTable.builder().build().getEntityType(),
-        "entityType must default to null so ordinary table commits keep writing no discriminator");
-
-    Assertions.assertTrue(
-        HouseTableSerdeUtils.HTS_FIELD_NAMES.contains(HouseTableSerdeUtils.ENTITY_TYPE_FIELD_NAME),
-        "entityType must be reflected into HTS_FIELD_NAMES: "
-            + HouseTableSerdeUtils.HTS_FIELD_NAMES);
-
-    Assertions.assertEquals("entityType", HouseTableSerdeUtils.ENTITY_TYPE_FIELD_NAME);
-    Assertions.assertEquals(
-        "openhouse.entityType",
-        HouseTableSerdeUtils.getCanonicalFieldName(HouseTableSerdeUtils.ENTITY_TYPE_FIELD_NAME));
-  }
 }

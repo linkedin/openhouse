@@ -35,8 +35,6 @@ public final class HouseTableSerdeUtils {
     // no-op for util class constructor
   }
 
-  @VisibleForTesting public static final String ENTITY_TYPE_FIELD_NAME = "entityType";
-
   @VisibleForTesting
   public static String getCanonicalFieldName(String htsField) {
     return OPENHOUSE_NAMESPACE + htsField;

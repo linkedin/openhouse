@@ -41,7 +41,11 @@ public abstract class HouseTableMapper {
   @Mappings({@Mapping(target = "tableLocation", source = "userTable.metadataLocation")})
   public abstract HouseTable toHouseTable(UserTable userTable);
 
-  @Mappings({@Mapping(target = "metadataLocation", source = "houseTable.tableLocation")})
+  // HouseTable has no entityType; the discriminator is owned by HTS, not the tables service.
+  @Mappings({
+    @Mapping(target = "metadataLocation", source = "houseTable.tableLocation"),
+    @Mapping(target = "entityType", ignore = true)
+  })
   public abstract UserTable toUserTable(HouseTable houseTable);
 
   private Map<String, String> extractRawHTSFields(Map<String, String> input) {
@@ -62,16 +66,7 @@ public abstract class HouseTableMapper {
         && HouseTableSerdeUtils.HTS_FIELD_NAMES.contains(stripOhNamespace(key));
   }
 
-  /**
-   * MapStruct picks this up as an implicit {@code String -> String} conversion for every String
-   * property on the generated mappers, so it must tolerate null. {@code entityType} is the first
-   * genuinely nullable String on {@link HouseTable} (it stays null for legacy tables), which is
-   * what surfaced this; a null {@code tableVersion} would have hit it too.
-   */
   static String stripOhNamespace(String key) {
-    if (key == null) {
-      return null;
-    }
     return IS_OH_PREFIXED.test(key) ? key.substring(OPENHOUSE_NAMESPACE.length()) : key;
   }
 }
