@@ -139,21 +139,27 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
    * Decode {@code fetched}, then read the metadata file, then overlay.
    *
    * <p>Decode first so a bad config never hits storage. {@link IllegalStateException} is wrapped as
-   * {@link Tasks.UnrecoverableException} so Iceberg's retry loop does not re-read the file.
+   * {@link Tasks.UnrecoverableException} so Iceberg's retry loop does not re-read the file. The
+   * wrap includes {@link #tableName()} so a Spark job over many tables can tell which one failed.
    */
   protected TableMetadata loadMetadata(String metadataLocation, Map<String, String> fetched) {
     final ReadBridge bridge;
     try {
       bridge = ReadBridge.from(fetched);
     } catch (IllegalStateException e) {
-      throw new Tasks.UnrecoverableException(e);
+      throw unrecoverableBridge(e);
     }
     TableMetadata raw = TableMetadataParser.read(io(), metadataLocation);
     try {
       return bridge.apply(raw);
     } catch (IllegalStateException e) {
-      throw new Tasks.UnrecoverableException(e);
+      throw unrecoverableBridge(e);
     }
+  }
+
+  private Tasks.UnrecoverableException unrecoverableBridge(IllegalStateException e) {
+    return new Tasks.UnrecoverableException(
+        "read-bridge: unusable config for table " + tableName(), e);
   }
 
   @Override
