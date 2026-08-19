@@ -13,6 +13,8 @@ import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.jobs.util.TableStatsCollector;
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
 import java.io.IOException;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
@@ -64,6 +66,8 @@ import scala.collection.JavaConverters;
 public final class Operations implements AutoCloseable {
   // assume that catalog name is fixed
   private static final String CATALOG = "openhouse";
+
+  private static final String METRICS_SCOPE = Operations.class.getName();
 
   private final SparkSession spark;
 
@@ -344,6 +348,14 @@ public final class Operations implements AutoCloseable {
           .findFirst()
           .ifPresent(
               task -> {
+                // Misconfigured table: the retention filter does not align with the partitioning,
+                // so the delete cannot be metadata-only. Emit a metric tagged with the table name
+                // so the misconfiguration can be alerted on instead of only failing the job.
+                otelEmitter.count(
+                    METRICS_SCOPE,
+                    AppConstants.RETENTION_POLICY_MISCONFIGURED_TABLE_COUNT,
+                    1,
+                    Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
                 throw new IllegalStateException(
                     String.format(
                         "Retention with backup enabled requires a metadata-only delete for table %s, "
