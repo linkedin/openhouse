@@ -128,11 +128,14 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   }
 
   /**
-   * Loads the table metadata at the given location. Defaults to the stock parser; subclasses may
-   * override to transform the metadata (e.g. attach column defaults) as it loads.
+   * Loads the table metadata from storage, then runs the read-time {@link ReadBridge} over it using
+   * the per-table behavior the server stamped onto {@link #currentConfig()}. Absent config, or
+   * config carrying nothing to bridge, leaves the raw metadata untouched; a malformed known entry
+   * fails loud (see {@link ReadBridge}).
    */
   protected TableMetadata loadMetadata(String metadataLocation) {
-    return TableMetadataParser.read(io(), metadataLocation);
+    TableMetadata raw = TableMetadataParser.read(io(), metadataLocation);
+    return ReadBridge.apply(raw, currentConfig());
   }
 
   @Override
