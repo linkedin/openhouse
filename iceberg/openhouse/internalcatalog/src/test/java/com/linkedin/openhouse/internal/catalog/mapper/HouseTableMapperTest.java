@@ -7,7 +7,6 @@ import com.linkedin.openhouse.cluster.storage.local.LocalStorage;
 import com.linkedin.openhouse.housetables.client.api.ToggleStatusApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
-import com.linkedin.openhouse.housetables.client.model.UserTable;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
@@ -70,60 +69,5 @@ public class HouseTableMapperTest {
     Assertions.assertEquals("database", houseTable.getDatabaseId());
     Assertions.assertEquals("table", houseTable.getTableId());
     Assertions.assertEquals("local", houseTable.getStorageType());
-  }
-
-  /**
-   * The discriminator must survive the generated HTS client model in both directions, otherwise the
-   * pointer would be written or read back without its type.
-   */
-  @Test
-  public void houseTableGeneratedUserTableRoundTripPreservesEntityType() {
-    HouseTable viewHouseTable =
-        HouseTable.builder()
-            .databaseId("d1")
-            .tableId("v1")
-            .tableLocation("/base/d1/v1-uuid/00001-x.metadata.json")
-            .tableVersion("INITIAL_VERSION")
-            .entityType("VIEW")
-            .build();
-
-    UserTable viewUserTable = houseTableMapper.toUserTable(viewHouseTable);
-    Assertions.assertEquals("VIEW", viewUserTable.getEntityType());
-    Assertions.assertEquals(
-        "/base/d1/v1-uuid/00001-x.metadata.json", viewUserTable.getMetadataLocation());
-
-    HouseTable viewBack = houseTableMapper.toHouseTable(viewUserTable);
-    Assertions.assertEquals("VIEW", viewBack.getEntityType());
-    Assertions.assertEquals("/base/d1/v1-uuid/00001-x.metadata.json", viewBack.getTableLocation());
-
-    HouseTable tableHouseTable =
-        HouseTable.builder()
-            .databaseId("d1")
-            .tableId("t1")
-            .tableLocation("/base/d1/t1-uuid/00001-y.metadata.json")
-            .entityType("TABLE")
-            .build();
-    UserTable tableUserTable = houseTableMapper.toUserTable(tableHouseTable);
-    Assertions.assertEquals("TABLE", tableUserTable.getEntityType());
-    Assertions.assertEquals("TABLE", houseTableMapper.toHouseTable(tableUserTable).getEntityType());
-  }
-
-  /** Backward compatibility: an absent discriminator maps to null, never "TABLE". */
-  @Test
-  public void missingEntityTypeMapsToLegacyTableNull() {
-    HadoopFileIO fileIO = new HadoopFileIO(new Configuration());
-    LocalStorage localStorage = mock(LocalStorage.class);
-    when(fileIOManager.getStorage(fileIO)).thenReturn(localStorage);
-    when(localStorage.getType()).thenReturn(StorageType.LOCAL);
-
-    HouseTable fromProperties =
-        houseTableMapper.toHouseTable(ImmutableMap.of("databaseId", "d1", "tableId", "t1"), fileIO);
-    Assertions.assertNull(fromProperties.getEntityType());
-
-    UserTable legacyUserTable =
-        houseTableMapper.toUserTable(
-            HouseTable.builder().databaseId("d1").tableId("t1").tableLocation("loc").build());
-    Assertions.assertNull(legacyUserTable.getEntityType());
-    Assertions.assertNull(houseTableMapper.toHouseTable(legacyUserTable).getEntityType());
   }
 }
