@@ -23,7 +23,7 @@ public interface UserTableHtsApiHandler extends HouseTablesApiHandler<UserTableK
   /** Reads whatever occupies the key, of either type, for collision detection. */
   ApiResponse<EntityResponseBody<UserTable>> getNeutralEntity(UserTableKey key);
 
-  ApiResponse<EntityResponseBody<UserTable>> getViewEntity(UserTableKey userViewKey);
+  ApiResponse<EntityResponseBody<UserTable>> getViewEntity(UserTableKey key);
 
   ApiResponse<GetAllEntityResponseBody<UserTable>> getViewEntities(UserTable userView);
 
@@ -33,7 +33,7 @@ public interface UserTableHtsApiHandler extends HouseTablesApiHandler<UserTableK
   ApiResponse<EntityResponseBody<UserTable>> putView(UserTable userView);
 
   /** Always hard: views have no soft-deleted store, hence no soft-delete flag. */
-  ApiResponse<Void> deleteView(UserTableKey userViewKey);
+  ApiResponse<Void> deleteView(UserTableKey key);
 
   /** Only TABLE is ever passed: views are not renameable, so no view rename route exists. */
   ApiResponse<Void> renameEntity(UserTable fromEntity, UserTable toEntity, EntityType entityType);

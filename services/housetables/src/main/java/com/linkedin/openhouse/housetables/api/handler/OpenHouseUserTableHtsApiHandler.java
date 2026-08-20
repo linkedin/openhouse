@@ -56,16 +56,15 @@ public class OpenHouseUserTableHtsApiHandler implements UserTableHtsApiHandler {
   }
 
   @Override
-  public ApiResponse<EntityResponseBody<UserTable>> getViewEntity(UserTableKey userViewKey) {
-    userTablesHtsApiValidator.validateGetEntity(userViewKey);
+  public ApiResponse<EntityResponseBody<UserTable>> getViewEntity(UserTableKey key) {
+    userTablesHtsApiValidator.validateGetEntity(key);
     return ApiResponse.<EntityResponseBody<UserTable>>builder()
         .httpStatus(HttpStatus.OK)
         .responseBody(
             EntityResponseBody.<UserTable>builder()
                 .entity(
                     userTablesMapper.toUserTable(
-                        userTableService.getUserView(
-                            userViewKey.getDatabaseId(), userViewKey.getTableId())))
+                        userTableService.getUserView(key.getDatabaseId(), key.getTableId())))
                 .build())
         .build();
   }
@@ -102,9 +101,9 @@ public class OpenHouseUserTableHtsApiHandler implements UserTableHtsApiHandler {
   }
 
   @Override
-  public ApiResponse<Void> deleteView(UserTableKey userViewKey) {
-    userTablesHtsApiValidator.validateDeleteEntity(userViewKey);
-    userTableService.deleteUserView(userViewKey.getDatabaseId(), userViewKey.getTableId());
+  public ApiResponse<Void> deleteView(UserTableKey key) {
+    userTablesHtsApiValidator.validateDeleteEntity(key);
+    userTableService.deleteUserView(key.getDatabaseId(), key.getTableId());
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
   }
 
