@@ -1343,8 +1343,7 @@ public class UserTablesServiceTest {
   /**
    * A same-type write still runs the ordinary version logic, whatever spelling it arrived as.
    *
-   * <p>Preserved-behaviour regression test: it passes both before and after this change. It guards
-   * that the new cross-type guard does not over-fire and swallow the existing version semantics.
+   * <p>Regression guard: the cross-type guard must not over-fire and swallow version semantics.
    */
   @Test
   public void testSameTypeMixedCasePutStillRunsVersionLogic() {
@@ -1400,7 +1399,7 @@ public class UserTablesServiceTest {
 
   /**
    * Without an explicit constant the restore would write a null straight back, reintroducing the
-   * legacy-null population this change closes.
+   * legacy-null population the strict converter keeps closed.
    */
   @Test
   public void testRestoreReconstructsTableType() {
@@ -1515,9 +1514,8 @@ public class UserTablesServiceTest {
    * key is what rejects the move — so the answer is the ordinary 409 rather than the 500 a
    * hydration attempt would produce, and neither row is touched.
    *
-   * <p>Preserved-behaviour regression test: it passes both before and after this change. It guards
-   * that a corrupt-typed destination stays "occupied" (409) rather than becoming "free" once the
-   * rename is narrowed by {@code TABLE_ROW_PREDICATE}. Do not delete it for being green today.
+   * <p>Regression guard: a corrupt-typed destination must stay "occupied" (409) and never read as
+   * "free" under {@code TABLE_ROW_PREDICATE}. Do not delete it as redundant.
    */
   @Test
   public void testRenameIntoCorruptDestinationIsAlreadyExists() {
@@ -1546,10 +1544,9 @@ public class UserTablesServiceTest {
    * deterministically — the loser's occupancy read is pinned to the empty result it would have
    * taken before the winner committed, and the write then meets the constraint for real.
    *
-   * <p>Preserved-behaviour regression test: it passes both before and after this change. It guards
-   * that the shared primary key remains the arbiter of a cross-type race the application-level type
-   * guard cannot observe, because the losing writer's occupancy read is stale. Do not delete it for
-   * being green today.
+   * <p>Regression guard: the shared primary key is the only arbiter of a cross-type race the
+   * application-level guard cannot observe, because the losing writer's occupancy read is stale. Do
+   * not delete it as redundant.
    */
   @Test
   public void testConcurrentCrossTypeFirstCreatesLeaveOneWinnerAndA409Loser() {

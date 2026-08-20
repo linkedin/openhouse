@@ -1821,9 +1821,8 @@ public class HtsControllerTest {
   /**
    * A destination held by a view is still a conflict; both rows are left alone.
    *
-   * <p>Preserved-behaviour regression test: it passes both before and after this change. It guards
-   * that a destination occupied by the other type stays "occupied" (409) rather than becoming
-   * "free" once the rename is narrowed by {@code TABLE_ROW_PREDICATE}.
+   * <p>Regression guard: a destination occupied by the other type must stay "occupied" (409) and
+   * never read as "free" under {@code TABLE_ROW_PREDICATE}.
    */
   @Test
   public void testRenameTableIntoViewOccupiedDestinationIsConflict() throws Exception {
@@ -1844,8 +1843,8 @@ public class HtsControllerTest {
   }
 
   /**
-   * Ingress stamping runs ahead of the validator, so it is the first code to see an absent entity;
-   * {@code validatePutEntity} used to catch this, and it must stay a 400.
+   * Ingress stamping runs ahead of the validator, so it is the first code to see an absent entity,
+   * and answering 400 rather than dereferencing it is its job.
    */
   @Test
   public void testPutUserTableWithNullEntityIsBadRequest() throws Exception {
@@ -1919,9 +1918,8 @@ public class HtsControllerTest {
    * The primary key enforces occupancy without reading the row, so the answer is the same 409 a
    * healthy occupant produces rather than the 500 a hydration attempt would cause.
    *
-   * <p>Preserved-behaviour regression test: it passes both before and after this change. It guards
-   * that a corrupt-typed destination stays "occupied" (409) rather than becoming "free" once the
-   * rename is narrowed by {@code TABLE_ROW_PREDICATE}. Do not delete it for being green today.
+   * <p>Regression guard: a corrupt-typed destination must stay "occupied" (409) and never read as
+   * "free" under {@code TABLE_ROW_PREDICATE}. Do not delete it as redundant.
    */
   @Test
   public void testRenameTableIntoCorruptOccupiedDestinationIsConflict() throws Exception {

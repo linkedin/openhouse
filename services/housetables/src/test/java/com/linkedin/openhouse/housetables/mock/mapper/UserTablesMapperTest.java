@@ -163,7 +163,7 @@ public class UserTablesMapperTest {
   }
 
   /**
-   * Once the controller stamps at ingress the mapper can no longer legitimately receive a null, so
+   * Because the controller stamps at ingress, the mapper cannot legitimately receive a null, so
    * tolerating one would only hide a missed ingress path. Resolving a null <em>column</em> is the
    * read converter's job, and stays pinned there.
    */

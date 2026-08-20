@@ -20,22 +20,22 @@ public interface UserTableHtsApiHandler extends HouseTablesApiHandler<UserTableK
    */
   ApiResponse<Void> deleteEntity(UserTableKey key, boolean isSoftDelete);
 
-  /** The occupancy read: whatever holds the key, of any type. Not a polymorphic catalog lookup. */
+  /** Reads whatever occupies the key, of either type, for collision detection. */
   ApiResponse<EntityResponseBody<UserTable>> getNeutralEntity(UserTableKey key);
 
-  ApiResponse<EntityResponseBody<UserTable>> getViewEntity(UserTableKey key);
+  ApiResponse<EntityResponseBody<UserTable>> getViewEntity(UserTableKey userViewKey);
 
-  ApiResponse<GetAllEntityResponseBody<UserTable>> getViewEntities(UserTable entity);
+  ApiResponse<GetAllEntityResponseBody<UserTable>> getViewEntities(UserTable userView);
 
   ApiResponse<GetAllEntityResponseBody<UserTable>> getViewEntities(
-      UserTable entity, int page, int size, String sortBy);
+      UserTable userView, int page, int size, String sortBy);
 
-  ApiResponse<EntityResponseBody<UserTable>> putView(UserTable entity);
+  ApiResponse<EntityResponseBody<UserTable>> putView(UserTable userView);
 
   /** Always hard: views have no soft-deleted store, hence no soft-delete flag. */
-  ApiResponse<Void> deleteView(UserTableKey key);
+  ApiResponse<Void> deleteView(UserTableKey userViewKey);
 
-  /** Only TABLE is ever passed: views are not renameable in M1, so no view rename route exists. */
+  /** Only TABLE is ever passed: views are not renameable, so no view rename route exists. */
   ApiResponse<Void> renameEntity(UserTable fromEntity, UserTable toEntity, EntityType entityType);
 
   /**

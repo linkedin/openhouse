@@ -54,9 +54,9 @@ public interface UserTablesService {
    * Unlike {@link #getAllUserTables(UserTable)}, an empty filter returns every view rather than a
    * projection of database names; database enumeration stays type-agnostic on the table query.
    */
-  List<UserTableDto> getAllUserViews(UserTable userTable);
+  List<UserTableDto> getAllUserViews(UserTable userView);
 
-  Page<UserTableDto> getAllUserViews(UserTable userTable, int page, int size, String sortBy);
+  Page<UserTableDto> getAllUserViews(UserTable userView, int page, int size, String sortBy);
 
   /**
    * Given a databaseId and tableId, delete the user table entry from the House Table. The {@code
@@ -81,8 +81,8 @@ public interface UserTablesService {
   Pair<UserTableDto, Boolean> putUserTable(UserTable userTable);
 
   /**
-   * Rename a {@link UserTable} row in House table. Table-only: views are not renameable in M1, so
-   * there is deliberately no view equivalent.
+   * Rename a {@link UserTable} row in House table. Table-only: views are not renameable, so there
+   * is deliberately no view equivalent.
    *
    * @param fromDatabaseId The databaseId of the row to rename.
    * @param fromTableId The tableId of the row to rename.

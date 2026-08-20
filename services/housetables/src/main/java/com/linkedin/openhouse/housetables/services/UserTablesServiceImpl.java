@@ -114,25 +114,24 @@ public class UserTablesServiceImpl implements UserTablesService {
   }
 
   @Override
-  public List<UserTableDto> getAllUserViews(UserTable userTable) {
-    if (isListViews(userTable)) {
-      return listViews(userTable);
-    } else if (isListViewsWithPattern(userTable)) {
-      return listViewsWithPattern(userTable);
+  public List<UserTableDto> getAllUserViews(UserTable userView) {
+    if (isListViews(userView)) {
+      return listViews(userView);
+    } else if (isListViewsWithPattern(userView)) {
+      return listViewsWithPattern(userView);
     } else {
-      return searchViews(userTable);
+      return searchViews(userView);
     }
   }
 
   @Override
-  public Page<UserTableDto> getAllUserViews(
-      UserTable userTable, int page, int size, String sortBy) {
-    if (isListViews(userTable)) {
-      return listViews(userTable, page, size, sortBy);
-    } else if (isListViewsWithPattern(userTable)) {
-      return listViewsWithPattern(userTable, page, size, sortBy);
+  public Page<UserTableDto> getAllUserViews(UserTable userView, int page, int size, String sortBy) {
+    if (isListViews(userView)) {
+      return listViews(userView, page, size, sortBy);
+    } else if (isListViewsWithPattern(userView)) {
+      return listViewsWithPattern(userView, page, size, sortBy);
     } else {
-      return searchViews(userTable, page, size, sortBy);
+      return searchViews(userView, page, size, sortBy);
     }
   }
 
@@ -444,14 +443,14 @@ public class UserTablesServiceImpl implements UserTablesService {
         MetricsConstant.HTS_SEARCH_TABLES_TIME);
   }
 
-  private List<UserTableDto> listViews(UserTable userTable) {
+  private List<UserTableDto> listViews(UserTable userView) {
     METRICS_REPORTER.count(MetricsConstant.HTS_LIST_VIEWS_REQUEST);
     return METRICS_REPORTER.executeWithStats(
         () ->
             StreamSupport.stream(
                     htsJdbcRepository
                         .findAllViewsByFilters(
-                            userTable.getDatabaseId(), null, null, null, null, null)
+                            userView.getDatabaseId(), null, null, null, null, null)
                         .spliterator(),
                     false)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
@@ -459,26 +458,26 @@ public class UserTablesServiceImpl implements UserTablesService {
         MetricsConstant.HTS_LIST_VIEWS_TIME);
   }
 
-  private Page<UserTableDto> listViews(UserTable userTable, int page, int size, String sortBy) {
+  private Page<UserTableDto> listViews(UserTable userView, int page, int size, String sortBy) {
     METRICS_REPORTER.count(MetricsConstant.HTS_PAGE_VIEWS_REQUEST);
     Pageable pageable = createPageable(page, size, sortBy, "tableId");
     return METRICS_REPORTER.executeWithStats(
         () ->
             htsJdbcRepository
                 .findAllViewsByFilters(
-                    userTable.getDatabaseId(), null, null, null, null, null, pageable)
+                    userView.getDatabaseId(), null, null, null, null, null, pageable)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
         MetricsConstant.HTS_PAGE_VIEWS_TIME);
   }
 
-  private List<UserTableDto> listViewsWithPattern(UserTable userTable) {
+  private List<UserTableDto> listViewsWithPattern(UserTable userView) {
     METRICS_REPORTER.count(MetricsConstant.HTS_LIST_VIEWS_REQUEST);
     return METRICS_REPORTER.executeWithStats(
         () ->
             StreamSupport.stream(
                     htsJdbcRepository
                         .findAllViewsByDatabaseIdAndTableIdLikeAllIgnoreCase(
-                            userTable.getDatabaseId(), userTable.getTableId())
+                            userView.getDatabaseId(), userView.getTableId())
                         .spliterator(),
                     false)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
@@ -487,32 +486,32 @@ public class UserTablesServiceImpl implements UserTablesService {
   }
 
   private Page<UserTableDto> listViewsWithPattern(
-      UserTable userTable, int page, int size, String sortBy) {
+      UserTable userView, int page, int size, String sortBy) {
     METRICS_REPORTER.count(MetricsConstant.HTS_PAGE_VIEWS_REQUEST);
     Pageable pageable = createPageable(page, size, sortBy, "tableId");
     return METRICS_REPORTER.executeWithStats(
         () ->
             htsJdbcRepository
                 .findAllViewsByDatabaseIdAndTableIdLikeAllIgnoreCase(
-                    userTable.getDatabaseId(), userTable.getTableId(), pageable)
+                    userView.getDatabaseId(), userView.getTableId(), pageable)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
         MetricsConstant.HTS_PAGE_VIEWS_TIME);
   }
 
-  private List<UserTableDto> searchViews(UserTable userTable) {
+  private List<UserTableDto> searchViews(UserTable userView) {
     METRICS_REPORTER.count(MetricsConstant.HTS_GENERAL_SEARCH_VIEWS_REQUEST);
-    log.warn("Reaching general search for user view which is not expected: {}", userTable.toJson());
+    log.warn("Reaching general search for user view which is not expected: {}", userView.toJson());
     return METRICS_REPORTER.executeWithStats(
         () ->
             StreamSupport.stream(
                     htsJdbcRepository
                         .findAllViewsByFilters(
-                            userTable.getDatabaseId(),
-                            userTable.getTableId(),
-                            userTable.getTableVersion(),
-                            userTable.getMetadataLocation(),
-                            userTable.getStorageType(),
-                            userTable.getCreationTime())
+                            userView.getDatabaseId(),
+                            userView.getTableId(),
+                            userView.getTableVersion(),
+                            userView.getMetadataLocation(),
+                            userView.getStorageType(),
+                            userView.getCreationTime())
                         .spliterator(),
                     false)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
@@ -520,20 +519,20 @@ public class UserTablesServiceImpl implements UserTablesService {
         MetricsConstant.HTS_SEARCH_VIEWS_TIME);
   }
 
-  private Page<UserTableDto> searchViews(UserTable userTable, int page, int size, String sortBy) {
+  private Page<UserTableDto> searchViews(UserTable userView, int page, int size, String sortBy) {
     METRICS_REPORTER.count(MetricsConstant.HTS_PAGE_SEARCH_VIEWS_REQUEST);
     Pageable pageable = createPageable(page, size, sortBy, "tableId");
-    log.warn("Reaching general search for user view which is not expected: {}", userTable.toJson());
+    log.warn("Reaching general search for user view which is not expected: {}", userView.toJson());
     return METRICS_REPORTER.executeWithStats(
         () ->
             htsJdbcRepository
                 .findAllViewsByFilters(
-                    userTable.getDatabaseId(),
-                    userTable.getTableId(),
-                    userTable.getTableVersion(),
-                    userTable.getMetadataLocation(),
-                    userTable.getStorageType(),
-                    userTable.getCreationTime(),
+                    userView.getDatabaseId(),
+                    userView.getTableId(),
+                    userView.getTableVersion(),
+                    userView.getMetadataLocation(),
+                    userView.getStorageType(),
+                    userView.getCreationTime(),
                     pageable)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
         MetricsConstant.HTS_PAGE_SEARCH_VIEWS_TIME);
@@ -558,14 +557,14 @@ public class UserTablesServiceImpl implements UserTablesService {
   }
 
   /** Also covers the empty filter: an empty view query lists views, not database names. */
-  private boolean isListViews(UserTable userTable) {
-    return isNonKeyFieldsNullForUserTable(userTable) && userTable.getTableId() == null;
+  private boolean isListViews(UserTable userView) {
+    return isNonKeyFieldsNullForUserTable(userView) && userView.getTableId() == null;
   }
 
-  private boolean isListViewsWithPattern(UserTable userTable) {
-    return isNonKeyFieldsNullForUserTable(userTable)
-        && userTable.getDatabaseId() != null
-        && userTable.getTableId() != null;
+  private boolean isListViewsWithPattern(UserTable userView) {
+    return isNonKeyFieldsNullForUserTable(userView)
+        && userView.getDatabaseId() != null
+        && userView.getTableId() != null;
   }
 
   private boolean isNonKeyFieldsNullForUserTable(UserTable userTable) {

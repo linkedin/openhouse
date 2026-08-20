@@ -60,8 +60,8 @@ public class UserHouseTablesController {
    * still produces a correctly typed row. A payload may agree with its route or stay silent, never
    * override it.
    *
-   * <p>Running ahead of the validator makes this the first code to see an absent entity, so it must
-   * reject that itself; {@code validatePutEntity} used to.
+   * <p>Running ahead of the validator makes this the first code to see an absent entity, so it is
+   * what must reject one.
    */
   private static UserTable stampEntityType(UserTable userTable, EntityType entityType) {
     if (userTable == null) {

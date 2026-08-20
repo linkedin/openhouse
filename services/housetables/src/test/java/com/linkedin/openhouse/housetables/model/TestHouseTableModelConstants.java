@@ -76,8 +76,8 @@ public final class TestHouseTableModelConstants {
       this.creationTime = TEST_CREATION_TIME;
       // An ordinary tuple is a table and says so. Ingress stamping makes an untyped request
       // impossible downstream, and the strict converter refuses to write a null column, so a
-      // fixture that omitted the discriminator could no longer be saved at all. Omission and
-      // legacy SQL NULL are separate, explicit cases raised where they are under test.
+      // fixture that omitted the discriminator cannot be saved at all. Omission and legacy SQL
+      // NULL are separate, explicit cases raised where they are under test.
       this._userTable =
           UserTable.builder()
               .tableId(tableId)

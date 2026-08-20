@@ -35,15 +35,47 @@ public class EntityTypeConverterTest {
     Assertions.assertEquals(expected, converter.convertToEntityAttribute(columnValue));
   }
 
-  /** Only a null carries the legacy meaning; anything else outside the vocabulary is corrupt. */
+  /**
+   * Only a null carries the legacy meaning; anything else outside the vocabulary is corrupt. {@code
+   * 'TABLE '} is deliberately absent: MySQL's PAD SPACE collation calls it the same value as {@code
+   * 'TABLE'}, so it resolves rather than throwing. An accented spelling still throws.
+   */
   @ParameterizedTest
-  @ValueSource(strings = {"FOO", "", " ", "TABLES", "TABLE "})
+  @ValueSource(strings = {"FOO", "", " ", "TABLES", "TÁBLE", "TAB LE"})
   void unrecognizedColumnValueFailsLoudly(String columnValue) {
     IllegalArgumentException thrown =
         Assertions.assertThrows(
             IllegalArgumentException.class, () -> converter.convertToEntityAttribute(columnValue));
     Assertions.assertTrue(thrown.getMessage().contains("user_table_row.entity_type"));
     Assertions.assertTrue(thrown.getMessage().contains(columnValue));
+  }
+
+  /**
+   * Surrounding whitespace is not corruption. MySQL's PAD SPACE collations already treat {@code
+   * 'TABLE '} as equal to {@code 'TABLE'}, so the SQL predicates match such a row; Java refusing it
+   * would disagree with storage about a value storage calls identical, and turn a match into a 500.
+   */
+  @Test
+  void surroundingWhitespaceResolvesToItsConstant() {
+    Assertions.assertEquals(EntityType.TABLE, EntityType.fromName(" TABLE "));
+    Assertions.assertEquals(EntityType.TABLE, EntityType.fromName("TABLE "));
+    Assertions.assertEquals(EntityType.TABLE, EntityType.fromName(" table"));
+    Assertions.assertEquals(EntityType.VIEW, EntityType.fromName(" VIEW "));
+    Assertions.assertEquals(EntityType.VIEW, EntityType.fromName("VIEW "));
+    Assertions.assertEquals(EntityType.VIEW, EntityType.fromName(" view"));
+
+    // The read path is what produces CorruptEntityTypeException, so it must agree.
+    Assertions.assertEquals(EntityType.TABLE, converter.convertToEntityAttribute("TABLE "));
+    Assertions.assertEquals(EntityType.TABLE, converter.convertToEntityAttribute(" TaBlE "));
+    Assertions.assertEquals(EntityType.VIEW, converter.convertToEntityAttribute(" view"));
+  }
+
+  /** Trimming does not soften the vocabulary: an accented value is still corruption. */
+  @Test
+  void accentedSpellingIsStillCorrupt() {
+    Assertions.assertThrows(
+        CorruptEntityTypeException.class, () -> converter.convertToEntityAttribute(" TÁBLE "));
+    Assertions.assertThrows(IllegalArgumentException.class, () -> EntityType.fromName("TÁBLE"));
   }
 
   /**

@@ -52,10 +52,11 @@ public interface UserTableHtsJdbcRepository
    * equality before a verified backfill and a {@code NOT NULL} migration.
    *
    * <p>Known limitation, applying equally to {@link #VIEW_ROW_PREDICATE}: the comparison inherits
-   * the column collation, and MySQL's {@code utf8_unicode_ci} ignores accents and trailing spaces.
-   * A stored {@code 'TÁBLE'} is therefore matched by the non-hydrating bulk delete and rename yet
-   * fails every read. Not reproducible in H2, and not fixed: binary-exact comparison is not
-   * expressible in JPQL, while only direct DB writes can create such a row.
+   * the column collation, and MySQL's {@code utf8_unicode_ci} ignores accents. A stored {@code
+   * 'TÁBLE'} is therefore matched by the non-hydrating bulk delete and rename yet fails every read.
+   * Trailing whitespace does not diverge, because {@link
+   * com.linkedin.openhouse.housetables.model.EntityType#fromName} trims; only direct DB writes can
+   * create an accented value, so this is documented rather than fixed.
    */
   String TABLE_ROW_PREDICATE = "(u.entityType IS NULL OR upper(u.entityType) = 'TABLE')";
 
@@ -313,7 +314,7 @@ public interface UserTableHtsJdbcRepository
   }
 
   /**
-   * Table-only: views are not renameable in M1, so there is deliberately no {@code renameViewId}.
+   * Table-only: views are not renameable, so there is deliberately no {@code renameViewId}.
    *
    * <p>The stamped type is a bound parameter rather than an inlined literal so the controller stays
    * the one place deciding which entity a route operates on; this is the type-selection convention,

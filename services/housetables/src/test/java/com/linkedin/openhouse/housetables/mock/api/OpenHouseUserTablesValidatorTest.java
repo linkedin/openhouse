@@ -198,8 +198,7 @@ public class OpenHouseUserTablesValidatorTest {
    * discriminator, and validation must not be what rejects it — the controller has already resolved
    * it by then.
    *
-   * <p>Preserved-behaviour regression test: it passes both before and after this change. It guards
-   * the wire field staying nullable while the downstream mapper is tightened to reject null.
+   * <p>Regression guard: the wire field must stay nullable even though the mapper rejects null.
    */
   @Test
   public void validatePutEntityAcceptsATransportNullBeforeNormalization() {
@@ -229,8 +228,7 @@ public class OpenHouseUserTablesValidatorTest {
    * Type-scoped by path, so an {@code entityType} filter is ignored rather than rejected. Rejecting
    * it would be a separate, deliberate choice.
    *
-   * <p>Preserved-behaviour regression test: it passes both before and after this change, because
-   * the validator itself is deliberately untouched by this ticket.
+   * <p>Regression guard: the validator deliberately has no opinion on {@code entityType}.
    */
   @Test
   public void validateGetEntitiesToleratesAndIgnoresEntityType() {

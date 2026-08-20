@@ -83,7 +83,7 @@ public class HtsRepositoryTest {
   }
 
   /**
-   * The enum-typed entity cannot express a non-canonical spelling, and the converter now refuses to
+   * The enum-typed entity cannot express a non-canonical spelling, and the converter refuses to
    * write a null, so a row holding either can only be planted through the column itself.
    */
   private void insertRawEntityType(String databaseId, String tableId, String entityType) {
@@ -112,7 +112,7 @@ public class HtsRepositoryTest {
 
   /**
    * Seeds one row of the canonical fixture. A legacy row is planted through the column because the
-   * write path no longer accepts a null discriminator; a typed row goes through JPA so the enum
+   * write path does not accept a null discriminator; a typed row goes through JPA so the enum
    * boundary is still the thing under test.
    */
   private void seedRow(String databaseId, String tableId, EntityType entityType) {
@@ -336,7 +336,7 @@ public class HtsRepositoryTest {
             .orElse(UserTableRow.builder().build());
     assertThat(result.getMetadataLocation()).isEqualTo(newTableMetadata);
 
-    // The bound type is written, not merely assumed: the column itself now holds TABLE.
+    // The bound type is written, not merely assumed: the column itself holds TABLE.
     assertThat(
             readRawEntityType(
                 TEST_TUPLE_1_1.getDatabaseId(), TEST_TUPLE_1_1.getTableId() + "_renamed"))
@@ -1161,9 +1161,8 @@ public class HtsRepositoryTest {
    * The shared primary key is what turns an occupied destination into a conflict, whatever type or
    * spelling occupies it. Nothing is mutated on either side.
    *
-   * <p>Preserved-behaviour regression test: it passes both before and after this change. It guards
-   * that a view-typed or corrupt-typed destination stays "occupied" rather than becoming "free"
-   * once the rename is narrowed by {@code TABLE_ROW_PREDICATE}.
+   * <p>Regression guard: a view-typed or corrupt-typed destination must stay "occupied" and never
+   * read as "free" under {@code TABLE_ROW_PREDICATE}.
    */
   @Test
   public void testRenameIntoOccupiedDestinationLeavesBothRowsUnchanged() {
