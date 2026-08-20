@@ -22,6 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ContextConfiguration;
@@ -92,6 +93,23 @@ public class IcebergSnapshotsApiHandlerAuditTest {
   }
 
   @Test
+  public void testPutIcebergSnapshotsCapturesClientUserAgent() throws Exception {
+    // The raw User-Agent is captured verbatim on the audit event so the client/runtime version can
+    // be derived at query time.
+    mvc.perform(
+        MockMvcRequestBuilders.put(
+                String.format(
+                    CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/d200/tables/tb1/iceberg/v2/snapshots"))
+            .header(HttpHeaders.USER_AGENT, "openhouse-java-client/1.2.3")
+            .accept(MediaType.APPLICATION_JSON)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(RequestConstants.TEST_ICEBERG_SNAPSHOTS_REQUEST_BODY.toJson()));
+    Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
+    assertEquals("openhouse-java-client/1.2.3", argCaptor.getValue().getClientUserAgent());
+  }
+
+  @Test
   public void testPutIcebergSnapshotsContainsSnapshotInfo() throws Exception {
     mvc.perform(
         MockMvcRequestBuilders.put(
@@ -105,6 +123,13 @@ public class IcebergSnapshotsApiHandlerAuditTest {
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertEquals(2151407017102313398L, actualEvent.getCurrentSnapshotId().longValue());
     assertEquals(1669126937912L, actualEvent.getCurrentSnapshotTimestampMs().longValue());
+    // The full snapshot summary (of the snapshot main points to) is emitted verbatim so queries can
+    // derive operation, app-id, and write-mode signals downstream. The fixture is a pure append.
+    Map<String, String> summary = actualEvent.getSnapshotSummary();
+    assertEquals("append", summary.get("operation"));
+    assertEquals("local-1669126906634", summary.get("spark.app.id"));
+    assertEquals("1", summary.get("added-data-files"));
+    assertEquals("0", summary.get("total-delete-files"));
   }
 
   @Test
@@ -123,6 +148,10 @@ public class IcebergSnapshotsApiHandlerAuditTest {
     // failure
     assertEquals(2151407017102313398L, actualEvent.getCurrentSnapshotId().longValue());
     assertEquals(1669126937912L, actualEvent.getCurrentSnapshotTimestampMs().longValue());
+    // The summary is likewise captured on failure.
+    Map<String, String> summary = actualEvent.getSnapshotSummary();
+    assertEquals("append", summary.get("operation"));
+    assertEquals("local-1669126906634", summary.get("spark.app.id"));
   }
 
   @Test
@@ -152,6 +181,92 @@ public class IcebergSnapshotsApiHandlerAuditTest {
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertNull(actualEvent.getCurrentSnapshotId());
     assertNull(actualEvent.getCurrentSnapshotTimestampMs());
+    // No main ref, so no snapshot summary either — consistent with currentSnapshotId.
+    assertNull(actualEvent.getSnapshotSummary());
+  }
+
+  @Test
+  public void testPutIcebergSnapshotsEmitsRewriteSummaryVerbatim() throws Exception {
+    // A copy-on-write overwrite removes existing data files (deleted-data-files > 0) and writes no
+    // delete files. The audit emits those raw counters in the summary verbatim; the query
+    // classifies write mode downstream.
+    String cowSnapshotJson =
+        "{\n"
+            + "  \"snapshot-id\" : 777,\n"
+            + "  \"timestamp-ms\" : 7000,\n"
+            + "  \"summary\" : {\n"
+            + "    \"operation\" : \"overwrite\",\n"
+            + "    \"added-data-files\" : \"2\",\n"
+            + "    \"deleted-data-files\" : \"2\"\n"
+            + "  },\n"
+            + "  \"manifest-list\" : \"/tmp/cow.avro\",\n"
+            + "  \"schema-id\" : 0\n"
+            + "}";
+    IcebergSnapshotsRequestBody requestBody =
+        IcebergSnapshotsRequestBody.builder()
+            .baseTableVersion("v1")
+            .jsonSnapshots(Collections.singletonList(cowSnapshotJson))
+            .snapshotRefs(
+                Collections.singletonMap("main", "{\"snapshot-id\":777,\"type\":\"branch\"}"))
+            .createUpdateTableRequestBody(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY)
+            .build();
+
+    mvc.perform(
+        MockMvcRequestBuilders.put(
+                String.format(
+                    CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/d200/tables/tb1/iceberg/v2/snapshots"))
+            .accept(MediaType.APPLICATION_JSON)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(requestBody.toJson()));
+    Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
+    TableAuditEvent actualEvent = argCaptor.getValue();
+    Map<String, String> summary = actualEvent.getSnapshotSummary();
+    assertEquals("overwrite", summary.get("operation"));
+    assertEquals("2", summary.get("added-data-files"));
+    assertEquals("2", summary.get("deleted-data-files"));
+  }
+
+  @Test
+  public void testPutIcebergSnapshotsEmitsDeleteFileSummaryVerbatim() throws Exception {
+    // A merge-on-read delete writes position delete files (added-delete-files > 0) and removes no
+    // data files. The audit emits those raw counters in the summary verbatim; the query classifies
+    // write mode downstream.
+    String morSnapshotJson =
+        "{\n"
+            + "  \"snapshot-id\" : 888,\n"
+            + "  \"timestamp-ms\" : 8000,\n"
+            + "  \"summary\" : {\n"
+            + "    \"operation\" : \"delete\",\n"
+            + "    \"added-delete-files\" : \"1\",\n"
+            + "    \"added-position-delete-files\" : \"1\"\n"
+            + "  },\n"
+            + "  \"manifest-list\" : \"/tmp/mor.avro\",\n"
+            + "  \"schema-id\" : 0\n"
+            + "}";
+    IcebergSnapshotsRequestBody requestBody =
+        IcebergSnapshotsRequestBody.builder()
+            .baseTableVersion("v1")
+            .jsonSnapshots(Collections.singletonList(morSnapshotJson))
+            .snapshotRefs(
+                Collections.singletonMap("main", "{\"snapshot-id\":888,\"type\":\"branch\"}"))
+            .createUpdateTableRequestBody(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY)
+            .build();
+
+    mvc.perform(
+        MockMvcRequestBuilders.put(
+                String.format(
+                    CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/d200/tables/tb1/iceberg/v2/snapshots"))
+            .accept(MediaType.APPLICATION_JSON)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(requestBody.toJson()));
+    Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
+    TableAuditEvent actualEvent = argCaptor.getValue();
+    Map<String, String> summary = actualEvent.getSnapshotSummary();
+    assertEquals("delete", summary.get("operation"));
+    assertEquals("1", summary.get("added-delete-files"));
+    assertEquals("1", summary.get("added-position-delete-files"));
   }
 
   @Test
