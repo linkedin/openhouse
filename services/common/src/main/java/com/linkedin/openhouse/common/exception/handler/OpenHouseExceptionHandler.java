@@ -3,6 +3,7 @@ package com.linkedin.openhouse.common.exception.handler;
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.linkedin.openhouse.common.api.spec.ErrorResponseBody;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
+import com.linkedin.openhouse.common.exception.CorruptEntityTypeException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
@@ -377,6 +378,27 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
             .build();
     return handleExceptionInternal(
         exception, errorResponseBody, headers, HttpStatus.BAD_REQUEST, request);
+  }
+
+  /**
+   * A corrupt discriminator is data the server itself wrote, not something a client sent, so it
+   * must not fall through to the {@link IllegalArgumentException} advice below and answer 400. A
+   * wrapped persistence failure carrying the same cause reaches the catch-all instead; both are
+   * 500.
+   */
+  @Hidden
+  @ExceptionHandler(CorruptEntityTypeException.class)
+  protected ResponseEntity<ErrorResponseBody> handleCorruptEntityTypeException(
+      CorruptEntityTypeException corruptEntityTypeException) {
+    ErrorResponseBody errorResponseBody =
+        ErrorResponseBody.builder()
+            .status(HttpStatus.INTERNAL_SERVER_ERROR)
+            .error(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase())
+            .message(corruptEntityTypeException.getMessage())
+            .stacktrace(getAbbreviatedStackTrace(corruptEntityTypeException))
+            .cause(getExceptionCause(corruptEntityTypeException))
+            .build();
+    return buildResponseEntity(errorResponseBody);
   }
 
   @Hidden

@@ -28,6 +28,7 @@ import org.mapstruct.Mapping;
  */
 @Mapper(
     componentModel = "spring",
+    imports = {EntityType.class},
     uses = {UserTableVersionMapper.class})
 public interface UserTablesMapper {
 
@@ -106,6 +107,7 @@ public interface UserTablesMapper {
   UserTableRow toUserTableRow(UserTableIcebergRow userTableIcebergRow);
 
   /** Map a {@link SoftDeletedUserTableRow} to a {@link UserTableRow} */
+  @Mapping(target = "entityType", expression = "java(EntityType.TABLE)")
   UserTableRow toUserTableRow(SoftDeletedUserTableRow softDeletedUserTableRow);
 
   /**
@@ -113,6 +115,10 @@ public interface UserTablesMapper {
    * meets an HTS-internal one. Bean Validation on {@link UserTable} rejects an unrecognized
    * spelling before any mapping runs; this keeps a caller that bypasses it on the client-error path
    * instead of letting {@link Enum#valueOf} escape as a server error.
+   *
+   * <p>A null is rejected for the same reason: the endpoint stamps the type at ingress, before
+   * validation and before the service call, so a null arriving here means an ingress path was
+   * missed rather than that the caller meant a table.
    */
   default EntityType toEntityType(String entityType) {
     try {

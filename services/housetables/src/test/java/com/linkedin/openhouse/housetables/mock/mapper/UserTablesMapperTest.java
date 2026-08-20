@@ -5,6 +5,7 @@ import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import com.linkedin.openhouse.housetables.model.EntityType;
+import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRow;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import java.util.HashMap;
@@ -46,9 +47,13 @@ public class UserTablesMapperTest {
     UserTableRow testUserTableRow =
         new TestHouseTableModelConstants.TestTuple(0).get_userTableRow();
     Assertions.assertEquals(
-        testUserTableRow,
+        testUserTableRow.toBuilder().entityType(EntityType.TABLE).build(),
         userTablesMapper.toUserTableRow(
-            TestHouseTableModelConstants.TEST_USER_TABLE.toBuilder().storageType(null).build(),
+            TestHouseTableModelConstants.TEST_USER_TABLE
+                .toBuilder()
+                .storageType(null)
+                .entityType(EntityType.TABLE.name())
+                .build(),
             Optional.empty()));
   }
 
@@ -57,9 +62,13 @@ public class UserTablesMapperTest {
     UserTableRow testUserTableRow =
         new TestHouseTableModelConstants.TestTuple(0).get_userTableRow();
     Assertions.assertEquals(
-        testUserTableRow.toBuilder().storageType("blobfs").build(),
+        testUserTableRow.toBuilder().storageType("blobfs").entityType(EntityType.TABLE).build(),
         userTablesMapper.toUserTableRow(
-            TestHouseTableModelConstants.TEST_USER_TABLE.toBuilder().storageType("blobfs").build(),
+            TestHouseTableModelConstants.TEST_USER_TABLE
+                .toBuilder()
+                .storageType("blobfs")
+                .entityType(EntityType.TABLE.name())
+                .build(),
             Optional.empty()));
   }
 
@@ -154,29 +163,53 @@ public class UserTablesMapperTest {
   }
 
   /**
-   * Backward compatibility: legacy writers omit the field entirely, and the mapping chain must
-   * carry that null through untouched so the write stores a null column. Defaulting a null to
-   * "TABLE" belongs to the storage read, not here, otherwise every legacy table write would start
-   * stamping a value the writer never asked for.
+   * Once the controller stamps the type at ingress — before validation and before the service call
+   * — the mapper can no longer legitimately receive a null, so tolerating one would only hide a
+   * missed ingress path. A null column still means "written before the discriminator existed"; that
+   * resolution belongs to the read converter alone, which {@code EntityTypeConverterTest} and
+   * {@code HtsRepositoryTest} pin.
    */
   @Test
-  void nullEntityTypeRemainsNullAcrossLegacyMappings() {
-    UserTable legacyUserTable = TestHouseTableModelConstants.TEST_USER_TABLE;
-    Assertions.assertNull(legacyUserTable.getEntityType());
+  void nullEntityTypeIsRejectedOnEveryWirePath() {
+    UserTable untyped =
+        TestHouseTableModelConstants.TEST_USER_TABLE.toBuilder().entityType(null).build();
+    Assertions.assertNull(untyped.getEntityType());
 
-    UserTableRow row = userTablesMapper.toUserTableRow(legacyUserTable, Optional.empty());
-    Assertions.assertNull(row.getEntityType());
+    Assertions.assertThrows(
+        RequestValidationFailureException.class,
+        () -> userTablesMapper.toUserTableRow(untyped, Optional.empty()));
+    Assertions.assertThrows(
+        RequestValidationFailureException.class, () -> userTablesMapper.fromUserTable(untyped));
+    Assertions.assertThrows(
+        RequestValidationFailureException.class, () -> userTablesMapper.toEntityType(null));
+  }
 
-    UserTableDto dto = userTablesMapper.toUserTableDto(row);
-    Assertions.assertNull(dto.getEntityType());
+  /**
+   * The soft-delete store has no discriminator column, deliberately: views never enter it. A row
+   * reconstructed from it is therefore a table by construction rather than by inference, which is
+   * what stops restore from reintroducing SQL NULLs.
+   */
+  @Test
+  void softDeletedRowIsRestoredAsATable() {
+    SoftDeletedUserTableRow softDeleted =
+        SoftDeletedUserTableRow.builder()
+            .tableId(TestHouseTableModelConstants.TEST_TABLE_ID)
+            .databaseId(TestHouseTableModelConstants.TEST_DB_ID)
+            .deletedAtMs(1751907524L)
+            .version(0L)
+            .metadataLocation(TestHouseTableModelConstants.TEST_TBL_META_LOC)
+            .storageType(TestHouseTableModelConstants.TEST_DEFAULT_STORAGE_TYPE)
+            .creationTime(TestHouseTableModelConstants.TEST_CREATION_TIME)
+            .purgeAfterMs(1752907524L)
+            .build();
 
-    Assertions.assertNull(userTablesMapper.toUserTable(dto).getEntityType());
-    Assertions.assertNull(userTablesMapper.fromUserTable(legacyUserTable).getEntityType());
+    UserTableRow restored = userTablesMapper.toUserTableRow(softDeleted);
 
-    // The legacy fixture row (built without the field) must still map cleanly.
-    UserTableRow legacyRow = new TestHouseTableModelConstants.TestTuple(0).get_userTableRow();
-    Assertions.assertNull(legacyRow.getEntityType());
-    Assertions.assertNull(userTablesMapper.toUserTableDto(legacyRow).getEntityType());
+    Assertions.assertEquals(EntityType.TABLE, restored.getEntityType());
+    Assertions.assertEquals(TestHouseTableModelConstants.TEST_TABLE_ID, restored.getTableId());
+    Assertions.assertEquals(TestHouseTableModelConstants.TEST_DB_ID, restored.getDatabaseId());
+    Assertions.assertEquals(
+        TestHouseTableModelConstants.TEST_TBL_META_LOC, restored.getMetadataLocation());
   }
 
   /**

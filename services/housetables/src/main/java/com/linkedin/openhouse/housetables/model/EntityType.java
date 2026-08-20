@@ -17,10 +17,18 @@ public enum EntityType {
    * Resolves the spellings the transport model accepts, which is case-insensitive, so a value that
    * passes validation can never fail to resolve here.
    *
-   * @return null for a null input
-   * @throws IllegalArgumentException if the value is not a recognized entity type
+   * <p>A null is rejected rather than defaulted. The two callers give it incompatible meanings:
+   * from the column it means "written before the discriminator existed", which is definitively a
+   * table; from the wire it means "the caller did not say", which must not be guessed. Resolving
+   * the former belongs to {@link EntityTypeConverter}, which is the only place that knows it is
+   * reading a column.
+   *
+   * @throws IllegalArgumentException if the value is null or not a recognized entity type
    */
   public static EntityType fromName(String name) {
-    return name == null ? null : valueOf(name.toUpperCase(Locale.ROOT));
+    if (name == null) {
+      throw new IllegalArgumentException("entityType cannot be null");
+    }
+    return valueOf(name.toUpperCase(Locale.ROOT));
   }
 }

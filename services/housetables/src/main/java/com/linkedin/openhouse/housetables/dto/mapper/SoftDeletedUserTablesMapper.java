@@ -16,6 +16,13 @@ public interface SoftDeletedUserTablesMapper {
   // Default to 7 days in seconds
   static final int DEFAULT_PURGE_AFTER_SECONDS = 7 * 24 * 60 * 60;
 
+  /**
+   * {@code soft_deleted_user_table_row} deliberately has no discriminator column: views are hard
+   * deleted and can never enter this store, so the only type it could ever hold is TABLE. Losing
+   * the discriminator here is therefore information-preserving, and {@link
+   * UserTablesMapper#toUserTableRow(SoftDeletedUserTableRow)} restores it as the constant rather
+   * than inferring it.
+   */
   SoftDeletedUserTableRow toSoftDeletedUserTableRow(UserTableRow userTableRow);
 
   @Mapping(target = "tableVersion", source = "metadataLocation")

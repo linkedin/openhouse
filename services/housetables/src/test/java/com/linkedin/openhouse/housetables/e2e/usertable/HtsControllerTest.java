@@ -28,6 +28,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,6 +40,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
@@ -58,6 +60,8 @@ public class HtsControllerTest {
 
   @Autowired SoftDeletedUserTablesMapper softDeletedTableMapper;
 
+  @Autowired DataSource dataSource;
+
   @BeforeEach
   public void setup() {
     // TODO: Use rest API to create the table and test the find/delete user table again.
@@ -69,6 +73,10 @@ public class HtsControllerTest {
 
   @AfterEach
   public void tearDown() {
+    // The JPA cleanup loads every row, so a planted non-canonical spelling must go first;
+    // otherwise converter hydration during teardown poisons the rest of the class.
+    new JdbcTemplate(dataSource)
+        .update("DELETE FROM user_table_row WHERE entity_type NOT IN ('TABLE', 'VIEW')");
     htsRepository.deleteAll();
     softDeletedHtsJdbcRepository.deleteAll();
   }
@@ -808,7 +816,7 @@ public class HtsControllerTest {
   @NullSource
   @EnumSource(value = EntityType.class, names = "TABLE")
   public void testGetUserTableReturnsNullAndTableRows(EntityType entityType) throws Exception {
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "point_read", entityType));
+    seedRow(ENTITY_TYPE_DB, "point_read", entityType);
 
     mvc.perform(
             MockMvcRequestBuilders.get("/hts/tables")
@@ -832,14 +840,50 @@ public class HtsControllerTest {
         .build();
   }
 
+  /**
+   * The strict converter refuses to write a null discriminator, so a legacy row — and any
+   * non-canonical spelling — can only be planted through the column itself.
+   */
+  private void insertRawEntityType(String databaseId, String tableId, String entityType) {
+    new JdbcTemplate(dataSource)
+        .update(
+            "INSERT INTO user_table_row "
+                + "(database_id, table_id, version, metadata_location, storage_type, creation_time, entity_type) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            databaseId,
+            tableId,
+            0L,
+            String.format("/openhouse/%s/%s/v0_metadata.json", databaseId, tableId),
+            TEST_DEFAULT_STORAGE_TYPE,
+            TEST_CREATION_TIME,
+            entityType);
+  }
+
+  private String readRawEntityType(String databaseId, String tableId) {
+    return new JdbcTemplate(dataSource)
+        .queryForObject(
+            "SELECT entity_type FROM user_table_row WHERE database_id = ? AND table_id = ?",
+            String.class,
+            databaseId,
+            tableId);
+  }
+
+  private void seedRow(String databaseId, String tableId, EntityType entityType) {
+    if (entityType == null) {
+      insertRawEntityType(databaseId, tableId, null);
+    } else {
+      htsRepository.save(entityTypeRow(databaseId, tableId, entityType));
+    }
+  }
+
   private void seedCanonicalRows(String prefix) {
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t00_legacy", null));
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t01_view", EntityType.VIEW));
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t02_explicit", EntityType.TABLE));
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t03_view", EntityType.VIEW));
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t04_legacy", null));
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t05_view", EntityType.VIEW));
-    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t06_explicit", EntityType.TABLE));
+    seedRow(ENTITY_TYPE_DB, prefix + "t00_legacy", null);
+    seedRow(ENTITY_TYPE_DB, prefix + "t01_view", EntityType.VIEW);
+    seedRow(ENTITY_TYPE_DB, prefix + "t02_explicit", EntityType.TABLE);
+    seedRow(ENTITY_TYPE_DB, prefix + "t03_view", EntityType.VIEW);
+    seedRow(ENTITY_TYPE_DB, prefix + "t04_legacy", null);
+    seedRow(ENTITY_TYPE_DB, prefix + "t05_view", EntityType.VIEW);
+    seedRow(ENTITY_TYPE_DB, prefix + "t06_explicit", EntityType.TABLE);
   }
 
   private static MultiValueMap<String, String> queryParams(String... keyValues) {
@@ -934,10 +978,10 @@ public class HtsControllerTest {
   }
 
   /**
-   * The discriminator survives the HTTP write boundary; a legacy writer that omits it stores a null
-   * column, and every read of that row answers TABLE. A view cannot be read back through {@code GET
-   * /hts/tables} because that read is table-scoped; the neutral entity read is deferred, so the PUT
-   * response and the persisted row are what pin the write.
+   * The discriminator survives the HTTP write boundary in both directions. A table PUT that omits
+   * the field is stamped TABLE at ingress, so the PUT response and a subsequent GET agree; a view
+   * is created through its own route and is unreadable through the table read, which is
+   * table-scoped.
    */
   @Test
   public void testEntityTypePutAndGetRoundTrip() throws Exception {
@@ -951,7 +995,7 @@ public class HtsControllerTest {
             .build();
 
     mvc.perform(
-            MockMvcRequestBuilders.put("/hts/tables")
+            MockMvcRequestBuilders.put("/hts/views")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     CreateUpdateEntityRequestBody.<UserTable>builder()
@@ -969,6 +1013,14 @@ public class HtsControllerTest {
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isNotFound());
 
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/views")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "put_view")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.entity.entityType", is("VIEW")));
+
     assertThat(
             htsRepository
                 .findById(
@@ -980,7 +1032,7 @@ public class HtsControllerTest {
                 .getEntityType())
         .isEqualTo(EntityType.VIEW);
 
-    // A legacy PUT that omits the field writes a null column, which reads back as TABLE.
+    // A legacy PUT that omits the field is stamped by the endpoint it arrived on.
     UserTable legacyEntity =
         UserTable.builder()
             .databaseId(ENTITY_TYPE_DB)
@@ -989,7 +1041,7 @@ public class HtsControllerTest {
             .metadataLocation("/openhouse/entity_type_db/put_legacy/v0_metadata.json")
             .build();
 
-    // The PUT response is built from the request-derived row, which never saw the column.
+    // Ingress normalization runs before the handler, so the response already carries the type.
     mvc.perform(
             MockMvcRequestBuilders.put("/hts/tables")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -1000,7 +1052,7 @@ public class HtsControllerTest {
                         .toJson())
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isCreated())
-        .andExpect(jsonPath("$.entity.entityType").doesNotExist());
+        .andExpect(jsonPath("$.entity.entityType", is("TABLE")));
 
     mvc.perform(
             MockMvcRequestBuilders.get("/hts/tables")
@@ -1009,6 +1061,8 @@ public class HtsControllerTest {
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.entity.entityType", is("TABLE")));
+
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_legacy")).isEqualTo("TABLE");
 
     assertThat(
             htsRepository
@@ -1024,7 +1078,8 @@ public class HtsControllerTest {
 
   /**
    * The API accepts the discriminator case-insensitively but HTS stores and returns the canonical
-   * constant, so the column vocabulary stays exactly TABLE/VIEW/NULL.
+   * constant, so the column vocabulary stays exactly TABLE/VIEW/NULL. Each spelling has to arrive
+   * on the route that serves its type; the table route no longer accepts VIEW at all.
    */
   @Test
   public void testEntityTypePutNormalizesSpellingToCanonicalConstant() throws Exception {
@@ -1038,7 +1093,7 @@ public class HtsControllerTest {
             .build();
 
     mvc.perform(
-            MockMvcRequestBuilders.put("/hts/tables")
+            MockMvcRequestBuilders.put("/hts/views")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     CreateUpdateEntityRequestBody.<UserTable>builder()
@@ -1049,6 +1104,7 @@ public class HtsControllerTest {
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.entity.entityType", is("VIEW")));
 
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_lower_view")).isEqualTo("VIEW");
     assertThat(
             htsRepository
                 .findById(
@@ -1059,6 +1115,29 @@ public class HtsControllerTest {
                 .get()
                 .getEntityType())
         .isEqualTo(EntityType.VIEW);
+
+    UserTable lowercaseTable =
+        UserTable.builder()
+            .databaseId(ENTITY_TYPE_DB)
+            .tableId("put_lower_table")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .metadataLocation("/openhouse/entity_type_db/put_lower_table/v0_metadata.json")
+            .entityType("TaBlE")
+            .build();
+
+    mvc.perform(
+            MockMvcRequestBuilders.put("/hts/tables")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    CreateUpdateEntityRequestBody.<UserTable>builder()
+                        .entity(lowercaseTable)
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.entity.entityType", is("TABLE")));
+
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_lower_table")).isEqualTo("TABLE");
   }
 
   /**
@@ -1164,5 +1243,786 @@ public class HtsControllerTest {
     assertThat(after.getEntityType()).isEqualTo(before.getEntityType());
     assertThat(after.getVersion()).isEqualTo(before.getVersion());
     assertThat(after.getMetadataLocation()).isEqualTo(before.getMetadataLocation());
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // view routes
+  // ---------------------------------------------------------------------------------------------
+
+  /** {@code GET /hts/views} is the mirror of the table point read, and is equally exclusive. */
+  @Test
+  public void testGetViewReturnsViewsAndHidesTables() throws Exception {
+    seedRow(ENTITY_TYPE_DB, "view_point", EntityType.VIEW);
+    seedRow(ENTITY_TYPE_DB, "table_point", EntityType.TABLE);
+    seedRow(ENTITY_TYPE_DB, "legacy_point", null);
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/views")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "view_point")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+        .andExpect(jsonPath("$.entity.tableId", is("view_point")))
+        .andExpect(jsonPath("$.entity.databaseId", is(ENTITY_TYPE_DB)))
+        .andExpect(jsonPath("$.entity.entityType", is("VIEW")));
+
+    // Case-insensitive on the key, exactly like the table read.
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/views")
+                .param("databaseId", ENTITY_TYPE_DB.toUpperCase())
+                .param("tableId", "VIEW_POINT")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.entity.entityType", is("VIEW")));
+
+    for (String tableId : new String[] {"table_point", "legacy_point", "absent_point"}) {
+      mvc.perform(
+              MockMvcRequestBuilders.get("/hts/views")
+                  .param("databaseId", ENTITY_TYPE_DB)
+                  .param("tableId", tableId)
+                  .accept(MediaType.APPLICATION_JSON))
+          .andExpect(status().isNotFound())
+          .andExpect(jsonPath("$.status", is(equalTo(HttpStatus.NOT_FOUND.name()))));
+    }
+
+    // Hidden, not deleted.
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "table_point")).isEqualTo("TABLE");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "legacy_point")).isNull();
+  }
+
+  /** An invalid key is a bad request before any lookup happens. */
+  @Test
+  public void testGetViewWithInvalidKeyIsBadRequest() throws Exception {
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/views")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "bad??id")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest());
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/views")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest());
+  }
+
+  /**
+   * The unpaged view query returns views and nothing else. Unlike the table query, an empty filter
+   * map returns every view rather than a projection of database names.
+   */
+  @Test
+  public void testViewQueriesExcludeTablesAndLegacyRows() throws Exception {
+    seedCanonicalRows("");
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/views")
+                .params(queryParams("databaseId", ENTITY_TYPE_DB, "tableId", "t01_view"))
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk());
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/views/query")
+                .params(queryParams("databaseId", ENTITY_TYPE_DB))
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+        .andExpect(jsonPath("$.results", hasSize(3)))
+        .andExpect(
+            jsonPath(
+                "$.results[*].tableId", containsInAnyOrder("t01_view", "t03_view", "t05_view")))
+        .andExpect(jsonPath("$.results[*].tableId", not(hasItem("t00_legacy"))))
+        .andExpect(jsonPath("$.results[*].tableId", not(hasItem("t02_explicit"))))
+        .andExpect(jsonPath("$.results[*].entityType", everyItem(is("VIEW"))));
+
+    // Pattern form.
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/views/query")
+                .params(queryParams("databaseId", ENTITY_TYPE_DB, "tableId", "t0%"))
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.results", hasSize(3)))
+        .andExpect(
+            jsonPath(
+                "$.results[*].tableId", containsInAnyOrder("t01_view", "t03_view", "t05_view")));
+
+    // Empty filter map: every view, fully identified — not a database-name projection.
+    mvc.perform(MockMvcRequestBuilders.get("/hts/views/query").accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.results", hasSize(3)))
+        .andExpect(
+            jsonPath(
+                "$.results[*].tableId", containsInAnyOrder("t01_view", "t03_view", "t05_view")));
+  }
+
+  /**
+   * Anti-post-filter assertion over HTTP for the paged view query: an implementation that filtered
+   * the returned page would report totalElements=7/totalPages=4 and a 1-row first page.
+   */
+  @Test
+  public void testPaginatedViewQueriesFilterBeforePaging() throws Exception {
+    seedCanonicalRows("");
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/v1/hts/views/query")
+                .params(queryParams("databaseId", ENTITY_TYPE_DB))
+                .param("page", "0")
+                .param("size", "2")
+                .param("sortBy", "tableId")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pageResults.totalElements", is(3)))
+        .andExpect(jsonPath("$.pageResults.totalPages", is(2)))
+        .andExpect(jsonPath("$.pageResults.content", hasSize(2)))
+        .andExpect(jsonPath("$.pageResults.content[0].tableId", is("t01_view")))
+        .andExpect(jsonPath("$.pageResults.content[1].tableId", is("t03_view")));
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/v1/hts/views/query")
+                .params(queryParams("databaseId", ENTITY_TYPE_DB))
+                .param("page", "1")
+                .param("size", "2")
+                .param("sortBy", "tableId")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pageResults.totalElements", is(3)))
+        .andExpect(jsonPath("$.pageResults.content", hasSize(1)))
+        .andExpect(jsonPath("$.pageResults.content[0].tableId", is("t05_view")));
+
+    // Same assertions on the pattern form.
+    mvc.perform(
+            MockMvcRequestBuilders.get("/v1/hts/views/query")
+                .params(queryParams("databaseId", ENTITY_TYPE_DB, "tableId", "t0%"))
+                .param("page", "0")
+                .param("size", "2")
+                .param("sortBy", "tableId")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pageResults.totalElements", is(3)))
+        .andExpect(jsonPath("$.pageResults.totalPages", is(2)))
+        .andExpect(jsonPath("$.pageResults.content", hasSize(2)))
+        .andExpect(jsonPath("$.pageResults.content[0].tableId", is("t01_view")));
+  }
+
+  /** The view query is view-scoped by path, so an {@code entityType} parameter changes nothing. */
+  @Test
+  public void testEntityTypeQueryParameterIsIgnoredOnViewQuery() throws Exception {
+    seedCanonicalRows("");
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/views/query")
+                .params(queryParams("databaseId", ENTITY_TYPE_DB, "entityType", "TABLE"))
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.results", hasSize(3)))
+        .andExpect(
+            jsonPath(
+                "$.results[*].tableId", containsInAnyOrder("t01_view", "t03_view", "t05_view")));
+  }
+
+  /** A view PUT creates then updates, and answers with the canonical type both times. */
+  @Test
+  public void testPutViewCreatesThenUpdates() throws Exception {
+    UserTable view =
+        UserTable.builder()
+            .databaseId(ENTITY_TYPE_DB)
+            .tableId("put_view_lifecycle")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .metadataLocation("/openhouse/entity_type_db/put_view_lifecycle/v0_metadata.json")
+            .build();
+
+    // Omitted type on the view route is stamped VIEW.
+    mvc.perform(
+            MockMvcRequestBuilders.put("/hts/views")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    CreateUpdateEntityRequestBody.<UserTable>builder()
+                        .entity(view)
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isCreated())
+        .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+        .andExpect(jsonPath("$.entity.tableId", is("put_view_lifecycle")))
+        .andExpect(jsonPath("$.entity.entityType", is("VIEW")));
+
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_view_lifecycle")).isEqualTo("VIEW");
+
+    mvc.perform(
+            MockMvcRequestBuilders.put("/hts/views")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    CreateUpdateEntityRequestBody.<UserTable>builder()
+                        .entity(
+                            view.toBuilder()
+                                .tableVersion(view.getMetadataLocation())
+                                .metadataLocation(
+                                    "/openhouse/entity_type_db/put_view_lifecycle/v1_metadata.json")
+                                .build())
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.entity.entityType", is("VIEW")))
+        .andExpect(
+            jsonPath(
+                "$.entity.metadataLocation",
+                is("/openhouse/entity_type_db/put_view_lifecycle/v1_metadata.json")));
+  }
+
+  /**
+   * An explicit type that contradicts the route is a client error, and nothing is written. The
+   * endpoint declares the type; the payload may agree with it or stay silent, never override it.
+   */
+  @Test
+  public void testPutWithOppositeExplicitTypeIsBadRequest() throws Exception {
+    UserTable viewOnTableRoute =
+        UserTable.builder()
+            .databaseId(ENTITY_TYPE_DB)
+            .tableId("cross_type_put")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .metadataLocation("/openhouse/entity_type_db/cross_type_put/v0_metadata.json")
+            .entityType("VIEW")
+            .build();
+
+    mvc.perform(
+            MockMvcRequestBuilders.put("/hts/tables")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    CreateUpdateEntityRequestBody.<UserTable>builder()
+                        .entity(viewOnTableRoute)
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.status", is(equalTo(HttpStatus.BAD_REQUEST.name()))));
+
+    mvc.perform(
+            MockMvcRequestBuilders.put("/hts/views")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    CreateUpdateEntityRequestBody.<UserTable>builder()
+                        .entity(viewOnTableRoute.toBuilder().entityType("TABLE").build())
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest());
+
+    // Unknown values are rejected on the view route too.
+    mvc.perform(
+            MockMvcRequestBuilders.put("/hts/views")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    CreateUpdateEntityRequestBody.<UserTable>builder()
+                        .entity(viewOnTableRoute.toBuilder().entityType("UNKNOWN").build())
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest());
+
+    assertThat(
+            htsRepository
+                .findById(
+                    UserTableRowPrimaryKey.builder()
+                        .databaseId(ENTITY_TYPE_DB)
+                        .tableId("cross_type_put")
+                        .build())
+                .isPresent())
+        .isFalse();
+  }
+
+  /** A view PUT at a key held by a table (or a legacy null) is a conflict, not an overwrite. */
+  @Test
+  public void testPutViewCannotOverwriteTableOrLegacyRow() throws Exception {
+    seedRow(ENTITY_TYPE_DB, "occupied_by_table", EntityType.TABLE);
+    seedRow(ENTITY_TYPE_DB, "occupied_by_legacy", null);
+
+    for (String tableId : new String[] {"occupied_by_table", "occupied_by_legacy"}) {
+      UserTableRow before =
+          htsRepository
+              .findById(
+                  UserTableRowPrimaryKey.builder()
+                      .databaseId(ENTITY_TYPE_DB)
+                      .tableId(tableId)
+                      .build())
+              .get();
+
+      mvc.perform(
+              MockMvcRequestBuilders.put("/hts/views")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(
+                      CreateUpdateEntityRequestBody.<UserTable>builder()
+                          .entity(
+                              UserTable.builder()
+                                  .databaseId(ENTITY_TYPE_DB)
+                                  .tableId(tableId)
+                                  .tableVersion(before.getMetadataLocation())
+                                  .metadataLocation(
+                                      String.format(
+                                          "/openhouse/entity_type_db/%s/v1_metadata.json", tableId))
+                                  .build())
+                          .build()
+                          .toJson())
+                  .accept(MediaType.APPLICATION_JSON))
+          .andExpect(status().isConflict());
+
+      UserTableRow after =
+          htsRepository
+              .findById(
+                  UserTableRowPrimaryKey.builder()
+                      .databaseId(ENTITY_TYPE_DB)
+                      .tableId(tableId)
+                      .build())
+              .get();
+      assertThat(after.getEntityType()).isEqualTo(EntityType.TABLE);
+      assertThat(after.getVersion()).isEqualTo(before.getVersion());
+      assertThat(after.getMetadataLocation()).isEqualTo(before.getMetadataLocation());
+    }
+
+    // The rejected write leaves the legacy occupant unmigrated.
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "occupied_by_legacy")).isNull();
+  }
+
+  /** {@code DELETE /hts/views} removes exactly one view and creates no soft-deleted row. */
+  @Test
+  public void testDeleteViewRemovesTheViewAndCreatesNoSoftDeletedRow() throws Exception {
+    seedRow(ENTITY_TYPE_DB, "drop_view", EntityType.VIEW);
+
+    mvc.perform(
+            MockMvcRequestBuilders.delete("/hts/views")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "drop_view"))
+        .andExpect(status().isNoContent())
+        .andExpect(content().string(""));
+
+    assertThat(
+            htsRepository
+                .findById(
+                    UserTableRowPrimaryKey.builder()
+                        .databaseId(ENTITY_TYPE_DB)
+                        .tableId("drop_view")
+                        .build())
+                .isPresent())
+        .isFalse();
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/tables/querySoftDeleted")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "drop_view")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pageResults.content", hasSize(0)));
+
+    // A second drop is a plain 404.
+    mvc.perform(
+            MockMvcRequestBuilders.delete("/hts/views")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "drop_view"))
+        .andExpect(status().isNotFound());
+  }
+
+  /** Wrong-type deletes are 404 in both directions and leave the occupant in place. */
+  @Test
+  public void testTypedDeletesCannotCrossTypes() throws Exception {
+    seedRow(ENTITY_TYPE_DB, "cross_delete_view", EntityType.VIEW);
+    seedRow(ENTITY_TYPE_DB, "cross_delete_table", EntityType.TABLE);
+    seedRow(ENTITY_TYPE_DB, "cross_delete_legacy", null);
+
+    mvc.perform(
+            MockMvcRequestBuilders.delete("/hts/tables")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "cross_delete_view"))
+        .andExpect(status().isNotFound());
+
+    mvc.perform(
+            MockMvcRequestBuilders.delete("/hts/views")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "cross_delete_table"))
+        .andExpect(status().isNotFound());
+
+    mvc.perform(
+            MockMvcRequestBuilders.delete("/hts/views")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "cross_delete_legacy"))
+        .andExpect(status().isNotFound());
+
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "cross_delete_view")).isEqualTo("VIEW");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "cross_delete_table")).isEqualTo("TABLE");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "cross_delete_legacy")).isNull();
+  }
+
+  /** An invalid key on the view delete is a bad request, not a 404. */
+  @Test
+  public void testDeleteViewWithInvalidKeyIsBadRequest() throws Exception {
+    mvc.perform(
+            MockMvcRequestBuilders.delete("/hts/views")
+                .param("databaseId", "db??")
+                .param("tableId", "tb??"))
+        .andExpect(status().isBadRequest());
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // neutral entity route
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * {@code GET /hts/entities} is the occupancy read: it answers for a row of either type and always
+   * names a canonical, non-null type.
+   */
+  @Test
+  public void testNeutralEntityReadReportsCanonicalType() throws Exception {
+    seedRow(ENTITY_TYPE_DB, "neutral_view", EntityType.VIEW);
+    seedRow(ENTITY_TYPE_DB, "neutral_table", EntityType.TABLE);
+    seedRow(ENTITY_TYPE_DB, "neutral_legacy", null);
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/entities")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "neutral_view")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+        .andExpect(jsonPath("$.entity.tableId", is("neutral_view")))
+        .andExpect(jsonPath("$.entity.entityType", is("VIEW")));
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/entities")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "neutral_table")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.entity.entityType", is("TABLE")));
+
+    // A legacy null is reported as TABLE, because that is what the data means.
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/entities")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "neutral_legacy")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.entity.entityType", is("TABLE")));
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "neutral_legacy")).isNull();
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/entities")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "neutral_absent")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isNotFound());
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/entities")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "bad??id")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest());
+  }
+
+  /**
+   * A corrupt discriminator is server-side data corruption, so the neutral read and a typed write
+   * at that key are 5xx and never "free". Only the status is asserted: the dedicated exception and
+   * the persistence-wrapped translation take different advice branches, and both are legitimately
+   * 500.
+   */
+  @Test
+  public void testCorruptDiscriminatorIsServerErrorOnNeutralReadAndPut() throws Exception {
+    insertRawEntityType(ENTITY_TYPE_DB, "corrupt_row", "UNKNOWN");
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/entities")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "corrupt_row")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().is5xxServerError());
+
+    mvc.perform(
+            MockMvcRequestBuilders.put("/hts/tables")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    CreateUpdateEntityRequestBody.<UserTable>builder()
+                        .entity(
+                            UserTable.builder()
+                                .databaseId(ENTITY_TYPE_DB)
+                                .tableId("corrupt_row")
+                                .tableVersion(INITIAL_TABLE_VERSION)
+                                .metadataLocation(
+                                    "/openhouse/entity_type_db/corrupt_row/v1_metadata.json")
+                                .build())
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().is5xxServerError());
+
+    // The occupant is retained for operator repair.
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "corrupt_row")).isEqualTo("UNKNOWN");
+  }
+
+  /** A typed delete or table rename at a corrupt key is 404, and the row stays put. */
+  @Test
+  public void testCorruptDiscriminatorIsNotFoundOnTypedDeleteAndRename() throws Exception {
+    insertRawEntityType(ENTITY_TYPE_DB, "corrupt_mutate", "UNKNOWN");
+
+    mvc.perform(
+            MockMvcRequestBuilders.delete("/hts/tables")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "corrupt_mutate"))
+        .andExpect(status().isNotFound());
+
+    mvc.perform(
+            MockMvcRequestBuilders.delete("/hts/views")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "corrupt_mutate"))
+        .andExpect(status().isNotFound());
+
+    mvc.perform(
+            MockMvcRequestBuilders.patch("/hts/tables/rename")
+                .param("fromDatabaseId", ENTITY_TYPE_DB)
+                .param("fromTableId", "corrupt_mutate")
+                .param("toDatabaseId", ENTITY_TYPE_DB)
+                .param("toTableId", "corrupt_mutate_renamed")
+                .param("metadataLocation", "mockMetadataLocation"))
+        .andExpect(status().isNotFound());
+
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "corrupt_mutate")).isEqualTo("UNKNOWN");
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // table rename is table-scoped
+  // ---------------------------------------------------------------------------------------------
+
+  /** The rename route is table-scoped: a view at the source key is a 404, and is not moved. */
+  @Test
+  public void testRenameTableRefusesToMoveAView() throws Exception {
+    seedRow(ENTITY_TYPE_DB, "rename_view_src", EntityType.VIEW);
+
+    mvc.perform(
+            MockMvcRequestBuilders.patch("/hts/tables/rename")
+                .param("fromDatabaseId", ENTITY_TYPE_DB)
+                .param("fromTableId", "rename_view_src")
+                .param("toDatabaseId", ENTITY_TYPE_DB)
+                .param("toTableId", "rename_view_dst")
+                .param("metadataLocation", "mockMetadataLocation"))
+        .andExpect(status().isNotFound());
+
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "rename_view_src")).isEqualTo("VIEW");
+    assertThat(
+            htsRepository
+                .findById(
+                    UserTableRowPrimaryKey.builder()
+                        .databaseId(ENTITY_TYPE_DB)
+                        .tableId("rename_view_dst")
+                        .build())
+                .isPresent())
+        .isFalse();
+  }
+
+  /**
+   * A successful rename stamps the canonical constant. The source column is SQL NULL, so hydrated
+   * equality would be tautological — the raw column is the only proof the type was written.
+   */
+  @Test
+  public void testRenameTableStampsCanonicalTableOnLegacyRow() throws Exception {
+    insertRawEntityType(ENTITY_TYPE_DB, "rename_legacy_src", null);
+
+    mvc.perform(
+            MockMvcRequestBuilders.patch("/hts/tables/rename")
+                .param("fromDatabaseId", ENTITY_TYPE_DB)
+                .param("fromTableId", "rename_legacy_src")
+                .param("toDatabaseId", ENTITY_TYPE_DB)
+                .param("toTableId", "rename_legacy_dst")
+                .param("metadataLocation", "mockMetadataLocation"))
+        .andExpect(status().isNoContent())
+        .andExpect(content().string(""));
+
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "rename_legacy_dst")).isEqualTo("TABLE");
+  }
+
+  /**
+   * A destination held by a view is still a conflict; both rows are left alone.
+   *
+   * <p>Preserved-behaviour regression test: it passes both before and after this change. It guards
+   * that a destination occupied by the other type stays "occupied" (409) rather than becoming
+   * "free" once the rename is narrowed by {@code TABLE_ROW_PREDICATE}.
+   */
+  @Test
+  public void testRenameTableIntoViewOccupiedDestinationIsConflict() throws Exception {
+    seedRow(ENTITY_TYPE_DB, "rename_src_table", EntityType.TABLE);
+    seedRow(ENTITY_TYPE_DB, "rename_dst_view", EntityType.VIEW);
+
+    mvc.perform(
+            MockMvcRequestBuilders.patch("/hts/tables/rename")
+                .param("fromDatabaseId", ENTITY_TYPE_DB)
+                .param("fromTableId", "rename_src_table")
+                .param("toDatabaseId", ENTITY_TYPE_DB)
+                .param("toTableId", "rename_dst_view")
+                .param("metadataLocation", "mockMetadataLocation"))
+        .andExpect(status().isConflict());
+
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "rename_src_table")).isEqualTo("TABLE");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "rename_dst_view")).isEqualTo("VIEW");
+  }
+
+  /**
+   * A request with no entity at all is a client error, not a server one. Ingress stamping runs
+   * ahead of the shared validator, so it is now the first code to see this body and has to reject
+   * it itself; before the discriminator existed, {@code validatePutEntity} was what caught it.
+   */
+  @Test
+  public void testPutUserTableWithNullEntityIsBadRequest() throws Exception {
+    mvc.perform(
+            MockMvcRequestBuilders.put("/hts/tables")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    CreateUpdateEntityRequestBody.<UserTable>builder()
+                        .entity(null)
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.status", is(equalToIgnoringCase(HttpStatus.BAD_REQUEST.name()))));
+  }
+
+  /** The same on the view route, which stamps through the same ingress helper. */
+  @Test
+  public void testPutUserViewWithNullEntityIsBadRequest() throws Exception {
+    mvc.perform(
+            MockMvcRequestBuilders.put("/hts/views")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    CreateUpdateEntityRequestBody.<UserTable>builder()
+                        .entity(null)
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.status", is(equalToIgnoringCase(HttpStatus.BAD_REQUEST.name()))));
+  }
+
+  /**
+   * Migration on write, which the create path cannot show: a legacy occupant already exists, so
+   * this is an update (200, not 201) and it must rewrite the column the update passes over. The raw
+   * column is the only proof — an untouched SQL NULL hydrates as TABLE either way.
+   */
+  @Test
+  public void testPutTableOverLegacyNullOccupantUpdatesAndMigratesTheColumn() throws Exception {
+    insertRawEntityType(ENTITY_TYPE_DB, "put_over_legacy", null);
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_over_legacy")).isNull();
+
+    UserTable update =
+        UserTable.builder()
+            .databaseId(ENTITY_TYPE_DB)
+            .tableId("put_over_legacy")
+            .tableVersion("/openhouse/entity_type_db/put_over_legacy/v0_metadata.json")
+            .metadataLocation("/openhouse/entity_type_db/put_over_legacy/v1_metadata.json")
+            .build();
+
+    mvc.perform(
+            MockMvcRequestBuilders.put("/hts/tables")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    CreateUpdateEntityRequestBody.<UserTable>builder()
+                        .entity(update)
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.entity.entityType", is("TABLE")))
+        .andExpect(
+            jsonPath(
+                "$.entity.metadataLocation",
+                is("/openhouse/entity_type_db/put_over_legacy/v1_metadata.json")));
+
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_over_legacy")).isEqualTo("TABLE");
+  }
+
+  /**
+   * A corrupt destination is occupied, not free. The primary key is what enforces that, so the
+   * answer must be the same 409 a healthy occupant produces rather than the 500 the corrupt row
+   * would cause if the rename tried to read it first.
+   *
+   * <p>Preserved-behaviour regression test: it passes both before and after this change. It guards
+   * that a corrupt-typed destination stays "occupied" (409) rather than becoming "free" once the
+   * rename is narrowed by {@code TABLE_ROW_PREDICATE}. Do not delete it for being green today.
+   */
+  @Test
+  public void testRenameTableIntoCorruptOccupiedDestinationIsConflict() throws Exception {
+    seedRow(ENTITY_TYPE_DB, "rename_src_for_corrupt", EntityType.TABLE);
+    insertRawEntityType(ENTITY_TYPE_DB, "rename_dst_corrupt", "UNKNOWN");
+
+    mvc.perform(
+            MockMvcRequestBuilders.patch("/hts/tables/rename")
+                .param("fromDatabaseId", ENTITY_TYPE_DB)
+                .param("fromTableId", "rename_src_for_corrupt")
+                .param("toDatabaseId", ENTITY_TYPE_DB)
+                .param("toTableId", "rename_dst_corrupt")
+                .param("metadataLocation", "mockMetadataLocation"))
+        .andExpect(status().isConflict());
+
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "rename_src_for_corrupt")).isEqualTo("TABLE");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "rename_dst_corrupt")).isEqualTo("UNKNOWN");
+  }
+
+  /** The view query is validated exactly like its table sibling; an invalid filter is a 400. */
+  @Test
+  public void testViewQueryRejectsInvalidFilters() throws Exception {
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/views/query")
+                .params(queryParams("databaseId", "db%"))
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.status", is(equalToIgnoringCase(HttpStatus.BAD_REQUEST.name()))));
+
+    // A tableId pattern without a database has no scope to apply to.
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/views/query")
+                .params(queryParams("tableId", "t0%"))
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest());
+
+    // Only databaseId and tableId are supported filters.
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/views/query")
+                .params(queryParams("databaseId", ENTITY_TYPE_DB, "creationTime", "123"))
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest());
+  }
+
+  /** Paging on the view query is validated, and its documented defaults are page 0 and size 50. */
+  @Test
+  public void testPaginatedViewQueryRejectsInvalidPagingAndAppliesDefaults() throws Exception {
+    seedCanonicalRows("");
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/v1/hts/views/query")
+                .params(queryParams("databaseId", ENTITY_TYPE_DB))
+                .param("page", "-1")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest());
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/v1/hts/views/query")
+                .params(queryParams("databaseId", ENTITY_TYPE_DB))
+                .param("size", "0")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest());
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/v1/hts/views/query")
+                .params(queryParams("databaseId", "db%"))
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest());
+
+    // No page or size supplied: the first page of fifty.
+    mvc.perform(
+            MockMvcRequestBuilders.get("/v1/hts/views/query")
+                .params(queryParams("databaseId", ENTITY_TYPE_DB))
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pageResults.number", is(0)))
+        .andExpect(jsonPath("$.pageResults.size", is(50)))
+        .andExpect(jsonPath("$.pageResults.totalElements", is(3)))
+        .andExpect(jsonPath("$.pageResults.totalPages", is(1)))
+        .andExpect(jsonPath("$.pageResults.content", hasSize(3)));
   }
 }

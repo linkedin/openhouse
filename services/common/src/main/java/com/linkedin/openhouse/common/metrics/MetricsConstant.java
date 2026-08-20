@@ -63,4 +63,12 @@ public final class MetricsConstant {
   public static final String HTS_LIST_TABLES_REQUEST = "hts_list_tables_request";
   public static final String HTS_LIST_TABLES_TIME = "hts_list_tables_time";
   public static final String HTS_SEARCH_TABLES_TIME = "hts_search_tables_time";
+  public static final String HTS_LIST_VIEWS_REQUEST = "hts_list_views_request";
+  public static final String HTS_LIST_VIEWS_TIME = "hts_list_views_time";
+  public static final String HTS_PAGE_VIEWS_REQUEST = "hts_page_views_request";
+  public static final String HTS_PAGE_VIEWS_TIME = "hts_page_views_time";
+  public static final String HTS_PAGE_SEARCH_VIEWS_REQUEST = "hts_page_search_views_request";
+  public static final String HTS_PAGE_SEARCH_VIEWS_TIME = "hts_page_search_views_time";
+  public static final String HTS_GENERAL_SEARCH_VIEWS_REQUEST = "hts_general_search_views_request";
+  public static final String HTS_SEARCH_VIEWS_TIME = "hts_search_views_time";
 }

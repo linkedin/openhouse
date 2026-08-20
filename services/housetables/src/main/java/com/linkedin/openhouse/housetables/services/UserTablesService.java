@@ -2,6 +2,7 @@ package com.linkedin.openhouse.housetables.services;
 
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
+import com.linkedin.openhouse.housetables.model.EntityType;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.util.Pair;
@@ -15,6 +16,23 @@ public interface UserTablesService {
    *     service and transport layer.
    */
   UserTableDto getUserTable(String databaseId, String tableId);
+
+  /**
+   * Reads whatever occupies a (databaseId, tableId) key, of any type, and reports which type it is.
+   * This is the occupancy primitive collision detection needs: "the name is free" is the dangerous
+   * default, so absence must mean genuine absence. Repository and hydration failures propagate.
+   *
+   * @param databaseId part of the primary composite key
+   * @param tableId part of the primary composite key
+   * @return {@link UserTableDto} carrying a canonical, non-null entity type
+   */
+  UserTableDto getNeutralEntity(String databaseId, String tableId);
+
+  /**
+   * The view mirror of {@link #getUserTable}. A table or a legacy null at the key resolves as
+   * absent, so a view caller needs no type check of its own.
+   */
+  UserTableDto getUserView(String databaseId, String tableId);
 
   /**
    * Given a partially filled {@link UserTable} object, prepare list of {@link UserTableDto}s that
@@ -40,8 +58,25 @@ public interface UserTablesService {
    */
   Page<UserTableDto> getAllUserTables(UserTable userTable, int page, int size, String sortBy);
 
+  /**
+   * The view mirror of {@link #getAllUserTables(UserTable)}. An empty filter returns every view
+   * rather than a projection of database names: database enumeration is type-agnostic and stays on
+   * the table query, so mirroring it here would conflate objects with namespaces twice.
+   */
+  List<UserTableDto> getAllUserViews(UserTable userTable);
+
+  /** The paged view mirror of {@link #getAllUserTables(UserTable, int, int, String)}. */
+  Page<UserTableDto> getAllUserViews(UserTable userTable, int page, int size, String sortBy);
+
   /** Given a databaseId and tableId, delete the user table entry from the House Table. */
   void deleteUserTable(String databaseId, String tableId, boolean isSoftDelete);
+
+  /**
+   * Given a databaseId and tableId, hard-delete the view entry from the House Table. Views have no
+   * soft delete: {@code soft_deleted_user_table_row} carries no discriminator, so a view routed
+   * through it would restore as a table.
+   */
+  void deleteUserView(String databaseId, String tableId);
 
   /**
    * Create or update a {@link UserTable} row in House table.
@@ -62,13 +97,16 @@ public interface UserTablesService {
    * @param toTableId The new tableId of the renamed row.
    * @param metadataLocation The new metadata file of the table with updated table properties for
    *     updated ids.
+   * @param entityType The type the calling route serves. Internally bound by the controller, never
+   *     supplied by a caller, so a rename scoped to one type cannot move a row of the other.
    */
   void renameUserTable(
       String fromDatabaseId,
       String fromTableId,
       String toDatabaseId,
       String toTableId,
-      String metadataLocation);
+      String metadataLocation,
+      EntityType entityType);
 
   /**
    * Restore a soft-deleted user table identified by its databaseId, tableId, and deletedAtMs
