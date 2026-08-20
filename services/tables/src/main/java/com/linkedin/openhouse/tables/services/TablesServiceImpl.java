@@ -76,6 +76,16 @@ public class TablesServiceImpl implements TablesService {
   }
 
   @Override
+  public boolean tableExists(String databaseId, String tableId) {
+    // Lightweight HouseTable reference lookup (no metadata.json parse / HDFS read) is enough to
+    // determine existence. Authorization is enforced at the controller via @Secured.
+    return openHouseInternalRepository
+        .findTableRefById(
+            TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
+        .isPresent();
+  }
+
+  @Override
   public List<TableDto> searchTables(String databaseId) {
     return openHouseInternalRepository.searchTables(databaseId);
   }
