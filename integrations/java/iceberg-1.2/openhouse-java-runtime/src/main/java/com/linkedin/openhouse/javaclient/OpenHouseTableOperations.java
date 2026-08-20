@@ -26,6 +26,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.BaseMetastoreTableOperations;
+import org.apache.iceberg.MetadataUpdate;
+import org.apache.iceberg.MetadataUpdateParser;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SnapshotParser;
 import org.apache.iceberg.SnapshotRefParser;
@@ -375,6 +377,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
             .collect(
                 Collectors.toMap(Map.Entry::getKey, e -> SnapshotRefParser.toJson(e.getValue()))));
     icebergSnapshotsRequestBody.createUpdateTableRequestBody(createUpdateTableRequestBody);
+    icebergSnapshotsRequestBody.jsonMetadataUpdates(serializeMetadataUpdates(newMetadata));
 
     snapshotApi
         .putSnapshotsV1(
@@ -388,6 +391,45 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
                     createUpdateTableRequestBody.getDatabaseId(),
                     createUpdateTableRequestBody.getTableId()))
         .block();
+  }
+
+  /**
+   * Serializes the deltas this commit applies into Iceberg REST spec {@code TableUpdate} JSON.
+   *
+   * <p>{@link TableMetadata#changes()} is the same delta list every Iceberg REST catalog sends as
+   * {@code CommitTableRequest.updates[]}, and {@code MetadataUpdateParser} emits the spec wire
+   * format verbatim. It states what the commit did rather than what the table now looks like, so a
+   * ref-only operation such as {@code CREATE BRANCH b} is visible as a lone {@code
+   * set-snapshot-ref} naming {@code b} — something no amount of inspecting the resulting snapshot
+   * list can recover.
+   *
+   * <p>Advisory only today: the server builds metadata from the full-state fields, so this method
+   * returns null rather than propagating any failure. It must never be able to fail a commit.
+   *
+   * @return spec-shaped update actions, or null when there is nothing trustworthy to report
+   */
+  @VisibleForTesting
+  static List<String> serializeMetadataUpdates(TableMetadata newMetadata) {
+    try {
+      List<MetadataUpdate> changes = newMetadata.changes();
+      if (changes == null || changes.isEmpty()) {
+        return null;
+      }
+      List<String> serialized = new ArrayList<>(changes.size());
+      for (MetadataUpdate change : changes) {
+        // MetadataUpdateParser rejects update types it does not recognize. Skip those rather than
+        // dropping the whole list, so one unknown action cannot blind the rest.
+        try {
+          serialized.add(MetadataUpdateParser.toJson(change));
+        } catch (RuntimeException e) {
+          log.debug("Skipping unserializable metadata update {}", change.getClass().getName(), e);
+        }
+      }
+      return serialized.isEmpty() ? null : serialized;
+    } catch (RuntimeException e) {
+      log.warn("Failed to serialize metadata updates; omitting from commit request", e);
+      return null;
+    }
   }
 
   /**

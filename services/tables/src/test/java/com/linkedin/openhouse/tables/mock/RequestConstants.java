@@ -12,7 +12,9 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBo
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetDatabaseResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Random;
 import java.util.UUID;
 
@@ -94,11 +96,23 @@ public final class RequestConstants {
   public static final String TEST_MAIN_SNAPSHOT_REF_JSON =
       "{\"snapshot-id\":2151407017102313398,\"type\":\"branch\"}";
 
+  /**
+   * The Iceberg REST spec {@code TableUpdate} actions a plain append to main produces: the snapshot
+   * is added, then main is moved onto it. Shaped exactly as {@code MetadataUpdateParser} emits them
+   * client-side, so these fixtures exercise the same bytes a real commit sends.
+   */
+  public static final List<String> TEST_MAIN_APPEND_METADATA_UPDATES =
+      Arrays.asList(
+          "{\"action\":\"add-snapshot\",\"snapshot\":" + TEST_ICEBERG_SNAPSHOT_JSON + "}",
+          "{\"action\":\"set-snapshot-ref\",\"ref-name\":\"main\","
+              + "\"snapshot-id\":2151407017102313398,\"type\":\"branch\"}");
+
   public static final IcebergSnapshotsRequestBody TEST_ICEBERG_SNAPSHOTS_REQUEST_BODY =
       IcebergSnapshotsRequestBody.builder()
           .baseTableVersion("v1")
           .jsonSnapshots(Collections.singletonList(TEST_ICEBERG_SNAPSHOT_JSON))
           .snapshotRefs(Collections.singletonMap("main", TEST_MAIN_SNAPSHOT_REF_JSON))
+          .jsonMetadataUpdates(TEST_MAIN_APPEND_METADATA_UPDATES)
           .createUpdateTableRequestBody(TEST_CREATE_TABLE_REQUEST_BODY)
           .build();
 
@@ -123,6 +137,7 @@ public final class RequestConstants {
               .baseTableVersion("INITIAL_VERSION")
               .jsonSnapshots(Collections.singletonList(TEST_ICEBERG_SNAPSHOT_JSON))
               .snapshotRefs(Collections.singletonMap("main", TEST_MAIN_SNAPSHOT_REF_JSON))
+              .jsonMetadataUpdates(TEST_MAIN_APPEND_METADATA_UPDATES)
               .createUpdateTableRequestBody(TEST_CREATE_TABLE_REQUEST_BODY)
               .build();
 
