@@ -814,11 +814,7 @@ public class HtsRepositoryTest {
   // view-scoped reads
   // ---------------------------------------------------------------------------------------------
 
-  /**
-   * View-scoped point read: the mirror of {@link #testFindTableByKeyResolvesOnlyTableRows}. The
-   * view predicate is a plain equality on VIEW, so unlike the table predicate it has no legacy-null
-   * arm — a stored null is a table and must stay unreachable here.
-   */
+  /** The view predicate has no legacy-null arm: a stored null is a table, unreachable here. */
   @ParameterizedTest
   @CsvSource({
     "case00_null,        false",
@@ -847,10 +843,7 @@ public class HtsRepositoryTest {
         .isEqualTo(expectedVisible);
   }
 
-  /**
-   * The view point read hydrates every stored spelling of VIEW to the same constant, so a row the
-   * SQL predicate matched can never fail to load.
-   */
+  /** A row the SQL predicate matched must never then fail to hydrate. */
   @Test
   public void testFindViewByKeyHydratesEveryViewSpelling() {
     seedCaseNormalizationRows();
@@ -945,9 +938,8 @@ public class HtsRepositoryTest {
   }
 
   /**
-   * The view predicate normalizes case in SQL and fails closed on anything else. H2 in {@code
-   * MODE=MySQL} compares case-sensitively, so a bare {@code = 'VIEW'} would silently drop the lower
-   * and mixed-case rows; they are returned, which is what proves {@code upper(...)} is applied.
+   * H2 in {@code MODE=MySQL} compares case-sensitively, so a bare {@code = 'VIEW'} would drop the
+   * lower and mixed-case rows; returning them is what proves {@code upper(...)} is applied.
    */
   @Test
   public void testViewQueriesIncludeEverySpellingAndExcludeNullAndGarbage() {
@@ -987,10 +979,7 @@ public class HtsRepositoryTest {
   // type-scoped deletion
   // ---------------------------------------------------------------------------------------------
 
-  /**
-   * A single conditional statement, not a read-then-delete: the affected-row count is the only
-   * signal the service needs, and a wrong-type key must report zero without touching the occupant.
-   */
+  /** One conditional statement, not a read-then-delete; a wrong-type key reports zero. */
   @Test
   public void testDeleteTableByIdRemovesOnlyTableRows() {
     seedRow(ENTITY_TYPE_DB, "del_legacy", null);
@@ -1036,10 +1025,7 @@ public class HtsRepositoryTest {
     assertThat(htsRepository.existsById(key(ENTITY_TYPE_DB, "del_legacy"))).isTrue();
   }
 
-  /**
-   * A corrupt discriminator matches neither typed predicate. Both deletes and the table rename must
-   * report zero and leave the row exactly where an operator can find and repair it.
-   */
+  /** A corrupt discriminator matches neither predicate, so the row is left for an operator. */
   @Test
   public void testTypedDeletesAndTableRenameIgnoreCorruptRows() {
     insertRawEntityType(CASE_DB, "corrupt_row", "UNKNOWN");
@@ -1129,9 +1115,8 @@ public class HtsRepositoryTest {
   }
 
   /**
-   * Migration on rename. The source column holds SQL NULL, so a hydrated {@code getEntityType() ==
-   * TABLE} would be tautological — an untouched null hydrates identically. The raw column is the
-   * only thing that distinguishes "stamped" from "left alone".
+   * The source column holds SQL NULL, so a hydrated {@code getEntityType() == TABLE} would be
+   * tautological; only the raw column distinguishes "stamped" from "left alone".
    */
   @Test
   public void testRenameStampsCanonicalTableOnLegacyNullSource() {

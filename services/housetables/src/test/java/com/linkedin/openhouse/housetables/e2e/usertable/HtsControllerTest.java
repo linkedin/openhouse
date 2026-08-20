@@ -978,10 +978,8 @@ public class HtsControllerTest {
   }
 
   /**
-   * The discriminator survives the HTTP write boundary in both directions. A table PUT that omits
-   * the field is stamped TABLE at ingress, so the PUT response and a subsequent GET agree; a view
-   * is created through its own route and is unreadable through the table read, which is
-   * table-scoped.
+   * A table PUT that omits the field is stamped at ingress, so the PUT response and a later GET
+   * agree; a view created on its own route stays unreadable through the table read.
    */
   @Test
   public void testEntityTypePutAndGetRoundTrip() throws Exception {
@@ -1077,9 +1075,8 @@ public class HtsControllerTest {
   }
 
   /**
-   * The API accepts the discriminator case-insensitively but HTS stores and returns the canonical
-   * constant, so the column vocabulary stays exactly TABLE/VIEW/NULL. Each spelling has to arrive
-   * on the route that serves its type; the table route no longer accepts VIEW at all.
+   * Any spelling is accepted but the canonical constant is stored, keeping the column vocabulary
+   * exactly TABLE/VIEW/NULL. Each spelling must arrive on the route serving its type.
    */
   @Test
   public void testEntityTypePutNormalizesSpellingToCanonicalConstant() throws Exception {
@@ -1308,10 +1305,7 @@ public class HtsControllerTest {
         .andExpect(status().isBadRequest());
   }
 
-  /**
-   * The unpaged view query returns views and nothing else. Unlike the table query, an empty filter
-   * map returns every view rather than a projection of database names.
-   */
+  /** Unlike the table query, an empty filter returns every view, not database names. */
   @Test
   public void testViewQueriesExcludeTablesAndLegacyRows() throws Exception {
     seedCanonicalRows("");
@@ -1356,10 +1350,7 @@ public class HtsControllerTest {
                 "$.results[*].tableId", containsInAnyOrder("t01_view", "t03_view", "t05_view")));
   }
 
-  /**
-   * Anti-post-filter assertion over HTTP for the paged view query: an implementation that filtered
-   * the returned page would report totalElements=7/totalPages=4 and a 1-row first page.
-   */
+  /** A post-filtering implementation would report totalElements=7 and a 1-row first page. */
   @Test
   public void testPaginatedViewQueriesFilterBeforePaging() throws Exception {
     seedCanonicalRows("");
@@ -1471,10 +1462,7 @@ public class HtsControllerTest {
                 is("/openhouse/entity_type_db/put_view_lifecycle/v1_metadata.json")));
   }
 
-  /**
-   * An explicit type that contradicts the route is a client error, and nothing is written. The
-   * endpoint declares the type; the payload may agree with it or stay silent, never override it.
-   */
+  /** The endpoint declares the type; a payload may agree or stay silent, never override. */
   @Test
   public void testPutWithOppositeExplicitTypeIsBadRequest() throws Exception {
     UserTable viewOnTableRoute =
@@ -1666,10 +1654,7 @@ public class HtsControllerTest {
   // neutral entity route
   // ---------------------------------------------------------------------------------------------
 
-  /**
-   * {@code GET /hts/entities} is the occupancy read: it answers for a row of either type and always
-   * names a canonical, non-null type.
-   */
+  /** The occupancy read answers for either type and always names a canonical, non-null one. */
   @Test
   public void testNeutralEntityReadReportsCanonicalType() throws Exception {
     seedRow(ENTITY_TYPE_DB, "neutral_view", EntityType.VIEW);
@@ -1720,10 +1705,8 @@ public class HtsControllerTest {
   }
 
   /**
-   * A corrupt discriminator is server-side data corruption, so the neutral read and a typed write
-   * at that key are 5xx and never "free". Only the status is asserted: the dedicated exception and
-   * the persistence-wrapped translation take different advice branches, and both are legitimately
-   * 500.
+   * Only the status is asserted: the dedicated exception and the persistence-wrapped translation
+   * take different advice branches, and both are legitimately 500.
    */
   @Test
   public void testCorruptDiscriminatorIsServerErrorOnNeutralReadAndPut() throws Exception {
@@ -1817,10 +1800,7 @@ public class HtsControllerTest {
         .isFalse();
   }
 
-  /**
-   * A successful rename stamps the canonical constant. The source column is SQL NULL, so hydrated
-   * equality would be tautological — the raw column is the only proof the type was written.
-   */
+  /** The source column is SQL NULL, so only the raw column proves the type was written. */
   @Test
   public void testRenameTableStampsCanonicalTableOnLegacyRow() throws Exception {
     insertRawEntityType(ENTITY_TYPE_DB, "rename_legacy_src", null);
@@ -1864,9 +1844,8 @@ public class HtsControllerTest {
   }
 
   /**
-   * A request with no entity at all is a client error, not a server one. Ingress stamping runs
-   * ahead of the shared validator, so it is now the first code to see this body and has to reject
-   * it itself; before the discriminator existed, {@code validatePutEntity} was what caught it.
+   * Ingress stamping runs ahead of the validator, so it is the first code to see an absent entity;
+   * {@code validatePutEntity} used to catch this, and it must stay a 400.
    */
   @Test
   public void testPutUserTableWithNullEntityIsBadRequest() throws Exception {
@@ -1900,9 +1879,9 @@ public class HtsControllerTest {
   }
 
   /**
-   * Migration on write, which the create path cannot show: a legacy occupant already exists, so
-   * this is an update (200, not 201) and it must rewrite the column the update passes over. The raw
-   * column is the only proof — an untouched SQL NULL hydrates as TABLE either way.
+   * The create path cannot show this: a legacy occupant exists, so it is an update (200, not 201)
+   * that must rewrite the column. An untouched SQL NULL hydrates as TABLE, so only the raw column
+   * proves it.
    */
   @Test
   public void testPutTableOverLegacyNullOccupantUpdatesAndMigratesTheColumn() throws Exception {
@@ -1937,9 +1916,8 @@ public class HtsControllerTest {
   }
 
   /**
-   * A corrupt destination is occupied, not free. The primary key is what enforces that, so the
-   * answer must be the same 409 a healthy occupant produces rather than the 500 the corrupt row
-   * would cause if the rename tried to read it first.
+   * The primary key enforces occupancy without reading the row, so the answer is the same 409 a
+   * healthy occupant produces rather than the 500 a hydration attempt would cause.
    *
    * <p>Preserved-behaviour regression test: it passes both before and after this change. It guards
    * that a corrupt-typed destination stays "occupied" (409) rather than becoming "free" once the

@@ -381,10 +381,8 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
   }
 
   /**
-   * A corrupt discriminator is data the server itself wrote, not something a client sent, so it
-   * must not fall through to the {@link IllegalArgumentException} advice below and answer 400. A
-   * wrapped persistence failure carrying the same cause reaches the catch-all instead; both are
-   * 500.
+   * Corrupt stored data is not a client error, so it must not fall through to the {@link
+   * IllegalArgumentException} advice below, which answers 400.
    */
   @Hidden
   @ExceptionHandler(CorruptEntityTypeException.class)

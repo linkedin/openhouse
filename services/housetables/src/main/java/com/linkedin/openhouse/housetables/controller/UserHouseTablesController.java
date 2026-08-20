@@ -55,14 +55,13 @@ public class UserHouseTablesController {
   @Autowired private UserTablesMapper userTablesMapper;
 
   /**
-   * Resolves the entity type at ingress, before validation and before the handler runs, so nothing
-   * downstream ever observes a null. The wire field stays nullable for rolling compatibility: an
-   * un-upgraded client that sends nothing still produces a correctly typed row. A payload may agree
-   * with the route it arrived on, or stay silent; it may never override it.
+   * Resolves the type at ingress, before validation, so nothing downstream observes a null. The
+   * wire field stays nullable for rolling compatibility: an un-upgraded client that sends nothing
+   * still produces a correctly typed row. A payload may agree with its route or stay silent, never
+   * override it.
    *
-   * <p>Running ahead of the shared validator means this is now also the first thing to see a
-   * request with no entity at all, so it has to reject that itself rather than dereference it. That
-   * case used to be caught by {@code validatePutEntity}, and must stay a client error.
+   * <p>Running ahead of the validator makes this the first code to see an absent entity, so it must
+   * reject that itself; {@code validatePutEntity} used to.
    */
   private static UserTable stampEntityType(UserTable userTable, EntityType entityType) {
     if (userTable == null) {
@@ -178,9 +177,8 @@ public class UserHouseTablesController {
   @Operation(
       summary = "Delete a User Table",
       description =
-          "Delete a User House Table entry identified by databaseID and tableId. This endpoint is "
-              + "table-scoped: a view at the same key is left untouched and reported as not found. "
-              + "This endpoint will default softDelete to false",
+          "Delete a User House Table entry identified by databaseID and tableId. Table-scoped: a "
+              + "view at the same key is reported as not found. Defaults softDelete to false",
       tags = {"UserTable"})
   @ApiResponses(
       value = {
@@ -261,9 +259,7 @@ public class UserHouseTablesController {
       summary = "Rename a User Table",
       description =
           "Update an existing user table, identified by databaseID and tableId, to a new databaseID "
-              + "and tableId. This endpoint is table-scoped: a view at the source key is left "
-              + "untouched and reported as not found, and a successful rename stores the canonical "
-              + "TABLE discriminator.",
+              + "and tableId. Table-scoped: a view at the source key is reported as not found.",
       tags = {"UserTable"})
   @ApiResponses(
       value = {
@@ -297,8 +293,7 @@ public class UserHouseTablesController {
       summary = "Get the entity identified by databaseID and tableId, whatever its type.",
       description =
           "Returns the House Table row occupying the given key, of either type, reporting which "
-              + "type it is. This answers name occupancy for collision detection; it is not a "
-              + "polymorphic catalog lookup.",
+              + "type it is. Answers name occupancy for collision detection.",
       tags = {"UserTable"})
   @ApiResponses(
       value = {
@@ -363,9 +358,7 @@ public class UserHouseTablesController {
 
   @Operation(
       summary = "Search User Views by filter.",
-      description =
-          "Returns paginated views from house table that fulfill the predicate. Filtering precedes "
-              + "pagination, so the page content and the total count agree.",
+      description = "Returns paginated views from house table that fulfill the predicate.",
       tags = {"UserTable"})
   @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "User View GET: OK")})
   @GetMapping(
@@ -388,8 +381,8 @@ public class UserHouseTablesController {
       summary = "Update a User View",
       description =
           "Updates or creates a User House Table view identified by databaseID and tableId. The "
-              + "endpoint declares the type; the payload may agree with it or omit it, never "
-              + "override it.",
+              + "endpoint declares the type; a payload may agree with it or omit it, never override "
+              + "it.",
       tags = {"UserTable"})
   @ApiResponses(
       value = {
@@ -419,8 +412,7 @@ public class UserHouseTablesController {
       summary = "Delete a User View",
       description =
           "Delete a User House Table view entry identified by databaseID and tableId. Views are "
-              + "always hard deleted: the soft-deleted store carries no discriminator, so a view "
-              + "placed in it would restore as a table.",
+              + "always hard deleted; there is no soft-deleted view store.",
       tags = {"UserTable"})
   @ApiResponses(
       value = {

@@ -51,18 +51,11 @@ public interface UserTableHtsJdbcRepository
    * bearing: without it every pre-existing table becomes invisible. Do not simplify it to a plain
    * equality before a verified backfill and a {@code NOT NULL} migration.
    *
-   * <p>Collation caveat, applying equally to {@link #VIEW_ROW_PREDICATE}: this compares against a
-   * string literal, so the comparison inherits the column's collation. Production MySQL's default
-   * {@code utf8_unicode_ci} is accent-insensitive and ignores trailing spaces, meaning a stored
-   * {@code 'TÁBLE'} or {@code 'TABLE '} would be matched here while {@link
-   * com.linkedin.openhouse.housetables.model.EntityType#fromName} rejects both. Such a row is
-   * therefore reachable by the bulk delete and rename statements, which never hydrate, yet fails
-   * every read. H2 in {@code MODE=MySQL} does not reproduce this, so no test pins it. It is left as
-   * a known limitation rather than fixed: a binary-exact comparison is not expressible in JPQL and
-   * would mean dropping to native SQL for twelve composed queries, while the exposure is narrow —
-   * {@code ValidatorConstants.ENTITY_TYPE_REGEX} rejects such a value on every endpoint, so only
-   * direct database manipulation can create one, and no collation makes VIEW match TABLE, so
-   * cross-type deletion stays impossible.
+   * <p>Known limitation, applying equally to {@link #VIEW_ROW_PREDICATE}: the comparison inherits
+   * the column collation, and MySQL's {@code utf8_unicode_ci} ignores accents and trailing spaces.
+   * A stored {@code 'TÁBLE'} is therefore matched by the non-hydrating bulk delete and rename yet
+   * fails every read. Not reproducible in H2, and not fixed: binary-exact comparison is not
+   * expressible in JPQL, while only direct DB writes can create such a row.
    */
   String TABLE_ROW_PREDICATE = "(u.entityType IS NULL OR upper(u.entityType) = 'TABLE')";
 
@@ -178,11 +171,6 @@ public interface UserTableHtsJdbcRepository
       @Param("storageType") String storageType,
       @Param("creationTime") Long creationTime);
 
-  /**
-   * View-scoped point read serving {@code getUserView}, the mirror of {@link
-   * #findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase}. A table or a legacy null at the same key
-   * resolves to empty, so the view lifecycle treats it as absent without a check of its own.
-   */
   @Query(
       "SELECT u FROM UserTableRow u WHERE "
           + "lower(u.databaseId) = lower(:databaseId) AND "
@@ -281,27 +269,29 @@ public interface UserTableHtsJdbcRepository
   }
 
   /**
-   * Deletes only a row whose entity_type is NULL or TABLE. A VIEW at the same key is left
-   * untouched. Returns the affected-row count so the service can map missing or wrong-type deletion
-   * to 404. Do not simplify this to a neutral delete: neutral key mutation is exactly what this
-   * ticket removes.
+   * Deletes only a NULL or TABLE row, leaving a VIEW at the same key untouched. Returns the
+   * affected-row count so the service can map both missing and wrong-type to 404. Do not simplify
+   * to a neutral delete: neutral key mutation is exactly what this removes.
+   *
+   * <p>This is the hard delete both table paths end in; only the table path may additionally copy
+   * to the soft-deleted store first, which has no discriminator and so must never receive a view.
    */
   default int deleteTableById(UserTableRowPrimaryKey key) {
     return deleteTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
         key.getDatabaseId(), key.getTableId());
   }
 
-  /**
-   * Deletes only a row whose entity_type is VIEW. A TABLE or legacy NULL row at the same key is
-   * left untouched. Returns the affected-row count so the service can map missing or wrong-type
-   * deletion to 404. Do not simplify this to a neutral delete: neutral key mutation is exactly what
-   * this ticket removes.
-   */
+  /** The mirror of {@link #deleteTableById}: only a VIEW row, never a TABLE or legacy NULL. */
   default int deleteViewById(UserTableRowPrimaryKey key) {
     return deleteViewByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
         key.getDatabaseId(), key.getTableId());
   }
 
+  /**
+   * The key-addressed generic deletes are sealed because a wrong-type delete is irreversible; use
+   * the named typed adapters instead. No-arg {@code deleteAll()} is deliberately left available: it
+   * addresses no key, and test teardown depends on it.
+   */
   @Override
   default void deleteById(UserTableRowPrimaryKey key) {
     throw new UnsupportedOperationException("Use deleteTableById or deleteViewById");
@@ -323,10 +313,12 @@ public interface UserTableHtsJdbcRepository
   }
 
   /**
-   * Table-scoped, and the type it stamps is bound by the caller rather than inlined as a literal,
-   * so the controller stays the one place that decides which entity a route operates on. Returns
-   * the affected-row count: zero means the source is absent or is not a table, which the service
-   * maps to 404, and a destination collision surfaces as a primary-key violation instead.
+   * Table-only: views are not renameable in M1, so there is deliberately no {@code renameViewId}.
+   *
+   * <p>The stamped type is a bound parameter rather than an inlined literal so the controller stays
+   * the one place deciding which entity a route operates on; this is the type-selection convention,
+   * not an exception to it. Zero affected rows means absent or not a table; a destination collision
+   * surfaces as a primary-key violation.
    */
   @Transactional
   @Modifying(flushAutomatically = true, clearAutomatically = true)

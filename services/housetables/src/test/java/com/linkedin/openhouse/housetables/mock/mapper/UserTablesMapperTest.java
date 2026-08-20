@@ -163,11 +163,9 @@ public class UserTablesMapperTest {
   }
 
   /**
-   * Once the controller stamps the type at ingress — before validation and before the service call
-   * — the mapper can no longer legitimately receive a null, so tolerating one would only hide a
-   * missed ingress path. A null column still means "written before the discriminator existed"; that
-   * resolution belongs to the read converter alone, which {@code EntityTypeConverterTest} and
-   * {@code HtsRepositoryTest} pin.
+   * Once the controller stamps at ingress the mapper can no longer legitimately receive a null, so
+   * tolerating one would only hide a missed ingress path. Resolving a null <em>column</em> is the
+   * read converter's job, and stays pinned there.
    */
   @Test
   void nullEntityTypeIsRejectedOnEveryWirePath() {
@@ -184,11 +182,7 @@ public class UserTablesMapperTest {
         RequestValidationFailureException.class, () -> userTablesMapper.toEntityType(null));
   }
 
-  /**
-   * The soft-delete store has no discriminator column, deliberately: views never enter it. A row
-   * reconstructed from it is therefore a table by construction rather than by inference, which is
-   * what stops restore from reintroducing SQL NULLs.
-   */
+  /** Reconstructed as a table by construction, so restore cannot reintroduce SQL NULLs. */
   @Test
   void softDeletedRowIsRestoredAsATable() {
     SoftDeletedUserTableRow softDeleted =

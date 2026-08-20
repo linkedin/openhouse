@@ -14,16 +14,11 @@ public enum EntityType {
   VIEW;
 
   /**
-   * Resolves the spellings the transport model accepts, which is case-insensitive, so a value that
-   * passes validation can never fail to resolve here.
-   *
-   * <p>A null is rejected rather than defaulted. The two callers give it incompatible meanings:
-   * from the column it means "written before the discriminator existed", which is definitively a
-   * table; from the wire it means "the caller did not say", which must not be guessed. Resolving
-   * the former belongs to {@link EntityTypeConverter}, which is the only place that knows it is
-   * reading a column.
-   *
-   * @throws IllegalArgumentException if the value is null or not a recognized entity type
+   * Resolves any accepted spelling, case-insensitively. Null is rejected rather than defaulted,
+   * because the two callers mean incompatible things by it: from the column it means "written
+   * before the discriminator existed" (a table), from the wire it means "the caller did not say"
+   * (unknown). Only {@link EntityTypeConverter} knows it is reading a column, so only it resolves
+   * the former.
    */
   public static EntityType fromName(String name) {
     if (name == null) {

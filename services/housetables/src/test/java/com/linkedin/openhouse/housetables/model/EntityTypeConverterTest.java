@@ -47,11 +47,9 @@ public class EntityTypeConverterTest {
   }
 
   /**
-   * Stored-data corruption is a distinct condition from a bad request, so it gets a distinct type
-   * for the exception advice to bind an explicit server-error branch to. That branch is mandatory,
-   * not merely tidy: the inherited {@code IllegalArgumentException} advice answers 400, which is
-   * the wrong answer for a row the server itself wrote. It stays an {@link
-   * IllegalArgumentException} so that the callers already catching one keep working.
+   * The dedicated type exists so the advice can bind an explicit server-error branch: the inherited
+   * {@code IllegalArgumentException} advice answers 400, wrong for a row the server itself wrote.
+   * It stays an {@link IllegalArgumentException} so existing callers keep catching it.
    */
   @Test
   void unrecognizedColumnValueThrowsTheDedicatedCorruptionType() {
@@ -64,9 +62,8 @@ public class EntityTypeConverterTest {
   }
 
   /**
-   * Write is faithful for the values that exist, and total: the endpoint stamps the type at
-   * ingress, so a null reaching storage means an ingress path was missed. Failing here is what
-   * keeps a fresh SQL NULL out of the column and keeps the legacy-null population closed.
+   * The endpoint stamps at ingress, so a null reaching storage means a missed ingress path. Failing
+   * here keeps the legacy-null population closed rather than growing.
    */
   @Test
   void writeIsPassThrough() {
@@ -77,9 +74,8 @@ public class EntityTypeConverterTest {
   }
 
   /**
-   * The null-to-TABLE resolution belongs to the converter's read side and must not be folded into
-   * {@link EntityType#fromName}: from the column a null means "written before the discriminator
-   * existed", but from the wire it means "the caller did not say", which must never be guessed.
+   * Null-to-TABLE must not be folded into {@link EntityType#fromName}: from the column a null means
+   * "written before the discriminator existed", from the wire "the caller did not say".
    */
   @Test
   void fromNameRejectsNull() {

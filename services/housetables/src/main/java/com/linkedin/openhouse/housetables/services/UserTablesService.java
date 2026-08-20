@@ -18,20 +18,12 @@ public interface UserTablesService {
   UserTableDto getUserTable(String databaseId, String tableId);
 
   /**
-   * Reads whatever occupies a (databaseId, tableId) key, of any type, and reports which type it is.
-   * This is the occupancy primitive collision detection needs: "the name is free" is the dangerous
-   * default, so absence must mean genuine absence. Repository and hydration failures propagate.
-   *
-   * @param databaseId part of the primary composite key
-   * @param tableId part of the primary composite key
-   * @return {@link UserTableDto} carrying a canonical, non-null entity type
+   * Reads the occupant of a key whatever its type, for collision detection. Absence must mean
+   * genuine absence, so repository and hydration failures propagate rather than reading as free.
    */
   UserTableDto getNeutralEntity(String databaseId, String tableId);
 
-  /**
-   * The view mirror of {@link #getUserTable}. A table or a legacy null at the key resolves as
-   * absent, so a view caller needs no type check of its own.
-   */
+  /** View-scoped point read; a table or legacy null at the key resolves as absent. */
   UserTableDto getUserView(String databaseId, String tableId);
 
   /**
@@ -59,22 +51,22 @@ public interface UserTablesService {
   Page<UserTableDto> getAllUserTables(UserTable userTable, int page, int size, String sortBy);
 
   /**
-   * The view mirror of {@link #getAllUserTables(UserTable)}. An empty filter returns every view
-   * rather than a projection of database names: database enumeration is type-agnostic and stays on
-   * the table query, so mirroring it here would conflate objects with namespaces twice.
+   * Unlike {@link #getAllUserTables(UserTable)}, an empty filter returns every view rather than a
+   * projection of database names; database enumeration stays type-agnostic on the table query.
    */
   List<UserTableDto> getAllUserViews(UserTable userTable);
 
-  /** The paged view mirror of {@link #getAllUserTables(UserTable, int, int, String)}. */
   Page<UserTableDto> getAllUserViews(UserTable userTable, int page, int size, String sortBy);
 
-  /** Given a databaseId and tableId, delete the user table entry from the House Table. */
+  /**
+   * Given a databaseId and tableId, delete the user table entry from the House Table. The {@code
+   * isSoftDelete} flag is table-only; {@link #deleteUserView} has no equivalent by design.
+   */
   void deleteUserTable(String databaseId, String tableId, boolean isSoftDelete);
 
   /**
-   * Given a databaseId and tableId, hard-delete the view entry from the House Table. Views have no
-   * soft delete: {@code soft_deleted_user_table_row} carries no discriminator, so a view routed
-   * through it would restore as a table.
+   * Always a hard delete: {@code soft_deleted_user_table_row} carries no discriminator, so a view
+   * routed through it would restore as a table.
    */
   void deleteUserView(String databaseId, String tableId);
 
@@ -89,7 +81,8 @@ public interface UserTablesService {
   Pair<UserTableDto, Boolean> putUserTable(UserTable userTable);
 
   /**
-   * Rename a {@link UserTable} row in House table.
+   * Rename a {@link UserTable} row in House table. Table-only: views are not renameable in M1, so
+   * there is deliberately no view equivalent.
    *
    * @param fromDatabaseId The databaseId of the row to rename.
    * @param fromTableId The tableId of the row to rename.
@@ -97,8 +90,7 @@ public interface UserTablesService {
    * @param toTableId The new tableId of the renamed row.
    * @param metadataLocation The new metadata file of the table with updated table properties for
    *     updated ids.
-   * @param entityType The type the calling route serves. Internally bound by the controller, never
-   *     supplied by a caller, so a rename scoped to one type cannot move a row of the other.
+   * @param entityType Bound by the controller from the route it serves, never by a caller.
    */
   void renameUserTable(
       String fromDatabaseId,

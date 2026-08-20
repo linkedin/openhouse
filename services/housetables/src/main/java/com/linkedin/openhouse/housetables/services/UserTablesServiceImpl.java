@@ -70,9 +70,8 @@ public class UserTablesServiceImpl implements UserTablesService {
 
   @Override
   public UserTableDto getNeutralEntity(String databaseId, String tableId) {
-    // No broad catch: only an empty Optional is absence. A repository or hydration failure must
-    // escape, because reporting a broken or unreachable row as "free" is how an occupant gets
-    // overwritten.
+    // Only an empty Optional is absence; repository and hydration failures must escape, because
+    // reporting a broken row as "free" is how an occupant gets overwritten.
     return htsJdbcRepository
         .findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(databaseId, tableId)
         .map(userTablesMapper::toUserTableDto)
@@ -146,9 +145,7 @@ public class UserTablesServiceImpl implements UserTablesService {
                 .tableId(userTable.getTableId())
                 .build());
 
-    // The type the request was stamped with at ingress, compared against the occupant's total type
-    // before any version mapping runs: a wrong-type collision is not a stale write, and must not be
-    // reported as one.
+    // Compared before any version mapping runs: a wrong-type collision is not a stale write.
     EntityType requestedEntityType = userTablesMapper.toEntityType(userTable.getEntityType());
     if (existingUserTableRow.isPresent()
         && existingUserTableRow.get().getEntityType() != requestedEntityType) {
@@ -190,8 +187,7 @@ public class UserTablesServiceImpl implements UserTablesService {
    * @param toTableId The new tableId of the renamed row.
    * @param metadataLocation The new metadata file of the table with updated table properties that
    *     match the new tableId
-   * @param entityType The type the calling route serves, bound into the conditional update so a
-   *     table rename cannot move a view and so a renamed legacy row is migrated to a stored TABLE.
+   * @param entityType Bound into the conditional update, so a table rename cannot move a view.
    */
   @Override
   public void renameUserTable(
@@ -201,8 +197,7 @@ public class UserTablesServiceImpl implements UserTablesService {
       String toTableId,
       String metadataLocation,
       EntityType entityType) {
-    // No source precheck: the conditional update is the check. Zero affected rows means the source
-    // is absent or is not of this type, which closes the read-then-write window entirely.
+    // No source precheck: the conditional update is the check, which closes the TOCTOU window.
     try {
       log.info(
           "Renaming user table from {}.{} to {}.{}",
@@ -237,7 +232,7 @@ public class UserTablesServiceImpl implements UserTablesService {
           softDeletedUserTablesMapper.toSoftDeletedUserTableRow(existingTable));
     }
     // Throwing inside the transaction rolls the copy above back, so a row that loses the race is
-    // never left behind in the soft-deleted store.
+    // not left behind in the soft-deleted store.
     if (htsJdbcRepository.deleteTableById(key) == 0) {
       throw new NoSuchUserTableException(databaseId, tableId);
     }
@@ -562,11 +557,7 @@ public class UserTablesServiceImpl implements UserTablesService {
         && userTable.getTableId() != null;
   }
 
-  /**
-   * Unlike {@link #isListTables} this also covers the empty filter, because an empty view query
-   * lists every view rather than projecting database names. The database listing stays on the table
-   * query, where it is correctly type-agnostic.
-   */
+  /** Also covers the empty filter: an empty view query lists views, not database names. */
   private boolean isListViews(UserTable userTable) {
     return isNonKeyFieldsNullForUserTable(userTable) && userTable.getTableId() == null;
   }

@@ -931,11 +931,7 @@ public class UserTablesServiceTest {
   // neutral entity read
   // ---------------------------------------------------------------------------------------------
 
-  /**
-   * The occupancy read answers "what is at this key, of any type?" and names the type it found. A
-   * legacy null is reported as TABLE because that is what the data means, not because the read
-   * guesses.
-   */
+  /** A legacy null is reported as TABLE because that is what the data means, not a guess. */
   @Test
   public void testGetNeutralEntityReportsCanonicalTypeForEitherType() {
     seedRow(ENTITY_TYPE_DB, "neutral_view", EntityType.VIEW);
@@ -960,10 +956,7 @@ public class UserTablesServiceTest {
         .isEqualTo(EntityType.VIEW);
   }
 
-  /**
-   * Java-layer case contract. H2 in {@code MODE=MySQL} compares case-sensitively while production
-   * MySQL does not, so the stored spelling is resolved here rather than left to a collation.
-   */
+  /** The stored spelling is resolved in Java rather than left to the database collation. */
   @Test
   public void testGetNeutralEntityResolvesEveryStoredSpelling() {
     insertRawEntityType(ENTITY_TYPE_DB, "spell_lower_view", "view");
@@ -994,9 +987,8 @@ public class UserTablesServiceTest {
   }
 
   /**
-   * "The name is free" is the dangerous default, so a repository failure must escape rather than
-   * collapse into an empty result. The spy is what makes the difference observable: an unfiltered
-   * catch would turn this into a 404 and let a caller overwrite an occupied key.
+   * "The name is free" is the dangerous default: an unfiltered catch would turn a repository
+   * failure into a 404 and let a caller overwrite an occupied key.
    */
   @Test
   public void testGetNeutralEntityPropagatesRepositoryFailure() {
@@ -1045,7 +1037,7 @@ public class UserTablesServiceTest {
   // view reads
   // ---------------------------------------------------------------------------------------------
 
-  /** The view point read is the mirror of the table one: a table at the key reads as absent. */
+  /** A table at the key reads as absent, mirroring the table point read. */
   @Test
   public void testGetUserViewHidesTablesAndLegacyNullRows() {
     seedRow(ENTITY_TYPE_DB, "view_point", EntityType.VIEW);
@@ -1068,10 +1060,7 @@ public class UserTablesServiceTest {
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "legacy_point")).isNull();
   }
 
-  /**
-   * An empty view query returns every view. It deliberately does not mirror the table query's
-   * database-name projection, which would conflate objects with namespaces a second time.
-   */
+  /** An empty view query returns every view, not the table query's database-name projection. */
   @Test
   public void testGetAllUserViewsWithEmptyQueryReturnsEveryView() {
     seedCanonicalRows("");
@@ -1192,10 +1181,7 @@ public class UserTablesServiceTest {
   // type-scoped writes and deletes
   // ---------------------------------------------------------------------------------------------
 
-  /**
-   * A view drop is a hard delete. {@code soft_deleted_user_table_row} has no discriminator column,
-   * so a view routed through the soft-delete primitive would restore as a table.
-   */
+  /** A view routed through the soft-delete primitive would restore as a table. */
   @Test
   public void testDeleteUserViewIsHardAndCreatesNoSoftDeletedRow() {
     seedRow(ENTITY_TYPE_DB, "drop_view", EntityType.VIEW);
@@ -1268,9 +1254,8 @@ public class UserTablesServiceTest {
   }
 
   /**
-   * The cross-type write guard runs on the stamped type before version mapping, so an occupant of
-   * the other type is a conflict rather than a stale-version conflict, and is left byte-identical.
-   * The request states the version the occupant actually holds, so only the type can reject it.
+   * The request states the version the occupant actually holds, so only the type can reject it —
+   * which is what pins the guard as running before version mapping.
    */
   @Test
   public void testTablePutAtViewKeyIsAlreadyExistsAndLeavesTheViewUnchanged() {
@@ -1414,9 +1399,8 @@ public class UserTablesServiceTest {
   }
 
   /**
-   * A restored row is reconstructed as a table. The soft-delete store has no discriminator column,
-   * so without an explicit constant the restore would write a null straight back and undo every
-   * migration-on-write this ticket performs.
+   * Without an explicit constant the restore would write a null straight back, reintroducing the
+   * legacy-null population this change closes.
    */
   @Test
   public void testRestoreReconstructsTableType() {
@@ -1493,10 +1477,7 @@ public class UserTablesServiceTest {
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "svc_rename_corrupt")).isEqualTo("UNKNOWN");
   }
 
-  /**
-   * Migration on rename through the service. Hydrated equality would be tautological here, so the
-   * raw column is what proves the controller-owned constant was bound and written.
-   */
+  /** Hydrated equality would be tautological; the raw column proves the constant was written. */
   @Test
   public void testRenameUserTableStampsCanonicalTableOnLegacyRow() {
     insertRawEntityType(ENTITY_TYPE_DB, "svc_rename_legacy", null);

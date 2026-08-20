@@ -165,10 +165,7 @@ public class OpenHouseUserTableHtsApiHandler implements UserTableHtsApiHandler {
     return put(userTable);
   }
 
-  /**
-   * Both typed writes share one save primitive: the controller has already stamped the type, so
-   * there is nothing left here that depends on which route the request arrived on.
-   */
+  /** Both typed writes share one primitive: the controller has already stamped the type. */
   private ApiResponse<EntityResponseBody<UserTable>> put(UserTable userTable) {
     userTablesHtsApiValidator.validatePutEntity(userTable);
     Pair<UserTableDto, Boolean> putResult = userTableService.putUserTable(userTable);

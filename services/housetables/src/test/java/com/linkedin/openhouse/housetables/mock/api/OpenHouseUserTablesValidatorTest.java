@@ -194,10 +194,9 @@ public class OpenHouseUserTablesValidatorTest {
   }
 
   /**
-   * Transport-level nullability is load-bearing for rolling deploys: HTS and the tables service are
-   * separate deployables, so an un-upgraded client will send no discriminator at all. Validation
-   * must not be what rejects that — the controller resolves it to the type its route serves before
-   * validation ever runs, so by the time the shared validator sees the payload it is already typed.
+   * Transport nullability is load-bearing for rolling deploys: an un-upgraded client sends no
+   * discriminator, and validation must not be what rejects it — the controller has already resolved
+   * it by then.
    *
    * <p>Preserved-behaviour regression test: it passes both before and after this change. It guards
    * the wire field staying nullable while the downstream mapper is tightened to reject null.
@@ -227,9 +226,8 @@ public class OpenHouseUserTablesValidatorTest {
   }
 
   /**
-   * The query endpoints are type-scoped by path, so an {@code entityType} filter is tolerated and
-   * ignored rather than rejected. Rejecting it would be a separate, deliberate choice; this pins
-   * that it has not been made by accident.
+   * Type-scoped by path, so an {@code entityType} filter is ignored rather than rejected. Rejecting
+   * it would be a separate, deliberate choice.
    *
    * <p>Preserved-behaviour regression test: it passes both before and after this change, because
    * the validator itself is deliberately untouched by this ticket.
