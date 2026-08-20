@@ -386,8 +386,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       fs.createNewFile(orphanFilePath);
       fs.createNewFile(dataManifestPath);
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(
-              table, System.currentTimeMillis(), true, BACKUP_DIR, 5, false, 20000);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), BACKUP_DIR, 5, false, 20000);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
       Assertions.assertTrue(
           fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
@@ -413,13 +412,12 @@ public class OperationsTest extends OpenHouseSparkITest {
       FileSystem fs = ops.fs();
       fs.createNewFile(orphanFilePath);
       fs.createNewFile(dataManifestPath);
-      ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR, 5, false, 20000);
+      ops.deleteOrphanFiles(table, System.currentTimeMillis(), BACKUP_DIR, 5, false, 20000);
       Path backupFilePath = new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName));
       Assertions.assertTrue(fs.exists(backupFilePath));
       // run delete operation again and verify that files in .backup are not listed as Orphan
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(
-              table, System.currentTimeMillis(), true, BACKUP_DIR, 5, false, 20000);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), BACKUP_DIR, 5, false, 20000);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
       Assertions.assertEquals(0, orphanFiles.size());
       Assertions.assertTrue(fs.exists(backupFilePath));
@@ -442,8 +440,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       fs.createNewFile(orphanFilePath);
       fs.createNewFile(dataManifestPath);
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(
-              table, System.currentTimeMillis(), true, BACKUP_DIR, 5, false, 20000);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), BACKUP_DIR, 5, false, 20000);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
       Assertions.assertFalse(
           fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
@@ -455,7 +452,12 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testOrphanFilesDeletionBackupDisabled() throws Exception {
+  public void testOrphanFilesDeletionMovesToBackupWhenManifestExistsRegardlessOfBackupFlag()
+      throws Exception {
+    // Regression test: a user reduces retention with backup enabled (which writes a data manifest
+    // into the backup dir), then raises retention and disables backup. Partitions that already
+    // expired still have a data manifest under the backup dir. The OFD job must move those orphan
+    // files to backup rather than delete them, even though backup is no longer enabled.
     final String tableName = "db.test_ofd";
     final String testOrphanFileName = "data/test_orphan_file.orc";
     final int numInserts = 3;
@@ -470,10 +472,10 @@ public class OperationsTest extends OpenHouseSparkITest {
       fs.createNewFile(orphanFilePath);
       fs.createNewFile(dataManifestPath);
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(
-              table, System.currentTimeMillis(), false, BACKUP_DIR, 5, false, 20000);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), BACKUP_DIR, 5, false, 20000);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
-      Assertions.assertFalse(
+      // File is moved to backup (not deleted) because a data manifest exists for the partition.
+      Assertions.assertTrue(
           fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
       Assertions.assertEquals(1, orphanFiles.size());
       Assertions.assertTrue(
@@ -496,8 +498,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       FileSystem fs = ops.fs();
       fs.createNewFile(orphanFilePath);
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(
-              table, System.currentTimeMillis(), true, BACKUP_DIR, 5, false, 20000);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), BACKUP_DIR, 5, false, 20000);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
       Assertions.assertFalse(
           fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
@@ -815,7 +816,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       fs.createNewFile(dataManifestPath);
       log.info("Created orphan file {}", testOrphanFile1);
       log.info("Created orphan file {}", testOrphanFile2);
-      ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, TRASH_DIR, 5, false, 20000);
+      ops.deleteOrphanFiles(table, System.currentTimeMillis(), TRASH_DIR, 5, false, 20000);
       Assertions.assertTrue(
           fs.exists(new Path(table.location(), (new Path(TRASH_DIR, testOrphanFile1)))));
       Assertions.assertTrue(

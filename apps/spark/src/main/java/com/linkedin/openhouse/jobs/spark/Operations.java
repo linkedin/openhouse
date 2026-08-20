@@ -104,13 +104,16 @@ public final class Operations implements AutoCloseable {
   }
 
   /**
-   * Run DeleteOrphanFiles operation on the given table with time filter, moves data files to the
-   * given backup directory if backup is enabled. It moves files older than the provided timestamp.
+   * Run DeleteOrphanFiles operation on the given table with time filter. An orphan data file is
+   * moved to the given backup directory whenever a data manifest exists for its partition under
+   * that directory, otherwise it is deleted. The move happens regardless of whether backup is
+   * currently enabled for the OFD job: the presence of a manifest (written by a previous retention
+   * run with backup enabled) is what marks the files for preservation. It processes files older
+   * than the provided timestamp.
    */
   public DeleteOrphanFiles.Result deleteOrphanFiles(
       Table table,
       long olderThanTimestampMillis,
-      boolean backupEnabled,
       String backupDir,
       int concurrentDeletes,
       boolean streamResults,
@@ -144,9 +147,9 @@ public final class Operations implements AutoCloseable {
                 // files present in .backup dir should not be considered orphan
                 log.info("Skipped deleting backup file {}", file);
               } else if (file.contains(dataDirRoot.toString())
-                  && backupEnabled
                   && isExistBackupDataManifests(table, file, backupDir, dataManifestsCache)) {
-                // move data files to backup dir if backup is enabled
+                // move data files to backup dir when a data manifest exists for the partition,
+                // regardless of whether backup is currently enabled for the OFD job
                 Path backupFilePath = getTrashPath(table, file, backupDir);
                 log.info("Moving orphan file {} to {}", file, backupFilePath);
                 try {
