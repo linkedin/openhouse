@@ -13,7 +13,6 @@ import com.linkedin.openhouse.housetables.api.handler.UserTableHtsApiHandler;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateUpdateEntityRequestBody;
 import com.linkedin.openhouse.housetables.mock.MockUserTableHtsApiHandler;
-import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.TestHtsApiConstants;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -103,8 +102,8 @@ public class UserHouseTablesControllerTest {
   }
 
   /**
-   * The rename route owns the type it operates on. The controller binds it before dispatch, so the
-   * handler never has to infer it and no caller can supply it.
+   * The rename route owns the type it operates on. The controller calls the table-typed handler
+   * method, so the handler never has to infer the type and no caller can supply it.
    */
   @Test
   public void testRenameThreadsTheControllerOwnedTableType() throws Exception {
@@ -119,7 +118,8 @@ public class UserHouseTablesControllerTest {
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isNoContent());
 
-    Assertions.assertEquals(EntityType.TABLE, mockHandler().getLastRenameEntityType());
+    Assertions.assertEquals(TEST_DB_ID, mockHandler().getLastRenameFromTable().getDatabaseId());
+    Assertions.assertEquals(TEST_TABLE_ID, mockHandler().getLastRenameFromTable().getTableId());
   }
 
   /** The neutral occupancy route is wired to its own handler method, not to the table read. */

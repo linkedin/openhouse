@@ -6,7 +6,6 @@ import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTableKey;
 import com.linkedin.openhouse.housetables.api.spec.response.EntityResponseBody;
 import com.linkedin.openhouse.housetables.api.spec.response.GetAllEntityResponseBody;
-import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.TestHtsApiConstants;
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
@@ -14,10 +13,10 @@ import org.springframework.http.HttpStatus;
 public class MockUserTableHtsApiHandler implements UserTableHtsApiHandler {
 
   /**
-   * The rename route owns the type it operates on, so the routing tests need to see what the
-   * controller threaded down rather than infer it from a status code.
+   * The rename route is table-typed by the method the controller calls, so the routing tests need
+   * to see that the typed method was the one that ran.
    */
-  @Getter private EntityType lastRenameEntityType;
+  @Getter private UserTable lastRenameFromTable;
 
   /** The typed PUT routes stamp before dispatch; this records what actually arrived. */
   @Getter private UserTable lastPutEntity;
@@ -110,9 +109,8 @@ public class MockUserTableHtsApiHandler implements UserTableHtsApiHandler {
   }
 
   @Override
-  public ApiResponse<Void> renameEntity(
-      UserTable fromUserTable, UserTable toUserTable, EntityType entityType) {
-    this.lastRenameEntityType = entityType;
+  public ApiResponse<Void> renameTable(UserTable fromUserTable, UserTable toUserTable) {
+    this.lastRenameFromTable = fromUserTable;
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
   }
 }

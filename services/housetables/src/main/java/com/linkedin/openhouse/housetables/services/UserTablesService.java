@@ -2,7 +2,6 @@ package com.linkedin.openhouse.housetables.services;
 
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
-import com.linkedin.openhouse.housetables.model.EntityType;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.util.Pair;
@@ -90,15 +89,13 @@ public interface UserTablesService {
    * @param toTableId The new tableId of the renamed row.
    * @param metadataLocation The new metadata file of the table with updated table properties for
    *     updated ids.
-   * @param entityType Bound by the controller from the route it serves, never by a caller.
    */
   void renameUserTable(
       String fromDatabaseId,
       String fromTableId,
       String toDatabaseId,
       String toTableId,
-      String metadataLocation,
-      EntityType entityType);
+      String metadataLocation);
 
   /**
    * Restore a soft-deleted user table identified by its databaseId, tableId, and deletedAtMs

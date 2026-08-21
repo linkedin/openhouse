@@ -5,12 +5,10 @@ import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTableKey;
 import com.linkedin.openhouse.housetables.api.spec.response.EntityResponseBody;
 import com.linkedin.openhouse.housetables.api.spec.response.GetAllEntityResponseBody;
-import com.linkedin.openhouse.housetables.model.EntityType;
 
 /**
  * Invocation of generic type {@link HouseTablesApiHandler} using {@link UserTable} as the entity
- * type. Type is selected by which method is called, never by an argument; {@link #renameEntity} is
- * the one exception, and its type is bound by the controller rather than by a caller.
+ * type. Type is selected by which method is called, never by an argument.
  */
 public interface UserTableHtsApiHandler extends HouseTablesApiHandler<UserTableKey, UserTable> {
 
@@ -35,16 +33,16 @@ public interface UserTableHtsApiHandler extends HouseTablesApiHandler<UserTableK
   /** Always hard: views have no soft-deleted store, hence no soft-delete flag. */
   ApiResponse<Void> deleteView(UserTableKey key);
 
-  /** Only TABLE is ever passed: views are not renameable, so no view rename route exists. */
-  ApiResponse<Void> renameEntity(UserTable fromEntity, UserTable toEntity, EntityType entityType);
+  /** Views are not renameable; a {@code renameView} would be the counterpart if that changes. */
+  ApiResponse<Void> renameTable(UserTable fromEntity, UserTable toEntity);
 
   /**
-   * Sealed in favour of the typed overload. The shared {@link HouseTablesApiHandler} keeps a
+   * Sealed in favour of {@link #renameTable}. The shared {@link HouseTablesApiHandler} keeps a
    * neutral rename because jobs and toggles have no discriminator; for this entity a rename that
    * does not state a type is exactly what must not be exposed.
    */
   @Override
   default ApiResponse<Void> renameEntity(UserTable fromEntity, UserTable toEntity) {
-    throw new UnsupportedOperationException("Use renameEntity(from, to, entityType)");
+    throw new UnsupportedOperationException("Use renameTable(from, to)");
   }
 }

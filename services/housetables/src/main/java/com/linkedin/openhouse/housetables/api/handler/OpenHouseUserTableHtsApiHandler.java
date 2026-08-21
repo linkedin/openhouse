@@ -8,7 +8,6 @@ import com.linkedin.openhouse.housetables.api.spec.response.GetAllEntityResponse
 import com.linkedin.openhouse.housetables.api.validator.HouseTablesApiValidator;
 import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
-import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.services.UserTablesService;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -179,8 +178,7 @@ public class OpenHouseUserTableHtsApiHandler implements UserTableHtsApiHandler {
   }
 
   @Override
-  public ApiResponse<Void> renameEntity(
-      UserTable fromUserTable, UserTable toUserTable, EntityType entityType) {
+  public ApiResponse<Void> renameTable(UserTable fromUserTable, UserTable toUserTable) {
     UserTableKey fromUserTableKey =
         UserTableKey.builder()
             .databaseId(fromUserTable.getDatabaseId())
@@ -197,8 +195,7 @@ public class OpenHouseUserTableHtsApiHandler implements UserTableHtsApiHandler {
         fromUserTable.getTableId(),
         toUserTable.getDatabaseId(),
         toUserTable.getTableId(),
-        toUserTable.getMetadataLocation(),
-        entityType);
+        toUserTable.getMetadataLocation());
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
   }
 }

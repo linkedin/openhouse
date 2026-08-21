@@ -186,7 +186,6 @@ public class UserTablesServiceImpl implements UserTablesService {
    * @param toTableId The new tableId of the renamed row.
    * @param metadataLocation The new metadata file of the table with updated table properties that
    *     match the new tableId
-   * @param entityType Bound into the conditional update, so a table rename cannot move a view.
    */
   @Override
   public void renameUserTable(
@@ -194,8 +193,7 @@ public class UserTablesServiceImpl implements UserTablesService {
       String fromTableId,
       String toDatabaseId,
       String toTableId,
-      String metadataLocation,
-      EntityType entityType) {
+      String metadataLocation) {
     // No source precheck: the conditional update is the check, which closes the TOCTOU window.
     try {
       log.info(
@@ -207,8 +205,14 @@ public class UserTablesServiceImpl implements UserTablesService {
       // Use fromDatabaseId for destination db to preserve the original case of the database
       // TODO: Use toDataBaseId for destination instead of fromDatabaseId once rename across
       // databases is supported
+      // The constant stays bound at the repository call: a table rename must not move a view.
       if (htsJdbcRepository.renameTableId(
-              fromDatabaseId, fromTableId, fromDatabaseId, toTableId, metadataLocation, entityType)
+              fromDatabaseId,
+              fromTableId,
+              fromDatabaseId,
+              toTableId,
+              metadataLocation,
+              EntityType.TABLE)
           == 0) {
         throw new NoSuchUserTableException(fromDatabaseId, fromTableId);
       }

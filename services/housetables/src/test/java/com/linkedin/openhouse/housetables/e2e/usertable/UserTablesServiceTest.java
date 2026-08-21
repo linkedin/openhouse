@@ -398,8 +398,7 @@ public class UserTablesServiceTest {
         TEST_TUPLE_1_0.getTableId(),
         TEST_TUPLE_1_0.getDatabaseId(),
         newTableName,
-        newMetadataLocation,
-        EntityType.TABLE);
+        newMetadataLocation);
 
     // check if the table is renamed
     UserTableDto result =
@@ -429,8 +428,7 @@ public class UserTablesServiceTest {
               TEST_TUPLE_1_0.getTableId(),
               TEST_TUPLE_1_0.getDatabaseId(),
               TEST_TUPLE_2_0.getTableId(),
-              TEST_TUPLE_2_0.getTableLoc(),
-              EntityType.TABLE);
+              TEST_TUPLE_2_0.getTableLoc());
         });
 
     Assertions.assertThrows(
@@ -911,8 +909,7 @@ public class UserTablesServiceTest {
                 "rename_src_table",
                 ENTITY_TYPE_DB,
                 "rename_dst_view",
-                "/openhouse/entity_type_db/rename_dst_view/v1_metadata.json",
-                EntityType.TABLE));
+                "/openhouse/entity_type_db/rename_dst_view/v1_metadata.json"));
 
     UserTableRow sourceAfter = findRow(ENTITY_TYPE_DB, "rename_src_table");
     UserTableRow destinationAfter = findRow(ENTITY_TYPE_DB, "rename_dst_view");
@@ -1444,8 +1441,7 @@ public class UserTablesServiceTest {
                 "svc_rename_view",
                 ENTITY_TYPE_DB,
                 "svc_rename_view_moved",
-                "/openhouse/entity_type_db/svc_rename_view_moved/v1_metadata.json",
-                EntityType.TABLE));
+                "/openhouse/entity_type_db/svc_rename_view_moved/v1_metadata.json"));
 
     assertThat(findRow(ENTITY_TYPE_DB, "svc_rename_view").getEntityType())
         .isEqualTo(EntityType.VIEW);
@@ -1470,8 +1466,7 @@ public class UserTablesServiceTest {
                 "svc_rename_corrupt",
                 ENTITY_TYPE_DB,
                 "svc_rename_corrupt_moved",
-                "/openhouse/entity_type_db/svc_rename_corrupt_moved/v1_metadata.json",
-                EntityType.TABLE));
+                "/openhouse/entity_type_db/svc_rename_corrupt_moved/v1_metadata.json"));
 
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "svc_rename_corrupt")).isEqualTo("UNKNOWN");
   }
@@ -1488,8 +1483,7 @@ public class UserTablesServiceTest {
                 "svc_rename_legacy",
                 ENTITY_TYPE_DB,
                 "svc_rename_legacy_moved",
-                "/openhouse/entity_type_db/svc_rename_legacy_moved/v1_metadata.json",
-                EntityType.TABLE));
+                "/openhouse/entity_type_db/svc_rename_legacy_moved/v1_metadata.json"));
 
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "svc_rename_legacy_moved")).isEqualTo("TABLE");
   }
@@ -1505,8 +1499,7 @@ public class UserTablesServiceTest {
                 "svc_rename_absent",
                 ENTITY_TYPE_DB,
                 "svc_rename_absent_moved",
-                "/openhouse/entity_type_db/svc_rename_absent_moved/v1_metadata.json",
-                EntityType.TABLE));
+                "/openhouse/entity_type_db/svc_rename_absent_moved/v1_metadata.json"));
   }
 
   /**
@@ -1530,8 +1523,7 @@ public class UserTablesServiceTest {
                 "svc_rename_src_for_corrupt",
                 ENTITY_TYPE_DB,
                 "svc_rename_dst_corrupt",
-                "/openhouse/entity_type_db/svc_rename_dst_corrupt/v1_metadata.json",
-                EntityType.TABLE));
+                "/openhouse/entity_type_db/svc_rename_dst_corrupt/v1_metadata.json"));
 
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "svc_rename_src_for_corrupt")).isEqualTo("TABLE");
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "svc_rename_dst_corrupt")).isEqualTo("UNKNOWN");
