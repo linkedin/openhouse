@@ -9,14 +9,13 @@ import com.linkedin.openhouse.tables.api.handler.IcebergRestApiHandler;
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
+import com.linkedin.openhouse.tables.generated.iceberg.IcebergRestOpenHouseSupport;
 import com.linkedin.openhouse.tables.generated.iceberg.model.CatalogConfig;
 import com.linkedin.openhouse.tables.generated.iceberg.model.ListTablesResponse;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.stream.Collectors;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -37,12 +36,6 @@ public class OpenHouseIcebergRestApiHandler implements IcebergRestApiHandler {
   static final int DEFAULT_PAGE_SIZE = 100;
   static final int MAX_PAGE_SIZE = 1000;
   private static final String PAGE_TOKEN_VERSION = "v1";
-  private static final List<String> SUPPORTED_ENDPOINTS =
-      Collections.unmodifiableList(
-          Arrays.asList(
-              "GET /v1/{prefix}/namespaces/{namespace}/tables",
-              "GET /v1/{prefix}/namespaces/{namespace}/tables/{table}",
-              "HEAD /v1/{prefix}/namespaces/{namespace}/tables/{table}"));
 
   private final TablesApiHandler tablesApiHandler;
   private final OpenHouseInternalCatalog openHouseInternalCatalog;
@@ -57,7 +50,7 @@ public class OpenHouseIcebergRestApiHandler implements IcebergRestApiHandler {
   public CatalogConfig getConfig(String warehouse) {
     return new CatalogConfig(
             Collections.singletonMap("prefix", ICEBERG_REST_PREFIX), Collections.emptyMap())
-        .endpoints(SUPPORTED_ENDPOINTS);
+        .endpoints(IcebergRestOpenHouseSupport.SUPPORTED_ENDPOINTS);
   }
 
   @Override

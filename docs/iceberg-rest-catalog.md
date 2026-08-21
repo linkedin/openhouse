@@ -48,25 +48,19 @@ authorization, lock visibility, and table-read audit behavior.
 
 ## Contract maintenance
 
-`spec/iceberg-rest-catalog-open-api.yaml` is the checked-in Phase 1 read-only profile. The Gradle
-build verifies its checksum and generates Spring interfaces from it; it does not regenerate the
-YAML.
+`spec/iceberg-rest-catalog-open-api.yaml` is the full Apache Iceberg REST OpenAPI with OpenHouse
+support declared per operation:
 
-To bump Iceberg OpenAPI (same Phase 1 allowlist):
-
-```bash
-# either
-python3 spec/upgrade_iceberg_rest_profile.py --tag apache-iceberg-1.12.0
-# or
-./gradlew :services:tables:upgradeIcebergRestProfile -PicebergRestTag=apache-iceberg-1.12.0
-
-./gradlew :services:tables:icebergRestValidateSpec :services:tables:compileJava
+```yaml
+operationId: listTables
+x-openhouse-support: supported   # or unsupported
 ```
 
-The upgrade tool downloads upstream, keeps only the allowlisted operations in
-`spec/upgrade_iceberg_rest_profile.py` (`KEEP_OPERATIONS`), rewrites the checked-in YAML header, and
-updates `icebergRestSpecSha256` in `services/tables/build.gradle`. Review generated signature
-drift, then keep `SUPPORTED_ENDPOINTS` aligned with implemented routes.
+The build asserts every operation is annotated, codegens Spring interfaces only for `supported`
+operations, and generates `IcebergRestOpenHouseSupport.SUPPORTED_ENDPOINTS` for `/v1/config`.
+Marking a new operation `supported` (or changing a supported signature) fails compilation until the
+facade implements it. New upstream operations without annotations fail the build.
 
-To add a new resource, extend `KEEP_OPERATIONS`, re-run the upgrade, implement the handler, and
-advertise the endpoint.
+To upgrade Iceberg OpenAPI: merge the newer upstream YAML into the checked-in file, keep/adjust
+`x-openhouse-support` markers, update the pinned checksum in `services/tables/build.gradle`, then
+compile.
