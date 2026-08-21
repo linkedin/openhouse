@@ -34,6 +34,9 @@ public final class CatalogConstants {
 
   public static final String WAP_ENABLED_TABLE_PROP = "write.wap.enabled";
 
+  public static final String FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP =
+      "feature.compatibility.validation.disabled";
+
   static final String FEATURE_TOGGLE_STOP_CREATE = "stop_create";
 
   static final String CLIENT_TABLE_SCHEMA = "client.table.schema";
