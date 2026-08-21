@@ -30,24 +30,26 @@ openApi {
   apiDocsUrl.set("http://localhost:8000/v3/api-docs")
 }
 
+/**
+ * Iceberg REST OpenAPI is checked in at spec/iceberg-rest-catalog-open-api.yaml (full Apache
+ * Iceberg contract). Each operation declares OpenHouse support with:
+ *
+ *   x-openhouse-support: supported | unsupported
+ *
+ * The build asserts every operation is annotated, codegens only supported operations into Spring
+ * interfaces, and emits IcebergRestOpenHouseSupport.SUPPORTED_ENDPOINTS for /v1/config. Marking a
+ * new operation supported (or changing a supported signature) fails compilation until the facade
+ * implements it. Upgrade by merging a newer Iceberg OpenAPI into the YAML and annotating new ops.
+ */
 def icebergRestSpec = file("${rootDir}/spec/iceberg-rest-catalog-open-api.yaml")
-// Checked-in Phase 1 read-only profile derived from apache-iceberg-1.11.0 (see header in the YAML).
-def icebergRestSpecSha256 = "ac05c48f73349712eb5383dd5799383a8e1471cb288df708a7dbf31fb12d171e"
+def icebergRestSpecSha256 = "96acc943e2c5986a9df961129c49f84a21aaa916e753758933087a616b843940"
 def openApiCliVersion = "7.12.0"
 def generatedIcebergRestDir = "${buildDir}/generated/openapi/iceberg-rest-server"
+def icebergRestCodegenSpec = file("${buildDir}/iceberg-rest/codegen-open-api.yaml")
+def icebergRestSupportJavaDir = file("${buildDir}/generated/openapi/iceberg-rest-support/src/main/java")
 
-/**
- * The runtime Iceberg library has hand-written response classes that predate parts of the 1.11
- * REST contract. Compatible classes are reused directly. Config and list-table responses are
- * generated because the 1.5.2 runtime types do not expose endpoint capabilities or pagination
- * tokens.
- *
- * Codegen uses the checked-in Phase 1 read-only OpenAPI profile in
- * spec/iceberg-rest-catalog-open-api.yaml. That file is held constant at build
- * time; bump it with:
- *   ./gradlew :services:tables:upgradeIcebergRestProfile -PicebergRestTag=apache-iceberg-x.y.z
- * or python3 spec/upgrade_iceberg_rest_profile.py --tag apache-iceberg-x.y.z
- */
+def icebergHttpMethods = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace'] as Set
+
 // importMappings controls the `import` statement in generated files.
 // typeMappings controls the inline type name in method signatures and @Schema annotations.
 // Both are needed due to an openapi-generator bug — setting one does not update the other.
@@ -66,6 +68,11 @@ def icebergTypeMappings = [
 ].join(",")
 
 configurations {
+  icebergRestYaml {
+    canBeConsumed = false
+    canBeResolved = true
+    transitive = false
+  }
   icebergRestOpenApiGenerator {
     canBeConsumed = false
     canBeResolved = true
@@ -74,6 +81,7 @@ configurations {
 }
 
 dependencies {
+  icebergRestYaml 'org.yaml:snakeyaml:2.2'
   icebergRestOpenApiGenerator "org.openapitools:openapi-generator-cli:${openApiCliVersion}"
   compileOnly "io.opentelemetry.instrumentation:opentelemetry-instrumentation-annotations:${otel_annotations_version}"
   api project(':services:common')
@@ -93,8 +101,81 @@ dependencies {
   }
 }
 
+ext.icebergRestYaml = {
+  def urls = configurations.icebergRestYaml.files.collect { it.toURI().toURL() } as URL[]
+  def loader = new URLClassLoader(urls, ClassLoader.systemClassLoader)
+  return loader.loadClass('org.yaml.snakeyaml.Yaml').getDeclaredConstructor().newInstance()
+}
+
+ext.loadIcebergRestSpec = {
+  icebergRestSpec.withInputStream { input -> icebergRestYaml().load(input) as Map }
+}
+
+ext.collectIcebergRefs = { value, refs ->
+  if (value instanceof Map) {
+    def reference = value.get('$ref')
+    if (reference instanceof String) {
+      refs.add(reference)
+    }
+    value.values().each { collectIcebergRefs(it, refs) }
+  } else if (value instanceof List) {
+    value.each { collectIcebergRefs(it, refs) }
+  }
+}
+
+ext.resolveIcebergRef = { Map spec, String reference ->
+  def value = spec
+  reference.replaceFirst(/^#\//, '').split('/').each { part ->
+    value = value[part.replace('~1', '/').replace('~0', '~')]
+  }
+  return value
+}
+
+ext.referencedIcebergComponents = { Map spec, Map paths ->
+  def references = [] as Set
+  collectIcebergRefs(paths, references)
+  def pending = new ArrayDeque(references)
+  while (!pending.isEmpty()) {
+    def reference = pending.removeFirst()
+    def nested = [] as Set
+    collectIcebergRefs(resolveIcebergRef(spec, reference), nested)
+    nested.each { candidate ->
+      if (references.add(candidate)) {
+        pending.add(candidate)
+      }
+    }
+  }
+  def components = [:]
+  references.sort().each { reference ->
+    def parts = reference.replaceFirst(/^#\/components\//, '').split('/', 2)
+    if (parts.length != 2) {
+      return
+    }
+    def section = parts[0]
+    def name = parts[1]
+    if (!components.containsKey(section)) {
+      components[section] = [:]
+    }
+    components[section][name] = spec.components[section][name]
+  }
+  if (spec.security && spec.components?.securitySchemes) {
+    components.securitySchemes = spec.components.securitySchemes
+  }
+  return components
+}
+
+ext.eachIcebergOperation = { Map spec, Closure body ->
+  spec.paths.each { path, methods ->
+    methods.each { method, operation ->
+      if (method in icebergHttpMethods && operation instanceof Map) {
+        body(path as String, method as String, operation as Map)
+      }
+    }
+  }
+}
+
 tasks.register('icebergRestVerifySpec') {
-  description = 'Verify the checked-in Iceberg REST OpenAPI profile checksum'
+  description = 'Verify the checked-in Iceberg REST OpenAPI checksum'
   inputs.file(icebergRestSpec)
   doLast {
     def actualSha256 = java.security.MessageDigest.getInstance("SHA-256")
@@ -103,19 +184,140 @@ tasks.register('icebergRestVerifySpec') {
         .toString()
     if (actualSha256 != icebergRestSpecSha256) {
       throw new IllegalStateException(
-          "Iceberg REST OpenAPI profile checksum ${actualSha256} does not match the pinned " +
-          "apache-iceberg-1.11.0 Phase 1 profile checksum ${icebergRestSpecSha256}. " +
-          "Update the YAML and the pinned checksum together.")
+          "Iceberg REST OpenAPI checksum ${actualSha256} does not match the pinned checksum " +
+          "${icebergRestSpecSha256}. Update the YAML and pinned checksum together after merging " +
+          "upstream and annotating operations with x-openhouse-support.")
     }
   }
 }
 
-tasks.register('icebergRestValidateSpec', JavaExec) {
+tasks.register('icebergRestAssertSupportAnnotations') {
+  description = 'Assert every Iceberg REST operation declares x-openhouse-support'
   dependsOn tasks.named('icebergRestVerifySpec')
+  inputs.file(icebergRestSpec)
+  doLast {
+    def spec = loadIcebergRestSpec()
+    def missing = []
+    def invalid = []
+    def supported = []
+    eachIcebergOperation(spec) { path, method, operation ->
+      def support = operation['x-openhouse-support']
+      if (support == null) {
+        missing << "${method.toUpperCase()} ${path}"
+      } else if (!(support in ['supported', 'unsupported'])) {
+        invalid << "${method.toUpperCase()} ${path} -> ${support}"
+      } else if (support == 'supported') {
+        supported << "${method.toUpperCase()} ${path} (${operation.operationId})"
+      }
+    }
+    if (!missing.isEmpty() || !invalid.isEmpty()) {
+      def message = new StringBuilder(
+          "Iceberg REST OpenAPI support annotations are incomplete. Mark every operation with " +
+          "x-openhouse-support: supported|unsupported.\n")
+      if (!missing.isEmpty()) {
+        message.append("Missing:\n  - ").append(missing.join("\n  - ")).append('\n')
+      }
+      if (!invalid.isEmpty()) {
+        message.append("Invalid:\n  - ").append(invalid.join("\n  - ")).append('\n')
+      }
+      throw new IllegalStateException(message.toString())
+    }
+    if (supported.isEmpty()) {
+      throw new IllegalStateException("No Iceberg REST operations are marked x-openhouse-support: supported")
+    }
+    logger.lifecycle("Iceberg REST supported operations:\n  - ${supported.join('\n  - ')}")
+  }
+}
+
+tasks.register('icebergRestPrepareCodegenSpec') {
+  description = 'Derive the codegen OpenAPI input from supported operations in the checked-in YAML'
+  dependsOn tasks.named('icebergRestAssertSupportAnnotations')
+  inputs.file(icebergRestSpec)
+  outputs.file(icebergRestCodegenSpec)
+  outputs.dir(icebergRestSupportJavaDir)
+  doLast {
+    def spec = loadIcebergRestSpec()
+    def paths = [:]
+    def usedTags = [] as Set
+    def advertisedEndpoints = []
+    eachIcebergOperation(spec) { path, method, operation ->
+      if (operation['x-openhouse-support'] != 'supported') {
+        return
+      }
+      if (!paths.containsKey(path)) {
+        def sourcePath = spec.paths[path]
+        def profilePath = [:]
+        if (sourcePath.parameters != null) {
+          profilePath.parameters = sourcePath.parameters
+        }
+        paths[path] = profilePath
+      }
+      paths[path][method] = operation
+      if (operation.tags instanceof List) {
+        usedTags.addAll(operation.tags)
+      }
+      // /v1/config is required but is not part of the Iceberg endpoints advertisement list.
+      if (operation.operationId != 'getConfig') {
+        advertisedEndpoints << "${method.toUpperCase()} ${path}"
+      }
+    }
+
+    def info = new LinkedHashMap(spec.info as Map)
+    info.title = 'OpenHouse Iceberg REST Catalog (supported operations)'
+    info.description =
+        'Codegen input derived at build time from operations marked ' +
+        'x-openhouse-support: supported in the checked-in Iceberg REST OpenAPI.'
+    def codegenSpec = [
+        openapi   : spec.openapi,
+        info      : info,
+        paths     : paths,
+        components: referencedIcebergComponents(spec, paths),
+    ]
+    ['servers', 'security'].each { key ->
+      if (spec[key] != null) {
+        codegenSpec[key] = spec[key]
+      }
+    }
+    if (spec.tags instanceof List) {
+      codegenSpec.tags = spec.tags.findAll { tag -> usedTags.contains(tag.name) }
+    }
+
+    icebergRestCodegenSpec.parentFile.mkdirs()
+    icebergRestCodegenSpec.text = icebergRestYaml().dump(codegenSpec)
+
+    def supportPackageDir = new File(icebergRestSupportJavaDir, 'com/linkedin/openhouse/tables/generated/iceberg')
+    supportPackageDir.mkdirs()
+    def endpointLiterals = advertisedEndpoints.collect { "\"${it}\"" }.join(",\n          ")
+    new File(supportPackageDir, 'IcebergRestOpenHouseSupport.java').text = """\
+package com.linkedin.openhouse.tables.generated.iceberg;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
+/**
+ * Generated from x-openhouse-support annotations in spec/iceberg-rest-catalog-open-api.yaml.
+ * Do not edit; change annotations and rebuild.
+ */
+public final class IcebergRestOpenHouseSupport {
+  private IcebergRestOpenHouseSupport() {}
+
+  /** Endpoint strings advertised by GET /v1/config (excludes getConfig itself). */
+  public static final List<String> SUPPORTED_ENDPOINTS =
+      Collections.unmodifiableList(
+          Arrays.asList(
+          ${endpointLiterals}));
+}
+"""
+  }
+}
+
+tasks.register('icebergRestValidateSpec', JavaExec) {
+  dependsOn tasks.named('icebergRestPrepareCodegenSpec')
   classpath = configurations.icebergRestOpenApiGenerator
   mainClass.set("org.openapitools.codegen.OpenAPIGenerator")
-  args "validate", "-i", icebergRestSpec.absolutePath
-  inputs.file(icebergRestSpec)
+  args "validate", "-i", icebergRestCodegenSpec.absolutePath
+  inputs.file(icebergRestCodegenSpec)
   inputs.files(configurations.icebergRestOpenApiGenerator)
 }
 
@@ -128,7 +330,7 @@ tasks.register('icebergRestCodegen', JavaExec) {
   mainClass.set("org.openapitools.codegen.OpenAPIGenerator")
   args "generate",
       "-g", "spring",
-      "-i", icebergRestSpec.absolutePath,
+      "-i", icebergRestCodegenSpec.absolutePath,
       "-o", generatedIcebergRestDir,
       "--api-package", "com.linkedin.openhouse.tables.generated.iceberg.api",
       "--model-package", "com.linkedin.openhouse.tables.generated.iceberg.model",
@@ -138,38 +340,19 @@ tasks.register('icebergRestCodegen', JavaExec) {
       "apis,models=CatalogConfig:ListTablesResponse,apiTests=false,apiDocs=false,modelTests=false,modelDocs=false,supportingFiles=",
       "--additional-properties",
       "interfaceOnly=true,useTags=true,skipDefaultInterface=false,hideGenerationTimestamp=true,useSpringBoot3=false,openApiNullable=false"
-  inputs.file(icebergRestSpec)
+  inputs.file(icebergRestCodegenSpec)
   inputs.files(configurations.icebergRestOpenApiGenerator)
   outputs.dir(generatedIcebergRestDir)
 }
 
 tasks.named('compileJava') {
   dependsOn tasks.named('icebergRestCodegen')
+  dependsOn tasks.named('icebergRestPrepareCodegenSpec')
   source "${generatedIcebergRestDir}/src/main/java"
+  source icebergRestSupportJavaDir
 }
 
 tasks.named('check') {
+  dependsOn tasks.named('icebergRestAssertSupportAnnotations')
   dependsOn tasks.named('icebergRestValidateSpec')
-}
-
-/**
- * Maintainer helper — not part of check/build. Regenerates the checked-in Phase 1
- * OpenAPI profile from an Apache Iceberg tag and updates the pinned checksum.
- *
- *   ./gradlew :services:tables:upgradeIcebergRestProfile -PicebergRestTag=apache-iceberg-1.12.0
- */
-tasks.register('upgradeIcebergRestProfile', Exec) {
-  description = 'Regenerate the checked-in Iceberg REST Phase 1 OpenAPI profile from an Iceberg tag'
-  group = 'OpenHouse Iceberg REST'
-  workingDir = rootDir
-  // Tag is read at execution time so ordinary builds are unaffected.
-  commandLine 'python3', 'spec/upgrade_iceberg_rest_profile.py', '--tag', 'PLACEHOLDER'
-  doFirst {
-    def tag = findProperty('icebergRestTag')
-    if (tag == null || tag.toString().trim().isEmpty()) {
-      throw new GradleException(
-          "Set -PicebergRestTag=<apache-iceberg-x.y.z>, e.g. -PicebergRestTag=apache-iceberg-1.12.0")
-    }
-    commandLine 'python3', 'spec/upgrade_iceberg_rest_profile.py', '--tag', tag.toString()
-  }
 }
