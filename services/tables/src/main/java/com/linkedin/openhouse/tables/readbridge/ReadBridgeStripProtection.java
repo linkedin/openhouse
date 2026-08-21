@@ -60,14 +60,14 @@ public class ReadBridgeStripProtection {
       return incoming;
     }
     try {
-      Map<Integer, String> previous =
+      Map<Integer, String> previousStamped =
           existing == null ? Collections.emptyMap() : resolver.stampedColumnDefaults(existing);
       Map<Integer, String> incomingStamped = resolver.stampedColumnDefaults(incoming);
       if (existing != null) {
-        rejectRemovedDefaults(previous, incomingStamped, incoming);
-        rejectUnawareRewrite(previous, incoming);
+        rejectRemovedDefaults(previousStamped, incomingStamped, incoming);
+        rejectUnawareRewrite(previousStamped, incoming);
       }
-      return stripStampedDefaults(previous, incomingStamped, incoming);
+      return stripStampedDefaults(previousStamped, incomingStamped, incoming);
     } catch (UnsupportedClientOperationException e) {
       throw e;
     } catch (IllegalStateException e) {
@@ -77,13 +77,15 @@ public class ReadBridgeStripProtection {
   }
 
   private void rejectRemovedDefaults(
-      Map<Integer, String> previous, Map<Integer, String> incomingStamped, TableDto incoming) {
-    if (previous.isEmpty() || !resolver.isRampedForCommit(incoming)) {
+      Map<Integer, String> previousStamped,
+      Map<Integer, String> incomingStamped,
+      TableDto incoming) {
+    if (previousStamped.isEmpty() || !resolver.isRampedForCommit(incoming)) {
       return;
     }
     JsonNode schema = tree(incoming.getSchema());
     Set<Integer> remaining = fieldIds(schema);
-    for (Integer fieldId : previous.keySet()) {
+    for (Integer fieldId : previousStamped.keySet()) {
       if (remaining.contains(fieldId) && !incomingStamped.containsKey(fieldId)) {
         throw new UnsupportedClientOperationException(
             UnsupportedClientOperationException.Operation.COLUMN_DEFAULT_REMOVED,
@@ -98,13 +100,13 @@ public class ReadBridgeStripProtection {
     }
   }
 
-  private void rejectUnawareRewrite(Map<Integer, String> previous, TableDto incoming) {
-    if (previous.isEmpty() || !isRewrite(incoming)) {
+  private void rejectUnawareRewrite(Map<Integer, String> previousStamped, TableDto incoming) {
+    if (previousStamped.isEmpty() || !isRewrite(incoming)) {
       return;
     }
     JsonNode schema = tree(incoming.getSchema());
     Set<Integer> remaining = fieldIds(schema);
-    for (Map.Entry<Integer, String> stamp : previous.entrySet()) {
+    for (Map.Entry<Integer, String> stamp : previousStamped.entrySet()) {
       if (!remaining.contains(stamp.getKey())) {
         continue;
       }
@@ -125,9 +127,11 @@ public class ReadBridgeStripProtection {
   }
 
   private TableDto stripStampedDefaults(
-      Map<Integer, String> previous, Map<Integer, String> incomingStamped, TableDto incoming) {
+      Map<Integer, String> previousStamped,
+      Map<Integer, String> incomingStamped,
+      TableDto incoming) {
     Set<Integer> stripIds = new HashSet<>();
-    stripIds.addAll(previous.keySet());
+    stripIds.addAll(previousStamped.keySet());
     stripIds.addAll(incomingStamped.keySet());
     if (stripIds.isEmpty()) {
       return incoming;
