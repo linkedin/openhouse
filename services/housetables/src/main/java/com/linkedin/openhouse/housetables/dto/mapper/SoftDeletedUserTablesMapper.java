@@ -16,10 +16,6 @@ public interface SoftDeletedUserTablesMapper {
   // Default to 7 days in seconds
   static final int DEFAULT_PURGE_AFTER_SECONDS = 7 * 24 * 60 * 60;
 
-  /**
-   * Dropping the discriminator is intentional and lossless: views are hard deleted, so this store
-   * can only ever hold tables.
-   */
   SoftDeletedUserTableRow toSoftDeletedUserTableRow(UserTableRow userTableRow);
 
   @Mapping(target = "tableVersion", source = "metadataLocation")
