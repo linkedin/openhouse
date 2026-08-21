@@ -86,12 +86,14 @@ public class OpenHouseIcebergRestApiHandler implements IcebergRestApiHandler {
       String table,
       String accessDelegation,
       String ifNoneMatch,
-      String snapshots) {
+      String snapshots,
+      String referencedBy) {
     validatePrefix(prefix);
     if (snapshots != null && !"all".equals(snapshots)) {
       throw new UnsupportedOperationException(
           "The snapshots=refs projection is not supported by this catalog");
     }
+    // Iceberg 1.11 loadTable may send referenced-by for view-load chains; Phase 1 ignores it.
 
     Namespace icebergNamespace = decodeSingleLevelNamespace(namespace);
     String databaseId = icebergNamespace.level(0);

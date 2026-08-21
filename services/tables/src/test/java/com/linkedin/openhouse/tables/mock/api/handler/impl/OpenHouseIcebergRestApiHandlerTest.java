@@ -87,7 +87,8 @@ public class OpenHouseIcebergRestApiHandlerTest {
 
   @Test
   void rejectsUnsupportedSnapshotProjection() {
-    assertThatThrownBy(() -> handler.loadTable(ICEBERG_REST_PREFIX, "db", "t1", null, null, "refs"))
+    assertThatThrownBy(
+            () -> handler.loadTable(ICEBERG_REST_PREFIX, "db", "t1", null, null, "refs", null))
         .isInstanceOf(UnsupportedOperationException.class)
         .hasMessageContaining("snapshots=refs");
   }
@@ -108,7 +109,7 @@ public class OpenHouseIcebergRestApiHandlerTest {
 
     assertThat(
             handler
-                .loadTable(ICEBERG_REST_PREFIX, "db", "t1", null, null, "all")
+                .loadTable(ICEBERG_REST_PREFIX, "db", "t1", null, null, "all", null)
                 .tableMetadata()
                 .location())
         .isEqualTo(metadata.location());

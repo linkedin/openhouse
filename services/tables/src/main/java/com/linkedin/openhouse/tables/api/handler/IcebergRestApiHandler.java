@@ -20,7 +20,8 @@ public interface IcebergRestApiHandler {
       String table,
       String accessDelegation,
       String ifNoneMatch,
-      String snapshots);
+      String snapshots,
+      String referencedBy);
 
   void tableExists(String prefix, String namespace, String table);
 }

@@ -101,6 +101,7 @@ public class IcebergRestCatalogControllerTest {
             eq("tb1"),
             nullable(String.class),
             nullable(String.class),
+            nullable(String.class),
             nullable(String.class)))
         .thenReturn(LoadTableResponse.builder().withTableMetadata(metadata).build());
 
@@ -120,6 +121,7 @@ public class IcebergRestCatalogControllerTest {
             eq("missing"),
             nullable(String.class),
             nullable(String.class),
+            nullable(String.class),
             nullable(String.class)))
         .thenThrow(new NoSuchTableException("Table does not exist"));
 
@@ -137,6 +139,7 @@ public class IcebergRestCatalogControllerTest {
             eq(ICEBERG_REST_PREFIX),
             eq("db"),
             eq("private"),
+            nullable(String.class),
             nullable(String.class),
             nullable(String.class),
             nullable(String.class)))

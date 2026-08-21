@@ -54,10 +54,17 @@ public class IcebergRestCatalogController implements CatalogApiApi, Configuratio
       String table,
       String xIcebergAccessDelegation,
       String ifNoneMatch,
-      String snapshots) {
+      String snapshots,
+      String referencedBy) {
     return ResponseEntity.ok(
         icebergRestApiHandler.loadTable(
-            prefix, namespace, table, xIcebergAccessDelegation, ifNoneMatch, snapshots));
+            prefix,
+            namespace,
+            table,
+            xIcebergAccessDelegation,
+            ifNoneMatch,
+            snapshots,
+            referencedBy));
   }
 
   @Override
