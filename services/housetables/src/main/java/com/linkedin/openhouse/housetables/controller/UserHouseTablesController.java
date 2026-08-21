@@ -284,7 +284,7 @@ public class UserHouseTablesController {
             .metadataLocation(metadataLocation)
             .build();
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
-        tableHtsApiHandler.renameTable(fromUserTable, toUserTable);
+        tableHtsApiHandler.renameEntity(fromUserTable, toUserTable);
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

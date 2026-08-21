@@ -178,7 +178,7 @@ public class OpenHouseUserTableHtsApiHandler implements UserTableHtsApiHandler {
   }
 
   @Override
-  public ApiResponse<Void> renameTable(UserTable fromUserTable, UserTable toUserTable) {
+  public ApiResponse<Void> renameEntity(UserTable fromUserTable, UserTable toUserTable) {
     UserTableKey fromUserTableKey =
         UserTableKey.builder()
             .databaseId(fromUserTable.getDatabaseId())

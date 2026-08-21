@@ -9,6 +9,12 @@ import com.linkedin.openhouse.housetables.api.spec.response.GetAllEntityResponse
 /**
  * Invocation of generic type {@link HouseTablesApiHandler} using {@link UserTable} as the entity
  * type. Type is selected by which method is called, never by an argument.
+ *
+ * <p>An unqualified "entity" in this interface denotes a table, so {@code getEntity}, {@code
+ * getEntities}, {@code putEntity}, {@code deleteEntity} and {@code renameEntity} all operate on
+ * tables; view-scoped operations say so explicitly ({@code getViewEntity}, {@code getViewEntities},
+ * {@code putView}, {@code deleteView}). {@code getNeutralEntity} is the one operation spanning both
+ * types.
  */
 public interface UserTableHtsApiHandler extends HouseTablesApiHandler<UserTableKey, UserTable> {
 
@@ -34,15 +40,6 @@ public interface UserTableHtsApiHandler extends HouseTablesApiHandler<UserTableK
   ApiResponse<Void> deleteView(UserTableKey key);
 
   /** Views are not renameable; a {@code renameView} would be the counterpart if that changes. */
-  ApiResponse<Void> renameTable(UserTable fromEntity, UserTable toEntity);
-
-  /**
-   * Sealed in favour of {@link #renameTable}. The shared {@link HouseTablesApiHandler} keeps a
-   * neutral rename because jobs and toggles have no discriminator; for this entity a rename that
-   * does not state a type is exactly what must not be exposed.
-   */
   @Override
-  default ApiResponse<Void> renameEntity(UserTable fromEntity, UserTable toEntity) {
-    throw new UnsupportedOperationException("Use renameTable(from, to)");
-  }
+  ApiResponse<Void> renameEntity(UserTable fromEntity, UserTable toEntity);
 }

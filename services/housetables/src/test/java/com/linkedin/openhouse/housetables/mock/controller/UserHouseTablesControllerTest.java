@@ -102,8 +102,8 @@ public class UserHouseTablesControllerTest {
   }
 
   /**
-   * The rename route owns the type it operates on. The controller calls the table-typed handler
-   * method, so the handler never has to infer the type and no caller can supply it.
+   * The rename route owns the type it operates on. The controller calls the table handler, so the
+   * handler never has to infer the type and no caller can supply it.
    */
   @Test
   public void testRenameThreadsTheControllerOwnedTableType() throws Exception {

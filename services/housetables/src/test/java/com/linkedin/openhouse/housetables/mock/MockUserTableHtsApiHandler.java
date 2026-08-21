@@ -13,8 +13,8 @@ import org.springframework.http.HttpStatus;
 public class MockUserTableHtsApiHandler implements UserTableHtsApiHandler {
 
   /**
-   * The rename route is table-typed by the method the controller calls, so the routing tests need
-   * to see that the typed method was the one that ran.
+   * The rename route is table-typed by the handler the controller calls, so the routing tests need
+   * to see what actually reached the handler.
    */
   @Getter private UserTable lastRenameFromTable;
 
@@ -109,7 +109,7 @@ public class MockUserTableHtsApiHandler implements UserTableHtsApiHandler {
   }
 
   @Override
-  public ApiResponse<Void> renameTable(UserTable fromUserTable, UserTable toUserTable) {
+  public ApiResponse<Void> renameEntity(UserTable fromUserTable, UserTable toUserTable) {
     this.lastRenameFromTable = fromUserTable;
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
   }
