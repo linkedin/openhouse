@@ -54,9 +54,10 @@ public interface UserTableHtsJdbcRepository
    * <p>Known limitation, applying equally to {@link #VIEW_ROW_PREDICATE}: the comparison inherits
    * the column collation, and MySQL's {@code utf8_unicode_ci} ignores accents. A stored {@code
    * 'TÁBLE'} is therefore matched by the non-hydrating bulk delete and rename yet fails every read.
-   * Trailing whitespace does not diverge, because {@link
-   * com.linkedin.openhouse.housetables.model.EntityType#fromName} trims; only direct DB writes can
-   * create an accented value, so this is documented rather than fixed.
+   * Trailing spaces do not diverge, because {@link
+   * com.linkedin.openhouse.housetables.model.EntityType#fromName} ignores exactly those, and
+   * leading or non-space whitespace fails the read just as it fails this predicate; only direct DB
+   * writes can create an accented value, so this is documented rather than fixed.
    */
   String TABLE_ROW_PREDICATE = "(u.entityType IS NULL OR upper(u.entityType) = 'TABLE')";
 

@@ -14,11 +14,12 @@ public enum EntityType {
   VIEW;
 
   /**
-   * Resolves any accepted spelling, case-insensitively, ignoring surrounding whitespace. MySQL's
-   * PAD SPACE collations already treat {@code 'TABLE '} and {@code 'TABLE'} as the same value, so
-   * refusing the former would be Java disagreeing with storage about a value storage calls
-   * identical. Accents are deliberately not stripped: {@code 'TÁBLE'} is likelier corruption than
-   * intent, and guessing at it would undercut failing closed.
+   * Resolves any accepted spelling, case-insensitively, ignoring only trailing ordinary spaces
+   * (U+0020) so that Java agrees exactly with MySQL's PAD SPACE collations, which call {@code
+   * 'TABLE '} and {@code 'TABLE'} the same value. A leading space or any non-space whitespace stays
+   * corrupt, because SQL treats it as significant and such a row would match no predicate. Accents
+   * are deliberately not stripped: {@code 'TÁBLE'} is likelier corruption than intent, and guessing
+   * at it would undercut failing closed.
    *
    * <p>Null is rejected rather than defaulted, because the two callers mean incompatible things by
    * it: from the column it means "written before the discriminator existed" (a table), from the
@@ -29,6 +30,10 @@ public enum EntityType {
     if (name == null) {
       throw new IllegalArgumentException("entityType cannot be null");
     }
-    return valueOf(name.trim().toUpperCase(Locale.ROOT));
+    int end = name.length();
+    while (end > 0 && name.charAt(end - 1) == ' ') {
+      end--;
+    }
+    return valueOf(name.substring(0, end).toUpperCase(Locale.ROOT));
   }
 }

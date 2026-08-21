@@ -38,10 +38,15 @@ public class EntityTypeConverterTest {
   /**
    * Only a null carries the legacy meaning; anything else outside the vocabulary is corrupt. {@code
    * 'TABLE '} is deliberately absent: MySQL's PAD SPACE collation calls it the same value as {@code
-   * 'TABLE'}, so it resolves rather than throwing. An accented spelling still throws.
+   * 'TABLE'}, so it resolves rather than throwing. A leading space or a non-space whitespace
+   * character is significant to SQL and so stays corrupt. An accented spelling still throws.
    */
   @ParameterizedTest
-  @ValueSource(strings = {"FOO", "", " ", "TABLES", "TÁBLE", "TAB LE"})
+  @ValueSource(
+      strings = {
+        "FOO", "", " ", "TABLES", "TÁBLE", "TAB LE", " TABLE", "\tTABLE", "TABLE\t", "TABLE\n",
+        "VIEW\t", " VIEW"
+      })
   void unrecognizedColumnValueFailsLoudly(String columnValue) {
     IllegalArgumentException thrown =
         Assertions.assertThrows(
@@ -51,30 +56,60 @@ public class EntityTypeConverterTest {
   }
 
   /**
-   * Surrounding whitespace is not corruption. MySQL's PAD SPACE collations already treat {@code
-   * 'TABLE '} as equal to {@code 'TABLE'}, so the SQL predicates match such a row; Java refusing it
-   * would disagree with storage about a value storage calls identical, and turn a match into a 500.
+   * Trailing spaces are not corruption. MySQL's PAD SPACE collations already treat {@code 'TABLE '}
+   * as equal to {@code 'TABLE'}, so the SQL predicates match such a row; Java refusing it would
+   * disagree with storage about a value storage calls identical, and turn a match into a 500.
    */
   @Test
-  void surroundingWhitespaceResolvesToItsConstant() {
-    Assertions.assertEquals(EntityType.TABLE, EntityType.fromName(" TABLE "));
+  void trailingSpacesResolveToTheirConstant() {
     Assertions.assertEquals(EntityType.TABLE, EntityType.fromName("TABLE "));
-    Assertions.assertEquals(EntityType.TABLE, EntityType.fromName(" table"));
-    Assertions.assertEquals(EntityType.VIEW, EntityType.fromName(" VIEW "));
+    Assertions.assertEquals(EntityType.TABLE, EntityType.fromName("table   "));
     Assertions.assertEquals(EntityType.VIEW, EntityType.fromName("VIEW "));
-    Assertions.assertEquals(EntityType.VIEW, EntityType.fromName(" view"));
+    Assertions.assertEquals(EntityType.VIEW, EntityType.fromName("view   "));
 
     // The read path is what produces CorruptEntityTypeException, so it must agree.
     Assertions.assertEquals(EntityType.TABLE, converter.convertToEntityAttribute("TABLE "));
-    Assertions.assertEquals(EntityType.TABLE, converter.convertToEntityAttribute(" TaBlE "));
-    Assertions.assertEquals(EntityType.VIEW, converter.convertToEntityAttribute(" view"));
+    Assertions.assertEquals(EntityType.TABLE, converter.convertToEntityAttribute("TaBlE  "));
+    Assertions.assertEquals(EntityType.VIEW, converter.convertToEntityAttribute("view "));
   }
 
-  /** Trimming does not soften the vocabulary: an accented value is still corruption. */
+  /**
+   * Padding is ignored only where the collation ignores it. A leading space, a tab or a newline is
+   * significant to SQL, so such a row matches no typed predicate and must stay loudly corrupt
+   * rather than hydrating into a row nothing can mutate.
+   */
+  @Test
+  void leadingOrNonSpaceWhitespaceIsCorrupt() {
+    Assertions.assertThrows(IllegalArgumentException.class, () -> EntityType.fromName(" TABLE"));
+    Assertions.assertThrows(IllegalArgumentException.class, () -> EntityType.fromName(" TABLE "));
+    Assertions.assertThrows(IllegalArgumentException.class, () -> EntityType.fromName(" view"));
+    Assertions.assertThrows(IllegalArgumentException.class, () -> EntityType.fromName("TABLE\t"));
+    Assertions.assertThrows(IllegalArgumentException.class, () -> EntityType.fromName("TABLE\n"));
+    Assertions.assertThrows(IllegalArgumentException.class, () -> EntityType.fromName("VIEW\t"));
+
+    Assertions.assertThrows(
+        CorruptEntityTypeException.class, () -> converter.convertToEntityAttribute(" TaBlE "));
+    Assertions.assertThrows(
+        CorruptEntityTypeException.class, () -> converter.convertToEntityAttribute("VIEW\n"));
+  }
+
+  /**
+   * An all-space value strips to the empty string, which is outside the vocabulary; it must not
+   * become a silent table.
+   */
+  @Test
+  void allSpaceValueIsCorrupt() {
+    Assertions.assertThrows(IllegalArgumentException.class, () -> EntityType.fromName(" "));
+    Assertions.assertThrows(IllegalArgumentException.class, () -> EntityType.fromName("   "));
+    Assertions.assertThrows(
+        CorruptEntityTypeException.class, () -> converter.convertToEntityAttribute(" "));
+  }
+
+  /** Ignoring trailing spaces does not soften the vocabulary: an accented value is corruption. */
   @Test
   void accentedSpellingIsStillCorrupt() {
     Assertions.assertThrows(
-        CorruptEntityTypeException.class, () -> converter.convertToEntityAttribute(" TÁBLE "));
+        CorruptEntityTypeException.class, () -> converter.convertToEntityAttribute("TÁBLE "));
     Assertions.assertThrows(IllegalArgumentException.class, () -> EntityType.fromName("TÁBLE"));
   }
 
