@@ -32,7 +32,7 @@ openApi {
 
 def icebergRestSpec = file("${rootDir}/spec/iceberg-rest-catalog-open-api.yaml")
 // Checked-in Phase 1 read-only profile derived from apache-iceberg-1.11.0 (see header in the YAML).
-def icebergRestSpecSha256 = "47b504483d3f3a9fe2542f32b0d97d35409f93b28ce1f2036a1fdd07c998e70c"
+def icebergRestSpecSha256 = "ac05c48f73349712eb5383dd5799383a8e1471cb288df708a7dbf31fb12d171e"
 def openApiCliVersion = "7.12.0"
 def generatedIcebergRestDir = "${buildDir}/generated/openapi/iceberg-rest-server"
 
@@ -43,8 +43,10 @@ def generatedIcebergRestDir = "${buildDir}/generated/openapi/iceberg-rest-server
  * tokens.
  *
  * Codegen uses the checked-in Phase 1 read-only OpenAPI profile in
- * spec/iceberg-rest-catalog-open-api.yaml. That file is held constant; see its header for the
- * upstream 1.11.0 provenance and how to diff against Apache Iceberg.
+ * spec/iceberg-rest-catalog-open-api.yaml. That file is held constant at build
+ * time; bump it with:
+ *   ./gradlew :services:tables:upgradeIcebergRestProfile -PicebergRestTag=apache-iceberg-x.y.z
+ * or python3 spec/upgrade_iceberg_rest_profile.py --tag apache-iceberg-x.y.z
  */
 // importMappings controls the `import` statement in generated files.
 // typeMappings controls the inline type name in method signatures and @Schema annotations.
@@ -148,4 +150,26 @@ tasks.named('compileJava') {
 
 tasks.named('check') {
   dependsOn tasks.named('icebergRestValidateSpec')
+}
+
+/**
+ * Maintainer helper — not part of check/build. Regenerates the checked-in Phase 1
+ * OpenAPI profile from an Apache Iceberg tag and updates the pinned checksum.
+ *
+ *   ./gradlew :services:tables:upgradeIcebergRestProfile -PicebergRestTag=apache-iceberg-1.12.0
+ */
+tasks.register('upgradeIcebergRestProfile', Exec) {
+  description = 'Regenerate the checked-in Iceberg REST Phase 1 OpenAPI profile from an Iceberg tag'
+  group = 'OpenHouse Iceberg REST'
+  workingDir = rootDir
+  // Tag is read at execution time so ordinary builds are unaffected.
+  commandLine 'python3', 'spec/upgrade_iceberg_rest_profile.py', '--tag', 'PLACEHOLDER'
+  doFirst {
+    def tag = findProperty('icebergRestTag')
+    if (tag == null || tag.toString().trim().isEmpty()) {
+      throw new GradleException(
+          "Set -PicebergRestTag=<apache-iceberg-x.y.z>, e.g. -PicebergRestTag=apache-iceberg-1.12.0")
+    }
+    commandLine 'python3', 'spec/upgrade_iceberg_rest_profile.py', '--tag', tag.toString()
+  }
 }
