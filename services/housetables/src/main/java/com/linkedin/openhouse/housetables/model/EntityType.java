@@ -14,22 +14,17 @@ public enum EntityType {
   VIEW;
 
   /**
-   * Resolves any accepted spelling, case-insensitively. Accents are deliberately not stripped:
-   * {@code 'TÁBLE'} is likelier corruption than intent, and guessing at it would undercut failing
-   * closed.
-   *
-   * <p>Null is rejected rather than defaulted, because the two callers mean incompatible things by
-   * it: from the column it means "written before the discriminator existed" (a table), from the
-   * wire it means "the caller did not say" (unknown). Only {@link EntityTypeConverter} knows it is
-   * reading a column, so only it resolves the former.
+   * Resolves any accepted spelling, case-insensitively; accents are not stripped, since {@code
+   * 'TÁBLE'} is likelier corruption than intent. Null is rejected rather than defaulted, because it
+   * means "legacy row, hence a table" from the column but "unstated" from the wire, and only {@link
+   * EntityTypeConverter} knows which one it is reading.
    */
   public static EntityType fromName(String name) {
     if (name == null) {
       throw new IllegalArgumentException("entityType cannot be null");
     }
-    // Only trailing U+0020 is insignificant, matching MySQL's PAD SPACE collations, which call
-    // 'TABLE ' and 'TABLE' the same value. A leading space or any other whitespace stays corrupt:
-    // SQL treats it as significant, so such a row would match no predicate.
+    // Only trailing U+0020 is insignificant, matching MySQL's PAD SPACE collations. Leading or
+    // other whitespace stays corrupt: SQL treats it as significant, so such a row matches nothing.
     int end = name.length();
     while (end > 0 && name.charAt(end - 1) == ' ') {
       end--;

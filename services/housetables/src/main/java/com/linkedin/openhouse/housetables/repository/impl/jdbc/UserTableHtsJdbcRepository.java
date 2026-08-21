@@ -47,37 +47,23 @@ public interface UserTableHtsJdbcRepository
           + "(:creationTime IS NULL OR u.creationTime = :creationTime)";
 
   /**
-   * A legacy row predates the discriminator and is definitively a table, so the null arm is load
-   * bearing: without it every pre-existing table becomes invisible. Do not simplify it to a plain
+   * The null arm is load bearing: a legacy row predates the discriminator and is definitively a
+   * table, so without it every pre-existing table becomes invisible. Do not reduce it to a plain
    * equality before a verified backfill and a {@code NOT NULL} migration.
    *
-   * <p>Known limitation, applying equally to {@link #VIEW_ROW_PREDICATE}: the comparison inherits
-   * the column collation, and MySQL's {@code utf8_unicode_ci} ignores accents. A stored {@code
-   * 'TÁBLE'} is therefore matched by the non-hydrating bulk delete and rename yet fails every read.
-   * Trailing spaces do not diverge, because {@link
-   * com.linkedin.openhouse.housetables.model.EntityType#fromName} ignores exactly those, and
-   * leading or non-space whitespace fails the read just as it fails this predicate; only direct DB
-   * writes can create an accented value, so this is documented rather than fixed.
+   * <p>Collation caveat, shared with {@link #VIEW_ROW_PREDICATE}: under {@code utf8_unicode_ci} a
+   * stored {@code 'TÁBLE'} matches here yet fails every read. Only a direct DB write can create
+   * one, so this is documented rather than fixed.
    */
   String TABLE_ROW_PREDICATE = "(u.entityType IS NULL OR upper(u.entityType) = 'TABLE')";
 
-  /**
-   * Unlike {@link #TABLE_ROW_PREDICATE} this is a plain equality: there is no legacy-null case to
-   * absorb, because a null column predates the discriminator and is definitively a table. The
-   * collation caveat documented on that constant applies here too.
-   */
   String VIEW_ROW_PREDICATE = "upper(u.entityType) = 'VIEW'";
 
   String PATTERN_KEY_CLAUSES =
       "lower(u.databaseId) = lower(:databaseId) AND "
           + "lower(u.tableId) LIKE lower(:tableIdPattern)";
 
-  /**
-   * Table-scoped point read serving {@code getUserTable}, the single HTS endpoint behind every
-   * table point read in the tables service. The neutral {@link
-   * #findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase} above stays unfiltered because the writers
-   * must see a row of any type to detect a collision at a shared key.
-   */
+  /** The neutral finder above stays unfiltered so writers can spot a collision at a shared key. */
   @Query(
       "SELECT u FROM UserTableRow u WHERE "
           + "lower(u.databaseId) = lower(:databaseId) AND "
@@ -234,6 +220,7 @@ public interface UserTableHtsJdbcRepository
       @Param("tableIdPattern") String tableIdPattern,
       Pageable pageable);
 
+  /** Bulk statements bypass the persistence context, hence the flush and clear. */
   @Transactional
   @Modifying(flushAutomatically = true, clearAutomatically = true)
   @Query(
@@ -271,12 +258,9 @@ public interface UserTableHtsJdbcRepository
   }
 
   /**
-   * Deletes only a NULL or TABLE row, leaving a VIEW at the same key untouched. Returns the
-   * affected-row count so the service can map both missing and wrong-type to 404. Do not simplify
-   * to a neutral delete: neutral key mutation is exactly what this removes.
-   *
-   * <p>This is the hard delete both table paths end in; only the table path may additionally copy
-   * to the soft-deleted store first, which has no discriminator and so must never receive a view.
+   * Deletes only a NULL or TABLE row, leaving a VIEW at the same key untouched, and returns the
+   * affected-row count so the service maps missing and wrong-type alike to 404. Deliberately not a
+   * neutral delete: the soft-deleted store has no discriminator and must never receive a view.
    */
   default int deleteTableById(UserTableRowPrimaryKey key) {
     return deleteTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
@@ -290,9 +274,9 @@ public interface UserTableHtsJdbcRepository
   }
 
   /**
-   * The key-addressed generic deletes are sealed because a wrong-type delete is irreversible; use
-   * the named typed adapters instead. No-arg {@code deleteAll()} is deliberately left available: it
-   * addresses no key, and test teardown depends on it.
+   * The key-addressed generic deletes are sealed because a wrong-type delete is irreversible.
+   * No-arg {@code deleteAll()} stays available: it addresses no key, and test teardown depends on
+   * it.
    */
   @Override
   default void deleteById(UserTableRowPrimaryKey key) {
@@ -315,12 +299,9 @@ public interface UserTableHtsJdbcRepository
   }
 
   /**
-   * Table-only: views are not renameable, so there is deliberately no {@code renameViewId}.
-   *
-   * <p>The stamped type is a bound parameter rather than an inlined literal so the controller stays
-   * the one place deciding which entity a route operates on; this is the type-selection convention,
-   * not an exception to it. Zero affected rows means absent or not a table; a destination collision
-   * surfaces as a primary-key violation.
+   * Table-only: views are not renameable, so there is deliberately no {@code renameViewId}. The
+   * stamped type is a bound parameter rather than an inlined literal because converter routing is
+   * version dependent, and it keeps one caller deciding which entity a route operates on.
    */
   @Transactional
   @Modifying(flushAutomatically = true, clearAutomatically = true)

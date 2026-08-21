@@ -55,13 +55,9 @@ public class UserHouseTablesController {
   @Autowired private UserTablesMapper userTablesMapper;
 
   /**
-   * Resolves the type at ingress, before validation, so nothing downstream observes a null. The
-   * wire field stays nullable for rolling compatibility: an un-upgraded client that sends nothing
-   * still produces a correctly typed row. A payload may agree with its route or stay silent, never
-   * override it.
-   *
-   * <p>Running ahead of the validator makes this the first code to see an absent entity, so it is
-   * what must reject one.
+   * Runs at ingress, ahead of validation, so nothing downstream observes a null and this is the
+   * first code to see an absent entity. The wire field stays nullable for rolling compatibility: a
+   * payload may agree with its route or stay silent, never override it.
    */
   private static UserTable stampEntityType(UserTable userTable, EntityType entityType) {
     if (userTable == null) {

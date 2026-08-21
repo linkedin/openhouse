@@ -6,14 +6,10 @@ import javax.persistence.Converter;
 
 /**
  * Keeps {@code entity_type} nullable in the column while {@link EntityType} stays total in Java: a
- * legacy row hydrates as {@link EntityType#TABLE}. This is the only place that resolution happens.
+ * legacy row hydrates as {@link EntityType#TABLE}, and this is the only place that happens.
  *
- * <p>The write side is strict, because the endpoint stamps the type at ingress: a null reaching
- * storage means an ingress path was missed, and failing here keeps the legacy-null population
- * closed rather than growing.
- *
- * <p>The read parses case-insensitively so a row the repository predicates matched can never then
- * fail to hydrate.
+ * <p>The write side is strict: the endpoint stamps the type at ingress, so a null reaching storage
+ * means an ingress path was missed, and failing here keeps the legacy-null population from growing.
  */
 @Converter
 public class EntityTypeConverter implements AttributeConverter<EntityType, String> {
