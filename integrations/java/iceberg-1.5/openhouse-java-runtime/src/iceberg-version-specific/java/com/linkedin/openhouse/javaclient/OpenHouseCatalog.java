@@ -86,6 +86,18 @@ import reactor.core.publisher.Mono;
  * OpenHouseViewOperations} calling a generated {@code ViewApi}, mirroring how {@link #newTableOps}
  * returns {@code OpenHouseTableOperations} calling {@code TableApi}. The iceberg-1.2 / Spark-3.1
  * copy stays table-only ({@code extends BaseMetastoreCatalog}).
+ *
+ * <p>Because extending {@link BaseMetastoreViewCatalog} makes this an Iceberg {@code ViewCatalog},
+ * Spark's {@code SparkCatalog} routes view probes to this instance instead of short-circuiting
+ * them (it only calls a catalog's view methods when the catalog is {@code instanceof ViewCatalog};
+ * otherwise it answers view ops itself). Notably {@code SparkCatalog.loadView} is invoked while
+ * resolving every unqualified identifier. So when views are disabled we mirror, method-for-method,
+ * how {@code SparkCatalog} behaves for a non-{@code ViewCatalog} (table-only) catalog, making the
+ * default state indistinguishable from {@code extends BaseMetastoreCatalog}: {@code loadView}
+ * throws {@link NoSuchViewException} (so Spark falls back to table resolution rather than
+ * hard-failing), {@code listViews} returns empty, and {@code dropView} returns {@code false}, while
+ * the create/modify operations {@code buildView} and {@code renameView} throw {@link
+ * UnsupportedOperationException}.
  */
 @Slf4j
 public class OpenHouseCatalog extends BaseMetastoreViewCatalog
@@ -584,6 +596,13 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
   // backend (mockViewStore). loadView/buildView reuse the BaseMetastoreViewCatalog machinery via
   // newViewOps; listViews/dropView/renameView are backed directly by the store.
 
+  /**
+   * Guard for view create/modify operations ({@link #buildView}, {@link #renameView}). When views
+   * are disabled this throws {@link UnsupportedOperationException}, matching how {@code SparkCatalog}
+   * fails {@code CREATE VIEW} / {@code ALTER VIEW ... RENAME} for a non-{@code ViewCatalog} catalog.
+   * The read/probe operations ({@link #loadView}, {@link #listViews}, {@link #dropView}) do NOT use
+   * this guard; each instead returns its "no such view" result so table flows are unaffected.
+   */
   private void requireViewsEnabled() {
     if (!viewsEnabled) {
       throw new UnsupportedOperationException("OpenHouse views are unsupported.");
@@ -613,13 +632,31 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     };
   }
 
+  /**
+   * {@inheritDoc}
+   *
+   * <p>When views are disabled, throws {@link NoSuchViewException} rather than {@link
+   * UnsupportedOperationException}. Spark's {@code SparkCatalog.loadView} probes this method while
+   * resolving every unqualified identifier and catches only {@code NoSuchViewException} to fall back
+   * to table resolution; any other exception propagates and breaks table reads. Throwing {@code
+   * NoSuchViewException} here therefore reproduces the table-only (non-{@code ViewCatalog}) behavior.
+   */
   @Override
   public View loadView(TableIdentifier identifier) {
-    requireViewsEnabled();
+    if (!viewsEnabled) {
+      throw new NoSuchViewException("View does not exist: %s", identifier);
+    }
     log.info("Calling loadView with identifier: {}", identifier);
     return super.loadView(identifier);
   }
 
+  /**
+   * {@inheritDoc}
+   *
+   * <p>A create operation: when views are disabled this throws {@link UnsupportedOperationException}
+   * via {@link #requireViewsEnabled()}, matching how {@code SparkCatalog} fails {@code CREATE VIEW}
+   * for a non-{@code ViewCatalog} catalog.
+   */
   @Override
   public ViewBuilder buildView(TableIdentifier identifier) {
     requireViewsEnabled();
@@ -631,22 +668,46 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
         .withLocation("mock://openhouse/views/" + identifier.toString().replace('.', '/'));
   }
 
+  /**
+   * {@inheritDoc}
+   *
+   * <p>When views are disabled, returns an empty list, matching how {@code SparkCatalog} answers
+   * {@code SHOW VIEWS} for a non-{@code ViewCatalog} catalog (no views, rather than an error).
+   */
   @Override
   public List<TableIdentifier> listViews(Namespace namespace) {
-    requireViewsEnabled();
+    if (!viewsEnabled) {
+      return Collections.emptyList();
+    }
     log.info("Calling listViews with namespace: {}", namespace.toString());
     return mockViewStore.keySet().stream()
         .filter(identifier -> identifier.namespace().equals(namespace))
         .collect(Collectors.toList());
   }
 
+  /**
+   * {@inheritDoc}
+   *
+   * <p>When views are disabled, returns {@code false} (nothing to drop), matching how {@code
+   * SparkCatalog} answers {@code DROP VIEW} for a non-{@code ViewCatalog} catalog; this keeps {@code
+   * DROP VIEW ... IF EXISTS} a no-op rather than an error.
+   */
   @Override
   public boolean dropView(TableIdentifier identifier) {
-    requireViewsEnabled();
+    if (!viewsEnabled) {
+      return false;
+    }
     log.info("Calling dropView with identifier: {}", identifier);
     return mockViewStore.remove(identifier) != null;
   }
 
+  /**
+   * {@inheritDoc}
+   *
+   * <p>A modify operation: when views are disabled this throws {@link UnsupportedOperationException}
+   * via {@link #requireViewsEnabled()}, matching how {@code SparkCatalog} fails {@code ALTER VIEW
+   * ... RENAME} for a non-{@code ViewCatalog} catalog.
+   */
   @Override
   public void renameView(TableIdentifier from, TableIdentifier to) {
     requireViewsEnabled();
