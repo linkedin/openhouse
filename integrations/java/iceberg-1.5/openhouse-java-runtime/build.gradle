@@ -25,10 +25,18 @@ ext {
   hadoopVersion = '2.10.0'
 }
 
+// Inherit shared sources from the iceberg-1.2 module's src/main/java, but NOT its
+// src/iceberg-version-specific/java (whose classes bind to version-specific Iceberg base classes).
+// This module supplies its own copies of those classes under its own src/iceberg-version-specific/java
+// (today: a view-capable OpenHouseCatalog that extends BaseMetastoreViewCatalog).
 sourceSets {
   main {
     java {
-      srcDirs += project(':integrations:java:iceberg-1.2:openhouse-java-runtime').sourceSets.main.java.srcDirs
+      def base = project(':integrations:java:iceberg-1.2:openhouse-java-runtime')
+      srcDirs += base.sourceSets.main.java.srcDirs.findAll {
+        !it.absolutePath.endsWith('src/iceberg-version-specific/java')
+      }
+      srcDirs += 'src/iceberg-version-specific/java'
     }
     resources {
       srcDirs += project(':integrations:java:iceberg-1.2:openhouse-java-runtime').sourceSets.main.resources.srcDirs
