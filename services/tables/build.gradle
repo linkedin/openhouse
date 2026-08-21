@@ -30,23 +30,21 @@ openApi {
   apiDocsUrl.set("http://localhost:8000/v3/api-docs")
 }
 
-def upstreamIcebergRestSpec = file("${rootDir}/spec/iceberg-rest-catalog-open-api.yaml")
-def canonicalIcebergRestSpec = file("${rootDir}/spec/iceberg-rest-catalog-readonly-open-api.yaml")
-def upstreamIcebergRestSpecSha256 = "90ac21b36d2fa646da0fbadd4034a980c2dc23bd804bd55a6cda371094151094"
-def canonicalIcebergRestSpecSha256 = "f3387e3cfb61fc026778a05673302d638eee3ab47b87d7a666604eb0ebe351fe"
+def icebergRestSpec = file("${rootDir}/spec/iceberg-rest-catalog-open-api.yaml")
+// Checked-in Phase 1 read-only profile derived from apache-iceberg-1.11.0 (see header in the YAML).
+def icebergRestSpecSha256 = "47b504483d3f3a9fe2542f32b0d97d35409f93b28ce1f2036a1fdd07c998e70c"
 def openApiCliVersion = "7.12.0"
 def generatedIcebergRestDir = "${buildDir}/generated/openapi/iceberg-rest-server"
 
 /**
- * The runtime Iceberg library has hand-written response classes that predate parts of the 1.10
+ * The runtime Iceberg library has hand-written response classes that predate parts of the 1.11
  * REST contract. Compatible classes are reused directly. Config and list-table responses are
  * generated because the 1.5.2 runtime types do not expose endpoint capabilities or pagination
  * tokens.
  *
- * The generated server is intentionally limited to OpenHouse's Phase 1 read-only operations. This
- * keeps unsupported Iceberg 1.10 request and response types out of the Java API instead of hiding
- * version skew behind Object parameters. The read-only profile is generated from the byte-pinned
- * upstream specification by spec/generate-iceberg-rest-readonly-spec.py.
+ * Codegen uses the checked-in Phase 1 read-only OpenAPI profile in
+ * spec/iceberg-rest-catalog-open-api.yaml. That file is held constant; see its header for the
+ * upstream 1.11.0 provenance and how to diff against Apache Iceberg.
  */
 // importMappings controls the `import` statement in generated files.
 // typeMappings controls the inline type name in method signatures and @Schema annotations.
@@ -93,38 +91,29 @@ dependencies {
   }
 }
 
-tasks.register('icebergRestVerifySpecs') {
-  description = 'Verify the vendored Iceberg REST spec and generated read-only profile checksums'
-  inputs.files(upstreamIcebergRestSpec, canonicalIcebergRestSpec)
+tasks.register('icebergRestVerifySpec') {
+  description = 'Verify the checked-in Iceberg REST OpenAPI profile checksum'
+  inputs.file(icebergRestSpec)
   doLast {
-    def sha256 = { File input ->
-      java.security.MessageDigest.getInstance("SHA-256")
-          .digest(input.bytes)
-          .encodeHex()
-          .toString()
-    }
-    def actualUpstreamSha256 = sha256(upstreamIcebergRestSpec)
-    if (actualUpstreamSha256 != upstreamIcebergRestSpecSha256) {
+    def actualSha256 = java.security.MessageDigest.getInstance("SHA-256")
+        .digest(icebergRestSpec.bytes)
+        .encodeHex()
+        .toString()
+    if (actualSha256 != icebergRestSpecSha256) {
       throw new IllegalStateException(
-          "Vendored Iceberg REST spec checksum ${actualUpstreamSha256} does not match " +
-          "the pinned apache-iceberg-1.10.0 checksum ${upstreamIcebergRestSpecSha256}")
-    }
-    def actualCanonicalSha256 = sha256(canonicalIcebergRestSpec)
-    if (actualCanonicalSha256 != canonicalIcebergRestSpecSha256) {
-      throw new IllegalStateException(
-          "Read-only Iceberg REST profile checksum ${actualCanonicalSha256} does not match " +
-          "${canonicalIcebergRestSpecSha256}. Regenerate it with " +
-          "spec/generate-iceberg-rest-readonly-spec.py")
+          "Iceberg REST OpenAPI profile checksum ${actualSha256} does not match the pinned " +
+          "apache-iceberg-1.11.0 Phase 1 profile checksum ${icebergRestSpecSha256}. " +
+          "Update the YAML and the pinned checksum together.")
     }
   }
 }
 
 tasks.register('icebergRestValidateSpec', JavaExec) {
-  dependsOn tasks.named('icebergRestVerifySpecs')
+  dependsOn tasks.named('icebergRestVerifySpec')
   classpath = configurations.icebergRestOpenApiGenerator
   mainClass.set("org.openapitools.codegen.OpenAPIGenerator")
-  args "validate", "-i", canonicalIcebergRestSpec.absolutePath
-  inputs.file(canonicalIcebergRestSpec)
+  args "validate", "-i", icebergRestSpec.absolutePath
+  inputs.file(icebergRestSpec)
   inputs.files(configurations.icebergRestOpenApiGenerator)
 }
 
@@ -137,7 +126,7 @@ tasks.register('icebergRestCodegen', JavaExec) {
   mainClass.set("org.openapitools.codegen.OpenAPIGenerator")
   args "generate",
       "-g", "spring",
-      "-i", canonicalIcebergRestSpec.absolutePath,
+      "-i", icebergRestSpec.absolutePath,
       "-o", generatedIcebergRestDir,
       "--api-package", "com.linkedin.openhouse.tables.generated.iceberg.api",
       "--model-package", "com.linkedin.openhouse.tables.generated.iceberg.model",
@@ -147,7 +136,7 @@ tasks.register('icebergRestCodegen', JavaExec) {
       "apis,models=CatalogConfig:ListTablesResponse,apiTests=false,apiDocs=false,modelTests=false,modelDocs=false,supportingFiles=",
       "--additional-properties",
       "interfaceOnly=true,useTags=true,skipDefaultInterface=false,hideGenerationTimestamp=true,useSpringBoot3=false,openApiNullable=false"
-  inputs.file(canonicalIcebergRestSpec)
+  inputs.file(icebergRestSpec)
   inputs.files(configurations.icebergRestOpenApiGenerator)
   outputs.dir(generatedIcebergRestDir)
 }
