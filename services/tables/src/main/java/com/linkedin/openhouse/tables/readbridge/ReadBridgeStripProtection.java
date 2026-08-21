@@ -76,6 +76,10 @@ public class ReadBridgeStripProtection {
     }
   }
 
+  /**
+   * Type 1: a still-present stamped column must keep its default. Unstamped or unramped tables skip
+   * — there is no default to protect.
+   */
   private void rejectRemovedDefaults(
       Map<Integer, String> previousStamped,
       Map<Integer, String> incomingStamped,
@@ -100,6 +104,10 @@ public class ReadBridgeStripProtection {
     }
   }
 
+  /**
+   * Type 2: overwrite/replace must send {@code initial-default} equal to the stamp. That handshake
+   * is trust, not proof the files were rewritten. Appends are not rewrites.
+   */
   private void rejectUnawareRewrite(Map<Integer, String> previousStamped, TableDto incoming) {
     if (previousStamped.isEmpty() || !isRewrite(incoming)) {
       return;
@@ -194,6 +202,10 @@ public class ReadBridgeStripProtection {
     }
   }
 
+  /**
+   * Drop {@code initial-default} on stamped field-ids so the handshake never lands in Iceberg
+   * metadata. Other fields are left alone.
+   */
   private static String strip(String schemaJson, Set<Integer> fieldIds) {
     JsonNode root = tree(schemaJson);
     boolean changed = false;
