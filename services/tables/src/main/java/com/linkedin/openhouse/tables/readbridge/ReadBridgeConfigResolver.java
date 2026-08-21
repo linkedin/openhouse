@@ -2,46 +2,86 @@ package com.linkedin.openhouse.tables.readbridge;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.linkedin.openhouse.tables.model.TableDto;
+import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 
 /**
- * Open-source encoder for the {@code read-bridge} feature: it asks the pluggable {@link
- * ColumnDefaultsSource} for a table's column initial-defaults and stamps each as a namespaced entry
- * in the per-table {@code config} — {@code openhouse.read-bridge.column-default.<fieldId> =
- * <single-value-json>}. The client decoder ({@code ReadBridge} in {@code openhouse-java-runtime})
- * reads these entries and overlays the defaults at metadata-load time.
- *
- * <p>No envelope/POJO: the flat config map (Iceberg REST {@code LoadTableResponse.config}
- * convention) carries the structure directly. Behaviorless by default — the open-source {@link
- * ColumnDefaultsSource} bean supplies nothing (see {@code ApiConfig}), so no entries are stamped. A
- * deployment delivers the bridge by overriding only {@link ColumnDefaultsSource}.
- *
- * <p><b>Mirror:</b> {@link #COLUMN_DEFAULT_PREFIX} is the shared contract with the client decoder;
- * keep it in sync. Further V3 features ride the same {@code openhouse.read-bridge.*} namespace as
- * additional keys.
+ * Stamps per-table {@code config} for read-bridge capabilities. Owns policy (feature id, ramp,
+ * keys); deployments supply data via {@link ColumnDefaultsSource}.
  */
+@Slf4j
 public class ReadBridgeConfigResolver {
 
-  /** Config key prefix for a per-column read-time default; suffixed with the Iceberg field-id. */
-  public static final String COLUMN_DEFAULT_PREFIX = "openhouse.read-bridge.column-default.";
+  /** Capability id; also names {@code <id>.enabled} and the config key prefix below. */
+  public static final String COLUMN_DEFAULT_FEATURE_ID = "read-bridge.column-default";
+
+  /** Client contract: {@code openhouse.read-bridge.column-default.<fieldId>}. */
+  public static final String COLUMN_DEFAULT_PREFIX = "openhouse." + COLUMN_DEFAULT_FEATURE_ID + ".";
 
   private final ColumnDefaultsSource columnDefaultsSource;
 
-  public ReadBridgeConfigResolver(ColumnDefaultsSource columnDefaultsSource) {
+  private final TableFeatureToggle featureToggle;
+
+  public ReadBridgeConfigResolver(
+      ColumnDefaultsSource columnDefaultsSource, TableFeatureToggle featureToggle) {
     this.columnDefaultsSource = columnDefaultsSource;
+    this.featureToggle = featureToggle;
   }
 
-  public Map<String, String> resolve(String databaseId, String tableId, TableDto tableDto) {
-    Map<Integer, JsonNode> columnDefaults = columnDefaultsSource.defaults(tableDto);
+  /** Merges independently gated capabilities; empty when nothing is bridged. */
+  public Map<String, String> resolve(TableDto tableDto) {
+    Map<String, String> config = new HashMap<>();
+    config.putAll(columnDefaultConfig(tableDto));
+    return config;
+  }
+
+  private Map<String, String> columnDefaultConfig(TableDto tableDto) {
+    // No deployment source → skip HTS entirely.
+    if (columnDefaultsSource == ColumnDefaultsSource.NONE) {
+      return Collections.emptyMap();
+    }
+    if (!isColumnDefaultRamped(tableDto)) {
+      return Collections.emptyMap();
+    }
+    Map<Integer, JsonNode> columnDefaults;
+    try {
+      columnDefaults = columnDefaultsSource.defaults(tableDto);
+    } catch (RuntimeException e) {
+      log.warn(
+          "read-bridge: column-defaults source failed for {}.{}; treating as not bridged",
+          tableDto.getDatabaseId(),
+          tableDto.getTableId(),
+          e);
+      return Collections.emptyMap();
+    }
     if (columnDefaults == null || columnDefaults.isEmpty()) {
-      return Collections.emptyMap(); // nothing to bridge -> stamp nothing
+      return Collections.emptyMap();
     }
     Map<String, String> config = new HashMap<>();
-    // JsonNode.toString() is the single-value JSON (e.g. "US" -> "\"US\"", 0 -> "0").
     columnDefaults.forEach(
         (fieldId, value) -> config.put(COLUMN_DEFAULT_PREFIX + fieldId, value.toString()));
     return config;
+  }
+
+  /**
+   * Uses {@link TableFeatureToggle#isFeatureActivatedWithOverride} so {@code
+   * read-bridge.column-default.enabled} can opt in/out without HTS. Fail-open on lookup errors: not
+   * bridging equals today's NULL reads.
+   */
+  private boolean isColumnDefaultRamped(TableDto tableDto) {
+    try {
+      return featureToggle.isFeatureActivatedWithOverride(tableDto, COLUMN_DEFAULT_FEATURE_ID);
+    } catch (RuntimeException e) {
+      log.warn(
+          "read-bridge: toggle lookup failed for {}.{}; treating {} as not ramped",
+          tableDto.getDatabaseId(),
+          tableDto.getTableId(),
+          COLUMN_DEFAULT_FEATURE_ID,
+          e);
+      return false;
+    }
   }
 }
