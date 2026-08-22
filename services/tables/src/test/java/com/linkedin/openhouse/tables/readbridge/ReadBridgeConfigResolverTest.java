@@ -117,6 +117,39 @@ public class ReadBridgeConfigResolverTest {
     Assertions.assertTrue(config.isEmpty());
   }
 
+  /** Write path must not commit when the source cannot answer. */
+  @Test
+  public void testWritePathSourceFailureFailsClosed() {
+    ColumnDefaultsSource exploding =
+        tableDto -> {
+          throw new IllegalStateException("encoder exploded");
+        };
+
+    Assertions.assertThrows(
+        IllegalStateException.class,
+        () ->
+            resolverFor(exploding)
+                .stampedColumnDefaults(TableDto.builder().databaseId("db").tableId("tbl").build()));
+  }
+
+  /** Write path must not commit when the ramp lookup cannot answer. */
+  @Test
+  public void testWritePathToggleFailureFailsClosed() {
+    TableFeatureToggle exploding =
+        new TableFeatureToggle() {
+          @Override
+          public boolean isFeatureActivated(String databaseId, String tableId, String featureId) {
+            throw new IllegalStateException("housetables is down");
+          }
+        };
+
+    Assertions.assertThrows(
+        IllegalStateException.class,
+        () ->
+            new ReadBridgeConfigResolver(oneDefault(), exploding)
+                .stampedColumnDefaults(TableDto.builder().databaseId("db").tableId("tbl").build()));
+  }
+
   /** Gate 3: a table the ramp has not activated is not bridged, and its source is never asked. */
   @Test
   public void testUnrampedTableIsNotBridgedAndSourceNotConsulted() {
