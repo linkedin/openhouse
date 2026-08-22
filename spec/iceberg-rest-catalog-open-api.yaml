@@ -23,13 +23,12 @@
 #   https://raw.githubusercontent.com/apache/iceberg/apache-iceberg-1.11.0/open-api/rest-catalog-open-api.yaml
 # Upstream SHA-256 (unannotated): 80d2ec83a70eeff6e7194853f8791c17cceb14610fae6a0e6afdd2921806ee4a
 #
-# OpenHouse support is declared per-operation with:
-#   x-openhouse-support: supported | unsupported
-#
-# The build asserts every operation is annotated, codegens only `supported`
-# operations, and fails compilation if generated interfaces are not implemented.
-# Upgrade by merging a newer Iceberg OpenAPI into this file and annotating any
-# new operations (new ops without annotations fail the build).
+# OpenHouse support is opt-in per operation:
+#   x-openhouse-support: supported
+# Operations without this annotation are unsupported. The build codegens only
+# supported operations; marking a new operation supported fails compilation
+# until the facade implements it. Upgrade by merging a newer Iceberg OpenAPI
+# into this file and adding x-openhouse-support: supported where needed.
 #
 
 ---
@@ -202,7 +201,6 @@ paths:
       summary: Get a token using an OAuth2 flow (DEPRECATED for REMOVAL)
       deprecated: true
       operationId: getToken
-      x-openhouse-support: unsupported
       description:
         The `oauth/tokens` endpoint is **DEPRECATED for REMOVAL**. It is _not_ recommended to
         implement this endpoint, unless you are fully aware of the potential security implications.
@@ -280,7 +278,6 @@ paths:
         translate into `GET /namespaces?parent=accounting%1Ftax` and must return a namespace, ["accounting", "tax", "paid"].
         If `parent` is not provided, all top-level namespaces should be listed.
       operationId: listNamespaces
-      x-openhouse-support: unsupported
       parameters:
         - $ref: '#/components/parameters/page-token'
         - $ref: '#/components/parameters/page-size'
@@ -333,7 +330,6 @@ paths:
         Create a namespace, with an optional set of properties.
         The server might also add properties, such as `last_modified_time` etc.
       operationId: createNamespace
-      x-openhouse-support: unsupported
       requestBody:
         required: true
         content:
@@ -377,7 +373,6 @@ paths:
         - Catalog API
       summary: Load the metadata properties for a namespace
       operationId: loadNamespaceMetadata
-      x-openhouse-support: unsupported
       description: Return all stored metadata properties for a given namespace
       responses:
         200:
@@ -409,7 +404,6 @@ paths:
         - Catalog API
       summary: Check if a namespace exists
       operationId: namespaceExists
-      x-openhouse-support: unsupported
       description:
         Check if a namespace exists. The response does not contain a body.
       responses:
@@ -442,7 +436,6 @@ paths:
         - Catalog API
       summary: Drop a namespace from the catalog. Namespace must be empty.
       operationId: dropNamespace
-      x-openhouse-support: unsupported
       parameters:
         - $ref: '#/components/parameters/idempotency-key'
       responses:
@@ -489,7 +482,6 @@ paths:
         - Catalog API
       summary: Set or remove properties on a namespace
       operationId: updateProperties
-      x-openhouse-support: unsupported
       parameters:
         - $ref: '#/components/parameters/idempotency-key'
       description:
@@ -603,7 +595,6 @@ paths:
         create operation include changes like AddSchemaUpdate and SetCurrentSchemaUpdate that set the initial
         table state.
       operationId: createTable
-      x-openhouse-support: unsupported
       parameters:
         - $ref: '#/components/parameters/data-access'
         - $ref: '#/components/parameters/idempotency-key'
@@ -697,7 +688,6 @@ paths:
           needed by calling cancelPlanning. Cancellation is not necessary after
           fetchScanTasks has been used to fetch scan tasks for each plan task.
       operationId: planTableScan
-      x-openhouse-support: unsupported
       parameters:
         - $ref: '#/components/parameters/idempotency-key'
       requestBody:
@@ -750,7 +740,6 @@ paths:
         - Catalog API
       summary: Fetches the result of scan planning for a plan-id
       operationId: fetchPlanningResult
-      x-openhouse-support: unsupported
       description: >
         Fetches the result of scan planning for a plan-id.
 
@@ -809,7 +798,6 @@ paths:
         - Catalog API
       summary: Cancels scan planning for a plan-id
       operationId: cancelPlanning
-      x-openhouse-support: unsupported
       parameters:
         - $ref: '#/components/parameters/idempotency-key'
       description: >
@@ -873,7 +861,6 @@ paths:
         - Catalog API
       summary: Fetches result tasks for a plan task
       operationId: fetchScanTasks
-      x-openhouse-support: unsupported
       parameters:
         - $ref: '#/components/parameters/idempotency-key'
       description: Fetches result tasks for a plan task.
@@ -931,7 +918,6 @@ paths:
         Register a table using given metadata file location.
 
       operationId: registerTable
-      x-openhouse-support: unsupported
       requestBody:
         required: true
         content:
@@ -1059,7 +1045,6 @@ paths:
         - Catalog API
       summary: Commit updates to a table
       operationId: updateTable
-      x-openhouse-support: unsupported
       parameters:
         - $ref: '#/components/parameters/idempotency-key'
       description:
@@ -1180,7 +1165,6 @@ paths:
         - Catalog API
       summary: Drop a table from the catalog
       operationId: dropTable
-      x-openhouse-support: unsupported
       description: Remove a table from the catalog
       parameters:
         - $ref: '#/components/parameters/idempotency-key'
@@ -1262,7 +1246,6 @@ paths:
         - Catalog API
       summary: Load vended credentials for a table from the catalog
       operationId: loadCredentials
-      x-openhouse-support: unsupported
       parameters:
         - name: planId
           in: query
@@ -1309,7 +1292,6 @@ paths:
         - Catalog API
       summary: Remotely signs requests to object storage
       operationId: signRequest
-      x-openhouse-support: unsupported
       requestBody:
         description: The request to be signed
         content:
@@ -1347,7 +1329,6 @@ paths:
         Rename a table from one identifier to another. It's valid to move a table
         across namespaces, but the server implementation is not required to support it.
       operationId: renameTable
-      x-openhouse-support: unsupported
       requestBody:
         description: Current table identifier to rename and new table identifier to rename to
         content:
@@ -1409,7 +1390,6 @@ paths:
         - Catalog API
       summary: Send a metrics report to this endpoint to be processed by the backend
       operationId: reportMetrics
-      x-openhouse-support: unsupported
       requestBody:
         description: The request containing the metrics report to be sent
         content:
@@ -1452,7 +1432,6 @@ paths:
         - Catalog API
       summary: Commit updates to multiple tables in an atomic operation
       operationId: commitTransaction
-      x-openhouse-support: unsupported
       parameters:
         - $ref: '#/components/parameters/idempotency-key'
       requestBody:
@@ -1572,7 +1551,6 @@ paths:
       summary: List all view identifiers underneath a given namespace
       description: Return all view identifiers under this namespace
       operationId: listViews
-      x-openhouse-support: unsupported
       parameters:
         - $ref: '#/components/parameters/page-token'
         - $ref: '#/components/parameters/page-size'
@@ -1608,7 +1586,6 @@ paths:
       description:
         Create a view in the given namespace.
       operationId: createView
-      x-openhouse-support: unsupported
       requestBody:
         required: true
         content:
@@ -1660,7 +1637,6 @@ paths:
         - Catalog API
       summary: Load a view from the catalog
       operationId: loadView
-      x-openhouse-support: unsupported
       description:
         Load a view from the catalog.
 
@@ -1709,7 +1685,6 @@ paths:
         - Catalog API
       summary: Replace a view
       operationId: replaceView
-      x-openhouse-support: unsupported
       parameters:
         - $ref: '#/components/parameters/idempotency-key'
       description:
@@ -1812,7 +1787,6 @@ paths:
         - Catalog API
       summary: Drop a view from the catalog
       operationId: dropView
-      x-openhouse-support: unsupported
       description: Remove a view from the catalog
       parameters:
         - $ref: '#/components/parameters/idempotency-key'
@@ -1847,7 +1821,6 @@ paths:
         - Catalog API
       summary: Check if a view exists
       operationId: viewExists
-      x-openhouse-support: unsupported
       description:
         Check if a view exists within a given namespace. This request does not return a response body.
       responses:
@@ -1878,7 +1851,6 @@ paths:
         Rename a view from one identifier to another. It's valid to move a view
         across namespaces, but the server implementation is not required to support it.
       operationId: renameView
-      x-openhouse-support: unsupported
       parameters:
         - $ref: '#/components/parameters/idempotency-key'
       requestBody:
@@ -1946,7 +1918,6 @@ paths:
         Register a view in the given namespace using given metadata file location.
 
       operationId: registerView
-      x-openhouse-support: unsupported
       requestBody:
         required: true
         content:

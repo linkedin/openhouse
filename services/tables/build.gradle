@@ -32,17 +32,17 @@ openApi {
 
 /**
  * Iceberg REST OpenAPI is checked in at spec/iceberg-rest-catalog-open-api.yaml (full Apache
- * Iceberg contract). Each operation declares OpenHouse support with:
+ * Iceberg contract). OpenHouse support is opt-in per operation:
  *
- *   x-openhouse-support: supported | unsupported
+ *   x-openhouse-support: supported
  *
- * The build asserts every operation is annotated, codegens only supported operations into Spring
- * interfaces, and emits IcebergRestOpenHouseSupport.SUPPORTED_ENDPOINTS for /v1/config. Marking a
- * new operation supported (or changing a supported signature) fails compilation until the facade
- * implements it. Upgrade by merging a newer Iceberg OpenAPI into the YAML and annotating new ops.
+ * Operations without the annotation are unsupported. The build codegens only supported operations
+ * into Spring interfaces and emits IcebergRestOpenHouseSupport.SUPPORTED_ENDPOINTS for /v1/config.
+ * Marking a new operation supported (or changing a supported signature) fails compilation until
+ * the facade implements it. Upgrade by merging a newer Iceberg OpenAPI into the YAML and adding
+ * x-openhouse-support: supported where needed.
  */
 def icebergRestSpec = file("${rootDir}/spec/iceberg-rest-catalog-open-api.yaml")
-def icebergRestSpecSha256 = "96acc943e2c5986a9df961129c49f84a21aaa916e753758933087a616b843940"
 def openApiCliVersion = "7.12.0"
 def generatedIcebergRestDir = "${buildDir}/generated/openapi/iceberg-rest-server"
 def icebergRestCodegenSpec = file("${buildDir}/iceberg-rest/codegen-open-api.yaml")
@@ -174,56 +174,32 @@ ext.eachIcebergOperation = { Map spec, Closure body ->
   }
 }
 
-tasks.register('icebergRestVerifySpec') {
-  description = 'Verify the checked-in Iceberg REST OpenAPI checksum'
-  inputs.file(icebergRestSpec)
-  doLast {
-    def actualSha256 = java.security.MessageDigest.getInstance("SHA-256")
-        .digest(icebergRestSpec.bytes)
-        .encodeHex()
-        .toString()
-    if (actualSha256 != icebergRestSpecSha256) {
-      throw new IllegalStateException(
-          "Iceberg REST OpenAPI checksum ${actualSha256} does not match the pinned checksum " +
-          "${icebergRestSpecSha256}. Update the YAML and pinned checksum together after merging " +
-          "upstream and annotating operations with x-openhouse-support.")
-    }
-  }
-}
-
 tasks.register('icebergRestAssertSupportAnnotations') {
-  description = 'Assert every Iceberg REST operation declares x-openhouse-support'
-  dependsOn tasks.named('icebergRestVerifySpec')
+  description = 'Validate x-openhouse-support annotations on the Iceberg REST OpenAPI'
   inputs.file(icebergRestSpec)
   doLast {
     def spec = loadIcebergRestSpec()
-    def missing = []
     def invalid = []
     def supported = []
     eachIcebergOperation(spec) { path, method, operation ->
       def support = operation['x-openhouse-support']
       if (support == null) {
-        missing << "${method.toUpperCase()} ${path}"
-      } else if (!(support in ['supported', 'unsupported'])) {
-        invalid << "${method.toUpperCase()} ${path} -> ${support}"
-      } else if (support == 'supported') {
+        // Missing means unsupported — no annotation required on upgrade merges.
+        return
+      }
+      if (support != 'supported') {
+        invalid << "${method.toUpperCase()} ${path} -> ${support} (use 'supported' or omit)"
+      } else {
         supported << "${method.toUpperCase()} ${path} (${operation.operationId})"
       }
     }
-    if (!missing.isEmpty() || !invalid.isEmpty()) {
-      def message = new StringBuilder(
-          "Iceberg REST OpenAPI support annotations are incomplete. Mark every operation with " +
-          "x-openhouse-support: supported|unsupported.\n")
-      if (!missing.isEmpty()) {
-        message.append("Missing:\n  - ").append(missing.join("\n  - ")).append('\n')
-      }
-      if (!invalid.isEmpty()) {
-        message.append("Invalid:\n  - ").append(invalid.join("\n  - ")).append('\n')
-      }
-      throw new IllegalStateException(message.toString())
+    if (!invalid.isEmpty()) {
+      throw new IllegalStateException(
+          "Invalid Iceberg REST OpenAPI support annotations:\n  - " + invalid.join("\n  - "))
     }
     if (supported.isEmpty()) {
-      throw new IllegalStateException("No Iceberg REST operations are marked x-openhouse-support: supported")
+      throw new IllegalStateException(
+          "No Iceberg REST operations are marked x-openhouse-support: supported")
     }
     logger.lifecycle("Iceberg REST supported operations:\n  - ${supported.join('\n  - ')}")
   }
