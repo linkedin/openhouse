@@ -51,9 +51,12 @@ public interface UserTableHtsJdbcRepository
    * table, so without it every pre-existing table becomes invisible. Do not reduce it to a plain
    * equality before a verified backfill and a {@code NOT NULL} migration.
    *
-   * <p>Collation caveat, shared with {@link #VIEW_ROW_PREDICATE}: under {@code utf8_unicode_ci} a
-   * stored {@code 'TÁBLE'} matches here yet fails every read. Only a direct DB write can create
-   * one, so this is documented rather than fixed.
+   * <p>Collation assumption, shared with {@link #VIEW_ROW_PREDICATE}: this comparison assumes the
+   * column's collation matches these values exactly, folding neither accents nor trailing spaces,
+   * so that SQL agrees with {@link EntityType#fromName} about what counts as a table. An accent
+   * insensitive collation would let a stored {@code 'TÁBLE'} match here yet fail hydration, and a
+   * PAD SPACE collation would do the same for {@code 'TABLE '}. Unconfirmed against production;
+   * please confirm the deployed collation.
    */
   String TABLE_ROW_PREDICATE = "(u.entityType IS NULL OR upper(u.entityType) = 'TABLE')";
 
