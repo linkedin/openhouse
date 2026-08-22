@@ -34,7 +34,7 @@ public class EntityTypeConverter implements AttributeConverter<EntityType, Strin
     } catch (IllegalArgumentException e) {
       throw new CorruptEntityTypeException(
           String.format(
-              "Column user_table_row.entity_type holds unrecognized value [%s]; "
+              "Column user_table_row.entity_type holds unrecognized value ['%s']; "
                   + "only TABLE, VIEW (in any case) and NULL are valid",
               columnValue),
           e);

@@ -1741,6 +1741,28 @@ public class HtsControllerTest {
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "corrupt_row")).isEqualTo("UNKNOWN");
   }
 
+  /**
+   * The 500 is only useful if it names the offending column and value: the converter throws inside
+   * result-set materialization, so the diagnostic has to survive the persistence wrapping to reach
+   * the operator reading the response.
+   */
+  @Test
+  public void testCorruptDiscriminatorResponseCarriesColumnDiagnostic() throws Exception {
+    insertRawEntityType(ENTITY_TYPE_DB, "corrupt_diagnostic", "UNKNOWN");
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/entities")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "corrupt_diagnostic")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isInternalServerError())
+        .andExpect(
+            jsonPath(
+                "$.message",
+                containsString("Column user_table_row.entity_type holds unrecognized value")))
+        .andExpect(jsonPath("$.message", containsString("['UNKNOWN']")));
+  }
+
   /** A typed delete or table rename at a corrupt key is 404, and the row stays put. */
   @Test
   public void testCorruptDiscriminatorIsNotFoundOnTypedDeleteAndRename() throws Exception {

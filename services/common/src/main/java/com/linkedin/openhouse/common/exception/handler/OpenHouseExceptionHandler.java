@@ -20,14 +20,20 @@ import com.linkedin.openhouse.common.exception.UnprocessableEntityException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import io.swagger.v3.oas.annotations.Hidden;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.NoSuchElementException;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.springframework.dao.InvalidDataAccessApiUsageException;
+import org.springframework.dao.NonTransientDataAccessException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.AuthorizationServiceException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
@@ -53,6 +59,8 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
   private static final String CAUSE_NOT_AVAILABLE = "Not Available";
 
   private static final int STACKTRACE_MAX_WIDTH = 6000;
+
+  private static final int CAUSE_CHAIN_MAX_DEPTH = 20;
 
   /**
    * Each method needs to be annotated with {@link Hidden} or every methods in advisee controllers
@@ -383,20 +391,74 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
   /**
    * Corrupt stored data is not a client error, so it must not fall through to the {@link
    * IllegalArgumentException} advice below, which answers 400.
+   *
+   * <p>Not reachable from the {@code entity_type} attribute converter: that runs inside Hibernate's
+   * result-set materialization, so the exception is wrapped before any advice is consulted, and
+   * {@link #handleWrappedCorruptEntityTypeException} is what answers that path. This one is kept
+   * deliberately, for a {@link CorruptEntityTypeException} raised outside a JPA operation — it is
+   * not dead code to delete, and both paths answer identically.
    */
   @Hidden
   @ExceptionHandler(CorruptEntityTypeException.class)
   protected ResponseEntity<ErrorResponseBody> handleCorruptEntityTypeException(
       CorruptEntityTypeException corruptEntityTypeException) {
-    ErrorResponseBody errorResponseBody =
-        ErrorResponseBody.builder()
-            .status(HttpStatus.INTERNAL_SERVER_ERROR)
-            .error(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase())
-            .message(corruptEntityTypeException.getMessage())
-            .stacktrace(getAbbreviatedStackTrace(corruptEntityTypeException))
-            .cause(getExceptionCause(corruptEntityTypeException))
-            .build();
-    return buildResponseEntity(errorResponseBody);
+    return buildResponseEntity(corruptEntityTypeBody(corruptEntityTypeException));
+  }
+
+  /**
+   * Recovers the diagnostic a corrupt {@code entity_type} row carries. The attribute converter
+   * throws while Hibernate materializes a result set, so the {@link CorruptEntityTypeException}
+   * arrives wrapped — as {@link JpaSystemException} when Hibernate reports it as a {@link
+   * javax.persistence.PersistenceException}, or as {@link InvalidDataAccessApiUsageException} when
+   * the translator sees it untouched and maps it by its {@link IllegalArgumentException} ancestry.
+   * Either way the wrapper's message names only the converter, so the offending column and value
+   * would be lost to the catch-all advice.
+   *
+   * <p>The status stays 500 in every case: a wrapper carrying no corruption is handed to {@link
+   * #handleGenericException} so unrelated data-access failures answer exactly as they did before.
+   */
+  @Hidden
+  @ExceptionHandler({JpaSystemException.class, InvalidDataAccessApiUsageException.class})
+  protected ResponseEntity<ErrorResponseBody> handleWrappedCorruptEntityTypeException(
+      NonTransientDataAccessException dataAccessException) {
+    CorruptEntityTypeException corruptEntityTypeException =
+        findCorruptEntityTypeCause(dataAccessException);
+    if (corruptEntityTypeException == null) {
+      return handleGenericException(dataAccessException);
+    }
+    log.error("Corrupt entity type read from storage:\n", dataAccessException);
+    return buildResponseEntity(corruptEntityTypeBody(corruptEntityTypeException));
+  }
+
+  private ErrorResponseBody corruptEntityTypeBody(
+      CorruptEntityTypeException corruptEntityTypeException) {
+    return ErrorResponseBody.builder()
+        .status(HttpStatus.INTERNAL_SERVER_ERROR)
+        .error(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase())
+        .message(corruptEntityTypeException.getMessage())
+        .stacktrace(getAbbreviatedStackTrace(corruptEntityTypeException))
+        .cause(getExceptionCause(corruptEntityTypeException))
+        .build();
+  }
+
+  /**
+   * Walks the cause chain for a {@link CorruptEntityTypeException}, returning null when there is
+   * none. Bounded by {@link #CAUSE_CHAIN_MAX_DEPTH} and by identity, so a self-referential or
+   * mutually-referential chain terminates instead of spinning.
+   */
+  private CorruptEntityTypeException findCorruptEntityTypeCause(Throwable exception) {
+    Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+    Throwable current = exception;
+    for (int depth = 0; current != null && depth < CAUSE_CHAIN_MAX_DEPTH; depth++) {
+      if (!visited.add(current)) {
+        break;
+      }
+      if (current instanceof CorruptEntityTypeException) {
+        return (CorruptEntityTypeException) current;
+      }
+      current = current.getCause();
+    }
+    return null;
   }
 
   @Hidden
