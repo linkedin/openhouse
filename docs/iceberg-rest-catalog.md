@@ -48,19 +48,18 @@ authorization, lock visibility, and table-read audit behavior.
 
 ## Contract maintenance
 
-`spec/iceberg-rest-catalog-open-api.yaml` is the full Apache Iceberg REST OpenAPI with OpenHouse
-support declared per operation:
+`spec/iceberg-rest-catalog-open-api.yaml` is the full Apache Iceberg REST OpenAPI. OpenHouse support
+is opt-in:
 
 ```yaml
 operationId: listTables
-x-openhouse-support: supported   # or unsupported
+x-openhouse-support: supported
 ```
 
-The build asserts every operation is annotated, codegens Spring interfaces only for `supported`
-operations, and generates `IcebergRestOpenHouseSupport.SUPPORTED_ENDPOINTS` for `/v1/config`.
-Marking a new operation `supported` (or changing a supported signature) fails compilation until the
-facade implements it. New upstream operations without annotations fail the build.
+Operations without the annotation are unsupported. The build codegens Spring interfaces only for
+`supported` operations and generates `IcebergRestOpenHouseSupport.SUPPORTED_ENDPOINTS` for
+`/v1/config`. Marking a new operation `supported` (or changing a supported signature) fails
+compilation until the facade implements it.
 
-To upgrade Iceberg OpenAPI: merge the newer upstream YAML into the checked-in file, keep/adjust
-`x-openhouse-support` markers, update the pinned checksum in `services/tables/build.gradle`, then
-compile.
+To upgrade Iceberg OpenAPI: merge the newer upstream YAML into the checked-in file, add
+`x-openhouse-support: supported` where needed, then compile.
