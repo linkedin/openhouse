@@ -4,6 +4,8 @@ services:
     extends:
       file: ../common/oh-services.yml
       service: openhouse-tables
+    environment:
+      CLUSTER_TABLES_ICEBERGREST_ENABLED: "true"
     volumes:
       - ./:/var/config/
     depends_on:
