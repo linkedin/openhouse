@@ -57,13 +57,14 @@ public class ReadBridgeStripProtectionTest {
       tableDto -> Collections.singletonMap(2, TextNode.valueOf("US"));
 
   @Test
-  public void noneSource_returnsIncomingUnchanged() {
+  public void noneSource_stillStripsInitialDefault() {
     TableDto incoming = ramped(SCHEMA_WITH_DEFAULT, overwrite(10));
     ReadBridgeStripProtection protection =
         new ReadBridgeStripProtection(
             new ReadBridgeConfigResolver(ColumnDefaultsSource.NONE, ALL_ON));
 
-    Assertions.assertSame(incoming, protection.prepare(ramped(SCHEMA_WITHOUT_DEFAULT), incoming));
+    TableDto prepared = protection.prepare(ramped(SCHEMA_WITHOUT_DEFAULT), incoming);
+    Assertions.assertFalse(prepared.getSchema().contains("initial-default"));
   }
 
   @Test
@@ -210,7 +211,7 @@ public class ReadBridgeStripProtectionTest {
   }
 
   @Test
-  public void unstampedWriterDefault_kept() {
+  public void unstampedWriterDefault_stripped() {
     String schema =
         "{\"type\":\"struct\",\"fields\":["
             + "{\"id\":1,\"required\":false,\"name\":\"id\",\"type\":\"int\","
@@ -220,8 +221,30 @@ public class ReadBridgeStripProtectionTest {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto prepared = protection.prepare(null, ramped(schema));
 
-    Assertions.assertTrue(prepared.getSchema().contains("\"initial-default\":0"));
-    Assertions.assertFalse(prepared.getSchema().contains("\"initial-default\":\"US\""));
+    Assertions.assertFalse(prepared.getSchema().contains("initial-default"));
+  }
+
+  @Test
+  public void unrampedWithInitialDefault_stillStrips() {
+    ReadBridgeStripProtection protection = protection(FIELD_2);
+    Map<String, String> optedOut = Collections.singletonMap(ENABLED_PROP, "false");
+    TableDto existing =
+        TableDto.builder()
+            .databaseId("db")
+            .tableId("tbl")
+            .schema(SCHEMA_WITHOUT_DEFAULT)
+            .tableProperties(optedOut)
+            .build();
+    TableDto incoming =
+        TableDto.builder()
+            .databaseId("db")
+            .tableId("tbl")
+            .schema(SCHEMA_WITH_DEFAULT)
+            .tableProperties(optedOut)
+            .build();
+
+    TableDto prepared = protection.prepare(existing, incoming);
+    Assertions.assertFalse(prepared.getSchema().contains("initial-default"));
   }
 
   @Test

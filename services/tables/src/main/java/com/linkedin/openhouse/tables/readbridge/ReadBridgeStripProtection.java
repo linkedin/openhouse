@@ -21,8 +21,8 @@ import org.apache.iceberg.SnapshotRefParser;
 
 /**
  * Type 1 / Type 2 strip protection for column defaults. Default-aware clients send {@code
- * initial-default} on the commit schema; this class uses that as the handshake, then drops those
- * keys before persist so overlays cannot land in Iceberg metadata.
+ * initial-default} on the commit schema; this class uses that as the handshake, then drops every
+ * {@code initial-default} before persist so overlays cannot land in Iceberg metadata.
  *
  * <p>The handshake is trust, not proof that data files were rewritten correctly. Do not ramp a
  * table until OpenHouse rewrites are trusted or default-aware compaction exists. A lift/compaction
@@ -51,9 +51,9 @@ public class ReadBridgeStripProtection {
   }
 
   /**
-   * Reject Type 1 / Type 2 violations, then strip stamped {@code initial-default} from {@code
-   * incoming} so they are not persisted. Returns {@code incoming} unchanged when there is nothing
-   * to check or drop.
+   * Reject Type 1 / Type 2 violations, then drop every {@code initial-default} from {@code
+   * incoming} so overlays cannot land in Iceberg metadata. Ramp-off still strips. Returns {@code
+   * incoming} unchanged when there is nothing to check or drop.
    */
   public TableDto prepare(TableDto existing, TableDto incoming) {
     if (incoming == null) {
@@ -67,7 +67,7 @@ public class ReadBridgeStripProtection {
         rejectRemovedDefaults(previousStamped, incomingStamped, incoming);
         rejectUnawareRewrite(previousStamped, incoming);
       }
-      return stripStampedDefaults(previousStamped, incomingStamped, incoming);
+      return stripInitialDefaults(incoming);
     } catch (UnsupportedClientOperationException e) {
       throw e;
     } catch (IllegalStateException e) {
@@ -134,18 +134,9 @@ public class ReadBridgeStripProtection {
     }
   }
 
-  private TableDto stripStampedDefaults(
-      Map<Integer, String> previousStamped,
-      Map<Integer, String> incomingStamped,
-      TableDto incoming) {
-    Set<Integer> stripIds = new HashSet<>();
-    stripIds.addAll(previousStamped.keySet());
-    stripIds.addAll(incomingStamped.keySet());
-    if (stripIds.isEmpty()) {
-      return incoming;
-    }
-    String schema = strip(incoming.getSchema(), stripIds);
-    List<String> intermediates = strip(incoming.getNewIntermediateSchemas(), stripIds);
+  private TableDto stripInitialDefaults(TableDto incoming) {
+    String schema = strip(incoming.getSchema());
+    List<String> intermediates = strip(incoming.getNewIntermediateSchemas());
     if (Objects.equals(schema, incoming.getSchema())
         && Objects.equals(intermediates, incoming.getNewIntermediateSchemas())) {
       return incoming;
@@ -203,17 +194,17 @@ public class ReadBridgeStripProtection {
   }
 
   /**
-   * Drop {@code initial-default} on stamped field-ids so the handshake never lands in Iceberg
-   * metadata. Other fields are left alone.
+   * Drop every {@code initial-default} so a handshake, a ramp-off leftover, or an unstamped writer
+   * default cannot land in Iceberg metadata.
    */
-  private static String strip(String schemaJson, Set<Integer> fieldIds) {
+  private static String strip(String schemaJson) {
+    if (schemaJson == null || schemaJson.isEmpty()) {
+      return schemaJson;
+    }
     JsonNode root = tree(schemaJson);
     boolean changed = false;
     for (JsonNode field : fieldObjects(root)) {
-      if (field instanceof ObjectNode
-          && field.has(ID)
-          && fieldIds.contains(field.get(ID).asInt())
-          && ((ObjectNode) field).remove(INITIAL_DEFAULT) != null) {
+      if (field instanceof ObjectNode && ((ObjectNode) field).remove(INITIAL_DEFAULT) != null) {
         changed = true;
       }
     }
@@ -228,14 +219,14 @@ public class ReadBridgeStripProtection {
     }
   }
 
-  private static List<String> strip(List<String> schemas, Set<Integer> fieldIds) {
-    if (schemas == null || schemas.isEmpty() || fieldIds.isEmpty()) {
+  private static List<String> strip(List<String> schemas) {
+    if (schemas == null || schemas.isEmpty()) {
       return schemas;
     }
     List<String> stripped = new ArrayList<>(schemas.size());
     boolean changed = false;
     for (String schema : schemas) {
-      String next = strip(schema, fieldIds);
+      String next = strip(schema);
       stripped.add(next);
       changed |= !Objects.equals(next, schema);
     }
