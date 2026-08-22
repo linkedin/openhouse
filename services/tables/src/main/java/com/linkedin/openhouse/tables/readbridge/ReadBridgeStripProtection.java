@@ -29,7 +29,10 @@ import org.apache.iceberg.SnapshotRefParser;
  * flag is a follow-up, not this class.
  *
  * <p>The PUT includes the table's full snapshot list, so rewrite detection uses the main-branch
- * snapshot (the commit being applied), not historical overwrite snapshots still in the list.
+ * snapshot, not a historical overwrite still in the list. A WAP / named-branch overwrite leaves
+ * {@code main} unchanged and is not gated. Do not infer the written ref by diffing ref maps — use
+ * commit deltas from #669 once they reach this path. See
+ * https://github.com/linkedin/openhouse/issues/693.
  *
  * <p>Schema field objects are the JSON nodes that carry {@code id} — the same walk as the client
  * overlay. On Iceberg schema JSON that is NestedField; {@code element-id} / {@code schema-id} are
@@ -144,6 +147,11 @@ public class ReadBridgeStripProtection {
     return incoming.toBuilder().schema(schema).newIntermediateSchemas(intermediates).build();
   }
 
+  /**
+   * Main-branch snapshot only, so history in {@code jsonSnapshots} is not "this commit." WAP
+   * overwrite is therefore missed. Fix with #669 deltas, not a ref-map diff:
+   * https://github.com/linkedin/openhouse/issues/693
+   */
   private boolean isRewrite(TableDto incoming) {
     if (incoming.isReplaceCommit() || incoming.isStageReplace()) {
       return true;
