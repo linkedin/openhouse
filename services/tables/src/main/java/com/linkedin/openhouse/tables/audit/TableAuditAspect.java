@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.audit;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
 import static com.linkedin.openhouse.common.security.AuthenticationUtils.extractAuthenticatedUserPrincipal;
 
+import com.google.gson.Gson;
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.common.audit.AuditHandler;
@@ -55,6 +56,11 @@ public class TableAuditAspect {
    * enum is package-private, so the spec's wire value is matched directly.
    */
   private static final String BRANCH_REF_TYPE = "branch";
+
+  /**
+   * Re-serializes a bound {@code TableUpdate} object so {@code MetadataUpdateParser} can read it.
+   */
+  private static final Gson TABLE_UPDATE_GSON = new Gson();
 
   @Autowired private ClusterProperties clusterProperties;
 
@@ -481,22 +487,25 @@ public class TableAuditAspect {
    * correctly ignored. When several branches move in one commit the first is reported, matching the
    * order the client applied them.
    *
-   * <p>Clients predating {@code jsonMetadataUpdates} omit it, in which case branchRefName is left
-   * unset. The previous behavior guessed by matching refs against the last snapshot in the list,
-   * which returned an arbitrary branch whenever two refs shared a snapshot — exactly what {@code
-   * CREATE BRANCH} produces. An absent field is preferable to a coin-flip one in an audit log.
+   * <p>Clients predating {@code updates} omit it, in which case branchRefName is left unset. The
+   * previous behavior guessed by matching refs against the last snapshot in the list, which
+   * returned an arbitrary branch whenever two refs shared a snapshot — exactly what {@code CREATE
+   * BRANCH} produces. An absent field is preferable to a coin-flip one in an audit log.
+   *
+   * <p>Unknown or unparseable actions are skipped today because the field is advisory. When {@code
+   * updates} becomes the commit, those MUST 400 per the REST spec.
    */
   private void extractBranchRefName(
       IcebergSnapshotsRequestBody requestBody,
       TableAuditEvent.TableAuditEventBuilder eventBuilder) {
-    List<String> jsonMetadataUpdates = requestBody.getJsonMetadataUpdates();
-    if (jsonMetadataUpdates == null || jsonMetadataUpdates.isEmpty()) {
+    List<Map<String, Object>> updates = requestBody.getUpdates();
+    if (updates == null || updates.isEmpty()) {
       return;
     }
-    for (String jsonMetadataUpdate : jsonMetadataUpdates) {
+    for (Map<String, Object> updateObject : updates) {
       MetadataUpdate update;
       try {
-        update = MetadataUpdateParser.fromJson(jsonMetadataUpdate);
+        update = MetadataUpdateParser.fromJson(TABLE_UPDATE_GSON.toJson(updateObject));
       } catch (Exception e) {
         // A single unparseable action must not hide the rest of the commit's updates.
         log.debug("Skipping unparseable metadata update in audit extraction", e);

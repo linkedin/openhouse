@@ -4,6 +4,7 @@ import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.JsonNode;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
@@ -17,11 +18,12 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Verifies that {@link OpenHouseTableOperations#serializeMetadataUpdates} emits Iceberg REST spec
- * {@code TableUpdate} actions for the operations OpenHouse commits, and in particular that a
+ * {@code TableUpdate} objects for the operations OpenHouse commits, and in particular that a
  * ref-only operation is distinguishable from a data write.
  *
  * <p>These assertions are the load-bearing premise of the audit path: the server can only report
- * which branch a commit wrote because the client states it here.
+ * which branch a commit wrote because the client states it here. Items are objects, not JSON
+ * strings, so the request field is {@code CommitTableRequest.updates[]}.
  */
 public class OpenHouseTableOperationsMetadataUpdatesTest {
 
@@ -62,8 +64,8 @@ public class OpenHouseTableOperationsMetadataUpdatesTest {
         .build();
   }
 
-  private static JsonNode parse(String json) throws Exception {
-    return MAPPER.readTree(json);
+  private static JsonNode asNode(Map<String, Object> update) {
+    return MAPPER.valueToTree(update);
   }
 
   /**
@@ -72,38 +74,43 @@ public class OpenHouseTableOperationsMetadataUpdatesTest {
    * names the branch explicitly and contains no {@code add-snapshot}.
    */
   @Test
-  public void testCreateBranchEmitsOnlySetSnapshotRefNamingTheNewBranch() throws Exception {
+  public void testCreateBranchEmitsOnlySetSnapshotRefNamingTheNewBranch() {
     TableMetadata base = tableWithOneSnapshot();
     TableMetadata afterCreateBranch =
         TableMetadata.buildFrom(base)
             .setRef("feature_a", SnapshotRef.branchBuilder(42L).build())
             .build();
 
-    List<String> updates = OpenHouseTableOperations.serializeMetadataUpdates(afterCreateBranch);
+    List<Map<String, Object>> updates =
+        OpenHouseTableOperations.serializeMetadataUpdates(afterCreateBranch);
 
     Assertions.assertNotNull(updates);
     Assertions.assertEquals(1, updates.size(), "CREATE BRANCH must not report a snapshot write");
-    JsonNode update = parse(updates.get(0));
+    JsonNode update = asNode(updates.get(0));
     Assertions.assertEquals("set-snapshot-ref", update.get("action").asText());
     Assertions.assertEquals("feature_a", update.get("ref-name").asText());
     Assertions.assertEquals("branch", update.get("type").asText());
     Assertions.assertEquals(42L, update.get("snapshot-id").asLong());
+    Assertions.assertTrue(
+        updates.get(0).get("snapshot-id") instanceof Long,
+        "integral snapshot-id must stay Long so the wire is 42, not 42.0");
   }
 
   /** A tag carries {@code type: tag}, so consumers can tell it apart from a branch. */
   @Test
-  public void testCreateTagEmitsTagTypedSetSnapshotRef() throws Exception {
+  public void testCreateTagEmitsTagTypedSetSnapshotRef() {
     TableMetadata base = tableWithOneSnapshot();
     TableMetadata afterCreateTag =
         TableMetadata.buildFrom(base)
             .setRef("v1_release", SnapshotRef.tagBuilder(42L).build())
             .build();
 
-    List<String> updates = OpenHouseTableOperations.serializeMetadataUpdates(afterCreateTag);
+    List<Map<String, Object>> updates =
+        OpenHouseTableOperations.serializeMetadataUpdates(afterCreateTag);
 
     Assertions.assertNotNull(updates);
     Assertions.assertEquals(1, updates.size());
-    JsonNode update = parse(updates.get(0));
+    JsonNode update = asNode(updates.get(0));
     Assertions.assertEquals("set-snapshot-ref", update.get("action").asText());
     Assertions.assertEquals("v1_release", update.get("ref-name").asText());
     Assertions.assertEquals("tag", update.get("type").asText());
@@ -111,7 +118,7 @@ public class OpenHouseTableOperationsMetadataUpdatesTest {
 
   /** DROP BRANCH is a removal, never a write. */
   @Test
-  public void testDropBranchEmitsRemoveSnapshotRef() throws Exception {
+  public void testDropBranchEmitsRemoveSnapshotRef() {
     TableMetadata withBranch =
         TableMetadata.buildFrom(tableWithOneSnapshot())
             .setRef("feature_a", SnapshotRef.branchBuilder(42L).build())
@@ -120,11 +127,12 @@ public class OpenHouseTableOperationsMetadataUpdatesTest {
     TableMetadata afterDropBranch =
         TableMetadata.buildFrom(withBranch).removeRef("feature_a").build();
 
-    List<String> updates = OpenHouseTableOperations.serializeMetadataUpdates(afterDropBranch);
+    List<Map<String, Object>> updates =
+        OpenHouseTableOperations.serializeMetadataUpdates(afterDropBranch);
 
     Assertions.assertNotNull(updates);
     Assertions.assertEquals(1, updates.size());
-    JsonNode update = parse(updates.get(0));
+    JsonNode update = asNode(updates.get(0));
     Assertions.assertEquals("remove-snapshot-ref", update.get("action").asText());
     Assertions.assertEquals("feature_a", update.get("ref-name").asText());
   }
@@ -134,7 +142,7 @@ public class OpenHouseTableOperationsMetadataUpdatesTest {
    * write remains distinguishable from the ref-only case above.
    */
   @Test
-  public void testAppendToBranchEmitsAddSnapshotAndSetSnapshotRef() throws Exception {
+  public void testAppendToBranchEmitsAddSnapshotAndSetSnapshotRef() {
     TableMetadata base = tableWithOneSnapshot();
     Snapshot newSnapshot =
         SnapshotParser.fromJson(
@@ -147,15 +155,16 @@ public class OpenHouseTableOperationsMetadataUpdatesTest {
     TableMetadata afterAppend =
         TableMetadata.buildFrom(base).setBranchSnapshot(newSnapshot, "feature_a").build();
 
-    List<String> updates = OpenHouseTableOperations.serializeMetadataUpdates(afterAppend);
+    List<Map<String, Object>> updates =
+        OpenHouseTableOperations.serializeMetadataUpdates(afterAppend);
 
     Assertions.assertNotNull(updates);
     Assertions.assertEquals(
         2, updates.size(), "append reports exactly the new snapshot and the ref that moved");
     boolean sawAddSnapshot = false;
     boolean sawBranchRef = false;
-    for (String json : updates) {
-      JsonNode update = parse(json);
+    for (Map<String, Object> item : updates) {
+      JsonNode update = asNode(item);
       String action = update.get("action").asText();
       if ("add-snapshot".equals(action)) {
         sawAddSnapshot = true;
@@ -179,5 +188,22 @@ public class OpenHouseTableOperationsMetadataUpdatesTest {
     TableMetadata noChanges =
         TableMetadata.buildFrom(tableWithOneSnapshot()).discardChanges().build();
     Assertions.assertNull(OpenHouseTableOperations.serializeMetadataUpdates(noChanges));
+  }
+
+  /**
+   * A snapshot id that does not fit in a double mantissa must survive {@code MetadataUpdateParser}
+   * → Map so Jackson writes the same integer the spec parser emitted.
+   */
+  @Test
+  public void testTableUpdateObjectPreservesLargeSnapshotId() {
+    long snapshotId = 2151407017102313398L;
+    Map<String, Object> update =
+        OpenHouseTableOperations.tableUpdateObject(
+            "{\"action\":\"set-snapshot-ref\",\"ref-name\":\"main\","
+                + "\"snapshot-id\":"
+                + snapshotId
+                + ",\"type\":\"branch\"}");
+    Assertions.assertEquals(snapshotId, update.get("snapshot-id"));
+    Assertions.assertTrue(update.get("snapshot-id") instanceof Long);
   }
 }

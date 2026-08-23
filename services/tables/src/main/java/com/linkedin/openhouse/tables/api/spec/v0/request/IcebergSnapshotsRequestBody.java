@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.tables.api.spec.v0.request;
 
 import com.google.gson.Gson;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 import java.util.Map;
@@ -33,31 +34,39 @@ public class IcebergSnapshotsRequestBody {
   private Map<String, String> snapshotRefs;
 
   /**
-   * The deltas this commit applies, in Iceberg REST spec form.
+   * The deltas this commit applies, as Iceberg REST {@code CommitTableRequest.updates[]}.
    *
-   * <p>Each element is one {@code TableUpdate} from the Iceberg REST catalog spec (an object with
-   * an {@code action} discriminator, e.g. {@code add-snapshot}, {@code set-snapshot-ref}, {@code
-   * remove-snapshot-ref}), serialized by {@code MetadataUpdateParser} so the wire format is
-   * byte-identical to {@code CommitTableRequest.updates[]}.
+   * <p>Each element is one {@code TableUpdate} object (discriminated by {@code action}: {@code
+   * add-snapshot}, {@code set-snapshot-ref}, {@code remove-snapshot-ref}, …). The wire type is an
+   * array of objects, not an array of JSON strings, so this field <em>is</em> {@code updates[]} —
+   * same name, same item shape. Convergence is then dropping {@link #jsonSnapshots}/{@link
+   * #snapshotRefs}/{@link #baseTableVersion} and adding {@code requirements[]}, not a rename or a
+   * type change.
    *
-   * <p>Unlike {@link #jsonSnapshots} and {@link #snapshotRefs} — which carry complete replacement
-   * state and therefore force the server to rediscover what changed by diffing — this field states
-   * the change directly. A {@code CREATE BRANCH b} that commits no new snapshot appears here as a
-   * single {@code set-snapshot-ref} naming {@code b}, which is otherwise unknowable server-side.
+   * <p>Unlike the full-state fields — which force the server to rediscover what changed by diffing
+   * — this field states the change. A {@code CREATE BRANCH b} that commits no snapshot appears as a
+   * single {@code set-snapshot-ref} naming {@code b}.
    *
-   * <p>Optional and advisory in this release: the server still builds table metadata from {@code
-   * jsonSnapshots}/{@code snapshotRefs}, and clients predating this field simply omit it. Consumers
-   * must tolerate null/empty. This is the forward-compatible shape — when OpenHouse adopts the REST
-   * {@code CommitTableRequest} endpoint, this field is promoted to {@code updates} and the
-   * full-state fields retire.
+   * <p>Optional and advisory in this release: table metadata is still built from {@code
+   * jsonSnapshots}/{@code snapshotRefs}, and clients predating this field omit it. Consumers must
+   * tolerate null/empty and must not fail the commit on an unknown or unparseable action. When this
+   * field becomes authoritative, the REST rule applies: unknown updates MUST 400.
    */
-  @Schema(
-      description =
-          "Optional. Iceberg REST spec TableUpdate actions describing the deltas this commit "
-              + "applies, each serialized by MetadataUpdateParser and wire-compatible with "
-              + "CommitTableRequest.updates[]. Advisory only: table metadata is still built from "
-              + "jsonSnapshots/snapshotRefs. Older clients omit this field.")
-  private List<String> jsonMetadataUpdates;
+  @ArraySchema(
+      arraySchema =
+          @Schema(
+              description =
+                  "Optional. Iceberg REST CommitTableRequest.updates[]: TableUpdate objects "
+                      + "for the deltas this commit applies. Advisory only: table metadata is "
+                      + "still built from jsonSnapshots/snapshotRefs. Older clients omit this "
+                      + "field. When this field becomes authoritative, unknown updates MUST 400."),
+      schema =
+          @Schema(
+              type = "object",
+              description =
+                  "One Iceberg REST TableUpdate, discriminated by action (e.g. add-snapshot, "
+                      + "set-snapshot-ref)."))
+  private List<Map<String, Object>> updates;
 
   @Schema(description = "The request body that contains complete metadata")
   private CreateUpdateTableRequestBody createUpdateTableRequestBody;

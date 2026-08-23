@@ -5,6 +5,8 @@ import static com.linkedin.openhouse.tables.model.TableAuditModelConstants.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.audit.model.TableAuditEvent;
@@ -161,8 +163,7 @@ public class IcebergSnapshotsApiHandlerAuditTest {
             .baseTableVersion("v1")
             .jsonSnapshots(Collections.singletonList(newSnapshotJson))
             .snapshotRefs(refs)
-            .jsonMetadataUpdates(
-                Collections.singletonList(setSnapshotRef("feature", 999L, "branch")))
+            .updates(Collections.singletonList(setSnapshotRef("feature", 999L, "branch")))
             .createUpdateTableRequestBody(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY)
             .build();
 
@@ -200,8 +201,7 @@ public class IcebergSnapshotsApiHandlerAuditTest {
             .baseTableVersion("v1")
             .jsonSnapshots(Collections.singletonList(RequestConstants.TEST_ICEBERG_SNAPSHOT_JSON))
             .snapshotRefs(refs)
-            .jsonMetadataUpdates(
-                Collections.singletonList(setSnapshotRef("b", HEAD_SNAPSHOT_ID, "branch")))
+            .updates(Collections.singletonList(setSnapshotRef("b", HEAD_SNAPSHOT_ID, "branch")))
             .createUpdateTableRequestBody(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY)
             .build();
 
@@ -226,7 +226,7 @@ public class IcebergSnapshotsApiHandlerAuditTest {
             .baseTableVersion("v1")
             .jsonSnapshots(Collections.singletonList(RequestConstants.TEST_ICEBERG_SNAPSHOT_JSON))
             .snapshotRefs(refs)
-            .jsonMetadataUpdates(
+            .updates(
                 Collections.singletonList(
                     setSnapshotRef("zzz_sorts_last", HEAD_SNAPSHOT_ID, "branch")))
             .createUpdateTableRequestBody(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY)
@@ -250,7 +250,7 @@ public class IcebergSnapshotsApiHandlerAuditTest {
             .baseTableVersion("v1")
             .jsonSnapshots(Collections.singletonList(RequestConstants.TEST_ICEBERG_SNAPSHOT_JSON))
             .snapshotRefs(refs)
-            .jsonMetadataUpdates(
+            .updates(
                 Collections.singletonList(setSnapshotRef("v1_release", HEAD_SNAPSHOT_ID, "tag")))
             .createUpdateTableRequestBody(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY)
             .build();
@@ -272,9 +272,7 @@ public class IcebergSnapshotsApiHandlerAuditTest {
             .baseTableVersion("v1")
             .jsonSnapshots(Collections.singletonList(RequestConstants.TEST_ICEBERG_SNAPSHOT_JSON))
             .snapshotRefs(Collections.singletonMap("main", TEST_HEAD_SNAPSHOT_REF_JSON))
-            .jsonMetadataUpdates(
-                Collections.singletonList(
-                    "{\"action\":\"remove-snapshot-ref\",\"ref-name\":\"b\"}"))
+            .updates(Collections.singletonList(removeSnapshotRef("b")))
             .createUpdateTableRequestBody(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY)
             .build();
 
@@ -282,8 +280,8 @@ public class IcebergSnapshotsApiHandlerAuditTest {
   }
 
   /**
-   * Clients predating {@code jsonMetadataUpdates} omit it. branchRefName is then left unset rather
-   * than guessed — an absent audit field beats one that is wrong on ties.
+   * Clients predating {@code updates} omit it. branchRefName is then left unset rather than guessed
+   * — an absent audit field beats one that is wrong on ties.
    */
   @Test
   public void testPutIcebergSnapshotsWithoutMetadataUpdatesLeavesBranchRefNameNull()
@@ -303,7 +301,38 @@ public class IcebergSnapshotsApiHandlerAuditTest {
     assertEquals(1669126937912L, actualEvent.getCurrentSnapshotTimestampMs().longValue());
   }
 
-  /** A malformed action must not hide the well-formed ones around it. */
+  /**
+   * {@code updates} is REST {@code CommitTableRequest.updates[]}: an array of objects, not
+   * stringified JSON. A later rename is unnecessary; dropping the full-state fields is the
+   * remaining convergence step.
+   */
+  @Test
+  public void testUpdatesFieldIsRestObjectArray() throws Exception {
+    IcebergSnapshotsRequestBody requestBody =
+        IcebergSnapshotsRequestBody.builder()
+            .baseTableVersion("v1")
+            .jsonSnapshots(Collections.singletonList(RequestConstants.TEST_ICEBERG_SNAPSHOT_JSON))
+            .snapshotRefs(Collections.singletonMap("main", TEST_HEAD_SNAPSHOT_REF_JSON))
+            .updates(
+                Collections.singletonList(setSnapshotRef("feature", HEAD_SNAPSHOT_ID, "branch")))
+            .createUpdateTableRequestBody(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY)
+            .build();
+
+    JsonNode root = new ObjectMapper().readTree(requestBody.toJson());
+    JsonNode updates = root.get("updates");
+    assertTrue(updates.isArray());
+    assertTrue(updates.get(0).isObject(), "updates[] items must be objects, not strings");
+    assertEquals("set-snapshot-ref", updates.get(0).get("action").asText());
+    assertEquals("feature", updates.get(0).get("ref-name").asText());
+    assertEquals(HEAD_SNAPSHOT_ID, updates.get(0).get("snapshot-id").asLong());
+    assertFalse(updates.get(0).get("snapshot-id").isTextual());
+  }
+
+  /**
+   * An unknown {@code action} must not hide the well-formed ones around it. Invalid JSON is a
+   * request-binding 400 (the field is an object array, not stringified JSON) and is not skipped
+   * here.
+   */
   @Test
   public void testPutIcebergSnapshotsSkipsUnparseableMetadataUpdate() throws Exception {
     IcebergSnapshotsRequestBody requestBody =
@@ -311,10 +340,9 @@ public class IcebergSnapshotsApiHandlerAuditTest {
             .baseTableVersion("v1")
             .jsonSnapshots(Collections.singletonList(RequestConstants.TEST_ICEBERG_SNAPSHOT_JSON))
             .snapshotRefs(Collections.singletonMap("main", TEST_HEAD_SNAPSHOT_REF_JSON))
-            .jsonMetadataUpdates(
+            .updates(
                 Arrays.asList(
-                    "{\"action\":\"not-a-real-action\"}",
-                    "}{ malformed json",
+                    unknownAction("not-a-real-action"),
                     setSnapshotRef("feature", HEAD_SNAPSHOT_ID, "branch")))
             .createUpdateTableRequestBody(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY)
             .build();
@@ -334,7 +362,7 @@ public class IcebergSnapshotsApiHandlerAuditTest {
             .snapshotRefs(
                 Collections.singletonMap(
                     "my_branch", "{\"snapshot-id\":2151407017102313398,\"type\":\"branch\"}"))
-            .jsonMetadataUpdates(
+            .updates(
                 Collections.singletonList(setSnapshotRef("my_branch", HEAD_SNAPSHOT_ID, "branch")))
             .createUpdateTableRequestBody(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY)
             .build();
@@ -385,8 +413,7 @@ public class IcebergSnapshotsApiHandlerAuditTest {
             .baseTableVersion("v1")
             .jsonSnapshots(Arrays.asList(olderSnapshotJson, newerSnapshotJson))
             .snapshotRefs(refs)
-            .jsonMetadataUpdates(
-                Collections.singletonList(setSnapshotRef("feature", 200L, "branch")))
+            .updates(Collections.singletonList(setSnapshotRef("feature", 200L, "branch")))
             .createUpdateTableRequestBody(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY)
             .build();
 
@@ -412,11 +439,27 @@ public class IcebergSnapshotsApiHandlerAuditTest {
   private static final String TEST_HEAD_SNAPSHOT_REF_JSON =
       "{\"snapshot-id\":" + HEAD_SNAPSHOT_ID + ",\"type\":\"branch\"}";
 
-  /** Builds one Iceberg REST spec {@code set-snapshot-ref} action. */
-  private static String setSnapshotRef(String refName, long snapshotId, String type) {
-    return String.format(
-        "{\"action\":\"set-snapshot-ref\",\"ref-name\":\"%s\",\"snapshot-id\":%d,\"type\":\"%s\"}",
-        refName, snapshotId, type);
+  /** One Iceberg REST spec {@code set-snapshot-ref} object. */
+  private static Map<String, Object> setSnapshotRef(String refName, long snapshotId, String type) {
+    Map<String, Object> update = new LinkedHashMap<>();
+    update.put("action", "set-snapshot-ref");
+    update.put("ref-name", refName);
+    update.put("snapshot-id", snapshotId);
+    update.put("type", type);
+    return update;
+  }
+
+  private static Map<String, Object> removeSnapshotRef(String refName) {
+    Map<String, Object> update = new LinkedHashMap<>();
+    update.put("action", "remove-snapshot-ref");
+    update.put("ref-name", refName);
+    return update;
+  }
+
+  private static Map<String, Object> unknownAction(String action) {
+    Map<String, Object> update = new LinkedHashMap<>();
+    update.put("action", action);
+    return update;
   }
 
   private TableAuditEvent putSnapshots(IcebergSnapshotsRequestBody requestBody) throws Exception {
