@@ -143,17 +143,26 @@ public class OpenHouseTableOperationsMetadataUpdatesTest {
    */
   @Test
   public void testAppendToBranchEmitsAddSnapshotAndSetSnapshotRef() {
-    TableMetadata base = tableWithOneSnapshot();
+    // Iceberg 1.5 requires (1) the branch already exists and (2) the new snapshot's
+    // sequence-number > last (v1 tables pin every snapshot at 0 and reject the add).
+    // discardChanges so the commit under test is the append, not CREATE BRANCH + upgrade.
+    TableMetadata withBranch =
+        TableMetadata.buildFrom(tableWithOneSnapshot())
+            .upgradeFormatVersion(2)
+            .setRef("feature_a", SnapshotRef.branchBuilder(42L).build())
+            .discardChanges()
+            .build();
     Snapshot newSnapshot =
         SnapshotParser.fromJson(
             "{\"snapshot-id\":43,"
                 + "\"parent-snapshot-id\":42,"
+                + "\"sequence-number\":1,"
                 + "\"timestamp-ms\":1669126937999,"
                 + "\"summary\":{\"operation\":\"append\"},"
                 + "\"manifest-list\":\"/tmp/snap-43.avro\","
                 + "\"schema-id\":0}");
     TableMetadata afterAppend =
-        TableMetadata.buildFrom(base).setBranchSnapshot(newSnapshot, "feature_a").build();
+        TableMetadata.buildFrom(withBranch).setBranchSnapshot(newSnapshot, "feature_a").build();
 
     List<Map<String, Object>> updates =
         OpenHouseTableOperations.serializeMetadataUpdates(afterAppend);
