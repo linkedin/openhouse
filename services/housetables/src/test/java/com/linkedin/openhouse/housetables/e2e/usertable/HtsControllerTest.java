@@ -1741,11 +1741,7 @@ public class HtsControllerTest {
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "corrupt_row")).isEqualTo("UNKNOWN");
   }
 
-  /**
-   * The 500 is only useful if it names the offending column and value: the converter throws inside
-   * result-set materialization, so the diagnostic has to survive the persistence wrapping to reach
-   * the operator reading the response.
-   */
+  /** The diagnostic has to survive the persistence wrapping to reach the operator. */
   @Test
   public void testCorruptDiscriminatorResponseCarriesColumnDiagnostic() throws Exception {
     insertRawEntityType(ENTITY_TYPE_DB, "corrupt_diagnostic", "UNKNOWN");

@@ -20,7 +20,6 @@ public class OpenHouseExceptionHandlerTest {
 
   private final OpenHouseExceptionHandler handler = new OpenHouseExceptionHandler();
 
-  /** The direct path stays mapped to a server error carrying the converter's diagnostic. */
   @Test
   public void testCorruptEntityTypeIsServerErrorWithDiagnostic() {
     CorruptEntityTypeException corrupt =
@@ -32,11 +31,7 @@ public class OpenHouseExceptionHandlerTest {
     Assertions.assertEquals("TÁBLE", response.getBody().getCause());
   }
 
-  /**
-   * The shape Hibernate produces when the attribute converter fails during result-set
-   * materialization: the diagnostic must survive the wrapping instead of the generic Hibernate
-   * string reaching the client.
-   */
+  /** The shape Hibernate produces when the attribute converter fails mid-result-set. */
   @Test
   public void testJpaSystemExceptionUnwrapsToCorruptEntityTypeDiagnostic() {
     JpaSystemException wrapped =
@@ -67,7 +62,6 @@ public class OpenHouseExceptionHandlerTest {
     assertServerErrorCarryingDiagnostic(response);
   }
 
-  /** The corruption is found however deeply Hibernate and Spring happen to nest it. */
   @Test
   public void testDeeplyNestedCorruptEntityTypeIsStillUnwrapped() {
     JpaSystemException wrapped =
@@ -87,10 +81,6 @@ public class OpenHouseExceptionHandlerTest {
     assertServerErrorCarryingDiagnostic(response);
   }
 
-  /**
-   * A data-access failure with no corruption in it keeps answering exactly as the catch-all advice
-   * always did, so unrelated errors are untouched by the unwrapping.
-   */
   @Test
   public void testUnrelatedDataAccessExceptionKeepsGenericBody() {
     JpaSystemException unrelated =
@@ -106,7 +96,6 @@ public class OpenHouseExceptionHandlerTest {
     Assertions.assertFalse(response.getBody().getMessage().contains(CORRUPT_MSG));
   }
 
-  /** A self-referential chain terminates rather than spinning, and answers generically. */
   @Test
   public void testCyclicCauseChainTerminates() {
     ResponseEntity<ErrorResponseBody> response =
@@ -128,8 +117,8 @@ public class OpenHouseExceptionHandlerTest {
   }
 
   /**
-   * A throwable that reports itself as its own cause, which a naive chain walk would never leave.
-   * {@link Throwable#initCause} forbids this, so the cycle is expressed by overriding the accessor.
+   * {@link Throwable#initCause} forbids a self-referential cause, so the cycle is expressed by
+   * overriding the accessor.
    */
   private static class SelfCausedException extends RuntimeException {
     SelfCausedException(String message) {
