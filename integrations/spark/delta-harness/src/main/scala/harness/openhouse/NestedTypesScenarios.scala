@@ -21,71 +21,130 @@ trait NestedTypesScenarios extends ScenarioKit {
   def createAndSeedNested(layout: Layout, numberOfRows: Int): TableTest[NestedTable.type] =
     TableTest(NestedTable).sql("create")(layout.create)().insert(numberOfRows)()
 
-  // Read every nested column back and check the seeded values roundtrip.
-  val nestedRoundtrip: TableTest[NestedTable.type] =
-    TableTest(NestedTable).check("nested.roundtrip") { view =>
-      val got = view.spark.sql(s"SELECT id, s.x, s.y, arr, m['k'], nested.inner.z FROM ${view.table} ORDER BY id").collect().toSeq
-      val actual = got.map(r => (r.getLong(0), r.getInt(1), r.getString(2), r.getSeq[Int](3), r.getInt(4), r.getInt(5)))
-      assert(actual == (1 to 3).map(i => (i.toLong, i, s"row-$i", Seq(i, i + 1), i, i)))
-    }
+  val nestedCases: List[Plan.Case] =
+    nestedLayouts
+      .map(layout =>
+        TablePreparation(
+          layout.label,
+          createAndSeedNested(layout, 3)))
+      .flatMap { preparation =>
+        List(
+          preparation.test("nested.roundtrip") { table =>
+            val actual = table.spark
+              .sql(
+                s"SELECT id, s.x, s.y, arr, m['k'], nested.inner.z " +
+                  s"FROM ${table.name} ORDER BY id")
+              .collect()
+              .toSeq
+              .map(row =>
+                (
+                  row.getLong(0),
+                  row.getInt(1),
+                  row.getString(2),
+                  row.getSeq[Int](3),
+                  row.getInt(4),
+                  row.getInt(5)))
+            val expected = (1 to 3).map { value =>
+              (
+                value.toLong,
+                value,
+                s"row-$value",
+                Seq(value, value + 1),
+                value,
+                value)
+            }
 
-  val nestedProjectField: TableTest[NestedTable.type] =
-    TableTest(NestedTable).check("nested.projectField") { view =>
-      val xs = view.spark.sql(s"SELECT s.x FROM ${view.table} ORDER BY id").collect().map(_.getInt(0)).toSeq
-      assert(xs == Seq(1, 2, 3))
-    }
+            assert(actual == expected)
+          },
+          preparation.test("nested.projectField") { table =>
+            val actual = table.spark
+              .sql(s"SELECT s.x FROM ${table.name} ORDER BY id")
+              .collect()
+              .toSeq
+              .map(_.getInt(0))
 
-  val nestedFilterField: TableTest[NestedTable.type] =
-    TableTest(NestedTable).check("nested.filterNestedField") { view =>
-      val ids = view.spark.sql(s"SELECT id FROM ${view.table} WHERE s.x = 2 ORDER BY id").collect().map(_.getLong(0)).toSeq
-      assert(ids == Seq(2L))
-    }
+            assert(actual == Seq(1, 2, 3))
+          },
+          preparation.test("nested.filterNestedField") { table =>
+            val actual = table.spark
+              .sql(s"SELECT id FROM ${table.name} WHERE s.x = 2 ORDER BY id")
+              .collect()
+              .toSeq
+              .map(_.getLong(0))
 
-  // Update a nested struct field.
-  val nestedUpdateStructField: TableTest[NestedTable.type] =
-    TableTest(NestedTable).sql("nested.updateStructField")(table => s"UPDATE $table SET s.x = 99 WHERE id = 2") { view =>
-      assert(view.spark.sql(s"SELECT s.x FROM ${view.table} WHERE id = 2").collect()(0).getInt(0) == 99)
-      assert(view.spark.sql(s"SELECT s.x FROM ${view.table} WHERE id = 1").collect()(0).getInt(0) == 1)
-    }
+            assert(actual == Seq(2L))
+          },
+          preparation.test("nested.updateStructField") { table =>
+            table.spark.sql(
+              s"UPDATE ${table.name} SET s.x = 99 WHERE id = 2")
 
-  val nestedMergeInsert: TableTest[NestedTable.type] =
-    TableTest(NestedTable).sql("nested.mergeInsert")(table =>
-      s"""MERGE INTO $table tgt USING (
-            SELECT * FROM VALUES
-              (CAST(4 AS BIGINT), named_struct('x', 4, 'y', 'row-4'), array(4, 5), map('k', 4), named_struct('inner', named_struct('z', 4)))
-            AS v(id, s, arr, m, nested)
-          ) src ON tgt.id = src.id
-          WHEN NOT MATCHED THEN INSERT *""") { view =>
-      val ids = view.spark.sql(s"SELECT id FROM ${view.table} ORDER BY id").collect().map(_.getLong(0)).toSeq
-      assert(ids == Seq(1L, 2L, 3L, 4L))
-      assert(view.spark.sql(s"SELECT s.x FROM ${view.table} WHERE id = 4").collect()(0).getInt(0) == 4)
-    }
+            assert(
+              table.spark
+                .sql(s"SELECT s.x FROM ${table.name} WHERE id = 2")
+                .collect()(0)
+                .getInt(0) == 99)
+            assert(
+              table.spark
+                .sql(s"SELECT s.x FROM ${table.name} WHERE id = 1")
+                .collect()(0)
+                .getInt(0) == 1)
+          },
+          preparation.test("nested.mergeInsert") { table =>
+            table.spark.sql(
+              s"""MERGE INTO ${table.name} target USING (
+                    SELECT * FROM VALUES
+                      (
+                        CAST(4 AS BIGINT),
+                        named_struct('x', 4, 'y', 'row-4'),
+                        array(4, 5),
+                        map('k', 4),
+                        named_struct('inner', named_struct('z', 4)))
+                    AS source(id, s, arr, m, nested)
+                  ) source ON target.id = source.id
+                  WHEN NOT MATCHED THEN INSERT *""")
 
-  val nestedDeleteByField: TableTest[NestedTable.type] =
-    TableTest(NestedTable).sql("nested.deleteByNestedField")(table => s"DELETE FROM $table WHERE s.x = 2") { view =>
-      val ids = view.spark.sql(s"SELECT id FROM ${view.table} ORDER BY id").collect().map(_.getLong(0)).toSeq
-      assert(ids == Seq(1L, 3L))
-    }
+            val ids = table.spark
+              .sql(s"SELECT id FROM ${table.name} ORDER BY id")
+              .collect()
+              .toSeq
+              .map(_.getLong(0))
 
-  // Insert a row with a null struct and empty array/map.
-  val nestedNullValues: TableTest[NestedTable.type] =
-    TableTest(NestedTable).sql("nested.nullValues")(table =>
-      s"INSERT INTO $table VALUES (CAST(4 AS BIGINT), CAST(NULL AS struct<x:int,y:string>), " +
-        s"CAST(array() AS array<int>), CAST(map() AS map<string,int>), CAST(NULL AS struct<inner:struct<z:int>>))") { view =>
-      val row4 = view.spark.sql(s"SELECT id, s, arr FROM ${view.table} WHERE id = 4").collect()(0)
-      assert(row4.isNullAt(1))                 // s is null
-      assert(row4.getSeq[Int](2).isEmpty)      // arr is empty
-    }
+            assert(ids == Seq(1L, 2L, 3L, 4L))
+            assert(
+              table.spark
+                .sql(s"SELECT s.x FROM ${table.name} WHERE id = 4")
+                .collect()(0)
+                .getInt(0) == 4)
+          },
+          preparation.test("nested.deleteByNestedField") { table =>
+            table.spark.sql(
+              s"DELETE FROM ${table.name} WHERE s.x = 2")
 
-  val nestedOperations: List[(String, TableTest[NestedTable.type])] = List(
-    "nested.roundtrip"          -> nestedRoundtrip,
-    "nested.projectField"       -> nestedProjectField,
-    "nested.filterNestedField"  -> nestedFilterField,
-    "nested.updateStructField"  -> nestedUpdateStructField,
-    "nested.mergeInsert"        -> nestedMergeInsert,
-    "nested.deleteByNestedField" -> nestedDeleteByField,
-    "nested.nullValues"         -> nestedNullValues
-  )
+            val ids = table.spark
+              .sql(s"SELECT id FROM ${table.name} ORDER BY id")
+              .collect()
+              .toSeq
+              .map(_.getLong(0))
+
+            assert(ids == Seq(1L, 3L))
+          },
+          preparation.test("nested.nullValues") { table =>
+            table.spark.sql(
+              s"INSERT INTO ${table.name} VALUES (" +
+                "CAST(4 AS BIGINT), " +
+                "CAST(NULL AS struct<x:int,y:string>), " +
+                "CAST(array() AS array<int>), " +
+                "CAST(map() AS map<string,int>), " +
+                "CAST(NULL AS struct<inner:struct<z:int>>))")
+
+            val insertedRow = table.spark
+              .sql(s"SELECT id, s, arr FROM ${table.name} WHERE id = 4")
+              .collect()(0)
+
+            assert(insertedRow.isNullAt(1))
+            assert(insertedRow.getSeq[Int](2).isEmpty)
+          })
+      }
 
   // ── type-edge coverage (TypesTable) ─────────────────────────────────────────────────────
   val typesLayouts: List[Layout] =
@@ -100,118 +159,203 @@ trait NestedTypesScenarios extends ScenarioKit {
     s"(CAST($id AS BIGINT), $n, $x, $dec, $str, CAST('b' AS binary), DATE '2024-01-01', " +
       s"TIMESTAMP '2024-01-01 00:00:00', TIMESTAMP_NTZ '2024-01-01 00:00:00')"
 
-  val typesRoundtrip: TableTest[TypesTable.type] =
-    TableTest(TypesTable).check("types.roundtrip") { view =>
-      val r = view.spark.sql(s"SELECT id, n, x, dec, str FROM ${view.table} WHERE id = 1").collect()(0)
-      assert(r.getLong(0) == 1L && r.getInt(1) == 1 && r.getDouble(2) == 1.5)
-      assert(r.getDecimal(3).compareTo(new java.math.BigDecimal("1.50")) == 0)
-      assert(r.getString(4) == "row-1")
-    }
+  val typesCases: List[Plan.Case] =
+    typesLayouts
+      .map(layout =>
+        TablePreparation(
+          layout.label,
+          createAndSeedTypes(layout, 3)))
+      .flatMap { preparation =>
+        List(
+          preparation.test("types.roundtrip") { table =>
+            val row = table.spark
+              .sql(
+                s"SELECT id, n, x, dec, str FROM ${table.name} WHERE id = 1")
+              .collect()(0)
 
-  val typesNulls: TableTest[TypesTable.type] =
-    TableTest(TypesTable).sql("types.nulls")(table =>
-      s"INSERT INTO $table VALUES (CAST(10 AS BIGINT), NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)") { view =>
-      val r = view.spark.sql(s"SELECT n, x, str, ts, tsntz FROM ${view.table} WHERE id = 10").collect()(0)
-      assert((0 to 4).forall(r.isNullAt))
-    }
+            assert(
+              row.getLong(0) == 1L &&
+                row.getInt(1) == 1 &&
+                row.getDouble(2) == 1.5)
+            assert(
+              row.getDecimal(3).compareTo(
+                new java.math.BigDecimal("1.50")) == 0)
+            assert(row.getString(4) == "row-1")
+          },
+          preparation.test("types.nulls") { table =>
+            table.spark.sql(
+              s"INSERT INTO ${table.name} VALUES (" +
+                "CAST(10 AS BIGINT), NULL, NULL, NULL, NULL, " +
+                "NULL, NULL, NULL, NULL)")
 
-  val typesSpecialFloats: TableTest[TypesTable.type] =
-    TableTest(TypesTable).sql("types.specialFloats")(table =>
-      s"INSERT INTO $table VALUES ${typesRow(11, "0", "double('NaN')", "CAST(0 AS decimal(10,2))", "'x'")}, " +
-        s"${typesRow(12, "0", "double('Infinity')", "CAST(0 AS decimal(10,2))", "'y'")}") { view =>
-      assert(view.spark.sql(s"SELECT x FROM ${view.table} WHERE id = 11").collect()(0).getDouble(0).isNaN)
-      assert(view.spark.sql(s"SELECT x FROM ${view.table} WHERE id = 12").collect()(0).getDouble(0).isInfinite)
-    }
+            val row = table.spark
+              .sql(
+                s"SELECT n, x, str, ts, tsntz FROM ${table.name} WHERE id = 10")
+              .collect()(0)
 
-  val typesBoundaries: TableTest[TypesTable.type] =
-    TableTest(TypesTable).sql("types.boundaries")(table =>
-      s"INSERT INTO $table VALUES " +
-        s"${typesRow(9223372036854775807L, "2147483647", "0.0", "CAST(99999999.99 AS decimal(10,2))", "'max'")}") { view =>
-      val r = view.spark.sql(s"SELECT id, n, dec FROM ${view.table} WHERE str = 'max'").collect()(0)
-      assert(r.getLong(0) == Long.MaxValue && r.getInt(1) == Int.MaxValue)
-      assert(r.getDecimal(2).compareTo(new java.math.BigDecimal("99999999.99")) == 0)
-    }
+            assert((0 to 4).forall(row.isNullAt))
+          },
+          preparation.test("types.specialFloats") { table =>
+            table.spark.sql(
+              s"INSERT INTO ${table.name} VALUES " +
+                s"${typesRow(11, "0", "double('NaN')", "CAST(0 AS decimal(10,2))", "'x'")}, " +
+                s"${typesRow(12, "0", "double('Infinity')", "CAST(0 AS decimal(10,2))", "'y'")}")
 
-  val typesUnicodeAndEmpty: TableTest[TypesTable.type] =
-    TableTest(TypesTable).sql("types.unicodeAndEmpty")(table =>
-      s"INSERT INTO $table VALUES ${typesRow(13, "0", "0.0", "CAST(0 AS decimal(10,2))", "'日本語 🎉'")}, " +
-        s"${typesRow(14, "0", "0.0", "CAST(0 AS decimal(10,2))", "''")}") { view =>
-      assert(view.spark.sql(s"SELECT str FROM ${view.table} WHERE id = 13").collect()(0).getString(0) == "日本語 🎉")
-      assert(view.spark.sql(s"SELECT str FROM ${view.table} WHERE id = 14").collect()(0).getString(0) == "")
-    }
+            assert(
+              table.spark
+                .sql(s"SELECT x FROM ${table.name} WHERE id = 11")
+                .collect()(0)
+                .getDouble(0)
+                .isNaN)
+            assert(
+              table.spark
+                .sql(s"SELECT x FROM ${table.name} WHERE id = 12")
+                .collect()(0)
+                .getDouble(0)
+                .isInfinite)
+          },
+          preparation.test("types.boundaries") { table =>
+            table.spark.sql(
+              s"INSERT INTO ${table.name} VALUES " +
+                typesRow(
+                  Long.MaxValue,
+                  Int.MaxValue.toString,
+                  "0.0",
+                  "CAST(99999999.99 AS decimal(10,2))",
+                  "'max'"))
 
-  val typesOperations: List[(String, TableTest[TypesTable.type])] = List(
-    "types.roundtrip"       -> typesRoundtrip,
-    "types.nulls"           -> typesNulls,
-    "types.specialFloats"   -> typesSpecialFloats,
-    "types.boundaries"      -> typesBoundaries,
-    "types.unicodeAndEmpty" -> typesUnicodeAndEmpty
-  )
+            val row = table.spark
+              .sql(
+                s"SELECT id, n, dec FROM ${table.name} WHERE str = 'max'")
+              .collect()(0)
+
+            assert(
+              row.getLong(0) == Long.MaxValue &&
+                row.getInt(1) == Int.MaxValue)
+            assert(
+              row.getDecimal(2).compareTo(
+                new java.math.BigDecimal("99999999.99")) == 0)
+          },
+          preparation.test("types.unicodeAndEmpty") { table =>
+            table.spark.sql(
+              s"INSERT INTO ${table.name} VALUES " +
+                s"${typesRow(13, "0", "0.0", "CAST(0 AS decimal(10,2))", "'日本語 🎉'")}, " +
+                s"${typesRow(14, "0", "0.0", "CAST(0 AS decimal(10,2))", "''")}")
+
+            assert(
+              table.spark
+                .sql(s"SELECT str FROM ${table.name} WHERE id = 13")
+                .collect()(0)
+                .getString(0) == "日本語 🎉")
+            assert(
+              table.spark
+                .sql(s"SELECT str FROM ${table.name} WHERE id = 14")
+                .collect()(0)
+                .getString(0) == "")
+          })
+      }
 
   // ── partition transforms + evolution ────────────────────────────────────────────────────
   // Each transform test is self-contained: create partitioned by the transform, seed, and verify
   // the rows roundtrip and a partition spec is registered.
-  def partitionTransform(transform: String): TableTest[TypesTable.type] =
-    TableTest(TypesTable)
-      .sql("create")(table =>
-        s"CREATE TABLE $table (${TypesTable.columnDefinitions}) USING $dataSource PARTITIONED BY ($transform) " +
-          s"TBLPROPERTIES ('write.format.default'='$seedFmt')")()
-      .insert(3)()
-      .check("verify") { view =>
-        assert(view.after.size == 3)
-        assert(view.spark.sql(s"SELECT * FROM ${view.table}.partitions").collect().nonEmpty)
-      }
+  val partitionTransformCases: List[Plan.Case] =
+    List("parquet", "orc").flatMap { format =>
+      val supported = List(
+        "partition.identity" -> "id",
+        "partition.bucket" -> "bucket(4, id)",
+        "partition.truncate" -> "truncate(2, str)",
+        "partition.years" -> "years(ts)",
+        "partition.months" -> "months(ts)",
+        "partition.days" -> "days(ts)",
+        "partition.hours" -> "hours(ts)")
+        .map {
+          case (caseName, transform) =>
+            TablePreparation(
+              format,
+              TableTest(TypesTable)
+                .sql("create")(table =>
+                  s"CREATE TABLE $table (${TypesTable.columnDefinitions}) " +
+                    s"USING $dataSource PARTITIONED BY ($transform) " +
+                    s"TBLPROPERTIES ('write.format.default'='$format')")()
+                .insert(3)())
+              .test(caseName) { table =>
+                assert(table.rows.size == 3)
+                assert(
+                  table.spark
+                    .sql(s"SELECT * FROM ${table.name}.partitions")
+                    .collect()
+                    .nonEmpty)
+              }
+        }
+      val rejected = List(
+        ("partition.void.rejected", "void(n)", "not supported"),
+        (
+          "partition.dateDay.rejected",
+          "days(dt)",
+          "Unsupported column"))
+        .map {
+          case (caseName, transform, expectedMessage) =>
+            TablePreparation(
+              format,
+              TableTest(TypesTable)
+                .sql("create")(table =>
+                  s"CREATE TABLE $table (${TypesTable.columnDefinitions}) " +
+                    s"USING $dataSource " +
+                    s"TBLPROPERTIES ('write.format.default'='$format')")())
+              .test(caseName) { table =>
+                val scratchTable = table.name + "_x"
+                val exception = Check.intercept[RuntimeException](
+                  table.spark.sql(
+                    s"CREATE TABLE $scratchTable " +
+                      s"(${TypesTable.columnDefinitions}) " +
+                      s"USING $dataSource PARTITIONED BY ($transform) " +
+                      s"TBLPROPERTIES ('write.format.default'='$format')"))
 
-  // A CREATE with an unsupported partition transform is rejected. Run it on a scratch name so the
-  // pipeline's managed (valid) table still exists for snapshotting.
-  private def partitionTransformRejected(label: String, transform: String, expectMessage: String): TableTest[TypesTable.type] =
-    TableTest(TypesTable)
-      .sql("create")(table => s"CREATE TABLE $table (${TypesTable.columnDefinitions}) USING $dataSource TBLPROPERTIES ('write.format.default'='$seedFmt')")()
-      .step(label) { (spark, table) =>
-        val scratch = table + "_x"
-        val error = Check.intercept[RuntimeException](spark.sql(
-          s"CREATE TABLE $scratch (${TypesTable.columnDefinitions}) USING $dataSource PARTITIONED BY ($transform) TBLPROPERTIES ('write.format.default'='$seedFmt')"))
-        spark.sql(s"DROP TABLE IF EXISTS $scratch")
-        assert(error.getMessage.contains(expectMessage))
-      }()
+                table.spark.sql(s"DROP TABLE IF EXISTS $scratchTable")
+                assert(exception.getMessage.contains(expectedMessage))
+              }
+        }
 
-  val partitionTransforms: List[(String, TableTest[TypesTable.type])] = List(
-    "partition.identity"        -> partitionTransform("id"),
-    "partition.bucket"          -> partitionTransform("bucket(4, id)"),
-    "partition.truncate"        -> partitionTransform("truncate(2, str)"),
-    "partition.years"           -> partitionTransform("years(ts)"),
-    "partition.months"          -> partitionTransform("months(ts)"),
-    "partition.days"            -> partitionTransform("days(ts)"),
-    "partition.hours"           -> partitionTransform("hours(ts)"),
-    // OpenHouse contract: these transforms are rejected (negative tests).
-    "partition.void.rejected"   -> partitionTransformRejected("partition.void.rejected", "void(n)", "not supported"),
-    "partition.dateDay.rejected" -> partitionTransformRejected("partition.dateDay.rejected", "days(dt)", "Unsupported column")
-  )
+      supported ++ rejected
+    }
 
   // OpenHouse contract: partition evolution is NOT supported — ALTER … ADD/DROP PARTITION FIELD is
   // rejected with a 400 telling you to recreate the table. Captured as negative tests.
-  val partitionEvolutionAddRejected: TableTest[CoreTable.type] =
-    TableTest(Core)
-      .sql("create")(table => s"CREATE TABLE $table ($columnDefinitions) USING $dataSource TBLPROPERTIES ('write.format.default'='$seedFmt')")()
-      .insert(3)()
-      .step("partition.evolutionAdd.rejected") { (spark, table) =>
-        val error = Check.intercept[Exception](spark.sql(s"ALTER TABLE $table ADD PARTITION FIELD datepartition"))
-        assert(error.getMessage.contains("Evolution of table partitioning"))
-      }()
+  val partitionEvolutionCases: List[Plan.Case] =
+    List("parquet", "orc").flatMap { format =>
+      List(
+        TablePreparation(
+          format,
+          TableTest(Core)
+            .sql("create")(table =>
+              s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+                s"TBLPROPERTIES ('write.format.default'='$format')")()
+            .insert(3)())
+          .test("partition.evolutionAdd.rejected") { table =>
+            val exception = Check.intercept[Exception](
+              table.spark.sql(
+                s"ALTER TABLE ${table.name} ADD PARTITION FIELD datepartition"))
 
-  val partitionEvolutionDropRejected: TableTest[CoreTable.type] =
-    TableTest(Core)
-      .sql("create")(table => s"CREATE TABLE $table ($columnDefinitions) USING $dataSource PARTITIONED BY (datepartition) TBLPROPERTIES ('write.format.default'='$seedFmt')")()
-      .insert(3)()
-      .step("partition.evolutionDrop.rejected") { (spark, table) =>
-        val error = Check.intercept[Exception](spark.sql(s"ALTER TABLE $table DROP PARTITION FIELD datepartition"))
-        assert(error.getMessage.contains("Evolution of table partitioning"))
-      }()
+            assert(
+              exception.getMessage.contains("Evolution of table partitioning"))
+          },
+        TablePreparation(
+          format,
+          TableTest(Core)
+            .sql("create")(table =>
+              s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+                "PARTITIONED BY (datepartition) " +
+                s"TBLPROPERTIES ('write.format.default'='$format')")()
+            .insert(3)())
+          .test("partition.evolutionDrop.rejected") { table =>
+            val exception = Check.intercept[Exception](
+              table.spark.sql(
+                s"ALTER TABLE ${table.name} DROP PARTITION FIELD datepartition"))
 
-  val partitionEvolution: List[(String, TableTest[CoreTable.type])] = List(
-    "partition.evolutionAdd.rejected"  -> partitionEvolutionAddRejected,
-    "partition.evolutionDrop.rejected" -> partitionEvolutionDropRejected
-  )
+            assert(
+              exception.getMessage.contains("Evolution of table partitioning"))
+          })
+    }
 
 
 }

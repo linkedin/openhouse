@@ -160,7 +160,7 @@ object Main {
     val cases = Plan.cases.filter(c => selected(c.id))
 
     val header = if (filters.isEmpty) "all cases" else s"filter ${filters.mkString(", ")} -> ${cases.size} cases"
-    println(s"\n=== delta-harness :: typed pipelines @ OpenHouse catalog ($header) ===\n")
+    println(s"\n=== delta-harness :: localized cases @ OpenHouse catalog ($header) ===\n")
 
     // Known-bug cases are tagged (Plan.knownBugs) and reported SKIP rather than run — deferred,
     // not passing. Everything else executes.

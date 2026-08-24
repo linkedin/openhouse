@@ -14,426 +14,896 @@ trait InteractionScenarios extends ScenarioKit {
   import Rows._
 
 
-  // ── DDL × history ──────────────────────────────────────────────────────────────────────────
-  val interactTtAfterAddColumn: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("interact.ddl.ttAfterAddColumn") { (spark, table) =>
-        val s0 = snapshotIds(spark, table).last
-        spark.sql(s"ALTER TABLE $table ADD COLUMN extra_col INT")
-        spark.sql(s"INSERT INTO $table VALUES $extraColInsert9")
-        val current = spark.sql(s"SELECT * FROM $table LIMIT 1").columns.toSeq
-        val travel  = spark.sql(s"SELECT * FROM $table VERSION AS OF $s0 LIMIT 1").columns.toSeq
-        assert(current.contains("extra_col"), s"current read missing evolved column: $current")
-        assert(!travel.contains("extra_col") && travel.size == Core.tableColumns.size,
-          s"time travel must read with the SNAPSHOT's schema (no extra_col): $travel")
-        assert(spark.sql(s"SELECT count(*) FROM $table VERSION AS OF $s0").collect()(0).getLong(0) == 3,
-          "pre-DDL snapshot row count wrong")
-      }()
+  private def interactionDdlCases(format: String): List[Plan.Case] = {
+    val preparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            s"TBLPROPERTIES ('write.format.default'='$format')")()
+        .insert(3)())
 
-  val interactRestoreAfterAddColumn: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("interact.ddl.restoreAfterAddColumn") { (spark, table) =>
-        val s0 = snapshotIds(spark, table).last
-        spark.sql(s"ALTER TABLE $table ADD COLUMN extra_col INT")
-        spark.sql(s"INSERT INTO $table VALUES $extraColInsert9")
-        spark.sql(s"CALL openhouse.system.rollback_to_snapshot('${catalogRelative(table)}', $s0)")
-        val cols = spark.sql(s"SELECT * FROM $table LIMIT 1").columns.toSeq
-        assert(cols.contains("extra_col"), s"rollback rolls back DATA only — schema keeps the evolved column: $cols")
-        assert(spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0) == 3, "data not rolled back")
-        assert(spark.sql(s"SELECT count(*) FROM $table WHERE extra_col IS NOT NULL").collect()(0).getLong(0) == 0,
-          "rolled-back rows must read the evolved column as null")
-        spark.sql(s"INSERT INTO $table VALUES $extraColInsert10") // table stays writable at the evolved arity
-        assert(spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0) == 4, "post-rollback insert failed")
-      }()
+    List(
+      preparation.test("interact.ddl.ttAfterAddColumn") { table =>
+        val seedSnapshotId = snapshotIds(table.spark, table.name).last
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} ADD COLUMN extra_col INT")
+        table.spark.sql(
+          s"INSERT INTO ${table.name} VALUES $extraColInsert9")
+        val currentColumns = table.spark
+          .sql(s"SELECT * FROM ${table.name} LIMIT 1")
+          .columns
+          .toSeq
+        val historicalColumns = table.spark
+          .sql(
+            s"SELECT * FROM ${table.name} " +
+              s"VERSION AS OF $seedSnapshotId LIMIT 1")
+          .columns
+          .toSeq
+        val historicalRowCount = table.spark
+          .sql(
+            s"SELECT count(*) FROM ${table.name} " +
+              s"VERSION AS OF $seedSnapshotId")
+          .collect()(0)
+          .getLong(0)
 
-  // E1: data in the evolved column, then the (currently pinned-rejected) DROP — table stays intact.
-  // Gating pin: if DROP COLUMN support ever lands this fails → extend to full post-drop coverage.
-  val interactDropColAfterData: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("interact.ddl.dropColAfterData") { (spark, table) =>
-        spark.sql(s"ALTER TABLE $table ADD COLUMN extra_col INT")
-        spark.sql(s"INSERT INTO $table VALUES $extraColInsert9")
-        val e = Check.intercept[BadRequestException](spark.sql(s"ALTER TABLE $table DROP COLUMN extra_col"))
-        assert(e.getMessage.contains("not found in newSchema"), s"drop rejection message changed: ${e.getMessage.take(200)}")
-        assert(spark.sql(s"SELECT count(*) FROM $table WHERE extra_col = 42").collect()(0).getLong(0) == 1,
-          "rejected drop must leave the column's data readable")
-        spark.sql(s"INSERT INTO $table VALUES $extraColInsert10")
-        assert(spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0) == 5,
-          "rejected drop must leave the table writable")
-      }()
+        assert(
+          currentColumns.contains("extra_col"),
+          s"current read is missing the evolved column: $currentColumns")
+        assert(
+          !historicalColumns.contains("extra_col") &&
+            historicalColumns.size == Core.tableColumns.size,
+          s"time travel should use the snapshot schema: $historicalColumns")
+        assert(
+          historicalRowCount == 3,
+          s"pre-DDL snapshot should contain 3 rows, got $historicalRowCount")
+      },
+      preparation.test("interact.ddl.restoreAfterAddColumn") { table =>
+        val seedSnapshotId = snapshotIds(table.spark, table.name).last
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} ADD COLUMN extra_col INT")
+        table.spark.sql(
+          s"INSERT INTO ${table.name} VALUES $extraColInsert9")
+        table.spark.sql(
+          "CALL openhouse.system.rollback_to_snapshot(" +
+            s"'${catalogRelative(table.name)}', $seedSnapshotId)")
+        val currentColumns = table.spark
+          .sql(s"SELECT * FROM ${table.name} LIMIT 1")
+          .columns
+          .toSeq
+        val currentRowCount = table.spark
+          .sql(s"SELECT count(*) FROM ${table.name}")
+          .collect()(0)
+          .getLong(0)
+        val nonNullEvolvedValueCount = table.spark
+          .sql(
+            s"SELECT count(*) FROM ${table.name} " +
+              "WHERE extra_col IS NOT NULL")
+          .collect()(0)
+          .getLong(0)
 
-  // ── RTAS × history / lineage ───────────────────────────────────────────────────────────────
+        assert(
+          currentColumns.contains("extra_col"),
+          s"rollback should retain the evolved schema: $currentColumns")
+        assert(
+          currentRowCount == 3,
+          s"rollback should restore 3 rows, got $currentRowCount")
+        assert(
+          nonNullEvolvedValueCount == 0,
+          "rolled-back rows should read the evolved column as null")
 
-  val interactRtasHistoryPreserved: TableTest[CoreTable.type] =
-    rtasPrep.step("interact.rtas.historyPreserved") { (spark, table) =>
-      val pre = snapshotIds(spark, table).last
-      spark.sql(s"CREATE OR REPLACE TABLE $table USING $dataSource AS SELECT * FROM $table WHERE ${Core.long0.columnName} <= 2")
-      assert(spark.sql(s"SELECT count(*) FROM $table.snapshots").collect()(0).getLong(0) == 2,
-        "pre-RTAS snapshots must survive the replace")
-      assert(spark.sql(s"SELECT count(*) FROM $table VERSION AS OF $pre").collect()(0).getLong(0) == 3,
-        "time travel to a pre-RTAS snapshot must work")
-    }()
+        table.spark.sql(
+          s"INSERT INTO ${table.name} VALUES $extraColInsert10")
+        assert(
+          table.spark
+            .sql(s"SELECT count(*) FROM ${table.name}")
+            .collect()(0)
+            .getLong(0) == 4,
+          "the rolled-back table should accept evolved-schema writes")
+      },
+      preparation.test("interact.ddl.dropColAfterData") { table =>
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} ADD COLUMN extra_col INT")
+        table.spark.sql(
+          s"INSERT INTO ${table.name} VALUES $extraColInsert9")
+        val exception = Check.intercept[BadRequestException](
+          table.spark.sql(
+            s"ALTER TABLE ${table.name} DROP COLUMN extra_col"))
 
-  val interactRtasRestoreRejected: TableTest[CoreTable.type] =
-    rtasPrep.step("interact.rtas.restoreRejected") { (spark, table) =>
-      val pre = snapshotIds(spark, table).last
-      spark.sql(s"CREATE OR REPLACE TABLE $table USING $dataSource AS SELECT * FROM $table WHERE ${Core.long0.columnName} <= 2")
-      val e = Check.intercept[ValidationException](
-        spark.sql(s"CALL openhouse.system.rollback_to_snapshot('${catalogRelative(table)}', $pre)"))
-      assert(e.getMessage.contains("not an ancestor"),
-        s"rollback across RTAS: expected the new-lineage/ancestry rejection, got: ${e.getMessage.take(200)}")
-    }()
+        assert(
+          exception.getMessage.contains("not found in newSchema"),
+          s"drop rejection message changed: ${exception.getMessage.take(200)}")
+        assert(
+          table.spark
+            .sql(
+              s"SELECT count(*) FROM ${table.name} WHERE extra_col = 42")
+            .collect()(0)
+            .getLong(0) == 1,
+          "rejected drop should leave the column data readable")
 
-  // The recovery path rollback can't provide: set_current_snapshot has no ancestry requirement.
-  val interactRtasSetCurrentRecovery: TableTest[CoreTable.type] =
-    rtasPrep.step("interact.rtas.setCurrentRecovery") { (spark, table) =>
-      val pre = snapshotIds(spark, table).last
-      spark.sql(s"CREATE OR REPLACE TABLE $table USING $dataSource AS SELECT * FROM $table WHERE ${Core.long0.columnName} <= 2")
-      spark.sql(s"CALL openhouse.system.set_current_snapshot('${catalogRelative(table)}', $pre)")
-      assert(spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0) == 3,
-        "set_current_snapshot must recover the pre-RTAS state (no ancestry requirement)")
-    }()
+        table.spark.sql(
+          s"INSERT INTO ${table.name} VALUES $extraColInsert10")
+        assert(
+          table.spark
+            .sql(s"SELECT count(*) FROM ${table.name}")
+            .collect()(0)
+            .getLong(0) == 5,
+          "rejected drop should leave the table writable")
+      })
+  }
 
-  val interactRtasWriteAfter: TableTest[CoreTable.type] =
-    rtasPrep.step("interact.rtas.writeAfter") { (spark, table) =>
-      spark.sql(s"CREATE OR REPLACE TABLE $table USING $dataSource AS SELECT * FROM $table WHERE ${Core.long0.columnName} <= 2")
-      spark.sql(s"INSERT INTO $table VALUES (CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
-      assert(spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0) == 3,
-        "replaced table must stay writable (DML-after-RTAS)")
-    }()
+  private def interactionRtasCases(format: String): List[Plan.Case] = {
+    val basePreparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            s"TBLPROPERTIES ('write.format.default'='$format')")()
+        .insert(3)())
+    val replacePreparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            s"TBLPROPERTIES ('write.format.default'='$format')")()
+        .insert(3)()
+        .sql("enableReplace")(table =>
+          s"ALTER TABLE $table SET TBLPROPERTIES ('replace.enabled'='true')")())
+    val userPropertyPreparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            "TBLPROPERTIES (" +
+            s"'write.format.default'='$format', " +
+            "'replace.enabled'='true', 'user.key'='v1')")()
+        .insert(3)())
+    val retentionPolicyPreparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            s"PARTITIONED BY (${Core.datePartition.columnName}) " +
+            "TBLPROPERTIES (" +
+            s"'write.format.default'='$format', 'replace.enabled'='true')")()
+        .insert(3)()
+        .sql("setRetention")(table =>
+          s"ALTER TABLE $table SET POLICY " +
+            s"(RETENTION = 30d ON COLUMN ${Core.datePartition.columnName} " +
+            "WHERE pattern = 'yyyy-MM-dd-HH')")())
 
-  // G9 (partition half): the replace path skips checkPartitionSpecEvolution — RTAS CAN change the
-  // spec where ALTER is pinned-rejected. Characterizes the bypass; if this ever fails, the guard
-  // was extended to the replace path — update AUDIT-FINDINGS G9.
-  val interactRtasPartitionSpecChange: TableTest[CoreTable.type] =
-    rtasPrep.step("interact.rtas.partitionSpecChange") { (spark, table) =>
-      spark.sql(s"CREATE OR REPLACE TABLE $table USING $dataSource PARTITIONED BY (datepartition) AS SELECT * FROM $table")
-      val desc = spark.sql(s"DESCRIBE TABLE $table").collect().toSeq
-      // Confirmed live: the table gains a "# Partition Information" section (datepartition listed
-      // both as a column and as a partition field) — the spec changed where ALTER is pinned-rejected.
-      assert(desc.exists(_.getString(0) == "# Partition Information") &&
-             desc.count(_.getString(0) == "datepartition") == 2,
-        s"G9 appears FIXED — RTAS no longer changes the partition spec; update AUDIT-FINDINGS G9. DESCRIBE:\n" +
-          desc.map(_.mkString(" | ")).mkString("\n"))
-      assert(spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0) == 3, "rows lost in re-spec RTAS")
-    }()
+    List(
+      replacePreparation.test("interact.rtas.historyPreserved") { table =>
+        val preReplaceSnapshotId = snapshotIds(table.spark, table.name).last
+        table.spark.sql(
+          s"CREATE OR REPLACE TABLE ${table.name} USING $dataSource " +
+            s"AS SELECT * FROM ${table.name} " +
+            s"WHERE ${Core.long0.columnName} <= 2")
+        val snapshotCount = table.spark
+          .sql(s"SELECT count(*) FROM ${table.name}.snapshots")
+          .collect()(0)
+          .getLong(0)
+        val historicalRowCount = table.spark
+          .sql(
+            s"SELECT count(*) FROM ${table.name} " +
+              s"VERSION AS OF $preReplaceSnapshotId")
+          .collect()(0)
+          .getLong(0)
 
-  // G9 (schema half): column drop via RTAS projection, where ALTER DROP COLUMN is pinned-rejected.
-  // Confirmed live (first run failed on the harness's own read-back because the column was GONE).
-  // Runs on a side table so the pipeline's implicit full-schema read-back stays valid.
-  val interactRtasDropsColumn: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("interact.rtas.dropsColumn") { (spark, table) =>
-        val side = s"${table}_dropcol"
-        spark.sql(s"DROP TABLE IF EXISTS $side")
+        assert(
+          snapshotCount == 2,
+          s"replace should retain two snapshots, got $snapshotCount")
+        assert(
+          historicalRowCount == 3,
+          s"pre-replace snapshot should contain 3 rows, got $historicalRowCount")
+      },
+      replacePreparation.test("interact.rtas.restoreRejected") { table =>
+        val preReplaceSnapshotId = snapshotIds(table.spark, table.name).last
+        table.spark.sql(
+          s"CREATE OR REPLACE TABLE ${table.name} USING $dataSource " +
+            s"AS SELECT * FROM ${table.name} " +
+            s"WHERE ${Core.long0.columnName} <= 2")
+        val exception = Check.intercept[ValidationException](
+          table.spark.sql(
+            "CALL openhouse.system.rollback_to_snapshot(" +
+              s"'${catalogRelative(table.name)}', $preReplaceSnapshotId)"))
+
+        assert(
+          exception.getMessage.contains("not an ancestor"),
+          "rollback across replacement should reject the old lineage")
+      },
+      replacePreparation.test("interact.rtas.setCurrentRecovery") { table =>
+        val preReplaceSnapshotId = snapshotIds(table.spark, table.name).last
+        table.spark.sql(
+          s"CREATE OR REPLACE TABLE ${table.name} USING $dataSource " +
+            s"AS SELECT * FROM ${table.name} " +
+            s"WHERE ${Core.long0.columnName} <= 2")
+        table.spark.sql(
+          "CALL openhouse.system.set_current_snapshot(" +
+            s"'${catalogRelative(table.name)}', $preReplaceSnapshotId)")
+        val recoveredRowCount = table.spark
+          .sql(s"SELECT count(*) FROM ${table.name}")
+          .collect()(0)
+          .getLong(0)
+
+        assert(
+          recoveredRowCount == 3,
+          s"set_current_snapshot should recover 3 rows, got $recoveredRowCount")
+      },
+      replacePreparation.test("interact.rtas.writeAfter") { table =>
+        table.spark.sql(
+          s"CREATE OR REPLACE TABLE ${table.name} USING $dataSource " +
+            s"AS SELECT * FROM ${table.name} " +
+            s"WHERE ${Core.long0.columnName} <= 2")
+        table.spark.sql(
+          s"INSERT INTO ${table.name} VALUES " +
+            "(CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
+        val rowCount = table.spark
+          .sql(s"SELECT count(*) FROM ${table.name}")
+          .collect()(0)
+          .getLong(0)
+
+        assert(
+          rowCount == 3,
+          s"replaced table should contain 3 rows after insert, got $rowCount")
+      },
+      replacePreparation.test("interact.rtas.partitionSpecChange") { table =>
+        table.spark.sql(
+          s"CREATE OR REPLACE TABLE ${table.name} USING $dataSource " +
+            s"PARTITIONED BY (${Core.datePartition.columnName}) " +
+            s"AS SELECT * FROM ${table.name}")
+        val description = table.spark
+          .sql(s"DESCRIBE TABLE ${table.name}")
+          .collect()
+          .toSeq
+        val rowCount = table.spark
+          .sql(s"SELECT count(*) FROM ${table.name}")
+          .collect()(0)
+          .getLong(0)
+
+        assert(
+          description.exists(_.getString(0) == "# Partition Information") &&
+            description.count(
+              _.getString(0) == Core.datePartition.columnName) == 2,
+          "RTAS should replace the partition specification")
+        assert(
+          rowCount == 3,
+          s"partition-spec replacement should preserve 3 rows, got $rowCount")
+      },
+      basePreparation.test("interact.rtas.dropsColumn") { table =>
+        val sideTable = s"${table.name}_dropcol"
+        table.spark.sql(s"DROP TABLE IF EXISTS $sideTable")
         try {
-          spark.sql(s"CREATE TABLE $side USING $dataSource TBLPROPERTIES ('replace.enabled'='true') AS SELECT * FROM $table")
-          spark.sql(s"CREATE OR REPLACE TABLE $side USING $dataSource AS " +
-            s"SELECT ${Core.long0.columnName}, ${Core.string0.columnName} FROM $side")
-          val cols = spark.sql(s"SELECT * FROM $side LIMIT 1").columns.toSeq
-          assert(cols == Seq(Core.long0.columnName, Core.string0.columnName),
-            s"G9 appears FIXED — RTAS no longer drops columns (ALTER DROP stays rejected); update AUDIT-FINDINGS G9: $cols")
-          assert(spark.sql(s"SELECT count(*) FROM $side").collect()(0).getLong(0) == 3, "rows lost in column-drop RTAS")
-        } finally spark.sql(s"DROP TABLE IF EXISTS $side")
-      }()
+          table.spark.sql(
+            s"CREATE TABLE $sideTable USING $dataSource " +
+              "TBLPROPERTIES ('replace.enabled'='true') " +
+              s"AS SELECT * FROM ${table.name}")
+          table.spark.sql(
+            s"CREATE OR REPLACE TABLE $sideTable USING $dataSource AS " +
+              s"SELECT ${Core.long0.columnName}, ${Core.string0.columnName} " +
+              s"FROM $sideTable")
+          val columns = table.spark
+            .sql(s"SELECT * FROM $sideTable LIMIT 1")
+            .columns
+            .toSeq
+          val rowCount = table.spark
+            .sql(s"SELECT count(*) FROM $sideTable")
+            .collect()(0)
+            .getLong(0)
 
-  // ── RTAS × table-property merge semantics (the THIRD property path beside CREATE and ALTER) ──
-  val interactRtasPropsUserSurvival: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(t => s"CREATE TABLE $t ($columnDefinitions) USING $dataSource TBLPROPERTIES (" +
-        s"'write.format.default'='$seedFmt', 'replace.enabled'='true', 'user.key'='v1')")()
-      .insert(3)()
-      .step("interact.rtas.props.userSurvival") { (spark, table) =>
-        spark.sql(s"CREATE OR REPLACE TABLE $table USING $dataSource AS SELECT * FROM $table WHERE ${Core.long0.columnName} <= 2")
-        val p = tableProps(spark, table)
-        assert(p.get("user.key").contains("v1"), s"user prop lost across RTAS: user.key=${p.get("user.key")}")
-        assert(p.get("replace.enabled").contains("true"), s"replace.enabled lost across RTAS: ${p.get("replace.enabled")}")
-      }()
+          assert(
+            columns == Seq(Core.long0.columnName, Core.string0.columnName),
+            s"RTAS should project the table to two columns, got $columns")
+          assert(
+            rowCount == 3,
+            s"column-drop RTAS should preserve 3 rows, got $rowCount")
+        } finally {
+          table.spark.sql(s"DROP TABLE IF EXISTS $sideTable")
+        }
+      },
+      userPropertyPreparation.test(
+        "interact.rtas.props.userSurvival") { table =>
+        table.spark.sql(
+          s"CREATE OR REPLACE TABLE ${table.name} USING $dataSource " +
+            s"AS SELECT * FROM ${table.name} " +
+            s"WHERE ${Core.long0.columnName} <= 2")
+        val properties = tableProps(table.spark, table.name)
 
-  val interactRtasPropsStatementWins: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(t => s"CREATE TABLE $t ($columnDefinitions) USING $dataSource TBLPROPERTIES (" +
-        s"'write.format.default'='$seedFmt', 'replace.enabled'='true', 'user.key'='v1')")()
-      .insert(3)()
-      .step("interact.rtas.props.statementWins") { (spark, table) =>
-        spark.sql(s"CREATE OR REPLACE TABLE $table USING $dataSource TBLPROPERTIES ('user.key'='v2') " +
-          s"AS SELECT * FROM $table WHERE ${Core.long0.columnName} <= 2")
-        val p = tableProps(spark, table)
-        assert(p.get("user.key").contains("v2"), s"statement TBLPROPERTIES must win over the old value: ${p.get("user.key")}")
-        assert(p.get("replace.enabled").contains("true"),
-          s"props NOT named in the statement must still survive (merge, not wholesale replace): ${p.get("replace.enabled")}")
-      }()
+        assert(
+          properties.get("user.key").contains("v1"),
+          s"user.key did not survive RTAS: ${properties.get("user.key")}")
+        assert(
+          properties.get("replace.enabled").contains("true"),
+          "replace.enabled did not survive RTAS")
+      },
+      userPropertyPreparation.test(
+        "interact.rtas.props.statementWins") { table =>
+        table.spark.sql(
+          s"CREATE OR REPLACE TABLE ${table.name} USING $dataSource " +
+            "TBLPROPERTIES ('user.key'='v2') " +
+            s"AS SELECT * FROM ${table.name} " +
+            s"WHERE ${Core.long0.columnName} <= 2")
+        val properties = tableProps(table.spark, table.name)
 
-  val interactRtasPropsCreateDefaulting: TableTest[CoreTable.type] =
-    rtasPrep.step("interact.rtas.props.createDefaulting") { (spark, table) =>
-      spark.sql(s"CREATE OR REPLACE TABLE $table USING $dataSource TBLPROPERTIES ('write.format.default'='orc') " +
-        s"AS SELECT * FROM $table WHERE ${Core.long0.columnName} <= 2")
-      val p = tableProps(spark, table)
-      assert(p.get("write.format.default").contains("orc"),
-        s"RTAS can change the storage format where ALTER can't rewrite: ${p.get("write.format.default")}")
-      assert(p.get("format-version").forall(_ == "2"), s"forced format-version drifted: ${p.get("format-version")}")
-      spark.sql(s"INSERT INTO $table VALUES (CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
-      assert(spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0) == 3, "orc-format table not writable")
-    }()
+        assert(
+          properties.get("user.key").contains("v2"),
+          s"statement property should win, got ${properties.get("user.key")}")
+        assert(
+          properties.get("replace.enabled").contains("true"),
+          "properties omitted from RTAS should survive")
+      },
+      replacePreparation.test(
+        "interact.rtas.props.createDefaulting") { table =>
+        table.spark.sql(
+          s"CREATE OR REPLACE TABLE ${table.name} USING $dataSource " +
+            "TBLPROPERTIES ('write.format.default'='orc') " +
+            s"AS SELECT * FROM ${table.name} " +
+            s"WHERE ${Core.long0.columnName} <= 2")
+        val properties = tableProps(table.spark, table.name)
 
-  val interactRtasPropsReservedPlane: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(t => s"CREATE TABLE $t ($columnDefinitions) USING $dataSource PARTITIONED BY (datepartition) TBLPROPERTIES (" +
-        s"'write.format.default'='$seedFmt', 'replace.enabled'='true')")()
-      .insert(3)()
-      .sql("setRetention")(t => s"ALTER TABLE $t SET POLICY (RETENTION = 30d ON COLUMN datepartition WHERE pattern = 'yyyy-MM-dd-HH')")()
-      .step("interact.rtas.props.reservedPlane") { (spark, table) =>
-        val uuidBefore = tableProps(spark, table).getOrElse("openhouse.tableUUID", "<absent>")
-        spark.sql(s"CREATE OR REPLACE TABLE $table USING $dataSource PARTITIONED BY (datepartition) " +
-          s"AS SELECT * FROM $table WHERE ${Core.long0.columnName} <= 2")
-        val p = tableProps(spark, table)
-        assert(p.getOrElse("openhouse.tableUUID", "<absent>") == uuidBefore,
-          s"tableUUID must be preserved across RTAS: $uuidBefore -> ${p.get("openhouse.tableUUID")}")
-        // G10 (confirmed live): RTAS silently WIPES the policies plane — the retention policy set
-        // before the replace is gone after it (while tableUUID survives). Characterizes the bug;
-        // if this fails, G10 was fixed — flip to a survival assertion and update AUDIT-FINDINGS.
-        val policiesAfter = p.get("policies")
-        assert(policiesAfter.forall(b => !b.toLowerCase.contains("retention")),
-          s"G10 appears FIXED — retention policy survived RTAS; update AUDIT-FINDINGS G10 and flip this test: $policiesAfter")
-      }()
+        assert(
+          properties.get("write.format.default").contains("orc"),
+          "RTAS should set write.format.default to orc")
+        assert(
+          properties.get("format-version").forall(_ == "2"),
+          s"format-version drifted: ${properties.get("format-version")}")
 
-  // RTAS on a table with an existing branch: refs travel in the replace payload — branch survives,
-  // still readable at its (old-lineage) head.
-  val interactRtasWithBranch: TableTest[CoreTable.type] =
-    rtasPrep.step("interact.rtas.withBranch") { (spark, table) =>
-      spark.sql(s"ALTER TABLE $table CREATE BRANCH keepbr")
-      spark.sql(s"INSERT INTO $table.branch_keepbr VALUES (CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
-      spark.sql(s"CREATE OR REPLACE TABLE $table USING $dataSource AS SELECT * FROM $table WHERE ${Core.long0.columnName} <= 2")
-      val refs = spark.sql(s"SELECT name FROM $table.refs").collect().toSeq.map(_.getString(0)).toSet
-      assert(refs.contains("keepbr"), s"branch ref lost across RTAS: $refs")
-      assert(spark.sql(s"SELECT count(*) FROM $table VERSION AS OF 'keepbr'").collect()(0).getLong(0) == 4,
-        "branch head (old lineage) unreadable after RTAS")
-    }()
+        table.spark.sql(
+          s"INSERT INTO ${table.name} VALUES " +
+            "(CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
+        assert(
+          table.spark
+            .sql(s"SELECT count(*) FROM ${table.name}")
+            .collect()(0)
+            .getLong(0) == 3,
+          "RTAS table using ORC should remain writable")
+      },
+      retentionPolicyPreparation.test(
+        "interact.rtas.props.reservedPlane") { table =>
+        val tableUuidBefore = tableProps(table.spark, table.name)
+          .getOrElse("openhouse.tableUUID", "<absent>")
+        table.spark.sql(
+          s"CREATE OR REPLACE TABLE ${table.name} USING $dataSource " +
+            s"PARTITIONED BY (${Core.datePartition.columnName}) " +
+            s"AS SELECT * FROM ${table.name} " +
+            s"WHERE ${Core.long0.columnName} <= 2")
+        val properties = tableProps(table.spark, table.name)
+        val policiesAfter = properties.get("policies")
 
-  // ── branch × history / maintenance ─────────────────────────────────────────────────────────
-  val interactBranchTtBeforeBranchPoint: TableTest[CoreTable.type] =
-    coreTwoSnapshots.step("interact.branch.ttBeforeBranchPoint") { (spark, table) =>
-      val snaps = snapshotIds(spark, table)
-      val ts0 = spark.sql(s"SELECT committed_at FROM $table.snapshots ORDER BY committed_at LIMIT 1").collect()(0).getTimestamp(0)
-      spark.sql(s"ALTER TABLE $table SET TBLPROPERTIES ('write.wap.enabled'='true')")
-      spark.sql(s"ALTER TABLE $table CREATE BRANCH tb")
-      spark.sql(s"INSERT INTO $table.branch_tb VALUES (CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
-      assert(spark.sql(s"SELECT count(*) FROM $table VERSION AS OF 'tb'").collect()(0).getLong(0) == 6, "branch head")
-      assert(spark.sql(s"SELECT count(*) FROM $table VERSION AS OF ${snaps.head}").collect()(0).getLong(0) == 3,
-        "snapshot-id travel to a pre-branch-point ancestor must work")
-      spark.conf.set("spark.wap.branch", "tb")
-      try {
-        assert(spark.sql(s"SELECT count(*) FROM $table TIMESTAMP AS OF '$ts0'").collect()(0).getLong(0) == 3,
-          "explicit TIMESTAMP AS OF must override spark.wap.branch and resolve against main history")
-        assert(spark.sql(s"SELECT count(*) FROM $table VERSION AS OF ${snaps.head}").collect()(0).getLong(0) == 3,
-          "explicit VERSION AS OF must override spark.wap.branch")
-      } finally spark.conf.unset("spark.wap.branch")
-    }()
+        assert(
+          properties.getOrElse("openhouse.tableUUID", "<absent>") ==
+            tableUuidBefore,
+          "table UUID should survive RTAS")
+        assert(
+          policiesAfter.forall(policy =>
+            !policy.toLowerCase.contains("retention")),
+          s"RTAS should currently remove the retention policy: $policiesAfter")
+      },
+      replacePreparation.test("interact.rtas.withBranch") { table =>
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} CREATE BRANCH keepbr")
+        table.spark.sql(
+          s"INSERT INTO ${table.name}.branch_keepbr VALUES " +
+            "(CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
+        table.spark.sql(
+          s"CREATE OR REPLACE TABLE ${table.name} USING $dataSource " +
+            s"AS SELECT * FROM ${table.name} " +
+            s"WHERE ${Core.long0.columnName} <= 2")
+        val refs = table.spark
+          .sql(s"SELECT name FROM ${table.name}.refs")
+          .collect()
+          .map(_.getString(0))
+          .toSet
+        val branchRowCount = table.spark
+          .sql(
+            s"SELECT count(*) FROM ${table.name} VERSION AS OF 'keepbr'")
+          .collect()(0)
+          .getLong(0)
 
-  // E5 characterization (mirror of G8): DDL on MAIN hits branches immediately — schema is
-  // table-global, and an old-arity branch writer is broken mid-flight.
-  val interactBranchMainDdlImmediate: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("interact.branch.mainDdlImmediate") { (spark, table) =>
-        spark.sql(s"ALTER TABLE $table SET TBLPROPERTIES ('write.wap.enabled'='true')")
-        spark.sql(s"ALTER TABLE $table CREATE BRANCH mb")
-        spark.sql(s"INSERT INTO $table.branch_mb VALUES (CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
-        spark.sql(s"ALTER TABLE $table ADD COLUMN extra_col INT") // DDL on MAIN
-        val branchCols = spark.sql(s"SELECT * FROM $table VERSION AS OF 'mb' LIMIT 1").columns.toSeq
-        assert(branchCols.contains("extra_col"), s"main DDL is table-global — branch reads see it immediately: $branchCols")
-        val e = Check.intercept[AnalysisException](
-          spark.sql(s"INSERT INTO $table.branch_mb VALUES (CAST(7 AS BIGINT), 7, 'row-7', 7.5, true, '2024-01-07-06')"))
-        assert(e.getMessage.toLowerCase.contains("not enough data columns"),
-          s"old-arity branch writer must break after main DDL (characterizes the hazard): ${e.getMessage.take(200)}")
-        spark.sql(s"INSERT INTO $table.branch_mb VALUES (CAST(8 AS BIGINT), 8, 'row-8', 8.5, true, '2024-01-08-07', 44)")
-        assert(spark.sql(s"SELECT count(*) FROM $table VERSION AS OF 'mb'").collect()(0).getLong(0) == 5,
-          "new-arity branch write after main DDL")
-      }()
+        assert(
+          refs.contains("keepbr"),
+          s"branch ref did not survive RTAS: $refs")
+        assert(
+          branchRowCount == 4,
+          s"branch should retain 4 rows after RTAS, got $branchRowCount")
+      })
+  }
 
-  // E10: expiration is ref-aware — branch heads survive, shared ancestry prunes.
-  val interactBranchExpireProtectsRefs: TableTest[CoreTable.type] =
-    coreTwoSnapshots.step("interact.branch.expireProtectsRefs") { (spark, table) =>
-      spark.sql(s"ALTER TABLE $table SET TBLPROPERTIES ('write.wap.enabled'='true')")
-      spark.sql(s"ALTER TABLE $table CREATE BRANCH eb")
-      spark.sql(s"INSERT INTO $table.branch_eb VALUES (CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
-      spark.sql(s"INSERT INTO $table VALUES (CAST(7 AS BIGINT), 7, 'row-7', 7.5, true, '2024-01-07-06')")
-      assert(spark.sql(s"SELECT count(*) FROM $table.snapshots").collect()(0).getLong(0) == 4, "expected 4 snapshots pre-expire")
-      spark.sql(s"CALL openhouse.system.expire_snapshots(table => '${catalogRelative(table)}', older_than => TIMESTAMP '2999-01-01 00:00:00', retain_last => 1)")
-      val refs = spark.sql(s"SELECT name FROM $table.refs").collect().toSeq.map(_.getString(0)).toSet
-      assert(refs == Set("main", "eb"), s"branch/tag refs must survive expiration: $refs")
-      assert(spark.sql(s"SELECT count(*) FROM $table.snapshots").collect()(0).getLong(0) == 2,
-        "shared ancestry prunes to the two ref heads")
-      assert(spark.sql(s"SELECT count(*) FROM $table VERSION AS OF 'eb'").collect()(0).getLong(0) == 6, "branch readable post-expire")
-      assert(spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0) == 6, "main readable post-expire")
-    }()
+  private def interactionBranchCases(format: String): List[Plan.Case] = {
+    val basePreparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            s"TBLPROPERTIES ('write.format.default'='$format')")()
+        .insert(3)())
+    val twoSnapshotPreparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            s"TBLPROPERTIES ('write.format.default'='$format')")()
+        .insert(3)()
+        .sql("insertMore")(table =>
+          s"INSERT INTO $table VALUES " +
+            "(CAST(4 AS BIGINT), 4, 'row-4', 4.5, true, '2024-01-04-03'), " +
+            "(CAST(5 AS BIGINT), 5, 'row-5', 5.5, false, '2024-01-05-04')")())
+    val wapPreparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            s"TBLPROPERTIES ('write.format.default'='$format')")()
+        .insert(3)()
+        .sql("enableWap")(table =>
+          s"ALTER TABLE $table SET TBLPROPERTIES ('write.wap.enabled'='true')")())
 
-  // C4: restore procedures target MAIN even while spark.wap.branch is set (procedures are not
-  // branch-conf-routed) — the branch is untouched.
-  val interactBranchRollbackWhileWapConf: TableTest[CoreTable.type] =
-    coreTwoSnapshots.step("interact.branch.rollbackWhileWapConf") { (spark, table) =>
-      val s0 = snapshotIds(spark, table).head
-      spark.sql(s"ALTER TABLE $table SET TBLPROPERTIES ('write.wap.enabled'='true')")
-      spark.sql(s"ALTER TABLE $table CREATE BRANCH rb")
-      spark.sql(s"INSERT INTO $table.branch_rb VALUES (CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
-      spark.conf.set("spark.wap.branch", "rb")
-      try spark.sql(s"CALL openhouse.system.rollback_to_snapshot('${catalogRelative(table)}', $s0)")
-      finally spark.conf.unset("spark.wap.branch")
-      assert(spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0) == 3,
-        "rollback under wap.branch conf still targets MAIN (procedures are not branch-routed)")
-      assert(spark.sql(s"SELECT count(*) FROM $table VERSION AS OF 'rb'").collect()(0).getLong(0) == 6,
-        "branch untouched by the main rollback")
-    }()
+    List(
+      twoSnapshotPreparation.test(
+        "interact.branch.ttBeforeBranchPoint") { table =>
+        val snapshots = snapshotIds(table.spark, table.name)
+        val firstCommitTimestamp = table.spark
+          .sql(
+            s"SELECT committed_at FROM ${table.name}.snapshots " +
+              "ORDER BY committed_at LIMIT 1")
+          .collect()(0)
+          .getTimestamp(0)
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
+            "('write.wap.enabled'='true')")
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} CREATE BRANCH tb")
+        table.spark.sql(
+          s"INSERT INTO ${table.name}.branch_tb VALUES " +
+            "(CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
 
-  // C1: rolled-past snapshots are unreferenced — expiration makes the rollback permanent.
-  val interactRestoreExpireAfterRollback: TableTest[CoreTable.type] =
-    coreTwoSnapshots.step("interact.restore.expireAfterRollback") { (spark, table) =>
-      val snaps = snapshotIds(spark, table)
-      spark.sql(s"CALL openhouse.system.rollback_to_snapshot('${catalogRelative(table)}', ${snaps.head})")
-      spark.sql(s"CALL openhouse.system.expire_snapshots(table => '${catalogRelative(table)}', older_than => TIMESTAMP '2999-01-01 00:00:00', retain_last => 1)")
-      assert(spark.sql(s"SELECT count(*) FROM $table.snapshots").collect()(0).getLong(0) == 1,
-        "the rolled-past snapshot must be expired (unreferenced)")
-      assert(spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0) == 3, "current state intact")
-      val e = Check.intercept[Exception](
-        spark.sql(s"SELECT count(*) FROM $table VERSION AS OF ${snaps(1)}").collect())
-      assert(Exceptions.causeChain(e).exists(t => Option(t.getMessage).exists(_.toLowerCase.contains("snapshot"))),
-        s"travel to the expired snapshot must fail (rollback is now PERMANENT): ${e.getMessage.take(200)}")
-    }()
+        assert(
+          table.spark
+            .sql(
+              s"SELECT count(*) FROM ${table.name} VERSION AS OF 'tb'")
+            .collect()(0)
+            .getLong(0) == 6,
+          "branch head should contain 6 rows")
+        assert(
+          table.spark
+            .sql(
+              s"SELECT count(*) FROM ${table.name} " +
+                s"VERSION AS OF ${snapshots.head}")
+            .collect()(0)
+            .getLong(0) == 3,
+          "snapshot ID should resolve before the branch point")
 
-  // ── THE COMPOSITE DEFECT: branch × expiration × merge (G11; INTERACTION-AUDIT §6) ───────────
-  // Bytecode-confirmed mechanism: RemoveSnapshots retention is per-ref and head-anchored (no
-  // protection for the ancestry BETWEEN live refs), and SnapshotUtil's ancestry walk SILENTLY
-  // TRUNCATES at an expired hole and returns false. So policy-driven expiration between branch
-  // work and the merge makes fast_forward spuriously reject with "not an ancestor" — even when
-  // main never advanced — and, with no rebase in Iceberg, the branch is permanently stranded.
-  // The pair test (branch × expire) PASSES because reads don't consume ancestry; only the merge does.
-  val interactExpireMergeSpuriousReject: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("interact.branch.expireMerge.spuriousReject") { (spark, table) =>
-        spark.sql(s"ALTER TABLE $table CREATE BRANCH mb")
-        spark.sql(s"INSERT INTO $table.branch_mb VALUES (CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')") // B1
-        spark.sql(s"INSERT INTO $table.branch_mb VALUES (CAST(7 AS BIGINT), 7, 'row-7', 7.5, true, '2024-01-07-06')") // B2 (head)
-        assert(countOf(spark, s"SELECT count(*) FROM $table.snapshots") == "3", "expected P, B1, B2")
-        // main NEVER advances. This merge is valid right now (branch.fastForward.merge is the
-        // no-expiration control proving it). Interpose the destroyer:
-        spark.sql(s"CALL openhouse.system.expire_snapshots(table => '${catalogRelative(table)}', older_than => TIMESTAMP '2999-01-01 00:00:00', retain_last => 1)")
-        // P2 VIOLATED: retention is per-ref head-anchored — the intermediate branch commit B1
-        // (merge connectivity) is expired even though both refs are alive.
-        assert(countOf(spark, s"SELECT count(*) FROM $table.snapshots") == "2",
-          "retention keeps only the two ref heads; the intermediate branch snapshot is expired")
-        // The pair-test ILLUSION: refs alive, branch fully readable — nothing looks broken.
-        val refs = spark.sql(s"SELECT name FROM $table.refs").collect().toSeq.map(_.getString(0)).toSet
-        assert(refs == Set("main", "mb"), s"both refs alive: $refs")
-        assert(countOf(spark, s"SELECT count(*) FROM $table VERSION AS OF 'mb'") == "5", "branch readable")
-        // P1 VIOLATED: the merge is now spuriously rejected — the ancestry walk from B2 hits the
-        // B1 hole, silently truncates, and concludes main's head "is not an ancestor" of the branch.
-        val e = Check.intercept[Exception](
-          spark.sql(s"CALL openhouse.system.fast_forward('${catalogRelative(table)}', 'main', 'mb')"))
-        assert(Option(e.getMessage).exists(_.contains("not an ancestor")),
-          s"G11 appears FIXED — fast_forward survived expiration (or failed differently); update AUDIT-FINDINGS G11: " +
-            s"${e.getClass.getName} ${Option(e.getMessage).getOrElse("").take(180)}")
-        // P6 VIOLATED: no recovery path merges the branch. Characterize the cherry-pick fallback:
-        val b2 = spark.sql(s"SELECT snapshot_id FROM $table.refs WHERE name = 'mb'").collect()(0).getLong(0)
-        val cherry = try {
-          spark.sql(s"CALL openhouse.system.cherrypick_snapshot('${catalogRelative(table)}', ${b2}L)")
-          s"SUCCEEDED — main now ${countOf(spark, s"SELECT count(*) FROM $table")} rows (B1's commit silently LOST in the 'merge')"
-        } catch { case t: Throwable => s"REJECTED ${t.getClass.getName} :: ${Option(t.getMessage).getOrElse("").take(160)}" }
-        println(s"DIAG expireMerge.cherrypickFallback: $cherry")
-        val mainCount = countOf(spark, s"SELECT count(*) FROM $table").toLong
-        assert(mainCount == 3 || mainCount == 4, s"main must stay consistent (3, or 4 if cherry-pick half-merged): $mainCount")
-        // Copy-out is the ONLY full recovery (data files survive: expiration ran cleanExpiredFiles(false)).
-        assert(countOf(spark, s"SELECT count(*) FROM $table VERSION AS OF 'mb'") == "5",
-          "branch data must remain readable for copy-out recovery")
-      }()
+        table.spark.conf.set("spark.wap.branch", "tb")
+        try {
+          assert(
+            table.spark
+              .sql(
+                s"SELECT count(*) FROM ${table.name} " +
+                  s"TIMESTAMP AS OF '$firstCommitTimestamp'")
+              .collect()(0)
+              .getLong(0) == 3,
+            "explicit timestamp should override spark.wap.branch")
+          assert(
+            table.spark
+              .sql(
+                s"SELECT count(*) FROM ${table.name} " +
+                  s"VERSION AS OF ${snapshots.head}")
+              .collect()(0)
+              .getLong(0) == 3,
+            "explicit snapshot ID should override spark.wap.branch")
+        } finally {
+          table.spark.conf.unset("spark.wap.branch")
+        }
+      },
+      basePreparation.test("interact.branch.mainDdlImmediate") { table =>
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
+            "('write.wap.enabled'='true')")
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} CREATE BRANCH mb")
+        table.spark.sql(
+          s"INSERT INTO ${table.name}.branch_mb VALUES " +
+            "(CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} ADD COLUMN extra_col INT")
+        val branchColumns = table.spark
+          .sql(
+            s"SELECT * FROM ${table.name} VERSION AS OF 'mb' LIMIT 1")
+          .columns
+          .toSeq
 
-  // P3 VIOLATED: WAP-staged snapshots are UNREFERENCED, so age-based expiration silently deletes
-  // them before publish; the loss only becomes loud at publish time ("Cannot find snapshot").
-  // OpenHouse's scheduled expiration job (default 3-day TTL) makes this automatic, not hypothetical.
-  val interactExpireMergeStagedWapLoss: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .sql("enableWap")(t => s"ALTER TABLE $t SET TBLPROPERTIES ('write.wap.enabled'='true')")()
-      .step("interact.branch.expireMerge.stagedWapLoss") { (spark, table) =>
-        spark.conf.set("spark.wap.id", "w2")
-        try spark.sql(s"INSERT INTO $table VALUES (CAST(9 AS BIGINT), 9, 'row-9', 9.5, true, '2024-01-09-01')")
-        finally spark.conf.unset("spark.wap.id")
-        assert(countOf(spark, s"SELECT count(*) FROM $table.snapshots WHERE summary['wap.id'] = 'w2'") == "1", "staged")
-        spark.sql(s"CALL openhouse.system.expire_snapshots(table => '${catalogRelative(table)}', older_than => TIMESTAMP '2999-01-01 00:00:00', retain_last => 1)")
-        // The SILENT loss: expiration reports nothing about the staged work it destroyed.
-        assert(countOf(spark, s"SELECT count(*) FROM $table.snapshots WHERE summary['wap.id'] = 'w2'") == "0",
-          "P3 appears FIXED — staged WAP snapshot survived expiration; update AUDIT-FINDINGS G11")
-        // Loud only NOW, at publish — after the work is unrecoverable:
-        val e = Check.intercept[Exception](
-          spark.sql(s"CALL openhouse.system.publish_changes(table => '${catalogRelative(table)}', wap_id => 'w2')"))
-        println(s"DIAG stagedWapLoss.publish: ${e.getClass.getName} :: ${Option(e.getMessage).getOrElse("").take(180)}")
-        assert(countOf(spark, s"SELECT count(*) FROM $table") == "3", "main unchanged; the staged write is gone")
-      }()
+        assert(
+          branchColumns.contains("extra_col"),
+          s"main DDL should change the table-global schema: $branchColumns")
 
-  // ── flags at CREATE + ALTER-to-MoR + compaction over evolved schema ────────────────────────
-  val interactFlagsWapReplaceAtCreate: TableTest[CoreTable.type] =
-    TableTest(Core)
-      .sql("create")(t => s"CREATE TABLE $t ($columnDefinitions) USING $dataSource TBLPROPERTIES (" +
-        s"'write.format.default'='$seedFmt', 'write.wap.enabled'='true', 'replace.enabled'='true')")()
-      .insert(3)()
-      .step("interact.flags.wapReplaceAtCreate") { (spark, table) =>
-        val p = tableProps(spark, table)
-        assert(p.get("write.wap.enabled").contains("true") && p.get("replace.enabled").contains("true"),
-          s"flags set at CREATE must be honored: wap=${p.get("write.wap.enabled")} replace=${p.get("replace.enabled")}")
-        spark.sql(s"ALTER TABLE $table CREATE BRANCH cb") // wap-at-create usable immediately
-        val e = Check.intercept[BadRequestException](
-          spark.sql(s"CREATE OR REPLACE TABLE $table USING $dataSource AS SELECT * FROM $table"))
-        assert(e.getMessage.contains("while WAP"),
-          s"RTAS-while-WAP guard must fire from create-time flags too: ${e.getMessage.take(200)}")
-      }()
+        val exception = Check.intercept[AnalysisException](
+          table.spark.sql(
+            s"INSERT INTO ${table.name}.branch_mb VALUES " +
+              "(CAST(7 AS BIGINT), 7, 'row-7', 7.5, true, '2024-01-07-06')"))
+        assert(
+          exception.getMessage.toLowerCase.contains("not enough data columns"),
+          "old-arity branch writer should fail after main DDL")
 
-  val interactMorAlterToMor: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)()
-      .sql("seed(3, one-file)")(t =>
-        s"INSERT INTO $t SELECT /*+ COALESCE(1) */ * FROM (${RowGenerator.valuesClause(Core, 3)}) AS seed")()
-      .step("interact.mor.alterToMor") { (spark, table) =>
-        spark.sql(s"ALTER TABLE $table SET TBLPROPERTIES ('write.delete.mode'='merge-on-read')")
-        spark.sql(s"DELETE FROM $table WHERE ${Core.long0.columnName} = 1")
-        val deleteFiles = spark.sql(s"SELECT count(*) FROM $table.all_delete_files").collect()(0).getLong(0)
-        assert(deleteFiles == 1,
-          s"ALTER-to-MoR must govern subsequent deletes (expected 1 position-delete file, got $deleteFiles)")
-        assert(spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0) == 2, "row not deleted")
-      }()
+        table.spark.sql(
+          s"INSERT INTO ${table.name}.branch_mb VALUES " +
+            "(CAST(8 AS BIGINT), 8, 'row-8', 8.5, true, " +
+            "'2024-01-08-07', 44)")
+        assert(
+          table.spark
+            .sql(
+              s"SELECT count(*) FROM ${table.name} VERSION AS OF 'mb'")
+            .collect()(0)
+            .getLong(0) == 5,
+          "new-arity branch write should succeed after main DDL")
+      },
+      twoSnapshotPreparation.test(
+        "interact.branch.expireProtectsRefs") { table =>
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
+            "('write.wap.enabled'='true')")
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} CREATE BRANCH eb")
+        table.spark.sql(
+          s"INSERT INTO ${table.name}.branch_eb VALUES " +
+            "(CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
+        table.spark.sql(
+          s"INSERT INTO ${table.name} VALUES " +
+            "(CAST(7 AS BIGINT), 7, 'row-7', 7.5, true, '2024-01-07-06')")
+        assert(
+          table.spark
+            .sql(s"SELECT count(*) FROM ${table.name}.snapshots")
+            .collect()(0)
+            .getLong(0) == 4,
+          "expected four snapshots before expiration")
 
-  val interactMaintCompactEvolved: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("interact.maint.compactEvolved") { (spark, table) =>
-        spark.sql(s"ALTER TABLE $table ADD COLUMN extra_col INT")
-        spark.sql(s"INSERT INTO $table VALUES $extraColInsert9")
-        spark.sql(s"INSERT INTO $table VALUES $extraColInsert10")
-        spark.sql(s"CALL openhouse.system.rewrite_data_files(table => '${catalogRelative(table)}')")
-        assert(spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0) == 5, "compaction changed row count")
-        assert(spark.sql(s"SELECT count(*) FROM $table WHERE extra_col IN (42, 43)").collect()(0).getLong(0) == 2,
-          "compaction over mixed-schema files must preserve evolved-column values")
-        assert(spark.sql(s"SELECT count(*) FROM $table WHERE extra_col IS NULL").collect()(0).getLong(0) == 3,
-          "pre-evolution rows must stay null in the evolved column")
-      }()
+        table.spark.sql(
+          "CALL openhouse.system.expire_snapshots(" +
+            s"table => '${catalogRelative(table.name)}', " +
+            "older_than => TIMESTAMP '2999-01-01 00:00:00', " +
+            "retain_last => 1)")
+        val refs = table.spark
+          .sql(s"SELECT name FROM ${table.name}.refs")
+          .collect()
+          .map(_.getString(0))
+          .toSet
+        val snapshotCount = table.spark
+          .sql(s"SELECT count(*) FROM ${table.name}.snapshots")
+          .collect()(0)
+          .getLong(0)
+        val branchRowCount = table.spark
+          .sql(
+            s"SELECT count(*) FROM ${table.name} VERSION AS OF 'eb'")
+          .collect()(0)
+          .getLong(0)
+        val mainRowCount = table.spark
+          .sql(s"SELECT count(*) FROM ${table.name}")
+          .collect()(0)
+          .getLong(0)
 
-  val interactions: List[(String, TableTest[CoreTable.type])] = List(
-    "interact.ddl.ttAfterAddColumn"       -> interactTtAfterAddColumn,
-    "interact.ddl.restoreAfterAddColumn"  -> interactRestoreAfterAddColumn,
-    "interact.ddl.dropColAfterData"       -> interactDropColAfterData,
-    "interact.rtas.historyPreserved"      -> interactRtasHistoryPreserved,
-    "interact.rtas.restoreRejected"       -> interactRtasRestoreRejected,
-    "interact.rtas.setCurrentRecovery"    -> interactRtasSetCurrentRecovery,
-    "interact.rtas.writeAfter"            -> interactRtasWriteAfter,
-    "interact.rtas.partitionSpecChange"   -> interactRtasPartitionSpecChange,
-    "interact.rtas.dropsColumn"           -> interactRtasDropsColumn,
-    "interact.rtas.props.userSurvival"    -> interactRtasPropsUserSurvival,
-    "interact.rtas.props.statementWins"   -> interactRtasPropsStatementWins,
-    "interact.rtas.props.createDefaulting" -> interactRtasPropsCreateDefaulting,
-    "interact.rtas.props.reservedPlane"   -> interactRtasPropsReservedPlane,
-    "interact.rtas.withBranch"            -> interactRtasWithBranch,
-    "interact.branch.ttBeforeBranchPoint" -> interactBranchTtBeforeBranchPoint,
-    "interact.branch.mainDdlImmediate"    -> interactBranchMainDdlImmediate,
-    "interact.branch.expireProtectsRefs"  -> interactBranchExpireProtectsRefs,
-    "interact.branch.rollbackWhileWapConf" -> interactBranchRollbackWhileWapConf,
-    "interact.restore.expireAfterRollback" -> interactRestoreExpireAfterRollback,
-    "interact.branch.expireMerge.spuriousReject" -> interactExpireMergeSpuriousReject,
-    "interact.branch.expireMerge.stagedWapLoss"  -> interactExpireMergeStagedWapLoss,
-    "interact.flags.wapReplaceAtCreate"   -> interactFlagsWapReplaceAtCreate,
-    "interact.mor.alterToMor"             -> interactMorAlterToMor,
-    "interact.maint.compactEvolved"       -> interactMaintCompactEvolved
-  )
+        assert(refs == Set("main", "eb"), s"refs changed: $refs")
+        assert(
+          snapshotCount == 2,
+          s"expiration should retain two ref heads, got $snapshotCount")
+        assert(
+          branchRowCount == 6,
+          s"branch should remain readable with 6 rows, got $branchRowCount")
+        assert(
+          mainRowCount == 6,
+          s"main should remain readable with 6 rows, got $mainRowCount")
+      },
+      twoSnapshotPreparation.test(
+        "interact.branch.rollbackWhileWapConf") { table =>
+        val firstSnapshotId = snapshotIds(table.spark, table.name).head
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
+            "('write.wap.enabled'='true')")
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} CREATE BRANCH rb")
+        table.spark.sql(
+          s"INSERT INTO ${table.name}.branch_rb VALUES " +
+            "(CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
+        table.spark.conf.set("spark.wap.branch", "rb")
+        try {
+          table.spark.sql(
+            "CALL openhouse.system.rollback_to_snapshot(" +
+              s"'${catalogRelative(table.name)}', $firstSnapshotId)")
+        } finally {
+          table.spark.conf.unset("spark.wap.branch")
+        }
+        val mainRowCount = table.spark
+          .sql(s"SELECT count(*) FROM ${table.name}")
+          .collect()(0)
+          .getLong(0)
+        val branchRowCount = table.spark
+          .sql(
+            s"SELECT count(*) FROM ${table.name} VERSION AS OF 'rb'")
+          .collect()(0)
+          .getLong(0)
+
+        assert(
+          mainRowCount == 3,
+          s"rollback should target main and restore 3 rows, got $mainRowCount")
+        assert(
+          branchRowCount == 6,
+          s"rollback should leave branch at 6 rows, got $branchRowCount")
+      },
+      twoSnapshotPreparation.test(
+        "interact.restore.expireAfterRollback") { table =>
+        val snapshots = snapshotIds(table.spark, table.name)
+        table.spark.sql(
+          "CALL openhouse.system.rollback_to_snapshot(" +
+            s"'${catalogRelative(table.name)}', ${snapshots.head})")
+        table.spark.sql(
+          "CALL openhouse.system.expire_snapshots(" +
+            s"table => '${catalogRelative(table.name)}', " +
+            "older_than => TIMESTAMP '2999-01-01 00:00:00', " +
+            "retain_last => 1)")
+        val snapshotCount = table.spark
+          .sql(s"SELECT count(*) FROM ${table.name}.snapshots")
+          .collect()(0)
+          .getLong(0)
+        val rowCount = table.spark
+          .sql(s"SELECT count(*) FROM ${table.name}")
+          .collect()(0)
+          .getLong(0)
+
+        assert(
+          snapshotCount == 1,
+          s"rolled-past snapshot should expire, got $snapshotCount snapshots")
+        assert(
+          rowCount == 3,
+          s"rollback should preserve 3 current rows, got $rowCount")
+
+        val exception = Check.intercept[Exception](
+          table.spark
+            .sql(
+              s"SELECT count(*) FROM ${table.name} " +
+                s"VERSION AS OF ${snapshots(1)}")
+            .collect())
+        assert(
+          Exceptions.causeChain(exception).exists(error =>
+            Option(error.getMessage)
+              .exists(_.toLowerCase.contains("snapshot"))),
+          "time travel to the expired rolled-past snapshot should fail")
+      },
+      basePreparation.test(
+        "interact.branch.expireMerge.spuriousReject") { table =>
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} CREATE BRANCH mb")
+        table.spark.sql(
+          s"INSERT INTO ${table.name}.branch_mb VALUES " +
+            "(CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
+        table.spark.sql(
+          s"INSERT INTO ${table.name}.branch_mb VALUES " +
+            "(CAST(7 AS BIGINT), 7, 'row-7', 7.5, true, '2024-01-07-06')")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}.snapshots") == "3",
+          "expected parent and two branch snapshots")
+
+        table.spark.sql(
+          "CALL openhouse.system.expire_snapshots(" +
+            s"table => '${catalogRelative(table.name)}', " +
+            "older_than => TIMESTAMP '2999-01-01 00:00:00', " +
+            "retain_last => 1)")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}.snapshots") == "2",
+          "expiration should remove the intermediate branch snapshot")
+        val refs = table.spark
+          .sql(s"SELECT name FROM ${table.name}.refs")
+          .collect()
+          .map(_.getString(0))
+          .toSet
+        assert(refs == Set("main", "mb"), s"refs changed: $refs")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name} VERSION AS OF 'mb'") == "5",
+          "branch should remain readable after expiration")
+
+        val exception = Check.intercept[Exception](
+          table.spark.sql(
+            "CALL openhouse.system.fast_forward(" +
+              s"'${catalogRelative(table.name)}', 'main', 'mb')"))
+        assert(
+          Option(exception.getMessage).exists(_.contains("not an ancestor")),
+          "fast_forward should reject the punctured branch ancestry")
+
+        val branchHeadSnapshotId = table.spark
+          .sql(
+            s"SELECT snapshot_id FROM ${table.name}.refs WHERE name = 'mb'")
+          .collect()(0)
+          .getLong(0)
+        val cherryPickOutcome =
+          try {
+            table.spark.sql(
+              "CALL openhouse.system.cherrypick_snapshot(" +
+                s"'${catalogRelative(table.name)}', " +
+                s"${branchHeadSnapshotId}L)")
+            s"SUCCEEDED: main now ${countOf(
+                table.spark,
+                s"SELECT count(*) FROM ${table.name}")} rows"
+          } catch {
+            case exception: Throwable =>
+              s"REJECTED ${exception.getClass.getName} :: " +
+                Option(exception.getMessage).getOrElse("").take(160)
+          }
+        println(
+          s"DIAG expireMerge.cherrypickFallback: $cherryPickOutcome")
+        val mainRowCount = countOf(
+          table.spark,
+          s"SELECT count(*) FROM ${table.name}").toLong
+
+        assert(
+          mainRowCount == 3 || mainRowCount == 4,
+          s"main should remain consistent, got $mainRowCount rows")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name} VERSION AS OF 'mb'") == "5",
+          "branch data should remain available for copy-out recovery")
+      },
+      wapPreparation.test(
+        "interact.branch.expireMerge.stagedWapLoss") { table =>
+        table.spark.conf.set("spark.wap.id", "w2")
+        try {
+          table.spark.sql(
+            s"INSERT INTO ${table.name} VALUES " +
+              "(CAST(9 AS BIGINT), 9, 'row-9', 9.5, true, '2024-01-09-01')")
+        } finally {
+          table.spark.conf.unset("spark.wap.id")
+        }
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}.snapshots " +
+              "WHERE summary['wap.id'] = 'w2'") == "1",
+          "WAP write should create one staged snapshot")
+
+        table.spark.sql(
+          "CALL openhouse.system.expire_snapshots(" +
+            s"table => '${catalogRelative(table.name)}', " +
+            "older_than => TIMESTAMP '2999-01-01 00:00:00', " +
+            "retain_last => 1)")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}.snapshots " +
+              "WHERE summary['wap.id'] = 'w2'") == "0",
+          "expiration should remove the unreferenced staged snapshot")
+
+        val exception = Check.intercept[Exception](
+          table.spark.sql(
+            "CALL openhouse.system.publish_changes(" +
+              s"table => '${catalogRelative(table.name)}', wap_id => 'w2')"))
+        println(
+          "DIAG stagedWapLoss.publish: " +
+            s"${exception.getClass.getName} :: " +
+            Option(exception.getMessage).getOrElse("").take(180))
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}") == "3",
+          "main should remain unchanged after staged snapshot loss")
+      })
+  }
+
+  private def interactionMiscellaneousCases(
+      format: String): List[Plan.Case] = {
+    val flagPreparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            "TBLPROPERTIES (" +
+            s"'write.format.default'='$format', " +
+            "'write.wap.enabled'='true', 'replace.enabled'='true')")()
+        .insert(3)())
+    val oneFilePreparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            s"TBLPROPERTIES ('write.format.default'='$format')")()
+        .sql("seed")(table =>
+          s"INSERT INTO $table SELECT /*+ COALESCE(1) */ * FROM " +
+            s"(${RowGenerator.valuesClause(Core, 3)}) AS seed")())
+    val basePreparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            s"TBLPROPERTIES ('write.format.default'='$format')")()
+        .insert(3)())
+
+    List(
+      flagPreparation.test("interact.flags.wapReplaceAtCreate") { table =>
+        val properties = tableProps(table.spark, table.name)
+        assert(
+          properties.get("write.wap.enabled").contains("true") &&
+            properties.get("replace.enabled").contains("true"),
+          "WAP and replace flags should be active when set at CREATE")
+
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} CREATE BRANCH cb")
+        val exception = Check.intercept[BadRequestException](
+          table.spark.sql(
+            s"CREATE OR REPLACE TABLE ${table.name} USING $dataSource " +
+              s"AS SELECT * FROM ${table.name}"))
+        assert(
+          exception.getMessage.contains("while WAP"),
+          "RTAS should reject a table with WAP enabled at CREATE")
+      },
+      oneFilePreparation.test("interact.mor.alterToMor") { table =>
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
+            "('write.delete.mode'='merge-on-read')")
+        table.spark.sql(
+          s"DELETE FROM ${table.name} WHERE ${Core.long0.columnName} = 1")
+        val deleteFileCount = table.spark
+          .sql(s"SELECT count(*) FROM ${table.name}.all_delete_files")
+          .collect()(0)
+          .getLong(0)
+        val rowCount = table.spark
+          .sql(s"SELECT count(*) FROM ${table.name}")
+          .collect()(0)
+          .getLong(0)
+
+        assert(
+          deleteFileCount == 1,
+          s"ALTER-to-MoR should create one delete file, got $deleteFileCount")
+        assert(
+          rowCount == 2,
+          s"ALTER-to-MoR delete should leave 2 rows, got $rowCount")
+      },
+      basePreparation.test("interact.maint.compactEvolved") { table =>
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} ADD COLUMN extra_col INT")
+        table.spark.sql(
+          s"INSERT INTO ${table.name} VALUES $extraColInsert9")
+        table.spark.sql(
+          s"INSERT INTO ${table.name} VALUES $extraColInsert10")
+        table.spark.sql(
+          "CALL openhouse.system.rewrite_data_files(" +
+            s"table => '${catalogRelative(table.name)}')")
+        val rowCount = table.spark
+          .sql(s"SELECT count(*) FROM ${table.name}")
+          .collect()(0)
+          .getLong(0)
+        val evolvedValueCount = table.spark
+          .sql(
+            s"SELECT count(*) FROM ${table.name} " +
+              "WHERE extra_col IN (42, 43)")
+          .collect()(0)
+          .getLong(0)
+        val nullValueCount = table.spark
+          .sql(
+            s"SELECT count(*) FROM ${table.name} WHERE extra_col IS NULL")
+          .collect()(0)
+          .getLong(0)
+
+        assert(
+          rowCount == 5,
+          s"compaction should preserve 5 rows, got $rowCount")
+        assert(
+          evolvedValueCount == 2,
+          s"compaction should preserve two evolved values, got $evolvedValueCount")
+        assert(
+          nullValueCount == 3,
+          s"pre-evolution rows should remain null, got $nullValueCount")
+      })
+  }
+
+  val interactionCases: List[Plan.Case] =
+    List("parquet", "orc").flatMap { format =>
+      interactionDdlCases(format) ++
+        interactionRtasCases(format) ++
+        interactionBranchCases(format) ++
+        interactionMiscellaneousCases(format)
+    }
 
   // G2 characterization needs the REST lock (no SQL surface) → Ctx-based like controlPlane.
   // Sanity-checks the lock DOES block a normal write, then demonstrates RTAS sails through it.
@@ -462,9 +932,11 @@ trait InteractionScenarios extends ScenarioKit {
     }
   }
 
-  val interactionCtxOps: List[(String, Ctx => Unit)] = List(
-    "interact.rtas.onLockedTable" -> interactRtasOnLockedTable
-  )
+  val interactionContextCases: List[Plan.Case] =
+    List(
+      Plan.Case(
+        "interact.rtas.onLockedTable @ embedded",
+        interactRtasOnLockedTable))
 
   // ═══ Surface-completion axis: queued follow-ups + untested Iceberg surface ═══════════════════
 

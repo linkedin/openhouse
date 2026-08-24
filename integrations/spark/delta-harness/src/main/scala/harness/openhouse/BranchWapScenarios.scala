@@ -56,293 +56,696 @@ trait BranchWapScenarios extends ScenarioKit {
     ctx.spark.sql(s"DROP TABLE IF EXISTS $table")
   }
 
-  val undropInteractOps: List[(String, Ctx => Unit)] = List(
-    "interact.undrop.branchSurvives"    -> interactUndropBranchSurvives,
-    "interact.undrop.timeTravelSurvives" -> interactUndropTimeTravelSurvives,
-    "interact.undrop.schemaSurvives"    -> interactUndropSchemaSurvives
-  )
-
-  // ── Branching / WAP (format-agnostic → parquet only; behavior-focused, not matrixed) ─────────
-  // A CoreTable row literal for branch writes (long,int,string,double,boolean,datepartition).
-
-  // B1(a) direct branch ops (no WAP needed): write to t.branch_b, read it via VERSION AS OF 'b';
-  // main stays isolated.
-  val branchDirectIsolation: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .sql("branch.direct.create")(t => s"ALTER TABLE $t CREATE BRANCH b")()
-      .step("branch.direct.isolation") { (spark, table) =>
-        spark.sql(s"INSERT INTO $table.branch_b VALUES ${coreRow(99, "branch")}")
-        val onBranch = spark.sql(s"SELECT count(*) FROM $table VERSION AS OF 'b'").collect()(0).getLong(0)
-        val onMain   = spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0)
-        assert(onBranch == 4, s"branch b should have 4 rows, got $onBranch")
-        assert(onMain == 3, s"main should be unchanged at 3, got $onMain")                // isolation
-      }()
-
-  // B1(b) spark.wap.branch conf: with write.wap.enabled, the conf routes BOTH reads and writes to the
-  // branch transparently; unsetting reverts to main.
-  val branchWapConfRouting: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .sql("branch.wapconf.enable")(t => s"ALTER TABLE $t SET TBLPROPERTIES ('write.wap.enabled'='true')")()
-      .sql("branch.wapconf.create")(t => s"ALTER TABLE $t CREATE BRANCH wapbr")()
-      .step("branch.wapConf.routing") { (spark, table) =>
-        spark.conf.set("spark.wap.branch", "wapbr")
-        val onBranch =
-          try {
-            spark.sql(s"INSERT INTO $table VALUES ${coreRow(99, "wap")}")                 // routed to branch
-            spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0)             // reads branch
-          } finally spark.conf.unset("spark.wap.branch")
-        assert(onBranch == 4, s"on-branch read should see 4, got $onBranch")
-        assert(spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0) == 3, "main leaked")
-      }()
-
-  // B2 WAP stage → publish: a staged write (spark.wap.id) does NOT advance main; cherrypick publishes it.
-  val wapStagePublish: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .sql("wap.enable")(t => s"ALTER TABLE $t SET TBLPROPERTIES ('write.wap.enabled'='true')")()
-      .step("wap.stagePublish") { (spark, table) =>
-        spark.conf.set("spark.wap.id", "w1")
-        try spark.sql(s"INSERT INTO $table VALUES ${coreRow(99, "staged")}")
-        finally spark.conf.unset("spark.wap.id")
-        assert(spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0) == 3, "staged write leaked to main")
-        val stagedId = spark.sql(s"SELECT snapshot_id FROM $table.snapshots WHERE summary['wap.id'] = 'w1'").collect()(0).getLong(0)
-        spark.sql(s"CALL openhouse.system.cherrypick_snapshot('${catalogRelative(table)}', $stagedId)")
-        assert(spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0) == 4, "publish did not advance main")
-      }()
-
-  // ── WAP mega-axis Stage C — staged-WAP write surface (stage → publish visibility) ────────────
-  // The op is written as a STAGED snapshot (spark.wap.id): it must NOT advance main; assert main is
-  // unchanged pre-publish, then cherrypick_snapshot PUBLISHES it and main reflects it. This is the
-  // Phase-29 "T2 staged" target. Format-multiplexed by crossFmt (seedFmt-aware create).
-  private def wapStagedWrite(label: String)(write: String => String)(preRows: Long, postRows: Long): TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .sql(s"$label.enableWap")(t => s"ALTER TABLE $t SET TBLPROPERTIES ('write.wap.enabled'='true')")()
-      .step(label) { (spark, table) =>
-        spark.conf.set("spark.wap.id", "wS")
-        try spark.sql(write(table)) finally spark.conf.unset("spark.wap.id")
-        val mainPre = spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0)
-        val stagedCount = spark.sql(s"SELECT count(*) FROM $table.snapshots WHERE summary['wap.id'] = 'wS'").collect()(0).getLong(0)
-        println(s"DIAG $label: mainPreCount=$mainPre (expected $preRows) stagedSnapshots=$stagedCount")
-        assert(mainPre == preRows,
-          s"$label: staged write LEAKED to main pre-publish (main=$mainPre, expected $preRows)")
-        val stagedId = spark.sql(s"SELECT snapshot_id FROM $table.snapshots WHERE summary['wap.id'] = 'wS'").collect()(0).getLong(0)
-        spark.sql(s"CALL openhouse.system.cherrypick_snapshot('${catalogRelative(table)}', $stagedId)")
-        assert(spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0) == postRows,
-          s"$label: publish did not reflect the staged write (expected $postRows)")
-      }()
-
-  val wapStagedOps: List[(String, TableTest[CoreTable.type])] = List(
-    "wapStaged.insert"    -> wapStagedWrite("wapStaged.insert")(t => s"INSERT INTO $t VALUES ${coreRow(99, "staged")}")(3, 4),
-    "wapStaged.overwrite" -> wapStagedWrite("wapStaged.overwrite")(t => s"INSERT OVERWRITE $t VALUES ${coreRow(7, "ow")}")(3, 1),
-    // FINDING (WAP1): a staged DELETE is NOT honored by WAP — it commits to MAIN immediately and creates
-    // NO staged snapshot (main 3→2, zero snapshots tagged wap.id), unlike staged INSERT/OVERWRITE/UPDATE/
-    // MERGE which all stage. Observed on parquet+orc; whether this is stock Iceberg or OpenHouse-specific is
-    // not determined here. A "staged" DELETE therefore silently publishes to main. Pins the observed behavior.
-    "wapStaged.delete.bypassesWap" -> {
-      TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-        .sql("wapStaged.delete.enableWap")(t => s"ALTER TABLE $t SET TBLPROPERTIES ('write.wap.enabled'='true')")()
-        .step("wapStaged.delete.bypassesWap") { (spark, table) =>
-          spark.conf.set("spark.wap.id", "wD")
-          try spark.sql(s"DELETE FROM $table WHERE ${Core.long0.columnName} = 1") finally spark.conf.unset("spark.wap.id")
-          val mainPre = spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0)
-          val staged  = spark.sql(s"SELECT count(*) FROM $table.snapshots WHERE summary['wap.id'] = 'wD'").collect()(0).getLong(0)
-          println(s"DIAG wapStaged.delete.bypassesWap: mainAfterStagedDelete=$mainPre stagedSnapshots=$staged")
-          assert(mainPre == 2 && staged == 0,
-            s"FINDING WAP1: expected staged DELETE to BYPASS WAP (commit to main=2, no staged snapshot); got main=$mainPre staged=$staged — behavior changed, re-audit AUDIT-FINDINGS WAP1")
-        }()
-    },
-    "wapStaged.merge"     -> wapStagedWrite("wapStaged.merge")(t =>
-      s"MERGE INTO $t USING (SELECT CAST(99 AS BIGINT) AS k) s ON $t.${Core.long0.columnName} = s.k " +
-      s"WHEN NOT MATCHED THEN INSERT (${Core.columnNames.mkString(", ")}) VALUES (s.k, 9, 'm', 9.5, true, '2024-01-09-01')")(3, 4),
-    // Staged UPDATE: main's value is unchanged pre-publish, changed after publish (count stays 3).
-    "wapStaged.update.valueVisibleOnlyAfterPublish" -> {
-      TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-        .sql("wapStaged.update.enableWap")(t => s"ALTER TABLE $t SET TBLPROPERTIES ('write.wap.enabled'='true')")()
-        .step("wapStaged.update.valueVisibleOnlyAfterPublish") { (spark, table) =>
-          spark.conf.set("spark.wap.id", "wU")
-          try spark.sql(s"UPDATE $table SET ${Core.string0.columnName} = 'staged-upd' WHERE ${Core.long0.columnName} = 1")
-          finally spark.conf.unset("spark.wap.id")
-          val pre = spark.sql(s"SELECT ${Core.string0.columnName} FROM $table WHERE ${Core.long0.columnName} = 1").collect()(0).getString(0)
-          assert(pre != "staged-upd", s"staged UPDATE leaked to main pre-publish: $pre")
-          val stagedId = spark.sql(s"SELECT snapshot_id FROM $table.snapshots WHERE summary['wap.id'] = 'wU'").collect()(0).getLong(0)
-          spark.sql(s"CALL openhouse.system.cherrypick_snapshot('${catalogRelative(table)}', $stagedId)")
-          val post = spark.sql(s"SELECT ${Core.string0.columnName} FROM $table WHERE ${Core.long0.columnName} = 1").collect()(0).getString(0)
-          assert(post == "staged-upd", s"publish did not reflect the staged UPDATE: $post")
-        }()
-    },
-    // C3(a): two concurrent staged ids publish INDEPENDENTLY and in the chosen order.
-    "wapStaged.twoIdsIndependent" -> {
-      TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-        .sql("wapStaged.two.enableWap")(t => s"ALTER TABLE $t SET TBLPROPERTIES ('write.wap.enabled'='true')")()
-        .step("wapStaged.twoIdsIndependent") { (spark, table) =>
-          def staged(id: String, k: Int): Unit = {
-            spark.conf.set("spark.wap.id", id)
-            try spark.sql(s"INSERT INTO $table VALUES ${coreRow(k, s"s-$id")}") finally spark.conf.unset("spark.wap.id")
-          }
-          staged("wa", 101); staged("wb", 102)
-          assert(spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0) == 3, "either staged id leaked to main")
-          def idOf(w: String): Long = spark.sql(s"SELECT snapshot_id FROM $table.snapshots WHERE summary['wap.id'] = '$w'").collect()(0).getLong(0)
-          spark.sql(s"CALL openhouse.system.cherrypick_snapshot('${catalogRelative(table)}', ${idOf("wa")})")
-          assert(spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0) == 4, "publishing wa did not advance main by 1")
-          assert(spark.sql(s"SELECT count(*) FROM $table WHERE ${Core.long0.columnName} = 102").collect()(0).getLong(0) == 0, "wb published without being cherrypicked")
-          spark.sql(s"CALL openhouse.system.cherrypick_snapshot('${catalogRelative(table)}', ${idOf("wb")})")
-          assert(spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0) == 5, "publishing wb did not advance main to 5")
-        }()
-    },
-    // C3(b): a staged (unpublished) snapshot is UNREFERENCED — assert expire_snapshots behaviour toward it
-    // (G11(d): age-based expiration can delete staged WAP snapshots pre-publish). Characterize: after a
-    // far-future expire, can the staged id still be cherrypicked, or is it stranded?
-    "wapStaged.expireVsStaged" -> {
-      TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-        .sql("wapStaged.exp.enableWap")(t => s"ALTER TABLE $t SET TBLPROPERTIES ('write.wap.enabled'='true')")()
-        .step("wapStaged.expireVsStaged") { (spark, table) =>
-          spark.conf.set("spark.wap.id", "wE")
-          try spark.sql(s"INSERT INTO $table VALUES ${coreRow(200, "stg")}") finally spark.conf.unset("spark.wap.id")
-          val stagedId = spark.sql(s"SELECT snapshot_id FROM $table.snapshots WHERE summary['wap.id'] = 'wE'").collect()(0).getLong(0)
-          spark.sql(s"CALL openhouse.system.expire_snapshots(table => '${catalogRelative(table)}', older_than => TIMESTAMP '2999-01-01 00:00:00', retain_last => 1)")
-          val survived = spark.sql(s"SELECT count(*) FROM $table.snapshots WHERE snapshot_id = $stagedId").collect()(0).getLong(0)
-          val pub = try { spark.sql(s"CALL openhouse.system.cherrypick_snapshot('${catalogRelative(table)}', $stagedId)"); "published" }
-            catch { case NonFatal(e) => s"stranded:${Exceptions.root(e).getClass.getSimpleName}" }
-          println(s"DIAG wapStaged.expireVsStaged: stagedSurvivedExpire=$survived cherrypickAfterExpire=$pub")
-          // Pin the audited hazard (G11 d): unreferenced staged snapshot is expirable -> stranded pre-publish.
-          assert(survived == 0 && pub.startsWith("stranded"),
-            s"G11(d): expected the unreferenced staged snapshot to be expired then un-cherrypickable; survived=$survived pub=$pub — re-audit")
-        }()
+  def undropInteractionCases: List[Plan.Case] =
+    if (HtsAdmin.enabled) {
+      List(
+        Plan.Case(
+          "interact.undrop.branchSurvives",
+          interactUndropBranchSurvives),
+        Plan.Case(
+          "interact.undrop.timeTravelSurvives",
+          interactUndropTimeTravelSurvives),
+        Plan.Case(
+          "interact.undrop.schemaSurvives",
+          interactUndropSchemaSurvives))
+    } else {
+      Nil
     }
-  )
 
-  // B3 DDL-on-branch is NOT isolated — characterizes the leak (finding): schema/props/sortOrder are
-  // table-global; ADD COLUMN while "on branch" mutates MAIN's schema, with no guard.
-  val branchDdlLeakAddColumn: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .sql("branch.leak.enable")(t => s"ALTER TABLE $t SET TBLPROPERTIES ('write.wap.enabled'='true')")()
-      .sql("branch.leak.create")(t => s"ALTER TABLE $t CREATE BRANCH leakbr")()
-      .step("branch.ddlLeak.addColumn") { (spark, table) =>
-        spark.conf.set("spark.wap.branch", "leakbr")
-        try spark.sql(s"ALTER TABLE $table ADD COLUMN leaked_col int")
-        finally spark.conf.unset("spark.wap.branch")
-        val mainCols = spark.table(table).schema.fields.map(_.name).toSeq
-        assert(mainCols.contains("leaked_col"),
-          s"characterizing the leak: ADD COLUMN on a branch mutated MAIN's schema — expected leaked_col in $mainCols")
-      }()
+  val wapStagedCases: List[Plan.Case] =
+    List("parquet", "orc").flatMap { format =>
+      val preparation = TablePreparation(
+        format,
+        TableTest(Core)
+          .sql("create")(table =>
+            s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+              s"TBLPROPERTIES ('write.format.default'='$format')")()
+          .insert(3)()
+          .sql("enableWap")(table =>
+            s"ALTER TABLE $table SET TBLPROPERTIES ('write.wap.enabled'='true')")())
 
-  // B4 representative branch DML (update + delete on a branch), isolated from main.
-  val branchDmlUpdateDelete: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .sql("branch.dml.enable")(t => s"ALTER TABLE $t SET TBLPROPERTIES ('write.wap.enabled'='true')")()
-      .sql("branch.dml.create")(t => s"ALTER TABLE $t CREATE BRANCH dmlbr")()
-      .step("branch.dml.updateDelete") { (spark, table) =>
-        spark.conf.set("spark.wap.branch", "dmlbr")
-        try {
-          spark.sql(s"UPDATE $table SET ${Core.string0.columnName} = 'br-upd' WHERE ${Core.long0.columnName} = 1")
-          spark.sql(s"DELETE FROM $table WHERE ${Core.long0.columnName} = 2")
-        } finally spark.conf.unset("spark.wap.branch")
-        val onBranch = spark.sql(s"SELECT count(*) FROM $table VERSION AS OF 'dmlbr'").collect()(0).getLong(0)
-        assert(onBranch == 2, s"branch should have 2 rows after delete, got $onBranch")
-        assert(spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0) == 3, "main unchanged by branch DML")
-        val br1 = spark.sql(s"SELECT ${Core.string0.columnName} FROM $table VERSION AS OF 'dmlbr' WHERE ${Core.long0.columnName} = 1").collect()(0).getString(0)
-        assert(br1 == "br-upd", s"branch update not applied: $br1")
-      }()
+      List(
+        preparation.test("wapStaged.insert") { table =>
+          table.spark.conf.set("spark.wap.id", "wS")
+          try {
+            table.spark.sql(
+              s"INSERT INTO ${table.name} VALUES ${coreRow(99, "staged")}")
+          } finally {
+            table.spark.conf.unset("spark.wap.id")
+          }
+          val mainRowCount = table.spark
+            .sql(s"SELECT count(*) FROM ${table.name}")
+            .collect()(0)
+            .getLong(0)
+          val stagedSnapshotCount = table.spark
+            .sql(
+              s"SELECT count(*) FROM ${table.name}.snapshots " +
+                "WHERE summary['wap.id'] = 'wS'")
+            .collect()(0)
+            .getLong(0)
 
-  // B5 lifecycle (CREATE TAG / DROP BRANCH — both supported, verified) + WAP mixing negatives.
-  val branchCreateTag: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("branch.lifecycle.tag") { (spark, table) =>
-        spark.sql(s"ALTER TABLE $table CREATE TAG mytag")
-        assert(spark.sql(s"SELECT count(*) FROM $table.refs WHERE name = 'mytag' AND type = 'TAG'").collect()(0).getLong(0) == 1,
-          "CREATE TAG did not create the tag ref")
-      }()
+          println(
+            "DIAG wapStaged.insert: " +
+              s"mainPreCount=$mainRowCount stagedSnapshots=$stagedSnapshotCount")
+          assert(mainRowCount == 3, "staged insert changed main before publish")
 
-  val branchDropBranch: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .sql("branch.drop.create")(t => s"ALTER TABLE $t CREATE BRANCH tmpbr")()
-      .step("branch.lifecycle.dropBranch") { (spark, table) =>
-        assert(spark.sql(s"SELECT count(*) FROM $table.refs WHERE name = 'tmpbr'").collect()(0).getLong(0) == 1, "branch not created")
-        spark.sql(s"ALTER TABLE $table DROP BRANCH tmpbr")
-        assert(spark.sql(s"SELECT count(*) FROM $table.refs WHERE name = 'tmpbr'").collect()(0).getLong(0) == 0, "DROP BRANCH did not remove the ref")
-      }()
+          val stagedSnapshotId = table.spark
+            .sql(
+              s"SELECT snapshot_id FROM ${table.name}.snapshots " +
+                "WHERE summary['wap.id'] = 'wS'")
+            .collect()(0)
+            .getLong(0)
+          table.spark.sql(
+            "CALL openhouse.system.cherrypick_snapshot(" +
+              s"'${catalogRelative(table.name)}', $stagedSnapshotId)")
 
-  val branchNegWapIdAndBranch: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .sql("branch.neg.enable")(t => s"ALTER TABLE $t SET TBLPROPERTIES ('write.wap.enabled'='true')")()
-      .sql("branch.neg.create")(t => s"ALTER TABLE $t CREATE BRANCH nb")()
-      .step("branch.neg.wapIdAndBranch") { (spark, table) =>
-        spark.conf.set("spark.wap.id", "w1")
-        spark.conf.set("spark.wap.branch", "nb")
-        try {
-          val e = Check.intercept[ValidationException](spark.sql(s"INSERT INTO $table VALUES ${coreRow(99, "x")}"))
-          assert(e.getMessage.contains("Cannot set both WAP ID and branch"), s"msg: ${e.getMessage.take(140)}")
-        } finally { spark.conf.unset("spark.wap.id"); spark.conf.unset("spark.wap.branch") }
-      }()
+          assert(
+            table.spark
+              .sql(s"SELECT count(*) FROM ${table.name}")
+              .collect()(0)
+              .getLong(0) == 4,
+            "publishing the staged insert did not advance main")
+        },
+        preparation.test("wapStaged.overwrite") { table =>
+          table.spark.conf.set("spark.wap.id", "wS")
+          try {
+            table.spark.sql(
+              s"INSERT OVERWRITE ${table.name} VALUES ${coreRow(7, "ow")}")
+          } finally {
+            table.spark.conf.unset("spark.wap.id")
+          }
+          val mainRowCount = table.spark
+            .sql(s"SELECT count(*) FROM ${table.name}")
+            .collect()(0)
+            .getLong(0)
+          val stagedSnapshotCount = table.spark
+            .sql(
+              s"SELECT count(*) FROM ${table.name}.snapshots " +
+                "WHERE summary['wap.id'] = 'wS'")
+            .collect()(0)
+            .getLong(0)
 
-  val branchNegInsertNonexistent: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("branch.neg.insertNonexistentBranch") { (spark, table) =>
-        val e = Check.intercept[ValidationException](spark.sql(s"INSERT INTO $table.branch_nope VALUES ${coreRow(99, "x")}"))
-        assert(e.getMessage.contains("does not exist"), s"msg: ${e.getMessage.take(140)}")
-      }()
+          println(
+            "DIAG wapStaged.overwrite: " +
+              s"mainPreCount=$mainRowCount stagedSnapshots=$stagedSnapshotCount")
+          assert(mainRowCount == 3, "staged overwrite changed main before publish")
 
-  // ── WAP mega-axis Stage B — systematic branch-DDL leak (G8) ──────────────────────────────────
-  // Table-global DDL (schema / props / sortOrder / policy) run WHILE `spark.wap.branch` is set: per G8
-  // these apply table-globally at every layer, so they LEAK to MAIN rather than staying branch-scoped.
-  // Each pins the ACTUAL outcome on MAIN (wap.branch unset after the DDL) — leak / silent-no-op / rejected.
-  // If OpenHouse later scopes branch DDL, these flip. Format-multiplexed by crossFmt (seedFmt-aware create).
-  private def branchDdlOnBranch(label: String)(ddl: String => String)(assertMain: (SparkSession, String) => Unit): TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .sql(s"$label.enableWap")(t => s"ALTER TABLE $t SET TBLPROPERTIES ('write.wap.enabled'='true')")()
-      .sql(s"$label.createBranch")(t => s"ALTER TABLE $t CREATE BRANCH bddl")()
-      .step(label) { (spark, table) =>
-        spark.conf.set("spark.wap.branch", "bddl")
-        val outcome = try { spark.sql(ddl(table)); "accepted" }
-          catch { case NonFatal(e) => s"rejected:${Exceptions.root(e).getClass.getSimpleName}" }
-        finally spark.conf.unset("spark.wap.branch")
-        println(s"DIAG $label: branch-routed DDL $outcome")
-        assertMain(spark, table)
-      }()
+          val stagedSnapshotId = table.spark
+            .sql(
+              s"SELECT snapshot_id FROM ${table.name}.snapshots " +
+                "WHERE summary['wap.id'] = 'wS'")
+            .collect()(0)
+            .getLong(0)
+          table.spark.sql(
+            "CALL openhouse.system.cherrypick_snapshot(" +
+              s"'${catalogRelative(table.name)}', $stagedSnapshotId)")
 
-  val branchDdlOps: List[(String, TableTest[CoreTable.type])] = List(
-    // ADD COLUMN on a branch → main's schema gains the column (schema is table-global → leak).
-    "branchDdl.addColumn.leaksToMain" -> branchDdlOnBranch("branchDdl.addColumn.leaksToMain")(
-      t => s"ALTER TABLE $t ADD COLUMN br_added int") { (spark, table) =>
-        val cols = spark.sql(s"DESCRIBE TABLE $table").collect().map(_.getString(0).trim).toSet
-        assert(cols.contains("br_added"),
-          "G8: ADD COLUMN on a branch should LEAK to main's schema (table-global); main did not gain the column — re-audit G8")
-      },
-    // SET TBLPROPERTIES on a branch → main gets the property (props are table-global → leak).
-    "branchDdl.setTblProp.leaksToMain" -> branchDdlOnBranch("branchDdl.setTblProp.leaksToMain")(
-      t => s"ALTER TABLE $t SET TBLPROPERTIES ('user.branchkey'='v1')") { (spark, table) =>
-        val props = spark.sql(s"SHOW TBLPROPERTIES $table").collect().map(r => r.getString(0) -> r.getString(1)).toMap
-        assert(props.get("user.branchkey").contains("v1"),
-          s"G8: SET TBLPROPERTIES on a branch should LEAK to main; got ${props.get("user.branchkey")} — re-audit G8")
-      },
-    // ALTER COLUMN comment on a branch → main's schema metadata changes (leak).
-    "branchDdl.alterColumnComment.leaksToMain" -> branchDdlOnBranch("branchDdl.alterColumnComment.leaksToMain")(
-      t => s"ALTER TABLE $t ALTER COLUMN ${Core.string0.columnName} COMMENT 'br-comment'") { (spark, table) =>
-        val c = spark.sql(s"DESCRIBE TABLE $table").collect()
-          .find(_.getString(0).trim == Core.string0.columnName).map(_.getString(2)).getOrElse("")
-        assert(Option(c).getOrElse("").contains("br-comment"),
-          s"G8: ALTER COLUMN COMMENT on a branch should LEAK to main; main comment='$c' — re-audit G8")
-      },
-    // DROP COLUMN is rejected on main (unsupported) — assert it is ALSO rejected via a branch (the guard
-    // is schema-global, not branch-aware): pin the rejection is unchanged under wap.branch.
-    "branchDdl.dropColumn.rejected" -> branchDdlOnBranch("branchDdl.dropColumn.rejected")(
-      t => s"ALTER TABLE $t DROP COLUMN ${Core.string0.columnName}") { (spark, table) =>
-        val cols = spark.sql(s"DESCRIBE TABLE $table").collect().map(_.getString(0).trim).toSet
-        assert(cols.contains(Core.string0.columnName),
-          "DROP COLUMN must remain rejected (main keeps the column) whether or not spark.wap.branch is set")
-      }
-  )
+          assert(
+            table.spark
+              .sql(s"SELECT count(*) FROM ${table.name}")
+              .collect()(0)
+              .getLong(0) == 1,
+            "publishing the staged overwrite did not replace main")
+        },
+        preparation.test("wapStaged.delete.bypassesWap") { table =>
+          table.spark.conf.set("spark.wap.id", "wD")
+          try {
+            table.spark.sql(
+              s"DELETE FROM ${table.name} WHERE ${Core.long0.columnName} = 1")
+          } finally {
+            table.spark.conf.unset("spark.wap.id")
+          }
+          val mainRowCount = table.spark
+            .sql(s"SELECT count(*) FROM ${table.name}")
+            .collect()(0)
+            .getLong(0)
+          val stagedSnapshotCount = table.spark
+            .sql(
+              s"SELECT count(*) FROM ${table.name}.snapshots " +
+                "WHERE summary['wap.id'] = 'wD'")
+            .collect()(0)
+            .getLong(0)
 
-  val branching: List[(String, TableTest[CoreTable.type])] = List(
-    "branch.direct.isolation" -> branchDirectIsolation,
-    "branch.wapConf.routing"  -> branchWapConfRouting,
-    "wap.stagePublish"        -> wapStagePublish,
-    "branch.ddlLeak.addColumn" -> branchDdlLeakAddColumn,
-    "branch.dml.updateDelete" -> branchDmlUpdateDelete,
-    "branch.lifecycle.tag"    -> branchCreateTag,
-    "branch.lifecycle.dropBranch" -> branchDropBranch,
-    "branch.neg.wapIdAndBranch" -> branchNegWapIdAndBranch,
-    "branch.neg.insertNonexistentBranch" -> branchNegInsertNonexistent
-  )
+          println(
+            "DIAG wapStaged.delete.bypassesWap: " +
+              s"mainAfterStagedDelete=$mainRowCount " +
+              s"stagedSnapshots=$stagedSnapshotCount")
+          assert(
+            mainRowCount == 2 && stagedSnapshotCount == 0,
+            "staged DELETE should commit directly to main without a WAP snapshot")
+        },
+        preparation.test("wapStaged.merge") { table =>
+          table.spark.conf.set("spark.wap.id", "wS")
+          try {
+            table.spark.sql(
+              s"MERGE INTO ${table.name} " +
+                "USING (SELECT CAST(99 AS BIGINT) AS key) source " +
+                s"ON ${table.name}.${Core.long0.columnName} = source.key " +
+                "WHEN NOT MATCHED THEN INSERT " +
+                s"(${Core.columnNames.mkString(", ")}) " +
+                "VALUES (source.key, 9, 'm', 9.5, true, '2024-01-09-01')")
+          } finally {
+            table.spark.conf.unset("spark.wap.id")
+          }
+          val mainRowCount = table.spark
+            .sql(s"SELECT count(*) FROM ${table.name}")
+            .collect()(0)
+            .getLong(0)
+          val stagedSnapshotCount = table.spark
+            .sql(
+              s"SELECT count(*) FROM ${table.name}.snapshots " +
+                "WHERE summary['wap.id'] = 'wS'")
+            .collect()(0)
+            .getLong(0)
+
+          println(
+            "DIAG wapStaged.merge: " +
+              s"mainPreCount=$mainRowCount stagedSnapshots=$stagedSnapshotCount")
+          assert(mainRowCount == 3, "staged merge changed main before publish")
+
+          val stagedSnapshotId = table.spark
+            .sql(
+              s"SELECT snapshot_id FROM ${table.name}.snapshots " +
+                "WHERE summary['wap.id'] = 'wS'")
+            .collect()(0)
+            .getLong(0)
+          table.spark.sql(
+            "CALL openhouse.system.cherrypick_snapshot(" +
+              s"'${catalogRelative(table.name)}', $stagedSnapshotId)")
+
+          assert(
+            table.spark
+              .sql(s"SELECT count(*) FROM ${table.name}")
+              .collect()(0)
+              .getLong(0) == 4,
+            "publishing the staged merge did not advance main")
+        },
+        preparation.test("wapStaged.update.valueVisibleOnlyAfterPublish") { table =>
+          table.spark.conf.set("spark.wap.id", "wU")
+          try {
+            table.spark.sql(
+              s"UPDATE ${table.name} " +
+                s"SET ${Core.string0.columnName} = 'staged-upd' " +
+                s"WHERE ${Core.long0.columnName} = 1")
+          } finally {
+            table.spark.conf.unset("spark.wap.id")
+          }
+          val valueBeforePublish = table.spark
+            .sql(
+              s"SELECT ${Core.string0.columnName} FROM ${table.name} " +
+                s"WHERE ${Core.long0.columnName} = 1")
+            .collect()(0)
+            .getString(0)
+
+          assert(
+            valueBeforePublish != "staged-upd",
+            s"staged update changed main before publish: $valueBeforePublish")
+
+          val stagedSnapshotId = table.spark
+            .sql(
+              s"SELECT snapshot_id FROM ${table.name}.snapshots " +
+                "WHERE summary['wap.id'] = 'wU'")
+            .collect()(0)
+            .getLong(0)
+          table.spark.sql(
+            "CALL openhouse.system.cherrypick_snapshot(" +
+              s"'${catalogRelative(table.name)}', $stagedSnapshotId)")
+          val valueAfterPublish = table.spark
+            .sql(
+              s"SELECT ${Core.string0.columnName} FROM ${table.name} " +
+                s"WHERE ${Core.long0.columnName} = 1")
+            .collect()(0)
+            .getString(0)
+
+          assert(
+            valueAfterPublish == "staged-upd",
+            s"published update returned $valueAfterPublish")
+        },
+        preparation.test("wapStaged.twoIdsIndependent") { table =>
+          def stageInsert(wapId: String, key: Int): Unit = {
+            table.spark.conf.set("spark.wap.id", wapId)
+            try {
+              table.spark.sql(
+                s"INSERT INTO ${table.name} VALUES " +
+                  coreRow(key, s"s-$wapId"))
+            } finally {
+              table.spark.conf.unset("spark.wap.id")
+            }
+          }
+          def snapshotId(wapId: String): Long =
+            table.spark
+              .sql(
+                s"SELECT snapshot_id FROM ${table.name}.snapshots " +
+                  s"WHERE summary['wap.id'] = '$wapId'")
+              .collect()(0)
+              .getLong(0)
+
+          stageInsert("wa", 101)
+          stageInsert("wb", 102)
+          assert(
+            table.spark
+              .sql(s"SELECT count(*) FROM ${table.name}")
+              .collect()(0)
+              .getLong(0) == 3,
+            "a staged ID changed main before publish")
+
+          table.spark.sql(
+            "CALL openhouse.system.cherrypick_snapshot(" +
+              s"'${catalogRelative(table.name)}', ${snapshotId("wa")})")
+          assert(
+            table.spark
+              .sql(s"SELECT count(*) FROM ${table.name}")
+              .collect()(0)
+              .getLong(0) == 4,
+            "publishing wa did not advance main")
+          assert(
+            table.spark
+              .sql(
+                s"SELECT count(*) FROM ${table.name} " +
+                  s"WHERE ${Core.long0.columnName} = 102")
+              .collect()(0)
+              .getLong(0) == 0,
+            "wb published before its cherry-pick")
+
+          table.spark.sql(
+            "CALL openhouse.system.cherrypick_snapshot(" +
+              s"'${catalogRelative(table.name)}', ${snapshotId("wb")})")
+          assert(
+            table.spark
+              .sql(s"SELECT count(*) FROM ${table.name}")
+              .collect()(0)
+              .getLong(0) == 5,
+            "publishing wb did not advance main")
+        },
+        preparation.test("wapStaged.expireVsStaged") { table =>
+          table.spark.conf.set("spark.wap.id", "wE")
+          try {
+            table.spark.sql(
+              s"INSERT INTO ${table.name} VALUES ${coreRow(200, "stg")}")
+          } finally {
+            table.spark.conf.unset("spark.wap.id")
+          }
+          val stagedSnapshotId = table.spark
+            .sql(
+              s"SELECT snapshot_id FROM ${table.name}.snapshots " +
+                "WHERE summary['wap.id'] = 'wE'")
+            .collect()(0)
+            .getLong(0)
+
+          table.spark.sql(
+            "CALL openhouse.system.expire_snapshots(" +
+              s"table => '${catalogRelative(table.name)}', " +
+              "older_than => TIMESTAMP '2999-01-01 00:00:00', " +
+              "retain_last => 1)")
+          val survivedExpiration = table.spark
+            .sql(
+              s"SELECT count(*) FROM ${table.name}.snapshots " +
+                s"WHERE snapshot_id = $stagedSnapshotId")
+            .collect()(0)
+            .getLong(0)
+          val publishOutcome =
+            try {
+              table.spark.sql(
+                "CALL openhouse.system.cherrypick_snapshot(" +
+                  s"'${catalogRelative(table.name)}', $stagedSnapshotId)")
+              "published"
+            } catch {
+              case NonFatal(exception) =>
+                s"stranded:${Exceptions.root(exception).getClass.getSimpleName}"
+            }
+
+          println(
+            "DIAG wapStaged.expireVsStaged: " +
+              s"stagedSurvivedExpire=$survivedExpiration " +
+              s"cherrypickAfterExpire=$publishOutcome")
+          assert(
+            survivedExpiration == 0 && publishOutcome.startsWith("stranded"),
+            "expiration should remove and strand the unreferenced staged snapshot")
+        })
+    }
+
+  val branchDdlCases: List[Plan.Case] =
+    List("parquet", "orc").flatMap { format =>
+      val preparation = TablePreparation(
+        format,
+        TableTest(Core)
+          .sql("create")(table =>
+            s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+              s"TBLPROPERTIES ('write.format.default'='$format')")()
+          .insert(3)()
+          .sql("enableWap")(table =>
+            s"ALTER TABLE $table SET TBLPROPERTIES ('write.wap.enabled'='true')")()
+          .sql("createBranch")(table =>
+            s"ALTER TABLE $table CREATE BRANCH bddl")())
+
+      List(
+        preparation.test("branchDdl.addColumn.leaksToMain") { table =>
+          table.spark.conf.set("spark.wap.branch", "bddl")
+          val outcome =
+            try {
+              table.spark.sql(
+                s"ALTER TABLE ${table.name} ADD COLUMN br_added int")
+              "accepted"
+            } catch {
+              case NonFatal(exception) =>
+                s"rejected:${Exceptions.root(exception).getClass.getSimpleName}"
+            } finally {
+              table.spark.conf.unset("spark.wap.branch")
+            }
+          val columnNames = table.spark
+            .sql(s"DESCRIBE TABLE ${table.name}")
+            .collect()
+            .map(_.getString(0).trim)
+            .toSet
+
+          println(
+            "DIAG branchDdl.addColumn.leaksToMain: " +
+              s"branch-routed DDL $outcome")
+          assert(
+            columnNames.contains("br_added"),
+            "ADD COLUMN on a branch should change the table-global schema")
+        },
+        preparation.test("branchDdl.setTblProp.leaksToMain") { table =>
+          table.spark.conf.set("spark.wap.branch", "bddl")
+          val outcome =
+            try {
+              table.spark.sql(
+                s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
+                  "('user.branchkey'='v1')")
+              "accepted"
+            } catch {
+              case NonFatal(exception) =>
+                s"rejected:${Exceptions.root(exception).getClass.getSimpleName}"
+            } finally {
+              table.spark.conf.unset("spark.wap.branch")
+            }
+          val properties = table.spark
+            .sql(s"SHOW TBLPROPERTIES ${table.name}")
+            .collect()
+            .map(row => row.getString(0) -> row.getString(1))
+            .toMap
+
+          println(
+            "DIAG branchDdl.setTblProp.leaksToMain: " +
+              s"branch-routed DDL $outcome")
+          assert(
+            properties.get("user.branchkey").contains("v1"),
+            "SET TBLPROPERTIES on a branch should change table-global properties")
+        },
+        preparation.test("branchDdl.alterColumnComment.leaksToMain") { table =>
+          table.spark.conf.set("spark.wap.branch", "bddl")
+          val outcome =
+            try {
+              table.spark.sql(
+                s"ALTER TABLE ${table.name} " +
+                  s"ALTER COLUMN ${Core.string0.columnName} COMMENT 'br-comment'")
+              "accepted"
+            } catch {
+              case NonFatal(exception) =>
+                s"rejected:${Exceptions.root(exception).getClass.getSimpleName}"
+            } finally {
+              table.spark.conf.unset("spark.wap.branch")
+            }
+          val comment = table.spark
+            .sql(s"DESCRIBE TABLE ${table.name}")
+            .collect()
+            .find(_.getString(0).trim == Core.string0.columnName)
+            .map(_.getString(2))
+            .getOrElse("")
+
+          println(
+            "DIAG branchDdl.alterColumnComment.leaksToMain: " +
+              s"branch-routed DDL $outcome")
+          assert(
+            Option(comment).getOrElse("").contains("br-comment"),
+            "ALTER COLUMN COMMENT on a branch should change table-global metadata")
+        },
+        preparation.test("branchDdl.dropColumn.rejected") { table =>
+          table.spark.conf.set("spark.wap.branch", "bddl")
+          val outcome =
+            try {
+              table.spark.sql(
+                s"ALTER TABLE ${table.name} " +
+                  s"DROP COLUMN ${Core.string0.columnName}")
+              "accepted"
+            } catch {
+              case NonFatal(exception) =>
+                s"rejected:${Exceptions.root(exception).getClass.getSimpleName}"
+            } finally {
+              table.spark.conf.unset("spark.wap.branch")
+            }
+          val columnNames = table.spark
+            .sql(s"DESCRIBE TABLE ${table.name}")
+            .collect()
+            .map(_.getString(0).trim)
+            .toSet
+
+          println(
+            "DIAG branchDdl.dropColumn.rejected: " +
+              s"branch-routed DDL $outcome")
+          assert(
+            columnNames.contains(Core.string0.columnName),
+            "DROP COLUMN should remain rejected while a branch is selected")
+        })
+    }
+
+  val branchingCases: List[Plan.Case] =
+    List("parquet", "orc").flatMap { format =>
+      val preparation = TablePreparation(
+        format,
+        TableTest(Core)
+          .sql("create")(table =>
+            s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+              s"TBLPROPERTIES ('write.format.default'='$format')")()
+          .insert(3)())
+
+      List(
+        preparation.test("branch.direct.isolation") { table =>
+          table.spark.sql(
+            s"ALTER TABLE ${table.name} CREATE BRANCH b")
+          table.spark.sql(
+            s"INSERT INTO ${table.name}.branch_b VALUES " +
+              coreRow(99, "branch"))
+          val branchRowCount = table.spark
+            .sql(
+              s"SELECT count(*) FROM ${table.name} VERSION AS OF 'b'")
+            .collect()(0)
+            .getLong(0)
+          val mainRowCount = table.spark
+            .sql(s"SELECT count(*) FROM ${table.name}")
+            .collect()(0)
+            .getLong(0)
+
+          assert(
+            branchRowCount == 4,
+            s"branch b should have 4 rows, got $branchRowCount")
+          assert(
+            mainRowCount == 3,
+            s"main should be unchanged at 3 rows, got $mainRowCount")
+        },
+        preparation.test("branch.wapConf.routing") { table =>
+          table.spark.sql(
+            s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
+              "('write.wap.enabled'='true')")
+          table.spark.sql(
+            s"ALTER TABLE ${table.name} CREATE BRANCH wapbr")
+          table.spark.conf.set("spark.wap.branch", "wapbr")
+          val branchRowCount =
+            try {
+              table.spark.sql(
+                s"INSERT INTO ${table.name} VALUES ${coreRow(99, "wap")}")
+              table.spark
+                .sql(s"SELECT count(*) FROM ${table.name}")
+                .collect()(0)
+                .getLong(0)
+            } finally {
+              table.spark.conf.unset("spark.wap.branch")
+            }
+          val mainRowCount = table.spark
+            .sql(s"SELECT count(*) FROM ${table.name}")
+            .collect()(0)
+            .getLong(0)
+
+          assert(
+            branchRowCount == 4,
+            s"branch-routed read should see 4 rows, got $branchRowCount")
+          assert(
+            mainRowCount == 3,
+            s"branch-routed write changed main to $mainRowCount rows")
+        },
+        preparation.test("wap.stagePublish") { table =>
+          table.spark.sql(
+            s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
+              "('write.wap.enabled'='true')")
+          table.spark.conf.set("spark.wap.id", "w1")
+          try {
+            table.spark.sql(
+              s"INSERT INTO ${table.name} VALUES ${coreRow(99, "staged")}")
+          } finally {
+            table.spark.conf.unset("spark.wap.id")
+          }
+          val mainBeforePublish = table.spark
+            .sql(s"SELECT count(*) FROM ${table.name}")
+            .collect()(0)
+            .getLong(0)
+          assert(
+            mainBeforePublish == 3,
+            s"staged write changed main to $mainBeforePublish rows")
+
+          val stagedSnapshotId = table.spark
+            .sql(
+              s"SELECT snapshot_id FROM ${table.name}.snapshots " +
+                "WHERE summary['wap.id'] = 'w1'")
+            .collect()(0)
+            .getLong(0)
+          table.spark.sql(
+            "CALL openhouse.system.cherrypick_snapshot(" +
+              s"'${catalogRelative(table.name)}', $stagedSnapshotId)")
+          val mainAfterPublish = table.spark
+            .sql(s"SELECT count(*) FROM ${table.name}")
+            .collect()(0)
+            .getLong(0)
+
+          assert(
+            mainAfterPublish == 4,
+            s"publishing the staged write left main at $mainAfterPublish rows")
+        },
+        preparation.test("branch.ddlLeak.addColumn") { table =>
+          table.spark.sql(
+            s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
+              "('write.wap.enabled'='true')")
+          table.spark.sql(
+            s"ALTER TABLE ${table.name} CREATE BRANCH leakbr")
+          table.spark.conf.set("spark.wap.branch", "leakbr")
+          try {
+            table.spark.sql(
+              s"ALTER TABLE ${table.name} ADD COLUMN leaked_col int")
+          } finally {
+            table.spark.conf.unset("spark.wap.branch")
+          }
+          val mainColumnNames =
+            table.spark.table(table.name).schema.fields.map(_.name).toSeq
+
+          assert(
+            mainColumnNames.contains("leaked_col"),
+            "ADD COLUMN on a branch should change the table-global schema")
+        },
+        preparation.test("branch.dml.updateDelete") { table =>
+          table.spark.sql(
+            s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
+              "('write.wap.enabled'='true')")
+          table.spark.sql(
+            s"ALTER TABLE ${table.name} CREATE BRANCH dmlbr")
+          table.spark.conf.set("spark.wap.branch", "dmlbr")
+          try {
+            table.spark.sql(
+              s"UPDATE ${table.name} " +
+                s"SET ${Core.string0.columnName} = 'br-upd' " +
+                s"WHERE ${Core.long0.columnName} = 1")
+            table.spark.sql(
+              s"DELETE FROM ${table.name} " +
+                s"WHERE ${Core.long0.columnName} = 2")
+          } finally {
+            table.spark.conf.unset("spark.wap.branch")
+          }
+          val branchRowCount = table.spark
+            .sql(
+              s"SELECT count(*) FROM ${table.name} VERSION AS OF 'dmlbr'")
+            .collect()(0)
+            .getLong(0)
+          val mainRowCount = table.spark
+            .sql(s"SELECT count(*) FROM ${table.name}")
+            .collect()(0)
+            .getLong(0)
+          val branchValue = table.spark
+            .sql(
+              s"SELECT ${Core.string0.columnName} FROM ${table.name} " +
+                "VERSION AS OF 'dmlbr' " +
+                s"WHERE ${Core.long0.columnName} = 1")
+            .collect()(0)
+            .getString(0)
+
+          assert(
+            branchRowCount == 2,
+            s"branch should have 2 rows after delete, got $branchRowCount")
+          assert(
+            mainRowCount == 3,
+            s"branch DML changed main to $mainRowCount rows")
+          assert(
+            branchValue == "br-upd",
+            s"branch update returned $branchValue")
+        },
+        preparation.test("branch.lifecycle.tag") { table =>
+          table.spark.sql(
+            s"ALTER TABLE ${table.name} CREATE TAG mytag")
+          val tagCount = table.spark
+            .sql(
+              s"SELECT count(*) FROM ${table.name}.refs " +
+                "WHERE name = 'mytag' AND type = 'TAG'")
+            .collect()(0)
+            .getLong(0)
+
+          assert(tagCount == 1, "CREATE TAG did not create the tag ref")
+        },
+        preparation.test("branch.lifecycle.dropBranch") { table =>
+          table.spark.sql(
+            s"ALTER TABLE ${table.name} CREATE BRANCH tmpbr")
+          val branchCountBeforeDrop = table.spark
+            .sql(
+              s"SELECT count(*) FROM ${table.name}.refs " +
+                "WHERE name = 'tmpbr'")
+            .collect()(0)
+            .getLong(0)
+          assert(
+            branchCountBeforeDrop == 1,
+            "CREATE BRANCH did not create the branch ref")
+
+          table.spark.sql(
+            s"ALTER TABLE ${table.name} DROP BRANCH tmpbr")
+          val branchCountAfterDrop = table.spark
+            .sql(
+              s"SELECT count(*) FROM ${table.name}.refs " +
+                "WHERE name = 'tmpbr'")
+            .collect()(0)
+            .getLong(0)
+
+          assert(
+            branchCountAfterDrop == 0,
+            "DROP BRANCH did not remove the branch ref")
+        },
+        preparation.test("branch.neg.wapIdAndBranch") { table =>
+          table.spark.sql(
+            s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
+              "('write.wap.enabled'='true')")
+          table.spark.sql(
+            s"ALTER TABLE ${table.name} CREATE BRANCH nb")
+          table.spark.conf.set("spark.wap.id", "w1")
+          table.spark.conf.set("spark.wap.branch", "nb")
+          try {
+            val exception = Check.intercept[ValidationException](
+              table.spark.sql(
+                s"INSERT INTO ${table.name} VALUES ${coreRow(99, "x")}"))
+            assert(
+              exception.getMessage.contains("Cannot set both WAP ID and branch"),
+              s"unexpected validation message: ${exception.getMessage.take(140)}")
+          } finally {
+            table.spark.conf.unset("spark.wap.id")
+            table.spark.conf.unset("spark.wap.branch")
+          }
+        },
+        preparation.test("branch.neg.insertNonexistentBranch") { table =>
+          val exception = Check.intercept[ValidationException](
+            table.spark.sql(
+              s"INSERT INTO ${table.name}.branch_nope VALUES " +
+                coreRow(99, "x")))
+
+          assert(
+            exception.getMessage.contains("does not exist"),
+            s"unexpected validation message: ${exception.getMessage.take(140)}")
+        })
+    }
+
+
 
 
 }

@@ -26,6 +26,7 @@ allprojects {
       dependencies.add('testImplementation', project(':services:housetables'))
     }
     tasks.register('printHarnessCp') {
+      dependsOn configurations.testRuntimeClasspath
       doLast {
         def cp = configurations.testRuntimeClasspath.resolve().collect { it.absolutePath }
         new File(System.getProperty('cpOut')).text = cp.join(':')

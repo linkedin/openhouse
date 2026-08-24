@@ -80,6 +80,37 @@ trait ScenarioKit {
   def createAndSeed(layout: Layout, numberOfRows: Int): TableTest[CoreTable.type] =
     TableTest(Core).sql("create")(layout.create)().insert(numberOfRows)()
 
+  val preparedCoreTables: List[TablePreparation[CoreTable.type]] =
+    layouts.map(layout => TablePreparation(layout.label, createAndSeed(layout, 3)))
+
+  val preparedMorCoreTables: List[TablePreparation[CoreTable.type]] =
+    morLayouts.map(layout => TablePreparation(layout.label, createAndSeed(layout, 3)))
+
+  val preparedOrderedCoreTables: List[TablePreparation[CoreTable.type]] =
+    layouts.map(layout =>
+      TablePreparation(
+        layout.label,
+        createAndSeedOrdered(layout, 3),
+        "prep.ordered:"))
+
+  val preparedEvolvedCoreTables: List[TablePreparation[CoreTable.type]] =
+    layouts.map(layout =>
+      TablePreparation(
+        layout.label,
+        createAndSeedEvolved(layout, 3),
+        "prep.evolved:"))
+
+  val preparedEmptyCoreTables: List[TablePreparation[CoreTable.type]] =
+    layouts.map(layout =>
+      TablePreparation(layout.label, TableTest(Core).sql("create")(layout.create)()))
+
+  val preparedCoreFormats: List[TablePreparation[CoreTable.type]] =
+    layouts
+      .filter(layout =>
+        layout.label == "unpartitioned/parquet" || layout.label == "unpartitioned/orc")
+      .map(layout =>
+        TablePreparation(layout.label.stripPrefix("unpartitioned/"), createAndSeed(layout, 3)))
+
   // Preparation for the physical CoW/MoR discriminator: seed all rows into ONE data file. A plain
   // seed INSERT fans the rows across a couple of files (writer-dependent), so a strict-subset delete
   // can land on a whole file and be satisfied by file elimination rather than a position delete. The
@@ -114,6 +145,37 @@ trait ScenarioKit {
         spark.conf.set("spark.wap.branch", "b")
       }()
 
+  private def assertBranchMainIsolation(table: PreparedTable[CoreTable.type]): Unit = {
+    table.spark.conf.unset("spark.wap.branch")
+    val mainCount = table.spark
+      .sql(s"SELECT count(*) FROM ${table.name}")
+      .collect()(0)
+      .getLong(0)
+    assert(
+      mainCount == 3,
+      s"branch operation leaked to main: expected 3 rows, got $mainCount")
+  }
+
+  val preparedBranchCoreTables: List[TablePreparation[CoreTable.type]] =
+    layouts.map { layout =>
+      TablePreparation(
+        layout.label,
+        createAndSeedOnBranch(layout, 3),
+        "branchWap:",
+        assertBranchMainIsolation)
+    }
+
+  val preparedBranchMorCoreTables: List[TablePreparation[CoreTable.type]] =
+    morLayouts
+      .filter(_.label.startsWith("mor-unpartitioned/"))
+      .map { layout =>
+        TablePreparation(
+          layout.label,
+          createAndSeedOnBranch(layout, 3),
+          "branchWap:",
+          assertBranchMainIsolation)
+      }
+
   // RTAS prep prefix (the P axis, replace-lineage leg — SURFACE-APPRAISAL step 2): create + seed,
   // then CREATE OR REPLACE ... AS SELECT * re-specifying the SAME shape, so the table is
   // functionally identical but reached via the replace path (the path G9/G10 showed misbehaves).
@@ -140,6 +202,14 @@ trait ScenarioKit {
         assert(deleteFiles == 1, s"MoR prep must leave a live position-delete file, got $deleteFiles")
       }
 
+  val preparedMorReadCoreTables: List[TablePreparation[CoreTable.type]] =
+    morVerifyLayouts.map { layout =>
+      TablePreparation(
+        layout.label,
+        createAndSeedMorDeleted(layout, 3),
+        "prep.morRead:")
+    }
+
   // Undrop prep (the P axis, drop→undrop leg — SURFACE-APPRAISAL, requires embedded real HTS). Seed a
   // plain table, then take it through the FULL soft-delete → restore round-trip on the real HTS, and
   // hand the RESTORED table to the downstream op. The point is a modality audit: every feature's state
@@ -159,6 +229,18 @@ trait ScenarioKit {
       } { view =>
         assert(view.after.size == numberOfRows,
           s"restored table must keep its $numberOfRows rows, got ${view.after.size}")
+      }
+
+  val preparedUndroppedCoreTables: List[TablePreparation[CoreTable.type]] =
+    layouts
+      .filter(layout =>
+        layout.label.endsWith("/parquet") ||
+          layout.label.endsWith("/orc"))
+      .map { layout =>
+        TablePreparation(
+          layout.label,
+          createAndSeedUndropped(layout, 3),
+          "undrop:")
       }
 
   def createAndSeedRtas(partitionClause: String, numberOfRows: Int, format: String = "parquet"): TableTest[CoreTable.type] =
@@ -181,7 +263,6 @@ trait ScenarioKit {
   // table. Non-vacuous per the appraisal — replace + MoR is a distinct combination.
   protected def morPropsFmt(format: String) = s"'write.format.default'='$format', 'format-version'='2', " +
     "'write.delete.mode'='merge-on-read', 'write.update.mode'='merge-on-read', 'write.merge.mode'='merge-on-read'"
-  protected val morProps = morPropsFmt("parquet")
 
   def createAndSeedRtasMor(partitionClause: String, numberOfRows: Int, format: String = "parquet"): TableTest[CoreTable.type] =
     TableTest(Core)
@@ -194,6 +275,22 @@ trait ScenarioKit {
       // OpenHouse catalog's stale-pointer divergence (filed as a product bug).
       .sql("prep.rtasMor.refresh")(t => s"REFRESH TABLE $t")()
 
+  val preparedRtasCoreTables: List[TablePreparation[CoreTable.type]] =
+    rtasPrepShapes.map {
+      case (label, partitionClause, format) =>
+        TablePreparation(
+          label,
+          createAndSeedRtas(partitionClause, 3, format),
+          "prep.rtas:")
+    }
+
+  val preparedRtasMorCoreTables: List[TablePreparation[CoreTable.type]] =
+    List("parquet", "orc", "avro").map { format =>
+      TablePreparation(
+        s"mor-unpartitioned/$format",
+        createAndSeedRtasMor("", 3, format),
+        "prep.rtasMor:")
+    }
 
   // ── hoisted shared helpers (used across domain traits) ──
   protected def coreTwoSnapshots(fmt: String): TableTest[CoreTable.type] =
@@ -234,15 +331,8 @@ trait ScenarioKit {
   // before it builds `Plan.cases`. The emitted SQL is otherwise byte-identical across environments.
   var dataSource: String = "iceberg"
 
-  // "should be format-independent" is a hypothesis this harness must verify, not assume (see G8/G10, and
-  // the fork carries patched ORC paths). Only table-LESS ops (no CREATE) have no format axis.
-  protected val seedFmtTL = new ThreadLocal[String]()
-  def seedFmt: String = Option(seedFmtTL.get).getOrElse("parquet")
-  def withSeedFmt[A](fmt: String)(body: => A): A = {
-    seedFmtTL.set(fmt); try body finally seedFmtTL.remove()
-  }
   protected def coreCreateParquet(table: String): String =
-    s"CREATE TABLE $table ($columnDefinitions) USING $dataSource TBLPROPERTIES ('write.format.default'='$seedFmt')"
+    s"CREATE TABLE $table ($columnDefinitions) USING $dataSource TBLPROPERTIES ('write.format.default'='parquet')"
 
   protected def undropSeed(ctx: Ctx, name: String): (String, String, String) = {
     val table = s"${ctx.namespace}.$name"
@@ -264,10 +354,6 @@ trait ScenarioKit {
 
   protected val extraColInsert9  = "(CAST(9 AS BIGINT), 9, 'row-9', 9.5, true, '2024-01-09-01', 42)"
   protected val extraColInsert10 = "(CAST(10 AS BIGINT), 10, 'row-10', 10.5, true, '2024-01-10-01', 43)"
-
-  protected def rtasPrep: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .sql("enableReplace")(t => s"ALTER TABLE $t SET TBLPROPERTIES ('replace.enabled'='true')")()
 
   protected def countOf(spark: SparkSession, sql: String): String =
     spark.sql(sql).collect()(0).getLong(0).toString

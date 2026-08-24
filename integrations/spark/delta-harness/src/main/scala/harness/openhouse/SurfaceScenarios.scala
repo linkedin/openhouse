@@ -24,536 +24,1038 @@ trait SurfaceScenarios extends ScenarioKit {
     assert(!m.startsWith("java.lang.NullPointerException"), s"$context: bare NPE surfaced: ${m.take(160)}")
   }
 
-  val surfaceMsgReadabilityGuard: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("surface.msg.readabilityGuard") { (spark, table) =>
+  private def runConcurrently(functions: Seq[() => Unit]): Seq[Throwable] = {
+    val errors = new java.util.concurrent.ConcurrentLinkedQueue[Throwable]()
+    val threads = functions.map(function =>
+      new Thread(() =>
+        try function()
+        catch { case throwable: Throwable => errors.add(throwable) }))
+    threads.foreach(_.start())
+    threads.foreach(_.join(180000))
+    errors.toArray(Array.empty[Throwable]).toSeq
+  }
+
+  private def isTypedCommitConflict(throwable: Throwable): Boolean =
+    Exceptions.causeChain(throwable).exists { cause =>
+      val className = cause.getClass.getName
+      className.contains("CommitFailed") ||
+        className.contains("CommitStateUnknown") ||
+        className.contains("Validation") ||
+        className.contains("BadRequest") ||
+        className.contains("WebClientResponse")
+    }
+
+  private def surfaceBranchCases(format: String): List[Plan.Case] = {
+    val basePreparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            s"TBLPROPERTIES ('write.format.default'='$format')")()
+        .insert(3)())
+    val twoSnapshotPreparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            s"TBLPROPERTIES ('write.format.default'='$format')")()
+        .insert(3)()
+        .sql("insertMore")(table =>
+          s"INSERT INTO $table VALUES " +
+            "(CAST(4 AS BIGINT), 4, 'row-4', 4.5, true, '2024-01-04-03'), " +
+            "(CAST(5 AS BIGINT), 5, 'row-5', 5.5, false, '2024-01-05-04')")())
+    val wapPreparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            s"TBLPROPERTIES ('write.format.default'='$format')")()
+        .insert(3)()
+        .sql("enableWap")(table =>
+          s"ALTER TABLE $table SET TBLPROPERTIES ('write.wap.enabled'='true')")())
+
+    List(
+      twoSnapshotPreparation.test(
+        "surface.maint.compactWithBranch") { table =>
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
+            "('write.wap.enabled'='true')")
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} CREATE BRANCH cb")
+        table.spark.sql(
+          s"INSERT INTO ${table.name}.branch_cb VALUES " +
+            "(CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
+        table.spark.sql(
+          s"INSERT INTO ${table.name} VALUES " +
+            "(CAST(7 AS BIGINT), 7, 'row-7', 7.5, true, '2024-01-07-06')")
+        val compactionResult = table.spark
+          .sql(
+            "CALL openhouse.system.rewrite_data_files(" +
+              s"table => '${catalogRelative(table.name)}', " +
+              "options => map('min-input-files', '2'))")
+          .collect()(0)
+
+        println(
+          "DIAG compactWithBranch: " +
+            s"mainCompaction rewritten=${compactionResult.get(0)} " +
+            s"added=${compactionResult.get(1)}")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}") == "6",
+          "main compaction should preserve 6 rows")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name} VERSION AS OF 'cb'") == "6",
+          "main compaction should preserve the branch")
+
+        table.spark.conf.set("spark.wap.branch", "cb")
+        val branchRoutedOutcome =
+          try {
+            val result = table.spark
+              .sql(
+                "CALL openhouse.system.rewrite_data_files(" +
+                  s"table => '${catalogRelative(table.name)}')")
+              .collect()(0)
+            s"RAN (rewritten=${result.get(0)}, added=${result.get(1)})"
+          } catch {
+            case exception: Throwable =>
+              s"THREW ${exception.getClass.getSimpleName} :: " +
+                Option(exception.getMessage).getOrElse("").take(140)
+          } finally {
+            table.spark.conf.unset("spark.wap.branch")
+          }
+        println(s"DIAG compactUnderWapConf: $branchRoutedOutcome")
+
+        table.spark.sql(s"REFRESH TABLE ${table.name}")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}") == "6",
+          "branch-routed compaction attempt should preserve main")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name} VERSION AS OF 'cb'") == "6",
+          "branch-routed compaction attempt should preserve the branch")
+      },
+      basePreparation.test("surface.msg.readabilityGuard") { table =>
         assertReadableMessage("dropColumn")(
-          Check.intercept[Exception](spark.sql(s"ALTER TABLE $table DROP COLUMN ${Core.int0.columnName}")))
+          Check.intercept[Exception](
+            table.spark.sql(
+              s"ALTER TABLE ${table.name} " +
+                s"DROP COLUMN ${Core.int0.columnName}")))
         assertReadableMessage("reservedProp")(
-          Check.intercept[Exception](spark.sql(s"ALTER TABLE $table SET TBLPROPERTIES ('openhouse.tableUUID'='x')")))
+          Check.intercept[Exception](
+            table.spark.sql(
+              s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
+                "('openhouse.tableUUID'='x')")))
         assertReadableMessage("rtasDisabled")(
-          Check.intercept[Exception](spark.sql(s"CREATE OR REPLACE TABLE $table USING $dataSource AS SELECT * FROM $table")))
+          Check.intercept[Exception](
+            table.spark.sql(
+              s"CREATE OR REPLACE TABLE ${table.name} USING $dataSource " +
+                s"AS SELECT * FROM ${table.name}")))
         assertReadableMessage("createNamespace")(
-          Check.intercept[Exception](spark.sql("CREATE NAMESPACE openhouse.nope_ns")))
-      }()
+          Check.intercept[Exception](
+            table.spark.sql("CREATE NAMESPACE openhouse.nope_ns")))
+      },
+      basePreparation.test("branch.leak.setProps") { table =>
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
+            "('write.wap.enabled'='true')")
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} CREATE BRANCH lb2")
+        table.spark.conf.set("spark.wap.branch", "lb2")
+        try {
+          table.spark.sql(
+            s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
+              "('user.leaked'='yes')")
+        } finally {
+          table.spark.conf.unset("spark.wap.branch")
+        }
 
-  // ── G8 legs: the other main-affecting DDLs leak from a branch to main ────────────────────────
-  val surfaceBranchLeakSetProps: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("branch.leak.setProps") { (spark, table) =>
-        spark.sql(s"ALTER TABLE $table SET TBLPROPERTIES ('write.wap.enabled'='true')")
-        spark.sql(s"ALTER TABLE $table CREATE BRANCH lb2")
-        spark.conf.set("spark.wap.branch", "lb2")
-        try spark.sql(s"ALTER TABLE $table SET TBLPROPERTIES ('user.leaked'='yes')")
-        finally spark.conf.unset("spark.wap.branch")
-        assert(tableProps(spark, table).get("user.leaked").contains("yes"),
-          "G8 appears FIXED for SET TBLPROPERTIES — props no longer leak from branch to main; update AUDIT-FINDINGS G8")
-      }()
+        assert(
+          tableProps(table.spark, table.name)
+            .get("user.leaked")
+            .contains("yes"),
+          "branch-routed property update should change table-global metadata")
+      },
+      basePreparation.test("branch.leak.writeOrderedBy") { table =>
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
+            "('write.wap.enabled'='true')")
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} CREATE BRANCH lb3")
+        table.spark.conf.set("spark.wap.branch", "lb3")
+        try {
+          table.spark.sql(
+            s"ALTER TABLE ${table.name} " +
+              s"WRITE ORDERED BY ${Core.long0.columnName}")
+        } finally {
+          table.spark.conf.unset("spark.wap.branch")
+        }
 
-  val surfaceBranchLeakWriteOrdered: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("branch.leak.writeOrderedBy") { (spark, table) =>
-        spark.sql(s"ALTER TABLE $table SET TBLPROPERTIES ('write.wap.enabled'='true')")
-        spark.sql(s"ALTER TABLE $table CREATE BRANCH lb3")
-        spark.conf.set("spark.wap.branch", "lb3")
-        try spark.sql(s"ALTER TABLE $table WRITE ORDERED BY ${Core.long0.columnName}")
-        finally spark.conf.unset("spark.wap.branch")
-        assert(tableProps(spark, table).get("write.distribution-mode").contains("range"),
-          "G8 appears FIXED for WRITE ORDERED BY — sort order no longer leaks from branch to main; update AUDIT-FINDINGS G8")
-      }()
+        assert(
+          tableProps(table.spark, table.name)
+            .get("write.distribution-mode")
+            .contains("range"),
+          "branch-routed ordering should change table-global metadata")
+      },
+      wapPreparation.test("branch.wapToggle.noGuard") { table =>
+        table.spark.conf.set("spark.wap.id", "w9")
+        try {
+          table.spark.sql(
+            s"INSERT INTO ${table.name} VALUES " +
+              "(CAST(9 AS BIGINT), 9, 'row-9', 9.5, true, '2024-01-09-01')")
+        } finally {
+          table.spark.conf.unset("spark.wap.id")
+        }
+        val stagedSnapshotCount = countOf(
+          table.spark,
+          s"SELECT count(*) FROM ${table.name}.snapshots " +
+            "WHERE summary['wap.id'] = 'w9'")
+        assert(
+          stagedSnapshotCount == "1",
+          s"expected one staged snapshot, got $stagedSnapshotCount")
 
-  // ── G4 pin: toggling WAP off while staged snapshots exist is NOT guarded ─────────────────────
-  val surfaceWapToggleNoGuard: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .sql("enableWap")(t => s"ALTER TABLE $t SET TBLPROPERTIES ('write.wap.enabled'='true')")()
-      .step("branch.wapToggle.noGuard") { (spark, table) =>
-        spark.conf.set("spark.wap.id", "w9")
-        try spark.sql(s"INSERT INTO $table VALUES (CAST(9 AS BIGINT), 9, 'row-9', 9.5, true, '2024-01-09-01')")
-        finally spark.conf.unset("spark.wap.id")
-        val staged = countOf(spark, s"SELECT count(*) FROM $table.snapshots WHERE summary['wap.id'] = 'w9'")
-        assert(staged == "1", s"staging failed: $staged staged snapshots")
-        // G4 pin: the toggle is ACCEPTED with a staged snapshot outstanding (no guard exists).
-        spark.sql(s"ALTER TABLE $table SET TBLPROPERTIES ('write.wap.enabled'='false')")
-        val stagedAfter = countOf(spark, s"SELECT count(*) FROM $table.snapshots WHERE summary['wap.id'] = 'w9'")
-        println(s"DIAG wapToggle: stagedAfterToggle=$stagedAfter")
-      }()
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
+            "('write.wap.enabled'='false')")
+        val stagedAfterToggle = countOf(
+          table.spark,
+          s"SELECT count(*) FROM ${table.name}.snapshots " +
+            "WHERE summary['wap.id'] = 'w9'")
 
-  // ── WAP negatives (B2 follow-ups) ────────────────────────────────────────────────────────────
-  val surfaceWapDoubleCherrypick: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .sql("enableWap")(t => s"ALTER TABLE $t SET TBLPROPERTIES ('write.wap.enabled'='true')")()
-      .step("wap.neg.doubleCherrypick") { (spark, table) =>
-        spark.conf.set("spark.wap.id", "w1")
-        try spark.sql(s"INSERT INTO $table VALUES (CAST(9 AS BIGINT), 9, 'row-9', 9.5, true, '2024-01-09-01')")
-        finally spark.conf.unset("spark.wap.id")
-        val sid = spark.sql(s"SELECT snapshot_id FROM $table.snapshots WHERE summary['wap.id'] = 'w1'").collect()(0).getLong(0)
-        spark.sql(s"CALL openhouse.system.cherrypick_snapshot('${catalogRelative(table)}', ${sid}L)")
-        assert(countOf(spark, s"SELECT count(*) FROM $table") == "4", "first publish failed")
-        val e = Check.intercept[Exception](
-          spark.sql(s"CALL openhouse.system.cherrypick_snapshot('${catalogRelative(table)}', ${sid}L)"))
-        println(s"DIAG doubleCherrypick: ${e.getClass.getName} :: ${Option(e.getMessage).getOrElse("").take(180)}")
-        assert(Option(e.getMessage).exists(m => m.toLowerCase.contains("duplicate") || m.toLowerCase.contains("already")),
-          s"double cherry-pick should be rejected as a duplicate WAP commit: ${e.getMessage.take(180)}")
-      }()
+        println(s"DIAG wapToggle: stagedAfterToggle=$stagedAfterToggle")
+      },
+      wapPreparation.test("wap.neg.doubleCherrypick") { table =>
+        table.spark.conf.set("spark.wap.id", "w1")
+        try {
+          table.spark.sql(
+            s"INSERT INTO ${table.name} VALUES " +
+              "(CAST(9 AS BIGINT), 9, 'row-9', 9.5, true, '2024-01-09-01')")
+        } finally {
+          table.spark.conf.unset("spark.wap.id")
+        }
+        val stagedSnapshotId = table.spark
+          .sql(
+            s"SELECT snapshot_id FROM ${table.name}.snapshots " +
+              "WHERE summary['wap.id'] = 'w1'")
+          .collect()(0)
+          .getLong(0)
+        table.spark.sql(
+          "CALL openhouse.system.cherrypick_snapshot(" +
+            s"'${catalogRelative(table.name)}', ${stagedSnapshotId}L)")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}") == "4",
+          "first cherry-pick should publish the staged row")
 
-  val surfaceWapExpireRefTarget: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("wap.neg.expireRefTarget") { (spark, table) =>
-        spark.sql(s"ALTER TABLE $table CREATE BRANCH eb2")
-        val headId = spark.sql(s"SELECT snapshot_id FROM $table.refs WHERE name = 'eb2'").collect()(0).getLong(0)
-        val e = Check.intercept[Exception](spark.sql(
-          s"CALL openhouse.system.expire_snapshots(table => '${catalogRelative(table)}', snapshot_ids => ARRAY(${headId}L))"))
-        println(s"DIAG expireRefTarget: ${e.getClass.getName} :: ${Option(e.getMessage).getOrElse("").take(180)}")
-      }()
+        val exception = Check.intercept[Exception](
+          table.spark.sql(
+            "CALL openhouse.system.cherrypick_snapshot(" +
+              s"'${catalogRelative(table.name)}', ${stagedSnapshotId}L)"))
+        println(
+          "DIAG doubleCherrypick: " +
+            s"${exception.getClass.getName} :: " +
+            Option(exception.getMessage).getOrElse("").take(180))
+        assert(
+          Option(exception.getMessage).exists(message =>
+            message.toLowerCase.contains("duplicate") ||
+              message.toLowerCase.contains("already")),
+          "second cherry-pick should reject the duplicate WAP commit")
+      },
+      basePreparation.test("wap.neg.expireRefTarget") { table =>
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} CREATE BRANCH eb2")
+        val branchHeadSnapshotId = table.spark
+          .sql(
+            s"SELECT snapshot_id FROM ${table.name}.refs " +
+              "WHERE name = 'eb2'")
+          .collect()(0)
+          .getLong(0)
+        val exception = Check.intercept[Exception](
+          table.spark.sql(
+            "CALL openhouse.system.expire_snapshots(" +
+              s"table => '${catalogRelative(table.name)}', " +
+              s"snapshot_ids => ARRAY(${branchHeadSnapshotId}L))"))
 
-  // ── Branch lifecycle tail: fast_forward IS the merge; replace branch ────────────────────────
-  val surfaceBranchFastForwardMerge: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("branch.fastForward.merge") { (spark, table) =>
-        spark.sql(s"ALTER TABLE $table CREATE BRANCH fb")
-        spark.sql(s"INSERT INTO $table.branch_fb VALUES (CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
-        spark.sql(s"INSERT INTO $table.branch_fb VALUES (CAST(7 AS BIGINT), 7, 'row-7', 7.5, true, '2024-01-07-06')")
-        assert(countOf(spark, s"SELECT count(*) FROM $table") == "3", "main advanced unexpectedly")
-        spark.sql(s"CALL openhouse.system.fast_forward('${catalogRelative(table)}', 'main', 'fb')")
-        assert(countOf(spark, s"SELECT count(*) FROM $table") == "5",
-          "fast_forward must merge the branch into main (main == branch head)")
-      }()
+        println(
+          "DIAG expireRefTarget: " +
+            s"${exception.getClass.getName} :: " +
+            Option(exception.getMessage).getOrElse("").take(180))
+      },
+      basePreparation.test("branch.fastForward.merge") { table =>
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} CREATE BRANCH fb")
+        table.spark.sql(
+          s"INSERT INTO ${table.name}.branch_fb VALUES " +
+            "(CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
+        table.spark.sql(
+          s"INSERT INTO ${table.name}.branch_fb VALUES " +
+            "(CAST(7 AS BIGINT), 7, 'row-7', 7.5, true, '2024-01-07-06')")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}") == "3",
+          "branch writes should not advance main")
 
-  val surfaceBranchFastForwardDivergent: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("branch.fastForward.divergent") { (spark, table) =>
-        spark.sql(s"ALTER TABLE $table CREATE BRANCH db")
-        spark.sql(s"INSERT INTO $table.branch_db VALUES (CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
-        spark.sql(s"INSERT INTO $table VALUES (CAST(7 AS BIGINT), 7, 'row-7', 7.5, true, '2024-01-07-06')") // diverge main
-        val e = Check.intercept[Exception](
-          spark.sql(s"CALL openhouse.system.fast_forward('${catalogRelative(table)}', 'main', 'db')"))
-        println(s"DIAG ffDivergent: ${e.getClass.getName} :: ${Option(e.getMessage).getOrElse("").take(180)}")
-        assert(Option(e.getMessage).exists(m => m.toLowerCase.contains("ancestor") || m.toLowerCase.contains("fast-forward")),
-          s"divergent fast_forward should be rejected with an ancestry error: ${e.getMessage.take(180)}")
-      }()
+        table.spark.sql(
+          "CALL openhouse.system.fast_forward(" +
+            s"'${catalogRelative(table.name)}', 'main', 'fb')")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}") == "5",
+          "fast_forward should move main to the branch head")
+      },
+      basePreparation.test("branch.fastForward.divergent") { table =>
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} CREATE BRANCH db")
+        table.spark.sql(
+          s"INSERT INTO ${table.name}.branch_db VALUES " +
+            "(CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
+        table.spark.sql(
+          s"INSERT INTO ${table.name} VALUES " +
+            "(CAST(7 AS BIGINT), 7, 'row-7', 7.5, true, '2024-01-07-06')")
+        val exception = Check.intercept[Exception](
+          table.spark.sql(
+            "CALL openhouse.system.fast_forward(" +
+              s"'${catalogRelative(table.name)}', 'main', 'db')"))
 
-  val surfaceBranchReplaceBranch: TableTest[CoreTable.type] =
-    coreTwoSnapshots.step("branch.replaceBranch") { (spark, table) =>
-      val snaps = snapshotIds(spark, table)
-      spark.sql(s"ALTER TABLE $table CREATE BRANCH rb2")
-      assert(countOf(spark, s"SELECT count(*) FROM $table VERSION AS OF 'rb2'") == "5", "branch at head")
-      spark.sql(s"ALTER TABLE $table REPLACE BRANCH rb2 AS OF VERSION ${snaps.head}")
-      assert(countOf(spark, s"SELECT count(*) FROM $table VERSION AS OF 'rb2'") == "3",
-        "REPLACE BRANCH must retarget the ref to the older snapshot")
-    }()
+        println(
+          "DIAG ffDivergent: " +
+            s"${exception.getClass.getName} :: " +
+            Option(exception.getMessage).getOrElse("").take(180))
+        assert(
+          Option(exception.getMessage).exists(message =>
+            message.toLowerCase.contains("ancestor") ||
+              message.toLowerCase.contains("fast-forward")),
+          "divergent fast_forward should report an ancestry error")
+      },
+      twoSnapshotPreparation.test("branch.replaceBranch") { table =>
+        val snapshots = snapshotIds(table.spark, table.name)
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} CREATE BRANCH rb2")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name} VERSION AS OF 'rb2'") == "5",
+          "new branch should point at the current head")
 
-  // ── Streaming (structured streaming read + write) ────────────────────────────────────────────
-  val surfaceStreamRead: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("surface.stream.read") { (spark, table) =>
-        val ckpt = java.nio.file.Files.createTempDirectory("ck-read").toString
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} REPLACE BRANCH rb2 " +
+            s"AS OF VERSION ${snapshots.head}")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name} VERSION AS OF 'rb2'") == "3",
+          "REPLACE BRANCH should retarget the branch to the older snapshot")
+      })
+  }
+
+  private def surfaceReaderProcedureCases(
+      format: String): List[Plan.Case] = {
+    val basePreparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            s"TBLPROPERTIES ('write.format.default'='$format')")()
+        .insert(3)())
+    val twoSnapshotPreparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            s"TBLPROPERTIES ('write.format.default'='$format')")()
+        .insert(3)()
+        .sql("insertMore")(table =>
+          s"INSERT INTO $table VALUES " +
+            "(CAST(4 AS BIGINT), 4, 'row-4', 4.5, true, '2024-01-04-03'), " +
+            "(CAST(5 AS BIGINT), 5, 'row-5', 5.5, false, '2024-01-05-04')")())
+    val emptyPreparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            s"TBLPROPERTIES ('write.format.default'='$format')")())
+    val morPreparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            "TBLPROPERTIES (" +
+            s"'write.format.default'='$format', " +
+            "'write.delete.mode'='merge-on-read')")()
+        .sql("seed")(table =>
+          s"INSERT INTO $table SELECT /*+ COALESCE(1) */ * FROM " +
+            s"(${RowGenerator.valuesClause(Core, 3)}) AS seed")())
+    val wapPreparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            s"TBLPROPERTIES ('write.format.default'='$format')")()
+        .insert(3)()
+        .sql("enableWap")(table =>
+          s"ALTER TABLE $table SET TBLPROPERTIES ('write.wap.enabled'='true')")())
+
+    List(
+      basePreparation.test("surface.stream.read") { table =>
+        val checkpoint =
+          java.nio.file.Files.createTempDirectory("ck-read").toString
         val sink = s"memsink_${System.nanoTime}"
-        val q = spark.readStream.table(table)
-          .writeStream.format("memory").queryName(sink)
+        val query = table.spark.readStream
+          .table(table.name)
+          .writeStream
+          .format("memory")
+          .queryName(sink)
           .trigger(org.apache.spark.sql.streaming.Trigger.AvailableNow())
-          .option("checkpointLocation", ckpt)
+          .option("checkpointLocation", checkpoint)
           .start()
-        assert(q.awaitTermination(120000), "streaming read did not finish in 120s")
-        assert(countOf(spark, s"SELECT count(*) FROM $sink") == "3",
-          "streaming read must deliver the seeded rows")
-      }()
 
-  val surfaceStreamWrite: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("surface.stream.write") { (spark, table) =>
-        import spark.implicits._
-        implicit val sqlc: org.apache.spark.sql.SQLContext = spark.sqlContext
-        val ms = org.apache.spark.sql.execution.streaming.MemoryStream[Long]
-        ms.addData(100L, 101L)
-        val df = ms.toDF().selectExpr(
+        assert(
+          query.awaitTermination(120000),
+          "streaming read did not finish in 120 seconds")
+        assert(
+          countOf(table.spark, s"SELECT count(*) FROM $sink") == "3",
+          "streaming read should deliver the three seed rows")
+      },
+      basePreparation.test("surface.stream.write") { table =>
+        import table.spark.implicits._
+        implicit val sqlContext: org.apache.spark.sql.SQLContext =
+          table.spark.sqlContext
+        val memoryStream =
+          org.apache.spark.sql.execution.streaming.MemoryStream[Long]
+        memoryStream.addData(100L, 101L)
+        val rows = memoryStream.toDF().selectExpr(
           s"value AS ${Core.long0.columnName}",
           s"CAST(value AS INT) AS ${Core.int0.columnName}",
           s"concat('row-', value) AS ${Core.string0.columnName}",
           s"CAST(value AS DOUBLE) AS ${Core.double0.columnName}",
           s"true AS ${Core.boolean0.columnName}",
           s"'2024-01-01-00' AS ${Core.datePartition.columnName}")
-        val ckpt = java.nio.file.Files.createTempDirectory("ck-write").toString
-        val q = df.writeStream.format("iceberg").outputMode("append")
-          .option("checkpointLocation", ckpt)
-          .toTable(table)
-        q.processAllAvailable()
-        q.stop()
-        assert(countOf(spark, s"SELECT count(*) FROM $table") == "5",
-          "streaming write must append the 2 streamed rows")
-      }()
+        val checkpoint =
+          java.nio.file.Files.createTempDirectory("ck-write").toString
+        val query = rows.writeStream
+          .format("iceberg")
+          .outputMode("append")
+          .option("checkpointLocation", checkpoint)
+          .toTable(table.name)
 
-  // ── CDC: changelog view procedure ─────────────────────────────────────────────────────────────
-  val surfaceCdcChangelogView: TableTest[CoreTable.type] =
-    coreTwoSnapshots.step("surface.cdc.changelogView") { (spark, table) =>
-      val viewName = spark.sql(
-        s"CALL openhouse.system.create_changelog_view(table => '${catalogRelative(table)}')").collect()(0).getString(0)
-      val changes = spark.sql(s"SELECT count(*) FROM $viewName").collect()(0).getLong(0)
-      assert(changes == 5, s"changelog must contain one INSERT change per seeded row: $changes")
-      val types = spark.sql(s"SELECT DISTINCT _change_type FROM $viewName").collect().toSeq.map(_.getString(0)).toSet
-      assert(types == Set("INSERT"), s"append-only history must yield INSERT changes only: $types")
-    }()
+        query.processAllAvailable()
+        query.stop()
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}") == "5",
+          "streaming write should append two rows")
+      },
+      twoSnapshotPreparation.test("surface.cdc.changelogView") { table =>
+        val view = table.spark
+          .sql(
+            "CALL openhouse.system.create_changelog_view(" +
+              s"table => '${catalogRelative(table.name)}')")
+          .collect()(0)
+          .getString(0)
+        val changeCount = table.spark
+          .sql(s"SELECT count(*) FROM $view")
+          .collect()(0)
+          .getLong(0)
+        val changeTypes = table.spark
+          .sql(s"SELECT DISTINCT _change_type FROM $view")
+          .collect()
+          .map(_.getString(0))
+          .toSet
 
-  // ── Procedures not yet exercised ─────────────────────────────────────────────────────────────
-  // Manifest compaction must actually DO ITS JOB — reduce the manifest count — not merely preserve data.
-  // Five separate appends produce ~5 manifests (one per commit); rewrite_manifests must coalesce them.
-  val surfaceProcRewriteManifests: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)()
-      .step("surface.proc.rewriteManifests") { (spark, table) =>
-        (1 to 5).foreach(i => spark.sql(s"INSERT INTO $table VALUES ${coreRow(i, s"r$i")}"))
-        val before = spark.sql(s"SELECT count(*) FROM $table.manifests").collect()(0).getLong(0)
-        spark.sql(s"CALL openhouse.system.rewrite_manifests(table => '${catalogRelative(table)}', use_caching => false)")
-        val after = spark.sql(s"SELECT count(*) FROM $table.manifests").collect()(0).getLong(0)
-        println(s"DIAG surface.proc.rewriteManifests: manifests before=$before after=$after")
-        assert(countOf(spark, s"SELECT count(*) FROM $table") == "5", "rewrite_manifests changed the live row set")
-        assert(before >= 2 && after < before,
-          s"rewrite_manifests did not COMPACT the manifests (before=$before after=$after) — it should coalesce them")
-      }()
+        assert(
+          changeCount == 5,
+          s"append-only changelog should contain 5 changes, got $changeCount")
+        assert(
+          changeTypes == Set("INSERT"),
+          s"append-only changelog should contain only INSERT: $changeTypes")
+      },
+      emptyPreparation.test("surface.proc.rewriteManifests") { table =>
+        (1 to 5).foreach(index =>
+          table.spark.sql(
+            s"INSERT INTO ${table.name} VALUES " +
+              coreRow(index, s"r$index")))
+        val manifestCountBefore = table.spark
+          .sql(s"SELECT count(*) FROM ${table.name}.manifests")
+          .collect()(0)
+          .getLong(0)
+        table.spark.sql(
+          "CALL openhouse.system.rewrite_manifests(" +
+            s"table => '${catalogRelative(table.name)}', " +
+            "use_caching => false)")
+        val manifestCountAfter = table.spark
+          .sql(s"SELECT count(*) FROM ${table.name}.manifests")
+          .collect()(0)
+          .getLong(0)
 
-  val surfaceProcRewritePositionDeletes: TableTest[CoreTable.type] =
-    TableTest(Core)
-      .sql("create")(t => s"CREATE TABLE $t ($columnDefinitions) USING $dataSource TBLPROPERTIES (" +
-        s"'write.format.default'='$seedFmt', 'write.delete.mode'='merge-on-read')")()
-      .sql("seed(3, one-file)")(t =>
-        s"INSERT INTO $t SELECT /*+ COALESCE(1) */ * FROM (${RowGenerator.valuesClause(Core, 3)}) AS seed")()
-      .step("surface.proc.rewritePositionDeletes") { (spark, table) =>
-        spark.sql(s"DELETE FROM $table WHERE ${Core.long0.columnName} = 1")
-        assert(countOf(spark, s"SELECT count(*) FROM $table.all_delete_files") == "1", "MoR delete file missing")
-        spark.sql(s"CALL openhouse.system.rewrite_position_delete_files(table => '${catalogRelative(table)}', options => map('rewrite-all', 'true'))")
-        assert(countOf(spark, s"SELECT count(*) FROM $table") == "2", "rewrite_position_delete_files changed data")
-      }()
+        println(
+          "DIAG surface.proc.rewriteManifests: " +
+            s"manifests before=$manifestCountBefore after=$manifestCountAfter")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}") == "5",
+          "rewrite_manifests should preserve the five rows")
+        assert(
+          manifestCountBefore >= 2 &&
+            manifestCountAfter < manifestCountBefore,
+          "rewrite_manifests should compact the manifest set")
+      },
+      morPreparation.test(
+        "surface.proc.rewritePositionDeletes") { table =>
+        table.spark.sql(
+          s"DELETE FROM ${table.name} WHERE ${Core.long0.columnName} = 1")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}.all_delete_files") == "1",
+          "MoR delete should create one position-delete file")
 
-  val surfaceProcPublishChanges: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .sql("enableWap")(t => s"ALTER TABLE $t SET TBLPROPERTIES ('write.wap.enabled'='true')")()
-      .step("surface.proc.publishChanges") { (spark, table) =>
-        spark.conf.set("spark.wap.id", "pw1")
-        try spark.sql(s"INSERT INTO $table VALUES (CAST(9 AS BIGINT), 9, 'row-9', 9.5, true, '2024-01-09-01')")
-        finally spark.conf.unset("spark.wap.id")
-        assert(countOf(spark, s"SELECT count(*) FROM $table") == "3", "staged write must not be visible")
-        spark.sql(s"CALL openhouse.system.publish_changes(table => '${catalogRelative(table)}', wap_id => 'pw1')")
-        assert(countOf(spark, s"SELECT count(*) FROM $table") == "4",
-          "publish_changes (the wap_id publish path beside cherrypick) must publish the staged write")
-      }()
+        table.spark.sql(
+          "CALL openhouse.system.rewrite_position_delete_files(" +
+            s"table => '${catalogRelative(table.name)}', " +
+            "options => map('rewrite-all', 'true'))")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}") == "2",
+          "rewrite_position_delete_files should preserve live rows")
+      },
+      wapPreparation.test("surface.proc.publishChanges") { table =>
+        table.spark.conf.set("spark.wap.id", "pw1")
+        try {
+          table.spark.sql(
+            s"INSERT INTO ${table.name} VALUES " +
+              "(CAST(9 AS BIGINT), 9, 'row-9', 9.5, true, '2024-01-09-01')")
+        } finally {
+          table.spark.conf.unset("spark.wap.id")
+        }
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}") == "3",
+          "staged write should not be visible before publish")
 
-  val surfaceProcAncestorsOf: TableTest[CoreTable.type] =
-    coreTwoSnapshots.step("surface.proc.ancestorsOf") { (spark, table) =>
-      val n = spark.sql(s"CALL openhouse.system.ancestors_of(table => '${catalogRelative(table)}')").collect().length
-      assert(n == 2, s"ancestors_of must list main's full ancestry (2 snapshots): $n")
-    }()
+        table.spark.sql(
+          "CALL openhouse.system.publish_changes(" +
+            s"table => '${catalogRelative(table.name)}', wap_id => 'pw1')")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}") == "4",
+          "publish_changes should publish the staged row")
+      },
+      twoSnapshotPreparation.test("surface.proc.ancestorsOf") { table =>
+        val ancestorCount = table.spark
+          .sql(
+            "CALL openhouse.system.ancestors_of(" +
+              s"table => '${catalogRelative(table.name)}')")
+          .collect()
+          .length
 
-  val surfaceProcRemoveOrphanReal: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("surface.proc.removeOrphanReal") { (spark, table) =>
-        val dataFile = spark.sql(s"SELECT file_path FROM $table.files LIMIT 1").collect()(0).getString(0).stripPrefix("file:")
-        val orphan = java.nio.file.Paths.get(dataFile).getParent.resolve("zz_orphan_plant.parquet")
-        java.nio.file.Files.write(orphan, "not-a-real-parquet".getBytes)
-        java.nio.file.Files.setLastModifiedTime(orphan,
-          java.nio.file.attribute.FileTime.fromMillis(1546300800000L)) // 2019-01-01
-        spark.sql(s"CALL openhouse.system.remove_orphan_files(table => '${catalogRelative(table)}', older_than => TIMESTAMP '2020-01-01 00:00:00')")
-        assert(java.nio.file.Files.notExists(orphan), "planted orphan file must be removed")
-        assert(countOf(spark, s"SELECT count(*) FROM $table") == "3", "live data must survive orphan removal")
-      }()
+        assert(
+          ancestorCount == 2,
+          s"ancestors_of should list two snapshots, got $ancestorCount")
+      },
+      basePreparation.test("surface.proc.removeOrphanReal") { table =>
+        val dataFile = table.spark
+          .sql(s"SELECT file_path FROM ${table.name}.files LIMIT 1")
+          .collect()(0)
+          .getString(0)
+          .stripPrefix("file:")
+        val orphanFile = java.nio.file.Paths
+          .get(dataFile)
+          .getParent
+          .resolve("zz_orphan_plant.parquet")
+        java.nio.file.Files.write(
+          orphanFile,
+          "not-a-real-parquet".getBytes)
+        java.nio.file.Files.setLastModifiedTime(
+          orphanFile,
+          java.nio.file.attribute.FileTime.fromMillis(1546300800000L))
 
-  // ── Metadata surface: hidden columns + full metadata-table sweep ─────────────────────────────
-  val surfaceMetaHiddenColumns: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("surface.meta.hiddenColumns") { (spark, table) =>
-        val rows = spark.sql(s"SELECT _file, _pos, _spec_id, _partition FROM $table").collect().toSeq
-        assert(rows.size == 3, s"hidden metadata columns must be selectable per row: ${rows.size}")
-        assert(rows.forall(r => r.getString(0) != null && r.getString(0).nonEmpty), "_file must be populated")
-        assert(rows.forall(r => r.getLong(1) >= 0), "_pos must be populated")
-      }()
+        table.spark.sql(
+          "CALL openhouse.system.remove_orphan_files(" +
+            s"table => '${catalogRelative(table.name)}', " +
+            "older_than => TIMESTAMP '2020-01-01 00:00:00')")
+        assert(
+          java.nio.file.Files.notExists(orphanFile),
+          "remove_orphan_files should delete the planted orphan")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}") == "3",
+          "remove_orphan_files should preserve live data")
+      },
+      basePreparation.test("surface.meta.hiddenColumns") { table =>
+        val rows = table.spark
+          .sql(
+            s"SELECT _file, _pos, _spec_id, _partition FROM ${table.name}")
+          .collect()
+          .toSeq
 
-  val surfaceMetaTableSweep: TableTest[CoreTable.type] =
-    coreTwoSnapshots.step("surface.meta.tableSweep") { (spark, table) =>
-      val metaTables = Seq("entries", "files", "manifests", "snapshots", "history", "refs", "partitions",
-        "metadata_log_entries", "data_files", "all_data_files", "all_manifests", "all_entries", "all_files")
-      metaTables.foreach { m =>
-        val n = spark.sql(s"SELECT count(*) FROM $table.`$m`").collect()(0).getLong(0)
-        assert(n >= 0, s"metadata table $m unreadable") // queryability is the assertion; count is a bonus
-      }
-      assert(countOf(spark, s"SELECT count(*) FROM $table.snapshots") == "2", "snapshots count sanity")
-    }()
-
-  val surfaceMetaPositionDeletes: TableTest[CoreTable.type] =
-    TableTest(Core)
-      .sql("create")(t => s"CREATE TABLE $t ($columnDefinitions) USING $dataSource TBLPROPERTIES (" +
-        s"'write.format.default'='$seedFmt', 'write.delete.mode'='merge-on-read')")()
-      .sql("seed(3, one-file)")(t =>
-        s"INSERT INTO $t SELECT /*+ COALESCE(1) */ * FROM (${RowGenerator.valuesClause(Core, 3)}) AS seed")()
-      .step("surface.meta.positionDeletes") { (spark, table) =>
-        spark.sql(s"DELETE FROM $table WHERE ${Core.long0.columnName} = 1")
-        assert(countOf(spark, s"SELECT count(*) FROM $table.position_deletes") == "1",
-          "position_deletes metadata table must expose the position delete")
-      }()
-
-  // ── Concurrency: invariant-based (no torn state; failures must be typed) ─────────────────────
-  private def runConcurrently(fs: Seq[() => Unit]): Seq[Throwable] = {
-    val errors = new java.util.concurrent.ConcurrentLinkedQueue[Throwable]()
-    val threads = fs.map(f => new Thread(() => try f() catch { case t: Throwable => errors.add(t) }))
-    threads.foreach(_.start())
-    threads.foreach(_.join(180000))
-    errors.toArray(Array.empty[Throwable]).toSeq
+        assert(
+          rows.size == 3,
+          s"hidden metadata columns should return 3 rows, got ${rows.size}")
+        assert(
+          rows.forall(row =>
+            Option(row.getString(0)).exists(_.nonEmpty)),
+          "_file should be populated for every row")
+        assert(
+          rows.forall(_.getLong(1) >= 0),
+          "_pos should be non-negative for every row")
+      },
+      twoSnapshotPreparation.test("surface.meta.tableSweep") { table =>
+        val metadataTables = Seq(
+          "entries",
+          "files",
+          "manifests",
+          "snapshots",
+          "history",
+          "refs",
+          "partitions",
+          "metadata_log_entries",
+          "data_files",
+          "all_data_files",
+          "all_manifests",
+          "all_entries",
+          "all_files")
+        metadataTables.foreach { metadataTable =>
+          val rowCount = table.spark
+            .sql(
+              s"SELECT count(*) FROM ${table.name}.`$metadataTable`")
+            .collect()(0)
+            .getLong(0)
+          assert(
+            rowCount >= 0,
+            s"metadata table $metadataTable should be queryable")
+        }
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}.snapshots") == "2",
+          "snapshot metadata should contain two snapshots")
+      },
+      morPreparation.test("surface.meta.positionDeletes") { table =>
+        table.spark.sql(
+          s"DELETE FROM ${table.name} WHERE ${Core.long0.columnName} = 1")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}.position_deletes") == "1",
+          "position_deletes should expose the MoR position delete")
+      })
   }
 
-  private def isTypedCommitConflict(t: Throwable): Boolean =
-    Exceptions.causeChain(t).exists { c =>
-      val n = c.getClass.getName
-      n.contains("CommitFailed") || n.contains("CommitStateUnknown") || n.contains("Validation") ||
-        n.contains("BadRequest") || n.contains("WebClientResponse")
-    }
+  private def surfaceRemainingCases(format: String): List[Plan.Case] = {
+    val basePreparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            s"TBLPROPERTIES ('write.format.default'='$format')")()
+        .insert(3)())
+    val replacePreparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            s"TBLPROPERTIES ('write.format.default'='$format')")()
+        .insert(3)()
+        .sql("enableReplace")(table =>
+          s"ALTER TABLE $table SET TBLPROPERTIES ('replace.enabled'='true')")())
+    val hashPreparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            s"PARTITIONED BY (${Core.datePartition.columnName}) " +
+            "TBLPROPERTIES (" +
+            s"'write.format.default'='$format', " +
+            "'write.distribution-mode'='hash')")()
+        .insert(3)())
+    val targetSizePreparation = TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            "TBLPROPERTIES (" +
+            s"'write.format.default'='$format', " +
+            "'write.target-file-size-bytes'='1048576')")()
+        .insert(3)())
 
-  val surfaceConcAppendAppend: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("surface.conc.appendAppend") { (spark, table) =>
-        val failures = new java.util.concurrent.atomic.AtomicInteger(0)
-        def writer(base: Int): () => Unit = () => (0 until 3).foreach { i =>
-          try spark.sql(s"INSERT INTO $table VALUES (CAST(${base + i} AS BIGINT), ${base + i}, 'row-c', 1.5, true, '2024-01-09-01')")
-          catch { case t: Throwable =>
-            assert(isTypedCommitConflict(t), s"concurrent append failed with an UNTYPED error: ${t.getClass.getName} ${Option(t.getMessage).getOrElse("").take(160)}")
-            failures.incrementAndGet()
+    List(
+      basePreparation.test("surface.conc.appendAppend") { table =>
+        val failureCount =
+          new java.util.concurrent.atomic.AtomicInteger(0)
+        def writer(base: Int): () => Unit = () =>
+          (0 until 3).foreach { offset =>
+            val value = base + offset
+            try {
+              table.spark.sql(
+                s"INSERT INTO ${table.name} VALUES " +
+                  s"(CAST($value AS BIGINT), $value, 'row-c', 1.5, " +
+                  "true, '2024-01-09-01')")
+            } catch {
+              case exception: Throwable =>
+                assert(
+                  isTypedCommitConflict(exception),
+                  "concurrent append failed with an untyped error: " +
+                    s"${exception.getClass.getName}")
+                failureCount.incrementAndGet()
+            }
           }
-        }
-        val errs = runConcurrently(Seq(writer(100), writer(200)))
-        assert(errs.isEmpty, s"writer thread died outside the insert loop: ${errs.headOption.map(_.toString)}")
-        val expected = 3 + 6 - failures.get
-        assert(countOf(spark, s"SELECT count(*) FROM $table") == expected.toString,
-          s"row count must equal successful appends (3 seed + ${6 - failures.get} landed)")
-        println(s"DIAG conc.appendAppend: ${failures.get}/6 inserts hit a typed commit conflict")
-      }()
+        val threadErrors =
+          runConcurrently(Seq(writer(100), writer(200)))
+        val expectedRowCount = 3 + 6 - failureCount.get
+        val actualRowCount = countOf(
+          table.spark,
+          s"SELECT count(*) FROM ${table.name}")
 
-  val surfaceConcUpdateUpdate: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("surface.conc.updateUpdate") { (spark, table) =>
-        val col = Core.string0.columnName
-        def updater(v: String): () => Unit = () =>
-          try spark.sql(s"UPDATE $table SET $col = '$v' WHERE ${Core.long0.columnName} = 2")
-          catch { case t: Throwable =>
-            assert(isTypedCommitConflict(t), s"concurrent update failed with an UNTYPED error: ${t.getClass.getName} ${Option(t.getMessage).getOrElse("").take(160)}") }
-        val errs = runConcurrently(Seq(updater("AAA"), updater("BBB")))
-        assert(errs.isEmpty, s"updater thread died with a non-conflict error: ${errs.headOption.map(_.toString)}")
-        val v = spark.sql(s"SELECT $col FROM $table WHERE ${Core.long0.columnName} = 2").collect()(0).getString(0)
-        assert(v == "AAA" || v == "BBB" || v == "row-2", s"row must hold one writer's value or the original, not torn state: $v")
-        assert(countOf(spark, s"SELECT count(*) FROM $table") == "3", "row count must be unchanged")
-      }()
-
-  val surfaceConcRtasVsAppend: TableTest[CoreTable.type] =
-    rtasPrep.step("surface.conc.rtasVsAppend") { (spark, table) =>
-      def rtas(): Unit =
-        try spark.sql(s"CREATE OR REPLACE TABLE $table USING $dataSource AS SELECT * FROM $table WHERE ${Core.long0.columnName} <= 2")
-        catch { case t: Throwable => assert(isTypedCommitConflict(t), s"RTAS race failed UNTYPED: ${t.getClass.getName}") }
-      def append(): Unit =
-        try spark.sql(s"INSERT INTO $table VALUES (CAST(30 AS BIGINT), 30, 'row-30', 30.5, true, '2024-01-09-01')")
-        catch { case t: Throwable => assert(isTypedCommitConflict(t), s"append race failed UNTYPED: ${t.getClass.getName}") }
-      val errs = runConcurrently(Seq(() => rtas(), () => append()))
-      assert(errs.isEmpty, s"racing thread died with a non-conflict error: ${errs.headOption.map(_.toString)}")
-      spark.sql(s"REFRESH TABLE $table")
-      val n = countOf(spark, s"SELECT count(*) FROM $table").toLong
-      assert(n == 2 || n == 3, s"RTAS-vs-append must settle to a consistent state (2 or 3 rows), got $n")
-      println(s"DIAG conc.rtasVsAppend: settled at $n rows")
-    }()
-
-  // ── Schema-evolution edges ───────────────────────────────────────────────────────────────────
-  val surfaceSchemaRelaxNotNull: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("surface.schema.relaxNotNull") { (spark, table) =>
-        val side = s"${table}_nn"
-        spark.sql(s"DROP TABLE IF EXISTS $side")
-        try {
-          spark.sql(s"CREATE TABLE $side (id BIGINT, req INT NOT NULL) USING $dataSource")
-          spark.sql(s"ALTER TABLE $side ALTER COLUMN req DROP NOT NULL")
-          spark.sql(s"INSERT INTO $side VALUES (CAST(1 AS BIGINT), NULL)")
-          assert(spark.sql(s"SELECT count(*) FROM $side WHERE req IS NULL").collect()(0).getLong(0) == 1,
-            "relaxing NOT NULL must allow null writes (the inverse of the pinned-rejected tighten)")
-        } finally spark.sql(s"DROP TABLE IF EXISTS $side")
-      }()
-
-  val surfaceSchemaDecimalWiden: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("surface.schema.decimalWiden") { (spark, table) =>
-        val side = s"${table}_dec"
-        spark.sql(s"DROP TABLE IF EXISTS $side")
-        try {
-          spark.sql(s"CREATE TABLE $side (id BIGINT, dec DECIMAL(10,2)) USING $dataSource")
-          spark.sql(s"INSERT INTO $side VALUES (CAST(1 AS BIGINT), CAST(12345678.99 AS DECIMAL(10,2)))")
-          spark.sql(s"ALTER TABLE $side ALTER COLUMN dec TYPE DECIMAL(12,2)")
-          spark.sql(s"INSERT INTO $side VALUES (CAST(2 AS BIGINT), CAST(1234567890.99 AS DECIMAL(12,2)))")
-          assert(spark.sql(s"SELECT count(*) FROM $side").collect()(0).getLong(0) == 2,
-            "decimal precision widen must keep old data readable and accept wider values")
-        } finally spark.sql(s"DROP TABLE IF EXISTS $side")
-      }()
-
-  val surfaceSchemaNestedAddField: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("surface.schema.nestedAddField") { (spark, table) =>
-        val side = s"${table}_nst"
-        spark.sql(s"DROP TABLE IF EXISTS $side")
-        try {
-          spark.sql(s"CREATE TABLE $side (id BIGINT, s STRUCT<x: INT, y: STRING>) USING $dataSource")
-          spark.sql(s"INSERT INTO $side VALUES (CAST(1 AS BIGINT), named_struct('x', 1, 'y', 'a'))")
-          spark.sql(s"ALTER TABLE $side ADD COLUMN s.w INT")
-          assert(spark.sql(s"SELECT count(*) FROM $side WHERE s.w IS NULL").collect()(0).getLong(0) == 1,
-            "adding a nested struct field must null-fill existing rows")
-          spark.sql(s"INSERT INTO $side VALUES (CAST(2 AS BIGINT), named_struct('x', 2, 'y', 'b', 'w', 9))")
-          assert(spark.sql(s"SELECT count(*) FROM $side WHERE s.w = 9").collect()(0).getLong(0) == 1,
-            "the new nested field must be writable")
-        } finally spark.sql(s"DROP TABLE IF EXISTS $side")
-      }()
-
-  val surfaceSchemaNestedDropField: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("surface.schema.nestedDropField") { (spark, table) =>
-        val side = s"${table}_nsd"
-        spark.sql(s"DROP TABLE IF EXISTS $side")
-        try {
-          spark.sql(s"CREATE TABLE $side (id BIGINT, s STRUCT<x: INT, y: STRING>) USING $dataSource")
-          spark.sql(s"INSERT INTO $side VALUES (CAST(1 AS BIGINT), named_struct('x', 1, 'y', 'a'))")
-          val e = Check.intercept[Exception](spark.sql(s"ALTER TABLE $side DROP COLUMN s.x"))
-          println(s"DIAG nestedDropField: ${e.getClass.getName} :: ${Option(e.getMessage).getOrElse("").take(180)}")
-          assert(spark.sql(s"SELECT s.x FROM $side").collect()(0).getInt(0) == 1,
-            "rejected nested drop must leave the field readable")
-        } finally spark.sql(s"DROP TABLE IF EXISTS $side")
-      }()
-
-  val surfaceSchemaReorderExisting: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("surface.schema.reorderExisting") { (spark, table) =>
-        spark.sql(s"ALTER TABLE $table ALTER COLUMN ${Core.string0.columnName} FIRST")
-        val cols = spark.sql(s"SELECT * FROM $table LIMIT 1").columns.toSeq
-        assert(cols.head == Core.string0.columnName, s"column reorder (FIRST) must change projection order: $cols")
-        assert(countOf(spark, s"SELECT count(*) FROM $table") == "3", "reorder must not affect data")
-      }()
-
-  // ── Write-path configs ───────────────────────────────────────────────────────────────────────
-  val surfaceWriteDistributionHash: TableTest[CoreTable.type] =
-    TableTest(Core)
-      .sql("create")(t => s"CREATE TABLE $t ($columnDefinitions) USING $dataSource PARTITIONED BY (${Core.datePartition.columnName}) " +
-        s"TBLPROPERTIES ('write.format.default'='$seedFmt', 'write.distribution-mode'='hash')")()
-      .insert(3)()
-      .check("surface.write.distributionHash") { view =>
-        assert(tableProps(view.spark, view.table).get("write.distribution-mode").contains("hash"), "hash mode not honored")
-        assert(view.after.size == 3, "hash-distributed write failed")
-      }
-
-  val surfaceWriteTargetFileSize: TableTest[CoreTable.type] =
-    TableTest(Core)
-      .sql("create")(t => s"CREATE TABLE $t ($columnDefinitions) USING $dataSource TBLPROPERTIES (" +
-        s"'write.format.default'='$seedFmt', 'write.target-file-size-bytes'='1048576')")()
-      .insert(3)()
-      .check("surface.write.targetFileSize") { view =>
-        assert(tableProps(view.spark, view.table).get("write.target-file-size-bytes").contains("1048576"), "target size not honored")
-        assert(view.after.size == 3, "write under custom target file size failed")
-      }
-
-  val surfaceWriteDfToBranch: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("surface.write.dfToBranch") { (spark, table) =>
-        spark.sql(s"ALTER TABLE $table CREATE BRANCH wb")
-        val df = spark.sql(s"SELECT CAST(50 AS BIGINT) AS ${Core.long0.columnName}, 50 AS ${Core.int0.columnName}, " +
-          s"'row-50' AS ${Core.string0.columnName}, 50.5 AS ${Core.double0.columnName}, " +
-          s"true AS ${Core.boolean0.columnName}, '2024-01-09-01' AS ${Core.datePartition.columnName}")
-        df.writeTo(s"$table.branch_wb").append()
-        assert(countOf(spark, s"SELECT count(*) FROM $table VERSION AS OF 'wb'") == "4",
-          "DataFrame-API write must land on the branch")
-        assert(countOf(spark, s"SELECT count(*) FROM $table") == "3", "main must be untouched by the branch DF write")
-      }()
-
-  // ── Pins: import/migration procedures, views, ANALYZE (expected-unsupported tripwires) ───────
-  // The bogus-input probes showed these procedures fail on INPUT (NotFound/NoSuchTable), not on an
-  // OpenHouse catalog block — so settle register_table with a REAL metadata file: is importing a
-  // table into the managed catalog (bypassing normal creation) actually possible?
-  val surfacePinImportProcs: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("surface.pin.importProcs") { (spark, table) =>
-        val metadataFile = spark.sql(
-          s"SELECT file FROM $table.metadata_log_entries ORDER BY timestamp DESC LIMIT 1").collect()(0).getString(0)
-        val regOutcome =
+        assert(
+          threadErrors.isEmpty,
+          s"writer thread failed outside the insert loop: $threadErrors")
+        assert(
+          actualRowCount == expectedRowCount.toString,
+          s"expected $expectedRowCount rows, got $actualRowCount")
+        println(
+          s"DIAG conc.appendAppend: ${failureCount.get}/6 inserts " +
+            "hit a typed commit conflict")
+      },
+      basePreparation.test("surface.conc.updateUpdate") { table =>
+        val column = Core.string0.columnName
+        def updater(value: String): () => Unit = () =>
           try {
-            spark.sql(s"CALL openhouse.system.register_table(table => 'dbMatrix.zz_reg', metadata_file => '$metadataFile')")
-            val n = countOf(spark, "SELECT count(*) FROM openhouse.dbMatrix.zz_reg")
-            spark.sql("DROP TABLE IF EXISTS openhouse.dbMatrix.zz_reg")
-            s"REGISTERED (readable, $n rows) — import into the managed catalog is NOT blocked"
-          } catch { case t: Throwable =>
-            s"REJECTED ${t.getClass.getName} :: ${Option(t.getMessage).getOrElse("").take(160)}" }
-        println(s"DIAG pin.register_table(real): $regOutcome")
-        val snap = Check.intercept[Exception](spark.sql(
-          s"CALL openhouse.system.snapshot(source_table => '${catalogRelative(table)}', table => 'dbMatrix.zz_snap')"))
-        println(s"DIAG pin.snapshot: ${snap.getClass.getName} :: ${Option(snap.getMessage).getOrElse("").take(160)}")
-        val add = Check.intercept[Exception](spark.sql(
-          s"CALL openhouse.system.add_files(table => '${catalogRelative(table)}', source_table => '`parquet`.`/tmp/zz_nope_dir`')"))
-        println(s"DIAG pin.add_files: ${add.getClass.getName} :: ${Option(add.getMessage).getOrElse("").take(160)}")
-      }()
+            table.spark.sql(
+              s"UPDATE ${table.name} SET $column = '$value' " +
+                s"WHERE ${Core.long0.columnName} = 2")
+          } catch {
+            case exception: Throwable =>
+              assert(
+                isTypedCommitConflict(exception),
+                "concurrent update failed with an untyped error: " +
+                  s"${exception.getClass.getName}")
+          }
+        val threadErrors =
+          runConcurrently(Seq(updater("AAA"), updater("BBB")))
+        val finalValue = table.spark
+          .sql(
+            s"SELECT $column FROM ${table.name} " +
+              s"WHERE ${Core.long0.columnName} = 2")
+          .collect()(0)
+          .getString(0)
 
-  val surfacePinViewsAnalyze: TableTest[CoreTable.type] =
-    TableTest(Core).sql("create")(coreCreateParquet)().insert(3)()
-      .step("surface.pin.viewsAnalyze") { (spark, table) =>
-        val view = Check.intercept[Exception](spark.sql(s"CREATE VIEW openhouse.dbMatrix.zz_v1 AS SELECT 1 AS one"))
-        println(s"DIAG pin.createView: ${view.getClass.getName} :: ${Option(view.getMessage).getOrElse("").take(160)}")
-        val analyze = Check.intercept[Exception](spark.sql(s"ANALYZE TABLE $table COMPUTE STATISTICS"))
-        println(s"DIAG pin.analyze: ${analyze.getClass.getName} :: ${Option(analyze.getMessage).getOrElse("").take(160)}")
-      }()
+        assert(
+          threadErrors.isEmpty,
+          s"updater thread failed with a non-conflict error: $threadErrors")
+        assert(
+          finalValue == "AAA" ||
+            finalValue == "BBB" ||
+            finalValue == "row-2",
+          s"concurrent updates produced a torn value: $finalValue")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}") == "3",
+          "concurrent updates should not change row count")
+      },
+      replacePreparation.test("surface.conc.rtasVsAppend") { table =>
+        def replaceTable(): Unit =
+          try {
+            table.spark.sql(
+              s"CREATE OR REPLACE TABLE ${table.name} USING $dataSource " +
+                s"AS SELECT * FROM ${table.name} " +
+                s"WHERE ${Core.long0.columnName} <= 2")
+          } catch {
+            case exception: Throwable =>
+              assert(
+                isTypedCommitConflict(exception),
+                s"RTAS race failed with ${exception.getClass.getName}")
+          }
+        def appendRow(): Unit =
+          try {
+            table.spark.sql(
+              s"INSERT INTO ${table.name} VALUES " +
+                "(CAST(30 AS BIGINT), 30, 'row-30', 30.5, " +
+                "true, '2024-01-09-01')")
+          } catch {
+            case exception: Throwable =>
+              assert(
+                isTypedCommitConflict(exception),
+                s"append race failed with ${exception.getClass.getName}")
+          }
+        val threadErrors =
+          runConcurrently(Seq(() => replaceTable(), () => appendRow()))
 
-  // Compaction × branch: does rewrite_data_files touch/break branch state, and where does it land
-  // when spark.wap.branch is set? (Untested cell flagged in the surface appraisal.)
-  val surfaceMaintCompactWithBranch: TableTest[CoreTable.type] =
-    coreTwoSnapshots.step("surface.maint.compactWithBranch") { (spark, table) =>
-      spark.sql(s"ALTER TABLE $table SET TBLPROPERTIES ('write.wap.enabled'='true')")
-      spark.sql(s"ALTER TABLE $table CREATE BRANCH cb")
-      spark.sql(s"INSERT INTO $table.branch_cb VALUES (CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
-      spark.sql(s"INSERT INTO $table VALUES (CAST(7 AS BIGINT), 7, 'row-7', 7.5, true, '2024-01-07-06')")
-      val r = spark.sql(s"CALL openhouse.system.rewrite_data_files(table => '${catalogRelative(table)}', options => map('min-input-files', '2'))").collect()(0)
-      println(s"DIAG compactWithBranch: mainCompaction rewritten=${r.get(0)} added=${r.get(1)}")
-      assert(countOf(spark, s"SELECT count(*) FROM $table") == "6", "main data preserved by compaction")
-      assert(countOf(spark, s"SELECT count(*) FROM $table VERSION AS OF 'cb'") == "6",
-        "branch data preserved and readable after main compaction")
-      spark.conf.set("spark.wap.branch", "cb")
-      val confOutcome = try {
-        val rc = spark.sql(s"CALL openhouse.system.rewrite_data_files(table => '${catalogRelative(table)}')").collect()(0)
-        s"RAN (rewritten=${rc.get(0)}, added=${rc.get(1)})"
-      } catch { case t: Throwable => s"THREW ${t.getClass.getSimpleName} :: ${Option(t.getMessage).getOrElse("").take(140)}" }
-      finally spark.conf.unset("spark.wap.branch")
-      println(s"DIAG compactUnderWapConf: $confOutcome")
-      spark.sql(s"REFRESH TABLE $table")
-      assert(countOf(spark, s"SELECT count(*) FROM $table") == "6", "main intact after conf-routed compaction attempt")
-      assert(countOf(spark, s"SELECT count(*) FROM $table VERSION AS OF 'cb'") == "6", "branch intact after conf-routed compaction attempt")
-    }()
+        assert(
+          threadErrors.isEmpty,
+          s"racing thread failed with a non-conflict error: $threadErrors")
+        table.spark.sql(s"REFRESH TABLE ${table.name}")
+        val rowCount = countOf(
+          table.spark,
+          s"SELECT count(*) FROM ${table.name}").toLong
+        assert(
+          rowCount == 2 || rowCount == 3,
+          s"RTAS and append race settled at $rowCount rows")
+        println(s"DIAG conc.rtasVsAppend: settled at $rowCount rows")
+      },
+      basePreparation.test("surface.schema.relaxNotNull") { table =>
+        val sideTable = s"${table.name}_nn"
+        table.spark.sql(s"DROP TABLE IF EXISTS $sideTable")
+        try {
+          table.spark.sql(
+            s"CREATE TABLE $sideTable " +
+              s"(id BIGINT, req INT NOT NULL) USING $dataSource")
+          table.spark.sql(
+            s"ALTER TABLE $sideTable ALTER COLUMN req DROP NOT NULL")
+          table.spark.sql(
+            s"INSERT INTO $sideTable VALUES (CAST(1 AS BIGINT), NULL)")
+          assert(
+            table.spark
+              .sql(s"SELECT count(*) FROM $sideTable WHERE req IS NULL")
+              .collect()(0)
+              .getLong(0) == 1,
+            "relaxing NOT NULL should allow a null write")
+        } finally {
+          table.spark.sql(s"DROP TABLE IF EXISTS $sideTable")
+        }
+      },
+      basePreparation.test("surface.schema.decimalWiden") { table =>
+        val sideTable = s"${table.name}_dec"
+        table.spark.sql(s"DROP TABLE IF EXISTS $sideTable")
+        try {
+          table.spark.sql(
+            s"CREATE TABLE $sideTable " +
+              s"(id BIGINT, dec DECIMAL(10,2)) USING $dataSource")
+          table.spark.sql(
+            s"INSERT INTO $sideTable VALUES " +
+              "(CAST(1 AS BIGINT), CAST(12345678.99 AS DECIMAL(10,2)))")
+          table.spark.sql(
+            s"ALTER TABLE $sideTable ALTER COLUMN dec TYPE DECIMAL(12,2)")
+          table.spark.sql(
+            s"INSERT INTO $sideTable VALUES " +
+              "(CAST(2 AS BIGINT), CAST(1234567890.99 AS DECIMAL(12,2)))")
+          assert(
+            table.spark
+              .sql(s"SELECT count(*) FROM $sideTable")
+              .collect()(0)
+              .getLong(0) == 2,
+            "decimal widening should preserve old and new values")
+        } finally {
+          table.spark.sql(s"DROP TABLE IF EXISTS $sideTable")
+        }
+      },
+      basePreparation.test("surface.schema.nestedAddField") { table =>
+        val sideTable = s"${table.name}_nst"
+        table.spark.sql(s"DROP TABLE IF EXISTS $sideTable")
+        try {
+          table.spark.sql(
+            s"CREATE TABLE $sideTable " +
+              s"(id BIGINT, s STRUCT<x: INT, y: STRING>) USING $dataSource")
+          table.spark.sql(
+            s"INSERT INTO $sideTable VALUES " +
+              "(CAST(1 AS BIGINT), named_struct('x', 1, 'y', 'a'))")
+          table.spark.sql(
+            s"ALTER TABLE $sideTable ADD COLUMN s.w INT")
+          assert(
+            table.spark
+              .sql(s"SELECT count(*) FROM $sideTable WHERE s.w IS NULL")
+              .collect()(0)
+              .getLong(0) == 1,
+            "new nested field should null-fill the existing row")
 
-  val surfaceOps: List[(String, TableTest[CoreTable.type])] = List(
-    "surface.maint.compactWithBranch"     -> surfaceMaintCompactWithBranch,
-    "surface.msg.readabilityGuard"        -> surfaceMsgReadabilityGuard,
-    "branch.leak.setProps"                -> surfaceBranchLeakSetProps,
-    "branch.leak.writeOrderedBy"          -> surfaceBranchLeakWriteOrdered,
-    "branch.wapToggle.noGuard"            -> surfaceWapToggleNoGuard,
-    "wap.neg.doubleCherrypick"            -> surfaceWapDoubleCherrypick,
-    "wap.neg.expireRefTarget"             -> surfaceWapExpireRefTarget,
-    "branch.fastForward.merge"            -> surfaceBranchFastForwardMerge,
-    "branch.fastForward.divergent"        -> surfaceBranchFastForwardDivergent,
-    "branch.replaceBranch"                -> surfaceBranchReplaceBranch,
-    "surface.stream.read"                 -> surfaceStreamRead,
-    "surface.stream.write"                -> surfaceStreamWrite,
-    "surface.cdc.changelogView"           -> surfaceCdcChangelogView,
-    "surface.proc.rewriteManifests"       -> surfaceProcRewriteManifests,
-    "surface.proc.rewritePositionDeletes" -> surfaceProcRewritePositionDeletes,
-    "surface.proc.publishChanges"         -> surfaceProcPublishChanges,
-    "surface.proc.ancestorsOf"            -> surfaceProcAncestorsOf,
-    "surface.proc.removeOrphanReal"       -> surfaceProcRemoveOrphanReal,
-    "surface.meta.hiddenColumns"          -> surfaceMetaHiddenColumns,
-    "surface.meta.tableSweep"             -> surfaceMetaTableSweep,
-    "surface.meta.positionDeletes"        -> surfaceMetaPositionDeletes,
-    "surface.conc.appendAppend"           -> surfaceConcAppendAppend,
-    "surface.conc.updateUpdate"           -> surfaceConcUpdateUpdate,
-    "surface.conc.rtasVsAppend"           -> surfaceConcRtasVsAppend,
-    "surface.schema.relaxNotNull"         -> surfaceSchemaRelaxNotNull,
-    "surface.schema.decimalWiden"         -> surfaceSchemaDecimalWiden,
-    "surface.schema.nestedAddField"       -> surfaceSchemaNestedAddField,
-    "surface.schema.nestedDropField"      -> surfaceSchemaNestedDropField,
-    "surface.schema.reorderExisting"      -> surfaceSchemaReorderExisting,
-    "surface.write.distributionHash"      -> surfaceWriteDistributionHash,
-    "surface.write.targetFileSize"        -> surfaceWriteTargetFileSize,
-    "surface.write.dfToBranch"            -> surfaceWriteDfToBranch,
-    "surface.pin.importProcs"             -> surfacePinImportProcs,
-    "surface.pin.viewsAnalyze"            -> surfacePinViewsAnalyze
-  )
+          table.spark.sql(
+            s"INSERT INTO $sideTable VALUES " +
+              "(CAST(2 AS BIGINT), " +
+              "named_struct('x', 2, 'y', 'b', 'w', 9))")
+          assert(
+            table.spark
+              .sql(s"SELECT count(*) FROM $sideTable WHERE s.w = 9")
+              .collect()(0)
+              .getLong(0) == 1,
+            "new nested field should be writable")
+        } finally {
+          table.spark.sql(s"DROP TABLE IF EXISTS $sideTable")
+        }
+      },
+      basePreparation.test("surface.schema.nestedDropField") { table =>
+        val sideTable = s"${table.name}_nsd"
+        table.spark.sql(s"DROP TABLE IF EXISTS $sideTable")
+        try {
+          table.spark.sql(
+            s"CREATE TABLE $sideTable " +
+              s"(id BIGINT, s STRUCT<x: INT, y: STRING>) USING $dataSource")
+          table.spark.sql(
+            s"INSERT INTO $sideTable VALUES " +
+              "(CAST(1 AS BIGINT), named_struct('x', 1, 'y', 'a'))")
+          val exception = Check.intercept[Exception](
+            table.spark.sql(
+              s"ALTER TABLE $sideTable DROP COLUMN s.x"))
+
+          println(
+            "DIAG nestedDropField: " +
+              s"${exception.getClass.getName} :: " +
+              Option(exception.getMessage).getOrElse("").take(180))
+          assert(
+            table.spark
+              .sql(s"SELECT s.x FROM $sideTable")
+              .collect()(0)
+              .getInt(0) == 1,
+            "rejected nested drop should leave the field readable")
+        } finally {
+          table.spark.sql(s"DROP TABLE IF EXISTS $sideTable")
+        }
+      },
+      basePreparation.test("surface.schema.reorderExisting") { table =>
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} " +
+            s"ALTER COLUMN ${Core.string0.columnName} FIRST")
+        val columns = table.spark
+          .sql(s"SELECT * FROM ${table.name} LIMIT 1")
+          .columns
+          .toSeq
+
+        assert(
+          columns.head == Core.string0.columnName,
+          s"FIRST should move the column to the front: $columns")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}") == "3",
+          "column reorder should preserve the rows")
+      },
+      hashPreparation.test("surface.write.distributionHash") { table =>
+        val properties = tableProps(table.spark, table.name)
+        val rowCount = table.spark
+          .sql(s"SELECT count(*) FROM ${table.name}")
+          .collect()(0)
+          .getLong(0)
+
+        assert(
+          properties.get("write.distribution-mode").contains("hash"),
+          "hash distribution mode should be retained")
+        assert(
+          rowCount == 3,
+          s"hash-distributed seed should contain 3 rows, got $rowCount")
+      },
+      targetSizePreparation.test("surface.write.targetFileSize") { table =>
+        val properties = tableProps(table.spark, table.name)
+        val rowCount = table.spark
+          .sql(s"SELECT count(*) FROM ${table.name}")
+          .collect()(0)
+          .getLong(0)
+
+        assert(
+          properties
+            .get("write.target-file-size-bytes")
+            .contains("1048576"),
+          "target file size should be retained")
+        assert(
+          rowCount == 3,
+          s"custom target-size seed should contain 3 rows, got $rowCount")
+      },
+      basePreparation.test("surface.write.dfToBranch") { table =>
+        table.spark.sql(
+          s"ALTER TABLE ${table.name} CREATE BRANCH wb")
+        val row = table.spark.sql(
+          s"SELECT CAST(50 AS BIGINT) AS ${Core.long0.columnName}, " +
+            s"50 AS ${Core.int0.columnName}, " +
+            s"'row-50' AS ${Core.string0.columnName}, " +
+            s"50.5 AS ${Core.double0.columnName}, " +
+            s"true AS ${Core.boolean0.columnName}, " +
+            s"'2024-01-09-01' AS ${Core.datePartition.columnName}")
+        row.writeTo(s"${table.name}.branch_wb").append()
+
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name} VERSION AS OF 'wb'") == "4",
+          "DataFrame writer should append to the branch")
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}") == "3",
+          "DataFrame branch write should leave main unchanged")
+      },
+      basePreparation.test("surface.pin.importProcs") { table =>
+        val metadataFile = table.spark
+          .sql(
+            s"SELECT file FROM ${table.name}.metadata_log_entries " +
+              "ORDER BY timestamp DESC LIMIT 1")
+          .collect()(0)
+          .getString(0)
+        val registerOutcome =
+          try {
+            table.spark.sql(
+              "CALL openhouse.system.register_table(" +
+                "table => 'dbMatrix.zz_reg', " +
+                s"metadata_file => '$metadataFile')")
+            val rowCount = countOf(
+              table.spark,
+              "SELECT count(*) FROM openhouse.dbMatrix.zz_reg")
+            table.spark.sql(
+              "DROP TABLE IF EXISTS openhouse.dbMatrix.zz_reg")
+            s"REGISTERED (readable, $rowCount rows)"
+          } catch {
+            case exception: Throwable =>
+              s"REJECTED ${exception.getClass.getName} :: " +
+                Option(exception.getMessage).getOrElse("").take(160)
+          }
+        println(s"DIAG pin.register_table(real): $registerOutcome")
+
+        val snapshotException = Check.intercept[Exception](
+          table.spark.sql(
+            "CALL openhouse.system.snapshot(" +
+              s"source_table => '${catalogRelative(table.name)}', " +
+              "table => 'dbMatrix.zz_snap')"))
+        println(
+          "DIAG pin.snapshot: " +
+            s"${snapshotException.getClass.getName} :: " +
+            Option(snapshotException.getMessage).getOrElse("").take(160))
+
+        val addFilesException = Check.intercept[Exception](
+          table.spark.sql(
+            "CALL openhouse.system.add_files(" +
+              s"table => '${catalogRelative(table.name)}', " +
+              "source_table => '`parquet`.`/tmp/zz_nope_dir`')"))
+        println(
+          "DIAG pin.add_files: " +
+            s"${addFilesException.getClass.getName} :: " +
+            Option(addFilesException.getMessage).getOrElse("").take(160))
+      },
+      basePreparation.test("surface.pin.viewsAnalyze") { table =>
+        val viewException = Check.intercept[Exception](
+          table.spark.sql(
+            "CREATE VIEW openhouse.dbMatrix.zz_v1 AS SELECT 1 AS one"))
+        println(
+          "DIAG pin.createView: " +
+            s"${viewException.getClass.getName} :: " +
+            Option(viewException.getMessage).getOrElse("").take(160))
+
+        val analyzeException = Check.intercept[Exception](
+          table.spark.sql(
+            s"ANALYZE TABLE ${table.name} COMPUTE STATISTICS"))
+        println(
+          "DIAG pin.analyze: " +
+            s"${analyzeException.getClass.getName} :: " +
+            Option(analyzeException.getMessage).getOrElse("").take(160))
+      })
+  }
+
+  val surfaceCases: List[Plan.Case] =
+    List("parquet", "orc").flatMap { format =>
+      surfaceBranchCases(format) ++
+        surfaceReaderProcedureCases(format) ++
+        surfaceRemainingCases(format)
+    }
 
   // ═══ Hazard demonstrations H1-H8 (MODALITY-RECON.md; gates cleared per FEATURE-ANALYSIS-PLAN) ══
   // Each was PREDICTED by the state-flow model, verified in code/bytecode, and is demonstrated

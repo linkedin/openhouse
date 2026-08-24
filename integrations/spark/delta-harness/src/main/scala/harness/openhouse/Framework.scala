@@ -1,33 +1,14 @@
 package harness
 
-import org.apache.spark.sql.{AnalysisException, Row, SparkSession}
-import org.apache.iceberg.exceptions.BadRequestException
-import org.apache.iceberg.exceptions.ValidationException
-import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException
+import org.apache.spark.sql.{Row, SparkSession}
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
-import scala.annotation.tailrec
 import scala.reflect.{ClassTag, classTag}
 import scala.util.control.NonFatal
 
-// =====================================================================================
-// Delta-test harness against the real OpenHouse catalog.
-//
-// A test is a TYPED PIPELINE: `TableTest[S <: Schema]`. The type parameter declares which
-// table implementation the test depends on, and every step references that schema's columns
-// through typed handles — so the compiler forbids mixing schemas or naming a column the
-// schema doesn't declare.
-//
-// Preparations and operations are BOTH pipeline segments of the same schema, composed with
-// `andThen`:
-//   * a preparation prefix  (create+seed, and later RTAS / drop+undrop) yields a known state,
-//   * an operation suffix   (delete / update / merge / insert ...) runs on that state.
-// The test set is `preparations x operations`. RTAS wires into every DML test by joining the
-// preparations list; no operation changes. (RTAS is not built yet — only the seam is.)
-//
-// Catalog wiring is copied from OpenHouseLocalServer + TestSparkSessionUtil (composed, not
-// extended); no OpenHouse test is altered.
-// =====================================================================================
+// The harness defines typed, reusable table preparations and localized Plan.Case bodies.
+// Each case gets a fresh table, executes its preparation, runs its action and assertions,
+// and drops the table during teardown.
 
 final case class Ctx(spark: SparkSession, namespace: String, restUri: String = "", restToken: String = "")
 
@@ -246,25 +227,41 @@ final case class StepView[S <: Schema](
   snapshotsAfter:  Long
 )
 
-/** One pipeline step: mutate the live table, then validate it against before/after. */
+/** A fresh table after its reusable preparation has completed. */
+final case class PreparedTable[S <: Schema](
+  spark:                 SparkSession,
+  name:                  String,
+  schema:                S,
+  preparedRows:          Seq[Row],
+  preparedSnapshotCount: Long
+) {
+  def rows: Seq[Row] = PreparedTable.currentRows(spark, name, schema)
+  def snapshotCount: Long = PreparedTable.snapshotCount(spark, name)
+}
+
+object PreparedTable {
+  private[harness] def currentRows[S <: Schema](spark: SparkSession, table: String, schema: S): Seq[Row] = {
+    val columns = schema.columnNames.mkString(", ")
+    spark.sql(s"SELECT $columns FROM $table ORDER BY ${schema.columnNames.head}").collect().toSeq
+  }
+
+  private[harness] def snapshotCount(spark: SparkSession, table: String): Long =
+    spark.sql(s"SELECT count(*) FROM $table.snapshots").collect()(0).getLong(0)
+}
+
+/** One preparation step and its validation. */
 final case class Step[S <: Schema](
   label:    String,
   execute:  (SparkSession, String, S) => Unit,
   validate: StepView[S] => Unit
 )
 
-/**
- * An immutable, typed pipeline. Build a preparation prefix and an operation suffix, then
- * `run` executes the steps in order on one fresh, always-dropped table, validating each step.
- */
+/** An immutable, typed sequence of table-preparation steps. */
 final class TableTest[S <: Schema] private (val schema: S, val steps: Vector[Step[S]]) {
   private def add(step: Step[S]): TableTest[S] = new TableTest(schema, steps :+ step)
 
-  /** Append another same-schema pipeline (this is how prep prefixes join operation suffixes). */
-  def andThen(next: TableTest[S]): TableTest[S] = new TableTest(schema, steps ++ next.steps)
-
   // The default validator asserts the seed actually appended `numberOfRows` rows. This defends the
-  // relative-delta operation assertions from a vacuous pass on an empty/short baseline.
+  // localized assertions from a vacuous pass on an empty or short baseline.
   def insert(numberOfRows: Int)(
       validate: StepView[S] => Unit = view => assert(
         view.after.size == view.before.size + numberOfRows,
@@ -273,36 +270,38 @@ final class TableTest[S <: Schema] private (val schema: S, val steps: Vector[Ste
     add(Step(s"insert($numberOfRows)", (spark, table, schema) =>
       spark.sql(s"INSERT INTO $table ${RowGenerator.valuesClause(schema, numberOfRows)}"), validate))
 
-  def delete(predicate: S => String)(validate: StepView[S] => Unit = _ => ()): TableTest[S] =
-    add(Step("delete", (spark, table, schema) =>
-      spark.sql(s"DELETE FROM $table WHERE ${predicate(schema)}"), validate))
-
-  /** General operation step: run an arbitrary mutation on the table, then validate the delta. */
+  /** Run an arbitrary preparation step, then validate its result. */
   def step(label: String)(mutate: (SparkSession, String) => Unit)
           (validate: StepView[S] => Unit = _ => ()): TableTest[S] =
     add(Step(label, (spark, table, _) => mutate(spark, table), validate))
 
-  /** Operation step whose mutation is a single SQL statement (the table name is supplied). */
+  /** Run one preparation SQL statement, then validate its result. */
   def sql(label: String)(statement: String => String)
          (validate: StepView[S] => Unit = _ => ()): TableTest[S] =
     step(label)((spark, table) => spark.sql(statement(table)))(validate)
 
-  /** Read/assert-only step: no mutation, so before == after; used for the read paths. */
-  def check(label: String)(validate: StepView[S] => Unit): TableTest[S] =
-    step(label)((_, _) => ())(validate)
-
-  // Execute the pipeline on a fresh, always-dropped table. Each step's `before` is the previous
-  // step's `after` (an empty/zero baseline for the first step), so rows and commits are only ever
-  // read AFTER a step has run — on a table a prior step created. There is no existence guard: a
-  // query against a missing table loudly fails, which is the correct behavior.
-  def run(ctx: Ctx): Unit = withTable(ctx) { table =>
-    steps.foldLeft((Seq.empty[Row], 0L)) { case ((beforeRows, beforeSnapshots), step) =>
-      step.execute(ctx.spark, table, schema)
-      val afterRows = currentRows(ctx.spark, table)
-      val afterSnapshots = snapshotCount(ctx.spark, table)
-      step.validate(StepView(ctx.spark, table, schema, beforeRows, afterRows, beforeSnapshots, afterSnapshots))
-      (afterRows, afterSnapshots)
-    }
+  /**
+   * Execute these steps as a reusable preparation, then hand the prepared table to one localized
+   * test body. The fresh-table lifecycle covers both the preparation and the test body.
+   */
+  def prepare(ctx: Ctx)(use: PreparedTable[S] => Unit): Unit = withTable(ctx) { table =>
+    val (preparedRows, preparedSnapshotCount) =
+      steps.foldLeft((Seq.empty[Row], 0L)) { case ((beforeRows, beforeSnapshots), step) =>
+        step.execute(ctx.spark, table, schema)
+        val afterRows = PreparedTable.currentRows(ctx.spark, table, schema)
+        val afterSnapshots = PreparedTable.snapshotCount(ctx.spark, table)
+        step.validate(
+          StepView(
+            ctx.spark,
+            table,
+            schema,
+            beforeRows,
+            afterRows,
+            beforeSnapshots,
+            afterSnapshots))
+        (afterRows, afterSnapshots)
+      }
+    use(PreparedTable(ctx.spark, table, schema, preparedRows, preparedSnapshotCount))
   }
 
   // The one table-lifecycle primitive: hand `use` a fresh table name and always drop it afterward.
@@ -314,19 +313,25 @@ final class TableTest[S <: Schema] private (val schema: S, val steps: Vector[Ste
     finally try ctx.spark.sql(s"DROP TABLE IF EXISTS $table") catch { case NonFatal(_) => () }
   }
 
-  // Rows selected by the schema's columns, ordered by the key (first) column for deterministic
-  // comparison. Ordering by the key (not all columns) keeps this valid for schemas with columns
-  // that aren't orderable, e.g. a map.
-  private def currentRows(spark: SparkSession, table: String): Seq[Row] = {
-    val columns = schema.columnNames.mkString(", ")
-    spark.sql(s"SELECT $columns FROM $table ORDER BY ${schema.columnNames.head}").collect().toSeq
-  }
-
-  private def snapshotCount(spark: SparkSession, table: String): Long =
-    spark.sql(s"SELECT count(*) FROM $table.snapshots").collect()(0).getLong(0)
 }
 
 object TableTest {
   private val counter = new java.util.concurrent.atomic.AtomicInteger(0)
   def apply[S <: Schema](schema: S): TableTest[S] = new TableTest(schema, Vector.empty)
+}
+
+/** An immutable recipe that prepares one fresh table for each localized test case. */
+final case class TablePreparation[S <: Schema](
+  label: String,
+  preparation: TableTest[S],
+  casePrefix: String = "",
+  afterTest: PreparedTable[S] => Unit = (_: PreparedTable[S]) => ()
+) {
+  def test(caseName: String)(body: PreparedTable[S] => Unit): Plan.Case =
+    Plan.Case(
+      s"$casePrefix$caseName @ $label",
+      context => preparation.prepare(context) { table =>
+        body(table)
+        afterTest(table)
+      })
 }

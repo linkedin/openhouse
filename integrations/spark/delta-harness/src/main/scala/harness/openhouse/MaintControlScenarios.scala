@@ -17,98 +17,141 @@ trait MaintControlScenarios extends ScenarioKit {
   // A two-snapshot base: seed 3 rows (snapshot A), then insert 2 more (snapshot B).
   // Format is a PARAMETER, not baked in — so any block built on this base can multiplex across formats.
 
-  def timeTravelVersionAsOf(fmt: String): TableTest[CoreTable.type] =
-    coreTwoSnapshots(fmt).check("timeTravel.versionAsOf") { view =>
-      val snaps = snapshotIds(view.spark, view.table)
-      assert(view.spark.sql(s"SELECT count(*) FROM ${view.table} VERSION AS OF ${snaps(0)}").collect()(0).getLong(0) == 3)
-      assert(view.spark.sql(s"SELECT count(*) FROM ${view.table} VERSION AS OF ${snaps(1)}").collect()(0).getLong(0) == 5)
+  val timeTravelCases: List[Plan.Case] =
+    List("parquet", "orc").flatMap { format =>
+      val preparation = TablePreparation(
+        format,
+        coreTwoSnapshots(format))
+
+      List(
+        preparation.test("timeTravel.versionAsOf") { table =>
+          val snapshots = snapshotIds(table.spark, table.name)
+
+          assert(
+            table.spark
+              .sql(
+                s"SELECT count(*) FROM ${table.name} " +
+                  s"VERSION AS OF ${snapshots(0)}")
+              .collect()(0)
+              .getLong(0) == 3)
+          assert(
+            table.spark
+              .sql(
+                s"SELECT count(*) FROM ${table.name} " +
+                  s"VERSION AS OF ${snapshots(1)}")
+              .collect()(0)
+              .getLong(0) == 5)
+        },
+        preparation.test("timeTravel.timestampAsOf") { table =>
+          val firstCommitTimestamp = table.spark
+            .sql(
+              s"SELECT committed_at FROM ${table.name}.snapshots " +
+                "ORDER BY committed_at LIMIT 1")
+            .collect()(0)
+            .getTimestamp(0)
+
+          assert(
+            table.spark
+              .sql(
+                s"SELECT count(*) FROM ${table.name} " +
+                  s"TIMESTAMP AS OF '$firstCommitTimestamp'")
+              .collect()(0)
+              .getLong(0) == 3)
+        },
+        preparation.test("timeTravel.metadataTables") { table =>
+          def metadataRowCount(metadataTable: String): Long =
+            table.spark
+              .sql(
+                s"SELECT count(*) FROM ${table.name}.$metadataTable")
+              .collect()(0)
+              .getLong(0)
+
+          assert(metadataRowCount("snapshots") == 2)
+          assert(metadataRowCount("history") == 2)
+          assert(
+            metadataRowCount("files") >= 1 &&
+              metadataRowCount("manifests") >= 1)
+        },
+        preparation.test("timeTravel.incrementalRead") { table =>
+          val snapshots = snapshotIds(table.spark, table.name)
+          val addedRowCount = table.spark.read
+            .format("iceberg")
+            .option("start-snapshot-id", snapshots(0))
+            .option("end-snapshot-id", snapshots(1))
+            .load(table.name)
+            .count()
+
+          assert(addedRowCount == 2)
+        })
     }
 
-  def timeTravelTimestampAsOf(fmt: String): TableTest[CoreTable.type] =
-    coreTwoSnapshots(fmt).check("timeTravel.timestampAsOf") { view =>
-      val ts0 = view.spark.sql(s"SELECT committed_at FROM ${view.table}.snapshots ORDER BY committed_at LIMIT 1").collect()(0).getTimestamp(0)
-      assert(view.spark.sql(s"SELECT count(*) FROM ${view.table} TIMESTAMP AS OF '$ts0'").collect()(0).getLong(0) == 3)
+  val restoreRollbackCases: List[Plan.Case] =
+    List("parquet", "orc").flatMap { format =>
+      val preparation = TablePreparation(
+        format,
+        coreTwoSnapshots(format))
+
+      List(
+        preparation.test("restore.rollbackToSnapshot") { table =>
+          val firstSnapshotId =
+            snapshotIds(table.spark, table.name).head
+
+          table.spark.sql(
+            "CALL openhouse.system.rollback_to_snapshot(" +
+              s"'${catalogRelative(table.name)}', $firstSnapshotId)")
+
+          assert(table.rows.size == 3)
+        },
+        preparation.test("restore.setCurrentSnapshot") { table =>
+          val firstSnapshotId =
+            snapshotIds(table.spark, table.name).head
+
+          table.spark.sql(
+            "CALL openhouse.system.set_current_snapshot(" +
+              s"'${catalogRelative(table.name)}', $firstSnapshotId)")
+
+          assert(table.rows.size == 3)
+        })
     }
 
-  def timeTravelMetadataTables(fmt: String): TableTest[CoreTable.type] =
-    coreTwoSnapshots(fmt).check("timeTravel.metadataTables") { view =>
-      def count(meta: String): Long = view.spark.sql(s"SELECT count(*) FROM ${view.table}.$meta").collect()(0).getLong(0)
-      assert(count("snapshots") == 2)
-      assert(count("history") == 2)
-      assert(count("files") >= 1 && count("manifests") >= 1)
+  val maintenanceCases: List[Plan.Case] =
+    List("parquet", "orc").flatMap { format =>
+      val preparation = TablePreparation(
+        format,
+        coreTwoSnapshots(format))
+
+      List(
+        preparation.test("maintenance.expireSnapshots") { table =>
+          table.spark.sql(
+            "CALL openhouse.system.expire_snapshots(" +
+              s"table => '${catalogRelative(table.name)}', " +
+              "older_than => TIMESTAMP '2999-01-01 00:00:00', " +
+              "retain_last => 1)")
+
+          assert(
+            table.rows.size == 5,
+            "expire_snapshots changed the current data")
+          assert(
+            table.snapshotCount < table.preparedSnapshotCount,
+            "expire_snapshots did not remove a snapshot: " +
+              s"${table.preparedSnapshotCount} -> ${table.snapshotCount}")
+        },
+        preparation.test("maintenance.rewriteDataFiles") { table =>
+          table.spark.sql(
+            "CALL openhouse.system.rewrite_data_files(" +
+              s"table => '${catalogRelative(table.name)}')")
+
+          assert(table.rows.size == 5, "compaction changed rows")
+        },
+        preparation.test("maintenance.removeOrphanFiles") { table =>
+          table.spark.sql(
+            "CALL openhouse.system.remove_orphan_files(" +
+              s"table => '${catalogRelative(table.name)}', " +
+              "older_than => TIMESTAMP '2020-01-01 00:00:00')")
+
+          assert(table.rows.size == 5, "orphan removal changed rows")
+        })
     }
-
-  def timeTravelIncrementalRead(fmt: String): TableTest[CoreTable.type] =
-    coreTwoSnapshots(fmt).check("timeTravel.incrementalRead") { view =>
-      val snaps = snapshotIds(view.spark, view.table)
-      val added = view.spark.read.format("iceberg")
-        .option("start-snapshot-id", snaps(0)).option("end-snapshot-id", snaps(1))
-        .load(view.table).count()
-      assert(added == 2) // only the rows added between snapshot A and B
-    }
-
-  def timeTravelOps(fmt: String): List[(String, TableTest[CoreTable.type])] = List(
-    "timeTravel.versionAsOf"     -> timeTravelVersionAsOf(fmt),
-    "timeTravel.timestampAsOf"   -> timeTravelTimestampAsOf(fmt),
-    "timeTravel.metadataTables"  -> timeTravelMetadataTables(fmt),
-    "timeTravel.incrementalRead" -> timeTravelIncrementalRead(fmt)
-  )
-
-  // Restore/rollback via stored procedures (gated: OpenHouse may not expose CALL procedures).
-
-  def restoreRollbackToSnapshot(fmt: String): TableTest[CoreTable.type] =
-    coreTwoSnapshots(fmt).step("restore.rollbackToSnapshot") { (spark, table) =>
-      val first = snapshotIds(spark, table).head
-      spark.sql(s"CALL openhouse.system.rollback_to_snapshot('${catalogRelative(table)}', $first)")
-    } { view =>
-      assert(view.after.size == 3) // rolled back to the 3-row snapshot
-    }
-
-  def restoreSetCurrentSnapshot(fmt: String): TableTest[CoreTable.type] =
-    coreTwoSnapshots(fmt).step("restore.setCurrentSnapshot") { (spark, table) =>
-      val first = snapshotIds(spark, table).head
-      spark.sql(s"CALL openhouse.system.set_current_snapshot('${catalogRelative(table)}', $first)")
-    } { view =>
-      assert(view.after.size == 3)
-    }
-
-  def restoreRollbackOps(fmt: String): List[(String, TableTest[CoreTable.type])] = List(
-    "restore.rollbackToSnapshot"  -> restoreRollbackToSnapshot(fmt),
-    "restore.setCurrentSnapshot"  -> restoreSetCurrentSnapshot(fmt)
-  )
-
-  // ── Maintenance OPERATIONS (Iceberg CALL procedures; jobs merely orchestrate these) ──────────
-  // SE / OFD / compaction are stored procedures, reachable from Spark SQL like rollback/set_current.
-  // Each mutates physical state; we assert the current DATA is preserved and observe the metadata delta.
-  def maintenanceExpireSnapshots(fmt: String): TableTest[CoreTable.type] =
-    coreTwoSnapshots(fmt).step("maintenance.expireSnapshots") { (spark, table) =>
-      spark.sql(s"CALL openhouse.system.expire_snapshots(table => '${catalogRelative(table)}', older_than => TIMESTAMP '2999-01-01 00:00:00', retain_last => 1)")
-    } { view =>
-      assert(view.after.size == 5, "expire_snapshots changed the current data")
-      assert(view.snapshotsAfter < view.snapshotsBefore, s"expire did not drop a snapshot: ${view.snapshotsBefore} -> ${view.snapshotsAfter}")
-    }
-
-  def maintenanceRewriteDataFiles(fmt: String): TableTest[CoreTable.type] =
-    coreTwoSnapshots(fmt).step("maintenance.rewriteDataFiles") { (spark, table) =>
-      spark.sql(s"CALL openhouse.system.rewrite_data_files(table => '${catalogRelative(table)}')")
-    } { view =>
-      assert(view.after.size == 5, "compaction changed rows")                          // rows preserved
-    }
-
-  def maintenanceRemoveOrphanFiles(fmt: String): TableTest[CoreTable.type] =
-    coreTwoSnapshots(fmt).step("maintenance.removeOrphanFiles") { (spark, table) =>
-      // older_than must be ≥24h in the past (a safety guard); a far-past ts is a valid no-op that
-      // still exercises the procedure end-to-end without corrupting live files.
-      spark.sql(s"CALL openhouse.system.remove_orphan_files(table => '${catalogRelative(table)}', older_than => TIMESTAMP '2020-01-01 00:00:00')")
-    } { view =>
-      assert(view.after.size == 5, "orphan removal changed rows")
-    }
-
-  def maintenanceOps(fmt: String): List[(String, TableTest[CoreTable.type])] = List(
-    "maintenance.expireSnapshots"  -> maintenanceExpireSnapshots(fmt),
-    "maintenance.rewriteDataFiles" -> maintenanceRewriteDataFiles(fmt),
-    "maintenance.removeOrphanFiles" -> maintenanceRemoveOrphanFiles(fmt)
-  )
 
   // ── Control-plane (REST) ops with no SQL surface — driven via the embedded server's HTTP API ──
   // Lock enforcement: POST /lock (a real public entry), then a Spark mutation is rejected server-side
@@ -159,10 +202,14 @@ trait MaintControlScenarios extends ScenarioKit {
     spark.sql(s"DROP TABLE IF EXISTS $table")
   }
 
-  val controlPlane: List[(String, Ctx => Unit)] = List(
-    "control.lock.enforcement"  -> controlLockEnforcement,
-    "control.undrop.lifecycle"  -> controlUndropLifecycle
-  )
+  val controlPlaneCases: List[Plan.Case] =
+    List(
+      Plan.Case(
+        "control.lock.enforcement @ embedded",
+        controlLockEnforcement),
+      Plan.Case(
+        "control.undrop.lifecycle @ embedded",
+        controlUndropLifecycle))
 
   // ── Undrop admin-lifecycle block (Phase 5 — REAL HTS only, HtsAdmin.enabled) ─────────────────
   // With an embedded real HTS the full soft-delete → list → restore / purge lifecycle is exercisable
@@ -204,11 +251,21 @@ trait MaintControlScenarios extends ScenarioKit {
     assert(rs >= 400, s"restore after purge must be rejected, got $rs")
   }
 
-  val undropAdminOps: List[(String, Ctx => Unit)] = List(
-    "undropAdmin.restoreRoundTrip"        -> undropAdminRestoreRoundTrip,
-    "undropAdmin.listSoftDeleted"         -> undropAdminListSoftDeleted,
-    "undropAdmin.restoreAfterPurgeRejected" -> undropAdminRestoreAfterPurgeRejected
-  )
+  def undropAdminCases: List[Plan.Case] =
+    if (HtsAdmin.enabled) {
+      List(
+        Plan.Case(
+          "undropAdmin.restoreRoundTrip",
+          undropAdminRestoreRoundTrip),
+        Plan.Case(
+          "undropAdmin.listSoftDeleted",
+          undropAdminListSoftDeleted),
+        Plan.Case(
+          "undropAdmin.restoreAfterPurgeRejected",
+          undropAdminRestoreAfterPurgeRejected))
+    } else {
+      Nil
+    }
 
 
 }

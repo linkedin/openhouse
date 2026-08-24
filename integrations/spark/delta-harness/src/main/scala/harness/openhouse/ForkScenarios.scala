@@ -189,13 +189,6 @@ trait ForkScenarios extends ScenarioKit {
     spark.sql(s"DROP TABLE IF EXISTS $t")
   }
 
-  val forkColDefaultOps: List[(String, Ctx => Unit)] = List(
-    "fork.colDefault.addColumnInert @ parquet"   -> forkColDefaultAddColumn("parquet"),
-    "fork.colDefault.addColumnInert @ orc"       -> forkColDefaultAddColumn("orc"),
-    "fork.colDefault.apiSerialization @ core"    -> forkColDefaultApiSerialization,
-    "fork.colDefault.readApplyProbe @ core"      -> forkColDefaultReadApplyProbe
-  )
-
   // ── #249 (d69c1fd91) — partitioned write distribution default ─────────────────────────────────────
   // The fork changes the DEFAULT write.distribution-mode for PARTITIONED writes from Apache's HASH to
   // NONE (Spark 3.5). With HASH, the writer shuffles rows so each partition is written by one task ->
@@ -233,11 +226,6 @@ trait ForkScenarios extends ScenarioKit {
     assert(nDefault >= nHash,
       s"[$fmt] default partitioned distribution produced FEWER files than HASH (default=$nDefault hash=$nHash) — unexpected; re-audit #249")
   }
-
-  val forkPartitionDistOps: List[(String, Ctx => Unit)] = List(
-    "fork.partitionDist.default @ parquet" -> forkPartitionDistDefault("parquet"),
-    "fork.partitionDist.default @ orc"     -> forkPartitionDistDefault("orc")
-  )
 
   // (count, sumBytes) of the CURRENT data files — used by the compaction fork probes below.
   private def dataFileStats(spark: SparkSession, table: String): (Long, Long) = {
@@ -294,10 +282,6 @@ trait ForkScenarios extends ScenarioKit {
     spark.sql(s"DROP TABLE IF EXISTS $table")
   }
 
-  val forkDeleteFileReplicationOps: List[(String, Ctx => Unit)] = List(
-    "fork.deleteFileReplication @ mor" -> forkDeleteFileReplication
-  )
-
   // ── #219 (OutputFileFactory.FILE_REPLICATION_FACTOR) — output-file replication factor ─────────────────
   // KEY CORRECTION: the constant is FILE_REPLICATION_FACTOR = "file-replication-factor" — NOT the guessed
   // "write.file-replication-factor", and it is NOT a settable table property at all. It is the per-output-
@@ -353,10 +337,6 @@ trait ForkScenarios extends ScenarioKit {
       s"factory stamps $key=${props.get(key)} into output-file props; writes ok rows=${rows.mkString(",")}")
     spark.sql(s"DROP TABLE IF EXISTS $table")
   }
-
-  val forkFileReplicationFactorOps: List[(String, Ctx => Unit)] = List(
-    "fork.fileReplicationFactor @ core" -> forkFileReplicationFactor
-  )
 
   // ── #228 (spark.sql.iceberg.split-size) — Spark read split size ───────────────────────────────────────
   // SparkSQLProperties.SPLIT_SIZE = "spark.sql.iceberg.split-size". Set via spark.conf.set; SparkReadConf
@@ -419,11 +399,6 @@ trait ForkScenarios extends ScenarioKit {
     }
   }
 
-  val forkSplitSizeOps: List[(String, Ctx => Unit)] = List(
-    "fork.splitSize @ parquet" -> forkSplitSize("parquet"),
-    "fork.splitSize @ orc"     -> forkSplitSize("orc")
-  )
-
   // ── #233 (bin-pack by data-file length) — rewrite_data_files compaction ──────────────────────────────
   // The fork's bin-pack rewrite weights data files by their LENGTH (file_size_in_bytes) when packing them
   // into rewrite groups. That weighting is an internal planner detail — not locally observable via SQL — so
@@ -458,11 +433,6 @@ trait ForkScenarios extends ScenarioKit {
     spark.sql(s"DROP TABLE IF EXISTS $table")
   }
 
-  val forkBinPackByLengthOps: List[(String, Ctx => Unit)] = List(
-    "fork.binPackByLength @ parquet" -> forkBinPackByLength("parquet"),
-    "fork.binPackByLength @ orc"     -> forkBinPackByLength("orc")
-  )
-
   // ── #189 (budgeted rewrite ordering by file-sequence-number) — rewrite_data_files ─────────────────────
   // The fork's budgeted rewrite ORDERS candidate files by their file-sequence-number when spending a rewrite
   // budget. The ordering decision is metadata-level and NOT locally observable via SQL, and it shares the
@@ -475,7 +445,7 @@ trait ForkScenarios extends ScenarioKit {
     val table = s"${ctx.namespace}.t_compord"
     spark.sql(s"DROP TABLE IF EXISTS $table")
     spark.sql(s"CREATE TABLE $table (id bigint, s string) USING $dataSource " +
-      s"TBLPROPERTIES ('write.format.default'='$seedFmt', 'write.distribution-mode'='none')")
+      "TBLPROPERTIES ('write.format.default'='parquet', 'write.distribution-mode'='none')")
     // Several commits => several data files with DISTINCT, increasing file-sequence-numbers (the ordering key).
     val nCommits = 4
     for (i <- 0 until nCommits) spark.sql(s"INSERT INTO $table VALUES (${i}L, 'c$i')")
@@ -502,10 +472,46 @@ trait ForkScenarios extends ScenarioKit {
     spark.sql(s"DROP TABLE IF EXISTS $table")
   }
 
-  val forkCompactionOrderOps: List[(String, Ctx => Unit)] = List(
-    "fork.compactionOrder @ parquet" -> forkCompactionOrder
-  )
-
-
+  val forkCases: List[Plan.Case] =
+    List(
+      Plan.Case(
+        "fork.colDefault.addColumnInert @ parquet",
+        forkColDefaultAddColumn("parquet")),
+      Plan.Case(
+        "fork.colDefault.addColumnInert @ orc",
+        forkColDefaultAddColumn("orc")),
+      Plan.Case(
+        "fork.colDefault.apiSerialization @ core",
+        forkColDefaultApiSerialization),
+      Plan.Case(
+        "fork.colDefault.readApplyProbe @ core",
+        forkColDefaultReadApplyProbe),
+      Plan.Case(
+        "fork.partitionDist.default @ parquet",
+        forkPartitionDistDefault("parquet")),
+      Plan.Case(
+        "fork.partitionDist.default @ orc",
+        forkPartitionDistDefault("orc")),
+      Plan.Case(
+        "fork.deleteFileReplication @ mor",
+        forkDeleteFileReplication),
+      Plan.Case(
+        "fork.fileReplicationFactor @ core",
+        forkFileReplicationFactor),
+      Plan.Case(
+        "fork.splitSize @ parquet",
+        forkSplitSize("parquet")),
+      Plan.Case(
+        "fork.splitSize @ orc",
+        forkSplitSize("orc")),
+      Plan.Case(
+        "fork.binPackByLength @ parquet",
+        forkBinPackByLength("parquet")),
+      Plan.Case(
+        "fork.binPackByLength @ orc",
+        forkBinPackByLength("orc")),
+      Plan.Case(
+        "fork.compactionOrder @ parquet",
+        forkCompactionOrder))
 
 }

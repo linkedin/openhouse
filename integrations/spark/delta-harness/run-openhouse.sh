@@ -35,7 +35,8 @@ else
   echo ">> resolving OpenHouse itest runtime classpath (builds the runtime uber jar + fixtures)"
   ( cd "$REPO_ROOT" && "$GRADLE" -Dorg.gradle.java.home="$JDK17" -DcpOut="$WORK/oh-cp.txt" \
       --init-script "$HERE/scripts/print-cp.init.gradle" \
-      :integrations:spark:spark-3.5:openhouse-spark-3.5-itest:printHarnessCp --console=plain )
+      :integrations:spark:spark-3.5:openhouse-spark-3.5-itest:printHarnessCp \
+      -x CopyGitHooksTask --console=plain )
 fi
 OHCP="$(cat "$WORK/oh-cp.txt")"
 
