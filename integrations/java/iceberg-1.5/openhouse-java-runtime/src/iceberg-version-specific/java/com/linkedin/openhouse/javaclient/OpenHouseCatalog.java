@@ -597,11 +597,14 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
   // newViewOps; listViews/dropView/renameView are backed directly by the store.
 
   /**
-   * Guard for view create/modify operations ({@link #buildView}, {@link #renameView}). When views
-   * are disabled this throws {@link UnsupportedOperationException}, matching how {@code SparkCatalog}
-   * fails {@code CREATE VIEW} / {@code ALTER VIEW ... RENAME} for a non-{@code ViewCatalog} catalog.
-   * The read/probe operations ({@link #loadView}, {@link #listViews}, {@link #dropView}) do NOT use
-   * this guard; each instead returns its "no such view" result so table flows are unaffected.
+   * Guard for the view rename operation ({@link #renameView}). When views are disabled this throws
+   * {@link UnsupportedOperationException}. Reached only when a view already exists (rename resolves
+   * the source view first), which cannot happen while views are disabled, so it is effectively a
+   * safety net for direct (non-Spark) API callers. The create path ({@link #buildView}) instead
+   * throws {@link NoSuchNamespaceException} so {@code SparkCatalog.createView} normalizes it to a
+   * Spark {@code AnalysisException}; the read/probe operations ({@link #loadView}, {@link
+   * #listViews}, {@link #dropView}) each return their "no such view" result so table flows are
+   * unaffected.
    */
   private void requireViewsEnabled() {
     if (!viewsEnabled) {
@@ -653,13 +656,22 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
   /**
    * {@inheritDoc}
    *
-   * <p>A create operation: when views are disabled this throws {@link UnsupportedOperationException}
-   * via {@link #requireViewsEnabled()}, matching how {@code SparkCatalog} fails {@code CREATE VIEW}
-   * for a non-{@code ViewCatalog} catalog.
+   * <p>A create operation. When views are disabled this throws Iceberg's {@link
+   * NoSuchNamespaceException}. {@code CREATE VIEW} reaches this method through {@code
+   * SparkCatalog.createView}, which calls {@code buildView(...).create()} and catches only {@code
+   * NoSuchNamespaceException} / {@code AlreadyExistsException} (rethrowing them as Spark {@code
+   * AnalysisException}s); any other exception — e.g. {@link UnsupportedOperationException} — would
+   * leak as a raw runtime error and break callers that expect an {@code AnalysisException}. Throwing
+   * {@code NoSuchNamespaceException} is therefore the signal that normalizes {@code CREATE VIEW}
+   * rejection to a Spark {@code AnalysisException}, matching how a table-only catalog (Iceberg 1.2 /
+   * Spark 3.1) rejects it. See {@code OpenHouseViewSparkITest}.
    */
   @Override
   public ViewBuilder buildView(TableIdentifier identifier) {
-    requireViewsEnabled();
+    if (!viewsEnabled) {
+      throw new NoSuchNamespaceException(
+          "OpenHouse views are not enabled; cannot create view: %s", identifier);
+    }
     log.info("Calling buildView with identifier: {}", identifier);
     // OpenHouse tables have no client-side warehouse location (defaultWarehouseLocation returns
     // null), but Iceberg's ViewMetadata requires a non-null location. Supply a mock default so a
