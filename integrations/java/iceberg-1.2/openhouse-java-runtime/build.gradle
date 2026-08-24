@@ -25,6 +25,18 @@ ext {
   hadoopVersion = '2.10.0'
 }
 
+// Sources under src/main/java are SHARED with (inherited by) the iceberg-1.5 module. Sources under
+// src/iceberg-version-specific/java are NOT shared: each iceberg module keeps its own copy because
+// they bind to version-specific Iceberg base classes (OpenHouseCatalog extends BaseMetastoreCatalog
+// here, but BaseMetastoreViewCatalog in the iceberg-1.5 module).
+sourceSets {
+  main {
+    java {
+      srcDirs += 'src/iceberg-version-specific/java'
+    }
+  }
+}
+
 dependencies {
   compileOnly project(':client:secureclient')
   compileOnly project(':client:tableclient')
