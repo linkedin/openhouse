@@ -48,6 +48,7 @@ Recipes for setting up OpenHouse in local docker are available [here](infra/reci
 | Config | Recipe | Notes |
 |--------|--------|-------|
 | Run OpenHouse Services Only | `oh-only` | Stores data on local filesystem within the application container, with in-memory database. Least resource consuming. |
+| Run OpenHouse Services Only, on MySQL | `oh-only-mysql` | As `oh-only`, but House Tables runs against a MySQL container bootstrapped from `services/housetables/ddl`. Use when House Tables persistence behaviour matters. Used by CI. |
 | Run OpenHouse Services on HDFS | `oh-hadoop` | Stores data on locally running Hadoop HDFS containers, with iceberg-backed database. |
 | Run OpenHouse Services on HDFS with Spark | `oh-hadoop-spark` | Stores data on locally running Hadoop HDFS containers, with MySQL database. Spark available for end to end testing. Most resource consuming. Starts Livy server. |
 
