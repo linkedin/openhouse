@@ -2,9 +2,14 @@
 
 This document describes how the harness is organized. Every case in the suite is one point in a
 cross product of independent axes, so the suite is best understood as a matrix rather than a flat
-list of tests. `Plan.cases` (in `Plan.scala`) assembles the matrix by crossing an operation list with
-a layout or format axis for each family, and `Scenarios` (in `OpenHouseMatrix.scala`) supplies the
-operations by mixing in the per-domain traits.
+list of tests. Each scenario trait owns the complete cases for its domain. Shared
+`TablePreparation` recipes create common starting states, and each
+`preparation.test("caseName") { table => ... }` body keeps the action and assertions together.
+`Plan.cases` preserves the catalog order by concatenating those scenario-owned case lists.
+
+Every prepared case receives a fresh table. The preparation creates and seeds that table, the case
+body performs the behavior under test, and teardown drops the table after the body completes. A
+shared preparation is therefore a reusable immutable recipe, not a table shared by multiple cases.
 
 ## How to read a case id
 
@@ -104,7 +109,8 @@ reads directly in the case id.
 ## Preparation lineages
 
 Preparation determines what the base table has already been through when the operation runs. The
-same operation list is reused across lineages so a behavior can be checked on each base.
+same preparation recipes are reused across cases so a behavior can be checked on each base without
+moving its action or assertions away from the case body.
 
 | Lineage | Explanation |
 |---------|-------------|
@@ -119,9 +125,10 @@ same operation list is reused across lineages so a behavior can be checked on ea
 
 ## Operation families
 
-Each family is an operation list that `Plan.cases` crosses with a layout or format axis. The tables
-below name the family and describe what it exercises. Representative operation names are included so
-the family is recognizable in the case ids.
+Each family owns a list of localized cases. The family constructs those cases from the applicable
+preparation and format collections, while each case body contains the behavior and its assertions.
+The tables below name each family and describe what it exercises. Representative operation names
+are included so the family is recognizable in the case ids.
 
 ### DML
 
@@ -139,17 +146,17 @@ branch lineages, because those lineages are about the mutation write path.
 ### DDL
 
 DDL is split into sub-families so each area of the OpenHouse table surface is exercised on its own.
-Every sub-family crosses its operation list with the six copy-on-write layouts unless noted.
+Every sub-family constructs cases for the six copy-on-write layouts unless noted.
 
 | Sub-family | Operations | Explanation |
 |------------|-----------|-------------|
-| Schema evolution (`ddlSchemaOperations`) | `ddl.addColumn.single`, `ddl.addColumn.multiple`, `ddl.addColumn.comment`, `ddl.addColumn.position`, `ddl.alterColumn.typeWiden`, `ddl.renameColumn` | Column additions in each position and with comments, safe type widening, and column rename. These exercise how the server validates and applies a schema change. |
-| Table properties (`ddlPropsOperations`) | `ddl.props.userRoundTrip`, `ddl.props.reservedOpenhouse`, `ddl.props.formatVersionForced`, `ddl.props.previousVersionsHonored` | User property round-tripping, the handling of reserved OpenHouse properties, forced format version, and honoring previously set versions. |
-| Miscellaneous (`ddlMiscOperations`) | `ddl.sortOrder.orderedBy`, `ddl.sortOrder.orderedByMulti`, `ddl.renameTable`, `ddl.renameTable.conflict`, `ddl.ns.createRejected`, `ddl.ns.dropRejected` | Setting a sort order, renaming a table and the name-conflict case, and the namespace create and drop rejections. |
-| Policy (`ddlPolicyOperations`) | `ddl.policy.sharing`, `ddl.policy.history`, `ddl.policy.replication`, `ddl.policy.retention`, `ddl.policy.neg.historyMaxAge`, `ddl.policy.neg.historyVersions` | `SET POLICY` for sharing, history, replication, and retention, plus the negative cases where a policy bound is out of range. |
-| CTAS and RTAS (`ddlCtasRtasOperations`) | `ddl.ctas`, `ddl.rtas.enabled`, `ddl.rtas.disabled`, `ddl.rtas.replicationConflict` | Create-table-as-select, replace-table-as-select with replace enabled and disabled, and the replace-under-replication conflict. |
-| Tagging, ACL, and features (`ddlTagAclFeatureOperations`) | `ddl.colTag`, `ddl.acl.grantUnshared`, `ddl.acl.grantShared`, `ddl.featureFlag.distributionMode`, `ddl.repl.tableTypeImmutable`, `ddl.encryption.active` | Column tagging, ACL grants on shared and unshared tables, the distribution-mode feature flag, replica-table-type immutability, and the encryption-active property. |
-| Encryption (`ddlEncryptionOperations`) | `ddl.encryption` | The encryption capability, pinned on Parquet. |
+| Schema evolution (`ddlSchemaCases`) | `ddl.addColumn.single`, `ddl.addColumn.multiple`, `ddl.addColumn.comment`, `ddl.addColumn.position`, `ddl.alterColumn.typeWiden`, `ddl.renameColumn` | Column additions in each position and with comments, safe type widening, and column rename. These exercise how the server validates and applies a schema change. |
+| Table properties (`ddlPropertyCases`) | `ddl.props.userRoundTrip`, `ddl.props.reservedOpenhouse`, `ddl.props.formatVersionForced`, `ddl.props.previousVersionsHonored` | User property round-tripping, the handling of reserved OpenHouse properties, forced format version, and honoring previously set versions. |
+| Miscellaneous (`ddlMiscellaneousCases`) | `ddl.sortOrder.orderedBy`, `ddl.sortOrder.orderedByMulti`, `ddl.renameTable`, `ddl.renameTable.conflict`, `ddl.ns.createRejected`, `ddl.ns.dropRejected` | Setting a sort order, renaming a table and the name-conflict case, and the namespace create and drop rejections. |
+| Policy (`ddlPolicyCases`) | `ddl.policy.sharing`, `ddl.policy.history`, `ddl.policy.replication`, `ddl.policy.retention`, `ddl.policy.neg.historyMaxAge`, `ddl.policy.neg.historyVersions` | `SET POLICY` for sharing, history, replication, and retention, plus the negative cases where a policy bound is out of range. |
+| CTAS and RTAS (`ddlCtasRtasCases`) | `ddl.ctas`, `ddl.rtas.enabled`, `ddl.rtas.disabled`, `ddl.rtas.replicationConflict` | Create-table-as-select, replace-table-as-select with replace enabled and disabled, and the replace-under-replication conflict. |
+| Tagging, ACL, and features (`ddlTagAclFeatureCases`) | `ddl.colTag`, `ddl.acl.grantUnshared`, `ddl.acl.grantShared`, `ddl.featureFlag.distributionMode`, `ddl.repl.tableTypeImmutable`, `ddl.encryption.active` | Column tagging, ACL grants on shared and unshared tables, the distribution-mode feature flag, replica-table-type immutability, and the encryption-active property. |
+| Encryption (`ddlEncryptionCases`) | `ddl.encryption` | The encryption capability, pinned on Parquet. |
 
 The schema-evolution operations are also crossed with every layout as a separate `ddlSchema` block,
 and there is a DDL-then-consumer battery (`ddlConsumeBattery`) that applies each state-changing DDL
@@ -224,10 +231,11 @@ They characterize the fork surface at the API and table-property level.
 
 ## How assertions are framed
 
-Every case asserts a delta against the pre-state it observed, meaning the change in rows or in the
-commit count, rather than an absolute row set. Framing assertions as deltas is what lets one
-operation hold under any layout, format, and lineage, which is what makes the cross product
-meaningful.
+Each `PreparedTable` exposes the rows and snapshot count produced by its preparation, plus methods
+that read the live rows and snapshot count after the action. Cases use those values to assert the
+relevant row, commit, metadata, or error outcome. Delta assertions remain useful when the expected
+behavior is relative to the starting state, while cases with a fixed contract can state that
+contract directly in the same body.
 
 ## Known bugs
 

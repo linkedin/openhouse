@@ -1,4 +1,4 @@
-# delta-harness — a guide to grokking the tests
+# delta-harness: a guide to grokking the tests
 
 This is the single document to read to understand what this harness is, how it is built, why it is built
 that way, and what it found. It is written for a person picking the harness up cold. If you read only one
@@ -22,15 +22,14 @@ A few facts set expectations before you read further.
   every case passes with no divergence between the ORC and Parquet encodings. The guide deliberately does
   not quote an exact case count, because that number changes every time a case is added; the exact figure
   is whatever the final line of a full run prints.
-- A test is written as a typed pipeline (`TableTest[S <: Schema]`). A preparation prefix (create and
-  seed, or RTAS, or drop and undrop) is composed with an operation suffix (the thing under test), and
-  every step asserts a delta against the observed pre-state rather than an absolute row set.
-- The suite scales by crossing one authored operation against many substrates (file format, partitioning,
-  copy-on-write versus merge-on-read, replace-lineage, branch, and restored-from-undrop). File format is
-  a per-case parameter, so most blocks run on both Parquet and ORC automatically.
-- The purpose is to find broken feature interactions, not to accumulate green cases. The findings — the
+- A test is a localized `Plan.Case`. A reusable `TablePreparation` creates a fresh table in a known
+  state, then the case body performs the action and assertions together.
+- The suite scales by constructing localized cases from shared preparation collections for file
+  format, partitioning, copy-on-write versus merge-on-read, replace lineage, branch, and restored
+  tables. Every case materializes its own table from the selected preparation.
+- The purpose is to find broken feature interactions, not to accumulate green cases. The findings, the
   `G`-series product-behavior notes, the `WAP1` note, the fork behaviors, and an error-message
-  readability audit — are the real output, and the green count only tells you that the tripwires are
+  readability audit, are the real output, and the green count only tells you that the tripwires are
   still where they were left.
 
 ---
@@ -69,8 +68,8 @@ one or less runs sequentially.
 ### What the script does
 
 `run-openhouse.sh` performs three steps. First, it resolves the OpenHouse classpath through a system
-Gradle — the Gradle wrapper cannot download behind the proxy, as noted in the pitfalls below — and caches
-the result. Second, it compiles every `.scala` file under `src/main/scala/harness/openhouse/` with
+Gradle. The Gradle wrapper cannot download behind the proxy, as noted in the pitfalls below. The script
+caches the result. Second, it compiles every `.scala` file under `src/main/scala/harness/openhouse/` with
 `scalac`. Third, it runs `harness.Main` on JDK 17 with the `--add-opens` flags that Spark 3.5 needs.
 Gradle is used only to produce the classpath and OpenHouse's own jars; it does not build the harness.
 
@@ -78,45 +77,49 @@ Gradle is used only to produce the classpath and OpenHouse's own jars; it does n
 
 ## 3. The mental model, and why a test looks the way it does
 
-A test is a typed pipeline, `TableTest[S <: Schema]`. The type parameter `S` names the table
-implementation the test depends on, and every step references that schema's columns through typed handles
-such as `row.get(CoreTable.long0): Long`. The compiler therefore forbids mixing schemas or naming a column
-the schema does not declare, so a whole class of "the test drifted from the table shape" bug is impossible
-by construction.
+A test is a `Plan.Case` owned by one scenario trait. The case is usually created through
+`TablePreparation.test`, which makes the preparation, action, and assertions readable in one
+continuous block:
 
-Four ideas do all of the work.
+```scala
+preparedCoreTables.flatMap { preparation =>
+  List(
+    preparation.test("delete.byPredicate") { table =>
+      table.spark.sql(
+        s"DELETE FROM ${table.name} WHERE ${Core.long0.columnName} < 2")
 
-1. **A schema is columns only.** `CoreTable` has one column per common type plus a `datepartition` string
-   in the form `YYYY-MM-DD-HH`, while `NestedTable` and `TypesTable` cover struct and complex types and
-   type-edge coverage respectively. Each `Column[T]` carries its Scala type and a deterministic
+      assert(table.rows == table.preparedRows.filterNot(_.get(Core.long0) < 2))
+    })
+}
+```
+
+Four ideas define this structure.
+
+1. **A schema is columns only.** `CoreTable` has one column per common type plus a `datepartition`
+   string in the form `YYYY-MM-DD-HH`, while `NestedTable` and `TypesTable` cover nested structures
+   and type-edge coverage. Each `Column[T]` carries its Scala type and a deterministic
    `literalAt(rowIndex)` generator, so seeding is reproducible and schema-checked.
 
-2. **A preparation prefix and an operation suffix compose with `andThen`.** An operation — the thing under
-   test, such as a `DELETE`, a `MERGE`, or an `ADD COLUMN` — is authored headless, meaning it assumes a
-   seeded table and does not create one. The run composes a preparation before it. Because the preparation
-   and the operation are the same kind of object, you can swap the preparation without touching the
-   operation, and that is the entire trick that lets the whole DML catalog be re-run on an RTAS'd table, a
-   branch-routed table, or a table that has been through a real drop-then-undrop round trip. The operation
-   set is authored once, and the substrate set multiplies it.
+2. **A preparation is an immutable recipe.** `TableTest[S]` remains the typed pipeline used to define
+   reusable setup such as create and seed, ordered, evolved, RTAS, merge-on-read, branch, or undrop.
+   `TablePreparation[S]` gives that recipe a case label and optional post-case assertion. A preparation
+   object stores instructions, not a live table.
 
-3. **The layout axis is file format crossed with partitioning.** A `Layout` is expressed as a literal
-   `CREATE` statement. There are six base layouts — the two partitionings crossed with Parquet, ORC, and
-   Avro — plus merge-on-read variants, plus dedicated single-data-file layouts used as a physical
-   copy-on-write versus merge-on-read discriminator. On such a layout, a strict-subset delete on one data
-   file must produce a position-delete file under merge-on-read and must not produce one under
-   copy-on-write, and the harness asserts exactly that against the `.delete_files` metadata table.
+3. **Every case receives a fresh prepared table.** `TablePreparation.test` runs its recipe against a
+   unique table name, captures the prepared rows and snapshot count in `PreparedTable[S]`, executes the
+   localized case body, runs any preparation-level postcondition, and drops the table in `finally`.
+   Reusing a preparation across a family therefore preserves isolation.
 
-4. **Assertions are deltas, never absolutes.** Each step's validation thunk receives a `StepView` that
-   carries `before` and `after` row snapshots along with `snapshotsBefore` and `snapshotsAfter` commit
-   counts. Every operation asserts a change — two rows fewer, one new snapshot, this key now excluded — so
-   the identical assertion holds under any layout, any seed size, and any substrate. This is what makes a
-   single authored operation valid across the whole substrate cross.
+4. **The action and assertions stay together.** The case body issues the SQL or API call and immediately
+   asserts the resulting rows, snapshots, metadata, or error. `PreparedTable.preparedRows` and
+   `preparedSnapshotCount` support relative assertions, while `rows` and `snapshotCount` read the live
+   state. A reviewer can follow a test from setup choice through action to expected result without
+   jumping through a separate operation catalog or central assembly file.
 
 The parallel runner, `harness.Main`, runs cases on a worker pool, and each worker gets its own
-`spark.newSession()` with a separate `SQLConf`, so the session-global state that some tests mutate — such
-as `spark.wap.branch`, `spark.wap.id`, and changelog temp views — never leaks between cases. Results are
-collected and printed in the original case order, so the output is identical to a sequential run. Each
-case owns its own table through an atomic counter, so the cases are independent.
+`spark.newSession()` with a separate `SQLConf`. Session state such as `spark.wap.branch`,
+`spark.wap.id`, and changelog temp views is scoped to one worker session. Results are collected and
+printed in catalog order. Fresh table names and per-case teardown keep table state isolated.
 
 Known product bugs are tagged rather than skipped into silence. `Plan.knownBugs` maps a case-id substring
 to a reason, and a matching case is reported as `SKIP (bug: …)`. This is how a genuine defect is deferred
@@ -131,9 +134,9 @@ not affect the package. Open the file whose concern matches what you are after.
 
 | File | What it holds |
 |---|---|
-| `Framework.scala` | This file holds the DSL and the plumbing: `Ctx`, the REST and `HtsAdmin` clients, `Outcome` and `Check`, the `Column`/`Schema`/`Rows` vocabulary, the three tables, `RowGenerator`, `StepView` and `Step`, and `TableTest` itself. Read it first to learn the vocabulary. |
-| `ScenarioKit.scala` | This is the shared kit that every test group builds on. It holds `Layout` and the layout lists, all of the `createAndSeed*` preparations, the format-multiplex hooks (`seedFmt` and `withSeedFmt`), and the cross-cutting helpers. Every `*Scenarios` trait extends it, and any helper used by more than one trait belongs here. |
-| `DmlScenarios.scala` | This is the core DML surface. It holds the read, delete, update, merge, and insert/append/overwrite operation catalog; the `operations`, `partitionedOperations`, and `mutationOperations` lists; the DDL-by-consumer battery; the ADD COLUMN family; and the physical copy-on-write versus merge-on-read discriminator. |
+| `Framework.scala` | This file holds the DSL and plumbing: `Ctx`, the REST and `HtsAdmin` clients, `Outcome` and `Check`, the typed schema vocabulary, `TableTest` preparation pipelines, `TablePreparation`, and `PreparedTable`. Read it first to learn the lifecycle. |
+| `ScenarioKit.scala` | This is the shared kit that every test group builds on. It holds `Layout`, reusable preparation collections, the format-multiplex hooks used by context-only cases, and cross-cutting helpers. Every `*Scenarios` trait extends it. |
+| `DmlScenarios.scala` | This is the core DML surface. It owns localized read, delete, update, merge, insert, append, overwrite, DDL-consumer, schema-DDL, and copy-on-write versus merge-on-read discriminator cases. |
 | `NestedTypesScenarios.scala` | This holds nested and complex-type coverage, type-edge coverage, and partition transforms together with partition-evolution rejections. |
 | `MorMaintScenarios.scala` | This holds merge-on-read delete-file coexistence (operations on a table that already carries a live position delete), merge-on-read maintenance folds, merge-on-read modality hazards, and merge-on-read crossed with branch merge. |
 | `MaintControlScenarios.scala` | This holds time travel, restore and rollback, the maintenance procedures such as `expire_snapshots` and `rewrite_data_files`, the REST control-plane operations for lock and unlock, and the undrop admin lifecycle. |
@@ -143,7 +146,7 @@ not affect the package. Open the file whose concern matches what you are after.
 | `InteractionScenarios.scala` | This holds the three-way compositions where the interesting behavior lives: DDL crossed with history, RTAS crossed with history, lineage, and property-merge, branch crossed with history and maintenance, and the composite branch-expiration-merge defect. |
 | `SurfaceScenarios.scala` | This holds surface completion: the error-message readability guard, branch leaks, WAP negatives, streaming and CDC, procedures, metadata tables, concurrency invariants, schema-evolution edges, write-path configs, and expected-unsupported pins. |
 | `HazardReaderWriterScenarios.scala` | This holds the hazard and modality interactions (expired checkpoints, RTAS wiping tags, rename breaking consumers) and the reader-by-writer-class battery (changelog, incremental, and streaming over both copy-on-write and merge-on-read). |
-| `Plan.scala` | This is the assembly. `object Plan` is where substrates crossed with operations become the actual `Case` list, where `crossFmt` doubles a block across Parquet and ORC, and where `knownBugs` lives. If you want to know what actually runs, read `Plan.cases`. |
+| `Plan.scala` | This is the ordered index. `object Plan` concatenates scenario-owned case lists and holds `knownBugs`. It contains no test behavior or matrix construction. |
 | `OpenHouseMatrix.scala` | This mixes the domain traits into `object Scenarios`. The `extends` clause here is the authoritative order in which the traits' `val`s initialize, as explained in section 6. |
 | `Env.scala` | This handles boot and run: the embedded OpenHouse server wiring in `OpenHouseEnv`, the embedded real HTS in `HtsEnv` and `HtsBootApp`, the retrying `Runner`, and `Main`. |
 
@@ -151,16 +154,17 @@ not affect the package. Open the file whose concern matches what you are after.
 
 ## 5. The axes, and why the honest target is well below the naive product
 
-You can think of the suite as substrates crossed with operations crossed with consumers.
+You can think of the suite as preparations crossed with localized behaviors and consumers.
 
-- The operations are the DML catalog (authored once as explicit literals in `DmlScenarios.operations`),
-  together with the DDL operations and the procedures.
-- The substrates are the preparations — plain create-and-seed, RTAS'd (replace-lineage), branch-routed
-  through `spark.wap.branch`, restored-from-drop on the real HTS, schema-evolved, sort-ordered, and
-  merge-on-read — and each of them multiplies the operation catalog.
-- The consumers answer a question: after a state-changing DDL, does each reader — plain scan, time
-  travel, changelog, incremental, and streaming — still work?
-- File format is a per-case parameter, described below, so blocks double across Parquet and ORC for free.
+- The scenario traits define the behaviors: DML, DDL, procedures, branch operations, streaming, and
+  feature interactions.
+- The preparation collections define the starting states: plain create and seed, RTAS replace lineage,
+  branch routed through `spark.wap.branch`, restored from drop on the real HTS, schema evolved, sort
+  ordered, and merge-on-read.
+- Each family constructs one local case body per applicable preparation. The body contains the action
+  and assertions for that exact combination.
+- The consumers answer a question: after a state-changing DDL, does each reader, such as a plain scan,
+  time travel, changelog, incremental, or streaming read, still work?
 
 The naive product is much larger than what actually runs, because a large fraction of the cells would be
 vacuous, and the harness refuses to inflate its count with them. Three arguments carry most of that
@@ -179,14 +183,11 @@ section explains.
 
 ### Format multiplex, and why "format-inert" is a hypothesis rather than an assumption
 
-Every table-creating block reads a per-case thread-local seed format, `seedFmt`, and `Plan.crossFmt` wraps
-a block so that it runs once per format in `dataFormats` (Parquet and ORC), setting `seedFmt` around each
-case. The mechanism is safe because cases run sequentially per worker. The point is a philosophical one:
-you do not bake a file format into a test. Whether a behavior is format-independent is something this
-harness verifies rather than assumes, because the fork carries patched ORC paths and the replace-path
-findings showed metadata surprises. Only table-less operations, which issue no `CREATE`, have no format
-axis. This is why the summary above says there is no divergence between ORC and Parquet: that is a checked
-result, not a design assumption.
+Most table-creating families iterate a preparation collection whose labels and `CREATE TABLE` recipes
+already carry the format. Context-only families either create a fixed Parquet table when encoding is
+irrelevant or construct one explicit case per selected format. Whether a behavior is format-independent
+is something the harness verifies rather than assumes, because the fork carries patched ORC paths and
+replace-path findings have exposed metadata differences. Only table-less operations have no format axis.
 
 ---
 
@@ -274,8 +275,8 @@ The second group is behavior and limitation findings.
 
 - **G13 is that CDC changelog is unsupported over a merge-on-read table after an UPDATE or MERGE**, which
   fails with "Delete files are currently not supported in changelog scans". Merge-on-read delete-only and
-  all copy-on-write cases work, but merge-on-read update and merge — the shapes a merge-on-read table
-  exists to optimize — break CDC silently. This is a stock Iceberg 1.5 limitation, and it is demonstrated
+  all copy-on-write cases work, but merge-on-read update and merge, the shapes a merge-on-read table
+  exists to optimize, break CDC silently. This is a stock Iceberg 1.5 limitation, and it is demonstrated
   by `readerWriter.changelog.{update,merge}.mor`.
 - **G14 is that `rewrite_data_files` leaves a dangling position delete on a merge-on-read table.**
   Compaction applies the delete, so the row set is correct, but it does not fold out the now-dangling
@@ -300,10 +301,10 @@ Finally, the tagged and deferred defects are the ones that appear in `Plan.known
 silent no-op (a genuine OpenHouse regression traced to server commit #558), and encryption that writes
 plaintext because the KMS plugin is out of the repository.
 
-> The exhaustive ledgers behind this section — the findings with code citations, the fork-commit audit,
-> the tagged-defect ledger, and the dated run log — live alongside the harness in the pull request that
-> developed it, and not necessarily in this tree. You do not need them to grok the tests, so reach for
-> them only when you want the evidence behind a specific claim made here.
+> The exhaustive ledgers behind this section include the findings with code citations, the fork-commit
+> audit, the tagged-defect ledger, and the dated run log. They live alongside the harness in the pull
+> request that developed it, and not necessarily in this tree. You do not need them to grok the tests,
+> so reach for them only when you want the evidence behind a specific claim made here.
 
 ---
 
@@ -328,8 +329,8 @@ overclaim. `#251` backports column defaults to the API and core, but there is no
 no Spark wiring in the open fork, because `SparkTable` does not implement `SupportsColumnDefaultValue`. As
 a result, over OSS Spark, `ADD COLUMN … DEFAULT 5` parses, but the default is not written into the Iceberg
 schema, old rows read NULL, and an INSERT that omits the column is rejected. The serialization does round
-trip on a branch build. The harness pins exactly that — the observable OSS-Spark DDL behavior and the
-serialization — and it explicitly does not claim the feature is broken, because read-application may exist
+trip on a branch build. The harness pins exactly that: the observable OSS-Spark DDL behavior and the
+serialization. It explicitly does not claim the feature is broken, because read-application may exist
 in LinkedIn's private Spark, which this harness cannot see. A whole-suite branch-versus-release run,
 performed through `ICEBERG_RUNTIME_JAR`, showed no correctness deltas.
 
@@ -337,16 +338,18 @@ performed through `ICEBERG_RUNTIME_JAR`, showed no correctness deltas.
 
 ## 9. Adding a test
 
-Adding a test follows a short recipe. First, pick the schema, which is `CoreTable` unless you need nesting
-or type edges. Second, author the operation headless, as a `TableTest` step that assumes a seeded table
-and asserts a delta through its `StepView`, using `view.before` and `view.after`, `snapshotsBefore` and
-`snapshotsAfter`, and the metadata tables such as `.delete_files` and `.snapshots`. Third, put it in the
-trait whose concern matches, as described in section 4, and if it needs a helper used by another trait,
-add that helper to `ScenarioKit`. Fourth, wire it into `Plan` by adding it to the relevant list, and use
-`crossFmt(...)` if it creates a table, so that it runs on both Parquet and ORC; do not bake a single
-format into it. Fifth, if it exercises a real product bug that you are deferring, tag it in
-`Plan.knownBugs` with a reason, and never let it pass or skip silently. Finally, run the slice and then the
-full gate, and confirm that the count moved by what you expect and that nothing else regressed.
+Adding a test follows a short recipe. First, pick the schema, which is `CoreTable` unless the behavior
+needs nested or type-edge columns. Second, select or add the smallest reusable preparation that produces
+the required starting state. Third, add a `preparation.test("caseName") { table => ... }` body in the
+scenario trait whose concern matches. Keep the action and every assertion in that body. Use
+`table.preparedRows` and `table.preparedSnapshotCount` for the starting state, and use `table.rows`,
+`table.snapshotCount`, and metadata queries for the result.
+
+Construct the family across each applicable preparation or format in the scenario trait, then add the
+scenario-owned case list to `Plan.cases` in the intended catalog position. If the case characterizes a
+deferred product bug, tag it in `Plan.knownBugs` with a reason. Run the catalog regression test to verify
+the intended count and ordering change, run the narrow local slice, and then run the broader validation
+gate.
 
 ---
 
