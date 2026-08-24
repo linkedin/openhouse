@@ -205,14 +205,8 @@ public class UserTablesServiceImpl implements UserTablesService {
       // Use fromDatabaseId for destination db to preserve the original case of the database
       // TODO: Use toDataBaseId for destination instead of fromDatabaseId once rename across
       // databases is supported
-      // The constant stays bound at the repository call: a table rename must not move a view.
       if (htsJdbcRepository.renameTableId(
-              fromDatabaseId,
-              fromTableId,
-              fromDatabaseId,
-              toTableId,
-              metadataLocation,
-              EntityType.TABLE)
+              fromDatabaseId, fromTableId, fromDatabaseId, toTableId, metadataLocation)
           == 0) {
         throw new NoSuchUserTableException(fromDatabaseId, fromTableId);
       }

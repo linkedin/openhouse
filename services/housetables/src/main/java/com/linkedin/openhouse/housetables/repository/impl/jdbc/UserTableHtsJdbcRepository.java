@@ -303,8 +303,7 @@ public interface UserTableHtsJdbcRepository
 
   /**
    * Table-only: views are not renameable, so there is deliberately no {@code renameViewId}. The
-   * stamped type is a bound parameter rather than an inlined literal because converter routing is
-   * version dependent, and it keeps one caller deciding which entity a route operates on.
+   * stamped type is fully qualified because HQL resolves it as a literal, not as an imported name.
    */
   @Transactional
   @Modifying(flushAutomatically = true, clearAutomatically = true)
@@ -313,7 +312,7 @@ public interface UserTableHtsJdbcRepository
           + "u.tableId = :toTableId, "
           + "u.metadataLocation = :metadataLocation, "
           + "u.databaseId = :toDatabaseId, "
-          + "u.entityType = :entityType "
+          + "u.entityType = com.linkedin.openhouse.housetables.model.EntityType.TABLE "
           + "WHERE lower(u.databaseId) = lower(:fromDatabaseId) "
           + "AND lower(u.tableId) = lower(:fromTableId) AND "
           + TABLE_ROW_PREDICATE)
@@ -322,6 +321,5 @@ public interface UserTableHtsJdbcRepository
       @Param("fromTableId") String fromTableId,
       @Param("toDatabaseId") String toDatabaseId,
       @Param("toTableId") String toTableId,
-      @Param("metadataLocation") String metadataLocation,
-      @Param("entityType") EntityType entityType);
+      @Param("metadataLocation") String metadataLocation);
 }

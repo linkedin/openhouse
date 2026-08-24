@@ -323,8 +323,7 @@ public class HtsRepositoryTest {
         TEST_TUPLE_1_1.getTableId(),
         TEST_TUPLE_1_1.getDatabaseId(),
         TEST_TUPLE_1_1.getTableId() + "_renamed",
-        newTableMetadata,
-        EntityType.TABLE);
+        newTableMetadata);
 
     UserTableRow result =
         htsRepository
@@ -372,8 +371,7 @@ public class HtsRepositoryTest {
         TEST_TUPLE_1_1.getTableId(),
         TEST_TUPLE_1_1.getDatabaseId().toUpperCase(),
         renamedUpperCaseTableId,
-        TEST_TUPLE_1_1.getTableLoc(),
-        EntityType.TABLE);
+        TEST_TUPLE_1_1.getTableLoc());
 
     // Try fetching with lower case ID, should still work
     UserTableRow result =
@@ -1038,8 +1036,7 @@ public class HtsRepositoryTest {
                 "corrupt_row",
                 CASE_DB,
                 "corrupt_row_renamed",
-                "/openhouse/entity_type_case_db/corrupt_row_renamed/v1_metadata.json",
-                EntityType.TABLE))
+                "/openhouse/entity_type_case_db/corrupt_row_renamed/v1_metadata.json"))
         .isEqualTo(0);
 
     assertThat(readRawEntityType(CASE_DB, "corrupt_row")).isEqualTo("UNKNOWN");
@@ -1088,8 +1085,7 @@ public class HtsRepositoryTest {
                 "rename_view_src",
                 ENTITY_TYPE_DB,
                 "rename_view_dst",
-                "/openhouse/entity_type_db/rename_view_dst/v1_metadata.json",
-                EntityType.TABLE))
+                "/openhouse/entity_type_db/rename_view_dst/v1_metadata.json"))
         .isEqualTo(0);
 
     assertThat(htsRepository.existsById(key(ENTITY_TYPE_DB, "rename_view_dst"))).isFalse();
@@ -1108,8 +1104,7 @@ public class HtsRepositoryTest {
                 "rename_absent_src",
                 ENTITY_TYPE_DB,
                 "rename_absent_dst",
-                "/openhouse/entity_type_db/rename_absent_dst/v1_metadata.json",
-                EntityType.TABLE))
+                "/openhouse/entity_type_db/rename_absent_dst/v1_metadata.json"))
         .isEqualTo(0);
     assertThat(htsRepository.existsById(key(ENTITY_TYPE_DB, "rename_absent_dst"))).isFalse();
   }
@@ -1129,8 +1124,7 @@ public class HtsRepositoryTest {
                 "rename_legacy_src",
                 ENTITY_TYPE_DB,
                 "rename_legacy_dst",
-                "/openhouse/entity_type_db/rename_legacy_dst/v1_metadata.json",
-                EntityType.TABLE))
+                "/openhouse/entity_type_db/rename_legacy_dst/v1_metadata.json"))
         .isEqualTo(1);
 
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "rename_legacy_dst")).isEqualTo("TABLE");
@@ -1150,8 +1144,7 @@ public class HtsRepositoryTest {
                 "rename_mixed_src",
                 ENTITY_TYPE_DB,
                 "rename_mixed_dst",
-                "/openhouse/entity_type_db/rename_mixed_dst/v1_metadata.json",
-                EntityType.TABLE))
+                "/openhouse/entity_type_db/rename_mixed_dst/v1_metadata.json"))
         .isEqualTo(1);
 
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "rename_mixed_dst")).isEqualTo("TABLE");
@@ -1177,8 +1170,7 @@ public class HtsRepositoryTest {
                     "rename_src",
                     ENTITY_TYPE_DB,
                     "rename_dst_view",
-                    "/openhouse/entity_type_db/rename_dst_view/v1_metadata.json",
-                    EntityType.TABLE))
+                    "/openhouse/entity_type_db/rename_dst_view/v1_metadata.json"))
         .isInstanceOf(DataIntegrityViolationException.class);
 
     assertThatThrownBy(
@@ -1188,8 +1180,7 @@ public class HtsRepositoryTest {
                     "rename_src",
                     ENTITY_TYPE_DB,
                     "rename_dst_corrupt",
-                    "/openhouse/entity_type_db/rename_dst_corrupt/v1_metadata.json",
-                    EntityType.TABLE))
+                    "/openhouse/entity_type_db/rename_dst_corrupt/v1_metadata.json"))
         .isInstanceOf(DataIntegrityViolationException.class);
 
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "rename_src")).isEqualTo("TABLE");
