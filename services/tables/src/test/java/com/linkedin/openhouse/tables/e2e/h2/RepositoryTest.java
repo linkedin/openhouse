@@ -9,10 +9,15 @@ import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
+import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.History;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.PolicyTag;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.model.TableDto;
@@ -25,6 +30,7 @@ import com.linkedin.openhouse.tables.repository.impl.InternalRepositoryUtils;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -50,6 +56,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.util.AopTestUtils;
 
 @SpringBootTest
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
@@ -153,6 +160,359 @@ public class RepositoryTest {
             .build();
     openHouseInternalRepository.deleteById(primaryKey);
     Assertions.assertFalse(openHouseInternalRepository.existsById(primaryKey));
+  }
+
+  @Test
+  public void testReplaceMergesExistingPolicies() {
+    // Create a table with a retention policy and RTAS enabled.
+    Map<String, String> props = new HashMap<>();
+    props.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    TableDto createDto =
+        TABLE_DTO
+            .toBuilder()
+            .tableId("tblReplaceMergesPolicies")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .tableProperties(props)
+            .policies(TABLE_POLICIES_COMPLEX)
+            .build();
+    TableDto createdDto = openHouseInternalRepository.save(createDto);
+    Assertions.assertNotNull(createdDto.getPolicies());
+    Assertions.assertNotNull(createdDto.getPolicies().getRetention());
+
+    // CREATE OR REPLACE (RTAS) the table WITHOUT specifying policies.
+    TableDto replaceDto =
+        createdDto
+            .toBuilder()
+            .tableVersion(createdDto.getTableLocation())
+            .policies(null)
+            .replaceCommit(true)
+            .build();
+    TableDto replacedDto = openHouseInternalRepository.save(replaceDto);
+
+    // Policies must be carried forward (merged), not silently wiped.
+    Assertions.assertNotNull(replacedDto.getPolicies(), "RTAS wiped the policies plane");
+    Assertions.assertNotNull(
+        replacedDto.getPolicies().getRetention(), "RTAS dropped the retention policy");
+    Assertions.assertEquals(
+        createdDto.getPolicies().getRetention().getCount(),
+        replacedDto.getPolicies().getRetention().getCount(),
+        "RTAS changed the retention policy");
+
+    // Cleanup
+    TableDtoPrimaryKey replacePk =
+        TableDtoPrimaryKey.builder()
+            .tableId("tblReplaceMergesPolicies")
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .build();
+    openHouseInternalRepository.deleteById(replacePk);
+    Assertions.assertFalse(openHouseInternalRepository.existsById(replacePk));
+  }
+
+  @Test
+  public void testReplaceAppliesRequestedPolicies() {
+    // Create a table with a retention policy (count=3) and RTAS enabled.
+    Map<String, String> props = new HashMap<>();
+    props.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    TableDto createDto =
+        TABLE_DTO
+            .toBuilder()
+            .tableId("tblReplaceAppliesPolicies")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .tableProperties(props)
+            .policies(
+                Policies.builder()
+                    .retention(
+                        Retention.builder()
+                            .count(3)
+                            .granularity(TimePartitionSpec.Granularity.HOUR)
+                            .build())
+                    .build())
+            .build();
+    TableDto createdDto = openHouseInternalRepository.save(createDto);
+    Assertions.assertEquals(3, createdDto.getPolicies().getRetention().getCount());
+
+    // RTAS that PROVIDES a new retention policy -> the request's policy must be applied.
+    TableDto replaceDto =
+        createdDto
+            .toBuilder()
+            .tableVersion(createdDto.getTableLocation())
+            .policies(
+                Policies.builder()
+                    .retention(
+                        Retention.builder()
+                            .count(8)
+                            .granularity(TimePartitionSpec.Granularity.HOUR)
+                            .build())
+                    .build())
+            .replaceCommit(true)
+            .build();
+    TableDto replacedDto = openHouseInternalRepository.save(replaceDto);
+
+    Assertions.assertEquals(
+        8,
+        replacedDto.getPolicies().getRetention().getCount(),
+        "RTAS should apply the retention policy provided on the request");
+
+    // Cleanup
+    TableDtoPrimaryKey appliesPk =
+        TableDtoPrimaryKey.builder()
+            .tableId("tblReplaceAppliesPolicies")
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .build();
+    openHouseInternalRepository.deleteById(appliesPk);
+    Assertions.assertFalse(openHouseInternalRepository.existsById(appliesPk));
+  }
+
+  @Test
+  public void testReplaceWithPartialPoliciesPreservesSharing() {
+    // Create a table with sharing enabled AND a retention policy, RTAS enabled.
+    Map<String, String> props = new HashMap<>();
+    props.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    TableDto createDto =
+        TABLE_DTO
+            .toBuilder()
+            .tableId("tblReplacePreservesSharing")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .tableProperties(props)
+            .policies(
+                Policies.builder()
+                    .sharingEnabled(true)
+                    .retention(
+                        Retention.builder()
+                            .count(3)
+                            .granularity(TimePartitionSpec.Granularity.HOUR)
+                            .build())
+                    .build())
+            .build();
+    TableDto createdDto = openHouseInternalRepository.save(createDto);
+    Assertions.assertTrue(createdDto.getPolicies().isSharingEnabled());
+
+    // RTAS with a PARTIAL policies payload (retention only, sharing omitted). sharingEnabled is a
+    // primitive boolean, so an omitted value is indistinguishable from false; the merge must carry
+    // the existing table's sharing forward rather than silently disable it.
+    TableDto replaceDto =
+        createdDto
+            .toBuilder()
+            .tableVersion(createdDto.getTableLocation())
+            .policies(
+                Policies.builder()
+                    .retention(
+                        Retention.builder()
+                            .count(8)
+                            .granularity(TimePartitionSpec.Granularity.HOUR)
+                            .build())
+                    .build())
+            .replaceCommit(true)
+            .build();
+    TableDto replacedDto = openHouseInternalRepository.save(replaceDto);
+
+    Assertions.assertTrue(
+        replacedDto.getPolicies().isSharingEnabled(),
+        "RTAS with a partial policies payload disabled sharing (expected it to be preserved)");
+    Assertions.assertEquals(
+        8,
+        replacedDto.getPolicies().getRetention().getCount(),
+        "RTAS should apply the retention policy provided on the request");
+
+    // Cleanup
+    TableDtoPrimaryKey pk =
+        TableDtoPrimaryKey.builder()
+            .tableId("tblReplacePreservesSharing")
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .build();
+    openHouseInternalRepository.deleteById(pk);
+    Assertions.assertFalse(openHouseInternalRepository.existsById(pk));
+  }
+
+  @Test
+  public void testReplaceWithPartialPoliciesPreservesOmittedPlanes() {
+    // Create a table with BOTH a retention and a history policy, RTAS enabled.
+    Map<String, String> props = new HashMap<>();
+    props.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    TableDto createDto =
+        TABLE_DTO
+            .toBuilder()
+            .tableId("tblReplacePreservesOmittedPlanes")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .tableProperties(props)
+            .policies(
+                Policies.builder()
+                    .retention(
+                        Retention.builder()
+                            .count(3)
+                            .granularity(TimePartitionSpec.Granularity.HOUR)
+                            .build())
+                    .history(
+                        History.builder()
+                            .maxAge(24)
+                            .granularity(TimePartitionSpec.Granularity.HOUR)
+                            .build())
+                    .build())
+            .build();
+    TableDto createdDto = openHouseInternalRepository.save(createDto);
+    Assertions.assertEquals(24, createdDto.getPolicies().getHistory().getMaxAge());
+
+    // RTAS that overrides ONLY retention. The omitted history plane must be carried forward.
+    TableDto replaceDto =
+        createdDto
+            .toBuilder()
+            .tableVersion(createdDto.getTableLocation())
+            .policies(
+                Policies.builder()
+                    .retention(
+                        Retention.builder()
+                            .count(8)
+                            .granularity(TimePartitionSpec.Granularity.HOUR)
+                            .build())
+                    .build())
+            .replaceCommit(true)
+            .build();
+    TableDto replacedDto = openHouseInternalRepository.save(replaceDto);
+
+    Assertions.assertEquals(
+        8,
+        replacedDto.getPolicies().getRetention().getCount(),
+        "RTAS should apply the retention policy provided on the request");
+    Assertions.assertNotNull(
+        replacedDto.getPolicies().getHistory(),
+        "RTAS dropped the omitted history plane (expected it to be carried forward)");
+    Assertions.assertEquals(
+        24,
+        replacedDto.getPolicies().getHistory().getMaxAge(),
+        "RTAS changed the carried-forward history policy");
+
+    // Cleanup
+    TableDtoPrimaryKey pk =
+        TableDtoPrimaryKey.builder()
+            .tableId("tblReplacePreservesOmittedPlanes")
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .build();
+    openHouseInternalRepository.deleteById(pk);
+    Assertions.assertFalse(openHouseInternalRepository.existsById(pk));
+  }
+
+  @Test
+  public void testReplaceOverwritesColumnTags() {
+    // Create a table whose only policy is a column tag on col1, RTAS enabled.
+    Map<String, String> props = new HashMap<>();
+    props.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    TableDto createDto =
+        TABLE_DTO
+            .toBuilder()
+            .tableId("tblReplaceOverwritesColumnTags")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .tableProperties(props)
+            .policies(
+                Policies.builder()
+                    .columnTags(
+                        Collections.singletonMap(
+                            "col1",
+                            PolicyTag.builder()
+                                .tags(Collections.singleton(PolicyTag.Tag.PII))
+                                .build()))
+                    .build())
+            .build();
+    TableDto createdDto = openHouseInternalRepository.save(createDto);
+    Assertions.assertTrue(createdDto.getPolicies().getColumnTags().containsKey("col1"));
+
+    // RTAS that provides a NON-EMPTY column-tags map. Column tags use overwrite semantics: the
+    // request's map replaces the existing map wholesale, so col1's tag is dropped and only col2's
+    // is present.
+    TableDto replaceDto =
+        createdDto
+            .toBuilder()
+            .tableVersion(createdDto.getTableLocation())
+            .policies(
+                Policies.builder()
+                    .columnTags(
+                        Collections.singletonMap(
+                            "col2",
+                            PolicyTag.builder()
+                                .tags(Collections.singleton(PolicyTag.Tag.HC))
+                                .build()))
+                    .build())
+            .replaceCommit(true)
+            .build();
+    TableDto replacedDto = openHouseInternalRepository.save(replaceDto);
+
+    Assertions.assertTrue(
+        replacedDto.getPolicies().getColumnTags().containsKey("col2"),
+        "RTAS should apply the column tags provided on the request");
+    Assertions.assertFalse(
+        replacedDto.getPolicies().getColumnTags().containsKey("col1"),
+        "column tags use overwrite semantics: the request's map should replace the existing map "
+            + "wholesale, dropping col1");
+
+    // Cleanup
+    TableDtoPrimaryKey pk =
+        TableDtoPrimaryKey.builder()
+            .tableId("tblReplaceOverwritesColumnTags")
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .build();
+    openHouseInternalRepository.deleteById(pk);
+    Assertions.assertFalse(openHouseInternalRepository.existsById(pk));
+  }
+
+  @Test
+  public void testReplaceWithPartialPoliciesPreservesColumnTags() {
+    // Create a table whose only policy is a column tag on col1, RTAS enabled.
+    Map<String, String> props = new HashMap<>();
+    props.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    TableDto createDto =
+        TABLE_DTO
+            .toBuilder()
+            .tableId("tblReplacePreservesColumnTags")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .tableProperties(props)
+            .policies(
+                Policies.builder()
+                    .columnTags(
+                        Collections.singletonMap(
+                            "col1",
+                            PolicyTag.builder()
+                                .tags(Collections.singleton(PolicyTag.Tag.PII))
+                                .build()))
+                    .build())
+            .build();
+    TableDto createdDto = openHouseInternalRepository.save(createDto);
+    Assertions.assertTrue(createdDto.getPolicies().getColumnTags().containsKey("col1"));
+
+    // RTAS with a non-empty policies payload that provides retention but omits column tags. Because
+    // column tags treat an absent or empty map the same as "not provided," the existing tags must
+    // be carried forward rather than wiped.
+    TableDto replaceDto =
+        createdDto
+            .toBuilder()
+            .tableVersion(createdDto.getTableLocation())
+            .policies(
+                Policies.builder()
+                    .retention(
+                        Retention.builder()
+                            .count(8)
+                            .granularity(TimePartitionSpec.Granularity.HOUR)
+                            .build())
+                    .build())
+            .replaceCommit(true)
+            .build();
+    TableDto replacedDto = openHouseInternalRepository.save(replaceDto);
+
+    Assertions.assertEquals(
+        8,
+        replacedDto.getPolicies().getRetention().getCount(),
+        "RTAS should apply the retention policy provided on the request");
+    Assertions.assertTrue(
+        replacedDto.getPolicies().getColumnTags().containsKey("col1"),
+        "RTAS with a partial policies payload dropped the existing column tags (expected them to be "
+            + "carried forward)");
+
+    // Cleanup
+    TableDtoPrimaryKey pk =
+        TableDtoPrimaryKey.builder()
+            .tableId("tblReplacePreservesColumnTags")
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .build();
+    openHouseInternalRepository.deleteById(pk);
+    Assertions.assertFalse(openHouseInternalRepository.existsById(pk));
   }
 
   @Test
@@ -897,9 +1257,15 @@ public class RepositoryTest {
             .tableProperties(userPropsWithFormat)
             .build();
 
+    PreservedKeyChecker targetPreservedKeyChecker =
+        AopTestUtils.getUltimateTargetObject(preservedKeyChecker);
+
     // Mock the preservedKeyChecker to simulate toggle disabled (don't allow user override)
+    Mockito.doReturn(true)
+        .when(targetPreservedKeyChecker)
+        .isKeyPreservedForTable(Mockito.eq(TableProperties.DEFAULT_FILE_FORMAT), Mockito.any());
     Mockito.doReturn(false)
-        .when(preservedKeyChecker)
+        .when(targetPreservedKeyChecker)
         .allowKeyInCreation(Mockito.eq(TableProperties.DEFAULT_FILE_FORMAT), Mockito.any());
 
     TableDto createdDto1 = openHouseInternalRepository.save(tableDto1);
@@ -920,9 +1286,9 @@ public class RepositoryTest {
             .build();
 
     // Mock the preservedKeyChecker to simulate toggle enabled (allow user override)
-    Mockito.doReturn(true)
-        .when(preservedKeyChecker)
-        .allowKeyInCreation(Mockito.eq(TableProperties.DEFAULT_FILE_FORMAT), Mockito.any());
+    Mockito.doReturn(false)
+        .when(targetPreservedKeyChecker)
+        .isKeyPreservedForTable(Mockito.eq(TableProperties.DEFAULT_FILE_FORMAT), Mockito.any());
 
     TableDto createdDto2 = openHouseInternalRepository.save(tableDto2);
 
