@@ -1,5 +1,9 @@
 certifi==2022.6.15
 charset-normalizer==2.1.1
 idna==3.3
+# Used by hts_integration_test.py to plant and inspect rows that the REST API
+# cannot express, such as a legacy NULL entity_type discriminator. Tests that
+# need it skip cleanly when no database is reachable.
+PyMySQL==1.1.1
 requests==2.28.1
 urllib3==1.26.12
