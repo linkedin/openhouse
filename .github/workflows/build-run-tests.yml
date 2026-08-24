@@ -23,11 +23,28 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew clean build
 
+      # The MySQL-backed variant of oh-only. It costs one extra container and lets the
+      # House Tables tests below reach the database directly, which is the only way to
+      # cover a legacy NULL entity_type and to read the column back after a restore.
       - name: Start Docker Containers
-        run: docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml up -d --build
+        run: docker compose -f infra/recipes/docker-compose/oh-only-mysql/docker-compose.yml up -d --build
 
-      - name: Wait for Docker Containers to start
-        run: sleep 30
+      - name: Wait for Docker Containers to be ready
+        run: |
+          echo "Waiting for openhouse-tables and openhouse-housetables..."
+          for i in $(seq 1 60); do
+            tables_status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/v1/databases 2>&1 || echo "000")
+            hts_status=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8001/hts/tables/query" 2>&1 || echo "000")
+            echo "Poll $i: tables=$tables_status hts=$hts_status"
+            if [ "$tables_status" != "000" ] && [ "$hts_status" = "200" ]; then
+              echo "Services ready after $((i * 5))s"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for services after 300s"
+          docker compose -f infra/recipes/docker-compose/oh-only-mysql/docker-compose.yml ps
+          exit 1
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -40,5 +57,18 @@ jobs:
       - name: Run Integration Tests
         run: python scripts/python/integration_test.py ./tables-test-fixtures/tables-test-fixtures-iceberg-1.2/src/main/resources/dummy.token
 
+      # HouseTables is unauthenticated, so this step takes no token argument. The database
+      # settings match the recipe's mysql service; the readiness poll above already proves
+      # HouseTables reached it, since /hts/tables/query is served from the database.
+      - name: Run HouseTables Integration Tests
+        env:
+          HTS_DB_HOST: 127.0.0.1
+          HTS_DB_PORT: 3306
+          HTS_DB_USER: oh_user
+          HTS_DB_PASSWORD: oh_password
+          HTS_DB_NAME: oh_db
+        run: python scripts/python/hts_integration_test.py http://localhost:8001
+
       - name: Stop Docker Containers
-        run: docker compose -f infra/recipes/docker-compose/oh-only/docker-compose.yml down
+        if: always()
+        run: docker compose -f infra/recipes/docker-compose/oh-only-mysql/docker-compose.yml down
