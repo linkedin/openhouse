@@ -2,8 +2,11 @@ package com.linkedin.openhouse.tables.readbridge;
 
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
+import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -14,30 +17,13 @@ import org.junit.jupiter.api.Test;
 
 public class ReadBridgeStripProtectionTest {
 
-  private static final String SCHEMA_WITH_DEFAULT =
-      "{\"type\":\"struct\",\"fields\":["
-          + "{\"id\":1,\"required\":false,\"name\":\"id\",\"type\":\"int\"},"
-          + "{\"id\":2,\"required\":false,\"name\":\"country\",\"type\":\"string\","
-          + "\"initial-default\":\"US\"}]}";
-  private static final String SCHEMA_WITH_DUMMY_DEFAULT =
-      "{\"type\":\"struct\",\"fields\":["
-          + "{\"id\":1,\"required\":false,\"name\":\"id\",\"type\":\"int\"},"
-          + "{\"id\":2,\"required\":false,\"name\":\"country\",\"type\":\"string\","
-          + "\"initial-default\":\"x\"}]}";
-  private static final String SCHEMA_WITHOUT_DEFAULT =
-      "{\"type\":\"struct\",\"fields\":["
-          + "{\"id\":1,\"required\":false,\"name\":\"id\",\"type\":\"int\"},"
-          + "{\"id\":2,\"required\":false,\"name\":\"country\",\"type\":\"string\"}]}";
-  private static final String SCHEMA_WITHOUT_COUNTRY =
-      "{\"type\":\"struct\",\"fields\":["
-          + "{\"id\":1,\"required\":false,\"name\":\"id\",\"type\":\"int\"}]}";
-  private static final String NESTED_WITH_DEFAULT =
-      "{\"type\":\"struct\",\"fields\":["
-          + "{\"id\":1,\"required\":false,\"name\":\"id\",\"type\":\"int\"},"
-          + "{\"id\":2,\"required\":false,\"name\":\"addr\",\"type\":{"
-          + "\"type\":\"struct\",\"fields\":["
-          + "{\"id\":10,\"required\":false,\"name\":\"country\",\"type\":\"string\","
-          + "\"initial-default\":\"US\"}]}}]}";
+  private static final String SCHEMA_WITH_DEFAULT = schema("schema_with_default.json");
+  private static final String SCHEMA_WITH_DUMMY_DEFAULT = schema("schema_with_dummy_default.json");
+  private static final String SCHEMA_WITHOUT_DEFAULT = schema("schema_without_default.json");
+  private static final String SCHEMA_WITHOUT_COUNTRY = schema("schema_without_country.json");
+  private static final String NESTED_WITH_DEFAULT = schema("schema_nested_with_default.json");
+  private static final String SCHEMA_UNSTAMPED_WRITER_DEFAULTS =
+      schema("schema_unstamped_writer_defaults.json");
 
   private static final String ENABLED_PROP =
       ReadBridgeConfigResolver.COLUMN_DEFAULT_FEATURE_ID
@@ -212,14 +198,8 @@ public class ReadBridgeStripProtectionTest {
 
   @Test
   public void unstampedWriterDefault_stripped() {
-    String schema =
-        "{\"type\":\"struct\",\"fields\":["
-            + "{\"id\":1,\"required\":false,\"name\":\"id\",\"type\":\"int\","
-            + "\"initial-default\":0},"
-            + "{\"id\":2,\"required\":false,\"name\":\"country\",\"type\":\"string\","
-            + "\"initial-default\":\"US\"}]}";
     ReadBridgeStripProtection protection = protection(FIELD_2);
-    TableDto prepared = protection.prepare(null, ramped(schema));
+    TableDto prepared = protection.prepare(null, ramped(SCHEMA_UNSTAMPED_WRITER_DEFAULTS));
 
     Assertions.assertFalse(prepared.getSchema().contains("initial-default"));
   }
@@ -357,7 +337,7 @@ public class ReadBridgeStripProtectionTest {
             UnsupportedClientOperationException.class,
             () -> protection.prepare(existing, incoming));
     Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_UNUSABLE"));
-    Assertions.assertTrue(thrown.getMessage().contains("column-defaults source failed"));
+    Assertions.assertTrue(thrown.getMessage().contains("encoder exploded"));
     Assertions.assertTrue(thrown.getMessage().contains(METADATA_LOCATION));
   }
 
@@ -396,6 +376,15 @@ public class ReadBridgeStripProtectionTest {
     Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_UNUSABLE"));
     Assertions.assertTrue(thrown.getMessage().contains("unreadable snapshot"));
     Assertions.assertTrue(thrown.getMessage().contains(METADATA_LOCATION));
+  }
+
+  private static String schema(String resourceName) {
+    try {
+      return ResourceIoHelper.getSchemaJsonFromResource(
+          ReadBridgeStripProtectionTest.class, "readbridge/" + resourceName);
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 
   private static ReadBridgeStripProtection protection(ColumnDefaultsSource source) {

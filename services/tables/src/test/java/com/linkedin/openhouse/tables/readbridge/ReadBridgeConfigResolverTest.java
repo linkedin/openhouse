@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.IntNode;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
+import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.tables.api.handler.impl.OpenHouseTablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
@@ -126,7 +127,7 @@ public class ReadBridgeConfigResolverTest {
         };
 
     Assertions.assertThrows(
-        IllegalStateException.class,
+        UnsupportedClientOperationException.class,
         () ->
             resolverFor(exploding)
                 .stampedColumnDefaults(TableDto.builder().databaseId("db").tableId("tbl").build()));
@@ -144,7 +145,7 @@ public class ReadBridgeConfigResolverTest {
         };
 
     Assertions.assertThrows(
-        IllegalStateException.class,
+        UnsupportedClientOperationException.class,
         () ->
             new ReadBridgeConfigResolver(oneDefault(), exploding)
                 .stampedColumnDefaults(TableDto.builder().databaseId("db").tableId("tbl").build()));
