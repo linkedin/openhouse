@@ -21,9 +21,11 @@ import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.controller.TablesController;
+import com.linkedin.openhouse.tables.controller.ViewsController;
 import com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities;
 import com.linkedin.openhouse.tables.mock.RequestConstants;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
+import com.linkedin.openhouse.tables.model.ViewModelConstants;
 import java.io.IOException;
 import java.text.ParseException;
 import java.util.*;
@@ -62,6 +64,8 @@ public class TablesControllerTest {
   private String invalidAccessToken;
 
   @Autowired private TablesController tablesController;
+
+  @Autowired private ViewsController viewsController;
 
   @Autowired private OpenHouseExceptionHandler openHouseExceptionHandler;
 
@@ -119,6 +123,58 @@ public class TablesControllerTest {
   public void findTableById4xx() throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.get(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d404/tables/t1")
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isNotFound());
+  }
+
+  /**
+   * Adding {@link ViewsController} must not change how a v1 table request is routed. Both
+   * controllers are registered in one dispatcher here, which is the only arrangement in which the
+   * new mappings could shadow or collide with the existing ones, and each assertion checks the
+   * response body, so it fails if a request reaches the wrong handler rather than merely returning
+   * a plausible status.
+   *
+   * <p>This <b>partially</b> satisfies the acceptance criterion. It proves the v1 table route is
+   * unchanged and that views answer only under /v2. It cannot prove the other half, that a real
+   * view's name returns 404 from the table route, because no view is persisted in this PR and the
+   * server has no way to tell a view's name from a missing table until the M2 {@code entityType}
+   * discriminator and the table-only read filter land. A test claiming that today would pass for
+   * the wrong reason.
+   */
+  @Test
+  public void addingViewsLeavesV1TableRoutingUnchanged() throws Exception {
+    MockMvc mvcWithBothControllers =
+        MockMvcBuilders.standaloneSetup(tablesController, viewsController)
+            .setControllerAdvice(openHouseExceptionHandler)
+            .addInterceptors(new DummyTokenInterceptor())
+            .addFilter(new CachingRequestBodyFilter())
+            .build();
+
+    // A view-like name on the v1 table route still reaches the tables handler.
+    mvcWithBothControllers
+        .perform(
+            MockMvcRequestBuilders.get(
+                    CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/tables/my_view")
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isOk())
+        .andExpect(content().json(RequestConstants.TEST_GET_TABLE_RESPONSE_BODY.toJson()));
+
+    // The same name under /v2 reaches the views handler instead.
+    mvcWithBothControllers
+        .perform(
+            MockMvcRequestBuilders.get("/v2/databases/d200/views/my_view")
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isOk())
+        .andExpect(content().json(ViewModelConstants.pointerResponse().toJson()));
+
+    // The v1 table route is otherwise unchanged, including its not-found behaviour.
+    mvcWithBothControllers
+        .perform(
+            MockMvcRequestBuilders.get(
+                    CURRENT_MAJOR_VERSION_PREFIX + "/databases/d404/tables/my_view")
                 .accept(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + jwtAccessToken))
         .andExpect(status().isNotFound());
