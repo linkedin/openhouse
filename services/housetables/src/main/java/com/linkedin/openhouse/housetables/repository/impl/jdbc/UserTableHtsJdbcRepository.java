@@ -301,10 +301,7 @@ public interface UserTableHtsJdbcRepository
     throw new UnsupportedOperationException("Use typed single-entity deletion");
   }
 
-  /**
-   * Table-only: views are not renameable, so there is deliberately no {@code renameViewId}. The
-   * stamped type is fully qualified because HQL resolves it as a literal, not as an imported name.
-   */
+  /** Table-only: views are not renameable, so there is deliberately no {@code renameViewId}. */
   @Transactional
   @Modifying(flushAutomatically = true, clearAutomatically = true)
   @Query(
@@ -312,7 +309,7 @@ public interface UserTableHtsJdbcRepository
           + "u.tableId = :toTableId, "
           + "u.metadataLocation = :metadataLocation, "
           + "u.databaseId = :toDatabaseId, "
-          + "u.entityType = com.linkedin.openhouse.housetables.model.EntityType.TABLE "
+          + "u.entityType = 'TABLE' "
           + "WHERE lower(u.databaseId) = lower(:fromDatabaseId) "
           + "AND lower(u.tableId) = lower(:fromTableId) AND "
           + TABLE_ROW_PREDICATE)
