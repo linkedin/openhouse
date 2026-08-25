@@ -66,6 +66,8 @@ public interface UserTableHtsJdbcRepository
 
   String VIEW_ROW_PREDICATE = "upper(u.entityType) = '" + VIEW + "'";
 
+  String STAMP_TABLE_TYPE = "u.entityType = '" + TABLE + "' ";
+
   String PATTERN_KEY_CLAUSES =
       "lower(u.databaseId) = lower(:databaseId) AND "
           + "lower(u.tableId) LIKE lower(:tableIdPattern)";
@@ -313,9 +315,7 @@ public interface UserTableHtsJdbcRepository
           + "u.tableId = :toTableId, "
           + "u.metadataLocation = :metadataLocation, "
           + "u.databaseId = :toDatabaseId, "
-          + "u.entityType = '"
-          + TABLE
-          + "' "
+          + STAMP_TABLE_TYPE
           + "WHERE lower(u.databaseId) = lower(:fromDatabaseId) "
           + "AND lower(u.tableId) = lower(:fromTableId) AND "
           + TABLE_ROW_PREDICATE)
