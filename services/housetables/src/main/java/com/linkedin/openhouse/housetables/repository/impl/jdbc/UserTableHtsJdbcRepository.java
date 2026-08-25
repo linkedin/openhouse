@@ -66,8 +66,6 @@ public interface UserTableHtsJdbcRepository
 
   String VIEW_ROW_PREDICATE = "upper(u.entityType) = '" + VIEW + "'";
 
-  String STAMP_TABLE_TYPE = "u.entityType = '" + TABLE + "' ";
-
   String PATTERN_KEY_CLAUSES =
       "lower(u.databaseId) = lower(:databaseId) AND "
           + "lower(u.tableId) LIKE lower(:tableIdPattern)";
@@ -306,6 +304,8 @@ public interface UserTableHtsJdbcRepository
   default void deleteAll(Iterable<? extends UserTableRow> entities) {
     throw new UnsupportedOperationException("Use typed single-entity deletion");
   }
+
+  String STAMP_TABLE_TYPE = "u.entityType = '" + TABLE + "' ";
 
   /** Table-only: views are not renameable, so there is deliberately no {@code renameViewId}. */
   @Transactional
