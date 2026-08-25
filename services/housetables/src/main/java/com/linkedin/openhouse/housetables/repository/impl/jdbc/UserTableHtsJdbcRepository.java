@@ -46,6 +46,10 @@ public interface UserTableHtsJdbcRepository
           + "(:storageType IS NULL OR u.storageType = :storageType) AND "
           + "(:creationTime IS NULL OR u.creationTime = :creationTime)";
 
+  String TABLE = "TABLE";
+
+  String VIEW = "VIEW";
+
   /**
    * The null arm is load bearing: a legacy row predates the discriminator and is definitively a
    * table, so without it every pre-existing table becomes invisible. Do not reduce it to a plain
@@ -58,9 +62,9 @@ public interface UserTableHtsJdbcRepository
    * PAD SPACE collation would do the same for {@code 'TABLE '}. Unconfirmed against production;
    * please confirm the deployed collation.
    */
-  String TABLE_ROW_PREDICATE = "(u.entityType IS NULL OR upper(u.entityType) = 'TABLE')";
+  String TABLE_ROW_PREDICATE = "(u.entityType IS NULL OR upper(u.entityType) = '" + TABLE + "')";
 
-  String VIEW_ROW_PREDICATE = "upper(u.entityType) = 'VIEW'";
+  String VIEW_ROW_PREDICATE = "upper(u.entityType) = '" + VIEW + "'";
 
   String PATTERN_KEY_CLAUSES =
       "lower(u.databaseId) = lower(:databaseId) AND "
@@ -309,7 +313,9 @@ public interface UserTableHtsJdbcRepository
           + "u.tableId = :toTableId, "
           + "u.metadataLocation = :metadataLocation, "
           + "u.databaseId = :toDatabaseId, "
-          + "u.entityType = 'TABLE' "
+          + "u.entityType = '"
+          + TABLE
+          + "' "
           + "WHERE lower(u.databaseId) = lower(:fromDatabaseId) "
           + "AND lower(u.tableId) = lower(:fromTableId) AND "
           + TABLE_ROW_PREDICATE)
