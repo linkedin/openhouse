@@ -2,7 +2,9 @@ package com.linkedin.openhouse.internal.catalog.repository;
 
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.repository.PagingAndSortingRepository;
@@ -28,12 +30,29 @@ public interface HouseTableRepository
 
   Page<HouseTable> findAllByDatabaseId(String databaseId, Pageable pageable);
 
+  /**
+   * Rename a table, updating its metadata location.
+   *
+   * @param fromDatabaseId databaseId of the table to rename
+   * @param fromTableId tableId of the table to rename
+   * @param toDatabaseId destination databaseId
+   * @param toTableId destination tableId
+   * @param metadataLocation the new metadata file reflecting the renamed identifiers
+   * @param expectedMetadataLocation the metadata location the caller observed when it initiated the
+   *     rename. A present value must still be current when the rename lands. An empty value lets
+   *     the service establish its own version-qualified base.
+   * @throws HouseTableConcurrentUpdateException if the table advances past a present {@code
+   *     expectedMetadataLocation} before the rename lands. Every implementation signals this type
+   *     so {@code OpenHouseInternalTableOperations.doCommit} converts it into a retriable {@code
+   *     CommitFailedException}. Other unchecked types reach the client as terminal failures.
+   */
   void rename(
       String fromDatabaseId,
       String fromTableId,
       String toDatabaseId,
       String toTableId,
-      String metadataLocation);
+      String metadataLocation,
+      Optional<String> expectedMetadataLocation);
 
   /**
    * Find all soft-deleted tables by database ID with pagination and optional filtering

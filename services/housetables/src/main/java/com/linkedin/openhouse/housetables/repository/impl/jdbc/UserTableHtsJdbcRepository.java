@@ -4,6 +4,7 @@ import com.linkedin.openhouse.housetables.config.db.jdbc.JdbcProviderConfigurati
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.HtsRepository;
+import edu.umd.cs.findbugs.annotations.CheckReturnValue;
 import java.util.Optional;
 import org.jetbrains.annotations.NotNull;
 import org.springframework.data.domain.Page;
@@ -112,15 +113,27 @@ public interface UserTableHtsJdbcRepository
         userTableRowPrimaryKey.getDatabaseId(), userTableRowPrimaryKey.getTableId());
   }
 
+  /**
+   * Renames a table row, participating in the optimistic-lock protocol: the update only matches a
+   * row still at {@code expectedVersion} and atomically bumps {@link UserTableRow}'s
+   * {@literal @}Version column. A concurrent modification that advances the row between the
+   * caller's read and this update produces a zero-row result. {@link CheckReturnValue} requires
+   * callers to inspect that result and map it to a concurrent-modification conflict.
+   *
+   * @return the number of rows updated: 1 when the rename lands, 0 when the version differs or the
+   *     row is absent
+   */
+  @CheckReturnValue
   @Transactional
-  @Modifying
+  @Modifying(clearAutomatically = true)
   @Query(
-      "UPDATE UserTableRow table SET table.tableId = :toTableId, table.metadataLocation = :metadataLocation, table.databaseId = :toDatabaseId "
-          + "WHERE lower(table.databaseId) = lower(:fromDatabaseId) AND lower(table.tableId) = lower(:fromTableId)")
-  void renameTableId(
+      "UPDATE UserTableRow table SET table.tableId = :toTableId, table.metadataLocation = :metadataLocation, table.databaseId = :toDatabaseId, table.version = table.version + 1 "
+          + "WHERE lower(table.databaseId) = lower(:fromDatabaseId) AND lower(table.tableId) = lower(:fromTableId) AND table.version = :expectedVersion")
+  int renameTableId(
       @Param("fromDatabaseId") String fromDatabaseId,
       @Param("fromTableId") String fromTableId,
       @Param("toDatabaseId") String toDatabaseId,
       @Param("toTableId") String toTableId,
-      @Param("metadataLocation") String metadataLocation);
+      @Param("metadataLocation") String metadataLocation,
+      @Param("expectedVersion") Long expectedVersion);
 }

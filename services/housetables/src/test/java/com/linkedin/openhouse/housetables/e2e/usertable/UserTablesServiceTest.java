@@ -6,12 +6,14 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
+import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import com.linkedin.openhouse.housetables.e2e.SpringH2HtsApplication;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
+import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.SoftDeletedUserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.services.UserTablesService;
@@ -397,7 +399,8 @@ public class UserTablesServiceTest {
         TEST_TUPLE_1_0.getTableId(),
         TEST_TUPLE_1_0.getDatabaseId(),
         newTableName,
-        newMetadataLocation);
+        newMetadataLocation,
+        Optional.of(TEST_TUPLE_1_0.getTableLoc()));
 
     // check if the table is renamed
     UserTableDto result =
@@ -414,6 +417,24 @@ public class UserTablesServiceTest {
   }
 
   @Test
+  public void testUserTableRenameWithoutExpectedMetadataLocation() {
+    // An empty caller token uses the service's version-qualified base.
+    String newTableName = TEST_TUPLE_1_0.getTableId() + "_newName";
+    String newMetadataLocation = TEST_TUPLE_1_0.getTableLoc() + "_new";
+    userTablesService.renameUserTable(
+        TEST_TUPLE_1_0.getDatabaseId(),
+        TEST_TUPLE_1_0.getTableId(),
+        TEST_TUPLE_1_0.getDatabaseId(),
+        newTableName,
+        newMetadataLocation,
+        Optional.empty());
+
+    UserTableDto result =
+        userTablesService.getUserTable(TEST_TUPLE_1_0.getDatabaseId(), newTableName);
+    assertThat(result.getMetadataLocation()).isEqualTo(newMetadataLocation);
+  }
+
+  @Test
   public void testUserTableRenameFails() {
     // Ensure that the rename is occurring in the same database
     assertThat(TEST_TUPLE_1_0.getDatabaseId()).isEqualTo(TEST_TUPLE_2_0.getDatabaseId());
@@ -427,7 +448,8 @@ public class UserTablesServiceTest {
               TEST_TUPLE_1_0.getTableId(),
               TEST_TUPLE_1_0.getDatabaseId(),
               TEST_TUPLE_2_0.getTableId(),
-              TEST_TUPLE_2_0.getTableLoc());
+              TEST_TUPLE_2_0.getTableLoc(),
+              Optional.empty());
         });
 
     Assertions.assertThrows(
@@ -435,6 +457,84 @@ public class UserTablesServiceTest {
         () -> {
           userTablesService.getUserTable(TEST_TUPLE_1_0.getDatabaseId(), "no_such_table");
         });
+  }
+
+  @Test
+  public void testUserTableRenameFailsOnStaleExpectedMetadataLocation() {
+    // A commit that advances the table before the rename request produces a conflict.
+    UserTable advanced =
+        TEST_TUPLE_1_0
+            .get_userTable()
+            .toBuilder()
+            .tableVersion(TEST_TUPLE_1_0.getTableLoc())
+            .metadataLocation(TEST_TUPLE_1_0.getTableLoc() + "_committed")
+            .build();
+    userTablesService.putUserTable(advanced);
+
+    Assertions.assertThrows(
+        EntityConcurrentModificationException.class,
+        () ->
+            userTablesService.renameUserTable(
+                TEST_TUPLE_1_0.getDatabaseId(),
+                TEST_TUPLE_1_0.getTableId(),
+                TEST_TUPLE_1_0.getDatabaseId(),
+                TEST_TUPLE_1_0.getTableId() + "_newName",
+                TEST_TUPLE_1_0.getTableLoc() + "_new",
+                Optional.of(TEST_TUPLE_1_0.getTableLoc())));
+
+    // The committed row is untouched.
+    UserTableDto result =
+        userTablesService.getUserTable(TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId());
+    assertThat(result.getMetadataLocation()).isEqualTo(TEST_TUPLE_1_0.getTableLoc() + "_committed");
+  }
+
+  @Test
+  public void testUserTableRenameConflictsWithConcurrentCommit() {
+    // A commit advances the row after the rename read and before its update. The conditional update
+    // produces a zero-row result and the rename surfaces a conflict.
+    UserTableRowPrimaryKey key =
+        UserTableRowPrimaryKey.builder()
+            .databaseId(TEST_TUPLE_1_0.getDatabaseId())
+            .tableId(TEST_TUPLE_1_0.getTableId())
+            .build();
+    // The row state the rename reads (pre-commit: original location, original version).
+    UserTableRow staleRow = htsRepository.findById(key).orElseThrow(IllegalStateException::new);
+
+    // The racing commit lands: metadataLocation advances and @Version bumps.
+    String committedLocation = TEST_TUPLE_1_0.getTableLoc() + "_committed";
+    userTablesService.putUserTable(
+        TEST_TUPLE_1_0
+            .get_userTable()
+            .toBuilder()
+            .tableVersion(TEST_TUPLE_1_0.getTableLoc())
+            .metadataLocation(committedLocation)
+            .build());
+
+    // Freeze the rename's read at the pre-commit row state, so its conditional UPDATE executes
+    // against the (now advanced) real row with a stale expected version.
+    Mockito.doReturn(Optional.of(staleRow)).when(htsRepository).findById(key);
+
+    Assertions.assertThrows(
+        EntityConcurrentModificationException.class,
+        () ->
+            userTablesService.renameUserTable(
+                TEST_TUPLE_1_0.getDatabaseId(),
+                TEST_TUPLE_1_0.getTableId(),
+                TEST_TUPLE_1_0.getDatabaseId(),
+                TEST_TUPLE_1_0.getTableId() + "_newName",
+                TEST_TUPLE_1_0.getTableLoc() + "_new",
+                Optional.of(TEST_TUPLE_1_0.getTableLoc())));
+
+    Mockito.reset(htsRepository);
+    // The racing commit won and its metadataLocation is intact; the rename target is absent.
+    UserTableDto result =
+        userTablesService.getUserTable(TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId());
+    assertThat(result.getMetadataLocation()).isEqualTo(committedLocation);
+    Assertions.assertThrows(
+        NoSuchUserTableException.class,
+        () ->
+            userTablesService.getUserTable(
+                TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId() + "_newName"));
   }
 
   @Test

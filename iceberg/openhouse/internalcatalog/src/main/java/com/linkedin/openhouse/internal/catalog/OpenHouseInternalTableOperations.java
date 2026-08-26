@@ -392,12 +392,20 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
                   && !properties
                       .get(CatalogConstants.OPENHOUSE_DATABASEID_KEY)
                       .equalsIgnoreCase(this.tableIdentifier.namespace().toString()))) {
+        // tableVersion carries the pre-commit tableLocation, which gives the rename the same
+        // optimistic-concurrency token as the save path. HTS returns a retriable conflict when a
+        // concurrent commit advances the table after this writer's load.
+        Optional<String> expectedMetadataLocation =
+            CatalogConstants.INITIAL_VERSION.equals(houseTable.getTableVersion())
+                ? Optional.empty()
+                : Optional.of(houseTable.getTableVersion());
         houseTableRepository.rename(
             this.tableIdentifier.namespace().toString(),
             this.tableIdentifier.name(),
             properties.get(CatalogConstants.OPENHOUSE_DATABASEID_KEY),
             properties.get(CatalogConstants.OPENHOUSE_TABLEID_KEY),
-            newMetadataLocation);
+            newMetadataLocation,
+            expectedMetadataLocation);
       } else if (!isStageCreate && !isStageReplace) {
         Span htsSpan = tracer.spanBuilder("IcebergTableOps.saveHouseTable").startSpan();
         try (Scope ignored = htsSpan.makeCurrent()) {
