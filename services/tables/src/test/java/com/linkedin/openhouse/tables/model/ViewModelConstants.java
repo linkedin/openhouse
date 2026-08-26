@@ -1,7 +1,10 @@
 package com.linkedin.openhouse.tables.model;
 
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
+import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.MAX_VIEW_SCHEMA_BYTES;
+import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.MAX_VIEW_SQL_BYTES;
 
+import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ViewRepresentation;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllViewsResponseBody;
@@ -137,7 +140,12 @@ public final class ViewModelConstants {
   // Negative-path fixtures
   // -----------------------------------------------------------------------------------------
 
-  /** Not JSON at all. */
+  /**
+   * Truncated JSON: Jackson cannot parse it at all, so Iceberg fails inside {@code JsonUtil.parse}
+   * and reports it as an {@code UncheckedIOException} rather than the {@code
+   * IllegalArgumentException} it raises for a document that parses but is not an Iceberg schema.
+   * {@code ViewSchemaParseBoundaryTest} pins that split, which is why the validator catches both.
+   */
   public static final String MALFORMED_SCHEMA_LITERAL = "{\"type\": \"struct\", \"fields\": [";
 
   /**
@@ -159,25 +167,42 @@ public final class ViewModelConstants {
           + "{\"id\": 1, \"required\": true, \"name\": \"name\", \"type\": \"string\"}]}";
 
   /**
-   * A valid Iceberg schema padded with insignificant JSON whitespace to exactly {@code totalBytes}
-   * UTF-8 bytes, so a size boundary can be probed without also changing whether it parses.
+   * A valid Iceberg schema of exactly {@link ValidatorConstants#MAX_VIEW_SCHEMA_BYTES} UTF-8 bytes,
+   * padded with insignificant JSON whitespace so the size boundary can be probed without also
+   * changing whether the document parses.
+   *
+   * <p>The boundary fixtures are exposed as no-argument methods rather than one helper taking a
+   * requested size. The size is derived from the limit the validator enforces, so there is no
+   * argument a caller could get wrong and therefore no precondition to enforce and no failure to
+   * report.
    */
-  public static String schemaOfExactUtf8Size(int totalBytes) {
-    int padding = totalBytes - VIEW_SCHEMA_LITERAL.length();
-    if (padding < 0) {
-      throw new IllegalArgumentException(
-          "Requested schema size is smaller than the base schema literal");
-    }
-    return "{" + spaces(padding) + VIEW_SCHEMA_LITERAL.substring(1);
+  public static String schemaAtMaxUtf8Size() {
+    return schemaPaddedTo(MAX_VIEW_SCHEMA_BYTES);
   }
 
-  /** Opaque SQL padded to exactly {@code totalBytes} UTF-8 bytes. */
-  public static String sqlOfExactUtf8Size(int totalBytes) {
-    int padding = totalBytes - VIEW_SQL.length();
-    if (padding < 0) {
-      throw new IllegalArgumentException("Requested SQL size is smaller than the base SQL literal");
-    }
-    return VIEW_SQL + spaces(padding);
+  /** The same valid Iceberg schema, one UTF-8 byte past the limit. */
+  public static String schemaOneByteOverMaxUtf8Size() {
+    return schemaPaddedTo(MAX_VIEW_SCHEMA_BYTES + 1);
+  }
+
+  /** Opaque SQL of exactly {@link ValidatorConstants#MAX_VIEW_SQL_BYTES} UTF-8 bytes. */
+  public static String sqlAtMaxUtf8Size() {
+    return sqlPaddedTo(MAX_VIEW_SQL_BYTES);
+  }
+
+  /** The same opaque SQL, one UTF-8 byte past the limit. */
+  public static String sqlOneByteOverMaxUtf8Size() {
+    return sqlPaddedTo(MAX_VIEW_SQL_BYTES + 1);
+  }
+
+  private static String schemaPaddedTo(int totalBytes) {
+    return "{"
+        + spaces(totalBytes - VIEW_SCHEMA_LITERAL.length())
+        + VIEW_SCHEMA_LITERAL.substring(1);
+  }
+
+  private static String sqlPaddedTo(int totalBytes) {
+    return VIEW_SQL + spaces(totalBytes - VIEW_SQL.length());
   }
 
   /**

@@ -15,8 +15,9 @@ import com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ViewRepresentation;
 import com.linkedin.openhouse.tables.api.validator.ViewsApiValidator;
-import com.linkedin.openhouse.tables.exception.ViewErrorCode;
 import com.linkedin.openhouse.tables.exception.ViewRequestValidationFailureException;
+import com.linkedin.openhouse.tables.exception.ViewValidationErrorCode;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -25,6 +26,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
@@ -77,7 +79,9 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
       String clusterId, String databaseId, CreateUpdateViewRequestBody requestBody) {
     ViewValidationFailures failures = new ViewValidationFailures();
     validateBody(clusterId, databaseId, requestBody, failures);
-    validateCreateBaseViewVersion(requestBody.getBaseViewVersion(), failures);
+    // POST distinguishes only "supplied" from "omitted": a supplied-but-blank token is a value the
+    // rule below has to reject, not an absence.
+    validateCreateBaseViewVersion(suppliedField(requestBody.getBaseViewVersion()), failures);
     failures.throwIfPresent();
   }
 
@@ -92,7 +96,7 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
               "viewId : provided %s, doesn't match with the RequestBody %s",
               viewId, requestBody.getViewId()));
     }
-    validateUpdateBaseViewVersion(requestBody.getBaseViewVersion(), failures);
+    validateUpdateBaseViewVersion(nonBlankField(requestBody.getBaseViewVersion()), failures);
     failures.throwIfPresent();
   }
 
@@ -102,7 +106,20 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
     validateGetView(databaseId, viewId);
   }
 
-  /** Rules shared by POST and PUT. Verb-specific base-version rules are applied by the caller. */
+  /**
+   * Rules shared by POST and PUT. Verb-specific base-version rules are applied by the caller.
+   *
+   * <p>This is the one place absence is decided. Every nullable field of the request body is
+   * converted here to an explicit {@link Optional}, so no rule below re-derives what "not supplied"
+   * means for its own field. The two list fields are normalized differently on purpose:
+   *
+   * <ul>
+   *   <li>{@code representations}: an omitted list and an empty list are the same client mistake
+   *       and are both already reported by bean validation, so an empty list collapses to absent.
+   *   <li>{@code defaultNamespace}: the field is optional, but an explicitly empty list is a
+   *       distinct client error with its own message, so it stays present.
+   * </ul>
+   */
   private void validateBody(
       String clusterId,
       String databaseId,
@@ -125,14 +142,45 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
               "databaseId : provided %s, doesn't match with the RequestBody %s",
               databaseId, requestBody.getDatabaseId()));
     }
-    validateSchema(requestBody.getSchema(), failures);
-    validateRepresentations(requestBody.getRepresentations(), failures);
-    validateUniqueDialects(requestBody.getRepresentations(), failures);
-    validateSourceDialect(
-        requestBody.getSourceDialect(), requestBody.getRepresentations(), failures);
-    validateDefaultCatalog(requestBody.getDefaultCatalog(), failures);
-    validateDefaultNamespace(requestBody.getDefaultNamespace(), failures);
-    validateViewProperties(requestBody.getViewProperties(), failures);
+
+    Optional<String> schema = nonEmptyField(requestBody.getSchema());
+    Optional<List<ViewRepresentation>> representations =
+        nonEmptyField(requestBody.getRepresentations());
+    Optional<String> sourceDialect = nonEmptyField(requestBody.getSourceDialect());
+    Optional<String> defaultCatalog = suppliedField(requestBody.getDefaultCatalog());
+    Optional<List<String>> defaultNamespace = suppliedField(requestBody.getDefaultNamespace());
+    Optional<Map<String, String>> viewProperties = nonEmptyField(requestBody.getViewProperties());
+
+    validateSchema(schema, failures);
+    validateRepresentations(representations, failures);
+    validateUniqueDialects(representations, failures);
+    validateSourceDialect(sourceDialect, representations, failures);
+    validateDefaultCatalog(defaultCatalog, failures);
+    validateDefaultNamespace(defaultNamespace, failures);
+    validateViewProperties(viewProperties, failures);
+  }
+
+  /** Present whenever the caller supplied the field at all, including as a blank or empty value. */
+  private static <T> Optional<T> suppliedField(T value) {
+    return Optional.ofNullable(value);
+  }
+
+  /** Absent when the field was omitted or supplied empty; the two are equivalent to every rule. */
+  private static Optional<String> nonEmptyField(String value) {
+    return Optional.ofNullable(value).filter(StringUtils::isNotEmpty);
+  }
+
+  private static <T> Optional<List<T>> nonEmptyField(List<T> value) {
+    return Optional.ofNullable(value).filter(list -> !list.isEmpty());
+  }
+
+  private static <K, V> Optional<Map<K, V>> nonEmptyField(Map<K, V> value) {
+    return Optional.ofNullable(value).filter(map -> !map.isEmpty());
+  }
+
+  /** Absent when the field was omitted or supplied blank; the two are equivalent to every rule. */
+  private static Optional<String> nonBlankField(String value) {
+    return Optional.ofNullable(value).filter(StringUtils::isNotBlank);
   }
 
   /**
@@ -141,12 +189,20 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
    *
    * <p>The size rule runs first and short-circuits parsing, so an oversized document is never fed
    * to the parser.
+   *
+   * <p>Only the two failures Iceberg raises for caller-supplied text are caught. {@code
+   * SchemaParser} reports a structurally valid document that is not an Iceberg schema — including
+   * the Spark {@code StructType} shape and duplicate field ids — as an {@link
+   * IllegalArgumentException}, and text that is not JSON at all as an {@link UncheckedIOException}
+   * wrapping Jackson's parse failure. Anything else is a server fault and must propagate as a 500
+   * rather than be reported to the caller as a bad request.
    */
-  private void validateSchema(String schema, ViewValidationFailures failures) {
-    if (StringUtils.isEmpty(schema)) {
+  private void validateSchema(Optional<String> maybeSchema, ViewValidationFailures failures) {
+    if (!maybeSchema.isPresent()) {
       // An absent schema is already reported by bean validation.
       return;
     }
+    String schema = maybeSchema.get();
     if (utf8Size(schema) > MAX_VIEW_SCHEMA_BYTES) {
       failures.addSchema(
           String.format("schema : exceeds maximum UTF-8 size of %d bytes", MAX_VIEW_SCHEMA_BYTES));
@@ -154,7 +210,7 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
     }
     try {
       IcebergSchemaHelper.getSchemaFromSchemaJson(schema);
-    } catch (Exception e) {
+    } catch (IllegalArgumentException | UncheckedIOException e) {
       // Only the exception type is logged: the parser message can echo the caller's schema text.
       log.warn("Rejected a view request with an unparseable Iceberg schema: {}", e.getClass());
       failures.addSchema(
@@ -163,11 +219,12 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
   }
 
   private void validateRepresentations(
-      List<ViewRepresentation> representations, ViewValidationFailures failures) {
-    if (representations == null || representations.isEmpty()) {
+      Optional<List<ViewRepresentation>> maybeRepresentations, ViewValidationFailures failures) {
+    if (!maybeRepresentations.isPresent()) {
       // An absent or empty list is already reported by bean validation.
       return;
     }
+    List<ViewRepresentation> representations = maybeRepresentations.get();
     if (representations.size() != 1) {
       failures.addGeneric("representations : must contain exactly one representation");
     }
@@ -214,10 +271,8 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
    * and rejecting the pair as duplicates is more useful than reporting only the casing failure.
    */
   private void validateUniqueDialects(
-      List<ViewRepresentation> representations, ViewValidationFailures failures) {
-    if (representations == null) {
-      return;
-    }
+      Optional<List<ViewRepresentation>> maybeRepresentations, ViewValidationFailures failures) {
+    List<ViewRepresentation> representations = maybeRepresentations.orElse(Collections.emptyList());
     Set<String> seen = new HashSet<>();
     Set<String> duplicates = new TreeSet<>();
     for (ViewRepresentation representation : representations) {
@@ -238,13 +293,14 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
   }
 
   private void validateSourceDialect(
-      String sourceDialect,
-      List<ViewRepresentation> representations,
+      Optional<String> maybeSourceDialect,
+      Optional<List<ViewRepresentation>> maybeRepresentations,
       ViewValidationFailures failures) {
-    if (StringUtils.isEmpty(sourceDialect)) {
+    if (!maybeSourceDialect.isPresent()) {
       // An absent source dialect is already reported by bean validation.
       return;
     }
+    String sourceDialect = maybeSourceDialect.get();
     if (!SPARK_VIEW_DIALECT.equals(sourceDialect)) {
       failures.addDialect(
           String.format("sourceDialect : only '%s' is supported", SPARK_VIEW_DIALECT));
@@ -254,9 +310,9 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
     // or null representation is already reported, and adding a second message here would both
     // duplicate that diagnosis and promote a malformed body to the more specific dialect code.
     List<ViewRepresentation> suppliedRepresentations =
-        representations == null
-            ? Collections.emptyList()
-            : representations.stream().filter(Objects::nonNull).collect(Collectors.toList());
+        maybeRepresentations.orElse(Collections.emptyList()).stream()
+            .filter(Objects::nonNull)
+            .collect(Collectors.toList());
     if (suppliedRepresentations.isEmpty()) {
       return;
     }
@@ -270,10 +326,12 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
    * The resolution catalog is optional, but supplying a blank or unbounded one is a client bug
    * rather than an omission, so it is rejected instead of silently ignored.
    */
-  private void validateDefaultCatalog(String defaultCatalog, ViewValidationFailures failures) {
-    if (defaultCatalog == null) {
+  private void validateDefaultCatalog(
+      Optional<String> maybeDefaultCatalog, ViewValidationFailures failures) {
+    if (!maybeDefaultCatalog.isPresent()) {
       return;
     }
+    String defaultCatalog = maybeDefaultCatalog.get();
     if (StringUtils.isBlank(defaultCatalog)) {
       failures.addGeneric("defaultCatalog : cannot be blank when provided");
     } else if (defaultCatalog.length() > MAX_VIEW_IDENTIFIER_LENGTH) {
@@ -289,10 +347,11 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
    * fixed: the offending segment is never echoed, keeping every payload-derived message redacted.
    */
   private void validateDefaultNamespace(
-      List<String> defaultNamespace, ViewValidationFailures failures) {
-    if (defaultNamespace == null) {
+      Optional<List<String>> maybeDefaultNamespace, ViewValidationFailures failures) {
+    if (!maybeDefaultNamespace.isPresent()) {
       return;
     }
+    List<String> defaultNamespace = maybeDefaultNamespace.get();
     if (defaultNamespace.isEmpty()) {
       failures.addGeneric("defaultNamespace : cannot be empty when provided");
       return;
@@ -323,10 +382,11 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
    * offending keys is intentional and does not breach the SQL/schema/token redaction invariant.
    */
   private void validateViewProperties(
-      Map<String, String> viewProperties, ViewValidationFailures failures) {
-    if (viewProperties == null || viewProperties.isEmpty()) {
+      Optional<Map<String, String>> maybeViewProperties, ViewValidationFailures failures) {
+    if (!maybeViewProperties.isPresent()) {
       return;
     }
+    Map<String, String> viewProperties = maybeViewProperties.get();
     boolean blankKey = false;
     Set<String> nullValueKeys = new TreeSet<>();
     Set<String> reservedKeys = new TreeSet<>();
@@ -367,12 +427,12 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
 
   /**
    * POST accepts an omitted base version or the table-style {@code INITIAL_VERSION} token, matching
-   * both the Iceberg client, which always sends the initial token on create, and callers that omit
-   * the field entirely.
+   * both the Iceberg client, which sends the initial token on create, and callers that omit the
+   * field entirely.
    */
   private void validateCreateBaseViewVersion(
-      String baseViewVersion, ViewValidationFailures failures) {
-    if (baseViewVersion != null && !INITIAL_TABLE_VERSION.equals(baseViewVersion)) {
+      Optional<String> baseViewVersion, ViewValidationFailures failures) {
+    if (baseViewVersion.isPresent() && !INITIAL_TABLE_VERSION.equals(baseViewVersion.get())) {
       failures.addGeneric(
           "baseViewVersion : must be omitted or " + INITIAL_TABLE_VERSION + " on POST create");
     }
@@ -381,10 +441,13 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
   /**
    * PUT requires a base version but treats it as fully opaque: no path, scheme, suffix or length
    * rule is applied, so the service alone decides whether the token is current.
+   *
+   * <p>The caller normalizes a blank token to absent, because a token of whitespace is
+   * indistinguishable from an omitted one to every rule here.
    */
   private void validateUpdateBaseViewVersion(
-      String baseViewVersion, ViewValidationFailures failures) {
-    if (StringUtils.isBlank(baseViewVersion)) {
+      Optional<String> baseViewVersion, ViewValidationFailures failures) {
+    if (!baseViewVersion.isPresent()) {
       failures.addGeneric("baseViewVersion : is required and cannot be blank on PUT");
     }
   }
@@ -456,14 +519,14 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
       throw new ViewRequestValidationFailureException(errorCode(), messages);
     }
 
-    private ViewErrorCode errorCode() {
+    private ViewValidationErrorCode errorCode() {
       if (schemaFailure) {
-        return ViewErrorCode.UNSUPPORTED_VIEW_SCHEMA;
+        return ViewValidationErrorCode.UNSUPPORTED_VIEW_SCHEMA;
       }
       if (dialectFailure) {
-        return ViewErrorCode.UNSUPPORTED_VIEW_DIALECT;
+        return ViewValidationErrorCode.UNSUPPORTED_VIEW_DIALECT;
       }
-      return ViewErrorCode.INVALID_VIEW_DEFINITION;
+      return ViewValidationErrorCode.INVALID_VIEW_DEFINITION;
     }
   }
 }

@@ -22,7 +22,7 @@ import lombok.NoArgsConstructor;
  * {@code viewVersion}, {@code creationTime}, {@code lastModifiedTime}, {@code viewCreator}) is what
  * a read returns. The definition group ({@code schema}, {@code representations}, {@code
  * sourceDialect}, {@code defaultCatalog}, {@code defaultNamespace}, {@code viewProperties}) is
- * write-only input and never appears in a response.
+ * write-only input today and is not carried into any response this milestone returns.
  */
 @Builder(toBuilder = true)
 @Getter

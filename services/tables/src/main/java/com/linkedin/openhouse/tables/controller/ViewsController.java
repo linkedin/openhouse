@@ -28,9 +28,10 @@ import org.springframework.web.bind.annotation.RestController;
  * Controller for the Views API. Views are a new resource, so they mount under {@code /v2} and break
  * no existing client: {@code /v1/databases/{databaseId}/tables/{tableId}} stays table-only.
  *
- * <p>The controller is always registered and holds no business logic. Request bodies are
- * deliberately not annotated with {@code @Valid}: the view validator accumulates every structural
- * failure and reports them together, which Spring's fail-fast binding cannot do.
+ * <p>The controller is registered regardless of whether views are enabled, and holds no business
+ * logic. Request bodies are deliberately not annotated with {@code @Valid}: the view validator
+ * accumulates every structural failure and reports them together, which Spring's fail-fast binding
+ * cannot do.
  */
 @RestController
 public class ViewsController {

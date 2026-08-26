@@ -4,11 +4,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.CachingRequestBodyFilter;
+import com.linkedin.openhouse.common.audit.ServiceAuditPayloadRedactor;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.common.exception.handler.OpenHouseExceptionHandler;
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.ViewRepresentation;
+import com.linkedin.openhouse.tables.audit.ViewRequestPayloadRedactor;
 import com.linkedin.openhouse.tables.controller.ViewsController;
 import com.linkedin.openhouse.tables.exception.ViewErrorCode;
 import com.linkedin.openhouse.tables.mock.MockViewsApiHandler;
@@ -19,6 +26,7 @@ import java.io.IOException;
 import java.lang.reflect.Method;
 import java.text.ParseException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
@@ -32,6 +40,9 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -83,6 +94,8 @@ public class ViewsControllerTest {
   @Autowired private OpenHouseExceptionHandler openHouseExceptionHandler;
 
   @MockBean private AuditHandler<ServiceAuditEvent> serviceAuditHandler;
+
+  @Captor private ArgumentCaptor<ServiceAuditEvent> argCaptor;
 
   @BeforeEach
   public void setup() throws IOException, JSONException, ParseException {
@@ -198,6 +211,163 @@ public class ViewsControllerTest {
                 .header("Authorization", "Bearer " + jwtAccessToken))
         .andExpect(status().isNoContent())
         .andExpect(content().string(""));
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Service audit redaction
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * {@link com.linkedin.openhouse.common.audit.ServiceAuditAspect} records the complete cached
+   * request body for every controller call, so the create and replace routes would otherwise write
+   * the caller's SQL text and schema document into a service audit event. {@link
+   * ViewRequestPayloadRedactor} replaces those values before the event is built; these tests pin
+   * that, on the success path and on a failure path, and pin that nothing else in the payload is
+   * disturbed.
+   *
+   * <p>The fixtures carry marker identifiers that appear nowhere else, so the "absent" assertions
+   * fail loudly if the redaction is removed rather than passing on a coincidence.
+   */
+  private static final String SECRET_SQL_MARKER = "secret_sql_marker_column";
+
+  private static final String SECRET_SCHEMA_MARKER = "secret_schema_marker_column";
+
+  private static final String SECRET_SQL =
+      "SELECT " + SECRET_SQL_MARKER + " FROM my_database.my_table";
+
+  private static final String SECRET_SCHEMA =
+      "{\"type\": \"struct\", \"schema-id\": 0, \"fields\": ["
+          + "{\"id\": 1, \"required\": true, \"name\": \""
+          + SECRET_SCHEMA_MARKER
+          + "\", \"type\": \"string\"}]}";
+
+  private static CreateUpdateViewRequestBody requestCarryingSecretDefinition() {
+    return ViewModelConstants.fullyPopulatedRequest()
+        .toBuilder()
+        .schema(SECRET_SCHEMA)
+        .representations(
+            Collections.singletonList(
+                ViewRepresentation.builder()
+                    .type(ViewModelConstants.SQL_REPRESENTATION_TYPE)
+                    .sql(SECRET_SQL)
+                    .dialect(ViewModelConstants.SOURCE_DIALECT)
+                    .build()))
+        .build();
+  }
+
+  @Test
+  public void serviceAuditOnViewCreateRedactsSchemaAndSql() throws Exception {
+    mvc.perform(
+        MockMvcRequestBuilders.post(VIEWS_PATH)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(requestCarryingSecretDefinition().toJson())
+            .accept(MediaType.APPLICATION_JSON)
+            .header("Authorization", "Bearer " + jwtAccessToken));
+
+    ServiceAuditEvent event = capturedAuditEvent();
+    Assertions.assertEquals(201, event.getStatusCode(), "Precondition: the create must succeed.");
+    assertViewDefinitionRedacted(event);
+  }
+
+  @Test
+  public void serviceAuditOnViewReplaceRedactsSchemaAndSql() throws Exception {
+    mvc.perform(
+        MockMvcRequestBuilders.put(VIEWS_PATH + "/my_view")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(requestCarryingSecretDefinition().toJson())
+            .accept(MediaType.APPLICATION_JSON)
+            .header("Authorization", "Bearer " + jwtAccessToken));
+
+    ServiceAuditEvent event = capturedAuditEvent();
+    Assertions.assertEquals(200, event.getStatusCode(), "Precondition: the replace must succeed.");
+    assertViewDefinitionRedacted(event);
+  }
+
+  /**
+   * The failure path is the one the reviewer called out: the audit event is emitted from the shared
+   * exception handler, after the request body has already been cached, so a rejected request writes
+   * its payload just as an accepted one does.
+   */
+  @Test
+  public void serviceAuditOnFailedViewCreateRedactsSchemaAndSql() throws Exception {
+    String failingDatabaseId = MockViewsApiHandler.databaseIdFor(ViewErrorCode.VIEWS_DISABLED);
+
+    mvc.perform(
+        MockMvcRequestBuilders.post(viewsPath(failingDatabaseId))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(requestCarryingSecretDefinition().toJson())
+            .accept(MediaType.APPLICATION_JSON)
+            .header("Authorization", "Bearer " + jwtAccessToken));
+
+    ServiceAuditEvent event = capturedAuditEvent();
+    Assertions.assertEquals(
+        404, event.getStatusCode(), "Precondition: the create must actually be rejected.");
+    assertViewDefinitionRedacted(event);
+  }
+
+  private ServiceAuditEvent capturedAuditEvent() {
+    Mockito.verify(serviceAuditHandler, Mockito.atLeastOnce()).audit(argCaptor.capture());
+    return argCaptor.getValue();
+  }
+
+  private void assertViewDefinitionRedacted(ServiceAuditEvent event) {
+    JsonElement payload = event.getRequestPayload();
+    Assertions.assertNotNull(payload, "The audit event must still carry a request payload.");
+    Assertions.assertTrue(payload.isJsonObject(), "The view request payload is a JSON object.");
+    JsonObject payloadObject = payload.getAsJsonObject();
+
+    Assertions.assertTrue(
+        payloadObject.has("schema"),
+        "The key must survive redaction so an auditor can see the field was sent.");
+    Assertions.assertEquals(
+        ServiceAuditPayloadRedactor.REDACTED_VALUE,
+        payloadObject.get("schema").getAsString(),
+        "The schema document must not reach the audit event.");
+
+    JsonArray representations = payloadObject.getAsJsonArray("representations");
+    Assertions.assertNotNull(representations, "The representations array must survive redaction.");
+    Assertions.assertEquals(1, representations.size());
+    for (JsonElement representation : representations) {
+      JsonObject representationObject = representation.getAsJsonObject();
+      Assertions.assertEquals(
+          ServiceAuditPayloadRedactor.REDACTED_VALUE,
+          representationObject.get("sql").getAsString(),
+          "The SQL text must not reach the audit event.");
+      // Everything else on the representation is metadata, not caller content.
+      Assertions.assertEquals(
+          ViewModelConstants.SQL_REPRESENTATION_TYPE,
+          representationObject.get("type").getAsString());
+      Assertions.assertEquals(
+          ViewModelConstants.SOURCE_DIALECT, representationObject.get("dialect").getAsString());
+    }
+
+    String serializedPayload = payload.toString();
+    Assertions.assertFalse(
+        serializedPayload.contains(SECRET_SQL_MARKER),
+        "No fragment of the submitted SQL may appear anywhere in the audited payload.");
+    Assertions.assertFalse(
+        serializedPayload.contains(SECRET_SCHEMA_MARKER),
+        "No fragment of the submitted schema may appear anywhere in the audited payload.");
+
+    // The identifying and routing fields are what makes the audit event useful; leave them alone.
+    Assertions.assertEquals(ViewModelConstants.VIEW_ID, payloadObject.get("viewId").getAsString());
+    Assertions.assertEquals(
+        ViewModelConstants.DATABASE_ID, payloadObject.get("databaseId").getAsString());
+    Assertions.assertEquals(
+        ViewModelConstants.CLUSTER_ID, payloadObject.get("clusterId").getAsString());
+    Assertions.assertEquals(
+        ViewModelConstants.SOURCE_DIALECT, payloadObject.get("sourceDialect").getAsString());
+    Assertions.assertEquals(
+        ViewModelConstants.DEFAULT_CATALOG, payloadObject.get("defaultCatalog").getAsString());
+    Assertions.assertEquals(
+        ViewModelConstants.METADATA_LOCATION, payloadObject.get("baseViewVersion").getAsString());
+    Assertions.assertEquals(
+        ViewModelConstants.DATABASE_ID,
+        payloadObject.getAsJsonArray("defaultNamespace").get(0).getAsString());
+    Assertions.assertEquals(
+        "openhouse",
+        payloadObject.getAsJsonObject("viewProperties").get("owner").getAsString(),
+        "View properties are caller metadata, not view definition, and stay auditable.");
   }
 
   // ---------------------------------------------------------------------------------------------

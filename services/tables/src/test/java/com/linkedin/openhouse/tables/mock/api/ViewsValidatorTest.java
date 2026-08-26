@@ -69,7 +69,7 @@ public class ViewsValidatorTest {
                 clusterProperties.getClusterName(),
                 ViewModelConstants.DATABASE_ID,
                 servingCluster(ViewModelConstants.createRequestWithInitialBaseVersion())),
-        "The Iceberg client always sends "
+        "The Iceberg client sends "
             + INITIAL_TABLE_VERSION
             + " on create, so that form must be accepted too.");
   }
@@ -315,7 +315,7 @@ public class ViewsValidatorTest {
         createOf(
             validCreateRequest()
                 .toBuilder()
-                .schema(ViewModelConstants.schemaOfExactUtf8Size(MAX_VIEW_SCHEMA_BYTES))
+                .schema(ViewModelConstants.schemaAtMaxUtf8Size())
                 .build()),
         "The limit is inclusive: a schema of exactly the maximum size must be accepted.");
 
@@ -323,7 +323,7 @@ public class ViewsValidatorTest {
         createOf(
             validCreateRequest()
                 .toBuilder()
-                .schema(ViewModelConstants.schemaOfExactUtf8Size(MAX_VIEW_SCHEMA_BYTES + 1))
+                .schema(ViewModelConstants.schemaOneByteOverMaxUtf8Size())
                 .build()),
         ViewErrorCode.UNSUPPORTED_VIEW_SCHEMA,
         String.format("schema : exceeds maximum UTF-8 size of %d bytes", MAX_VIEW_SCHEMA_BYTES));
@@ -333,16 +333,13 @@ public class ViewsValidatorTest {
   public void validateEnforcesTheSqlUtf8ByteBoundary() {
     assertDoesNotThrow(
         createOf(
-            createRequestWith(
-                sparkRepresentationWithSql(
-                    ViewModelConstants.sqlOfExactUtf8Size(MAX_VIEW_SQL_BYTES)))),
+            createRequestWith(sparkRepresentationWithSql(ViewModelConstants.sqlAtMaxUtf8Size()))),
         "The limit is inclusive: SQL of exactly the maximum size must be accepted.");
 
     assertRejected(
         createOf(
             createRequestWith(
-                sparkRepresentationWithSql(
-                    ViewModelConstants.sqlOfExactUtf8Size(MAX_VIEW_SQL_BYTES + 1)))),
+                sparkRepresentationWithSql(ViewModelConstants.sqlOneByteOverMaxUtf8Size()))),
         ViewErrorCode.INVALID_VIEW_DEFINITION,
         String.format(
             "representations[0].sql : exceeds maximum UTF-8 size of %d bytes", MAX_VIEW_SQL_BYTES));

@@ -11,9 +11,9 @@ import lombok.NoArgsConstructor;
 
 /**
  * ViewRepresentation is the entity holding a single engine-specific representation of a view in the
- * /views API request body. SQL text is stored opaquely; this class carries no parsing, translation
- * or dialect-support logic. Byte-size, representation-type and dialect-support rules are owned by
- * the manual view validator.
+ * /views API request body. SQL text is carried as opaque text; this class holds no parsing,
+ * translation or dialect-support logic. Byte-size, representation-type and dialect-support rules
+ * are owned by the manual view validator.
  */
 @Builder(toBuilder = true)
 @EqualsAndHashCode
@@ -27,7 +27,9 @@ public class ViewRepresentation {
   private String type;
 
   @Schema(
-      description = "Opaque SQL text of the view representation. The server never parses it.",
+      description =
+          "SQL text of the view representation. This endpoint accepts it as opaque text: it is"
+              + " stored as sent and is not parsed or rewritten here.",
       example = "SELECT id, name FROM my_database.my_table")
   @NotEmpty(message = "sql cannot be empty")
   private String sql;

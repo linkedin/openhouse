@@ -1,7 +1,7 @@
 package com.linkedin.openhouse.tables.exception;
 
 import java.util.List;
-import org.springframework.http.HttpStatus;
+import java.util.Objects;
 
 /**
  * Structural validation failure of a /v2 views request. Accumulated reasons are joined with {@code
@@ -9,24 +9,27 @@ import org.springframework.http.HttpStatus;
  * com.linkedin.openhouse.common.exception.RequestValidationFailureException} does for tables, so
  * the two APIs report multiple failures identically.
  *
- * <p>Only 400-mapped codes are accepted: a validation failure that is not a bad request would be a
- * programming error, not a client error.
+ * <p>Only 400-mapped codes are accepted, and that is expressed in the type: the constructors take a
+ * {@link ViewValidationErrorCode}, which can only name one of the three {@code BAD_REQUEST} codes.
+ * A validation failure that is not a bad request is therefore not expressible, rather than
+ * representable and rejected at runtime. {@link #getErrorCode()} still reports the corresponding
+ * {@link ViewErrorCode}, so status selection is unchanged.
  */
 public final class ViewRequestValidationFailureException extends ViewApiException {
 
-  public ViewRequestValidationFailureException(ViewErrorCode errorCode, List<String> reasons) {
-    super(requireBadRequest(errorCode), String.join("; ", reasons));
+  private static final String ERROR_CODE_REQUIRED =
+      "ViewRequestValidationFailureException requires a non-null ViewValidationErrorCode";
+
+  public ViewRequestValidationFailureException(
+      ViewValidationErrorCode errorCode, List<String> reasons) {
+    super(viewErrorCode(errorCode), String.join("; ", reasons));
   }
 
-  public ViewRequestValidationFailureException(ViewErrorCode errorCode, String message) {
-    super(requireBadRequest(errorCode), message);
+  public ViewRequestValidationFailureException(ViewValidationErrorCode errorCode, String message) {
+    super(viewErrorCode(errorCode), message);
   }
 
-  private static ViewErrorCode requireBadRequest(ViewErrorCode errorCode) {
-    if (errorCode == null || errorCode.getHttpStatus() != HttpStatus.BAD_REQUEST) {
-      throw new IllegalArgumentException(
-          "ViewRequestValidationFailureException requires a BAD_REQUEST view error code");
-    }
-    return errorCode;
+  private static ViewErrorCode viewErrorCode(ViewValidationErrorCode errorCode) {
+    return Objects.requireNonNull(errorCode, ERROR_CODE_REQUIRED).getViewErrorCode();
   }
 }
