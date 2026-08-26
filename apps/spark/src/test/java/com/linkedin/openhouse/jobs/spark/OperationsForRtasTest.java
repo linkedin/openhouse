@@ -3,7 +3,6 @@ package com.linkedin.openhouse.jobs.spark;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
-import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -17,7 +16,6 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.Transaction;
 import org.apache.iceberg.actions.DeleteOrphanFiles;
 import org.apache.spark.sql.AnalysisException;
 import org.apache.spark.sql.Row;
@@ -144,15 +142,18 @@ public class OperationsForRtasTest extends OpenHouseSparkITest {
   }
 
   /**
-   * The delete is planned against a snapshot that an RTAS stales before it commits.
+   * The retention DELETE runs against a table replaced after the job's args were frozen.
    *
-   * <p>The retention job resolved the table and planned its delete against the pre-RTAS snapshot.
-   * The replace then moves the table's head. Nothing binds the delete to the snapshot it was
-   * planned on, so the writer rebases onto the replacement and the commit is accepted. It lands as
-   * a snapshot that deletes nothing, and the job reports success without applying retention.
+   * <p>The scheduler snapshots {@code policies.retention} and freezes it into the job's args. The
+   * replace lands before the job issues its DELETE, changing what the table holds. Spark plans and
+   * commits {@code DELETE FROM} inside a single statement, so there is no window for the replace to
+   * invalidate: by the time the write is validated, the scan behind it has already seen the
+   * replacement. Iceberg's conflict validations are bound to that scan, so nothing rejects a
+   * retention window that was authorized against a table which no longer exists. The frozen window
+   * is applied to the replacement's rows instead.
    *
-   * <p>A preflight check cannot cover this window, since it would have passed before the replace
-   * landed. Closing it needs the delete bound to the state that was validated.
+   * <p>A preflight check at job start cannot cover this, since it would have passed before the
+   * replace landed. Closing it needs the window bound to the state that was validated.
    */
   @Test
   public void testRetentionDeleteOnSnapshotStaledByRtas() throws Exception {
@@ -164,16 +165,12 @@ public class OperationsForRtasTest extends OpenHouseSparkITest {
       insertRows(ops, tableName, now, 0, 2);
       verifyRowCount(ops, tableName, 2);
 
-      // The retention job plans its delete against the current snapshot but has not committed yet.
-      Table preRtasTable = ops.getTable(tableName);
-      long preRtasSnapshotId = preRtasTable.currentSnapshot().snapshotId();
-      Transaction plannedDelete = preRtasTable.newTransaction();
-      plannedDelete
-          .newDelete()
-          .deleteFromRowFilter(SparkJobUtil.createDeleteFilter("ts", "", "day", 1, now))
-          .commit();
+      // The scheduler snapshots the policy here and launches the job, freezing
+      // `--columnName ts --granularity day --count 1`. The job plans against this snapshot.
+      long preRtasSnapshotId = ops.getTable(tableName).currentSnapshot().snapshotId();
 
-      // The replace lands first and stales that snapshot.
+      // The replace lands first and stales that snapshot. Its d5 row sits outside the window the
+      // job is holding, and was never covered by the policy the job was launched with.
       prepareSource(ops, sourceName, now, 0, 5);
       ops.spark()
           .sql(
@@ -185,35 +182,40 @@ public class OperationsForRtasTest extends OpenHouseSparkITest {
       Assertions.assertNotEquals(
           preRtasSnapshotId,
           rtasSnapshotId,
-          "Replace should have moved the table off the snapshot the delete was planned on");
+          "Replace should have moved the table off the snapshot the job planned on");
       verifyRowCount(ops, tableName, 2);
 
-      // The retention delete commits onto the staled snapshot instead of failing. The writer
-      // rebases onto the replacement, so by the time the request reaches the catalog it declares
-      // the post-RTAS metadata as its base and the CAS has nothing to reject.
+      // The job issues its DELETE with the frozen args. A metadata-only delete carries no snapshot
+      // validation, so the replace does not invalidate it.
       Assertions.assertDoesNotThrow(
-          plannedDelete::commitTransaction,
-          "Current behavior: a delete planned pre-RTAS rebases onto the replacement");
+          () -> ops.runRetention(tableName, "ts", "", "day", 1, false, "", now),
+          "Current behavior: Spark's DELETE FROM is not validated against the replace");
 
-      // It lands as a snapshot that deletes nothing. The files it planned to remove belong to the
-      // pre-RTAS table and are not part of the replacement, so the filter matches nothing.
+      // It commits on top of the replacement. Spark 3.1 / Iceberg 1.2 rewrites data files
+      // (`overwrite`, i.e. OverwriteFiles, the path that does expose validateFromSnapshot and
+      // validateNoConflictingData); Spark 3.5 / Iceberg 1.5 resolves the same predicate to a
+      // metadata-only `delete`. Neither rejects the write: the validations that exist are bound to
+      // the scan Spark just planned, which already saw the replacement, so no conflict is left to
+      // detect.
       Table afterDelete = ops.getTable(tableName);
       Assertions.assertNotEquals(
           rtasSnapshotId,
           afterDelete.currentSnapshot().snapshotId(),
-          "Staled delete should still have committed a snapshot");
-      verifyRowCount(ops, tableName, 2);
+          "Retention delete should have committed a snapshot");
+      Assertions.assertTrue(
+          Arrays.asList("delete", "overwrite").contains(afterDelete.currentSnapshot().operation()),
+          "Retention should have committed a write on top of the replacement, but was: "
+              + afterDelete.currentSnapshot().operation());
+      ops.spark().sql(String.format("REFRESH TABLE %s", tableName));
+      verifyRowCount(ops, tableName, 1);
       Assertions.assertEquals(
-          1,
+          0,
           ops.spark().sql(String.format("SELECT * FROM %s WHERE data = 'd5'", tableName)).count(),
-          "Surviving rows should be the replacement's, not the pre-RTAS table's");
+          "The replacement's out-of-window row is deleted by the stale config");
       Assertions.assertEquals(
-          1,
+          0,
           rowsOlderThan(ops, tableName, now.minusDays(1)),
-          "The row the stale 1-day config targeted is still there");
-      // So the job reports success having applied no retention at all this cycle, and the row its
-      // own config covers survives untouched. Silent, and invisible to a check that only runs at
-      // job start.
+          "Retention applied the frozen window to data it was never validated against");
     }
   }
 
