@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -60,8 +59,10 @@ public class ReadBridgeStripProtection {
    * Reject Type 1 / Type 2 violations, then drop every {@code initial-default} from {@code
    * incoming} so overlays cannot land in Iceberg metadata. Ramp-off still strips. Returns {@code
    * incoming} unchanged when there is nothing to check or drop.
+   *
+   * @throws ColumnDefaultException Type 1, Type 2, or unusable
    */
-  public TableDto prepare(TableDto existing, TableDto incoming) {
+  public TableDto prepare(TableDto existing, TableDto incoming) throws ColumnDefaultException {
     if (incoming == null) {
       return incoming;
     }
@@ -69,10 +70,10 @@ public class ReadBridgeStripProtection {
         existing == null ? Collections.emptyMap() : resolver.stampedColumnDefaults(existing);
     Map<Integer, String> incomingStamped = resolver.stampedColumnDefaults(incoming);
     if (existing != null) {
-      rejectRemovedDefaults(previousStamped, incomingStamped, existing, incoming);
-      rejectUnawareRewrite(previousStamped, existing, incoming);
+      rejectRemovedDefaults(previousStamped, incomingStamped, incoming);
+      rejectUnawareRewrite(previousStamped, incoming);
     }
-    return stripInitialDefaults(existing, incoming);
+    return stripInitialDefaults(incoming);
   }
 
   /**
@@ -80,19 +81,17 @@ public class ReadBridgeStripProtection {
    * — there is no default to protect.
    */
   private void rejectRemovedDefaults(
-      Map<Integer, String> previousStamped,
-      Map<Integer, String> incomingStamped,
-      TableDto existing,
-      TableDto incoming) {
+      Map<Integer, String> previousStamped, Map<Integer, String> incomingStamped, TableDto incoming)
+      throws ColumnDefaultException {
     if (previousStamped.isEmpty() || !resolver.isRampedForCommit(incoming)) {
       return;
     }
-    JsonNode schema = tree(incoming.getSchema(), existing, incoming);
+    JsonNode schema = tree(incoming.getSchema(), incoming);
     Set<Integer> remaining = fieldIds(schema);
     for (Integer fieldId : previousStamped.keySet()) {
       if (remaining.contains(fieldId) && !incomingStamped.containsKey(fieldId)) {
-        throw new UnsupportedClientOperationException(
-            UnsupportedClientOperationException.Operation.COLUMN_DEFAULT_REMOVED,
+        throw new ColumnDefaultException(
+            ColumnDefaultException.Operation.REMOVED,
             String.format(
                 "COLUMN_DEFAULT_REMOVED: %s.%s still has a column default on %s. This commit"
                     + " omitted it. Retry from Spark 3.1 or Spark 3.5 using the jars on the"
@@ -106,21 +105,21 @@ public class ReadBridgeStripProtection {
    * Type 2: overwrite/replace must send {@code initial-default} equal to the stamp. That handshake
    * is trust, not proof the files were rewritten. Appends are not rewrites.
    */
-  private void rejectUnawareRewrite(
-      Map<Integer, String> previousStamped, TableDto existing, TableDto incoming) {
-    if (previousStamped.isEmpty() || !isRewrite(existing, incoming)) {
+  private void rejectUnawareRewrite(Map<Integer, String> previousStamped, TableDto incoming)
+      throws ColumnDefaultException {
+    if (previousStamped.isEmpty() || !isRewrite(incoming)) {
       return;
     }
-    JsonNode schema = tree(incoming.getSchema(), existing, incoming);
+    JsonNode schema = tree(incoming.getSchema(), incoming);
     Set<Integer> remaining = fieldIds(schema);
     for (Map.Entry<Integer, String> stamp : previousStamped.entrySet()) {
       if (!remaining.contains(stamp.getKey())) {
         continue;
       }
       JsonNode actual = initialDefault(schema, stamp.getKey());
-      if (!tree(stamp.getValue(), existing, incoming).equals(actual)) {
-        throw new UnsupportedClientOperationException(
-            UnsupportedClientOperationException.Operation.COLUMN_DEFAULT_REWRITE,
+      if (!tree(stamp.getValue(), incoming).equals(actual)) {
+        throw new ColumnDefaultException(
+            ColumnDefaultException.Operation.REWRITE,
             String.format(
                 "COLUMN_DEFAULT_REWRITE: %s.%s still has a column default on %s. This"
                     + " overwrite/replace did not send a matching initial-default. Retry from"
@@ -134,9 +133,9 @@ public class ReadBridgeStripProtection {
     }
   }
 
-  private TableDto stripInitialDefaults(TableDto existing, TableDto incoming) {
-    String schema = strip(incoming.getSchema(), existing, incoming);
-    List<String> intermediates = strip(incoming.getNewIntermediateSchemas(), existing, incoming);
+  private TableDto stripInitialDefaults(TableDto incoming) throws ColumnDefaultException {
+    String schema = strip(incoming.getSchema(), incoming);
+    List<String> intermediates = strip(incoming.getNewIntermediateSchemas(), incoming);
     if (Objects.equals(schema, incoming.getSchema())
         && Objects.equals(intermediates, incoming.getNewIntermediateSchemas())) {
       return incoming;
@@ -149,7 +148,7 @@ public class ReadBridgeStripProtection {
    * overwrite is therefore missed. Fix with #669 deltas, not a ref-map diff:
    * https://github.com/linkedin/openhouse/issues/693
    */
-  private boolean isRewrite(TableDto existing, TableDto incoming) {
+  private boolean isRewrite(TableDto incoming) throws ColumnDefaultException {
     if (incoming.isReplaceCommit() || incoming.isStageReplace()) {
       return true;
     }
@@ -157,27 +156,27 @@ public class ReadBridgeStripProtection {
     if (jsonSnapshots == null || jsonSnapshots.isEmpty()) {
       return false;
     }
-    String operation = currentSnapshot(existing, incoming, jsonSnapshots).operation();
+    String operation = currentSnapshot(incoming, jsonSnapshots).operation();
     return DataOperations.OVERWRITE.equals(operation) || DataOperations.REPLACE.equals(operation);
   }
 
-  private static Snapshot currentSnapshot(
-      TableDto existing, TableDto incoming, List<String> jsonSnapshots) {
-    Long mainId = mainSnapshotId(existing, incoming);
+  private static Snapshot currentSnapshot(TableDto incoming, List<String> jsonSnapshots)
+      throws ColumnDefaultException {
+    Long mainId = mainSnapshotId(incoming);
     if (mainId != null) {
       for (String json : jsonSnapshots) {
-        Snapshot snapshot = snapshot(json, existing, incoming);
+        Snapshot snapshot = snapshot(json, incoming);
         if (snapshot.snapshotId() == mainId) {
           return snapshot;
         }
       }
-      throw ReadBridgeConfigResolver.unusable(
-          incoming, existing, "main-branch snapshot is missing from the request", null);
+      throw ColumnDefaultException.unusable(
+          incoming, "main-branch snapshot is missing from the request", null);
     }
-    return snapshot(jsonSnapshots.get(jsonSnapshots.size() - 1), existing, incoming);
+    return snapshot(jsonSnapshots.get(jsonSnapshots.size() - 1), incoming);
   }
 
-  private static Long mainSnapshotId(TableDto existing, TableDto incoming) {
+  private static Long mainSnapshotId(TableDto incoming) throws ColumnDefaultException {
     Map<String, String> snapshotRefs = incoming.getSnapshotRefs();
     if (snapshotRefs == null) {
       return null;
@@ -189,18 +188,18 @@ public class ReadBridgeStripProtection {
     try {
       return SnapshotRefParser.fromJson(main).snapshotId();
     } catch (RuntimeException e) {
-      throw ReadBridgeConfigResolver.unusable(incoming, existing, "unreadable snapshot ref", e);
+      throw ColumnDefaultException.unusable(incoming, "unreadable snapshot ref", e);
     }
   }
 
-  private static Snapshot snapshot(String json, TableDto existing, TableDto incoming) {
+  private static Snapshot snapshot(String json, TableDto incoming) throws ColumnDefaultException {
     if (json == null || json.isEmpty()) {
-      throw ReadBridgeConfigResolver.unusable(incoming, existing, "unreadable snapshot", null);
+      throw ColumnDefaultException.unusable(incoming, "unreadable snapshot", null);
     }
     try {
       return SnapshotParser.fromJson(json);
     } catch (RuntimeException e) {
-      throw ReadBridgeConfigResolver.unusable(incoming, existing, "unreadable snapshot", e);
+      throw ColumnDefaultException.unusable(incoming, "unreadable snapshot", e);
     }
   }
 
@@ -208,11 +207,11 @@ public class ReadBridgeStripProtection {
    * Drop every {@code initial-default} so a handshake, a ramp-off leftover, or an unstamped writer
    * default cannot land in Iceberg metadata.
    */
-  private static String strip(String schemaJson, TableDto existing, TableDto incoming) {
+  private static String strip(String schemaJson, TableDto incoming) throws ColumnDefaultException {
     if (schemaJson == null || schemaJson.isEmpty()) {
       return schemaJson;
     }
-    JsonNode root = tree(schemaJson, existing, incoming);
+    JsonNode root = tree(schemaJson, incoming);
     boolean changed = false;
     for (JsonNode field : fieldObjects(root)) {
       if (field instanceof ObjectNode
@@ -226,19 +225,20 @@ public class ReadBridgeStripProtection {
     try {
       return MAPPER.writeValueAsString(root);
     } catch (JsonProcessingException e) {
-      throw ReadBridgeConfigResolver.unusable(
-          incoming, existing, "read-bridge: failed to strip initial-default from schema", e);
+      throw ColumnDefaultException.unusable(
+          incoming, "failed to strip initial-default from schema", e);
     }
   }
 
-  private static List<String> strip(List<String> schemas, TableDto existing, TableDto incoming) {
+  private static List<String> strip(List<String> schemas, TableDto incoming)
+      throws ColumnDefaultException {
     if (schemas == null || schemas.isEmpty()) {
       return schemas;
     }
     List<String> stripped = new ArrayList<>(schemas.size());
     boolean changed = false;
     for (String schema : schemas) {
-      String next = strip(schema, existing, incoming);
+      String next = strip(schema, incoming);
       stripped.add(next);
       changed |= !Objects.equals(next, schema);
     }
@@ -282,14 +282,14 @@ public class ReadBridgeStripProtection {
     return found == null ? Collections.emptyList() : found;
   }
 
-  private static JsonNode tree(String json, TableDto existing, TableDto incoming) {
+  private static JsonNode tree(String json, TableDto incoming) throws ColumnDefaultException {
     if (json == null || json.isEmpty()) {
-      throw ReadBridgeConfigResolver.unusable(incoming, existing, "unreadable json", null);
+      throw ColumnDefaultException.unusable(incoming, "unreadable json", null);
     }
     try {
       return MAPPER.readTree(json);
     } catch (JsonProcessingException e) {
-      throw ReadBridgeConfigResolver.unusable(incoming, existing, "unreadable json", e);
+      throw ColumnDefaultException.unusable(incoming, "unreadable json", e);
     }
   }
 }

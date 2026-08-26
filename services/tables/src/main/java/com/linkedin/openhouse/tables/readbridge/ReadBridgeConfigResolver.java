@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.tables.readbridge;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
 import java.util.Collections;
@@ -47,14 +46,15 @@ public class ReadBridgeConfigResolver {
    * ramped. Toggle or source failure throws — the write path fail-closes; {@link #resolve} does
    * not.
    *
-   * @throws UnsupportedClientOperationException if the source or ramp lookup cannot answer
+   * @throws ColumnDefaultException if the source or ramp lookup cannot answer
    */
-  public Map<Integer, String> stampedColumnDefaults(TableDto tableDto) {
+  public Map<Integer, String> stampedColumnDefaults(TableDto tableDto)
+      throws ColumnDefaultException {
     Objects.requireNonNull(tableDto, "tableDto");
     try {
       return columnDefaultsByFieldId(tableDto);
     } catch (RuntimeException e) {
-      throw unusable(tableDto, e);
+      throw ColumnDefaultException.unusable(tableDto, e);
     }
   }
 
@@ -62,14 +62,14 @@ public class ReadBridgeConfigResolver {
    * Write-path ramp. Toggle failure throws. {@code ColumnDefaultsSource.NONE} is never ramped, so
    * the toggle is not consulted.
    *
-   * @throws UnsupportedClientOperationException if the ramp lookup cannot answer
+   * @throws ColumnDefaultException if the ramp lookup cannot answer
    */
-  public boolean isRampedForCommit(TableDto tableDto) {
+  public boolean isRampedForCommit(TableDto tableDto) throws ColumnDefaultException {
     Objects.requireNonNull(tableDto, "tableDto");
     try {
       return isColumnDefaultRamped(tableDto);
     } catch (RuntimeException e) {
-      throw unusable(tableDto, e);
+      throw ColumnDefaultException.unusable(tableDto, e);
     }
   }
 
@@ -124,54 +124,5 @@ public class ReadBridgeConfigResolver {
       return false;
     }
     return featureToggle.isFeatureActivatedWithOverride(tableDto, COLUMN_DEFAULT_FEATURE_ID);
-  }
-
-  static UnsupportedClientOperationException unusable(TableDto tableDto, Throwable cause) {
-    return unusable(tableDto, null, cause);
-  }
-
-  static UnsupportedClientOperationException unusable(
-      TableDto incoming, TableDto existing, Throwable cause) {
-    return unusable(incoming, existing, causeMessage(cause), cause);
-  }
-
-  static UnsupportedClientOperationException unusable(
-      TableDto incoming, TableDto existing, String reason, Throwable cause) {
-    UnsupportedClientOperationException thrown =
-        new UnsupportedClientOperationException(
-            UnsupportedClientOperationException.Operation.COLUMN_DEFAULT_UNUSABLE,
-            String.format(
-                "COLUMN_DEFAULT_UNUSABLE: OpenHouse could not validate column defaults on %s.%s, so"
-                    + " the commit was rejected. Retry. If it persists, contact the OpenHouse team"
-                    + " with the Spark application logs and the table metadata path: %s. Cause: %s",
-                incoming.getDatabaseId(),
-                incoming.getTableId(),
-                metadataPath(incoming, existing),
-                reason));
-    if (cause != null) {
-      thrown.initCause(cause);
-    }
-    return thrown;
-  }
-
-  private static String causeMessage(Throwable cause) {
-    if (cause == null || cause.getMessage() == null) {
-      return cause == null ? "unknown" : cause.toString();
-    }
-    return cause.getMessage();
-  }
-
-  private static String metadataPath(TableDto incoming, TableDto existing) {
-    if (incoming != null
-        && incoming.getTableLocation() != null
-        && !incoming.getTableLocation().isEmpty()) {
-      return incoming.getTableLocation();
-    }
-    if (existing != null
-        && existing.getTableLocation() != null
-        && !existing.getTableLocation().isEmpty()) {
-      return existing.getTableLocation();
-    }
-    return "unavailable";
   }
 }

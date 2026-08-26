@@ -14,7 +14,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.IntNode;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
-import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.tables.api.handler.impl.OpenHouseTablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
@@ -126,11 +125,17 @@ public class ReadBridgeConfigResolverTest {
           throw new IllegalStateException("encoder exploded");
         };
 
-    Assertions.assertThrows(
-        UnsupportedClientOperationException.class,
-        () ->
-            resolverFor(exploding)
-                .stampedColumnDefaults(TableDto.builder().databaseId("db").tableId("tbl").build()));
+    ColumnDefaultException thrown =
+        Assertions.assertThrows(
+            ColumnDefaultException.class,
+            () ->
+                resolverFor(exploding)
+                    .stampedColumnDefaults(
+                        TableDto.builder().databaseId("db").tableId("tbl").build()));
+    Assertions.assertEquals(ColumnDefaultException.Operation.UNUSABLE, thrown.getOperation());
+    Assertions.assertTrue(
+        thrown.toUnsupportedClient().getMessage().contains("COLUMN_DEFAULT_UNUSABLE"));
+    Assertions.assertTrue(thrown.getMessage().contains("db.tbl"));
   }
 
   /** Write path must not commit when the ramp lookup cannot answer. */
@@ -145,7 +150,7 @@ public class ReadBridgeConfigResolverTest {
         };
 
     Assertions.assertThrows(
-        UnsupportedClientOperationException.class,
+        ColumnDefaultException.class,
         () ->
             new ReadBridgeConfigResolver(oneDefault(), exploding)
                 .stampedColumnDefaults(TableDto.builder().databaseId("db").tableId("tbl").build()));
