@@ -23,9 +23,6 @@ public final class ValidatorConstants {
   /** The only view representation type accepted by the /v2 views API. */
   public static final String SQL_VIEW_REPRESENTATION_TYPE = "sql";
 
-  /** The only view SQL dialect accepted by the /v2 views API in M1. */
-  public static final String SPARK_VIEW_DIALECT = "spark";
-
   /**
    * Maximum length of a view or database identifier on the /v2 views API. Mirrors the
    * {@code @Size(max = 128)} bean constraint on the request body identifiers so a path identifier

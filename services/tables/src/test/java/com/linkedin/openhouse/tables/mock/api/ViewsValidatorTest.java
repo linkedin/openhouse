@@ -135,6 +135,17 @@ public class ViewsValidatorTest {
       "schema : must be valid Iceberg schema JSON; Spark StructType JSON is not supported";
 
   /**
+   * The messages the default configuration produces. Written out rather than derived from the
+   * property, so a change to how the supported set is rendered has to be made deliberately here
+   * too: these strings are copied verbatim into the response body a caller reads.
+   */
+  private static final String UNSUPPORTED_REPRESENTATION_DIALECT =
+      "representations[0].dialect : must be one of the supported dialects: spark";
+
+  private static final String UNSUPPORTED_SOURCE_DIALECT =
+      "sourceDialect : must be one of the supported dialects: spark";
+
+  /**
    * Asserts the request is rejected, that the reported reason is exactly {@code expectedMessage},
    * and that the internal code is the expected one. The code is asserted everywhere because it is
    * never serialized: all three 400-mapped codes look identical to a client, so this test class is
@@ -399,19 +410,7 @@ public class ViewsValidatorTest {
   }
 
   @Test
-  public void validateRejectsRepresentationCountNullElementAndType() {
-    // A second representation necessarily also breaks a dialect rule, because spark is the only
-    // supported dialect and duplicates of it are rejected. The count message is what is asserted;
-    // the dialect code simply reflects that more specific coexisting failure.
-    assertRejected(
-        createOf(
-            createRequestWith(
-                Arrays.asList(
-                    ViewModelConstants.SPARK_REPRESENTATION,
-                    ViewModelConstants.SPARK_REPRESENTATION.toBuilder().dialect("trino").build()))),
-        ViewErrorCode.UNSUPPORTED_VIEW_DIALECT,
-        "representations : must contain exactly one representation");
-
+  public void validateRejectsANullRepresentationAndANonSqlType() {
     assertRejected(
         createOf(createRequestWith(Collections.singletonList((ViewRepresentation) null))),
         ViewErrorCode.INVALID_VIEW_DEFINITION,
@@ -425,26 +424,60 @@ public class ViewsValidatorTest {
         "representations[0].type : must be 'sql'");
   }
 
+  /**
+   * The supported set is configuration, and this deployment configures nothing, so the default
+   * applies. That default is exactly {@code spark}: a Spark view is accepted and a Trino one is
+   * rejected, which is the behaviour the count-and-literal rules this replaced used to produce.
+   */
   @Test
-  public void validateRejectsEveryDialectOtherThanExactlySpark() {
+  public void validateAcceptsTheDefaultConfiguredDialectAndRejectsEveryOther() {
+    assertDoesNotThrow(
+        createOf(validCreateRequest()),
+        "spark is the default supported dialect, so a single spark representation must be accepted.");
+
     assertRejected(
         createOf(
             createRequestWith(
                 ViewModelConstants.SPARK_REPRESENTATION.toBuilder().dialect("trino").build())),
         ViewErrorCode.UNSUPPORTED_VIEW_DIALECT,
-        "representations[0].dialect : only 'spark' is supported");
+        UNSUPPORTED_REPRESENTATION_DIALECT);
 
     assertRejected(
         createOf(
             createRequestWith(
                 ViewModelConstants.SPARK_REPRESENTATION.toBuilder().dialect("SPARK").build())),
         ViewErrorCode.UNSUPPORTED_VIEW_DIALECT,
-        "representations[0].dialect : only 'spark' is supported");
+        UNSUPPORTED_REPRESENTATION_DIALECT);
 
     assertRejected(
         createOf(validCreateRequest().toBuilder().sourceDialect("trino").build()),
         ViewErrorCode.UNSUPPORTED_VIEW_DIALECT,
-        "sourceDialect : only 'spark' is supported");
+        UNSUPPORTED_SOURCE_DIALECT);
+  }
+
+  /**
+   * Two representations are structurally fine; two representations the deployment cannot both serve
+   * are not. With only spark configured, the second one is rejected on its own dialect rather than
+   * on a count of the list.
+   */
+  @Test
+  public void validateRejectsASecondRepresentationOnlyForItsUnsupportedDialect() {
+    ViewRequestValidationFailureException exception =
+        assertRejected(
+            createOf(
+                createRequestWith(
+                    Arrays.asList(
+                        ViewModelConstants.SPARK_REPRESENTATION,
+                        ViewModelConstants.SPARK_REPRESENTATION
+                            .toBuilder()
+                            .dialect("trino")
+                            .build()))),
+            ViewErrorCode.UNSUPPORTED_VIEW_DIALECT,
+            "representations[1].dialect : must be one of the supported dialects: spark");
+
+    Assertions.assertFalse(
+        exception.getMessage().contains("representations[0]"),
+        "The supported representation must not be implicated: only the unsupported one is at fault.");
   }
 
   /**

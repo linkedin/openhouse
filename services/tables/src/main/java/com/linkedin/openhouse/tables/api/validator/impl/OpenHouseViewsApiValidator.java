@@ -6,9 +6,9 @@ import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INI
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.MAX_VIEW_IDENTIFIER_LENGTH;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.MAX_VIEW_SCHEMA_BYTES;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.MAX_VIEW_SQL_BYTES;
-import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.SPARK_VIEW_DIALECT;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.SQL_VIEW_REPRESENTATION_TYPE;
 
+import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.api.validator.ApiValidatorUtil;
 import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils;
@@ -22,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -30,6 +31,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
+import javax.annotation.PostConstruct;
 import javax.validation.Validator;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -57,6 +59,35 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
   private static final String POLICIES_PROPERTY_KEY = "policies";
 
   @Autowired private Validator validator;
+
+  @Autowired private ClusterProperties clusterProperties;
+
+  /**
+   * The dialects this deployment accepts, normalized once at startup. Configured values are
+   * lowercased and deduplicated so a comma-separated property is compared the same way whatever
+   * spacing or casing it was written with, while a caller's dialect still has to match exactly in
+   * lowercase, as it always has.
+   *
+   * <p>A {@link LinkedHashSet} over sorted values rather than the {@link TreeSet} that sorted them:
+   * a comparator-ordered set rejects a {@code null} lookup, and a representation may legally reach
+   * the membership test with no dialect at all.
+   */
+  private Set<String> supportedDialects;
+
+  /** Fixed, server-owned text: the configured set never contains caller-supplied payload. */
+  private String supportedDialectsText;
+
+  @PostConstruct
+  void resolveSupportedDialects() {
+    Set<String> sorted =
+        clusterProperties.getViewsSupportedDialects().stream()
+            .filter(StringUtils::isNotBlank)
+            .map(dialect -> dialect.trim().toLowerCase(Locale.ROOT))
+            .collect(Collectors.toCollection(TreeSet::new));
+    supportedDialects = Collections.unmodifiableSet(new LinkedHashSet<>(sorted));
+    supportedDialectsText = String.join(", ", supportedDialects);
+    log.info("Views API accepting the configured view dialects: {}", supportedDialectsText);
+  }
 
   @Override
   public void validateGetView(String databaseId, String viewId) {
@@ -218,6 +249,12 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
     }
   }
 
+  /**
+   * Every representation must name a dialect this deployment supports. There is deliberately no
+   * rule on how many representations a request may carry: {@link #validateUniqueDialects} already
+   * rejects an ambiguous request, so a request carrying one representation per supported dialect is
+   * well formed and is accepted.
+   */
   private void validateRepresentations(
       Optional<List<ViewRepresentation>> maybeRepresentations, ViewValidationFailures failures) {
     if (!maybeRepresentations.isPresent()) {
@@ -225,9 +262,6 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
       return;
     }
     List<ViewRepresentation> representations = maybeRepresentations.get();
-    if (representations.size() != 1) {
-      failures.addGeneric("representations : must contain exactly one representation");
-    }
     for (int index = 0; index < representations.size(); index++) {
       ViewRepresentation representation = representations.get(index);
       if (representation == null) {
@@ -239,10 +273,11 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
             String.format(
                 "representations[%d].type : must be '%s'", index, SQL_VIEW_REPRESENTATION_TYPE));
       }
-      if (!SPARK_VIEW_DIALECT.equals(representation.getDialect())) {
+      if (!supportedDialects.contains(representation.getDialect())) {
         failures.addDialect(
             String.format(
-                "representations[%d].dialect : only '%s' is supported", index, SPARK_VIEW_DIALECT));
+                "representations[%d].dialect : must be one of the supported dialects: %s",
+                index, supportedDialectsText));
       }
       validateRepresentationSql(index, representation.getSql(), failures);
     }
@@ -292,6 +327,11 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
     }
   }
 
+  /**
+   * The source dialect carries two separate obligations: it must name a dialect this deployment
+   * supports, and it must name one of the representations actually supplied. The first is about
+   * what the server can serve, the second about what this request defines.
+   */
   private void validateSourceDialect(
       Optional<String> maybeSourceDialect,
       Optional<List<ViewRepresentation>> maybeRepresentations,
@@ -301,9 +341,10 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
       return;
     }
     String sourceDialect = maybeSourceDialect.get();
-    if (!SPARK_VIEW_DIALECT.equals(sourceDialect)) {
+    if (!supportedDialects.contains(sourceDialect)) {
       failures.addDialect(
-          String.format("sourceDialect : only '%s' is supported", SPARK_VIEW_DIALECT));
+          String.format(
+              "sourceDialect : must be one of the supported dialects: %s", supportedDialectsText));
       return;
     }
     // Only meaningful when at least one usable representation was supplied. With none, the missing
