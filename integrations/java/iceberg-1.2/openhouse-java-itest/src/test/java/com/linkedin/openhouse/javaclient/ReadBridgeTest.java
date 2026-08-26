@@ -21,20 +21,18 @@ class ReadBridgeTest {
   private static final String PREFIX = ReadBridge.COLUMN_DEFAULT_PREFIX;
 
   @Test
-  void decodesColumnDefaultsByFieldId() {
-    // Avoid naming JsonNode: it is relocated in the shaded client, and this module has no `var`.
+  void decodesColumnDefaultsByFieldId() throws ReadBridgeException {
     Map<String, String> config = new HashMap<>();
     config.put(PREFIX + "5", "\"US\"");
     config.put(PREFIX + "7", "0");
     ReadBridge bridge = ReadBridge.from(config);
     assertEquals(2, bridge.columnDefaults().size());
-    // Original JSON strings so apply can bind without a relocated JsonNode.
-    assertEquals("\"US\"", bridge.columnDefaults().get(5));
-    assertEquals("0", bridge.columnDefaults().get(7));
+    assertEquals("US", bridge.columnDefaults().get(5).asText());
+    assertEquals(0, bridge.columnDefaults().get(7).asInt());
   }
 
   @Test
-  void inertWhenConfigNullOrNoReadBridgeKeys() {
+  void inertWhenConfigNullOrNoReadBridgeKeys() throws ReadBridgeException {
     assertSame(ReadBridge.INERT, ReadBridge.from(null));
     assertSame(ReadBridge.INERT, ReadBridge.from(Collections.singletonMap("other.key", "x")));
     assertTrue(ReadBridge.from(null).columnDefaults().isEmpty());
@@ -46,36 +44,36 @@ class ReadBridgeTest {
     Map<String, String> config = new HashMap<>();
     config.put(PREFIX + "5", "\"US\"");
     config.put(PREFIX + "notAnInt", "\"x\"");
-    assertThrows(IllegalStateException.class, () -> ReadBridge.from(config));
+    assertThrows(ReadBridgeException.class, () -> ReadBridge.from(config));
   }
 
   @Test
   void failsLoudOnKnownEntryWithUnparseableValue() {
     Map<String, String> config = new HashMap<>();
     config.put(PREFIX + "7", "{bad json");
-    assertThrows(IllegalStateException.class, () -> ReadBridge.from(config));
+    assertThrows(ReadBridgeException.class, () -> ReadBridge.from(config));
   }
 
   @Test
-  void ignoresUnknownKeysWithoutFailing() {
+  void ignoresUnknownKeysWithoutFailing() throws ReadBridgeException {
     // Keys outside the prefix are ignored so a newer server stays readable.
     Map<String, String> config = new HashMap<>();
     config.put(PREFIX + "5", "\"US\"");
     config.put("openhouse.read-bridge.some-future-feature.3", "{not a default}");
     ReadBridge bridge = ReadBridge.from(config);
     assertEquals(1, bridge.columnDefaults().size());
-    assertEquals("\"US\"", bridge.columnDefaults().get(5));
+    assertEquals("US", bridge.columnDefaults().get(5).asText());
   }
 
   @Test
-  void applyReturnsSameInstanceWhenNothingToBridge() {
+  void applyReturnsSameInstanceWhenNothingToBridge() throws ReadBridgeException {
     TableMetadata raw = newTable("file:/tmp/rb-inert");
     assertSame(raw, ReadBridge.INERT.apply(raw));
     assertSame(raw, ReadBridge.from(Collections.singletonMap("other.key", "x")).apply(raw));
   }
 
   @Test
-  void applySetsInitialDefaultOnMatchingField() {
+  void applySetsInitialDefaultOnMatchingField() throws ReadBridgeException {
     TableMetadata raw = newTable("file:/tmp/rb-apply");
     Map<String, String> config = Collections.singletonMap(PREFIX + "2", "\"US\"");
 
@@ -89,7 +87,7 @@ class ReadBridgeTest {
   }
 
   @Test
-  void applyOverlaysEverySchemaId() {
+  void applyOverlaysEverySchemaId() throws ReadBridgeException {
     Schema v0 =
         new Schema(
             0,
@@ -127,7 +125,7 @@ class ReadBridgeTest {
   }
 
   @Test
-  void applyIgnoresFieldIdsAbsentFromAllSchemas() {
+  void applyIgnoresFieldIdsAbsentFromAllSchemas() throws ReadBridgeException {
     TableMetadata raw = newTable("file:/tmp/rb-gap");
     Map<String, String> config = Collections.singletonMap(PREFIX + "99", "\"x\"");
     assertSame(raw, ReadBridge.from(config).apply(raw));
@@ -137,11 +135,11 @@ class ReadBridgeTest {
   void applyFailsLoudWhenDefaultCannotBindToColumnType() {
     TableMetadata raw = newTable("file:/tmp/rb-bad-bind");
     Map<String, String> config = Collections.singletonMap(PREFIX + "1", "\"not-an-int\"");
-    assertThrows(IllegalStateException.class, () -> ReadBridge.from(config).apply(raw));
+    assertThrows(ReadBridgeException.class, () -> ReadBridge.from(config).apply(raw));
   }
 
   @Test
-  void applySetsDefaultOnNestedStructField() {
+  void applySetsDefaultOnNestedStructField() throws ReadBridgeException {
     Schema schema =
         new Schema(
             Types.NestedField.optional(1, "id", Types.IntegerType.get()),

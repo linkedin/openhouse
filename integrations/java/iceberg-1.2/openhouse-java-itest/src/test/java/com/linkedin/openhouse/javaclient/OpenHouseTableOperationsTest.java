@@ -758,7 +758,7 @@ public class OpenHouseTableOperationsTest {
 
     Tasks.UnrecoverableException thrown =
         Assertions.assertThrows(Tasks.UnrecoverableException.class, ops::doRefresh);
-    Assertions.assertInstanceOf(IllegalStateException.class, thrown.getCause());
+    Assertions.assertInstanceOf(ReadBridgeException.class, thrown.getCause());
     Assertions.assertTrue(thrown.getMessage().contains("db.tbl"));
     verifyNoInteractions(mockFileIO);
   }

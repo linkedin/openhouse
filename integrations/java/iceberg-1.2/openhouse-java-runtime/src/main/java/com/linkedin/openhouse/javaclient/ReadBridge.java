@@ -3,12 +3,13 @@ package com.linkedin.openhouse.javaclient;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.StreamSupport;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
 
@@ -37,62 +38,60 @@ final class ReadBridge {
   private static final String ID = "id";
   private static final String INITIAL_DEFAULT = "initial-default";
 
-  /** JSON strings, not JsonNodes — Jackson is relocated in the shaded client. */
-  private final Map<Integer, String> columnDefaults;
+  private final Map<Integer, JsonNode> columnDefaults;
 
-  private ReadBridge(Map<Integer, String> columnDefaults) {
+  private ReadBridge(Map<Integer, JsonNode> columnDefaults) {
     this.columnDefaults = columnDefaults;
   }
 
   /**
    * Decode stamped config. Returns {@link #INERT} when there is nothing to apply.
    *
-   * @throws IllegalStateException if a key this client owns is malformed
+   * @throws ReadBridgeException if a key this client owns is malformed
    */
-  static ReadBridge from(Map<String, String> config) {
-    Map<Integer, String> columnDefaults = decodeColumnDefaults(config);
+  static ReadBridge from(Map<String, String> config) throws ReadBridgeException {
+    Map<Integer, JsonNode> columnDefaults = decodeColumnDefaults(config);
     return columnDefaults.isEmpty() ? INERT : new ReadBridge(columnDefaults);
   }
 
   /** Overlay onto {@code raw}, or return it unchanged. */
-  TableMetadata apply(TableMetadata raw) {
+  TableMetadata apply(TableMetadata raw) throws ReadBridgeException {
     if (columnDefaults.isEmpty()) {
       return raw;
     }
     ObjectNode root = metadataJson(raw);
     boolean changed = false;
     for (JsonNode field : fieldObjects(root)) {
-      String defaultJson = columnDefaults.get(field.get(ID).asInt());
-      if (defaultJson != null) {
-        ((ObjectNode) field).set(INITIAL_DEFAULT, readTree(defaultJson));
+      JsonNode defaultValue = columnDefaults.get(field.get(ID).asInt());
+      if (defaultValue != null) {
+        ((ObjectNode) field).set(INITIAL_DEFAULT, defaultValue);
         changed = true;
       }
     }
     return changed ? fromMetadataJson(raw, root) : raw;
   }
 
-  Map<Integer, String> columnDefaults() {
+  Map<Integer, JsonNode> columnDefaults() {
     return columnDefaults;
   }
 
   /** Decode {@code column-default.<fieldId>} entries. Unknown keys are ignored. */
-  private static Map<Integer, String> decodeColumnDefaults(Map<String, String> config) {
+  private static Map<Integer, JsonNode> decodeColumnDefaults(Map<String, String> config)
+      throws ReadBridgeException {
     if (config == null) {
       return Collections.emptyMap();
     }
-    Map<Integer, String> byFieldId = new HashMap<>();
+    Map<Integer, JsonNode> byFieldId = new HashMap<>();
     for (Map.Entry<String, String> entry : config.entrySet()) {
       if (!entry.getKey().startsWith(COLUMN_DEFAULT_PREFIX)) {
         continue;
       }
       try {
         int fieldId = Integer.parseInt(entry.getKey().substring(COLUMN_DEFAULT_PREFIX.length()));
-        // Validate JSON; keep the original string so apply can bind without a relocated JsonNode.
-        MAPPER.readTree(entry.getValue());
-        byFieldId.put(fieldId, entry.getValue());
-      } catch (RuntimeException | JsonProcessingException e) {
+        byFieldId.put(fieldId, MAPPER.readTree(entry.getValue()));
+      } catch (NumberFormatException | JsonProcessingException e) {
         // Known keys are stamped as int field-id + JSON; anything else is a bug.
-        throw new IllegalStateException(
+        throw new ReadBridgeException(
             "read-bridge: unusable "
                 + COLUMN_DEFAULT_PREFIX
                 + " entry "
@@ -106,46 +105,38 @@ final class ReadBridge {
   }
 
   /** Schema field objects are the JSON nodes that carry {@code id}. */
-  private static List<JsonNode> fieldObjects(ObjectNode metadata) {
-    JsonNode schemas = metadata.get(SCHEMAS);
-    if (schemas == null || !schemas.isArray()) {
-      throw new IllegalStateException(
-          "read-bridge: metadata JSON missing required '" + SCHEMAS + "' array");
-    }
-    List<JsonNode> fields = new ArrayList<>();
-    for (JsonNode schema : schemas) {
-      List<JsonNode> found = schema.findParents(ID);
-      if (found != null) {
-        fields.addAll(found);
-      }
-    }
+  private static JsonNode fieldObjects(ObjectNode metadata) {
+    ArrayNode fields = MAPPER.createArrayNode();
+    StreamSupport.stream(metadata.get(SCHEMAS).spliterator(), false)
+        .map(schema -> schema.findParents(ID))
+        .flatMap(List::stream)
+        .forEach(fields::add);
     return fields;
   }
 
-  private static ObjectNode metadataJson(TableMetadata metadata) {
-    JsonNode root = readTree(TableMetadataParser.toJson(metadata));
-    if (root == null || !root.isObject()) {
-      throw new IllegalStateException("read-bridge: table metadata JSON is not an object");
+  private static ObjectNode metadataJson(TableMetadata metadata) throws ReadBridgeException {
+    try {
+      return (ObjectNode) readTree(TableMetadataParser.toJson(metadata));
+    } catch (RuntimeException e) {
+      throw new ReadBridgeException("read-bridge: failed to parse table metadata JSON", e);
     }
-    return (ObjectNode) root;
   }
 
-  private static TableMetadata fromMetadataJson(TableMetadata metadata, ObjectNode root) {
+  private static TableMetadata fromMetadataJson(TableMetadata metadata, ObjectNode root)
+      throws ReadBridgeException {
     try {
       return TableMetadataParser.fromJson(
           metadata.metadataFileLocation(), MAPPER.writeValueAsString(root));
-    } catch (IllegalStateException e) {
-      throw e;
-    } catch (RuntimeException | JsonProcessingException e) {
-      throw new IllegalStateException("read-bridge: failed to rebuild table metadata schemas", e);
+    } catch (JsonProcessingException | RuntimeException e) {
+      throw new ReadBridgeException("read-bridge: failed to rebuild table metadata schemas", e);
     }
   }
 
-  private static JsonNode readTree(String json) {
+  private static JsonNode readTree(String json) throws ReadBridgeException {
     try {
       return MAPPER.readTree(json);
     } catch (JsonProcessingException e) {
-      throw new IllegalStateException("read-bridge: invalid json", e);
+      throw new ReadBridgeException("read-bridge: invalid json", e);
     }
   }
 }
