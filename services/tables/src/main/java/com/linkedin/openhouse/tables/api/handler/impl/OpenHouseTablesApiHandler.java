@@ -13,6 +13,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
+import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
 import com.linkedin.openhouse.tables.services.TablesService;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -35,15 +36,21 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
 
   @Autowired private ClusterProperties clusterProperties;
 
+  @Autowired private ReadBridgeConfigResolver readBridgeConfigResolver;
+
+  /** Request-time {@code config} stamp; mapper leaves it null. */
+  private GetTableResponseBody withConfig(GetTableResponseBody body, TableDto tableDto) {
+    return body.toBuilder().config(readBridgeConfigResolver.resolve(tableDto)).build();
+  }
+
   @Override
   public ApiResponse<GetTableResponseBody> getTable(
       String databaseId, String tableId, String actingPrincipal) {
     tablesApiValidator.validateGetTable(databaseId, tableId);
+    TableDto tableDto = tableService.getTable(databaseId, tableId, actingPrincipal);
     return ApiResponse.<GetTableResponseBody>builder()
         .httpStatus(HttpStatus.OK)
-        .responseBody(
-            tablesMapper.toGetTableResponseBody(
-                tableService.getTable(databaseId, tableId, actingPrincipal)))
+        .responseBody(withConfig(tablesMapper.toGetTableResponseBody(tableDto), tableDto))
         .build();
   }
 
@@ -92,9 +99,10 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
         clusterProperties.getClusterName(), databaseId, createUpdateTableRequestBody);
     Pair<TableDto, Boolean> putResult =
         tableService.putTable(createUpdateTableRequestBody, tableCreator, true);
+    TableDto tableDto = putResult.getFirst();
     return ApiResponse.<GetTableResponseBody>builder()
         .httpStatus(HttpStatus.CREATED)
-        .responseBody(tablesMapper.toGetTableResponseBody(putResult.getFirst()))
+        .responseBody(withConfig(tablesMapper.toGetTableResponseBody(tableDto), tableDto))
         .build();
   }
 
@@ -109,9 +117,10 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
     Pair<TableDto, Boolean> putResult =
         tableService.putTable(createUpdateTableRequestBody, tableCreatorUpdator, false);
     HttpStatus status = putResult.getSecond() ? HttpStatus.CREATED : HttpStatus.OK;
+    TableDto tableDto = putResult.getFirst();
     return ApiResponse.<GetTableResponseBody>builder()
         .httpStatus(status)
-        .responseBody(tablesMapper.toGetTableResponseBody(putResult.getFirst()))
+        .responseBody(withConfig(tablesMapper.toGetTableResponseBody(tableDto), tableDto))
         .build();
   }
 

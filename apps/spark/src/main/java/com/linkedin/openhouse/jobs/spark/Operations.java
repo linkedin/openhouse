@@ -13,6 +13,8 @@ import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.jobs.util.TableStatsCollector;
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
 import java.io.IOException;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
@@ -65,6 +67,8 @@ public final class Operations implements AutoCloseable {
   // assume that catalog name is fixed
   private static final String CATALOG = "openhouse";
 
+  private static final String METRICS_SCOPE = Operations.class.getName();
+
   private final SparkSession spark;
 
   private final OtelEmitter otelEmitter;
@@ -100,13 +104,16 @@ public final class Operations implements AutoCloseable {
   }
 
   /**
-   * Run DeleteOrphanFiles operation on the given table with time filter, moves data files to the
-   * given backup directory if backup is enabled. It moves files older than the provided timestamp.
+   * Run DeleteOrphanFiles operation on the given table with time filter. An orphan data file is
+   * moved to the given backup directory whenever a data manifest exists for its partition under
+   * that directory, otherwise it is deleted. The move happens regardless of whether backup is
+   * currently enabled for the OFD job: the presence of a manifest (written by a previous retention
+   * run with backup enabled) is what marks the files for preservation. It processes files older
+   * than the provided timestamp.
    */
   public DeleteOrphanFiles.Result deleteOrphanFiles(
       Table table,
       long olderThanTimestampMillis,
-      boolean backupEnabled,
       String backupDir,
       int concurrentDeletes,
       boolean streamResults,
@@ -140,9 +147,9 @@ public final class Operations implements AutoCloseable {
                 // files present in .backup dir should not be considered orphan
                 log.info("Skipped deleting backup file {}", file);
               } else if (file.contains(dataDirRoot.toString())
-                  && backupEnabled
                   && isExistBackupDataManifests(table, file, backupDir, dataManifestsCache)) {
-                // move data files to backup dir if backup is enabled
+                // move data files to backup dir when a data manifest exists for the partition,
+                // regardless of whether backup is currently enabled for the OFD job
                 Path backupFilePath = getTrashPath(table, file, backupDir);
                 log.info("Moving orphan file {} to {}", file, backupFilePath);
                 try {
@@ -344,6 +351,14 @@ public final class Operations implements AutoCloseable {
           .findFirst()
           .ifPresent(
               task -> {
+                // Misconfigured table: the retention filter does not align with the partitioning,
+                // so the delete cannot be metadata-only. Emit a metric tagged with the table name
+                // so the misconfiguration can be alerted on instead of only failing the job.
+                otelEmitter.count(
+                    METRICS_SCOPE,
+                    AppConstants.RETENTION_POLICY_MISCONFIGURED_TABLE_COUNT,
+                    1,
+                    Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
                 throw new IllegalStateException(
                     String.format(
                         "Retention with backup enabled requires a metadata-only delete for table %s, "
