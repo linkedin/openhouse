@@ -14,6 +14,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Set;
 import java.util.TreeSet;
@@ -108,7 +109,7 @@ public class RtasPolicyMergeTripwireTest {
                 "lockState"));
 
     Set<String> actual =
-        java.util.Arrays.stream(Policies.class.getDeclaredFields())
+        Arrays.stream(Policies.class.getDeclaredFields())
             .filter(f -> !f.isSynthetic() && !Modifier.isStatic(f.getModifiers()))
             .map(Field::getName)
             .collect(Collectors.toCollection(TreeSet::new));
