@@ -30,7 +30,7 @@ public class SparkItestColumnDefaults {
   }
 
   static Map<Integer, JsonNode> defaults(TableDto tableDto) {
-    if (tableDto == null || !DATABASE.equals(tableDto.getDatabaseId())) {
+    if (!DATABASE.equals(tableDto.getDatabaseId())) {
       return Collections.emptyMap();
     }
     String schemaJson = tableDto.getSchema();
