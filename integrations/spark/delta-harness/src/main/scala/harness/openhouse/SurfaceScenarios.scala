@@ -10,32 +10,55 @@ import scala.annotation.tailrec
 import scala.reflect.{ClassTag, classTag}
 import scala.util.control.NonFatal
 
+// The standard surface families. A surface case pins one edge of what the catalog exposes on a
+// plain copy-on-write table: a reader, a procedure, a metadata table, a concurrency outcome, a
+// schema change, or a write property. The concurrency helpers below are feature neutral, so a
+// feature layer reuses them through a self-type on this trait. The cases run on parquet and orc.
 trait SurfaceScenarios extends ScenarioKit {
   import Rows._
 
-
-  // Audit-B regression guard: a rejection message shown to a SQL user must not be a raw stacktrace,
-  // an [INTERNAL_ERROR], or a bare NPE. (It may still be MEH — jargony — that's tracked separately.)
-  private def assertReadableMessage(context: String)(e: Throwable): Unit = {
-    val m = Option(e.getMessage).getOrElse("")
-    assert(m.nonEmpty, s"$context: empty error message (worst possible readability)")
-    assert(!m.contains("[INTERNAL_ERROR]"), s"$context: internal error surfaced to the user: ${m.take(160)}")
-    assert(!m.contains("\n\tat ") && !m.contains("\tat java."), s"$context: stacktrace frames in the user-facing message: ${m.take(160)}")
-    assert(!m.startsWith("java.lang.NullPointerException"), s"$context: bare NPE surfaced: ${m.take(160)}")
-  }
-
-  private def runConcurrently(functions: Seq[() => Unit]): Seq[Throwable] = {
+  protected def runConcurrently(functions: Seq[() => Unit]): Seq[Throwable] = {
     val errors = new java.util.concurrent.ConcurrentLinkedQueue[Throwable]()
-    val threads = functions.map(function =>
-      new Thread(() =>
-        try function()
-        catch { case throwable: Throwable => errors.add(throwable) }))
+    val start = new java.util.concurrent.CountDownLatch(1)
+    val threads = functions.zipWithIndex.map { case (function, index) =>
+      val thread = new Thread(
+        () =>
+          try {
+            start.await()
+            function()
+          } catch {
+            case interrupted: InterruptedException =>
+              Thread.currentThread().interrupt()
+              errors.add(interrupted)
+            case throwable: Throwable =>
+              errors.add(throwable)
+          },
+        s"delta-harness-concurrent-$index")
+      thread.setDaemon(true)
+      thread
+    }
     threads.foreach(_.start())
-    threads.foreach(_.join(180000))
+    start.countDown()
+
+    val deadline =
+      System.nanoTime() + java.util.concurrent.TimeUnit.MINUTES.toNanos(3)
+    threads.foreach { thread =>
+      val remainingNanos = deadline - System.nanoTime()
+      if (remainingNanos > 0) {
+        java.util.concurrent.TimeUnit.NANOSECONDS.timedJoin(thread, remainingNanos)
+      }
+    }
+
+    threads.filter(_.isAlive).foreach { thread =>
+      errors.add(
+        new AssertionError(
+          s"${thread.getName} did not complete within 3 minutes"))
+      thread.interrupt()
+    }
     errors.toArray(Array.empty[Throwable]).toSeq
   }
 
-  private def isTypedCommitConflict(throwable: Throwable): Boolean =
+  protected def isTypedCommitConflict(throwable: Throwable): Boolean =
     Exceptions.causeChain(throwable).exists { cause =>
       val className = cause.getClass.getName
       className.contains("CommitFailed") ||
@@ -45,327 +68,20 @@ trait SurfaceScenarios extends ScenarioKit {
         className.contains("WebClientResponse")
     }
 
-  private def surfaceBranchCases(format: String): List[Plan.Case] = {
-    val basePreparation = TablePreparation(
+  // Each surface family builds the starting states it needs, so a family reads on its own. The
+  // seeded table is the plainest of them, so the feature layers build their cases on it too.
+  protected def surfaceBasePreparation(format: String): TablePreparation[CoreTable.type] =
+    TablePreparation(
       format,
       TableTest(Core)
         .sql("create")(table =>
           s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
             s"TBLPROPERTIES ('write.format.default'='$format')")()
-        .insert(3)())
-    val twoSnapshotPreparation = TablePreparation(
-      format,
-      TableTest(Core)
-        .sql("create")(table =>
-          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
-            s"TBLPROPERTIES ('write.format.default'='$format')")()
-        .insert(3)()
-        .sql("insertMore")(table =>
-          s"INSERT INTO $table VALUES " +
-            "(CAST(4 AS BIGINT), 4, 'row-4', 4.5, true, '2024-01-04-03'), " +
-            "(CAST(5 AS BIGINT), 5, 'row-5', 5.5, false, '2024-01-05-04')")())
-    val wapPreparation = TablePreparation(
-      format,
-      TableTest(Core)
-        .sql("create")(table =>
-          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
-            s"TBLPROPERTIES ('write.format.default'='$format')")()
-        .insert(3)()
-        .sql("enableWap")(table =>
-          s"ALTER TABLE $table SET TBLPROPERTIES ('write.wap.enabled'='true')")())
+        .insert(3)(),
+      description = s"Three seed rows with keys 1, 2 and 3 in an unpartitioned $format table.")
 
-    List(
-      twoSnapshotPreparation.test(
-        "surface.maint.compactWithBranch") { table =>
-        table.spark.sql(
-          s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
-            "('write.wap.enabled'='true')")
-        table.spark.sql(
-          s"ALTER TABLE ${table.name} CREATE BRANCH cb")
-        table.spark.sql(
-          s"INSERT INTO ${table.name}.branch_cb VALUES " +
-            "(CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
-        table.spark.sql(
-          s"INSERT INTO ${table.name} VALUES " +
-            "(CAST(7 AS BIGINT), 7, 'row-7', 7.5, true, '2024-01-07-06')")
-        val compactionResult = table.spark
-          .sql(
-            "CALL openhouse.system.rewrite_data_files(" +
-              s"table => '${catalogRelative(table.name)}', " +
-              "options => map('min-input-files', '2'))")
-          .collect()(0)
-
-        println(
-          "DIAG compactWithBranch: " +
-            s"mainCompaction rewritten=${compactionResult.get(0)} " +
-            s"added=${compactionResult.get(1)}")
-        assert(
-          countOf(
-            table.spark,
-            s"SELECT count(*) FROM ${table.name}") == "6",
-          "main compaction should preserve 6 rows")
-        assert(
-          countOf(
-            table.spark,
-            s"SELECT count(*) FROM ${table.name} VERSION AS OF 'cb'") == "6",
-          "main compaction should preserve the branch")
-
-        table.spark.conf.set("spark.wap.branch", "cb")
-        val branchRoutedOutcome =
-          try {
-            val result = table.spark
-              .sql(
-                "CALL openhouse.system.rewrite_data_files(" +
-                  s"table => '${catalogRelative(table.name)}')")
-              .collect()(0)
-            s"RAN (rewritten=${result.get(0)}, added=${result.get(1)})"
-          } catch {
-            case exception: Throwable =>
-              s"THREW ${exception.getClass.getSimpleName} :: " +
-                Option(exception.getMessage).getOrElse("").take(140)
-          } finally {
-            table.spark.conf.unset("spark.wap.branch")
-          }
-        println(s"DIAG compactUnderWapConf: $branchRoutedOutcome")
-
-        table.spark.sql(s"REFRESH TABLE ${table.name}")
-        assert(
-          countOf(
-            table.spark,
-            s"SELECT count(*) FROM ${table.name}") == "6",
-          "branch-routed compaction attempt should preserve main")
-        assert(
-          countOf(
-            table.spark,
-            s"SELECT count(*) FROM ${table.name} VERSION AS OF 'cb'") == "6",
-          "branch-routed compaction attempt should preserve the branch")
-      },
-      basePreparation.test("surface.msg.readabilityGuard") { table =>
-        assertReadableMessage("dropColumn")(
-          Check.intercept[Exception](
-            table.spark.sql(
-              s"ALTER TABLE ${table.name} " +
-                s"DROP COLUMN ${Core.int0.columnName}")))
-        assertReadableMessage("reservedProp")(
-          Check.intercept[Exception](
-            table.spark.sql(
-              s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
-                "('openhouse.tableUUID'='x')")))
-        assertReadableMessage("rtasDisabled")(
-          Check.intercept[Exception](
-            table.spark.sql(
-              s"CREATE OR REPLACE TABLE ${table.name} USING $dataSource " +
-                s"AS SELECT * FROM ${table.name}")))
-        assertReadableMessage("createNamespace")(
-          Check.intercept[Exception](
-            table.spark.sql("CREATE NAMESPACE openhouse.nope_ns")))
-      },
-      basePreparation.test("branch.leak.setProps") { table =>
-        table.spark.sql(
-          s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
-            "('write.wap.enabled'='true')")
-        table.spark.sql(
-          s"ALTER TABLE ${table.name} CREATE BRANCH lb2")
-        table.spark.conf.set("spark.wap.branch", "lb2")
-        try {
-          table.spark.sql(
-            s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
-              "('user.leaked'='yes')")
-        } finally {
-          table.spark.conf.unset("spark.wap.branch")
-        }
-
-        assert(
-          tableProps(table.spark, table.name)
-            .get("user.leaked")
-            .contains("yes"),
-          "branch-routed property update should change table-global metadata")
-      },
-      basePreparation.test("branch.leak.writeOrderedBy") { table =>
-        table.spark.sql(
-          s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
-            "('write.wap.enabled'='true')")
-        table.spark.sql(
-          s"ALTER TABLE ${table.name} CREATE BRANCH lb3")
-        table.spark.conf.set("spark.wap.branch", "lb3")
-        try {
-          table.spark.sql(
-            s"ALTER TABLE ${table.name} " +
-              s"WRITE ORDERED BY ${Core.long0.columnName}")
-        } finally {
-          table.spark.conf.unset("spark.wap.branch")
-        }
-
-        assert(
-          tableProps(table.spark, table.name)
-            .get("write.distribution-mode")
-            .contains("range"),
-          "branch-routed ordering should change table-global metadata")
-      },
-      wapPreparation.test("branch.wapToggle.noGuard") { table =>
-        table.spark.conf.set("spark.wap.id", "w9")
-        try {
-          table.spark.sql(
-            s"INSERT INTO ${table.name} VALUES " +
-              "(CAST(9 AS BIGINT), 9, 'row-9', 9.5, true, '2024-01-09-01')")
-        } finally {
-          table.spark.conf.unset("spark.wap.id")
-        }
-        val stagedSnapshotCount = countOf(
-          table.spark,
-          s"SELECT count(*) FROM ${table.name}.snapshots " +
-            "WHERE summary['wap.id'] = 'w9'")
-        assert(
-          stagedSnapshotCount == "1",
-          s"expected one staged snapshot, got $stagedSnapshotCount")
-
-        table.spark.sql(
-          s"ALTER TABLE ${table.name} SET TBLPROPERTIES " +
-            "('write.wap.enabled'='false')")
-        val stagedAfterToggle = countOf(
-          table.spark,
-          s"SELECT count(*) FROM ${table.name}.snapshots " +
-            "WHERE summary['wap.id'] = 'w9'")
-
-        println(s"DIAG wapToggle: stagedAfterToggle=$stagedAfterToggle")
-      },
-      wapPreparation.test("wap.neg.doubleCherrypick") { table =>
-        table.spark.conf.set("spark.wap.id", "w1")
-        try {
-          table.spark.sql(
-            s"INSERT INTO ${table.name} VALUES " +
-              "(CAST(9 AS BIGINT), 9, 'row-9', 9.5, true, '2024-01-09-01')")
-        } finally {
-          table.spark.conf.unset("spark.wap.id")
-        }
-        val stagedSnapshotId = table.spark
-          .sql(
-            s"SELECT snapshot_id FROM ${table.name}.snapshots " +
-              "WHERE summary['wap.id'] = 'w1'")
-          .collect()(0)
-          .getLong(0)
-        table.spark.sql(
-          "CALL openhouse.system.cherrypick_snapshot(" +
-            s"'${catalogRelative(table.name)}', ${stagedSnapshotId}L)")
-        assert(
-          countOf(
-            table.spark,
-            s"SELECT count(*) FROM ${table.name}") == "4",
-          "first cherry-pick should publish the staged row")
-
-        val exception = Check.intercept[Exception](
-          table.spark.sql(
-            "CALL openhouse.system.cherrypick_snapshot(" +
-              s"'${catalogRelative(table.name)}', ${stagedSnapshotId}L)"))
-        println(
-          "DIAG doubleCherrypick: " +
-            s"${exception.getClass.getName} :: " +
-            Option(exception.getMessage).getOrElse("").take(180))
-        assert(
-          Option(exception.getMessage).exists(message =>
-            message.toLowerCase.contains("duplicate") ||
-              message.toLowerCase.contains("already")),
-          "second cherry-pick should reject the duplicate WAP commit")
-      },
-      basePreparation.test("wap.neg.expireRefTarget") { table =>
-        table.spark.sql(
-          s"ALTER TABLE ${table.name} CREATE BRANCH eb2")
-        val branchHeadSnapshotId = table.spark
-          .sql(
-            s"SELECT snapshot_id FROM ${table.name}.refs " +
-              "WHERE name = 'eb2'")
-          .collect()(0)
-          .getLong(0)
-        val exception = Check.intercept[Exception](
-          table.spark.sql(
-            "CALL openhouse.system.expire_snapshots(" +
-              s"table => '${catalogRelative(table.name)}', " +
-              s"snapshot_ids => ARRAY(${branchHeadSnapshotId}L))"))
-
-        println(
-          "DIAG expireRefTarget: " +
-            s"${exception.getClass.getName} :: " +
-            Option(exception.getMessage).getOrElse("").take(180))
-      },
-      basePreparation.test("branch.fastForward.merge") { table =>
-        table.spark.sql(
-          s"ALTER TABLE ${table.name} CREATE BRANCH fb")
-        table.spark.sql(
-          s"INSERT INTO ${table.name}.branch_fb VALUES " +
-            "(CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
-        table.spark.sql(
-          s"INSERT INTO ${table.name}.branch_fb VALUES " +
-            "(CAST(7 AS BIGINT), 7, 'row-7', 7.5, true, '2024-01-07-06')")
-        assert(
-          countOf(
-            table.spark,
-            s"SELECT count(*) FROM ${table.name}") == "3",
-          "branch writes should not advance main")
-
-        table.spark.sql(
-          "CALL openhouse.system.fast_forward(" +
-            s"'${catalogRelative(table.name)}', 'main', 'fb')")
-        assert(
-          countOf(
-            table.spark,
-            s"SELECT count(*) FROM ${table.name}") == "5",
-          "fast_forward should move main to the branch head")
-      },
-      basePreparation.test("branch.fastForward.divergent") { table =>
-        table.spark.sql(
-          s"ALTER TABLE ${table.name} CREATE BRANCH db")
-        table.spark.sql(
-          s"INSERT INTO ${table.name}.branch_db VALUES " +
-            "(CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
-        table.spark.sql(
-          s"INSERT INTO ${table.name} VALUES " +
-            "(CAST(7 AS BIGINT), 7, 'row-7', 7.5, true, '2024-01-07-06')")
-        val exception = Check.intercept[Exception](
-          table.spark.sql(
-            "CALL openhouse.system.fast_forward(" +
-              s"'${catalogRelative(table.name)}', 'main', 'db')"))
-
-        println(
-          "DIAG ffDivergent: " +
-            s"${exception.getClass.getName} :: " +
-            Option(exception.getMessage).getOrElse("").take(180))
-        assert(
-          Option(exception.getMessage).exists(message =>
-            message.toLowerCase.contains("ancestor") ||
-              message.toLowerCase.contains("fast-forward")),
-          "divergent fast_forward should report an ancestry error")
-      },
-      twoSnapshotPreparation.test("branch.replaceBranch") { table =>
-        val snapshots = snapshotIds(table.spark, table.name)
-        table.spark.sql(
-          s"ALTER TABLE ${table.name} CREATE BRANCH rb2")
-        assert(
-          countOf(
-            table.spark,
-            s"SELECT count(*) FROM ${table.name} VERSION AS OF 'rb2'") == "5",
-          "new branch should point at the current head")
-
-        table.spark.sql(
-          s"ALTER TABLE ${table.name} REPLACE BRANCH rb2 " +
-            s"AS OF VERSION ${snapshots.head}")
-        assert(
-          countOf(
-            table.spark,
-            s"SELECT count(*) FROM ${table.name} VERSION AS OF 'rb2'") == "3",
-          "REPLACE BRANCH should retarget the branch to the older snapshot")
-      })
-  }
-
-  private def surfaceReaderProcedureCases(
-      format: String): List[Plan.Case] = {
-    val basePreparation = TablePreparation(
-      format,
-      TableTest(Core)
-        .sql("create")(table =>
-          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
-            s"TBLPROPERTIES ('write.format.default'='$format')")()
-        .insert(3)())
-    val twoSnapshotPreparation = TablePreparation(
+  private def surfaceTwoSnapshotPreparation(format: String): TablePreparation[CoreTable.type] =
+    TablePreparation(
       format,
       TableTest(Core)
         .sql("create")(table =>
@@ -375,36 +91,53 @@ trait SurfaceScenarios extends ScenarioKit {
         .sql("insertMore")(table =>
           s"INSERT INTO $table VALUES " +
             "(CAST(4 AS BIGINT), 4, 'row-4', 4.5, true, '2024-01-04-03'), " +
-            "(CAST(5 AS BIGINT), 5, 'row-5', 5.5, false, '2024-01-05-04')")())
-    val emptyPreparation = TablePreparation(
+            "(CAST(5 AS BIGINT), 5, 'row-5', 5.5, false, '2024-01-05-04')")(),
+      description = s"Five rows across two snapshots (a 3-row seed then a 2-row insert) in an " +
+        s"unpartitioned $format table.")
+
+  private def surfaceEmptyPreparation(format: String): TablePreparation[CoreTable.type] =
+    TablePreparation(
       format,
       TableTest(Core)
         .sql("create")(table =>
           s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
-            s"TBLPROPERTIES ('write.format.default'='$format')")())
-    val morPreparation = TablePreparation(
+            s"TBLPROPERTIES ('write.format.default'='$format')")(),
+      description = s"An unseeded, empty unpartitioned $format table.")
+
+  private def surfaceHashPreparation(format: String): TablePreparation[CoreTable.type] =
+    TablePreparation(
+      format,
+      TableTest(Core)
+        .sql("create")(table =>
+          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
+            s"PARTITIONED BY (${Core.datePartition.columnName}) " +
+            "TBLPROPERTIES (" +
+            s"'write.format.default'='$format', " +
+            "'write.distribution-mode'='hash')")()
+        .insert(3)(),
+      description = s"Three seed rows in a $format table partitioned by datepartition with " +
+        "write.distribution-mode=hash.")
+
+  private def surfaceTargetFileSizePreparation(format: String): TablePreparation[CoreTable.type] =
+    TablePreparation(
       format,
       TableTest(Core)
         .sql("create")(table =>
           s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
             "TBLPROPERTIES (" +
             s"'write.format.default'='$format', " +
-            "'write.delete.mode'='merge-on-read')")()
-        .sql("seed")(table =>
-          s"INSERT INTO $table SELECT /*+ COALESCE(1) */ * FROM " +
-            s"(${RowGenerator.valuesClause(Core, 3)}) AS seed")())
-    val wapPreparation = TablePreparation(
-      format,
-      TableTest(Core)
-        .sql("create")(table =>
-          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
-            s"TBLPROPERTIES ('write.format.default'='$format')")()
-        .insert(3)()
-        .sql("enableWap")(table =>
-          s"ALTER TABLE $table SET TBLPROPERTIES ('write.wap.enabled'='true')")())
+            "'write.target-file-size-bytes'='1048576')")()
+        .insert(3)(),
+      description = s"Three seed rows in an unpartitioned $format table with " +
+        "write.target-file-size-bytes=1048576.")
 
+  // The structured-streaming reader and writer, and the changelog view.
+  def surfaceReaderCases(format: String): List[Plan.Case] =
     List(
-      basePreparation.test("surface.stream.read") { table =>
+      surfaceBasePreparation(format).test(
+        "surface.stream.read",
+        "A Spark structured streaming read of the table, run in AvailableNow batch mode, " +
+          "delivers all 3 seed rows to a memory sink within 120 seconds.") { table =>
         val checkpoint =
           java.nio.file.Files.createTempDirectory("ck-read").toString
         val sink = s"memsink_${System.nanoTime}"
@@ -424,7 +157,10 @@ trait SurfaceScenarios extends ScenarioKit {
           countOf(table.spark, s"SELECT count(*) FROM $sink") == "3",
           "streaming read should deliver the three seed rows")
       },
-      basePreparation.test("surface.stream.write") { table =>
+      surfaceBasePreparation(format).test(
+        "surface.stream.write",
+        "A Spark structured streaming append of two rows through the iceberg write-stream " +
+          "format lands both rows, growing the table from 3 to 5 rows.") { table =>
         import table.spark.implicits._
         implicit val sqlContext: org.apache.spark.sql.SQLContext =
           table.spark.sqlContext
@@ -454,7 +190,10 @@ trait SurfaceScenarios extends ScenarioKit {
             s"SELECT count(*) FROM ${table.name}") == "5",
           "streaming write should append two rows")
       },
-      twoSnapshotPreparation.test("surface.cdc.changelogView") { table =>
+      surfaceTwoSnapshotPreparation(format).test(
+        "surface.cdc.changelogView",
+        "create_changelog_view over an append-only history reports 5 changes, all of change " +
+          "type INSERT.") { table =>
         val view = table.spark
           .sql(
             "CALL openhouse.system.create_changelog_view(" +
@@ -477,8 +216,15 @@ trait SurfaceScenarios extends ScenarioKit {
         assert(
           changeTypes == Set("INSERT"),
           s"append-only changelog should contain only INSERT: $changeTypes")
-      },
-      emptyPreparation.test("surface.proc.rewriteManifests") { table =>
+      })
+
+  // The rewrite procedure that compacts the manifest set.
+  def surfaceRewriteProcedureCases(format: String): List[Plan.Case] =
+    List(
+      surfaceEmptyPreparation(format).test(
+        "surface.proc.rewriteManifests",
+        "After 5 single-row inserts fragment the manifest list, rewrite_manifests compacts it " +
+          "to fewer manifests while preserving all 5 rows.") { table =>
         (1 to 5).foreach(index =>
           table.spark.sql(
             s"INSERT INTO ${table.name} VALUES " +
@@ -508,52 +254,14 @@ trait SurfaceScenarios extends ScenarioKit {
           manifestCountBefore >= 2 &&
             manifestCountAfter < manifestCountBefore,
           "rewrite_manifests should compact the manifest set")
-      },
-      morPreparation.test(
-        "surface.proc.rewritePositionDeletes") { table =>
-        table.spark.sql(
-          s"DELETE FROM ${table.name} WHERE ${Core.long0.columnName} = 1")
-        assert(
-          countOf(
-            table.spark,
-            s"SELECT count(*) FROM ${table.name}.all_delete_files") == "1",
-          "MoR delete should create one position-delete file")
+      })
 
-        table.spark.sql(
-          "CALL openhouse.system.rewrite_position_delete_files(" +
-            s"table => '${catalogRelative(table.name)}', " +
-            "options => map('rewrite-all', 'true'))")
-        assert(
-          countOf(
-            table.spark,
-            s"SELECT count(*) FROM ${table.name}") == "2",
-          "rewrite_position_delete_files should preserve live rows")
-      },
-      wapPreparation.test("surface.proc.publishChanges") { table =>
-        table.spark.conf.set("spark.wap.id", "pw1")
-        try {
-          table.spark.sql(
-            s"INSERT INTO ${table.name} VALUES " +
-              "(CAST(9 AS BIGINT), 9, 'row-9', 9.5, true, '2024-01-09-01')")
-        } finally {
-          table.spark.conf.unset("spark.wap.id")
-        }
-        assert(
-          countOf(
-            table.spark,
-            s"SELECT count(*) FROM ${table.name}") == "3",
-          "staged write should not be visible before publish")
-
-        table.spark.sql(
-          "CALL openhouse.system.publish_changes(" +
-            s"table => '${catalogRelative(table.name)}', wap_id => 'pw1')")
-        assert(
-          countOf(
-            table.spark,
-            s"SELECT count(*) FROM ${table.name}") == "4",
-          "publish_changes should publish the staged row")
-      },
-      twoSnapshotPreparation.test("surface.proc.ancestorsOf") { table =>
+  // The procedures that read snapshot ancestry and remove orphan files.
+  def surfaceSnapshotProcedureCases(format: String): List[Plan.Case] =
+    List(
+      surfaceTwoSnapshotPreparation(format).test(
+        "surface.proc.ancestorsOf",
+        "ancestors_of lists both snapshots of the table's two-snapshot history.") { table =>
         val ancestorCount = table.spark
           .sql(
             "CALL openhouse.system.ancestors_of(" +
@@ -565,7 +273,10 @@ trait SurfaceScenarios extends ScenarioKit {
           ancestorCount == 2,
           s"ancestors_of should list two snapshots, got $ancestorCount")
       },
-      basePreparation.test("surface.proc.removeOrphanReal") { table =>
+      surfaceBasePreparation(format).test(
+        "surface.proc.removeOrphanReal",
+        "remove_orphan_files deletes a planted, backdated stray file next to a real data file " +
+          "while the table's 3 live rows remain intact.") { table =>
         val dataFile = table.spark
           .sql(s"SELECT file_path FROM ${table.name}.files LIMIT 1")
           .collect()(0)
@@ -594,8 +305,16 @@ trait SurfaceScenarios extends ScenarioKit {
             table.spark,
             s"SELECT count(*) FROM ${table.name}") == "3",
           "remove_orphan_files should preserve live data")
-      },
-      basePreparation.test("surface.meta.hiddenColumns") { table =>
+      })
+
+  // The hidden metadata columns and the Iceberg metadata tables.
+  def surfaceMetadataCases(format: String): List[Plan.Case] =
+    List(
+      surfaceBasePreparation(format).test(
+        "surface.meta.hiddenColumns",
+        "Selecting the hidden metadata columns _file, _pos, _spec_id and _partition returns " +
+          "one row per seed row, each with a populated file path and a non-negative position.") {
+        table =>
         val rows = table.spark
           .sql(
             s"SELECT _file, _pos, _spec_id, _partition FROM ${table.name}")
@@ -613,7 +332,11 @@ trait SurfaceScenarios extends ScenarioKit {
           rows.forall(_.getLong(1) >= 0),
           "_pos should be non-negative for every row")
       },
-      twoSnapshotPreparation.test("surface.meta.tableSweep") { table =>
+      surfaceTwoSnapshotPreparation(format).test(
+        "surface.meta.tableSweep",
+        "Every Iceberg metadata table (entries, files, manifests, snapshots, history, refs, " +
+          "partitions, and their all_* variants) is queryable without error, and the snapshots " +
+          "metadata table reports the table's 2 snapshots.") { table =>
         val metadataTables = Seq(
           "entries",
           "files",
@@ -629,71 +352,26 @@ trait SurfaceScenarios extends ScenarioKit {
           "all_entries",
           "all_files")
         metadataTables.foreach { metadataTable =>
-          val rowCount = table.spark
+          table.spark
             .sql(
               s"SELECT count(*) FROM ${table.name}.`$metadataTable`")
-            .collect()(0)
-            .getLong(0)
-          assert(
-            rowCount >= 0,
-            s"metadata table $metadataTable should be queryable")
+            .collect()
         }
         assert(
           countOf(
             table.spark,
             s"SELECT count(*) FROM ${table.name}.snapshots") == "2",
           "snapshot metadata should contain two snapshots")
-      },
-      morPreparation.test("surface.meta.positionDeletes") { table =>
-        table.spark.sql(
-          s"DELETE FROM ${table.name} WHERE ${Core.long0.columnName} = 1")
-        assert(
-          countOf(
-            table.spark,
-            s"SELECT count(*) FROM ${table.name}.position_deletes") == "1",
-          "position_deletes should expose the MoR position delete")
       })
-  }
 
-  private def surfaceRemainingCases(format: String): List[Plan.Case] = {
-    val basePreparation = TablePreparation(
-      format,
-      TableTest(Core)
-        .sql("create")(table =>
-          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
-            s"TBLPROPERTIES ('write.format.default'='$format')")()
-        .insert(3)())
-    val replacePreparation = TablePreparation(
-      format,
-      TableTest(Core)
-        .sql("create")(table =>
-          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
-            s"TBLPROPERTIES ('write.format.default'='$format')")()
-        .insert(3)()
-        .sql("enableReplace")(table =>
-          s"ALTER TABLE $table SET TBLPROPERTIES ('replace.enabled'='true')")())
-    val hashPreparation = TablePreparation(
-      format,
-      TableTest(Core)
-        .sql("create")(table =>
-          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
-            s"PARTITIONED BY (${Core.datePartition.columnName}) " +
-            "TBLPROPERTIES (" +
-            s"'write.format.default'='$format', " +
-            "'write.distribution-mode'='hash')")()
-        .insert(3)())
-    val targetSizePreparation = TablePreparation(
-      format,
-      TableTest(Core)
-        .sql("create")(table =>
-          s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
-            "TBLPROPERTIES (" +
-            s"'write.format.default'='$format', " +
-            "'write.target-file-size-bytes'='1048576')")()
-        .insert(3)())
-
+  // Two writers racing on one table. Every outcome is either a commit or a typed commit conflict.
+  def surfaceConcurrencyCases(format: String): List[Plan.Case] =
     List(
-      basePreparation.test("surface.conc.appendAppend") { table =>
+      surfaceBasePreparation(format).test(
+        "surface.conc.appendAppend",
+        "Two threads concurrently insert 3 rows each; every insert either commits or fails " +
+          "with a typed commit-conflict exception, and the final row count matches 3 plus the " +
+          "number of inserts that actually committed.") { table =>
         val failureCount =
           new java.util.concurrent.atomic.AtomicInteger(0)
         def writer(base: Int): () => Unit = () =>
@@ -730,7 +408,11 @@ trait SurfaceScenarios extends ScenarioKit {
           s"DIAG conc.appendAppend: ${failureCount.get}/6 inserts " +
             "hit a typed commit conflict")
       },
-      basePreparation.test("surface.conc.updateUpdate") { table =>
+      surfaceBasePreparation(format).test(
+        "surface.conc.updateUpdate",
+        "Two threads concurrently UPDATE the same row to different values; the row count stays " +
+          "at 3, and the final value is one of the two competing updates or the original seed " +
+          "value, with any failure being a typed commit conflict.") { table =>
         val column = Core.string0.columnName
         def updater(value: String): () => Unit = () =>
           try {
@@ -766,48 +448,15 @@ trait SurfaceScenarios extends ScenarioKit {
             table.spark,
             s"SELECT count(*) FROM ${table.name}") == "3",
           "concurrent updates should not change row count")
-      },
-      replacePreparation.test("surface.conc.rtasVsAppend") { table =>
-        def replaceTable(): Unit =
-          try {
-            table.spark.sql(
-              s"CREATE OR REPLACE TABLE ${table.name} USING $dataSource " +
-                s"AS SELECT * FROM ${table.name} " +
-                s"WHERE ${Core.long0.columnName} <= 2")
-          } catch {
-            case exception: Throwable =>
-              assert(
-                isTypedCommitConflict(exception),
-                s"RTAS race failed with ${exception.getClass.getName}")
-          }
-        def appendRow(): Unit =
-          try {
-            table.spark.sql(
-              s"INSERT INTO ${table.name} VALUES " +
-                "(CAST(30 AS BIGINT), 30, 'row-30', 30.5, " +
-                "true, '2024-01-09-01')")
-          } catch {
-            case exception: Throwable =>
-              assert(
-                isTypedCommitConflict(exception),
-                s"append race failed with ${exception.getClass.getName}")
-          }
-        val threadErrors =
-          runConcurrently(Seq(() => replaceTable(), () => appendRow()))
+      })
 
-        assert(
-          threadErrors.isEmpty,
-          s"racing thread failed with a non-conflict error: $threadErrors")
-        table.spark.sql(s"REFRESH TABLE ${table.name}")
-        val rowCount = countOf(
-          table.spark,
-          s"SELECT count(*) FROM ${table.name}").toLong
-        assert(
-          rowCount == 2 || rowCount == 3,
-          s"RTAS and append race settled at $rowCount rows")
-        println(s"DIAG conc.rtasVsAppend: settled at $rowCount rows")
-      },
-      basePreparation.test("surface.schema.relaxNotNull") { table =>
+  // Schema changes that Iceberg allows and the ones the catalog rejects.
+  def surfaceSchemaCases(format: String): List[Plan.Case] =
+    List(
+      surfaceBasePreparation(format).test(
+        "surface.schema.relaxNotNull",
+        "On a side table, dropping NOT NULL from a column allows a subsequent insert of a null " +
+          "value for that column.") { table =>
         val sideTable = s"${table.name}_nn"
         table.spark.sql(s"DROP TABLE IF EXISTS $sideTable")
         try {
@@ -828,7 +477,10 @@ trait SurfaceScenarios extends ScenarioKit {
           table.spark.sql(s"DROP TABLE IF EXISTS $sideTable")
         }
       },
-      basePreparation.test("surface.schema.decimalWiden") { table =>
+      surfaceBasePreparation(format).test(
+        "surface.schema.decimalWiden",
+        "On a side table, widening a decimal column's precision preserves the original row and " +
+          "accepts a new row whose value only fits the wider precision.") { table =>
         val sideTable = s"${table.name}_dec"
         table.spark.sql(s"DROP TABLE IF EXISTS $sideTable")
         try {
@@ -853,7 +505,10 @@ trait SurfaceScenarios extends ScenarioKit {
           table.spark.sql(s"DROP TABLE IF EXISTS $sideTable")
         }
       },
-      basePreparation.test("surface.schema.nestedAddField") { table =>
+      surfaceBasePreparation(format).test(
+        "surface.schema.nestedAddField",
+        "On a side table, ADD COLUMN of a new nested struct field null-fills it for the " +
+          "existing row and accepts a new row that sets the field.") { table =>
         val sideTable = s"${table.name}_nst"
         table.spark.sql(s"DROP TABLE IF EXISTS $sideTable")
         try {
@@ -886,7 +541,10 @@ trait SurfaceScenarios extends ScenarioKit {
           table.spark.sql(s"DROP TABLE IF EXISTS $sideTable")
         }
       },
-      basePreparation.test("surface.schema.nestedDropField") { table =>
+      surfaceBasePreparation(format).test(
+        "surface.schema.nestedDropField",
+        "On a side table, ALTER TABLE DROP COLUMN of a nested struct field is rejected with an " +
+          "exception, and the field remains readable afterward.") { table =>
         val sideTable = s"${table.name}_nsd"
         table.spark.sql(s"DROP TABLE IF EXISTS $sideTable")
         try {
@@ -896,14 +554,10 @@ trait SurfaceScenarios extends ScenarioKit {
           table.spark.sql(
             s"INSERT INTO $sideTable VALUES " +
               "(CAST(1 AS BIGINT), named_struct('x', 1, 'y', 'a'))")
-          val exception = Check.intercept[Exception](
+          Check.intercept[Exception](
             table.spark.sql(
               s"ALTER TABLE $sideTable DROP COLUMN s.x"))
 
-          println(
-            "DIAG nestedDropField: " +
-              s"${exception.getClass.getName} :: " +
-              Option(exception.getMessage).getOrElse("").take(180))
           assert(
             table.spark
               .sql(s"SELECT s.x FROM $sideTable")
@@ -914,7 +568,10 @@ trait SurfaceScenarios extends ScenarioKit {
           table.spark.sql(s"DROP TABLE IF EXISTS $sideTable")
         }
       },
-      basePreparation.test("surface.schema.reorderExisting") { table =>
+      surfaceBasePreparation(format).test(
+        "surface.schema.reorderExisting",
+        "ALTER TABLE ALTER COLUMN ... FIRST moves that column to the front of the schema while " +
+          "preserving all 3 rows.") { table =>
         table.spark.sql(
           s"ALTER TABLE ${table.name} " +
             s"ALTER COLUMN ${Core.string0.columnName} FIRST")
@@ -931,8 +588,15 @@ trait SurfaceScenarios extends ScenarioKit {
             table.spark,
             s"SELECT count(*) FROM ${table.name}") == "3",
           "column reorder should preserve the rows")
-      },
-      hashPreparation.test("surface.write.distributionHash") { table =>
+      })
+
+  // The write-planning properties: distribution mode and target file size.
+  def surfaceWriteCases(format: String): List[Plan.Case] =
+    List(
+      surfaceHashPreparation(format).test(
+        "surface.write.distributionHash",
+        "The write.distribution-mode=hash property requested at creation is retained and the " +
+          "table holds its 3 seed rows.") { table =>
         val properties = tableProps(table.spark, table.name)
         val rowCount = table.spark
           .sql(s"SELECT count(*) FROM ${table.name}")
@@ -946,7 +610,10 @@ trait SurfaceScenarios extends ScenarioKit {
           rowCount == 3,
           s"hash-distributed seed should contain 3 rows, got $rowCount")
       },
-      targetSizePreparation.test("surface.write.targetFileSize") { table =>
+      surfaceTargetFileSizePreparation(format).test(
+        "surface.write.targetFileSize",
+        "The write.target-file-size-bytes=1048576 property requested at creation is retained " +
+          "and the table holds its 3 seed rows.") { table =>
         val properties = tableProps(table.spark, table.name)
         val rowCount = table.spark
           .sql(s"SELECT count(*) FROM ${table.name}")
@@ -961,108 +628,71 @@ trait SurfaceScenarios extends ScenarioKit {
         assert(
           rowCount == 3,
           s"custom target-size seed should contain 3 rows, got $rowCount")
-      },
-      basePreparation.test("surface.write.dfToBranch") { table =>
-        table.spark.sql(
-          s"ALTER TABLE ${table.name} CREATE BRANCH wb")
-        val row = table.spark.sql(
-          s"SELECT CAST(50 AS BIGINT) AS ${Core.long0.columnName}, " +
-            s"50 AS ${Core.int0.columnName}, " +
-            s"'row-50' AS ${Core.string0.columnName}, " +
-            s"50.5 AS ${Core.double0.columnName}, " +
-            s"true AS ${Core.boolean0.columnName}, " +
-            s"'2024-01-09-01' AS ${Core.datePartition.columnName}")
-        row.writeTo(s"${table.name}.branch_wb").append()
+      })
 
-        assert(
-          countOf(
-            table.spark,
-            s"SELECT count(*) FROM ${table.name} VERSION AS OF 'wb'") == "4",
-          "DataFrame writer should append to the branch")
-        assert(
-          countOf(
-            table.spark,
-            s"SELECT count(*) FROM ${table.name}") == "3",
-          "DataFrame branch write should leave main unchanged")
-      },
-      basePreparation.test("surface.pin.importProcs") { table =>
+  // Pins on the surfaces the catalog rejects: the import procedures, views and ANALYZE TABLE.
+  def surfacePinCases(format: String): List[Plan.Case] =
+    List(
+      surfaceBasePreparation(format).test(
+        "surface.pin.importProcs",
+        "register_table onto a new name makes the source table's snapshot readable there " +
+          "(3 rows) without affecting the source, and dropping the registered table leaves " +
+          "the source untouched; the system.snapshot and system.add_files procedures are " +
+          "each confirmed to reject their unsupported inputs with an exception.") { table =>
+        val registeredTable = s"${table.name}_registered"
         val metadataFile = table.spark
           .sql(
             s"SELECT file FROM ${table.name}.metadata_log_entries " +
               "ORDER BY timestamp DESC LIMIT 1")
           .collect()(0)
           .getString(0)
-        val registerOutcome =
+
+        try {
+          table.spark.sql(
+            "CALL openhouse.system.register_table(" +
+              s"table => '${catalogRelative(registeredTable)}', " +
+              s"metadata_file => '$metadataFile')")
+          assert(
+            countOf(
+              table.spark,
+              s"SELECT count(*) FROM $registeredTable") == "3",
+            "register_table should make all source rows readable")
+        } finally {
           try {
             table.spark.sql(
-              "CALL openhouse.system.register_table(" +
-                "table => 'dbMatrix.zz_reg', " +
-                s"metadata_file => '$metadataFile')")
-            val rowCount = countOf(
-              table.spark,
-              "SELECT count(*) FROM openhouse.dbMatrix.zz_reg")
-            table.spark.sql(
-              "DROP TABLE IF EXISTS openhouse.dbMatrix.zz_reg")
-            s"REGISTERED (readable, $rowCount rows)"
+              s"DROP TABLE IF EXISTS $registeredTable")
           } catch {
-            case exception: Throwable =>
-              s"REJECTED ${exception.getClass.getName} :: " +
-                Option(exception.getMessage).getOrElse("").take(160)
+            case NonFatal(_) => ()
           }
-        println(s"DIAG pin.register_table(real): $registerOutcome")
+        }
+        assert(
+          countOf(
+            table.spark,
+            s"SELECT count(*) FROM ${table.name}") == "3",
+          "dropping the registered table should not remove source rows")
 
-        val snapshotException = Check.intercept[Exception](
+        Check.intercept[Exception](
           table.spark.sql(
             "CALL openhouse.system.snapshot(" +
               s"source_table => '${catalogRelative(table.name)}', " +
               "table => 'dbMatrix.zz_snap')"))
-        println(
-          "DIAG pin.snapshot: " +
-            s"${snapshotException.getClass.getName} :: " +
-            Option(snapshotException.getMessage).getOrElse("").take(160))
 
-        val addFilesException = Check.intercept[Exception](
+        Check.intercept[Exception](
           table.spark.sql(
             "CALL openhouse.system.add_files(" +
               s"table => '${catalogRelative(table.name)}', " +
               "source_table => '`parquet`.`/tmp/zz_nope_dir`')"))
-        println(
-          "DIAG pin.add_files: " +
-            s"${addFilesException.getClass.getName} :: " +
-            Option(addFilesException.getMessage).getOrElse("").take(160))
       },
-      basePreparation.test("surface.pin.viewsAnalyze") { table =>
-        val viewException = Check.intercept[Exception](
+      surfaceBasePreparation(format).test(
+        "surface.pin.viewsAnalyze",
+        "CREATE VIEW and ANALYZE TABLE COMPUTE STATISTICS are each rejected with an " +
+          "exception.") { table =>
+        Check.intercept[Exception](
           table.spark.sql(
             "CREATE VIEW openhouse.dbMatrix.zz_v1 AS SELECT 1 AS one"))
-        println(
-          "DIAG pin.createView: " +
-            s"${viewException.getClass.getName} :: " +
-            Option(viewException.getMessage).getOrElse("").take(160))
 
-        val analyzeException = Check.intercept[Exception](
+        Check.intercept[Exception](
           table.spark.sql(
             s"ANALYZE TABLE ${table.name} COMPUTE STATISTICS"))
-        println(
-          "DIAG pin.analyze: " +
-            s"${analyzeException.getClass.getName} :: " +
-            Option(analyzeException.getMessage).getOrElse("").take(160))
       })
-  }
-
-  val surfaceCases: List[Plan.Case] =
-    List("parquet", "orc").flatMap { format =>
-      surfaceBranchCases(format) ++
-        surfaceReaderProcedureCases(format) ++
-        surfaceRemainingCases(format)
-    }
-
-  // ═══ Hazard demonstrations H1-H8 (MODALITY-RECON.md; gates cleared per FEATURE-ANALYSIS-PLAN) ══
-  // Each was PREDICTED by the state-flow model, verified in code/bytecode, and is demonstrated
-  // live here. Characterizations flip loudly if the product fixes the hazard.
-
-  // H1 — streaming checkpoint × expiration (G11's streaming twin). Three acts:
-  // (1) stream + checkpoint; (2) CONTROL: plain restart picks up new rows (restart mechanics fine);
-  // (3) expire past the checkpointed offset → restart is BRICKED with the typed error.
-
 }

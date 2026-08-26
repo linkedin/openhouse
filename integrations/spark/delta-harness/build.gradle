@@ -4,15 +4,12 @@ plugins {
   id 'scala'
 }
 
-// The delta-harness behavioral matrix, published as a portable Scala library so it can be authored
-// and run ONCE and consumed in two homes:
-//   1. LOCALLY in this repo against the embedded catalog (see Env.scala + run-openhouse.sh), and
-//   2. As an acceptance test in a downstream environment against a real cluster, which depends on this
-//      published artifact and supplies only its own environment adapter.
+// The delta-harness behavioral matrix is published as a portable Scala library. This repository runs
+// it against the embedded catalog, and the LinkedIn acceptance tests supply a remote environment.
 //
 // Only the portable scenario/framework sources are published. Env.scala boots the embedded OpenHouse
-// server + House Table Service and pulls in Spring/housetables/tables-test-fixtures, so it is EXCLUDED
-// from the published library and compiled separately for the local run (it depends on this library).
+// server and pulls in its test fixtures, so it is excluded from the published library and compiled in
+// the local source set.
 
 ext {
   icebergVersion = rootProject.ext.iceberg_1_5_version
@@ -24,17 +21,25 @@ sourceSets {
   main {
     scala {
       srcDirs = ['src/main/scala']
-      // Embedded-only boot/run wiring — not part of the portable, publishable library.
+      // Embedded-only boot and run wiring is not part of the portable library.
       exclude 'harness/openhouse/Env.scala'
     }
+  }
+  local {
+    scala {
+      srcDirs = ['src/main/scala']
+      include 'harness/openhouse/Env.scala'
+    }
+    compileClasspath += sourceSets.main.output
+    runtimeClasspath += sourceSets.main.output
   }
 }
 
 dependencies {
   implementation "org.scala-lang:scala-library:${scalaLibVersion}"
 
-  // Compile-only: the consumer (Env.scala locally, or a downstream environment adapter) provides the
-  // actual Spark, Iceberg and OpenHouse client runtime. The library jar carries only the harness classes.
+  // The consumer provides the Spark, Iceberg, and OpenHouse runtime. The library jar carries only the
+  // harness classes.
   compileOnly("org.apache.spark:spark-sql_2.12:${sparkVersion}") {
     exclude group: 'io.netty'
   }
@@ -53,6 +58,51 @@ dependencies {
     exclude group: 'io.netty'
   }
   testImplementation(project(path: ':integrations:spark:spark-3.5:openhouse-spark-3.5-runtime_2.12', configuration: 'shadow'))
+
+  localImplementation sourceSets.main.output
+  localImplementation "org.scala-lang:scala-library:${scalaLibVersion}"
+  localImplementation("org.apache.spark:spark-sql_2.12:${sparkVersion}") {
+    exclude group: 'io.netty'
+  }
+  localImplementation(project(path: ':integrations:spark:spark-3.5:openhouse-spark-3.5-runtime_2.12', configuration: 'shadow')) {
+    exclude group: 'org.apache.commons', module: 'commons-lang3'
+  }
+  localImplementation project(':tables-test-fixtures:tables-test-fixtures-iceberg-1.5_2.12')
+}
+
+configurations.localRuntimeClasspath {
+  exclude group: 'com.linkedin.iceberg', module: 'iceberg-core'
+  exclude group: 'com.linkedin.iceberg', module: 'iceberg-api'
+  exclude group: 'com.linkedin.iceberg', module: 'iceberg-common'
+  exclude group: 'com.linkedin.iceberg', module: 'iceberg-data'
+  resolutionStrategy.force(
+    'com.fasterxml.jackson.core:jackson-annotations:2.15.2',
+    'com.fasterxml.jackson.core:jackson-core:2.15.2',
+    'com.fasterxml.jackson.core:jackson-databind:2.15.2',
+    'com.fasterxml.jackson.dataformat:jackson-dataformat-xml:2.15.2',
+    'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.15.2',
+    'com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.15.2',
+    'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.15.2',
+    'com.fasterxml.jackson.jaxrs:jackson-jaxrs-base:2.15.2',
+    'com.fasterxml.jackson.jaxrs:jackson-jaxrs-json-provider:2.15.2',
+    'com.fasterxml.jackson.module:jackson-module-jaxb-annotations:2.15.2',
+    'com.fasterxml.jackson.module:jackson-module-parameter-names:2.15.2',
+    'com.fasterxml.jackson.module:jackson-module-scala_2.12:2.15.2')
+}
+
+tasks.register('runOpenHouse', JavaExec) {
+  group = 'verification'
+  description = 'Runs the delta harness against an embedded OpenHouse catalog.'
+  dependsOn localClasses
+  classpath = sourceSets.local.runtimeClasspath
+  mainClass = 'harness.Main'
+  if (JavaVersion.current() >= JavaVersion.VERSION_1_9) {
+    jvmArgs(
+      '--add-opens=java.base/java.nio=ALL-UNNAMED',
+      '--add-exports=java.base/sun.nio.ch=ALL-UNNAMED',
+      '--add-opens=java.base/sun.util.calendar=ALL-UNNAMED',
+      '--add-exports=java.base/sun.util.calendar=ALL-UNNAMED')
+  }
 }
 
 jar.enabled = true

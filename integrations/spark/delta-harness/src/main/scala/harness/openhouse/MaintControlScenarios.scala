@@ -13,18 +13,22 @@ import scala.util.control.NonFatal
 trait MaintControlScenarios extends ScenarioKit {
   import Rows._
 
-  // ── time travel + restore/rollback ──────────────────────────────────────────────────────
-  // A two-snapshot base: seed 3 rows (snapshot A), then insert 2 more (snapshot B).
-  // Format is a PARAMETER, not baked in — so any block built on this base can multiplex across formats.
+  // Time travel and restore/rollback.
+  // A two-snapshot base: seed 3 rows (snapshot A), then insert 2 more (snapshot B). Format is a
+  // parameter so each case below runs against every supported file format.
 
   val timeTravelCases: List[Plan.Case] =
     List("parquet", "orc").flatMap { format =>
       val preparation = TablePreparation(
         format,
-        coreTwoSnapshots(format))
+        coreTwoSnapshots(format),
+        description = s"Five seed rows across two snapshots in a $format table.")
 
       List(
-        preparation.test("timeTravel.versionAsOf") { table =>
+        preparation.test(
+          "timeTravel.versionAsOf",
+          "VERSION AS OF the first snapshot ID reads 3 rows and VERSION AS OF the second reads " +
+            "5 rows.") { table =>
           val snapshots = snapshotIds(table.spark, table.name)
 
           assert(
@@ -42,13 +46,15 @@ trait MaintControlScenarios extends ScenarioKit {
               .collect()(0)
               .getLong(0) == 5)
         },
-        preparation.test("timeTravel.timestampAsOf") { table =>
+        preparation.test(
+          "timeTravel.timestampAsOf",
+          "TIMESTAMP AS OF the first commit's time reads that snapshot's 3 rows.") { table =>
           val firstCommitTimestamp = table.spark
             .sql(
-              s"SELECT committed_at FROM ${table.name}.snapshots " +
+              s"SELECT CAST(committed_at AS STRING) FROM ${table.name}.snapshots " +
                 "ORDER BY committed_at LIMIT 1")
             .collect()(0)
-            .getTimestamp(0)
+            .getString(0)
 
           assert(
             table.spark
@@ -58,7 +64,10 @@ trait MaintControlScenarios extends ScenarioKit {
               .collect()(0)
               .getLong(0) == 3)
         },
-        preparation.test("timeTravel.metadataTables") { table =>
+        preparation.test(
+          "timeTravel.metadataTables",
+          "The snapshots and history metadata tables each report 2 rows, and the files and " +
+            "manifests metadata tables report at least 1 row.") { table =>
           def metadataRowCount(metadataTable: String): Long =
             table.spark
               .sql(
@@ -72,7 +81,10 @@ trait MaintControlScenarios extends ScenarioKit {
             metadataRowCount("files") >= 1 &&
               metadataRowCount("manifests") >= 1)
         },
-        preparation.test("timeTravel.incrementalRead") { table =>
+        preparation.test(
+          "timeTravel.incrementalRead",
+          "An incremental read spanning the two seed snapshots returns exactly the 2 rows added " +
+            "by the second snapshot.") { table =>
           val snapshots = snapshotIds(table.spark, table.name)
           val addedRowCount = table.spark.read
             .format("iceberg")
@@ -89,10 +101,13 @@ trait MaintControlScenarios extends ScenarioKit {
     List("parquet", "orc").flatMap { format =>
       val preparation = TablePreparation(
         format,
-        coreTwoSnapshots(format))
+        coreTwoSnapshots(format),
+        description = s"Five seed rows across two snapshots in a $format table.")
 
       List(
-        preparation.test("restore.rollbackToSnapshot") { table =>
+        preparation.test(
+          "restore.rollbackToSnapshot",
+          "rollback_to_snapshot to the first snapshot restores the table to its 3-row state.") { table =>
           val firstSnapshotId =
             snapshotIds(table.spark, table.name).head
 
@@ -102,7 +117,9 @@ trait MaintControlScenarios extends ScenarioKit {
 
           assert(table.rows.size == 3)
         },
-        preparation.test("restore.setCurrentSnapshot") { table =>
+        preparation.test(
+          "restore.setCurrentSnapshot",
+          "set_current_snapshot to the first snapshot restores the table to its 3-row state.") { table =>
           val firstSnapshotId =
             snapshotIds(table.spark, table.name).head
 
@@ -118,10 +135,14 @@ trait MaintControlScenarios extends ScenarioKit {
     List("parquet", "orc").flatMap { format =>
       val preparation = TablePreparation(
         format,
-        coreTwoSnapshots(format))
+        coreTwoSnapshots(format),
+        description = s"Five seed rows across two snapshots in a $format table.")
 
       List(
-        preparation.test("maintenance.expireSnapshots") { table =>
+        preparation.test(
+          "maintenance.expireSnapshots",
+          "expire_snapshots with retain_last=1 removes an old snapshot and leaves the current 5 " +
+            "rows unchanged.") { table =>
           table.spark.sql(
             "CALL openhouse.system.expire_snapshots(" +
               s"table => '${catalogRelative(table.name)}', " +
@@ -136,14 +157,18 @@ trait MaintControlScenarios extends ScenarioKit {
             "expire_snapshots did not remove a snapshot: " +
               s"${table.preparedSnapshotCount} -> ${table.snapshotCount}")
         },
-        preparation.test("maintenance.rewriteDataFiles") { table =>
+        preparation.test(
+          "maintenance.rewriteDataFiles",
+          "rewrite_data_files compacts the table's data files while preserving all 5 rows.") { table =>
           table.spark.sql(
             "CALL openhouse.system.rewrite_data_files(" +
               s"table => '${catalogRelative(table.name)}')")
 
           assert(table.rows.size == 5, "compaction changed rows")
         },
-        preparation.test("maintenance.removeOrphanFiles") { table =>
+        preparation.test(
+          "maintenance.removeOrphanFiles",
+          "remove_orphan_files leaves all 5 rows unchanged.") { table =>
           table.spark.sql(
             "CALL openhouse.system.remove_orphan_files(" +
               s"table => '${catalogRelative(table.name)}', " +
@@ -153,10 +178,11 @@ trait MaintControlScenarios extends ScenarioKit {
         })
     }
 
-  // ── Control-plane (REST) ops with no SQL surface — driven via the embedded server's HTTP API ──
-  // Lock enforcement: POST /lock (a real public entry), then a Spark mutation is rejected server-side
-  // (LOCKED_TABLE_OPERATION); DELETE /lock restores mutability. High-fidelity — the embedded server
-  // runs the real TablesController/TablesServiceImpl (see REST-FIDELITY-EVAL.md).
+  // Control-plane (REST) operations with no SQL surface, driven through the embedded server's
+  // HTTP API. Lock enforcement: POST /lock is a real public endpoint; a subsequent Spark mutation
+  // is rejected server-side with LOCKED_TABLE_OPERATION, and DELETE /lock restores mutability. The
+  // embedded server runs the real TablesController and TablesServiceImpl, so this exercises the
+  // production REST path.
   def controlLockEnforcement(ctx: Ctx): Unit = {
     val spark = ctx.spark
     val table = s"${ctx.namespace}.t_lock"
@@ -179,93 +205,13 @@ trait MaintControlScenarios extends ScenarioKit {
     } finally spark.sql(s"DROP TABLE IF EXISTS $table")
   }
 
-  // Undrop lifecycle — TAGGED SKIP (Plan.knownBugs). Not runnable at fidelity in the embedded harness:
-  // (1) the embedded HouseTableRepository is a @Primary in-memory STUB (HouseTablesH2Repository) — a
-  //     test here would exercise the shim's own reimplementation, not the real HTS soft-delete logic;
-  // (2) the public Tables DELETE hard-codes purge=true, so drop→soft-delete is unreachable via the
-  //     customer API in ANY environment (undrop is HTS-admin-only — a product finding).
-  // Real fidelity needs an embedded HTS (SpringH2HtsApplication) + de-@Primary-ing the stub. The body
-  // documents the intended list→restore flow for that future harness.
-  def controlUndropLifecycle(ctx: Ctx): Unit = {
-    val spark = ctx.spark
-    val table = s"${ctx.namespace}.t_undrop"
-    val Array(db, tbl) = table.stripPrefix("openhouse.").split("\\.", 2)
-    spark.sql(s"DROP TABLE IF EXISTS $table")
-    spark.sql(coreCreateParquet(table))
-    spark.sql(s"INSERT INTO $table ${RowGenerator.valuesClause(Core, 3)}")
-    // (intended, once a real HTS soft-deletes the table:)
-    val (listStatus, listBody) = Rest.get(ctx, s"/v1/databases/$db/softDeletedTables")
-    assert(listStatus == 200 && listBody.contains(tbl), "soft-deleted table should be listed")
-    val (restoreStatus, _) = Rest.put(ctx, s"/v1/databases/$db/tables/$tbl/restore?deletedAtMs=0", "")
-    assert(restoreStatus >= 200 && restoreStatus < 300, "restore should succeed")
-    assert(spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0) == 3, "restored table keeps its rows")
-    spark.sql(s"DROP TABLE IF EXISTS $table")
-  }
-
   val controlPlaneCases: List[Plan.Case] =
     List(
       Plan.Case(
         "control.lock.enforcement @ embedded",
-        controlLockEnforcement),
-      Plan.Case(
-        "control.undrop.lifecycle @ embedded",
-        controlUndropLifecycle))
-
-  // ── Undrop admin-lifecycle block (Phase 5 — REAL HTS only, HtsAdmin.enabled) ─────────────────
-  // With an embedded real HTS the full soft-delete → list → restore / purge lifecycle is exercisable
-  // (the customer DROP still hard-deletes — soft-delete is driven directly on HTS). These are the
-  // HTS-admin lifecycle cases that sit ALONGSIDE the surface-doubling undrop battery.
-
-  // Soft-delete → the customer softDeletedTables listing shows it → restore → rows intact.
-  def undropAdminRestoreRoundTrip(ctx: Ctx): Unit = {
-    val (table, db, tbl) = undropSeed(ctx, "t_undrop_rt")
-    val (sd, sdb) = HtsAdmin.softDelete(db, tbl); assert(sd >= 200 && sd < 300, s"soft-delete failed ($sd): $sdb")
-    val (ls, lb) = Rest.get(ctx, s"/v1/databases/$db/softDeletedTables")
-    assert(ls == 200 && lb.contains(tbl), s"soft-deleted table not listed via Tables API ($ls): $lb")
-    val ms = HtsAdmin.softDeletedAtMs(db, tbl).getOrElse(throw new AssertionError(s"no deletedAtMs for $db.$tbl"))
-    val (rs, rb) = HtsAdmin.restore(db, tbl, ms); assert(rs >= 200 && rs < 300, s"restore failed ($rs): $rb")
-    assert(ctx.spark.sql(s"SELECT count(*) FROM $table").collect()(0).getLong(0) == 3, "restored table lost rows")
-    ctx.spark.sql(s"DROP TABLE IF EXISTS $table")
-  }
-
-  // Two soft-deleted tables both appear in the listing (paging/enumeration works).
-  def undropAdminListSoftDeleted(ctx: Ctx): Unit = {
-    val (_, db, t1) = undropSeed(ctx, "t_undrop_l1")
-    val (_, _,  t2) = undropSeed(ctx, "t_undrop_l2")
-    assert(HtsAdmin.softDelete(db, t1)._1 / 100 == 2, "soft-delete t1 failed")
-    assert(HtsAdmin.softDelete(db, t2)._1 / 100 == 2, "soft-delete t2 failed")
-    val (ls, lb) = Rest.get(ctx, s"/v1/databases/$db/softDeletedTables")
-    assert(ls == 200 && lb.contains(t1) && lb.contains(t2), s"both soft-deleted tables should list ($ls): $lb")
-  }
-
-  // Restore AFTER purge must be rejected — purge is permanent. Pin whatever the real HTS returns
-  // (a 4xx; the point is that restore no longer succeeds once the row is purged).
-  def undropAdminRestoreAfterPurgeRejected(ctx: Ctx): Unit = {
-    val (_, db, tbl) = undropSeed(ctx, "t_undrop_purge")
-    assert(HtsAdmin.softDelete(db, tbl)._1 / 100 == 2, "soft-delete failed")
-    val ms = HtsAdmin.softDeletedAtMs(db, tbl).getOrElse(throw new AssertionError("no deletedAtMs"))
-    // purge everything deleted before a far-future instant → removes this row permanently
-    val (ps, _) = Rest.delete(ctx, s"/v1/databases/$db/tables/$tbl/purge?purgeAfterMs=${Long.MaxValue}")
-    assert(ps / 100 == 2, s"purge should succeed ($ps)")
-    val (rs, _) = HtsAdmin.restore(db, tbl, ms)
-    assert(rs >= 400, s"restore after purge must be rejected, got $rs")
-  }
-
-  def undropAdminCases: List[Plan.Case] =
-    if (HtsAdmin.enabled) {
-      List(
-        Plan.Case(
-          "undropAdmin.restoreRoundTrip",
-          undropAdminRestoreRoundTrip),
-        Plan.Case(
-          "undropAdmin.listSoftDeleted",
-          undropAdminListSoftDeleted),
-        Plan.Case(
-          "undropAdmin.restoreAfterPurgeRejected",
-          undropAdminRestoreAfterPurgeRejected))
-    } else {
-      Nil
-    }
+        controlLockEnforcement,
+        description = "POSTing a table lock causes a subsequent UPDATE to be rejected, and " +
+          "DELETEing the lock allows a following UPDATE to apply."))
 
 
 }

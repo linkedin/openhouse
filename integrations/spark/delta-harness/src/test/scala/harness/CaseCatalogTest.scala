@@ -7,13 +7,14 @@ import org.junit.jupiter.api.Assertions.{assertEquals, assertTrue}
 import org.junit.jupiter.api.Test
 
 final class CaseCatalogTest {
-  private val expectedCaseCount = 2574
+  private val expectedCaseCount = 2572
   private val expectedCatalogSha256 =
-    "9e5ec513f2bbc775469154c8d1cf45e14654af2fca0e0f29b4bba6acae286a0a"
+    "ffa5fde92303f703e2f9f7febddfe9e912323c3ade8f95339fd073f89a8028c3"
 
   @Test
   def orderedCaseCatalogMatchesBaseline(): Unit = {
-    val caseIds = Plan.caseIds
+    val cases = Plan.cases
+    val caseIds = cases.map(_.id)
     val actualCatalogSha256 = sha256(caseIds.mkString("\n"))
     val duplicateCaseIds = caseIds.groupBy(identity).collect {
       case (caseId, occurrences) if occurrences.size > 1 => caseId
@@ -22,6 +23,9 @@ final class CaseCatalogTest {
     assertTrue(
       duplicateCaseIds.isEmpty,
       s"case IDs must be unique; duplicates=${duplicateCaseIds.mkString(", ")}")
+    assertTrue(
+      cases.forall(_.description.trim.nonEmpty),
+      "every catalog case must describe the behavior it verifies")
     assertEquals(
       expectedCaseCount,
       caseIds.size,

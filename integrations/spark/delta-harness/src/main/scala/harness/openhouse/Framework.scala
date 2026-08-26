@@ -1,8 +1,10 @@
 package harness
 
 import org.apache.spark.sql.{Row, SparkSession}
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import scala.annotation.tailrec
 import scala.reflect.{ClassTag, classTag}
 import scala.util.control.NonFatal
 
@@ -40,44 +42,6 @@ object Rest {
   }
 }
 
-// Drives the soft-delete / list / restore lifecycle for the UNDROP preparation axis (Phase 4).
-// The customer DROP hard-codes purge=true (a hard delete), so soft-delete is unreachable via the
-// Tables API — we trigger it directly on the EMBEDDED real HTS (only available under HARNESS_REAL_HTS=1),
-// then restore via the customer-facing Tables API. Endpoints are process-global (one HTS, one tables
-// server for the whole run) so they are held here and set once at startup; TableTest steps see only
-// (spark, table) and reach the endpoints through this holder.
-object HtsAdmin {
-  import java.net.http.{HttpClient, HttpRequest, HttpResponse}
-  import java.net.URI
-  @volatile var htsUri: String = ""      // embedded HTS base (soft-delete + querySoftDeleted)
-  @volatile var tablesUri: String = ""   // tables server base (restore, customer-facing)
-  @volatile var token: String = ""       // Bearer token for the tables server
-  def enabled: Boolean = htsUri.nonEmpty
-
-  private lazy val client = HttpClient.newHttpClient()
-  private def send(b: HttpRequest.Builder): (Int, String) = {
-    val r = client.send(b.header("Content-Type", "application/json").build(), HttpResponse.BodyHandlers.ofString())
-    (r.statusCode(), r.body())
-  }
-
-  /** Soft-delete on the embedded HTS (V1 endpoint carries the isSoftDelete flag). No auth (HTS security excluded). */
-  def softDelete(db: String, tbl: String): (Int, String) =
-    send(HttpRequest.newBuilder(URI.create(s"$htsUri/v1/hts/tables?databaseId=$db&tableId=$tbl&isSoftDelete=true")).DELETE())
-
-  /** Recover the deletedAtMs of a soft-deleted table (needed to restore) from the HTS querySoftDeleted view. */
-  def softDeletedAtMs(db: String, tbl: String): Option[Long] = {
-    val (code, body) = send(HttpRequest.newBuilder(URI.create(s"$htsUri/hts/tables/querySoftDeleted?databaseId=$db&tableId=$tbl")).GET())
-    if (code < 200 || code >= 300) None
-    else "\"deletedAtMs\"\\s*:\\s*(\\d+)".r.findFirstMatchIn(body).map(_.group(1).toLong)
-  }
-
-  /** Restore via the customer-facing Tables API (PUT .../restore?deletedAtMs=). Requires the Bearer token. */
-  def restore(db: String, tbl: String, deletedAtMs: Long): (Int, String) =
-    send(HttpRequest.newBuilder(URI.create(s"$tablesUri/v1/databases/$db/tables/$tbl/restore?deletedAtMs=$deletedAtMs"))
-      .header("Authorization", s"Bearer $token")
-      .PUT(HttpRequest.BodyPublishers.ofString("")))
-}
-
 sealed trait Outcome { def label: String }
 object Outcome {
   case object Passed extends Outcome { val label = "PASS" }
@@ -90,21 +54,30 @@ object Outcome {
 }
 
 object Exceptions {
-  def causeChain(t: Throwable): List[Throwable] = {
-    val chain = scala.collection.mutable.ListBuffer[Throwable]()
-    var current = t
-    while (current != null && !chain.contains(current)) { chain += current; current = current.getCause }
-    chain.toList
+  def causeChain(throwable: Throwable): List[Throwable] = {
+    @tailrec
+    def collect(
+      current: Option[Throwable],
+      seen: Set[Throwable],
+      collected: List[Throwable]
+    ): List[Throwable] =
+      current match {
+        case Some(cause) if !seen.contains(cause) =>
+          collect(Option(cause.getCause), seen + cause, cause :: collected)
+        case _ =>
+          collected.reverse
+      }
+
+    collect(Some(throwable), Set.empty, Nil)
   }
-  def root(t: Throwable): Throwable = causeChain(t).last
+
+  def root(throwable: Throwable): Throwable = causeChain(throwable).last
 
   /**
-   * Retry ONLY errors we positively recognize as transient. A bare IOException is NOT assumed
-   * transient — a FileNotFoundException, an EOFException on a corrupt file, or a permission error
-   * is an IOException too, and those are real failures that must surface rather than be retried
-   * away. When in doubt, an error is terminal.
+   * Retries errors positively identified as transient. Other failures remain terminal so data,
+   * permission, and assertion failures surface on their first attempt.
    */
-  def isTransient(t: Throwable): Boolean = causeChain(t).exists {
+  def isTransient(throwable: Throwable): Boolean = causeChain(throwable).exists {
     case _: java.net.SocketTimeoutException => true
     case _: java.net.ConnectException       => true
     case e: java.net.SocketException        => Option(e.getMessage).exists(_.toLowerCase.contains("reset"))
@@ -116,24 +89,33 @@ object Exceptions {
 // and so is caught at the Runner edge and reported as a (terminal) failure.
 object Check {
   /**
-   * Require `op` to throw exactly `E` — the ACTUAL thrown type is asserted, not merely that
-   * *something* threw — and return it so the caller can assert on its message. NonFatal only; a
-   * wrong type, or no throw at all, is itself an assertion failure.
+   * Requires `operation` to throw `E` and returns the exception for message assertions.
    */
-  def intercept[E <: Throwable: ClassTag](op: => Unit): E = {
+  def intercept[E <: Throwable: ClassTag](operation: => Unit): E = {
     val expected = classTag[E].runtimeClass
-    val caught: Option[Throwable] = try { op; None } catch { case NonFatal(t) => Some(t) }
+    val caught: Option[Throwable] =
+      try {
+        operation
+        None
+      } catch {
+        case NonFatal(throwable) => Some(throwable)
+      }
     caught match {
-      case Some(t) if expected.isInstance(t) => t.asInstanceOf[E]
-      case Some(t) => throw new AssertionError(s"expected ${expected.getName} but got ${t.getClass.getName}: ${t.getMessage}", t)
-      case None    => throw new AssertionError(s"expected ${expected.getName} to be thrown, but nothing was")
+      case Some(throwable) if expected.isInstance(throwable) =>
+        throwable.asInstanceOf[E]
+      case Some(throwable) =>
+        throw new AssertionError(
+          s"expected ${expected.getName} but got ${throwable.getClass.getName}: " +
+            throwable.getMessage,
+          throwable)
+      case None =>
+        throw new AssertionError(
+          s"expected ${expected.getName} to be thrown, but nothing was")
     }
   }
 }
 
-// ── Schema: columns only. A column owns its deterministic value generator; no stored seed. ──
-//
-// `Column[T]` carries a phantom type `T` — the Scala type the column reads back as — so typed
+// `Column[T]` carries the Scala type the column reads back as, so typed
 // row access (`row.get(CoreTable.long0): Long`) is compiler-checked. `literalAt(rowIndex)` is a
 // pure function of the row index, so generated data is reproducible. Value generation lives on
 // the column, which keeps RowGenerator a plain iteration with no knowledge of types.
@@ -151,10 +133,8 @@ object Rows {
   }
 }
 
-// A representative "core" table: one column per common data type. Column NAMES are arbitrary
-// literals (decoupled from the Scala handle) — tests reference columns through the handle, so a
-// rename here propagates everywhere. Plus an explicit string date-partition field in the widely
-// used YYYY-MM-DD-HH form. Columns only; each carries a deterministic generator.
+// A representative core table with one column per common data type and a string date partition.
+// Tests reference columns through these handles, so a column rename propagates to every caller.
 object CoreTable extends Schema {
   val long0:         Column[Long]    = Column("foo_col_long",    "bigint",  rowIndex => rowIndex.toString)
   val int0:          Column[Int]     = Column("foo_col_int",     "int",     rowIndex => rowIndex.toString)
@@ -195,13 +175,31 @@ object TypesTable extends Schema {
   val dec:   Column[java.math.BigDecimal] = Column("dec", "decimal(10,2)", rowIndex => s"CAST($rowIndex.50 AS decimal(10,2))")
   val str:   Column[String] = Column("str",   "string",        rowIndex => s"'row-$rowIndex'")
   val bin:   Column[Array[Byte]] = Column("bin", "binary",     rowIndex => s"CAST('bin-$rowIndex' AS binary)")
-  val dt:    Column[java.sql.Date] = Column("dt", "date",      rowIndex => s"DATE '2024-01-0$rowIndex'")
-  val ts:    Column[java.sql.Timestamp] = Column("ts", "timestamp", rowIndex => s"TIMESTAMP '2024-01-01 0$rowIndex:00:00'")
-  val tsntz: Column[java.time.LocalDateTime] = Column("tsntz", "timestamp_ntz", rowIndex => s"TIMESTAMP_NTZ '2024-01-01 0$rowIndex:00:00'")
+  val dt: Column[java.sql.Date] =
+    Column(
+      "dt",
+      "date",
+      rowIndex => s"DATE '${DateEpoch.plusDays((rowIndex - 1).toLong)}'")
+  val ts: Column[java.sql.Timestamp] =
+    Column(
+      "ts",
+      "timestamp",
+      rowIndex =>
+        s"TIMESTAMP '${TimestampEpoch.plusHours((rowIndex - 1).toLong).format(TimestampFormat)}'")
+  val tsntz: Column[java.time.LocalDateTime] =
+    Column(
+      "tsntz",
+      "timestamp_ntz",
+      rowIndex =>
+        s"TIMESTAMP_NTZ '${TimestampEpoch.plusHours((rowIndex - 1).toLong).format(TimestampFormat)}'")
   def tableColumns: Seq[Column[_]] = Seq(id, n, x, dec, str, bin, dt, ts, tsntz)
 
   val columnDefinitions: String =
     "id bigint, n int, x double, dec decimal(10,2), str string, bin binary, dt date, ts timestamp, tsntz timestamp_ntz"
+
+  private val DateEpoch = LocalDate.of(2024, 1, 1)
+  private val TimestampEpoch = LocalDateTime.of(2024, 1, 1, 0, 0)
+  private val TimestampFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 }
 
 object RowGenerator {
@@ -214,7 +212,7 @@ object RowGenerator {
 
 /**
  * What a step's validation thunk sees: the live table, its rows before and after the step, and
- * the table's snapshot (commit) count before and after — so a test can assert the delta in both
+ * the table's snapshot (commit) count before and after, so a test can assert the delta in both
  * data and commits (e.g. "a no-match UPDATE still commits exactly one snapshot").
  */
 final case class StepView[S <: Schema](
@@ -227,6 +225,8 @@ final case class StepView[S <: Schema](
   snapshotsAfter:  Long
 )
 
+final case class TableState(rows: Seq[Row], snapshotCount: Long)
+
 /** A fresh table after its reusable preparation has completed. */
 final case class PreparedTable[S <: Schema](
   spark:                 SparkSession,
@@ -237,6 +237,7 @@ final case class PreparedTable[S <: Schema](
 ) {
   def rows: Seq[Row] = PreparedTable.currentRows(spark, name, schema)
   def snapshotCount: Long = PreparedTable.snapshotCount(spark, name)
+  def state: TableState = TableState(rows, snapshotCount)
 }
 
 object PreparedTable {
@@ -304,13 +305,30 @@ final class TableTest[S <: Schema] private (val schema: S, val steps: Vector[Ste
     use(PreparedTable(ctx.spark, table, schema, preparedRows, preparedSnapshotCount))
   }
 
-  // The one table-lifecycle primitive: hand `use` a fresh table name and always drop it afterward.
-  // The teardown drop is guarded so a drop failure can't mask the real failure from `use`.
+  // Gives the preparation a fresh table and drops it after the test. A test failure remains primary,
+  // and a cleanup failure is attached to it as a suppressed exception.
   private def withTable(ctx: Ctx)(use: String => Unit): Unit = {
     val table = s"${ctx.namespace}.t_${TableTest.counter.incrementAndGet()}"
-    ctx.spark.sql(s"DROP TABLE IF EXISTS $table") // ensure absent
-    try use(table)
-    finally try ctx.spark.sql(s"DROP TABLE IF EXISTS $table") catch { case NonFatal(_) => () }
+    ctx.spark.sql(s"DROP TABLE IF EXISTS $table")
+
+    var testFailure: Option[Throwable] = None
+    try {
+      use(table)
+    } catch {
+      case failure: Throwable =>
+        testFailure = Some(failure)
+        throw failure
+    } finally {
+      try {
+        ctx.spark.sql(s"DROP TABLE IF EXISTS $table")
+      } catch {
+        case cleanupFailure: Throwable =>
+          testFailure match {
+            case Some(failure) => failure.addSuppressed(cleanupFailure)
+            case None          => throw cleanupFailure
+          }
+      }
+    }
   }
 
 }
@@ -318,6 +336,7 @@ final class TableTest[S <: Schema] private (val schema: S, val steps: Vector[Ste
 object TableTest {
   private val counter = new java.util.concurrent.atomic.AtomicInteger(0)
   def apply[S <: Schema](schema: S): TableTest[S] = new TableTest(schema, Vector.empty)
+  def seedCounter(value: Int): Unit = counter.set(value)
 }
 
 /** An immutable recipe that prepares one fresh table for each localized test case. */
@@ -325,13 +344,49 @@ final case class TablePreparation[S <: Schema](
   label: String,
   preparation: TableTest[S],
   casePrefix: String = "",
-  afterTest: PreparedTable[S] => Unit = (_: PreparedTable[S]) => ()
+  afterTest: PreparedTable[S] => Unit = (_: PreparedTable[S]) => (),
+  description: String
 ) {
-  def test(caseName: String)(body: PreparedTable[S] => Unit): Plan.Case =
+  require(description.trim.nonEmpty, s"table preparation $label needs a description")
+
+  def test(
+    caseName: String,
+    testDescription: String
+  )(body: PreparedTable[S] => Unit): Plan.Case =
     Plan.Case(
       s"$casePrefix$caseName @ $label",
       context => preparation.prepare(context) { table =>
-        body(table)
-        afterTest(table)
-      })
+        var testFailure: Option[Throwable] = None
+        try body(table)
+        catch {
+          case failure: Throwable =>
+            testFailure = Some(failure)
+            throw failure
+        } finally {
+          try afterTest(table)
+          catch {
+            case afterTestFailure: Throwable =>
+              testFailure match {
+                case Some(failure) => failure.addSuppressed(afterTestFailure)
+                case None          => throw afterTestFailure
+              }
+          }
+        }
+      },
+      description = testDescription,
+      preparationDescription = description)
+}
+
+final case class DmlTestCase[S <: Schema](
+  id: String,
+  description: String,
+  run: PreparedTable[S] => Unit,
+  knownBugReason: Option[String] = None
+) {
+  require(description.trim.nonEmpty, s"DML test case $id needs a description")
+
+  def runOn(preparation: TablePreparation[S]): Plan.Case =
+    preparation
+      .test(id, description)(run)
+      .copy(knownBugReason = knownBugReason)
 }

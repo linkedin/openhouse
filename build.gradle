@@ -153,19 +153,22 @@ allprojects {
   }
 
   afterEvaluate {
-    for (def task in it.tasks) {
-      if (task != rootProject.tasks.CopyGitHooksTask) {
+    it.tasks
+      .findAll { task -> task != rootProject.tasks.CopyGitHooksTask }
+      .each { task ->
         task.dependsOn rootProject.tasks.CopyGitHooksTask
       }
-    }
   }
 }
 
-// Local Git Hooks cannot be shared, as .git directory is gitignore'd.
+def gitHooksDirectory = providers.exec {
+  commandLine 'git', 'rev-parse', '--git-path', 'hooks'
+}.standardOutput.asText.map { it.trim() }
+
 tasks.register('CopyGitHooksTask', Copy) {
-  println 'Make the git hook available in .git/hooks directory.'
+  println 'Make the Git hooks available in the repository hooks directory.'
   from file('scripts/git-hooks')
-  into file('.git/hooks/')
+  into gitHooksDirectory
 }
 
 // =============================================================================
