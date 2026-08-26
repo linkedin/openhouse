@@ -12,6 +12,7 @@ import com.google.gson.GsonBuilder;
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
+import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
@@ -25,6 +26,7 @@ import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.api.validator.impl.RetentionPolicySpecValidator;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PartitionSpecMapper;
@@ -108,6 +110,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   @Autowired PreservedKeyChecker preservedKeyChecker;
 
+  @Autowired RetentionPolicySpecValidator retentionPolicySpecValidator;
+
   @WithSpan("InternalRepository.save")
   @Timed(metricKey = MetricsConstant.REPO_TABLE_SAVE_TIME)
   @Override
@@ -157,6 +161,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       // history, lock) that must survive a replace. Merge the existing table's policies with the
       // request's so RTAS consistently merges properties.
       tableDto = mergePoliciesFromExistingTable(tableIdentifier, tableDto);
+      validateRetentionPolicyForReplace(tableDto);
       PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
       log.info(
           "Replacing a user table: {} with schema: {} and partitionSpec: {}",
@@ -384,6 +389,40 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         .toBuilder()
         .policies(mergePolicies(existingPolicies, requested.getPolicies()))
         .build();
+  }
+
+  /**
+   * A replace carries the existing table's retention policy over to the new schema, which can leave
+   * the policy pointing at a column that the new schema no longer has, or at a granularity that no
+   * longer matches the new time-partitioning. Reject such a replace upfront, at CREATE TABLE time,
+   * instead of letting the write proceed and fail at commit time.
+   *
+   * @param tableDto table state to be persisted, with policies already merged and the new schema
+   *     and time-partitioning applied
+   */
+  private void validateRetentionPolicyForReplace(TableDto tableDto) {
+    Policies policies = tableDto.getPolicies();
+    if (policies == null || policies.getRetention() == null) {
+      return;
+    }
+    TableUri tableUri =
+        TableUri.builder()
+            .tableId(tableDto.getTableId())
+            .databaseId(tableDto.getDatabaseId())
+            .clusterId(tableDto.getClusterId())
+            .build();
+    retentionPolicySpecValidator
+        .findViolation(
+            policies.getRetention(), tableDto.getTimePartitioning(), tableDto.getSchema(), tableUri)
+        .ifPresent(
+            violation -> {
+              throw new RequestValidationFailureException(
+                  String.format(
+                      "Replacing table %s is not allowed because its retention policy is incompatible with the new schema: %s. "
+                          + "Update the retention policy with 'ALTER TABLE ... SET POLICY (RETENTION=...)' before replacing the table, "
+                          + "or keep the columns the retention policy depends on in the new schema.",
+                      tableUri, violation.getMessage()));
+            });
   }
 
   /**
