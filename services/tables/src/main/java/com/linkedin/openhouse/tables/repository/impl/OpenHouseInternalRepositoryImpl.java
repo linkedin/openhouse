@@ -545,6 +545,15 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           clusterProperties.getClusterIcebergWriteFormatDefault());
     }
 
+    // Only set cluster default for ORC_COMPRESSION if it is configured at the cluster level and the
+    // user hasn't provided a value.
+    String clusterOrcCompressionCodec =
+        clusterProperties.getClusterIcebergWriteOrcCompressionCodec();
+    if (clusterOrcCompressionCodec != null
+        && !propertiesMap.containsKey(TableProperties.ORC_COMPRESSION)) {
+      propertiesMap.put(TableProperties.ORC_COMPRESSION, clusterOrcCompressionCodec);
+    }
+
     // Populate server reserved properties
     Map<String, String> dtoMap = tableDto.convertToMap();
     for (String htsFieldName : HTS_FIELD_NAMES) {
