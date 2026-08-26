@@ -44,14 +44,18 @@ class ReadBridgeTest {
     Map<String, String> config = new HashMap<>();
     config.put(PREFIX + "5", "\"US\"");
     config.put(PREFIX + "notAnInt", "\"x\"");
-    assertThrows(ReadBridgeException.class, () -> ReadBridge.from(config));
+    assertEquals(
+        ReadBridgeException.Kind.UNUSABLE_CONFIG,
+        assertThrows(ReadBridgeException.class, () -> ReadBridge.from(config)).getKind());
   }
 
   @Test
   void failsLoudOnKnownEntryWithUnparseableValue() {
     Map<String, String> config = new HashMap<>();
     config.put(PREFIX + "7", "{bad json");
-    assertThrows(ReadBridgeException.class, () -> ReadBridge.from(config));
+    assertEquals(
+        ReadBridgeException.Kind.UNUSABLE_CONFIG,
+        assertThrows(ReadBridgeException.class, () -> ReadBridge.from(config)).getKind());
   }
 
   @Test
@@ -135,7 +139,9 @@ class ReadBridgeTest {
   void applyFailsLoudWhenDefaultCannotBindToColumnType() {
     TableMetadata raw = newTable("file:/tmp/rb-bad-bind");
     Map<String, String> config = Collections.singletonMap(PREFIX + "1", "\"not-an-int\"");
-    assertThrows(ReadBridgeException.class, () -> ReadBridge.from(config).apply(raw));
+    ReadBridgeException thrown =
+        assertThrows(ReadBridgeException.class, () -> ReadBridge.from(config).apply(raw));
+    assertEquals(ReadBridgeException.Kind.CANNOT_BIND, thrown.getKind());
   }
 
   @Test

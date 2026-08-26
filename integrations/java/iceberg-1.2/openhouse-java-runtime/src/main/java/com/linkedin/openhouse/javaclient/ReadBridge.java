@@ -3,12 +3,12 @@ package com.linkedin.openhouse.javaclient;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
@@ -35,7 +35,15 @@ final class ReadBridge {
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
   private static final String SCHEMAS = "schemas";
+  private static final String FIELDS = "fields";
   private static final String ID = "id";
+  private static final String TYPE = "type";
+  private static final String STRUCT = "struct";
+  private static final String LIST = "list";
+  private static final String MAP = "map";
+  private static final String ELEMENT = "element";
+  private static final String KEY = "key";
+  private static final String VALUE = "value";
   private static final String INITIAL_DEFAULT = "initial-default";
 
   private final Map<Integer, JsonNode> columnDefaults;
@@ -61,14 +69,28 @@ final class ReadBridge {
     }
     ObjectNode root = metadataJson(raw);
     boolean changed = false;
-    for (JsonNode field : fieldObjects(root)) {
+    for (ObjectNode field : fieldObjects(root).collect(Collectors.toList())) {
       JsonNode defaultValue = columnDefaults.get(field.get(ID).asInt());
       if (defaultValue != null) {
-        ((ObjectNode) field).set(INITIAL_DEFAULT, defaultValue);
+        field.set(INITIAL_DEFAULT, defaultValue);
         changed = true;
       }
     }
-    return changed ? fromMetadataJson(raw, root) : raw;
+    if (!changed) {
+      return raw;
+    }
+    final String json;
+    try {
+      json = MAPPER.writeValueAsString(root);
+    } catch (JsonProcessingException e) {
+      throw ReadBridgeException.unusableMetadata(
+          "read-bridge: failed to serialize patched metadata", e);
+    }
+    try {
+      return TableMetadataParser.fromJson(raw.metadataFileLocation(), json);
+    } catch (RuntimeException e) {
+      throw ReadBridgeException.cannotBind(e);
+    }
   }
 
   Map<Integer, JsonNode> columnDefaults() {
@@ -90,8 +112,7 @@ final class ReadBridge {
         int fieldId = Integer.parseInt(entry.getKey().substring(COLUMN_DEFAULT_PREFIX.length()));
         byFieldId.put(fieldId, MAPPER.readTree(entry.getValue()));
       } catch (NumberFormatException | JsonProcessingException e) {
-        // Known keys are stamped as int field-id + JSON; anything else is a bug.
-        throw new ReadBridgeException(
+        throw ReadBridgeException.unusableConfig(
             "read-bridge: unusable "
                 + COLUMN_DEFAULT_PREFIX
                 + " entry "
@@ -104,31 +125,40 @@ final class ReadBridge {
     return byFieldId;
   }
 
-  /** Schema field objects are the JSON nodes that carry {@code id}. */
-  private static JsonNode fieldObjects(ObjectNode metadata) {
-    ArrayNode fields = MAPPER.createArrayNode();
-    StreamSupport.stream(metadata.get(SCHEMAS).spliterator(), false)
-        .map(schema -> schema.findParents(ID))
-        .flatMap(List::stream)
-        .forEach(fields::add);
-    return fields;
+  /** NestedField objects under every schema-id: {@code schemas[].fields}, then nested types. */
+  private static Stream<ObjectNode> fieldObjects(ObjectNode metadata) {
+    return StreamSupport.stream(metadata.get(SCHEMAS).spliterator(), false)
+        .flatMap(ReadBridge::nestedFields);
+  }
+
+  private static Stream<ObjectNode> nestedFields(JsonNode type) {
+    if (!type.isObject()) {
+      return Stream.empty();
+    }
+    switch (type.get(TYPE).asText()) {
+      case STRUCT:
+        return fieldsOf(type.get(FIELDS));
+      case LIST:
+        return nestedFields(type.get(ELEMENT));
+      case MAP:
+        return Stream.concat(nestedFields(type.get(KEY)), nestedFields(type.get(VALUE)));
+      default:
+        return Stream.empty();
+    }
+  }
+
+  private static Stream<ObjectNode> fieldsOf(JsonNode fields) {
+    return StreamSupport.stream(fields.spliterator(), false)
+        .map(field -> (ObjectNode) field)
+        .flatMap(field -> Stream.concat(Stream.of(field), nestedFields(field.get(TYPE))));
   }
 
   private static ObjectNode metadataJson(TableMetadata metadata) throws ReadBridgeException {
     try {
       return (ObjectNode) readTree(TableMetadataParser.toJson(metadata));
     } catch (RuntimeException e) {
-      throw new ReadBridgeException("read-bridge: failed to parse table metadata JSON", e);
-    }
-  }
-
-  private static TableMetadata fromMetadataJson(TableMetadata metadata, ObjectNode root)
-      throws ReadBridgeException {
-    try {
-      return TableMetadataParser.fromJson(
-          metadata.metadataFileLocation(), MAPPER.writeValueAsString(root));
-    } catch (JsonProcessingException | RuntimeException e) {
-      throw new ReadBridgeException("read-bridge: failed to rebuild table metadata schemas", e);
+      throw ReadBridgeException.unusableMetadata(
+          "read-bridge: failed to parse table metadata JSON", e);
     }
   }
 
@@ -136,7 +166,7 @@ final class ReadBridge {
     try {
       return MAPPER.readTree(json);
     } catch (JsonProcessingException e) {
-      throw new ReadBridgeException("read-bridge: invalid json", e);
+      throw ReadBridgeException.unusableMetadata("read-bridge: invalid json", e);
     }
   }
 }
