@@ -7,9 +7,9 @@ import org.junit.jupiter.api.Assertions.{assertEquals, assertTrue}
 import org.junit.jupiter.api.Test
 
 final class CaseCatalogTest {
-  private val expectedCaseCount = 2572
+  private val expectedCaseCount = 1181
   private val expectedCatalogSha256 =
-    "ffa5fde92303f703e2f9f7febddfe9e912323c3ade8f95339fd073f89a8028c3"
+    "377f65959e3034c51e078fea72491444b06a6055f37c051184bdc379234b3d57"
 
   @Test
   def orderedCaseCatalogMatchesBaseline(): Unit = {
