@@ -28,7 +28,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
-import javax.validation.ConstraintViolation;
 import javax.validation.Validator;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -104,17 +103,16 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
   }
 
   /** Rules shared by POST and PUT. Verb-specific base-version rules are applied by the caller. */
-  @SuppressWarnings("checkstyle:OperatorWrap")
   private void validateBody(
       String clusterId,
       String databaseId,
       CreateUpdateViewRequestBody requestBody,
       ViewValidationFailures failures) {
-    for (ConstraintViolation<CreateUpdateViewRequestBody> violation :
-        validator.validate(requestBody)) {
-      failures.addGeneric(
-          String.format("%s : %s", ApiValidatorUtil.getField(violation), violation.getMessage()));
-    }
+    // Bean violations stay in the generic category, so they are collected into a plain list first
+    // and then forwarded, rather than influencing the error-code precedence.
+    List<String> beanViolations = new ArrayList<>();
+    ApiValidatorUtil.collectViolations(validator, requestBody, beanViolations);
+    beanViolations.forEach(failures::addGeneric);
     if (requestBody.getClusterId() != null && !requestBody.getClusterId().equals(clusterId)) {
       failures.addGeneric(
           String.format(
@@ -392,23 +390,20 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
   }
 
   private void validateDatabaseId(String databaseId, ViewValidationFailures failures) {
-    if (StringUtils.isEmpty(databaseId)) {
-      failures.addGeneric("databaseId : Cannot be empty");
-    } else if (!databaseId.matches(ALPHA_NUM_UNDERSCORE_REGEX)) {
-      failures.addGeneric(
-          String.format(
-              "databaseId : provided %s, %s", databaseId, ALPHA_NUM_UNDERSCORE_ERROR_MSG));
+    List<String> identifierFailures = new ArrayList<>();
+    ApiValidatorUtil.validateIdentifier("databaseId", databaseId, identifierFailures);
+    if (!identifierFailures.isEmpty()) {
+      identifierFailures.forEach(failures::addGeneric);
     } else if (databaseId.length() > MAX_VIEW_IDENTIFIER_LENGTH) {
       failures.addGeneric(identifierTooLong("databaseId"));
     }
   }
 
   private void validateViewId(String viewId, ViewValidationFailures failures) {
-    if (StringUtils.isEmpty(viewId)) {
-      failures.addGeneric("viewId : Cannot be empty");
-    } else if (!viewId.matches(ALPHA_NUM_UNDERSCORE_REGEX)) {
-      failures.addGeneric(
-          String.format("viewId : provided %s, %s", viewId, ALPHA_NUM_UNDERSCORE_ERROR_MSG));
+    List<String> identifierFailures = new ArrayList<>();
+    ApiValidatorUtil.validateIdentifier("viewId", viewId, identifierFailures);
+    if (!identifierFailures.isEmpty()) {
+      identifierFailures.forEach(failures::addGeneric);
     } else if (viewId.length() > MAX_VIEW_IDENTIFIER_LENGTH) {
       failures.addGeneric(identifierTooLong("viewId"));
     }
