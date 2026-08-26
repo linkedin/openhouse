@@ -17,6 +17,7 @@ import com.linkedin.openhouse.relocated.org.springframework.http.HttpStatus;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientRequestException;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientResponseException;
 import com.linkedin.openhouse.relocated.reactor.core.publisher.Mono;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -25,14 +26,22 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.apache.commons.compress.utils.Lists;
+import org.apache.iceberg.Files;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.types.Types;
+import org.apache.iceberg.types.Types.NestedField;
+import org.apache.iceberg.util.Tasks;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -484,79 +493,114 @@ public class OpenHouseTableOperationsTest {
   }
 
   private OpenHouseTableOperations refreshableOps(TableApi tableApi) {
+    return refreshableOps(tableApi, mock(FileIO.class));
+  }
+
+  private OpenHouseTableOperations refreshableOps(TableApi tableApi, FileIO fileIO) {
     return OpenHouseTableOperations.builder()
         .tableIdentifier(TableIdentifier.of("db", "tbl"))
-        .fileIO(mock(FileIO.class))
+        .fileIO(fileIO)
         .tableApi(tableApi)
         .snapshotApi(mock(SnapshotApi.class))
         .cluster("cluster")
         .build();
   }
 
-  /** Before any refresh, there is no server-stamped config, so the safe default is null. */
+  /** No load yet → no config. */
   @Test
   public void testCurrentConfigNullBeforeRefresh() {
     Assertions.assertNull(refreshableOps(mock(TableApi.class)).currentConfig());
   }
 
-  /** doRefresh stashes the server-stamped config so subclasses can read it back. */
+  /** Config is captured when Iceberg actually reloads metadata, not merely on GET. */
   @Test
   public void testDoRefreshCapturesConfig() {
-    TableApi mockTableApi = mock(TableApi.class);
+    String location = writeTempMetadata();
     Map<String, String> stamped =
         Collections.singletonMap("openhouse.read-bridge", "{\"read\":\"ON\"}");
+    TableApi mockTableApi = mock(TableApi.class);
     GetTableResponseBody body = mock(GetTableResponseBody.class);
-    when(body.getTableLocation()).thenReturn(null);
+    when(body.getTableLocation()).thenReturn(location);
     when(body.getConfig()).thenReturn(stamped);
     when(mockTableApi.getTableV1(anyString(), anyString())).thenReturn(Mono.just(body));
 
-    OpenHouseTableOperations ops = refreshableOps(mockTableApi);
+    OpenHouseTableOperations ops = refreshableOps(mockTableApi, localFileIO());
     ops.doRefresh();
 
     Assertions.assertSame(stamped, ops.currentConfig());
   }
 
-  /** Absent config on the response => null, the consumer's safe default. */
+  /** Absent config on a real load => null. */
   @Test
   public void testDoRefreshNullConfigWhenAbsent() {
+    String location = writeTempMetadata();
     TableApi mockTableApi = mock(TableApi.class);
     GetTableResponseBody body = mock(GetTableResponseBody.class);
-    when(body.getTableLocation()).thenReturn(null);
+    when(body.getTableLocation()).thenReturn(location);
     when(body.getConfig()).thenReturn(null);
     when(mockTableApi.getTableV1(anyString(), anyString())).thenReturn(Mono.just(body));
 
-    OpenHouseTableOperations ops = refreshableOps(mockTableApi);
+    OpenHouseTableOperations ops = refreshableOps(mockTableApi, localFileIO());
     ops.doRefresh();
 
     Assertions.assertNull(ops.currentConfig());
   }
 
   /**
-   * The held config is a snapshot of the latest refresh, never sticky: once the server stops
-   * stamping config, a subsequent refresh must clear the previously-captured value back to null.
-   * Guards against a stale directive lingering after the server turns it off.
+   * Same metadata location: Iceberg skips reload, so a later GET that stops stamping must not clear
+   * the config still paired with in-memory overlays.
    */
   @Test
-  public void testDoRefreshClearsStaleConfig() {
-    TableApi mockTableApi = mock(TableApi.class);
+  public void testDoRefreshKeepsConfigWhenLocationUnchanged() {
+    String location = writeTempMetadata();
     Map<String, String> stamped =
         Collections.singletonMap("openhouse.read-bridge", "{\"read\":\"ON\"}");
 
     GetTableResponseBody withConfig = mock(GetTableResponseBody.class);
-    when(withConfig.getTableLocation()).thenReturn(null);
+    when(withConfig.getTableLocation()).thenReturn(location);
     when(withConfig.getConfig()).thenReturn(stamped);
 
     GetTableResponseBody withoutConfig = mock(GetTableResponseBody.class);
-    when(withoutConfig.getTableLocation()).thenReturn(null);
+    when(withoutConfig.getTableLocation()).thenReturn(location);
     when(withoutConfig.getConfig()).thenReturn(null);
 
-    // First refresh stamps config, second refresh stops stamping it.
+    TableApi mockTableApi = mock(TableApi.class);
     when(mockTableApi.getTableV1(anyString(), anyString()))
         .thenReturn(Mono.just(withConfig))
         .thenReturn(Mono.just(withoutConfig));
 
-    OpenHouseTableOperations ops = refreshableOps(mockTableApi);
+    OpenHouseTableOperations ops = refreshableOps(mockTableApi, localFileIO());
+    ops.doRefresh();
+    Assertions.assertSame(stamped, ops.currentConfig());
 
+    ops.doRefresh();
+    Assertions.assertSame(stamped, ops.currentConfig());
+  }
+
+  /** A later load from a new metadata location binds that response's config. */
+  @Test
+  public void testDoRefreshBindsNewConfigWhenLocationChanges() {
+    // Same table UUID, two files: Iceberg reloads on location change and rejects a UUID mismatch.
+    String[] locations = writeTempMetadataPair();
+    String first = locations[0];
+    String second = locations[1];
+    Map<String, String> stamped =
+        Collections.singletonMap("openhouse.read-bridge", "{\"read\":\"ON\"}");
+
+    GetTableResponseBody withConfig = mock(GetTableResponseBody.class);
+    when(withConfig.getTableLocation()).thenReturn(first);
+    when(withConfig.getConfig()).thenReturn(stamped);
+
+    GetTableResponseBody withoutConfig = mock(GetTableResponseBody.class);
+    when(withoutConfig.getTableLocation()).thenReturn(second);
+    when(withoutConfig.getConfig()).thenReturn(null);
+
+    TableApi mockTableApi = mock(TableApi.class);
+    when(mockTableApi.getTableV1(anyString(), anyString()))
+        .thenReturn(Mono.just(withConfig))
+        .thenReturn(Mono.just(withoutConfig));
+
+    OpenHouseTableOperations ops = refreshableOps(mockTableApi, localFileIO());
     ops.doRefresh();
     Assertions.assertSame(stamped, ops.currentConfig());
 
@@ -565,10 +609,112 @@ public class OpenHouseTableOperationsTest {
   }
 
   /**
-   * Wire contract: a server-stamped config map deserializes on the client (the Iceberg REST {@code
-   * LoadTableResponse.config} convention — a string map). This is how the value actually arrives on
-   * a real table-load response.
+   * Iceberg rejects a UUID change after the loader returns. Config must stay paired with the
+   * in-memory metadata that is still installed.
    */
+  @Test
+  public void testDoRefreshKeepsConfigWhenUuidCheckFails() {
+    String first = writeTempMetadata();
+    String second = writeTempMetadata();
+    Map<String, String> stamped =
+        Collections.singletonMap("openhouse.read-bridge", "{\"read\":\"ON\"}");
+    Map<String, String> other =
+        Collections.singletonMap("openhouse.read-bridge", "{\"read\":\"OFF\"}");
+
+    GetTableResponseBody withConfig = mock(GetTableResponseBody.class);
+    when(withConfig.getTableLocation()).thenReturn(first);
+    when(withConfig.getConfig()).thenReturn(stamped);
+
+    GetTableResponseBody mismatched = mock(GetTableResponseBody.class);
+    when(mismatched.getTableLocation()).thenReturn(second);
+    when(mismatched.getConfig()).thenReturn(other);
+
+    TableApi mockTableApi = mock(TableApi.class);
+    when(mockTableApi.getTableV1(anyString(), anyString()))
+        .thenReturn(Mono.just(withConfig))
+        .thenReturn(Mono.just(mismatched));
+
+    OpenHouseTableOperations ops = refreshableOps(mockTableApi, localFileIO());
+    ops.doRefresh();
+    Assertions.assertSame(stamped, ops.currentConfig());
+
+    Assertions.assertThrows(IllegalStateException.class, ops::doRefresh);
+    Assertions.assertSame(stamped, ops.currentConfig());
+  }
+
+  private static String writeTempMetadata() {
+    return writeTempMetadataPair()[0];
+  }
+
+  private static String[] writeTempMetadataPair() {
+    TableMetadata created =
+        TableMetadata.newTableMetadata(
+            new Schema(NestedField.optional(1, "id", Types.IntegerType.get())),
+            PartitionSpec.unpartitioned(),
+            "file:/tmp/rb-refresh",
+            Collections.emptyMap());
+    try {
+      Path first = java.nio.file.Files.createTempFile("oh-rb-", ".metadata.json");
+      Path second = java.nio.file.Files.createTempFile("oh-rb-", ".metadata.json");
+      first.toFile().deleteOnExit();
+      second.toFile().deleteOnExit();
+      TableMetadataParser.overwrite(created, Files.localOutput(first.toFile()));
+      TableMetadataParser.overwrite(created, Files.localOutput(second.toFile()));
+      return new String[] {first.toAbsolutePath().toString(), second.toAbsolutePath().toString()};
+    } catch (Exception e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
+  private static FileIO localFileIO() {
+    return new FileIO() {
+      @Override
+      public InputFile newInputFile(String path) {
+        return Files.localInput(path);
+      }
+
+      @Override
+      public OutputFile newOutputFile(String path) {
+        return Files.localOutput(path);
+      }
+
+      @Override
+      public void deleteFile(String path) {
+        new java.io.File(path).delete();
+      }
+    };
+  }
+
+  /** Bad config fails before FileIO so Iceberg does not retry the metadata read. */
+  @Test
+  public void testMalformedConfigFailsBeforeTouchingStorage() {
+    TableApi mockTableApi = mock(TableApi.class);
+    FileIO mockFileIO = mock(FileIO.class);
+    GetTableResponseBody body = mock(GetTableResponseBody.class);
+    // Non-null location would otherwise trigger a metadata load.
+    when(body.getTableLocation()).thenReturn("/tmp/does-not-matter/metadata.json");
+    when(body.getConfig())
+        .thenReturn(
+            Collections.singletonMap("openhouse.read-bridge.column-default.7", "{bad json"));
+    when(mockTableApi.getTableV1(anyString(), anyString())).thenReturn(Mono.just(body));
+
+    OpenHouseTableOperations ops =
+        OpenHouseTableOperations.builder()
+            .tableIdentifier(TableIdentifier.of("db", "tbl"))
+            .fileIO(mockFileIO)
+            .tableApi(mockTableApi)
+            .snapshotApi(mock(SnapshotApi.class))
+            .cluster("cluster")
+            .build();
+
+    Tasks.UnrecoverableException thrown =
+        Assertions.assertThrows(Tasks.UnrecoverableException.class, ops::doRefresh);
+    Assertions.assertInstanceOf(IllegalStateException.class, thrown.getCause());
+    Assertions.assertTrue(thrown.getMessage().contains("db.tbl"));
+    verifyNoInteractions(mockFileIO);
+  }
+
+  /** Config arrives as a string map on the table-load JSON. */
   @Test
   public void testConfigDeserializeFromResponse() throws Exception {
     ObjectMapper mapper = ApiClient.createDefaultObjectMapper(null);
@@ -579,14 +725,11 @@ public class OpenHouseTableOperationsTest {
     GetTableResponseBody body = mapper.readValue(json, GetTableResponseBody.class);
     Map<String, String> config = body.getConfig();
     Assertions.assertNotNull(config);
-    // value stays an opaque JSON string; the channel never parses it.
+    // Channel does not parse the value.
     Assertions.assertEquals("{\"read\":\"ON\"}", config.get("openhouse.read-bridge"));
   }
 
-  /**
-   * Unknown future fields must not break deserialization — older clients ignore what they do not
-   * understand (FAIL_ON_UNKNOWN_PROPERTIES=false), and unknown config keys are simply carried.
-   */
+  /** Unknown JSON fields and unknown config keys are carried, not rejected. */
   @Test
   public void testConfigToleratesUnknownFields() throws Exception {
     ObjectMapper mapper = ApiClient.createDefaultObjectMapper(null);

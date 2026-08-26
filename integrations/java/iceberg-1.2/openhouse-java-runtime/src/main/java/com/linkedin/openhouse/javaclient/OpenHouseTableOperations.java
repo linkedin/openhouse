@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import lombok.AccessLevel;
@@ -38,6 +39,7 @@ import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.util.Tasks;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
@@ -63,16 +65,12 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   private String cluster;
 
   /**
-   * The per-table client {@code config} (Iceberg REST {@code LoadTableResponse.config} convention)
-   * the OH server stamped onto the most recent table-load response (or {@code null} if none / not
-   * yet refreshed). A final holder keeps Lombok's all-args constructor unchanged.
+   * Config last applied to {@code current()}, or {@code null}. Bound after Iceberg accepts a reload
+   * so skip-reload and a failed UUID check cannot desync stamps from overlays.
    */
   private final AtomicReference<Map<String, String>> config = new AtomicReference<>();
 
-  /**
-   * The server-stamped per-table client config from the last {@code doRefresh}, or {@code null}
-   * when absent. Subclasses read it to gate read-time behavior.
-   */
+  /** Stamps last applied to {@code current()}, or {@code null}. */
   protected Map<String, String> currentConfig() {
     return config.get();
   }
@@ -113,26 +111,55 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
                 WebClientRequestException.class,
                 e -> Mono.error(new WebClientRequestWithMessageException(e)))
             .blockOptional();
-    // Capture the server-stamped per-table config so subclasses can gate read-time behavior via
-    // currentConfig(); absent => null. Side-channel only: never sent back on writes.
-    this.config.set(tableResponse.map(GetTableResponseBody::getConfig).orElse(null));
     Optional<String> tableLocation = tableResponse.map(GetTableResponseBody::getTableLocation);
     if (!tableLocation.isPresent() && currentMetadataLocation() != null) {
       throw new NoSuchTableException(
           "Cannot find table %s after refresh, maybe another process deleted it", tableName());
     }
-    // Route the parse through loadMetadata() so subclasses can transform metadata as it loads;
-    // (null, 20) preserves the stock refresh behavior.
-    super.refreshFromMetadataLocation(tableLocation.orElse(null), null, 20, this::loadMetadata);
+    Map<String, String> fetched = tableResponse.map(GetTableResponseBody::getConfig).orElse(null);
+    AtomicBoolean loaded = new AtomicBoolean();
+    // Iceberg skips the loader when tableLocation is unchanged. UUID is checked after the loader
+    // returns; bind only if this call actually accepted a reload.
+    super.refreshFromMetadataLocation(
+        tableLocation.orElse(null),
+        null,
+        20,
+        location -> {
+          TableMetadata bridged = loadMetadata(location, fetched);
+          loaded.set(true);
+          return bridged;
+        });
+    if (loaded.get()) {
+      config.set(fetched);
+    }
     log.debug("Calling doRefresh succeeded");
   }
 
   /**
-   * Loads the table metadata at the given location. Defaults to the stock parser; subclasses may
-   * override to transform the metadata (e.g. attach column defaults) as it loads.
+   * Decode {@code fetched}, then read the metadata file, then overlay.
+   *
+   * <p>Decode first so a bad config never hits storage. {@link IllegalStateException} is wrapped as
+   * {@link Tasks.UnrecoverableException} so Iceberg's retry loop does not re-read the file. The
+   * wrap includes {@link #tableName()} so a Spark job over many tables can tell which one failed.
    */
-  protected TableMetadata loadMetadata(String metadataLocation) {
-    return TableMetadataParser.read(io(), metadataLocation);
+  protected TableMetadata loadMetadata(String metadataLocation, Map<String, String> fetched) {
+    final ReadBridge bridge;
+    try {
+      bridge = ReadBridge.from(fetched);
+    } catch (IllegalStateException e) {
+      throw unrecoverableBridge(e);
+    }
+    TableMetadata raw = TableMetadataParser.read(io(), metadataLocation);
+    try {
+      return bridge.apply(raw);
+    } catch (IllegalStateException e) {
+      throw unrecoverableBridge(e);
+    }
+  }
+
+  private Tasks.UnrecoverableException unrecoverableBridge(IllegalStateException e) {
+    return new Tasks.UnrecoverableException(
+        "read-bridge: unusable config for table " + tableName(), e);
   }
 
   @Override
