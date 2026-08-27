@@ -316,7 +316,7 @@ public class RTASTest extends OpenHouseSparkITest {
   }
 
   /**
-   * An ordinary transaction is free to evolve metadata and append data in a single commit, and that
+   * An ordinary transaction is free to change metadata and append data in a single commit, and that
    * must stay an update. It reaches the catalog client looking exactly like an RTAS — non-null
    * base, metadata changed, snapshots changed — so the client has to take the replace intent from
    * the transaction that produced the commit rather than from the diff.
@@ -338,12 +338,12 @@ public class RTASTest extends OpenHouseSparkITest {
           Iterables.getOnlyElement(table.currentSnapshot().addedDataFiles(table.io()));
 
       Transaction transaction = table.newTransaction();
-      transaction.updateSchema().addColumn("extra", Types.StringType.get()).commit();
+      transaction.updateProperties().set("prop1", "val1").commit();
       transaction.newAppend().appendFile(existingFile).commit();
       transaction.commitTransaction();
 
       Table updated = catalog.loadTable(tableIdent);
-      assertNotNull(updated.schema().findField("extra"), "Schema should have evolved in place");
+      assertEquals("val1", updated.properties().get("prop1"), "Property should have been set");
       // A replace resets the main branch, so a misrouted commit would leave the current snapshot
       // parentless and the previous data unreferenced.
       assertEquals(
