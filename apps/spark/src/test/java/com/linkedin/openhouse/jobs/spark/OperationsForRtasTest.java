@@ -3,7 +3,9 @@ package com.linkedin.openhouse.jobs.spark;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
+import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
+import java.io.IOException;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
@@ -14,9 +16,17 @@ import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.iceberg.DataFile;
+import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.OverwriteFiles;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.actions.DeleteOrphanFiles;
+import org.apache.iceberg.exceptions.ValidationException;
+import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.AnalysisException;
 import org.apache.spark.sql.Row;
 import org.assertj.core.util.Lists;
@@ -29,7 +39,10 @@ import org.junit.jupiter.api.Test;
  *
  * <p>Retention is the job that a replace can actually invalidate: the scheduler snapshots {@code
  * policies.retention} and freezes it into the job's CLI args, and {@link Operations#runRetention}
- * never re-reads the policy before issuing its DELETE. Two tests pin the ways that goes wrong. The
+ * never re-reads the policy before issuing its DELETE. Five tests pin the ways that goes wrong: the
+ * frozen config no longer describing the table, the replace changing what the DELETE lands on, the
+ * replace making the same config far more expensive to apply, and the two commit-time races that
+ * decide whether a DELETE holding a pre-replace base snapshot is rejected or waved through. The
  * remaining two cover snapshot expiration and orphan file deletion, which carry no such frozen
  * state and are expected to simply work on a replaced table.
  */
@@ -220,6 +233,354 @@ public class OperationsForRtasTest extends OpenHouseSparkITest {
   }
 
   /**
+   * Retention stops being a metadata-only delete once a replace drops the partitioning.
+   *
+   * <p>The table is partitioned by identity on the string {@code datepartition} column that
+   * retention is configured against, which is what makes the retention DELETE cheap: Iceberg can
+   * satisfy it by dropping whole partition files, without reading or rewriting a single row. The
+   * replace keeps the schema and the retention policy exactly as they were and only drops the
+   * partitioning, so nothing about the job's frozen args stops matching and nothing fails.
+   *
+   * <p>The cost changes anyway. {@code SparkTable.canDeleteWhere} refuses a metadata delete once
+   * {@code table.specs().size() > 1}, and it also requires the predicate to reference only identity
+   * partition sources. Dropping the partitioning trips both: the replace adds an unpartitioned spec
+   * alongside the original one, and leaves no identity source for {@code datepartition}. Spark
+   * falls back to a copy-on-write rewrite, so the same retention window that used to delete
+   * metadata now reads the surviving rows and writes them out again.
+   *
+   * <p>This is permanent, not transient. The extra spec stays in the table's metadata, so no later
+   * retention run recovers the metadata-only path.
+   */
+  @Test
+  public void testRetentionLosesMetadataOnlyDeleteAfterRtasDropsPartitioning() throws Exception {
+    final String tableName = "db.test_retention_metadata_only_after_rtas";
+    final String sourceName = "db.test_retention_metadata_only_after_rtas_source";
+    ZonedDateTime now = ZonedDateTime.now();
+    String today = DATE_FORMATTER.format(now);
+    String longAgo = DATE_FORMATTER.format(now.minusDays(40));
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", tableName)).show();
+      ops.spark()
+          .sql(
+              String.format(
+                  "CREATE TABLE %s (data string, datepartition string)"
+                      + " PARTITIONED BY (datepartition)",
+                  tableName))
+          .show();
+      ops.spark()
+          .sql(
+              String.format(
+                  "ALTER TABLE %s SET POLICY (RETENTION = 30d ON COLUMN datepartition"
+                      + " WHERE PATTERN = 'yyyy-MM-dd')",
+                  tableName));
+      ops.spark()
+          .sql(
+              String.format(
+                  "ALTER TABLE %s SET TBLPROPERTIES ('replace.enabled'='true')", tableName))
+          .show();
+      insertDatePartitionRows(ops, tableName, today, longAgo);
+      verifyRowCount(ops, tableName, 2);
+
+      Table beforeRtas = ops.getTable(tableName);
+      Types.StructType schemaBeforeRtas = beforeRtas.schema().asStruct();
+      Assertions.assertEquals(
+          1, beforeRtas.specs().size(), "Table should start with a single partition spec");
+      Assertions.assertEquals(
+          Collections.singletonList("datepartition"),
+          identityPartitionSources(beforeRtas),
+          "Retention column should be the identity partition source");
+
+      // First retention run, on the partitioned table. The predicate lines up with the identity
+      // partition, so Iceberg drops the stale partition's files without writing anything.
+      ops.runRetention(tableName, "datepartition", "yyyy-MM-dd", "day", 30, false, "", now);
+      Snapshot firstRetention = ops.getTable(tableName).currentSnapshot();
+      Assertions.assertEquals(
+          "delete",
+          firstRetention.operation(),
+          "Retention on the partitioned table should commit a metadata-only delete");
+      Assertions.assertEquals(
+          0,
+          addedDataFiles(firstRetention),
+          "A metadata-only delete must not write data files, but wrote: "
+              + firstRetention.summary());
+      ops.spark().sql(String.format("REFRESH TABLE %s", tableName));
+      verifyRowCount(ops, tableName, 1);
+
+      // The owner replaces the table, dropping the partitioning. The retention column and the
+      // policy that names it are untouched, so nothing revalidates and nothing warns.
+      ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", sourceName)).show();
+      ops.spark()
+          .sql(String.format("CREATE TABLE %s (data string, datepartition string)", sourceName))
+          .show();
+      insertDatePartitionRows(ops, sourceName, today, longAgo);
+      ops.spark()
+          .sql(
+              String.format(
+                  "REPLACE TABLE %s USING iceberg AS SELECT data, datepartition FROM %s",
+                  tableName, sourceName));
+
+      Table afterRtas = ops.getTable(tableName);
+      Assertions.assertEquals(
+          schemaBeforeRtas,
+          afterRtas.schema().asStruct(),
+          "Replace should leave the schema intact");
+      Assertions.assertTrue(
+          afterRtas.spec().isUnpartitioned(), "Replace should have dropped the partitioning");
+      Assertions.assertEquals(
+          2,
+          afterRtas.specs().size(),
+          "Replace should retain the original spec alongside the unpartitioned one");
+      Assertions.assertTrue(
+          identityPartitionSources(afterRtas).isEmpty(),
+          "Replace should leave no identity partition source for the retention column");
+      ops.spark().sql(String.format("REFRESH TABLE %s", tableName));
+      verifyRowCount(ops, tableName, 2);
+
+      // Second retention run, same config against the same schema and the same rows. It still
+      // resolves and still deletes the right rows, but no longer as a metadata-only delete.
+      ops.runRetention(tableName, "datepartition", "yyyy-MM-dd", "day", 30, false, "", now);
+      Snapshot secondRetention = ops.getTable(tableName).currentSnapshot();
+      Assertions.assertEquals(
+          "overwrite",
+          secondRetention.operation(),
+          "Retention after the replace should degrade to a copy-on-write rewrite");
+      Assertions.assertTrue(
+          addedDataFiles(secondRetention) > 0,
+          "The rewrite should have rewritten the surviving rows, but wrote no files: "
+              + secondRetention.summary());
+      ops.spark().sql(String.format("REFRESH TABLE %s", tableName));
+      verifyRowCount(ops, tableName, 1);
+      Assertions.assertEquals(
+          0,
+          ops.spark()
+              .sql(String.format("SELECT * FROM %s WHERE datepartition = '%s'", tableName, longAgo))
+              .count(),
+          "Retention should still drop the out-of-window rows");
+    }
+  }
+
+  /**
+   * The replace lands after the retention DELETE has planned but before it commits.
+   *
+   * <p>{@link #testRetentionDeleteOnSnapshotStaledByRtas} covers the case where the replace is
+   * already visible when Spark plans, so there is nothing left to conflict with. This covers the
+   * genuine interleaving: Spark's copy-on-write DELETE is not atomic. {@code SparkMergeScan} pins
+   * {@code scan.snapshotId()} when the query is planned, the write job reads and rewrites files
+   * against that snapshot, and only then does {@code
+   * SparkWrite.CopyOnWriteMergeWrite.commitWithSerializableIsolation} build the {@code
+   * OverwriteFiles} and apply {@code validateFromSnapshot(scanSnapshotId)} plus {@code
+   * validateNoConflictingData}. A replace committed inside that window leaves the DELETE holding a
+   * stale base snapshot.
+   *
+   * <p>This replays that commit against a real replace. Spark cannot be driven into the window
+   * here, because the test fixture runs {@code local[1]} and a barrier that holds the only task
+   * slot would deadlock the replace's own job, so the commit is reconstructed with the same
+   * validations Spark configures.
+   *
+   * <p>What makes this different from an ordinary concurrent writer is that a replace resets the
+   * branch: its snapshot has no parent. Iceberg's conflict validation walks the ancestry backwards
+   * from the current snapshot to the starting one, so it cannot even enumerate what changed, and
+   * refuses the commit rather than guessing.
+   */
+  @Test
+  public void testRetentionDeleteCommitRejectedWhenRtasLandsMidFlight() throws Exception {
+    final String tableName = "db.test_retention_commit_races_rtas";
+    final String sourceName = "db.test_retention_commit_races_rtas_source";
+    ZonedDateTime now = ZonedDateTime.now();
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareRetentionTable(ops, tableName, "1d");
+      insertRows(ops, tableName, now, 0, 2);
+      verifyRowCount(ops, tableName, 2);
+
+      // Spark plans the DELETE here: the scan snapshot and the set of files to rewrite are both
+      // pinned now, and stay pinned for the rest of the statement.
+      Table planned = ops.getTable(tableName);
+      long scanSnapshotId = planned.currentSnapshot().snapshotId();
+      Expression retentionFilter = SparkJobUtil.createDeleteFilter("ts", "", "day", 1, now);
+      List<DataFile> scannedFiles = planFiles(planned, retentionFilter);
+      Assertions.assertFalse(
+          scannedFiles.isEmpty(), "Retention should have planned at least one file to rewrite");
+
+      // The replace commits while the write job is still running.
+      prepareSource(ops, sourceName, now, 0, 5);
+      ops.spark()
+          .sql(
+              String.format(
+                  "REPLACE TABLE %s USING iceberg PARTITIONED BY (days(ts))"
+                      + " AS SELECT data, ts FROM %s",
+                  tableName, sourceName));
+      Table afterRtas = ops.getTable(tableName);
+      long rtasSnapshotId = afterRtas.currentSnapshot().snapshotId();
+      Assertions.assertNotEquals(
+          scanSnapshotId, rtasSnapshotId, "Replace should have staled the planned scan snapshot");
+      Assertions.assertNull(
+          afterRtas.currentSnapshot().parentId(),
+          "Replace should reset the branch, leaving its snapshot without a parent");
+
+      // The write job finishes and Spark commits, exactly as commitWithSerializableIsolation does.
+      OverwriteFiles overwrite = ops.getTable(tableName).newOverwrite();
+      scannedFiles.forEach(overwrite::deleteFile);
+      overwrite.validateFromSnapshot(scanSnapshotId);
+      overwrite.conflictDetectionFilter(retentionFilter);
+      overwrite.validateNoConflictingData();
+      overwrite.validateNoConflictingDeletes();
+
+      ValidationException e =
+          Assertions.assertThrows(
+              ValidationException.class,
+              overwrite::commit,
+              "A DELETE holding a pre-replace base snapshot must not be allowed to commit");
+      Assertions.assertTrue(
+          e.getMessage().contains("Cannot determine history"),
+          "Failure should report the broken ancestry, but was: " + e.getMessage());
+
+      // The rejection is clean: the replacement is still the current state, untouched.
+      Table afterFailure = ops.getTable(tableName);
+      Assertions.assertEquals(
+          rtasSnapshotId,
+          afterFailure.currentSnapshot().snapshotId(),
+          "Rejected commit should not have moved the table");
+      ops.spark().sql(String.format("REFRESH TABLE %s", tableName));
+      verifyRowCount(ops, tableName, 2);
+    }
+  }
+
+  /**
+   * The same race on the metadata-only delete path, which carries no validation at all.
+   *
+   * <p>{@link #testRetentionDeleteCommitRejectedWhenRtasLandsMidFlight} is only protected because
+   * Spark's copy-on-write commit opts into {@code validateFromSnapshot} and {@code
+   * validateNoConflictingData}. The metadata-only path opts into nothing: {@code
+   * SparkTable.deleteWhere} is a bare {@code newDelete().deleteFromRowFilter(expr).commit()}, with
+   * no base snapshot and no conflict detection. It simply re-resolves the frozen predicate against
+   * whatever metadata is current when it commits.
+   *
+   * <p>So a replace landing mid-flight is not merely undetected here, it is undetectable: the
+   * operation never recorded which state it was authorized against. What it deletes is decided
+   * entirely at commit time, so it drops the replacement's files while the file it was actually
+   * planned against survives untouched.
+   *
+   * <p>The uncomfortable pairing is that the cheap path is the unprotected one. A table partitioned
+   * by identity on its retention column keeps the metadata-only path across a replace, because the
+   * spec is reused and stays a single spec, and therefore keeps zero validation. The table in
+   * {@link #testRetentionLosesMetadataOnlyDeleteAfterRtasDropsPartitioning} loses that path and
+   * picks up serializable validation as a side effect of getting slower.
+   */
+  @Test
+  public void testRetentionMetadataOnlyDeleteCommitsAcrossRtasUnvalidated() throws Exception {
+    final String tableName = "db.test_retention_metadata_only_races_rtas";
+    final String sourceName = "db.test_retention_metadata_only_races_rtas_source";
+    ZonedDateTime now = ZonedDateTime.now();
+    String today = DATE_FORMATTER.format(now);
+    String longAgo = DATE_FORMATTER.format(now.minusDays(40));
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", tableName)).show();
+      ops.spark()
+          .sql(
+              String.format(
+                  "CREATE TABLE %s (data string, datepartition string)"
+                      + " PARTITIONED BY (datepartition)",
+                  tableName))
+          .show();
+      ops.spark()
+          .sql(
+              String.format(
+                  "ALTER TABLE %s SET POLICY (RETENTION = 30d ON COLUMN datepartition"
+                      + " WHERE PATTERN = 'yyyy-MM-dd')",
+                  tableName));
+      ops.spark()
+          .sql(
+              String.format(
+                  "ALTER TABLE %s SET TBLPROPERTIES ('replace.enabled'='true')", tableName))
+          .show();
+      insertDatePartitionRows(ops, tableName, today, longAgo);
+      verifyRowCount(ops, tableName, 2);
+
+      // Spark plans the DELETE. On this table the predicate resolves to a metadata delete, so the
+      // only thing carried forward is the predicate itself: no snapshot, no file list.
+      long scanSnapshotId = ops.getTable(tableName).currentSnapshot().snapshotId();
+      Expression retentionFilter =
+          SparkJobUtil.createDeleteFilter("datepartition", "yyyy-MM-dd", "day", 30, now);
+      List<String> plannedForDelete =
+          planFiles(ops.getTable(tableName), retentionFilter).stream()
+              .map(file -> file.path().toString())
+              .collect(Collectors.toList());
+      Assertions.assertFalse(
+          plannedForDelete.isEmpty(), "Retention should have planned a file to drop");
+
+      // The replace commits inside the window, keeping the same partitioning so the spec is reused
+      // and the delete stays on the metadata-only path.
+      ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", sourceName)).show();
+      ops.spark()
+          .sql(String.format("CREATE TABLE %s (data string, datepartition string)", sourceName))
+          .show();
+      insertDatePartitionRows(ops, sourceName, today, longAgo);
+      ops.spark()
+          .sql(
+              String.format(
+                  "REPLACE TABLE %s USING iceberg PARTITIONED BY (datepartition)"
+                      + " AS SELECT data, datepartition FROM %s",
+                  tableName, sourceName));
+      Table afterRtas = ops.getTable(tableName);
+      Assertions.assertNotEquals(
+          scanSnapshotId,
+          afterRtas.currentSnapshot().snapshotId(),
+          "Replace should have staled the snapshot the delete was planned on");
+      Assertions.assertNull(
+          afterRtas.currentSnapshot().parentId(),
+          "Replace should reset the branch, leaving its snapshot without a parent");
+      Assertions.assertEquals(
+          1, afterRtas.specs().size(), "Replace should reuse the identical spec");
+      ops.spark().sql(String.format("REFRESH TABLE %s", tableName));
+      List<String> postRtasFiles = getDataFilePaths(ops, tableName);
+      Assertions.assertTrue(
+          Collections.disjoint(plannedForDelete, postRtasFiles),
+          "Replace should have rewritten every file the delete planned against");
+
+      // Spark commits, exactly as SparkTable.deleteWhere does. The broken ancestry that stops the
+      // copy-on-write commit is never consulted, because nothing ever recorded a starting point.
+      Assertions.assertDoesNotThrow(
+          () -> afterRtas.newDelete().deleteFromRowFilter(retentionFilter).commit(),
+          "The metadata-only path has no validation to reject a stale delete");
+
+      Snapshot committed = ops.getTable(tableName).currentSnapshot();
+      Assertions.assertEquals(
+          "delete", committed.operation(), "Should have committed a metadata-only delete");
+      Assertions.assertEquals(
+          0,
+          addedDataFiles(committed),
+          "A metadata-only delete must not write data files, but wrote: " + committed.summary());
+
+      // The delete landed on the replacement's files, not on the ones it was planned against. The
+      // file it was authorized to drop was never touched and is still on disk, held by the
+      // pre-replace snapshot that the replace left behind.
+      ops.spark().sql(String.format("REFRESH TABLE %s", tableName));
+      List<String> survivingFiles = getDataFilePaths(ops, tableName);
+      List<String> droppedFiles =
+          postRtasFiles.stream()
+              .filter(file -> !survivingFiles.contains(file))
+              .collect(Collectors.toList());
+      Assertions.assertFalse(droppedFiles.isEmpty(), "Retention should have dropped a file");
+      Assertions.assertTrue(
+          Collections.disjoint(droppedFiles, plannedForDelete),
+          "Retention dropped none of the files it planned against, but: " + droppedFiles);
+      assertFilesExist(
+          ops.fs(),
+          plannedForDelete,
+          true,
+          "The file retention was authorized to drop should be untouched");
+
+      verifyRowCount(ops, tableName, 1);
+      Assertions.assertEquals(
+          0,
+          ops.spark()
+              .sql(String.format("SELECT * FROM %s WHERE datepartition = '%s'", tableName, longAgo))
+              .count(),
+          "The frozen predicate was applied to the replacement's files");
+    }
+  }
+
+  /**
    * Snapshot expiration after a replace.
    *
    * <p>RTAS resets the branch to a single new snapshot but leaves the pre-RTAS snapshots in the
@@ -324,8 +685,7 @@ public class OperationsForRtasTest extends OpenHouseSparkITest {
       // First pass, before expiration. The replaced files are still reachable from the retained
       // snapshots, so OFD must leave them alone and only take the planted orphan.
       DeleteOrphanFiles.Result beforeExpiry =
-          ops.deleteOrphanFiles(
-              table, System.currentTimeMillis(), false, BACKUP_DIR, 5, false, 20000);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), BACKUP_DIR, 1, false, 20000);
       List<String> orphansBeforeExpiry = Lists.newArrayList(beforeExpiry.orphanFileLocations());
       Assertions.assertTrue(
           orphansBeforeExpiry.stream().anyMatch(f -> f.endsWith(plantedOrphanName)),
@@ -343,8 +703,7 @@ public class OperationsForRtasTest extends OpenHouseSparkITest {
       // Second pass. The replaced files are now unreachable and get reclaimed.
       Table expired = ops.getTable(tableName);
       DeleteOrphanFiles.Result afterExpiry =
-          ops.deleteOrphanFiles(
-              expired, System.currentTimeMillis(), false, BACKUP_DIR, 5, false, 20000);
+          ops.deleteOrphanFiles(expired, System.currentTimeMillis(), BACKUP_DIR, 1, false, 20000);
       List<String> orphansAfterExpiry = Lists.newArrayList(afterExpiry.orphanFileLocations());
       Assertions.assertTrue(
           normalizePaths(orphansAfterExpiry).containsAll(normalizePaths(preRtasDataFiles)),
@@ -397,6 +756,34 @@ public class OperationsForRtasTest extends OpenHouseSparkITest {
                   tableName, dayLag, DATE_FORMATTER.format(now.minusDays(dayLag))))
           .show();
     }
+  }
+
+  private static List<DataFile> planFiles(Table table, Expression filter) throws IOException {
+    try (CloseableIterable<FileScanTask> tasks = table.newScan().filter(filter).planFiles()) {
+      return StreamSupport.stream(tasks.spliterator(), false)
+          .map(FileScanTask::file)
+          .collect(Collectors.toList());
+    }
+  }
+
+  private static void insertDatePartitionRows(Operations ops, String tableName, String... dates) {
+    for (String date : dates) {
+      ops.spark()
+          .sql(String.format("INSERT INTO %s VALUES ('d-%s', '%s')", tableName, date, date))
+          .show();
+    }
+  }
+
+  /** Source columns of the table's current spec that are partitioned by identity. */
+  private static List<String> identityPartitionSources(Table table) {
+    return table.spec().fields().stream()
+        .filter(field -> field.transform().isIdentity())
+        .map(field -> table.schema().findColumnName(field.sourceId()))
+        .collect(Collectors.toList());
+  }
+
+  private static long addedDataFiles(Snapshot snapshot) {
+    return Long.parseLong(snapshot.summary().getOrDefault(SnapshotSummary.ADDED_FILES_PROP, "0"));
   }
 
   private static void verifyRowCount(Operations ops, String tableName, int expectedRowCount) {
