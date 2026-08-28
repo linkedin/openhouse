@@ -8,6 +8,11 @@ plugins {
 ext {
   icebergVersion = rootProject.ext.iceberg_1_5_version
   sparkVersion = '3.5.2'
+  // Antlr grammar sources are owned by this module (spark-3.5 keeps its own copy of the
+  // grammar so it can evolve independently of spark-3.1).
+  antlrPackageDirPrefix = "com/linkedin/openhouse/spark/sql/catalyst/parser/extensions/"
+  antlrMainDir = "${projectDir}/src/main/antlr/${antlrPackageDirPrefix}"
+  antlrMainGeneratedSrcDir = "${project.buildDir}/generated-src/antlr/main/"
 }
 
 configurations {
@@ -16,18 +21,40 @@ configurations {
     exclude(group: 'org.mapstruct')
   }
   shadow.extendsFrom implementation
+
+  antlr
 }
 
 // Set source for antlr generated directory
 sourceSets {
   main {
     java {
-      srcDirs += "${project(':integrations:spark:spark-3.1:openhouse-spark-runtime_2.12').buildDir}/generated-src/antlr/main"
+      srcDirs antlrMainGeneratedSrcDir
     }
   }
 }
 
+// Task to generate java sources using Antlr tool
+task runAntlr(type: JavaExec) {
+  inputs.dir antlrMainDir
+  outputs.dir antlrMainGeneratedSrcDir
+
+  mainClass = "org.antlr.v4.Tool"
+  args = ["${antlrMainDir}/OpenhouseSqlExtensions.g4",
+          "-visitor",
+          "-o", "${antlrMainGeneratedSrcDir}/${antlrPackageDirPrefix}",
+          "-package", "com.linkedin.openhouse.spark.sql.catalyst.parser.extensions"]
+  maxHeapSize = "64m"
+  classpath = configurations.antlr
+}
+
+compileJava.dependsOn runAntlr
+
 dependencies {
+  // Required because we remove antlr plugin dependencies from the compile configuration
+  runtimeOnly "org.antlr:antlr4-runtime:4.7.1"
+  antlr "org.antlr:antlr4:4.7.1"
+
   compileOnly(project(path: ':integrations:java:iceberg-1.5:openhouse-java-iceberg-1.5-runtime', configuration: 'shadow'))
   compileOnly("org.apache.spark:spark-hive_2.12:${sparkVersion}") {
     exclude group: 'org.apache.avro', module: 'avro'
@@ -51,12 +78,6 @@ dependencies {
 
   fatJarPackagedDependencies(project(path: ':integrations:java:iceberg-1.5:openhouse-java-iceberg-1.5-runtime', configuration: 'shadow')) {
     transitive = false
-  }
-  fatJarPackagedDependencies(project(path: ':integrations:spark:spark-3.1:openhouse-spark-runtime_2.12', configuration: 'shadow')) {
-    transitive = false
-  }
-  implementation(project(path: ':integrations:spark:spark-3.1:openhouse-spark-runtime_2.12', configuration: 'shadow')) {
-    exclude group: "com.linkedin.iceberg", module: "iceberg-spark-runtime-3.1_2.12"
   }
   implementation("com.linkedin.iceberg:iceberg-spark-runtime-3.5_2.12:" + icebergVersion)
 }
