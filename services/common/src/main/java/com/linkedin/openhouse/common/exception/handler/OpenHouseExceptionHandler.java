@@ -390,8 +390,8 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
   }
 
   /**
-   * Corrupt stored data is not a client error, so it must not fall through to the {@link
-   * IllegalArgumentException} advice below, which answers 400.
+   * Answers the diagnostic naming the corrupt column and value, which the catch-all advice would
+   * replace with a generic 500 body.
    *
    * <p>Kept deliberately, not dead code: the {@code entity_type} attribute converter's exception
    * arrives wrapped, and the catch-all {@link #handleGenericException} matches that wrapper before

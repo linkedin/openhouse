@@ -48,9 +48,10 @@ public class EntityTypeConverterTest {
         "TABLE\n", "VIEW\t", " VIEW"
       })
   void unrecognizedColumnValueFailsLoudly(String columnValue) {
-    IllegalArgumentException thrown =
+    CorruptEntityTypeException thrown =
         Assertions.assertThrows(
-            IllegalArgumentException.class, () -> converter.convertToEntityAttribute(columnValue));
+            CorruptEntityTypeException.class,
+            () -> converter.convertToEntityAttribute(columnValue));
     Assertions.assertTrue(thrown.getMessage().contains("user_table_row.entity_type"));
     Assertions.assertTrue(thrown.getMessage().contains(columnValue));
   }
@@ -106,18 +107,15 @@ public class EntityTypeConverterTest {
   }
 
   /**
-   * The dedicated type exists so the advice can bind an explicit server-error branch: the inherited
-   * {@code IllegalArgumentException} advice answers 400, wrong for corruption already sitting in
-   * storage. However the value got there, stored state the vocabulary does not admit is a server
-   * failure, so it answers 500. It stays an {@link IllegalArgumentException} so existing callers
-   * keep catching it.
+   * The dedicated type exists so the advice can bind an explicit server-error branch: however the
+   * value got there, stored state the vocabulary does not admit is a server failure, so it answers
+   * 500 carrying a diagnostic that names the column and the value rather than a generic body.
    */
   @Test
   void unrecognizedColumnValueThrowsTheDedicatedCorruptionType() {
-    IllegalArgumentException thrown =
+    CorruptEntityTypeException thrown =
         Assertions.assertThrows(
-            IllegalArgumentException.class, () -> converter.convertToEntityAttribute("UNKNOWN"));
-    Assertions.assertTrue(thrown instanceof CorruptEntityTypeException);
+            CorruptEntityTypeException.class, () -> converter.convertToEntityAttribute("UNKNOWN"));
     Assertions.assertTrue(thrown.getMessage().contains("user_table_row.entity_type"));
     Assertions.assertTrue(thrown.getMessage().contains("UNKNOWN"));
   }
