@@ -15,6 +15,7 @@ import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import com.linkedin.openhouse.housetables.e2e.SpringH2HtsApplication;
+import com.linkedin.openhouse.housetables.metrics.HouseTablesMetricsConstant;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
@@ -1169,26 +1170,26 @@ public class UserTablesServiceTest {
     UserTable byDatabase = UserTable.builder().databaseId(ENTITY_TYPE_DB).build();
 
     assertMetricsAdvance(
-        MetricsConstant.HTS_LIST_VIEWS_REQUEST,
-        MetricsConstant.HTS_LIST_VIEWS_TIME,
+        HouseTablesMetricsConstant.HTS_LIST_VIEWS_REQUEST,
+        HouseTablesMetricsConstant.HTS_LIST_VIEWS_TIME,
         () -> userTablesService.getAllUserViews(byDatabase));
 
     assertMetricsAdvance(
-        MetricsConstant.HTS_PAGE_VIEWS_REQUEST,
-        MetricsConstant.HTS_PAGE_VIEWS_TIME,
+        HouseTablesMetricsConstant.HTS_PAGE_VIEWS_REQUEST,
+        HouseTablesMetricsConstant.HTS_PAGE_VIEWS_TIME,
         () -> userTablesService.getAllUserViews(byDatabase, 0, 2, "tableId"));
 
     // A non-key filter falls through to the general search branch.
     UserTable generalFilter = UserTable.builder().creationTime(TEST_CREATION_TIME).build();
 
     assertMetricsAdvance(
-        MetricsConstant.HTS_GENERAL_SEARCH_VIEWS_REQUEST,
-        MetricsConstant.HTS_SEARCH_VIEWS_TIME,
+        HouseTablesMetricsConstant.HTS_GENERAL_SEARCH_VIEWS_REQUEST,
+        HouseTablesMetricsConstant.HTS_SEARCH_VIEWS_TIME,
         () -> userTablesService.getAllUserViews(generalFilter));
 
     assertMetricsAdvance(
-        MetricsConstant.HTS_PAGE_SEARCH_VIEWS_REQUEST,
-        MetricsConstant.HTS_PAGE_SEARCH_VIEWS_TIME,
+        HouseTablesMetricsConstant.HTS_PAGE_SEARCH_VIEWS_REQUEST,
+        HouseTablesMetricsConstant.HTS_PAGE_SEARCH_VIEWS_TIME,
         () -> userTablesService.getAllUserViews(generalFilter, 0, 2, "tableId"));
   }
 

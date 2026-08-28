@@ -13,6 +13,7 @@ import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.mapper.SoftDeletedUserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
+import com.linkedin.openhouse.housetables.metrics.HouseTablesMetricsConstant;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRow;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRowPrimaryKey;
@@ -442,7 +443,7 @@ public class UserTablesServiceImpl implements UserTablesService {
   }
 
   private List<UserTableDto> listViews(UserTable userView) {
-    METRICS_REPORTER.count(MetricsConstant.HTS_LIST_VIEWS_REQUEST);
+    METRICS_REPORTER.count(HouseTablesMetricsConstant.HTS_LIST_VIEWS_REQUEST);
     return METRICS_REPORTER.executeWithStats(
         () ->
             StreamSupport.stream(
@@ -453,11 +454,11 @@ public class UserTablesServiceImpl implements UserTablesService {
                     false)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
                 .collect(Collectors.toList()),
-        MetricsConstant.HTS_LIST_VIEWS_TIME);
+        HouseTablesMetricsConstant.HTS_LIST_VIEWS_TIME);
   }
 
   private Page<UserTableDto> listViews(UserTable userView, int page, int size, String sortBy) {
-    METRICS_REPORTER.count(MetricsConstant.HTS_PAGE_VIEWS_REQUEST);
+    METRICS_REPORTER.count(HouseTablesMetricsConstant.HTS_PAGE_VIEWS_REQUEST);
     Pageable pageable = createPageable(page, size, sortBy, "tableId");
     return METRICS_REPORTER.executeWithStats(
         () ->
@@ -465,11 +466,11 @@ public class UserTablesServiceImpl implements UserTablesService {
                 .findAllViewsByFilters(
                     userView.getDatabaseId(), null, null, null, null, null, pageable)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
-        MetricsConstant.HTS_PAGE_VIEWS_TIME);
+        HouseTablesMetricsConstant.HTS_PAGE_VIEWS_TIME);
   }
 
   private List<UserTableDto> listViewsWithPattern(UserTable userView) {
-    METRICS_REPORTER.count(MetricsConstant.HTS_LIST_VIEWS_REQUEST);
+    METRICS_REPORTER.count(HouseTablesMetricsConstant.HTS_LIST_VIEWS_REQUEST);
     return METRICS_REPORTER.executeWithStats(
         () ->
             StreamSupport.stream(
@@ -480,12 +481,12 @@ public class UserTablesServiceImpl implements UserTablesService {
                     false)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
                 .collect(Collectors.toList()),
-        MetricsConstant.HTS_LIST_VIEWS_TIME);
+        HouseTablesMetricsConstant.HTS_LIST_VIEWS_TIME);
   }
 
   private Page<UserTableDto> listViewsWithPattern(
       UserTable userView, int page, int size, String sortBy) {
-    METRICS_REPORTER.count(MetricsConstant.HTS_PAGE_VIEWS_REQUEST);
+    METRICS_REPORTER.count(HouseTablesMetricsConstant.HTS_PAGE_VIEWS_REQUEST);
     Pageable pageable = createPageable(page, size, sortBy, "tableId");
     return METRICS_REPORTER.executeWithStats(
         () ->
@@ -493,11 +494,11 @@ public class UserTablesServiceImpl implements UserTablesService {
                 .findAllViewsByDatabaseIdAndTableIdLikeAllIgnoreCase(
                     userView.getDatabaseId(), userView.getTableId(), pageable)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
-        MetricsConstant.HTS_PAGE_VIEWS_TIME);
+        HouseTablesMetricsConstant.HTS_PAGE_VIEWS_TIME);
   }
 
   private List<UserTableDto> searchViews(UserTable userView) {
-    METRICS_REPORTER.count(MetricsConstant.HTS_GENERAL_SEARCH_VIEWS_REQUEST);
+    METRICS_REPORTER.count(HouseTablesMetricsConstant.HTS_GENERAL_SEARCH_VIEWS_REQUEST);
     log.warn("Reaching general search for user view which is not expected: {}", userView.toJson());
     return METRICS_REPORTER.executeWithStats(
         () ->
@@ -514,11 +515,11 @@ public class UserTablesServiceImpl implements UserTablesService {
                     false)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
                 .collect(Collectors.toList()),
-        MetricsConstant.HTS_SEARCH_VIEWS_TIME);
+        HouseTablesMetricsConstant.HTS_SEARCH_VIEWS_TIME);
   }
 
   private Page<UserTableDto> searchViews(UserTable userView, int page, int size, String sortBy) {
-    METRICS_REPORTER.count(MetricsConstant.HTS_PAGE_SEARCH_VIEWS_REQUEST);
+    METRICS_REPORTER.count(HouseTablesMetricsConstant.HTS_PAGE_SEARCH_VIEWS_REQUEST);
     Pageable pageable = createPageable(page, size, sortBy, "tableId");
     log.warn("Reaching general search for user view which is not expected: {}", userView.toJson());
     return METRICS_REPORTER.executeWithStats(
@@ -533,7 +534,7 @@ public class UserTablesServiceImpl implements UserTablesService {
                     userView.getCreationTime(),
                     pageable)
                 .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
-        MetricsConstant.HTS_PAGE_SEARCH_VIEWS_TIME);
+        HouseTablesMetricsConstant.HTS_PAGE_SEARCH_VIEWS_TIME);
   }
 
   private boolean isListDatabases(UserTable userTable) {
