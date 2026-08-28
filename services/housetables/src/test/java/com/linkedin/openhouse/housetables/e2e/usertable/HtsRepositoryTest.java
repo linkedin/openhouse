@@ -335,7 +335,7 @@ public class HtsRepositoryTest {
             .orElse(UserTableRow.builder().build());
     assertThat(result.getMetadataLocation()).isEqualTo(newTableMetadata);
 
-    // The bound type is written, not merely assumed: the column itself holds TABLE.
+    // The type is written, not merely assumed: the column itself holds TABLE.
     assertThat(
             readRawEntityType(
                 TEST_TUPLE_1_1.getDatabaseId(), TEST_TUPLE_1_1.getTableId() + "_renamed"))
