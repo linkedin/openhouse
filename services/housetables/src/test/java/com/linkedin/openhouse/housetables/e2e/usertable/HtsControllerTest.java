@@ -27,14 +27,12 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
-import org.junit.jupiter.params.provider.NullSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -812,12 +810,21 @@ public class HtsControllerTest {
         .isTrue();
   }
 
-  @ParameterizedTest
-  @NullSource
-  @EnumSource(value = EntityType.class, names = "TABLE")
-  public void testGetUserTableReturnsNullAndTableRows(EntityType entityType) throws Exception {
-    seedRow(ENTITY_TYPE_DB, "point_read", entityType);
+  @Test
+  public void testGetUserTableReturnsLegacyRowAsTable() throws Exception {
+    seedLegacyRow(ENTITY_TYPE_DB, "point_read");
 
+    expectPointReadResolvesAsTable();
+  }
+
+  @Test
+  public void testGetUserTableReturnsTypedTableRow() throws Exception {
+    seedTypedRow(ENTITY_TYPE_DB, "point_read", EntityType.TABLE);
+
+    expectPointReadResolvesAsTable();
+  }
+
+  private void expectPointReadResolvesAsTable() throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.get("/hts/tables")
                 .param("databaseId", ENTITY_TYPE_DB)
@@ -859,31 +866,37 @@ public class HtsControllerTest {
             entityType);
   }
 
-  private String readRawEntityType(String databaseId, String tableId) {
-    return new JdbcTemplate(dataSource)
-        .queryForObject(
-            "SELECT entity_type FROM user_table_row WHERE database_id = ? AND table_id = ?",
-            String.class,
-            databaseId,
-            tableId);
+  private Optional<String> readRawEntityType(String databaseId, String tableId) {
+    return Optional.ofNullable(
+        new JdbcTemplate(dataSource)
+            .queryForObject(
+                "SELECT entity_type FROM user_table_row WHERE database_id = ? AND table_id = ?",
+                String.class,
+                databaseId,
+                tableId));
   }
 
-  private void seedRow(String databaseId, String tableId, EntityType entityType) {
-    if (entityType == null) {
-      insertRawEntityType(databaseId, tableId, null);
-    } else {
-      htsRepository.save(entityTypeRow(databaseId, tableId, entityType));
-    }
+  /**
+   * Plants a legacy row through the column, because the write path does not accept a null
+   * discriminator.
+   */
+  private void seedLegacyRow(String databaseId, String tableId) {
+    insertRawEntityType(databaseId, tableId, null);
+  }
+
+  /** Plants a typed row through JPA, so the enum boundary is still the thing under test. */
+  private void seedTypedRow(String databaseId, String tableId, EntityType entityType) {
+    htsRepository.save(entityTypeRow(databaseId, tableId, entityType));
   }
 
   private void seedCanonicalRows(String prefix) {
-    seedRow(ENTITY_TYPE_DB, prefix + "t00_legacy", null);
-    seedRow(ENTITY_TYPE_DB, prefix + "t01_view", EntityType.VIEW);
-    seedRow(ENTITY_TYPE_DB, prefix + "t02_explicit", EntityType.TABLE);
-    seedRow(ENTITY_TYPE_DB, prefix + "t03_view", EntityType.VIEW);
-    seedRow(ENTITY_TYPE_DB, prefix + "t04_legacy", null);
-    seedRow(ENTITY_TYPE_DB, prefix + "t05_view", EntityType.VIEW);
-    seedRow(ENTITY_TYPE_DB, prefix + "t06_explicit", EntityType.TABLE);
+    seedLegacyRow(ENTITY_TYPE_DB, prefix + "t00_legacy");
+    seedTypedRow(ENTITY_TYPE_DB, prefix + "t01_view", EntityType.VIEW);
+    seedTypedRow(ENTITY_TYPE_DB, prefix + "t02_explicit", EntityType.TABLE);
+    seedTypedRow(ENTITY_TYPE_DB, prefix + "t03_view", EntityType.VIEW);
+    seedLegacyRow(ENTITY_TYPE_DB, prefix + "t04_legacy");
+    seedTypedRow(ENTITY_TYPE_DB, prefix + "t05_view", EntityType.VIEW);
+    seedTypedRow(ENTITY_TYPE_DB, prefix + "t06_explicit", EntityType.TABLE);
   }
 
   private static MultiValueMap<String, String> queryParams(String... keyValues) {
@@ -1060,7 +1073,7 @@ public class HtsControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.entity.entityType", is("TABLE")));
 
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_legacy")).isEqualTo("TABLE");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_legacy")).hasValue("TABLE");
 
     assertThat(
             htsRepository
@@ -1101,7 +1114,7 @@ public class HtsControllerTest {
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.entity.entityType", is("VIEW")));
 
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_lower_view")).isEqualTo("VIEW");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_lower_view")).hasValue("VIEW");
     assertThat(
             htsRepository
                 .findById(
@@ -1134,7 +1147,7 @@ public class HtsControllerTest {
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.entity.entityType", is("TABLE")));
 
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_lower_table")).isEqualTo("TABLE");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_lower_table")).hasValue("TABLE");
   }
 
   /**
@@ -1249,9 +1262,9 @@ public class HtsControllerTest {
   /** {@code GET /hts/views} is the mirror of the table point read, and is equally exclusive. */
   @Test
   public void testGetViewReturnsViewsAndHidesTables() throws Exception {
-    seedRow(ENTITY_TYPE_DB, "view_point", EntityType.VIEW);
-    seedRow(ENTITY_TYPE_DB, "table_point", EntityType.TABLE);
-    seedRow(ENTITY_TYPE_DB, "legacy_point", null);
+    seedTypedRow(ENTITY_TYPE_DB, "view_point", EntityType.VIEW);
+    seedTypedRow(ENTITY_TYPE_DB, "table_point", EntityType.TABLE);
+    seedLegacyRow(ENTITY_TYPE_DB, "legacy_point");
 
     mvc.perform(
             MockMvcRequestBuilders.get("/hts/views")
@@ -1284,8 +1297,8 @@ public class HtsControllerTest {
     }
 
     // Hidden, not deleted.
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "table_point")).isEqualTo("TABLE");
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "legacy_point")).isNull();
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "table_point")).hasValue("TABLE");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "legacy_point")).isEmpty();
   }
 
   /** An invalid key is a bad request before any lookup happens. */
@@ -1438,7 +1451,7 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.entity.tableId", is("put_view_lifecycle")))
         .andExpect(jsonPath("$.entity.entityType", is("VIEW")));
 
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_view_lifecycle")).isEqualTo("VIEW");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_view_lifecycle")).hasValue("VIEW");
 
     mvc.perform(
             MockMvcRequestBuilders.put("/hts/views")
@@ -1523,8 +1536,8 @@ public class HtsControllerTest {
   /** A view PUT at a key held by a table (or a legacy null) is a conflict, not an overwrite. */
   @Test
   public void testPutViewCannotOverwriteTableOrLegacyRow() throws Exception {
-    seedRow(ENTITY_TYPE_DB, "occupied_by_table", EntityType.TABLE);
-    seedRow(ENTITY_TYPE_DB, "occupied_by_legacy", null);
+    seedTypedRow(ENTITY_TYPE_DB, "occupied_by_table", EntityType.TABLE);
+    seedLegacyRow(ENTITY_TYPE_DB, "occupied_by_legacy");
 
     for (String tableId : new String[] {"occupied_by_table", "occupied_by_legacy"}) {
       UserTableRow before =
@@ -1569,13 +1582,13 @@ public class HtsControllerTest {
     }
 
     // The rejected write leaves the legacy occupant unmigrated.
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "occupied_by_legacy")).isNull();
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "occupied_by_legacy")).isEmpty();
   }
 
   /** {@code DELETE /hts/views} removes exactly one view and creates no soft-deleted row. */
   @Test
   public void testDeleteViewRemovesTheViewAndCreatesNoSoftDeletedRow() throws Exception {
-    seedRow(ENTITY_TYPE_DB, "drop_view", EntityType.VIEW);
+    seedTypedRow(ENTITY_TYPE_DB, "drop_view", EntityType.VIEW);
 
     mvc.perform(
             MockMvcRequestBuilders.delete("/hts/views")
@@ -1613,9 +1626,9 @@ public class HtsControllerTest {
   /** Wrong-type deletes are 404 in both directions and leave the occupant in place. */
   @Test
   public void testTypedDeletesCannotCrossTypes() throws Exception {
-    seedRow(ENTITY_TYPE_DB, "cross_delete_view", EntityType.VIEW);
-    seedRow(ENTITY_TYPE_DB, "cross_delete_table", EntityType.TABLE);
-    seedRow(ENTITY_TYPE_DB, "cross_delete_legacy", null);
+    seedTypedRow(ENTITY_TYPE_DB, "cross_delete_view", EntityType.VIEW);
+    seedTypedRow(ENTITY_TYPE_DB, "cross_delete_table", EntityType.TABLE);
+    seedLegacyRow(ENTITY_TYPE_DB, "cross_delete_legacy");
 
     mvc.perform(
             MockMvcRequestBuilders.delete("/hts/tables")
@@ -1635,9 +1648,9 @@ public class HtsControllerTest {
                 .param("tableId", "cross_delete_legacy"))
         .andExpect(status().isNotFound());
 
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "cross_delete_view")).isEqualTo("VIEW");
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "cross_delete_table")).isEqualTo("TABLE");
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "cross_delete_legacy")).isNull();
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "cross_delete_view")).hasValue("VIEW");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "cross_delete_table")).hasValue("TABLE");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "cross_delete_legacy")).isEmpty();
   }
 
   /** An invalid key on the view delete is a bad request, not a 404. */
@@ -1657,9 +1670,9 @@ public class HtsControllerTest {
   /** The occupancy read answers for either type and always names a canonical, non-null one. */
   @Test
   public void testNeutralEntityReadReportsCanonicalType() throws Exception {
-    seedRow(ENTITY_TYPE_DB, "neutral_view", EntityType.VIEW);
-    seedRow(ENTITY_TYPE_DB, "neutral_table", EntityType.TABLE);
-    seedRow(ENTITY_TYPE_DB, "neutral_legacy", null);
+    seedTypedRow(ENTITY_TYPE_DB, "neutral_view", EntityType.VIEW);
+    seedTypedRow(ENTITY_TYPE_DB, "neutral_table", EntityType.TABLE);
+    seedLegacyRow(ENTITY_TYPE_DB, "neutral_legacy");
 
     mvc.perform(
             MockMvcRequestBuilders.get("/hts/entities")
@@ -1687,7 +1700,7 @@ public class HtsControllerTest {
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.entity.entityType", is("TABLE")));
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "neutral_legacy")).isNull();
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "neutral_legacy")).isEmpty();
 
     mvc.perform(
             MockMvcRequestBuilders.get("/hts/entities")
@@ -1738,7 +1751,7 @@ public class HtsControllerTest {
         .andExpect(status().is5xxServerError());
 
     // The occupant is retained for operator repair.
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "corrupt_row")).isEqualTo("UNKNOWN");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "corrupt_row")).hasValue("UNKNOWN");
   }
 
   /** The diagnostic has to survive the persistence wrapping to reach the operator. */
@@ -1785,7 +1798,7 @@ public class HtsControllerTest {
                 .param("metadataLocation", "mockMetadataLocation"))
         .andExpect(status().isNotFound());
 
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "corrupt_mutate")).isEqualTo("UNKNOWN");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "corrupt_mutate")).hasValue("UNKNOWN");
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -1795,7 +1808,7 @@ public class HtsControllerTest {
   /** The rename route is table-scoped: a view at the source key is a 404, and is not moved. */
   @Test
   public void testRenameTableRefusesToMoveAView() throws Exception {
-    seedRow(ENTITY_TYPE_DB, "rename_view_src", EntityType.VIEW);
+    seedTypedRow(ENTITY_TYPE_DB, "rename_view_src", EntityType.VIEW);
 
     mvc.perform(
             MockMvcRequestBuilders.patch("/hts/tables/rename")
@@ -1806,7 +1819,7 @@ public class HtsControllerTest {
                 .param("metadataLocation", "mockMetadataLocation"))
         .andExpect(status().isNotFound());
 
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "rename_view_src")).isEqualTo("VIEW");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "rename_view_src")).hasValue("VIEW");
     assertThat(
             htsRepository
                 .findById(
@@ -1833,7 +1846,7 @@ public class HtsControllerTest {
         .andExpect(status().isNoContent())
         .andExpect(content().string(""));
 
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "rename_legacy_dst")).isEqualTo("TABLE");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "rename_legacy_dst")).hasValue("TABLE");
   }
 
   /**
@@ -1844,8 +1857,8 @@ public class HtsControllerTest {
    */
   @Test
   public void testRenameTableIntoViewOccupiedDestinationIsConflict() throws Exception {
-    seedRow(ENTITY_TYPE_DB, "rename_src_table", EntityType.TABLE);
-    seedRow(ENTITY_TYPE_DB, "rename_dst_view", EntityType.VIEW);
+    seedTypedRow(ENTITY_TYPE_DB, "rename_src_table", EntityType.TABLE);
+    seedTypedRow(ENTITY_TYPE_DB, "rename_dst_view", EntityType.VIEW);
 
     mvc.perform(
             MockMvcRequestBuilders.patch("/hts/tables/rename")
@@ -1856,8 +1869,8 @@ public class HtsControllerTest {
                 .param("metadataLocation", "mockMetadataLocation"))
         .andExpect(status().isConflict());
 
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "rename_src_table")).isEqualTo("TABLE");
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "rename_dst_view")).isEqualTo("VIEW");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "rename_src_table")).hasValue("TABLE");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "rename_dst_view")).hasValue("VIEW");
   }
 
   /**
@@ -1903,7 +1916,7 @@ public class HtsControllerTest {
   @Test
   public void testPutTableOverLegacyNullOccupantUpdatesAndMigratesTheColumn() throws Exception {
     insertRawEntityType(ENTITY_TYPE_DB, "put_over_legacy", null);
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_over_legacy")).isNull();
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_over_legacy")).isEmpty();
 
     UserTable update =
         UserTable.builder()
@@ -1929,7 +1942,7 @@ public class HtsControllerTest {
                 "$.entity.metadataLocation",
                 is("/openhouse/entity_type_db/put_over_legacy/v1_metadata.json")));
 
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_over_legacy")).isEqualTo("TABLE");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_over_legacy")).hasValue("TABLE");
   }
 
   /**
@@ -1941,7 +1954,7 @@ public class HtsControllerTest {
    */
   @Test
   public void testRenameTableIntoCorruptOccupiedDestinationIsConflict() throws Exception {
-    seedRow(ENTITY_TYPE_DB, "rename_src_for_corrupt", EntityType.TABLE);
+    seedTypedRow(ENTITY_TYPE_DB, "rename_src_for_corrupt", EntityType.TABLE);
     insertRawEntityType(ENTITY_TYPE_DB, "rename_dst_corrupt", "UNKNOWN");
 
     mvc.perform(
@@ -1953,8 +1966,8 @@ public class HtsControllerTest {
                 .param("metadataLocation", "mockMetadataLocation"))
         .andExpect(status().isConflict());
 
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "rename_src_for_corrupt")).isEqualTo("TABLE");
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "rename_dst_corrupt")).isEqualTo("UNKNOWN");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "rename_src_for_corrupt")).hasValue("TABLE");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "rename_dst_corrupt")).hasValue("UNKNOWN");
   }
 
   /** The view query is validated exactly like its table sibling; an invalid filter is a 400. */

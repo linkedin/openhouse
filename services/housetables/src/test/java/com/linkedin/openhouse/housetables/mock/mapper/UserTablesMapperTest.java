@@ -18,6 +18,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
 public class UserTablesMapperTest {
+  private static final long TEST_DELETED_AT_MS = 1751907524L;
+
+  private static final long TEST_PURGE_RETENTION_MS = 1000000L;
+
   @Autowired UserTablesMapper userTablesMapper;
 
   @Test
@@ -189,12 +193,12 @@ public class UserTablesMapperTest {
         SoftDeletedUserTableRow.builder()
             .tableId(TestHouseTableModelConstants.TEST_TABLE_ID)
             .databaseId(TestHouseTableModelConstants.TEST_DB_ID)
-            .deletedAtMs(1751907524L)
+            .deletedAtMs(TEST_DELETED_AT_MS)
             .version(0L)
             .metadataLocation(TestHouseTableModelConstants.TEST_TBL_META_LOC)
             .storageType(TestHouseTableModelConstants.TEST_DEFAULT_STORAGE_TYPE)
             .creationTime(TestHouseTableModelConstants.TEST_CREATION_TIME)
-            .purgeAfterMs(1752907524L)
+            .purgeAfterMs(TEST_DELETED_AT_MS + TEST_PURGE_RETENTION_MS)
             .build();
 
     UserTableRow restored = userTablesMapper.toUserTableRow(softDeleted);

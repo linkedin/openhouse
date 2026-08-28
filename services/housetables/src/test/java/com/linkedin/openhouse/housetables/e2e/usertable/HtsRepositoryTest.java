@@ -111,27 +111,27 @@ public class HtsRepositoryTest {
   }
 
   /**
-   * Seeds one row of the canonical fixture. A legacy row is planted through the column because the
-   * write path does not accept a null discriminator; a typed row goes through JPA so the enum
-   * boundary is still the thing under test.
+   * Plants a legacy row through the column, because the write path does not accept a null
+   * discriminator.
    */
-  private void seedRow(String databaseId, String tableId, EntityType entityType) {
-    if (entityType == null) {
-      insertRawEntityType(databaseId, tableId, null);
-    } else {
-      htsRepository.save(row(databaseId, tableId, entityType));
-    }
+  private void seedLegacyRow(String databaseId, String tableId) {
+    insertRawEntityType(databaseId, tableId, null);
+  }
+
+  /** Plants a typed row through JPA, so the enum boundary is still the thing under test. */
+  private void seedTypedRow(String databaseId, String tableId, EntityType entityType) {
+    htsRepository.save(row(databaseId, tableId, entityType));
   }
 
   /** Seeds the canonical 7-row interleaved fixture into {@code databaseId} under {@code prefix}. */
   private void seedCanonicalRows(String databaseId, String prefix) {
-    seedRow(databaseId, prefix + "t00_legacy", null);
-    seedRow(databaseId, prefix + "t01_view", EntityType.VIEW);
-    seedRow(databaseId, prefix + "t02_explicit", EntityType.TABLE);
-    seedRow(databaseId, prefix + "t03_view", EntityType.VIEW);
-    seedRow(databaseId, prefix + "t04_legacy", null);
-    seedRow(databaseId, prefix + "t05_view", EntityType.VIEW);
-    seedRow(databaseId, prefix + "t06_explicit", EntityType.TABLE);
+    seedLegacyRow(databaseId, prefix + "t00_legacy");
+    seedTypedRow(databaseId, prefix + "t01_view", EntityType.VIEW);
+    seedTypedRow(databaseId, prefix + "t02_explicit", EntityType.TABLE);
+    seedTypedRow(databaseId, prefix + "t03_view", EntityType.VIEW);
+    seedLegacyRow(databaseId, prefix + "t04_legacy");
+    seedTypedRow(databaseId, prefix + "t05_view", EntityType.VIEW);
+    seedTypedRow(databaseId, prefix + "t06_explicit", EntityType.TABLE);
   }
 
   /**
@@ -140,8 +140,8 @@ public class HtsRepositoryTest {
    * here, so the table-scoped queries never return one.
    */
   private void seedCaseNormalizationRows() {
-    seedRow(CASE_DB, "case00_null", null);
-    seedRow(CASE_DB, "case01_upper_table", EntityType.TABLE);
+    seedLegacyRow(CASE_DB, "case00_null");
+    seedTypedRow(CASE_DB, "case01_upper_table", EntityType.TABLE);
     insertRawEntityType(CASE_DB, "case04_upper_view", "VIEW");
     insertRawEntityType(CASE_DB, "case05_lower_view", "view");
     insertRawEntityType(CASE_DB, "case06_mixed_view", "ViEw");
@@ -488,7 +488,7 @@ public class HtsRepositoryTest {
   public void testFindAllByDatabaseIdFiltersViewsAndKeepsLegacyTables() {
     seedCanonicalRows(ENTITY_TYPE_DB, "");
     // A table in another database must not leak in.
-    seedRow("other_db", "t00_legacy", null);
+    seedLegacyRow("other_db", "t00_legacy");
 
     List<UserTableRow> result =
         Lists.newArrayList(
@@ -842,24 +842,21 @@ public class HtsRepositoryTest {
   }
 
   /** A row the SQL predicate matched must never then fail to hydrate. */
-  @Test
-  public void testFindViewByKeyHydratesEveryViewSpelling() {
+  @ParameterizedTest
+  @CsvSource({"case04_upper_view, VIEW", "case05_lower_view, view", "case06_mixed_view, ViEw"})
+  public void testFindViewByKeyHydratesEveryViewSpelling(String tableId, String storedSpelling) {
     seedCaseNormalizationRows();
 
-    for (String tableId :
-        new String[] {"case04_upper_view", "case05_lower_view", "case06_mixed_view"}) {
-      assertThat(
-              htsRepository
-                  .findViewByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(CASE_DB, tableId)
-                  .orElseThrow(() -> new AssertionError("the view predicate must match " + tableId))
-                  .getEntityType())
-          .as("view read must hydrate %s", tableId)
-          .isEqualTo(EntityType.VIEW);
-    }
+    assertThat(
+            htsRepository
+                .findViewByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(CASE_DB, tableId)
+                .orElseThrow(() -> new AssertionError("the view predicate must match " + tableId))
+                .getEntityType())
+        .as("view read must hydrate %s", tableId)
+        .isEqualTo(EntityType.VIEW);
 
     // Reading normalizes; the column text does not change.
-    assertThat(readRawEntityType(CASE_DB, "case05_lower_view")).isEqualTo("view");
-    assertThat(readRawEntityType(CASE_DB, "case06_mixed_view")).isEqualTo("ViEw");
+    assertThat(readRawEntityType(CASE_DB, tableId)).isEqualTo(storedSpelling);
   }
 
   /** The exact-filter view family returns views only, and its page filters before it pages. */
@@ -980,9 +977,9 @@ public class HtsRepositoryTest {
   /** One conditional statement, not a read-then-delete; a wrong-type key reports zero. */
   @Test
   public void testDeleteTableByIdRemovesOnlyTableRows() {
-    seedRow(ENTITY_TYPE_DB, "del_legacy", null);
-    seedRow(ENTITY_TYPE_DB, "del_table", EntityType.TABLE);
-    seedRow(ENTITY_TYPE_DB, "del_view", EntityType.VIEW);
+    seedLegacyRow(ENTITY_TYPE_DB, "del_legacy");
+    seedTypedRow(ENTITY_TYPE_DB, "del_table", EntityType.TABLE);
+    seedTypedRow(ENTITY_TYPE_DB, "del_view", EntityType.VIEW);
 
     // A view at a table-scoped delete is a no-op, and the view survives byte-identical.
     UserTableRow viewBefore = findRow(ENTITY_TYPE_DB, "del_view");
@@ -1006,9 +1003,9 @@ public class HtsRepositoryTest {
   /** The mirror: a view delete cannot reach a table or a legacy null. */
   @Test
   public void testDeleteViewByIdRemovesOnlyViewRows() {
-    seedRow(ENTITY_TYPE_DB, "del_legacy", null);
-    seedRow(ENTITY_TYPE_DB, "del_table", EntityType.TABLE);
-    seedRow(ENTITY_TYPE_DB, "del_view", EntityType.VIEW);
+    seedLegacyRow(ENTITY_TYPE_DB, "del_legacy");
+    seedTypedRow(ENTITY_TYPE_DB, "del_table", EntityType.TABLE);
+    seedTypedRow(ENTITY_TYPE_DB, "del_view", EntityType.VIEW);
 
     assertThat(htsRepository.deleteViewById(key(ENTITY_TYPE_DB, "del_table"))).isEqualTo(0);
     assertThat(htsRepository.deleteViewById(key(ENTITY_TYPE_DB, "del_legacy"))).isEqualTo(0);

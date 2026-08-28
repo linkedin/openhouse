@@ -107,8 +107,10 @@ public class EntityTypeConverterTest {
 
   /**
    * The dedicated type exists so the advice can bind an explicit server-error branch: the inherited
-   * {@code IllegalArgumentException} advice answers 400, wrong for a row the server itself wrote.
-   * It stays an {@link IllegalArgumentException} so existing callers keep catching it.
+   * {@code IllegalArgumentException} advice answers 400, wrong for corruption already sitting in
+   * storage. However the value got there, stored state the vocabulary does not admit is a server
+   * failure, so it answers 500. It stays an {@link IllegalArgumentException} so existing callers
+   * keep catching it.
    */
   @Test
   void unrecognizedColumnValueThrowsTheDedicatedCorruptionType() {
@@ -125,7 +127,7 @@ public class EntityTypeConverterTest {
    * here keeps the legacy-null population closed rather than growing.
    */
   @Test
-  void writeIsPassThrough() {
+  void writeConvertsKnownTypesAndRejectsNull() {
     Assertions.assertEquals("TABLE", converter.convertToDatabaseColumn(EntityType.TABLE));
     Assertions.assertEquals("VIEW", converter.convertToDatabaseColumn(EntityType.VIEW));
     Assertions.assertThrows(

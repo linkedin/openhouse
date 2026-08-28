@@ -8,6 +8,9 @@ import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTableKey;
 import com.linkedin.openhouse.housetables.api.validator.HouseTablesApiValidator;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -230,18 +233,21 @@ public class OpenHouseUserTablesValidatorTest {
    *
    * <p>Regression guard: the validator deliberately has no opinion on {@code entityType}.
    */
-  @Test
-  public void validateGetEntitiesToleratesAndIgnoresEntityType() {
-    for (String entityType : new String[] {"VIEW", "view", "TABLE", "TaBlE", null}) {
-      UserTable byDatabase = UserTable.builder().databaseId("db1").entityType(entityType).build();
-      assertDoesNotThrow(
-          () -> userTablesHtsApiValidator.validateGetEntities(byDatabase),
-          "query with entityType=" + entityType + " should validate");
-      assertDoesNotThrow(
-          () -> userTablesHtsApiValidator.validateGetEntities(byDatabase, 0, 50, "tableId"));
-    }
+  @ParameterizedTest
+  @NullSource
+  @ValueSource(strings = {"VIEW", "view", "TABLE", "TaBlE"})
+  public void validateGetEntitiesToleratesAndIgnoresEntityType(String entityType) {
+    UserTable byDatabase = UserTable.builder().databaseId("db1").entityType(entityType).build();
+    assertDoesNotThrow(
+        () -> userTablesHtsApiValidator.validateGetEntities(byDatabase),
+        "query with entityType=" + entityType + " should validate");
+    assertDoesNotThrow(
+        () -> userTablesHtsApiValidator.validateGetEntities(byDatabase, 0, 50, "tableId"));
+  }
 
-    // Even an unrecognized value is inert here: it is never a filter, so it is never validated.
+  /** Even an unrecognized value is inert here: it is never a filter, so it is never validated. */
+  @Test
+  public void validateGetEntitiesToleratesAnUnrecognizedEntityType() {
     UserTable garbageFilter =
         UserTable.builder().databaseId("db1").tableId("tb%").entityType("UNKNOWN").build();
     assertDoesNotThrow(() -> userTablesHtsApiValidator.validateGetEntities(garbageFilter));

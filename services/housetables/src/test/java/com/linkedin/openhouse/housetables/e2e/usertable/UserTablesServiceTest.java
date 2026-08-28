@@ -38,8 +38,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -687,12 +687,21 @@ public class UserTablesServiceTest {
         .isTrue();
   }
 
-  @ParameterizedTest
-  @NullSource
-  @EnumSource(value = EntityType.class, names = "TABLE")
-  public void testGetUserTableResolvesNullAndTableRows(EntityType entityType) {
-    seedRow(ENTITY_TYPE_DB, "point_read", entityType);
+  @Test
+  public void testGetUserTableResolvesLegacyRowAsTable() {
+    seedLegacyRow(ENTITY_TYPE_DB, "point_read");
 
+    expectPointReadResolvesAsTable();
+  }
+
+  @Test
+  public void testGetUserTableResolvesTypedTableRow() {
+    seedTypedRow(ENTITY_TYPE_DB, "point_read", EntityType.TABLE);
+
+    expectPointReadResolvesAsTable();
+  }
+
+  private void expectPointReadResolvesAsTable() {
     UserTableDto dto = userTablesService.getUserTable(ENTITY_TYPE_DB, "point_read");
     assertThat(dto.getTableId()).isEqualTo("point_read");
     // A stored null is a legacy table, so the DTO carries a type either way.
@@ -761,31 +770,37 @@ public class UserTablesServiceTest {
             entityType);
   }
 
-  private String readRawEntityType(String databaseId, String tableId) {
-    return new JdbcTemplate(dataSource)
-        .queryForObject(
-            "SELECT entity_type FROM user_table_row WHERE database_id = ? AND table_id = ?",
-            String.class,
-            databaseId,
-            tableId);
+  private Optional<String> readRawEntityType(String databaseId, String tableId) {
+    return Optional.ofNullable(
+        new JdbcTemplate(dataSource)
+            .queryForObject(
+                "SELECT entity_type FROM user_table_row WHERE database_id = ? AND table_id = ?",
+                String.class,
+                databaseId,
+                tableId));
   }
 
-  private void seedRow(String databaseId, String tableId, EntityType entityType) {
-    if (entityType == null) {
-      insertRawEntityType(databaseId, tableId, null);
-    } else {
-      htsRepository.save(entityTypeRow(databaseId, tableId, entityType));
-    }
+  /**
+   * Plants a legacy row through the column, because the write path does not accept a null
+   * discriminator.
+   */
+  private void seedLegacyRow(String databaseId, String tableId) {
+    insertRawEntityType(databaseId, tableId, null);
+  }
+
+  /** Plants a typed row through JPA, so the enum boundary is still the thing under test. */
+  private void seedTypedRow(String databaseId, String tableId, EntityType entityType) {
+    htsRepository.save(entityTypeRow(databaseId, tableId, entityType));
   }
 
   private void seedCanonicalRows(String prefix) {
-    seedRow(ENTITY_TYPE_DB, prefix + "t00_legacy", null);
-    seedRow(ENTITY_TYPE_DB, prefix + "t01_view", EntityType.VIEW);
-    seedRow(ENTITY_TYPE_DB, prefix + "t02_explicit", EntityType.TABLE);
-    seedRow(ENTITY_TYPE_DB, prefix + "t03_view", EntityType.VIEW);
-    seedRow(ENTITY_TYPE_DB, prefix + "t04_legacy", null);
-    seedRow(ENTITY_TYPE_DB, prefix + "t05_view", EntityType.VIEW);
-    seedRow(ENTITY_TYPE_DB, prefix + "t06_explicit", EntityType.TABLE);
+    seedLegacyRow(ENTITY_TYPE_DB, prefix + "t00_legacy");
+    seedTypedRow(ENTITY_TYPE_DB, prefix + "t01_view", EntityType.VIEW);
+    seedTypedRow(ENTITY_TYPE_DB, prefix + "t02_explicit", EntityType.TABLE);
+    seedTypedRow(ENTITY_TYPE_DB, prefix + "t03_view", EntityType.VIEW);
+    seedLegacyRow(ENTITY_TYPE_DB, prefix + "t04_legacy");
+    seedTypedRow(ENTITY_TYPE_DB, prefix + "t05_view", EntityType.VIEW);
+    seedTypedRow(ENTITY_TYPE_DB, prefix + "t06_explicit", EntityType.TABLE);
   }
 
   private static List<String> sortedIds(List<UserTableDto> dtos) {
@@ -931,9 +946,9 @@ public class UserTablesServiceTest {
   /** A legacy null is reported as TABLE because that is what the data means, not a guess. */
   @Test
   public void testGetNeutralEntityReportsCanonicalTypeForEitherType() {
-    seedRow(ENTITY_TYPE_DB, "neutral_view", EntityType.VIEW);
-    seedRow(ENTITY_TYPE_DB, "neutral_table", EntityType.TABLE);
-    seedRow(ENTITY_TYPE_DB, "neutral_legacy", null);
+    seedTypedRow(ENTITY_TYPE_DB, "neutral_view", EntityType.VIEW);
+    seedTypedRow(ENTITY_TYPE_DB, "neutral_table", EntityType.TABLE);
+    seedLegacyRow(ENTITY_TYPE_DB, "neutral_legacy");
 
     assertThat(userTablesService.getNeutralEntity(ENTITY_TYPE_DB, "neutral_view").getEntityType())
         .isEqualTo(EntityType.VIEW);
@@ -943,7 +958,7 @@ public class UserTablesServiceTest {
         .isEqualTo(EntityType.TABLE);
 
     // The stored null is reported as TABLE without being rewritten.
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "neutral_legacy")).isNull();
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "neutral_legacy")).isEmpty();
 
     // The key itself resolves case-insensitively, like every other point read.
     assertThat(
@@ -1005,7 +1020,7 @@ public class UserTablesServiceTest {
    */
   @Test
   public void testGetNeutralEntityOnlyEmptyOptionalBecomesNotFound() {
-    seedRow(ENTITY_TYPE_DB, "neutral_stubbed", EntityType.VIEW);
+    seedTypedRow(ENTITY_TYPE_DB, "neutral_stubbed", EntityType.VIEW);
     doReturn(Optional.empty())
         .when(htsRepository)
         .findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(anyString(), anyString());
@@ -1027,7 +1042,7 @@ public class UserTablesServiceTest {
         .hasStackTraceContaining("user_table_row.entity_type")
         .hasStackTraceContaining("UNKNOWN");
 
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "neutral_corrupt")).isEqualTo("UNKNOWN");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "neutral_corrupt")).hasValue("UNKNOWN");
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -1037,9 +1052,9 @@ public class UserTablesServiceTest {
   /** A table at the key reads as absent, mirroring the table point read. */
   @Test
   public void testGetUserViewHidesTablesAndLegacyNullRows() {
-    seedRow(ENTITY_TYPE_DB, "view_point", EntityType.VIEW);
-    seedRow(ENTITY_TYPE_DB, "table_point", EntityType.TABLE);
-    seedRow(ENTITY_TYPE_DB, "legacy_point", null);
+    seedTypedRow(ENTITY_TYPE_DB, "view_point", EntityType.VIEW);
+    seedTypedRow(ENTITY_TYPE_DB, "table_point", EntityType.TABLE);
+    seedLegacyRow(ENTITY_TYPE_DB, "legacy_point");
 
     UserTableDto view = userTablesService.getUserView(ENTITY_TYPE_DB, "view_point");
     assertThat(view.getTableId()).isEqualTo("view_point");
@@ -1054,7 +1069,7 @@ public class UserTablesServiceTest {
 
     // Hidden from the view read, not deleted.
     assertThat(findRow(ENTITY_TYPE_DB, "table_point").getEntityType()).isEqualTo(EntityType.TABLE);
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "legacy_point")).isNull();
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "legacy_point")).isEmpty();
   }
 
   /** An empty view query returns every view, not the table query's database-name projection. */
@@ -1102,7 +1117,7 @@ public class UserTablesServiceTest {
   @Test
   public void testGetAllUserViewsWithPatternFiltersViews() {
     seedCanonicalRows("match_");
-    seedRow(ENTITY_TYPE_DB, "nomatch_view", EntityType.VIEW);
+    seedTypedRow(ENTITY_TYPE_DB, "nomatch_view", EntityType.VIEW);
     UserTable searchBy = UserTable.builder().databaseId(ENTITY_TYPE_DB).tableId("match_%").build();
 
     assertThat(sortedIds(userTablesService.getAllUserViews(searchBy)))
@@ -1118,21 +1133,24 @@ public class UserTablesServiceTest {
    * The view query is view-scoped by the method that serves it, so an {@code entityType} property
    * bound onto the request is tolerated and ignored — it can never re-route to tables.
    */
-  @Test
-  public void testEntityTypeOnViewQueryIsIgnoredAndAlwaysReturnsViews() {
+  @ParameterizedTest
+  @NullSource
+  @ValueSource(strings = {"TABLE", "table", "VIEW", "ViEw"})
+  public void testEntityTypeOnViewQueryIsIgnoredAndAlwaysReturnsViews(String entityType) {
     seedCanonicalRows("");
 
-    for (String entityType : new String[] {"TABLE", "table", "VIEW", "ViEw", null}) {
-      assertThat(
-              sortedIds(
-                  userTablesService.getAllUserViews(
-                      UserTable.builder()
-                          .databaseId(ENTITY_TYPE_DB)
-                          .entityType(entityType)
-                          .build())))
-          .as("entityType=%s must still resolve to the three views", entityType)
-          .isEqualTo(CANONICAL_VIEW_IDS);
-    }
+    assertThat(
+            sortedIds(
+                userTablesService.getAllUserViews(
+                    UserTable.builder().databaseId(ENTITY_TYPE_DB).entityType(entityType).build())))
+        .as("entityType=%s must still resolve to the three views", entityType)
+        .isEqualTo(CANONICAL_VIEW_IDS);
+  }
+
+  /** The paged view call site is equally type-blind. */
+  @Test
+  public void testEntityTypeOnPagedViewQueryIsIgnoredAndAlwaysReturnsViews() {
+    seedCanonicalRows("");
 
     Page<UserTableDto> page0 =
         userTablesService.getAllUserViews(
@@ -1181,7 +1199,7 @@ public class UserTablesServiceTest {
   /** A view routed through the soft-delete primitive would restore as a table. */
   @Test
   public void testDeleteUserViewIsHardAndCreatesNoSoftDeletedRow() {
-    seedRow(ENTITY_TYPE_DB, "drop_view", EntityType.VIEW);
+    seedTypedRow(ENTITY_TYPE_DB, "drop_view", EntityType.VIEW);
     UserTable searchByKey =
         UserTable.builder().databaseId(ENTITY_TYPE_DB).tableId("drop_view").build();
 
@@ -1205,8 +1223,8 @@ public class UserTablesServiceTest {
   /** The other direction of the cross-type delete guard: a view drop cannot remove a table. */
   @Test
   public void testDeleteUserViewAtTableKeyIsNotFoundAndRetainsTheTable() {
-    seedRow(ENTITY_TYPE_DB, "drop_table", EntityType.TABLE);
-    seedRow(ENTITY_TYPE_DB, "drop_legacy", null);
+    seedTypedRow(ENTITY_TYPE_DB, "drop_table", EntityType.TABLE);
+    seedLegacyRow(ENTITY_TYPE_DB, "drop_legacy");
 
     Assertions.assertThrows(
         NoSuchEntityException.class,
@@ -1216,13 +1234,13 @@ public class UserTablesServiceTest {
         () -> userTablesService.deleteUserView(ENTITY_TYPE_DB, "drop_legacy"));
 
     assertThat(findRow(ENTITY_TYPE_DB, "drop_table").getEntityType()).isEqualTo(EntityType.TABLE);
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "drop_legacy")).isNull();
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "drop_legacy")).isEmpty();
   }
 
   /** A soft table delete at a view key fails before anything is copied. */
   @Test
   public void testSoftDeleteAtViewKeyIsNotFoundAndCreatesNoSoftRow() {
-    seedRow(ENTITY_TYPE_DB, "soft_view", EntityType.VIEW);
+    seedTypedRow(ENTITY_TYPE_DB, "soft_view", EntityType.VIEW);
     UserTable searchByKey =
         UserTable.builder().databaseId(ENTITY_TYPE_DB).tableId("soft_view").build();
 
@@ -1247,7 +1265,7 @@ public class UserTablesServiceTest {
         NoSuchEntityException.class,
         () -> userTablesService.deleteUserView(ENTITY_TYPE_DB, "delete_corrupt"));
 
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "delete_corrupt")).isEqualTo("UNKNOWN");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "delete_corrupt")).hasValue("UNKNOWN");
   }
 
   /**
@@ -1256,7 +1274,7 @@ public class UserTablesServiceTest {
    */
   @Test
   public void testTablePutAtViewKeyIsAlreadyExistsAndLeavesTheViewUnchanged() {
-    seedRow(ENTITY_TYPE_DB, "guard_view", EntityType.VIEW);
+    seedTypedRow(ENTITY_TYPE_DB, "guard_view", EntityType.VIEW);
     UserTableRow before = findRow(ENTITY_TYPE_DB, "guard_view");
 
     Assertions.assertThrows(
@@ -1280,8 +1298,8 @@ public class UserTablesServiceTest {
   /** The symmetric direction, including the legacy-null occupant. */
   @Test
   public void testViewPutAtTableKeyIsAlreadyExistsAndLeavesTheTableUnchanged() {
-    seedRow(ENTITY_TYPE_DB, "guard_table", EntityType.TABLE);
-    seedRow(ENTITY_TYPE_DB, "guard_legacy", null);
+    seedTypedRow(ENTITY_TYPE_DB, "guard_table", EntityType.TABLE);
+    seedLegacyRow(ENTITY_TYPE_DB, "guard_legacy");
     UserTableRow tableBefore = findRow(ENTITY_TYPE_DB, "guard_table");
     UserTableRow legacyBefore = findRow(ENTITY_TYPE_DB, "guard_legacy");
 
@@ -1311,15 +1329,15 @@ public class UserTablesServiceTest {
 
     assertThat(findRow(ENTITY_TYPE_DB, "guard_table").getMetadataLocation())
         .isEqualTo(tableBefore.getMetadataLocation());
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "guard_table")).isEqualTo("TABLE");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "guard_table")).hasValue("TABLE");
     // A rejected write must not migrate the legacy occupant either.
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "guard_legacy")).isNull();
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "guard_legacy")).isEmpty();
   }
 
   /** If both the type and the version are wrong, the type collision is the one that is reported. */
   @Test
   public void testTypeCollisionWinsOverStaleVersion() {
-    seedRow(ENTITY_TYPE_DB, "guard_both_wrong", EntityType.VIEW);
+    seedTypedRow(ENTITY_TYPE_DB, "guard_both_wrong", EntityType.VIEW);
 
     Assertions.assertThrows(
         AlreadyExistsException.class,
@@ -1344,7 +1362,7 @@ public class UserTablesServiceTest {
    */
   @Test
   public void testSameTypeMixedCasePutStillRunsVersionLogic() {
-    seedRow(ENTITY_TYPE_DB, "same_type", EntityType.TABLE);
+    seedTypedRow(ENTITY_TYPE_DB, "same_type", EntityType.TABLE);
     UserTableRow before = findRow(ENTITY_TYPE_DB, "same_type");
 
     Pair<UserTableDto, Boolean> updated =
@@ -1358,7 +1376,7 @@ public class UserTablesServiceTest {
                 .build());
     assertThat(updated.getSecond()).isTrue();
     assertThat(updated.getFirst().getEntityType()).isEqualTo(EntityType.TABLE);
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "same_type")).isEqualTo("TABLE");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "same_type")).hasValue("TABLE");
 
     // A stale version at the same type is still a concurrency conflict, not a type conflict.
     Assertions.assertThrows(
@@ -1391,7 +1409,7 @@ public class UserTablesServiceTest {
                         .build()))
         .hasStackTraceContaining("user_table_row.entity_type");
 
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_corrupt")).isEqualTo("UNKNOWN");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_corrupt")).hasValue("UNKNOWN");
   }
 
   /**
@@ -1421,7 +1439,7 @@ public class UserTablesServiceTest {
 
     assertThat(restored.getEntityType()).isEqualTo(EntityType.TABLE);
     assertThat(readRawEntityType(TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId()))
-        .isEqualTo("TABLE");
+        .hasValue("TABLE");
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -1431,7 +1449,7 @@ public class UserTablesServiceTest {
   /** A rename scoped to tables reports the missing source as not-found and moves nothing. */
   @Test
   public void testRenameUserTableRefusesViewSource() {
-    seedRow(ENTITY_TYPE_DB, "svc_rename_view", EntityType.VIEW);
+    seedTypedRow(ENTITY_TYPE_DB, "svc_rename_view", EntityType.VIEW);
 
     Assertions.assertThrows(
         NoSuchUserTableException.class,
@@ -1468,7 +1486,7 @@ public class UserTablesServiceTest {
                 "svc_rename_corrupt_moved",
                 "/openhouse/entity_type_db/svc_rename_corrupt_moved/v1_metadata.json"));
 
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "svc_rename_corrupt")).isEqualTo("UNKNOWN");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "svc_rename_corrupt")).hasValue("UNKNOWN");
   }
 
   /** Hydrated equality would be tautological; the raw column proves the constant was written. */
@@ -1485,7 +1503,7 @@ public class UserTablesServiceTest {
                 "svc_rename_legacy_moved",
                 "/openhouse/entity_type_db/svc_rename_legacy_moved/v1_metadata.json"));
 
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "svc_rename_legacy_moved")).isEqualTo("TABLE");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "svc_rename_legacy_moved")).hasValue("TABLE");
   }
 
   /** A missing source is the same not-found the zero-row count produces. */
@@ -1512,7 +1530,7 @@ public class UserTablesServiceTest {
    */
   @Test
   public void testRenameIntoCorruptDestinationIsAlreadyExists() {
-    seedRow(ENTITY_TYPE_DB, "svc_rename_src_for_corrupt", EntityType.TABLE);
+    seedTypedRow(ENTITY_TYPE_DB, "svc_rename_src_for_corrupt", EntityType.TABLE);
     insertRawEntityType(ENTITY_TYPE_DB, "svc_rename_dst_corrupt", "UNKNOWN");
 
     Assertions.assertThrows(
@@ -1525,8 +1543,8 @@ public class UserTablesServiceTest {
                 "svc_rename_dst_corrupt",
                 "/openhouse/entity_type_db/svc_rename_dst_corrupt/v1_metadata.json"));
 
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "svc_rename_src_for_corrupt")).isEqualTo("TABLE");
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "svc_rename_dst_corrupt")).isEqualTo("UNKNOWN");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "svc_rename_src_for_corrupt")).hasValue("TABLE");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "svc_rename_dst_corrupt")).hasValue("UNKNOWN");
   }
 
   /**
@@ -1574,7 +1592,7 @@ public class UserTablesServiceTest {
         () -> userTablesService.putUserTable(viewCreate));
 
     // Exactly one row, and it is the winner's, untouched.
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "race_key")).isEqualTo("TABLE");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "race_key")).hasValue("TABLE");
     Assertions.assertEquals(
         "/openhouse/entity_type_db/race_key/v0_table_metadata.json",
         new JdbcTemplate(dataSource)
