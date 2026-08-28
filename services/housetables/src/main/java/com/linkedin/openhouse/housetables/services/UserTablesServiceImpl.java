@@ -222,6 +222,8 @@ public class UserTablesServiceImpl implements UserTablesService {
     UserTableRowPrimaryKey key =
         UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build();
     if (isSoftDeleted) {
+      // TODO: The archived snapshot is not pinned to the version this delete removes. Constrain
+      // the delete by the captured version, or lock the row, and require exactly one affected row.
       UserTableRow existingTable =
           htsJdbcRepository
               .findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(databaseId, tableId)
