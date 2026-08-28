@@ -13,7 +13,9 @@ import com.linkedin.openhouse.common.exception.NoSuchEntityException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
+import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
+import com.linkedin.openhouse.housetables.dto.model.UserViewQuery;
 import com.linkedin.openhouse.housetables.e2e.SpringH2HtsApplication;
 import com.linkedin.openhouse.housetables.metrics.HouseTablesMetricsConstant;
 import com.linkedin.openhouse.housetables.model.EntityType;
@@ -59,6 +61,8 @@ public class UserTablesServiceTest {
   private static final String CASE_TBL_2 = "deleteTb2";
 
   @Autowired UserTablesService userTablesService;
+
+  @Autowired UserTablesMapper userTablesMapper;
 
   @SpyBean UserTableHtsJdbcRepository htsRepository;
 
@@ -1078,7 +1082,7 @@ public class UserTablesServiceTest {
   public void testGetAllUserViewsWithEmptyQueryReturnsEveryView() {
     seedCanonicalRows("");
 
-    List<UserTableDto> views = userTablesService.getAllUserViews(UserTable.builder().build());
+    List<UserTableDto> views = userTablesService.getAllUserViews(UserViewQuery.builder().build());
 
     assertThat(sortedIds(views)).isEqualTo(CANONICAL_VIEW_IDS);
     // Not a database-name projection: every result is a fully identified view.
@@ -1086,7 +1090,7 @@ public class UserTablesServiceTest {
     assertThat(views).allSatisfy(v -> assertThat(v.getEntityType()).isEqualTo(EntityType.VIEW));
 
     Page<UserTableDto> page =
-        userTablesService.getAllUserViews(UserTable.builder().build(), 0, 50, "tableId");
+        userTablesService.getAllUserViews(UserViewQuery.builder().build(), 0, 50, "tableId");
     Assertions.assertEquals(3, page.getTotalElements());
     assertThat(pageIds(page)).containsExactlyElementsOf(CANONICAL_VIEW_IDS);
   }
@@ -1095,7 +1099,7 @@ public class UserTablesServiceTest {
   @Test
   public void testGetAllUserViewsFiltersBeforePagination() {
     seedCanonicalRows("");
-    UserTable searchBy = UserTable.builder().databaseId(ENTITY_TYPE_DB).build();
+    UserViewQuery searchBy = UserViewQuery.builder().databaseId(ENTITY_TYPE_DB).build();
 
     assertThat(sortedIds(userTablesService.getAllUserViews(searchBy)))
         .isEqualTo(CANONICAL_VIEW_IDS);
@@ -1119,7 +1123,8 @@ public class UserTablesServiceTest {
   public void testGetAllUserViewsWithPatternFiltersViews() {
     seedCanonicalRows("match_");
     seedTypedRow(ENTITY_TYPE_DB, "nomatch_view", EntityType.VIEW);
-    UserTable searchBy = UserTable.builder().databaseId(ENTITY_TYPE_DB).tableId("match_%").build();
+    UserViewQuery searchBy =
+        UserViewQuery.builder().databaseId(ENTITY_TYPE_DB).tableId("match_%").build();
 
     assertThat(sortedIds(userTablesService.getAllUserViews(searchBy)))
         .containsExactly("match_t01_view", "match_t03_view", "match_t05_view");
@@ -1132,7 +1137,7 @@ public class UserTablesServiceTest {
 
   /**
    * The view query is view-scoped by the method that serves it, so an {@code entityType} property
-   * bound onto the request is tolerated and ignored — it can never re-route to tables.
+   * bound onto the request is dropped at the mapper hop — it can never re-route to tables.
    */
   @ParameterizedTest
   @NullSource
@@ -1143,7 +1148,11 @@ public class UserTablesServiceTest {
     assertThat(
             sortedIds(
                 userTablesService.getAllUserViews(
-                    UserTable.builder().databaseId(ENTITY_TYPE_DB).entityType(entityType).build())))
+                    userTablesMapper.toUserViewQuery(
+                        UserTable.builder()
+                            .databaseId(ENTITY_TYPE_DB)
+                            .entityType(entityType)
+                            .build()))))
         .as("entityType=%s must still resolve to the three views", entityType)
         .isEqualTo(CANONICAL_VIEW_IDS);
   }
@@ -1155,7 +1164,8 @@ public class UserTablesServiceTest {
 
     Page<UserTableDto> page0 =
         userTablesService.getAllUserViews(
-            UserTable.builder().databaseId(ENTITY_TYPE_DB).entityType("TABLE").build(),
+            userTablesMapper.toUserViewQuery(
+                UserTable.builder().databaseId(ENTITY_TYPE_DB).entityType("TABLE").build()),
             0,
             2,
             "tableId");
@@ -1167,7 +1177,7 @@ public class UserTablesServiceTest {
   @Test
   public void testViewListAndSearchMetricsAreReported() {
     seedCanonicalRows("");
-    UserTable byDatabase = UserTable.builder().databaseId(ENTITY_TYPE_DB).build();
+    UserViewQuery byDatabase = UserViewQuery.builder().databaseId(ENTITY_TYPE_DB).build();
 
     assertMetricsAdvance(
         HouseTablesMetricsConstant.HTS_LIST_VIEWS_REQUEST,
@@ -1180,7 +1190,7 @@ public class UserTablesServiceTest {
         () -> userTablesService.getAllUserViews(byDatabase, 0, 2, "tableId"));
 
     // A non-key filter falls through to the general search branch.
-    UserTable generalFilter = UserTable.builder().creationTime(TEST_CREATION_TIME).build();
+    UserViewQuery generalFilter = UserViewQuery.builder().creationTime(TEST_CREATION_TIME).build();
 
     assertMetricsAdvance(
         HouseTablesMetricsConstant.HTS_GENERAL_SEARCH_VIEWS_REQUEST,

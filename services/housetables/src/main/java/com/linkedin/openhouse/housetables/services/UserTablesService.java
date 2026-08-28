@@ -2,6 +2,7 @@ package com.linkedin.openhouse.housetables.services;
 
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
+import com.linkedin.openhouse.housetables.dto.model.UserViewQuery;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.util.Pair;
@@ -53,9 +54,9 @@ public interface UserTablesService {
    * Unlike {@link #getAllUserTables(UserTable)}, an empty filter returns every view rather than a
    * projection of database names; database enumeration stays type-agnostic on the table query.
    */
-  List<UserTableDto> getAllUserViews(UserTable userView);
+  List<UserTableDto> getAllUserViews(UserViewQuery userView);
 
-  Page<UserTableDto> getAllUserViews(UserTable userView, int page, int size, String sortBy);
+  Page<UserTableDto> getAllUserViews(UserViewQuery userView, int page, int size, String sortBy);
 
   /**
    * Given a databaseId and tableId, delete the user table entry from the House Table. The {@code

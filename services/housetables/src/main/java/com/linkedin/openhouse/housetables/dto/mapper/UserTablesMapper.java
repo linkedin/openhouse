@@ -7,6 +7,7 @@ import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTableKey;
 import com.linkedin.openhouse.housetables.api.spec.response.EntityResponseBody;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
+import com.linkedin.openhouse.housetables.dto.model.UserViewQuery;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRow;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
@@ -79,6 +80,13 @@ public interface UserTablesMapper {
    * @return
    */
   UserTableDto fromUserTable(UserTable userTable);
+
+  /**
+   * From a validated {@link UserTable} filter, prepare the {@link UserViewQuery} the view query
+   * path accepts. A field-for-field copy: the service dispatches on which fields are null, so no
+   * defaulting may be applied here.
+   */
+  UserViewQuery toUserViewQuery(UserTable userTable);
 
   /**
    * From a source {@link UserTable} object prepare a {@link UserTableRowPrimaryKey} from

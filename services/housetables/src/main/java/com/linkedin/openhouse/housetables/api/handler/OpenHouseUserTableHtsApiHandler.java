@@ -76,7 +76,8 @@ public class OpenHouseUserTableHtsApiHandler implements UserTableHtsApiHandler {
         .responseBody(
             GetAllEntityResponseBody.<UserTable>builder()
                 .results(
-                    userTableService.getAllUserViews(userView).stream()
+                    userTableService.getAllUserViews(userTablesMapper.toUserViewQuery(userView))
+                        .stream()
                         .map(userTableDto -> userTablesMapper.toUserTable(userTableDto))
                         .collect(Collectors.toList()))
                 .build())
@@ -93,7 +94,8 @@ public class OpenHouseUserTableHtsApiHandler implements UserTableHtsApiHandler {
             GetAllEntityResponseBody.<UserTable>builder()
                 .pageResults(
                     userTableService
-                        .getAllUserViews(userView, page, size, sortBy)
+                        .getAllUserViews(
+                            userTablesMapper.toUserViewQuery(userView), page, size, sortBy)
                         .map(userTableDto -> userTablesMapper.toUserTable(userTableDto)))
                 .build())
         .build();

@@ -13,6 +13,7 @@ import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.mapper.SoftDeletedUserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
+import com.linkedin.openhouse.housetables.dto.model.UserViewQuery;
 import com.linkedin.openhouse.housetables.metrics.HouseTablesMetricsConstant;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRow;
@@ -115,7 +116,7 @@ public class UserTablesServiceImpl implements UserTablesService {
   }
 
   @Override
-  public List<UserTableDto> getAllUserViews(UserTable userView) {
+  public List<UserTableDto> getAllUserViews(UserViewQuery userView) {
     if (isListViews(userView)) {
       return listViews(userView);
     } else if (isListViewsWithPattern(userView)) {
@@ -126,7 +127,8 @@ public class UserTablesServiceImpl implements UserTablesService {
   }
 
   @Override
-  public Page<UserTableDto> getAllUserViews(UserTable userView, int page, int size, String sortBy) {
+  public Page<UserTableDto> getAllUserViews(
+      UserViewQuery userView, int page, int size, String sortBy) {
     if (isListViews(userView)) {
       return listViews(userView, page, size, sortBy);
     } else if (isListViewsWithPattern(userView)) {
@@ -444,7 +446,7 @@ public class UserTablesServiceImpl implements UserTablesService {
         MetricsConstant.HTS_SEARCH_TABLES_TIME);
   }
 
-  private List<UserTableDto> listViews(UserTable userView) {
+  private List<UserTableDto> listViews(UserViewQuery userView) {
     METRICS_REPORTER.count(HouseTablesMetricsConstant.HTS_LIST_VIEWS_REQUEST);
     return METRICS_REPORTER.executeWithStats(
         () ->
@@ -459,7 +461,7 @@ public class UserTablesServiceImpl implements UserTablesService {
         HouseTablesMetricsConstant.HTS_LIST_VIEWS_TIME);
   }
 
-  private Page<UserTableDto> listViews(UserTable userView, int page, int size, String sortBy) {
+  private Page<UserTableDto> listViews(UserViewQuery userView, int page, int size, String sortBy) {
     METRICS_REPORTER.count(HouseTablesMetricsConstant.HTS_PAGE_VIEWS_REQUEST);
     Pageable pageable = createPageable(page, size, sortBy, "tableId");
     return METRICS_REPORTER.executeWithStats(
@@ -471,7 +473,7 @@ public class UserTablesServiceImpl implements UserTablesService {
         HouseTablesMetricsConstant.HTS_PAGE_VIEWS_TIME);
   }
 
-  private List<UserTableDto> listViewsWithPattern(UserTable userView) {
+  private List<UserTableDto> listViewsWithPattern(UserViewQuery userView) {
     METRICS_REPORTER.count(HouseTablesMetricsConstant.HTS_LIST_VIEWS_REQUEST);
     return METRICS_REPORTER.executeWithStats(
         () ->
@@ -487,7 +489,7 @@ public class UserTablesServiceImpl implements UserTablesService {
   }
 
   private Page<UserTableDto> listViewsWithPattern(
-      UserTable userView, int page, int size, String sortBy) {
+      UserViewQuery userView, int page, int size, String sortBy) {
     METRICS_REPORTER.count(HouseTablesMetricsConstant.HTS_PAGE_VIEWS_REQUEST);
     Pageable pageable = createPageable(page, size, sortBy, "tableId");
     return METRICS_REPORTER.executeWithStats(
@@ -499,9 +501,9 @@ public class UserTablesServiceImpl implements UserTablesService {
         HouseTablesMetricsConstant.HTS_PAGE_VIEWS_TIME);
   }
 
-  private List<UserTableDto> searchViews(UserTable userView) {
+  private List<UserTableDto> searchViews(UserViewQuery userView) {
     METRICS_REPORTER.count(HouseTablesMetricsConstant.HTS_GENERAL_SEARCH_VIEWS_REQUEST);
-    log.warn("Reaching general search for user view which is not expected: {}", userView.toJson());
+    log.warn("Reaching general search for user view which is not expected: {}", userView);
     return METRICS_REPORTER.executeWithStats(
         () ->
             StreamSupport.stream(
@@ -520,10 +522,11 @@ public class UserTablesServiceImpl implements UserTablesService {
         HouseTablesMetricsConstant.HTS_SEARCH_VIEWS_TIME);
   }
 
-  private Page<UserTableDto> searchViews(UserTable userView, int page, int size, String sortBy) {
+  private Page<UserTableDto> searchViews(
+      UserViewQuery userView, int page, int size, String sortBy) {
     METRICS_REPORTER.count(HouseTablesMetricsConstant.HTS_PAGE_SEARCH_VIEWS_REQUEST);
     Pageable pageable = createPageable(page, size, sortBy, "tableId");
-    log.warn("Reaching general search for user view which is not expected: {}", userView.toJson());
+    log.warn("Reaching general search for user view which is not expected: {}", userView);
     return METRICS_REPORTER.executeWithStats(
         () ->
             htsJdbcRepository
@@ -558,14 +561,21 @@ public class UserTablesServiceImpl implements UserTablesService {
   }
 
   /** Also covers the empty filter: an empty view query lists views, not database names. */
-  private boolean isListViews(UserTable userView) {
-    return isNonKeyFieldsNullForUserTable(userView) && userView.getTableId() == null;
+  private boolean isListViews(UserViewQuery userView) {
+    return isNonKeyFieldsNullForUserView(userView) && userView.getTableId() == null;
   }
 
-  private boolean isListViewsWithPattern(UserTable userView) {
-    return isNonKeyFieldsNullForUserTable(userView)
+  private boolean isListViewsWithPattern(UserViewQuery userView) {
+    return isNonKeyFieldsNullForUserView(userView)
         && userView.getDatabaseId() != null
         && userView.getTableId() != null;
+  }
+
+  private boolean isNonKeyFieldsNullForUserView(UserViewQuery userView) {
+    return userView.getTableVersion() == null
+        && userView.getMetadataLocation() == null
+        && userView.getStorageType() == null
+        && userView.getCreationTime() == null;
   }
 
   private boolean isNonKeyFieldsNullForUserTable(UserTable userTable) {

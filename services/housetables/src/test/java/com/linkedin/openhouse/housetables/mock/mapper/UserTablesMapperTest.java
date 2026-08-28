@@ -4,6 +4,7 @@ import com.linkedin.openhouse.common.exception.RequestValidationFailureException
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
+import com.linkedin.openhouse.housetables.dto.model.UserViewQuery;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRow;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
@@ -213,7 +214,7 @@ public class UserTablesMapperTest {
   /**
    * {@code mapToUserTable} still binds an {@code entityType} request parameter onto the model, but
    * the query endpoint is table-scoped by path so nothing consumes it. This pins where the value
-   * stops: bound here, never reaching a predicate.
+   * stops: bound here, then dropped by {@code toUserViewQuery}, never reaching a predicate.
    */
   @Test
   void mapToUserTableBindsButDoesNotConsumeEntityType() {
@@ -226,5 +227,37 @@ public class UserTablesMapperTest {
     Assertions.assertEquals("test_db0", mapped.getDatabaseId());
     Assertions.assertEquals("VIEW", mapped.getEntityType());
     Assertions.assertNull(mapped.getTableId());
+
+    // The view query dispatches on which fields are null, so the hop must default nothing.
+    UserViewQuery query = userTablesMapper.toUserViewQuery(mapped);
+
+    Assertions.assertEquals("test_db0", query.getDatabaseId());
+    Assertions.assertNull(query.getTableId());
+    Assertions.assertNull(query.getTableVersion());
+    Assertions.assertNull(query.getMetadataLocation());
+    Assertions.assertNull(query.getStorageType());
+    Assertions.assertNull(query.getCreationTime());
+
+    // Conversely, every field that path reads survives the hop verbatim.
+    UserViewQuery populated =
+        userTablesMapper.toUserViewQuery(
+            UserTable.builder()
+                .databaseId("test_db0")
+                .tableId("test_table0")
+                .tableVersion("v1")
+                .metadataLocation("/loc/v1.metadata.json")
+                .storageType("objectstore")
+                .creationTime(TEST_DELETED_AT_MS)
+                .entityType(EntityType.VIEW.name())
+                .deletedAtMs(TEST_DELETED_AT_MS)
+                .purgeAfterMs(TEST_PURGE_RETENTION_MS)
+                .build());
+
+    Assertions.assertEquals("test_db0", populated.getDatabaseId());
+    Assertions.assertEquals("test_table0", populated.getTableId());
+    Assertions.assertEquals("v1", populated.getTableVersion());
+    Assertions.assertEquals("/loc/v1.metadata.json", populated.getMetadataLocation());
+    Assertions.assertEquals("objectstore", populated.getStorageType());
+    Assertions.assertEquals(TEST_DELETED_AT_MS, populated.getCreationTime());
   }
 }
