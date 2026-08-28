@@ -295,7 +295,8 @@ public class UserHouseTablesController {
       value = {
         @ApiResponse(responseCode = "200", description = "Entity GET: OK"),
         @ApiResponse(responseCode = "400", description = "Entity GET: BAD_REQUEST"),
-        @ApiResponse(responseCode = "404", description = "Entity GET: TBL_DB_NOT_FOUND")
+        @ApiResponse(responseCode = "404", description = "Entity GET: TBL_DB_NOT_FOUND"),
+        @ApiResponse(responseCode = "500", description = "Entity GET: INTERNAL_SERVER_ERROR")
       })
   @GetMapping(
       value = HTS_ENTITIES_GENERAL_ENDPOINT,
@@ -318,7 +319,8 @@ public class UserHouseTablesController {
       value = {
         @ApiResponse(responseCode = "200", description = "User View GET: OK"),
         @ApiResponse(responseCode = "400", description = "User View GET: BAD_REQUEST"),
-        @ApiResponse(responseCode = "404", description = "User View GET: TBL_DB_NOT_FOUND")
+        @ApiResponse(responseCode = "404", description = "User View GET: TBL_DB_NOT_FOUND"),
+        @ApiResponse(responseCode = "500", description = "User View GET: INTERNAL_SERVER_ERROR")
       })
   @GetMapping(
       value = HTS_VIEWS_GENERAL_ENDPOINT,
@@ -339,7 +341,12 @@ public class UserHouseTablesController {
           "Returns views from house table that fulfill the predicate. An empty filter returns every "
               + "view; unlike the table query it does not project database names.",
       tags = {"UserTable"})
-  @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "User View GET: OK")})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "User View GET: OK"),
+        @ApiResponse(responseCode = "400", description = "User View GET: BAD_REQUEST"),
+        @ApiResponse(responseCode = "500", description = "User View GET: INTERNAL_SERVER_ERROR")
+      })
   @GetMapping(
       value = HTS_VIEWS_QUERY_ENDPOINT,
       produces = {"application/json"})
@@ -356,7 +363,12 @@ public class UserHouseTablesController {
       summary = "Search User Views by filter.",
       description = "Returns paginated views from house table that fulfill the predicate.",
       tags = {"UserTable"})
-  @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "User View GET: OK")})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "User View GET: OK"),
+        @ApiResponse(responseCode = "400", description = "User View GET: BAD_REQUEST"),
+        @ApiResponse(responseCode = "500", description = "User View GET: INTERNAL_SERVER_ERROR")
+      })
   @GetMapping(
       value = HTS_VIEWS_QUERY_ENDPOINT_V1,
       produces = {"application/json"})
