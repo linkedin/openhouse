@@ -13,6 +13,8 @@ import com.linkedin.openhouse.gen.tables.client.model.PolicyTag;
 import com.linkedin.openhouse.gen.tables.client.model.Retention;
 import com.linkedin.openhouse.javaclient.exception.WebClientWithMessageException;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.ObjectMapper;
+import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.node.ArrayNode;
+import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.node.ObjectNode;
 import com.linkedin.openhouse.relocated.org.springframework.http.HttpStatus;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientRequestException;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -29,12 +31,14 @@ import org.apache.commons.compress.utils.Lists;
 import org.apache.iceberg.Files;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
@@ -577,6 +581,51 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertSame(stamped, ops.currentConfig());
   }
 
+  /**
+   * Skip-reload after a GET that stops stamping must still send overlays from the bound config. The
+   * server drops them; the client must not strip the default-aware signal.
+   */
+  @Test
+  public void testDoRefreshSkipReloadStillSendsStampedDefaults() {
+    String location = writeTempMetadata();
+    Map<String, String> stamped =
+        Collections.singletonMap(ReadBridge.COLUMN_DEFAULT_PREFIX + "2", "\"US\"");
+
+    GetTableResponseBody withConfig = mock(GetTableResponseBody.class);
+    when(withConfig.getTableLocation()).thenReturn(location);
+    when(withConfig.getConfig()).thenReturn(stamped);
+
+    GetTableResponseBody withoutConfig = mock(GetTableResponseBody.class);
+    when(withoutConfig.getTableLocation()).thenReturn(location);
+    when(withoutConfig.getConfig()).thenReturn(null);
+
+    TableApi mockTableApi = mock(TableApi.class);
+    when(mockTableApi.getTableV1(anyString(), anyString()))
+        .thenReturn(Mono.just(withConfig))
+        .thenReturn(Mono.just(withoutConfig));
+
+    OpenHouseTableOperations ops = refreshableOps(mockTableApi, localFileIO());
+    ops.doRefresh();
+    Assertions.assertSame(stamped, ops.currentConfig());
+
+    ops.doRefresh();
+    Assertions.assertSame(stamped, ops.currentConfig());
+
+    TableMetadata commit =
+        tableWithSchema(
+            "file:/tmp/rb-signal-skip-reload",
+            new Schema(
+                NestedField.optional(1, "id", Types.IntegerType.get()),
+                NestedField.from(NestedField.optional(2, "country", Types.StringType.get()))
+                    .withInitialDefault(Expressions.lit("US"))
+                    .build()));
+    Assertions.assertEquals(
+        "US",
+        SchemaParser.fromJson(ops.constructMetadataRequestBody(null, commit).getSchema())
+            .findField(2)
+            .initialDefault());
+  }
+
   /** A later load from a new metadata location binds that response's config. */
   @Test
   public void testDoRefreshBindsNewConfigWhenLocationChanges() {
@@ -709,7 +758,10 @@ public class OpenHouseTableOperationsTest {
 
     Tasks.UnrecoverableException thrown =
         Assertions.assertThrows(Tasks.UnrecoverableException.class, ops::doRefresh);
-    Assertions.assertInstanceOf(IllegalStateException.class, thrown.getCause());
+    Assertions.assertInstanceOf(ReadBridgeException.class, thrown.getCause());
+    Assertions.assertEquals(
+        ReadBridgeException.Kind.UNUSABLE_CONFIG,
+        ((ReadBridgeException) thrown.getCause()).getKind());
     Assertions.assertTrue(thrown.getMessage().contains("db.tbl"));
     verifyNoInteractions(mockFileIO);
   }
@@ -741,5 +793,73 @@ public class OpenHouseTableOperationsTest {
     Map<String, String> config = body.getConfig();
     Assertions.assertNotNull(config);
     Assertions.assertEquals("whatever", config.get("openhouse.unknown-feature"));
+  }
+
+  @Test
+  public void constructMetadataRequestBody_sendsStampedIdsKeepsUnstampedColumnDefaults() {
+    TableMetadata commit =
+        tableWithSchema(
+            "file:/tmp/rb-sanitize-ops-c",
+            new Schema(
+                NestedField.optional(1, "id", Types.IntegerType.get()),
+                NestedField.from(NestedField.optional(2, "country", Types.StringType.get()))
+                    .withInitialDefault(Expressions.lit("US"))
+                    .build(),
+                NestedField.from(NestedField.optional(3, "email", Types.StringType.get()))
+                    .withInitialDefault(Expressions.lit("none"))
+                    .build()));
+
+    OpenHouseTableOperations ops = refreshableOps(mock(TableApi.class));
+    ops.setCurrentConfig(
+        Collections.singletonMap(ReadBridge.COLUMN_DEFAULT_PREFIX + "2", "\"US\""));
+
+    CreateUpdateTableRequestBody body = ops.constructMetadataRequestBody(null, commit);
+    Schema sent = SchemaParser.fromJson(body.getSchema());
+
+    Assertions.assertEquals("US", sent.findField(2).initialDefault());
+    Assertions.assertEquals("none", sent.findField(3).initialDefault());
+    Assertions.assertEquals("email", sent.findField(3).name());
+  }
+
+  @Test
+  public void constructMetadataRequestBody_withoutConfigLeavesWriterDefaults() {
+    TableMetadata commit =
+        tableWithSchema(
+            "file:/tmp/rb-sanitize-create",
+            new Schema(
+                NestedField.from(NestedField.optional(1, "country", Types.StringType.get()))
+                    .withInitialDefault(Expressions.lit("US"))
+                    .build()));
+
+    CreateUpdateTableRequestBody body =
+        refreshableOps(mock(TableApi.class)).constructMetadataRequestBody(null, commit);
+
+    Assertions.assertEquals(
+        "US", SchemaParser.fromJson(body.getSchema()).findField(1).initialDefault());
+  }
+
+  /**
+   * {@link TableMetadata#newTableMetadata} reassigns ids and drops defaults. Put this schema back
+   * so PUT tests can see writer/overlay defaults.
+   */
+  private static TableMetadata tableWithSchema(String location, Schema schema) {
+    TableMetadata created =
+        TableMetadata.newTableMetadata(
+            schema, PartitionSpec.unpartitioned(), location, Collections.emptyMap());
+    try {
+      ObjectMapper mapper = new ObjectMapper();
+      ObjectNode root = (ObjectNode) mapper.readTree(TableMetadataParser.toJson(created));
+      Schema kept =
+          new Schema(
+              created.currentSchemaId(),
+              schema.columns(),
+              schema.getAliases(),
+              schema.identifierFieldIds());
+      ((ArrayNode) root.get("schemas")).set(0, mapper.readTree(SchemaParser.toJson(kept)));
+      return TableMetadataParser.fromJson(
+          created.metadataFileLocation(), mapper.writeValueAsString(root));
+    } catch (Exception e) {
+      throw new IllegalStateException(e);
+    }
   }
 }
