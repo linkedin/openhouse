@@ -317,11 +317,19 @@ final class TableTest[S <: Schema] private (val schema: S, val steps: Vector[Ste
   // suppressed exception.
   private def withTable(ctx: Ctx)(use: (String, () => Unit) => Unit): Unit = {
     val table = TableTest.nextQualifiedTableName(ctx.namespace)
-    var tableCreated = false
+    OwnedTableLifecycle.withOwnership(
+      ctx.spark.sql(s"DROP TABLE IF EXISTS $table"))(
+      markTableCreated => use(table, markTableCreated))
+  }
 
+}
+
+private[harness] object OwnedTableLifecycle {
+  def withOwnership(dropOwnedTable: => Unit)(use: (() => Unit) => Unit): Unit = {
+    var tableCreated = false
     var testFailure: Option[Throwable] = None
     try {
-      use(table, () => tableCreated = true)
+      use(() => tableCreated = true)
     } catch {
       case failure: Throwable =>
         testFailure = Some(failure)
@@ -329,7 +337,7 @@ final class TableTest[S <: Schema] private (val schema: S, val steps: Vector[Ste
     } finally {
       if (tableCreated) {
         try {
-          ctx.spark.sql(s"DROP TABLE IF EXISTS $table")
+          dropOwnedTable
         } catch {
           case cleanupFailure: Throwable =>
             testFailure match {
@@ -340,7 +348,6 @@ final class TableTest[S <: Schema] private (val schema: S, val steps: Vector[Ste
       }
     }
   }
-
 }
 
 object TableTest {
