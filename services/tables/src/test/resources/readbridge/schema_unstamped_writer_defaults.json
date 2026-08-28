@@ -1,0 +1,19 @@
+{
+  "type": "struct",
+  "fields": [
+    {
+      "id": 1,
+      "required": false,
+      "name": "id",
+      "type": "int",
+      "initial-default": 0
+    },
+    {
+      "id": 2,
+      "required": false,
+      "name": "country",
+      "type": "string",
+      "initial-default": "US"
+    }
+  ]
+}
