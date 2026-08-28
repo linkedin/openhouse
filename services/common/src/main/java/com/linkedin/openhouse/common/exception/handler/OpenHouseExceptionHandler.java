@@ -23,6 +23,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -415,13 +416,13 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
   @ExceptionHandler({JpaSystemException.class, InvalidDataAccessApiUsageException.class})
   protected ResponseEntity<ErrorResponseBody> handleWrappedCorruptEntityTypeException(
       NonTransientDataAccessException dataAccessException) {
-    CorruptEntityTypeException corruptEntityTypeException =
-        findCorruptEntityTypeCause(dataAccessException);
-    if (corruptEntityTypeException == null) {
-      return handleGenericException(dataAccessException);
-    }
-    log.error("Corrupt entity type read from storage:\n", dataAccessException);
-    return buildResponseEntity(corruptEntityTypeBody(corruptEntityTypeException));
+    return findCorruptEntityTypeCause(dataAccessException)
+        .map(
+            corruptEntityTypeException -> {
+              log.error("Corrupt entity type read from storage:\n", dataAccessException);
+              return buildResponseEntity(corruptEntityTypeBody(corruptEntityTypeException));
+            })
+        .orElseGet(() -> handleGenericException(dataAccessException));
   }
 
   private ErrorResponseBody corruptEntityTypeBody(
@@ -439,7 +440,7 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
    * Bounded by {@link #CAUSE_CHAIN_MAX_DEPTH} and by identity, so a cyclic cause chain terminates
    * instead of spinning.
    */
-  private CorruptEntityTypeException findCorruptEntityTypeCause(Throwable exception) {
+  private Optional<CorruptEntityTypeException> findCorruptEntityTypeCause(Throwable exception) {
     Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
     Throwable current = exception;
     for (int depth = 0; current != null && depth < CAUSE_CHAIN_MAX_DEPTH; depth++) {
@@ -447,11 +448,11 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
         break;
       }
       if (current instanceof CorruptEntityTypeException) {
-        return (CorruptEntityTypeException) current;
+        return Optional.of((CorruptEntityTypeException) current);
       }
       current = current.getCause();
     }
-    return null;
+    return Optional.empty();
   }
 
   @Hidden
