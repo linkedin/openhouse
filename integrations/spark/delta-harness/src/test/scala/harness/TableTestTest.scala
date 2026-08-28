@@ -54,6 +54,19 @@ final class TableTestTest {
   }
 
   @Test
+  def cleanupFailureIsPrimaryAfterTheBodySucceeds(): Unit = {
+    val cleanupFailure = new Exception("cleanup failed")
+
+    val thrown = assertThrows(
+      classOf[Exception],
+      () =>
+        OwnedTableLifecycle.withOwnership(throw cleanupFailure)(
+          markTableCreated => markTableCreated()))
+
+    assertSame(cleanupFailure, thrown)
+  }
+
+  @Test
   def cleanupFailureIsSuppressedOnThePrimaryFailure(): Unit = {
     val testFailure = new Exception("test failed")
     val cleanupFailure = new Exception("cleanup failed")
