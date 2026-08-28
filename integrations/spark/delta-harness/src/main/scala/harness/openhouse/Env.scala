@@ -155,12 +155,6 @@ object Main {
             ""
         }
         println(f"${outcome.label}%-4s ${testCase.id}%-52s try=$attempts$note")
-        if (testCase.preparationDescription.nonEmpty) {
-          println(s"     Preparation: ${testCase.preparationDescription}")
-        }
-        if (testCase.description.nonEmpty) {
-          println(s"     Test: ${testCase.description}")
-        }
       }
 
       val failed =

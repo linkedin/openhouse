@@ -4,6 +4,7 @@ import org.apache.spark.sql.{Row, SparkSession}
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.UUID
 import scala.annotation.tailrec
 import scala.reflect.{ClassTag, classTag}
 import scala.util.control.NonFatal
@@ -285,10 +286,15 @@ final class TableTest[S <: Schema] private (val schema: S, val steps: Vector[Ste
    * Execute these steps as a reusable preparation, then hand the prepared table to one localized
    * test body. The fresh-table lifecycle covers both the preparation and the test body.
    */
-  def prepare(ctx: Ctx)(use: PreparedTable[S] => Unit): Unit = withTable(ctx) { table =>
+  def prepare(ctx: Ctx)(use: PreparedTable[S] => Unit): Unit =
+    withTable(ctx) { (table, markTableCreated) =>
     val (preparedRows, preparedSnapshotCount) =
-      steps.foldLeft((Seq.empty[Row], 0L)) { case ((beforeRows, beforeSnapshots), step) =>
+      steps.zipWithIndex.foldLeft((Seq.empty[Row], 0L)) {
+        case ((beforeRows, beforeSnapshots), (step, stepIndex)) =>
         step.execute(ctx.spark, table, schema)
+        if (stepIndex == 0) {
+          markTableCreated()
+        }
         val afterRows = PreparedTable.currentRows(ctx.spark, table, schema)
         val afterSnapshots = PreparedTable.snapshotCount(ctx.spark, table)
         step.validate(
@@ -305,28 +311,32 @@ final class TableTest[S <: Schema] private (val schema: S, val steps: Vector[Ste
     use(PreparedTable(ctx.spark, table, schema, preparedRows, preparedSnapshotCount))
   }
 
-  // Gives the preparation a fresh table and drops it after the test. A test failure remains primary,
-  // and a cleanup failure is attached to it as a suppressed exception.
-  private def withTable(ctx: Ctx)(use: String => Unit): Unit = {
-    val table = s"${ctx.namespace}.t_${TableTest.counter.incrementAndGet()}"
-    ctx.spark.sql(s"DROP TABLE IF EXISTS $table")
+  // Gives the preparation a unique table name and drops that table after the test. Cleanup starts
+  // only after the first preparation step creates the table, so a name conflict preserves the
+  // pre-existing table. A test failure stays primary, and a cleanup failure is attached to it as a
+  // suppressed exception.
+  private def withTable(ctx: Ctx)(use: (String, () => Unit) => Unit): Unit = {
+    val table = TableTest.nextQualifiedTableName(ctx.namespace)
+    var tableCreated = false
 
     var testFailure: Option[Throwable] = None
     try {
-      use(table)
+      use(table, () => tableCreated = true)
     } catch {
       case failure: Throwable =>
         testFailure = Some(failure)
         throw failure
     } finally {
-      try {
-        ctx.spark.sql(s"DROP TABLE IF EXISTS $table")
-      } catch {
-        case cleanupFailure: Throwable =>
-          testFailure match {
-            case Some(failure) => failure.addSuppressed(cleanupFailure)
-            case None          => throw cleanupFailure
-          }
+      if (tableCreated) {
+        try {
+          ctx.spark.sql(s"DROP TABLE IF EXISTS $table")
+        } catch {
+          case cleanupFailure: Throwable =>
+            testFailure match {
+              case Some(failure) => failure.addSuppressed(cleanupFailure)
+              case None          => throw cleanupFailure
+            }
+        }
       }
     }
   }
@@ -335,8 +345,12 @@ final class TableTest[S <: Schema] private (val schema: S, val steps: Vector[Ste
 
 object TableTest {
   private val counter = new java.util.concurrent.atomic.AtomicInteger(0)
+
   def apply[S <: Schema](schema: S): TableTest[S] = new TableTest(schema, Vector.empty)
   def seedCounter(value: Int): Unit = counter.set(value)
+
+  private[harness] def nextQualifiedTableName(namespace: String): String =
+    s"$namespace.t_${UUID.randomUUID().toString.replace("-", "")}_${counter.incrementAndGet()}"
 }
 
 /** An immutable recipe that prepares one fresh table for each localized test case. */
@@ -344,15 +358,14 @@ final case class TablePreparation[S <: Schema](
   label: String,
   preparation: TableTest[S],
   casePrefix: String = "",
-  afterTest: PreparedTable[S] => Unit = (_: PreparedTable[S]) => (),
-  description: String
+  afterTest: PreparedTable[S] => Unit = (_: PreparedTable[S]) => ()
 ) {
-  require(description.trim.nonEmpty, s"table preparation $label needs a description")
-
-  def test(
-    caseName: String,
-    testDescription: String
-  )(body: PreparedTable[S] => Unit): Plan.Case =
+  /**
+   * Build the case that runs `body` against one freshly prepared table. The case ID combines the
+   * preparation's prefix and label with `caseName`, so one test body yields a separate case on
+   * every preparation it runs on.
+   */
+  def test(caseName: String)(body: PreparedTable[S] => Unit): Plan.Case =
     Plan.Case(
       s"$casePrefix$caseName @ $label",
       context => preparation.prepare(context) { table =>
@@ -372,21 +385,17 @@ final case class TablePreparation[S <: Schema](
               }
           }
         }
-      },
-      description = testDescription,
-      preparationDescription = description)
+      })
 }
 
 final case class DmlTestCase[S <: Schema](
   id: String,
-  description: String,
   run: PreparedTable[S] => Unit,
   knownBugReason: Option[String] = None
 ) {
-  require(description.trim.nonEmpty, s"DML test case $id needs a description")
-
+  /** Build the case that runs this operation against a table `preparation` produces. */
   def runOn(preparation: TablePreparation[S]): Plan.Case =
     preparation
-      .test(id, description)(run)
+      .test(id)(run)
       .copy(knownBugReason = knownBugReason)
 }

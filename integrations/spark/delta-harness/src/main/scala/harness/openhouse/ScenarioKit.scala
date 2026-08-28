@@ -43,168 +43,191 @@ trait ScenarioKit {
   protected val columnDefinitions =
     "foo_col_long bigint, foo_col_int int, foo_col_string string, foo_col_double double, foo_col_boolean boolean, datepartition string"
 
-  /** One starting table shape: the label that names it in a case id, a human description of the
-    * resulting table, and the CREATE statement that builds it. */
-  final case class Layout(label: String, description: String, create: String => String)
+  /** One starting table shape: the label that names it in a case ID and the CREATE statement that
+    * builds it. */
+  final case class Layout(label: String, create: String => String)
 
-  object Layout {
-    /** A layout whose label already reads as its description. */
-    def apply(label: String, create: String => String): Layout = Layout(label, label, create)
-  }
+  /** One partitioning choice: the label that names it in a case ID and the CREATE clause that
+    * applies it. */
+  final case class Partitioning(label: String, clause: String)
 
-  /** One partitioning choice: the label that names it in a case id, a human description, and the
-    * CREATE clause that applies it. */
-  final case class Partitioning(label: String, description: String, clause: String)
+  /** The empty partitioning clause: the table keeps all its rows in one unpartitioned file set. */
+  protected val unpartitioned = Partitioning("unpartitioned", "")
 
-  protected val unpartitioned = Partitioning("unpartitioned", "with no partitioning", "")
-
+  /** Partitions the table by datepartition, so each distinct date value owns one partition. */
   protected val partitionedByDate =
-    Partitioning("partitioned", "partitioned by datepartition", "PARTITIONED BY (datepartition)")
+    Partitioning("partitioned", "PARTITIONED BY (datepartition)")
 
   protected val partitionings: List[Partitioning] = List(unpartitioned, partitionedByDate)
 
   protected val fileFormats: List[String] = List("parquet", "orc", "avro")
 
+  /** One copy-on-write table in `format`, shaped by `partitioning`, labelled for its case IDs. */
   private def coreLayout(partitioning: Partitioning, format: String): Layout =
     Layout(
       s"${partitioning.label}/$format",
-      s"a copy-on-write $format table ${partitioning.description}",
       table =>
         s"CREATE TABLE $table ($columnDefinitions) USING $dataSource ${partitioning.clause} " +
           s"TBLPROPERTIES ('write.format.default'='$format')")
 
+  /** Every core layout: each file format crossed with each partitioning. */
   val layouts: List[Layout] =
     for {
       format       <- fileFormats
       partitioning <- partitionings
     } yield coreLayout(partitioning, format)
 
+  /** The core layouts partitioned by datepartition, one per file format. */
   val partitionedLayouts: List[Layout] =
     fileFormats.map(format => coreLayout(partitionedByDate, format))
 
-  // Parquet and ORC layouts for bespoke DDL cases that do not need the full format cross.
+  /**
+   * The Parquet and ORC core layouts, each crossed with both partitionings, for the bespoke DDL
+   * cases that do not need the full file-format cross.
+   */
   val parquetAndOrcLayouts: List[Layout] =
     for {
       format       <- List("parquet", "orc")
       partitioning <- partitionings
     } yield coreLayout(partitioning, format)
 
-  // Create the table under `layout`, then seed deterministic rows as a second visible step.
+  /** Creates the table under `layout`, then seeds `numberOfRows` deterministic rows. */
   def createAndSeed(layout: Layout, numberOfRows: Int): TableTest[CoreTable.type] =
     TableTest(Core).sql("create")(layout.create)().insert(numberOfRows)()
 
+  /** One preparation per core layout: three seed rows with keys 1, 2 and 3. */
   val preparedCoreTables: List[TablePreparation[CoreTable.type]] =
     layouts.map(layout =>
       TablePreparation(
         layout.label,
-        createAndSeed(layout, 3),
-        description = s"Three seed rows with keys 1, 2 and 3 in ${layout.description}."))
+        createAndSeed(layout, 3)))
 
+  /**
+   * One preparation per datepartition-partitioned core layout: three seed rows with keys 1, 2 and
+   * 3, one row per datepartition value.
+   */
   val preparedPartitionedCoreTables: List[TablePreparation[CoreTable.type]] =
     partitionedLayouts.map(layout =>
       TablePreparation(
         layout.label,
-        createAndSeed(layout, 3),
-        description = s"Three seed rows with keys 1, 2 and 3 in ${layout.description}, " +
-          "one row per datepartition value."))
+        createAndSeed(layout, 3)))
 
+  /**
+   * One preparation per core layout: three seed rows, then ALTER TABLE WRITE ORDERED BY the long
+   * key, so the table carries that write sort order.
+   */
   val preparedOrderedCoreTables: List[TablePreparation[CoreTable.type]] =
     layouts.map(layout =>
       TablePreparation(
         layout.label,
         createAndSeedOrdered(layout, 3),
-        "prep.ordered:",
-        description = s"Three seed rows with keys 1, 2 and 3 in ${layout.description}, then " +
-          s"ALTER TABLE WRITE ORDERED BY ${Core.long0.columnName}, so the table carries that write sort order."))
+        "prep.ordered:"))
 
+  /**
+   * One preparation per core layout: three seed rows, then ADD COLUMN prep_extra int, so the table
+   * carries one column beyond the seed row shape and the seeded rows read null for it.
+   */
   val preparedEvolvedCoreTables: List[TablePreparation[CoreTable.type]] =
     layouts.map(layout =>
       TablePreparation(
         layout.label,
         createAndSeedEvolved(layout, 3),
-        "prep.evolved:",
-        description = s"Three seed rows with keys 1, 2 and 3 in ${layout.description}, then " +
-          "ADD COLUMN prep_extra int, so the table carries one column beyond the seed row shape " +
-          "and the seeded rows read null for it."))
+        "prep.evolved:"))
 
+  /**
+   * One preparation per core layout: the table is created and left unseeded, so it holds no rows.
+   */
   val preparedEmptyCoreTables: List[TablePreparation[CoreTable.type]] =
     layouts.map(layout =>
       TablePreparation(
         layout.label,
-        TableTest(Core).sql("create")(layout.create)(),
-        description = s"${layout.description.capitalize} that is created and left unseeded, so it holds no rows."))
+        TableTest(Core).sql("create")(layout.create)()))
 
+  /**
+   * One preparation per Parquet and ORC unpartitioned layout: three seed rows with keys 1, 2 and 3.
+   */
   val preparedCoreFormats: List[TablePreparation[CoreTable.type]] =
     List("parquet", "orc").map { format =>
       val layout = coreLayout(unpartitioned, format)
       TablePreparation(
         format,
-        createAndSeed(layout, 3),
-        description = s"Three seed rows with keys 1, 2 and 3 in ${layout.description}.")
+        createAndSeed(layout, 3))
     }
 
-  // A DDL step evolves the starting state, and the test case then runs on the evolved table. The
-  // ordered preparation adds a write sort order and leaves the column list intact, so every DML case
-  // runs on it. The evolved preparation adds a column, so it runs the cases that address columns by
-  // name: reads, deletes, and updates.
+  /**
+   * Creates and seeds the table under `layout`, then gives it a write sort order on the long key.
+   * The column list stays as seeded, so every DML case runs on the result.
+   */
   def createAndSeedOrdered(layout: Layout, numberOfRows: Int): TableTest[CoreTable.type] =
     createAndSeed(layout, numberOfRows).sql("prep.ordered")(t => s"ALTER TABLE $t WRITE ORDERED BY ${CoreTable.long0.columnName}")()
 
+  /**
+   * Creates and seeds the table under `layout`, then adds the prep_extra column. The column list
+   * grows past the seed row shape, so the cases that address columns by name run on the result:
+   * the reads, the deletes and the updates.
+   */
   def createAndSeedEvolved(layout: Layout, numberOfRows: Int): TableTest[CoreTable.type] =
     createAndSeed(layout, numberOfRows).sql("prep.evolved")(t => s"ALTER TABLE $t ADD COLUMN prep_extra int")()
 
-  // The same starting state with one more row appended, whose string column is null. A DELETE that
-  // selects rows by IS NULL is then written as one operation against a table that already holds a
-  // null string.
+  /**
+   * The same starting state with a fourth row whose key is 99 and whose string column is null, so
+   * exactly one row of the table reads null for that column.
+   */
   protected def withNullStringRow(
       basePreparation: TablePreparation[CoreTable.type]
   ): TablePreparation[CoreTable.type] =
     basePreparation.copy(
       preparation = basePreparation.preparation.sql("prep.nullStringRow")(table =>
-        s"INSERT INTO $table VALUES (CAST(99 AS BIGINT), 99, NULL, 99.5, false, '2024-01-01-00')")(),
-      description = s"${basePreparation.description} A fourth row with key 99 is then appended " +
-        s"whose ${Core.string0.columnName} is null, so exactly one row of the table reads null for " +
-        "that column.")
+        s"INSERT INTO $table VALUES (CAST(99 AS BIGINT), 99, NULL, 99.5, false, '2024-01-01-00')")())
 
+  /** The core preparations, each carrying one row whose string column is null. */
   val preparedNullStringCoreTables: List[TablePreparation[CoreTable.type]] =
     preparedCoreTables.map(withNullStringRow)
 
+  /** The write-ordered preparations, each carrying one row whose string column is null. */
   val preparedNullStringOrderedCoreTables: List[TablePreparation[CoreTable.type]] =
     preparedOrderedCoreTables.map(withNullStringRow)
 
-  // This list validates that each preparation writes data files in its declared format. It runs on
-  // every preparation that leaves data files behind. Each feature layer owns the list for its
-  // preparations and builds it through this shared case body.
+  /**
+   * Every data file the preparation wrote carries the extension of the table's declared
+   * write.format.default, and listing the files leaves the table state unchanged.
+   */
+  private def formatMaterializationCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("format.materialization") { table =>
+      val before = table.state
+      val declaredFormat = table.spark
+        .sql(s"SHOW TBLPROPERTIES ${table.name} ('write.format.default')")
+        .collect()(0)
+        .getString(1)
+      val filePaths = table.spark
+        .sql(s"SELECT file_path FROM ${table.name}.files")
+        .collect()
+        .toSeq
+        .map(_.getString(0))
+      val after = table.state
+
+      assert(
+        filePaths.nonEmpty && filePaths.forall(_.toLowerCase.endsWith(s".$declaredFormat")),
+        s"data files are not all .$declaredFormat: $filePaths")
+      assert(after == before, "listing files leaves the rows and the snapshot count unchanged")
+    }
+
+  /**
+   * The format-materialization case for each preparation given. It applies to any preparation that
+   * leaves data files behind, so each feature layer passes the list its own preparations produce.
+   */
   def layoutFormatCasesFor(
       preparations: List[TablePreparation[CoreTable.type]]
   ): List[Plan.Case] =
     preparations.map { preparation =>
-      preparation.test(
-        "format.materialization",
-        "Every data file the preparation wrote carries the extension of the table's declared " +
-          "write.format.default, and listing the files leaves the table state unchanged.") { table =>
-        val before = table.state
-        val declaredFormat = table.spark
-          .sql(s"SHOW TBLPROPERTIES ${table.name} ('write.format.default')")
-          .collect()(0)
-          .getString(1)
-        val filePaths = table.spark
-          .sql(s"SELECT file_path FROM ${table.name}.files")
-          .collect()
-          .toSeq
-          .map(_.getString(0))
-        val after = table.state
-
-        assert(
-          filePaths.nonEmpty && filePaths.forall(_.toLowerCase.endsWith(s".$declaredFormat")),
-          s"data files are not all .$declaredFormat: $filePaths")
-        assert(after == before, "listing files leaves the rows and the snapshot count unchanged")
-      }
+      formatMaterializationCase(preparation)
     }
 
+  /** The standard preparations that leave data files behind: the core and write-ordered ones. */
   val layoutFormatPreparations: List[TablePreparation[CoreTable.type]] =
     preparedCoreTables ++ preparedOrderedCoreTables
 
+  /** The format-materialization case on every standard preparation that writes data files. */
   def layoutFormatCases: List[Plan.Case] = layoutFormatCasesFor(layoutFormatPreparations)
 
   private def waitForNextSnapshotTimestamp(spark: SparkSession, table: String): Unit = {
@@ -229,6 +252,11 @@ trait ScenarioKit {
   }
 
   // Shared helpers used across domain traits.
+
+  /**
+   * Creates a table in the given file format, seeds three rows as the first snapshot, then inserts
+   * rows 4 and 5 as a second snapshot committed at a later timestamp.
+   */
   protected def coreTwoSnapshots(fmt: String): TableTest[CoreTable.type] =
     TableTest(Core)
       .sql("create")(table => s"CREATE TABLE $table ($columnDefinitions) USING $dataSource TBLPROPERTIES ('write.format.default'='$fmt')")()
@@ -237,6 +265,7 @@ trait ScenarioKit {
       .sql("insertMore")(table => s"INSERT INTO $table VALUES " +
         s"(CAST(4 AS BIGINT), 4, 'row-4', 4.5, true, '2024-01-04-03'), (CAST(5 AS BIGINT), 5, 'row-5', 5.5, false, '2024-01-05-04')")()
 
+  /** The two-snapshot table in parquet. */
   protected def coreTwoSnapshots: TableTest[CoreTable.type] = coreTwoSnapshots("parquet")
 
   // Snapshots in ancestry order (root first), following the parent_id chain. This is deterministic even

@@ -143,12 +143,59 @@ final class DmlCaseCatalogTest {
   }
 
   @Test
-  def theNullStringPreparationDescribesTheRowItAppends(): Unit = {
-    Scenarios.preparedNullStringCoreTables.foreach { preparation =>
-      assertTrue(
-        preparation.description.contains("null"),
-        s"${preparation.label} does not describe the null-string row it appends")
+  def theNullStringPreparationsExtendTheCorePreparations(): Unit = {
+    assertEquals(
+      Scenarios.preparedCoreTables.map(preparation => (preparation.casePrefix, preparation.label)),
+      Scenarios.preparedNullStringCoreTables.map(preparation =>
+        (preparation.casePrefix, preparation.label)))
+    assertEquals(
+      Scenarios.preparedCoreTables.map(_.preparation.steps.size + 1),
+      Scenarios.preparedNullStringCoreTables.map(_.preparation.steps.size))
+    assertEquals(
+      List("prep.nullStringRow"),
+      Scenarios.preparedNullStringCoreTables.head.preparation.steps.map(_.label).toList.takeRight(1))
+  }
+
+  @Test
+  def everyDmlCaseIdNamesItsOperationAndItsPreparation(): Unit = {
+    val describedBuckets = List(
+      Scenarios.coreDmlCases,
+      Scenarios.orderedDmlCases,
+      Scenarios.evolvedDmlCases,
+      Scenarios.partitionedDmlCases,
+      Scenarios.layoutFormatCases).flatten
+    val caseIds = describedBuckets.map(_.id)
+
+    caseIds.foreach { caseId =>
+      assertEquals(
+        2,
+        caseId.split(" @ ").length,
+        s"$caseId must be an operation name, then ' @ ', then a preparation label")
     }
+    assertEquals(caseIds.distinct.size, caseIds.size, "DML case IDs must be unique")
+  }
+
+  @Test
+  def eachLayoutListCrossesItsFormatsWithItsPartitionings(): Unit = {
+    assertEquals(
+      List(
+        "unpartitioned/parquet",
+        "partitioned/parquet",
+        "unpartitioned/orc",
+        "partitioned/orc",
+        "unpartitioned/avro",
+        "partitioned/avro"),
+      Scenarios.layouts.map(_.label))
+    assertEquals(
+      List("partitioned/parquet", "partitioned/orc", "partitioned/avro"),
+      Scenarios.partitionedLayouts.map(_.label))
+    assertEquals(
+      List(
+        "unpartitioned/parquet",
+        "partitioned/parquet",
+        "unpartitioned/orc",
+        "partitioned/orc"),
+      Scenarios.parquetAndOrcLayouts.map(_.label))
   }
 
   @Test
@@ -179,45 +226,6 @@ final class DmlCaseCatalogTest {
         expectedIds,
         bucket.map(_.id),
         s"$bucketName is not its named preparations crossed with its named test cases")
-    }
-  }
-
-  @Test
-  def everyDmlCaseCarriesItsOwnDescriptionAndItsPreparationDescription(): Unit = {
-    val describedBuckets = List(
-      Scenarios.coreDmlCases,
-      Scenarios.orderedDmlCases,
-      Scenarios.evolvedDmlCases,
-      Scenarios.partitionedDmlCases,
-      Scenarios.layoutFormatCases).flatten
-
-    describedBuckets.foreach { testCase =>
-      assertTrue(
-        testCase.description.trim.nonEmpty,
-        s"${testCase.id} has no description of the operation it runs")
-      assertTrue(
-        testCase.preparationDescription.trim.nonEmpty,
-        s"${testCase.id} has no description of the state it starts from")
-      assertTrue(
-        testCase.description != testCase.id,
-        s"${testCase.id} repeats its id; the description must explain the operation")
-    }
-  }
-
-  @Test
-  def everyLayoutDescribesTheTableItCreates(): Unit = {
-    val describedLayouts =
-      Scenarios.layouts ++
-        Scenarios.partitionedLayouts ++
-        Scenarios.parquetAndOrcLayouts
-
-    describedLayouts.foreach { layout =>
-      assertTrue(
-        layout.description.trim.nonEmpty,
-        s"layout ${layout.label} has no description")
-      assertTrue(
-        layout.description != layout.label,
-        s"layout ${layout.label} repeats its label; the description must explain the table")
     }
   }
 

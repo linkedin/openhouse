@@ -23,9 +23,6 @@ final class CaseCatalogTest {
     assertTrue(
       duplicateCaseIds.isEmpty,
       s"case IDs must be unique; duplicates=${duplicateCaseIds.mkString(", ")}")
-    assertTrue(
-      cases.forall(_.description.trim.nonEmpty),
-      "every catalog case must describe the behavior it verifies")
     assertEquals(
       expectedCaseCount,
       caseIds.size,

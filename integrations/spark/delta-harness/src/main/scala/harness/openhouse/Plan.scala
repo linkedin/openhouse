@@ -3,15 +3,11 @@ package harness
 /** Defines the ordered catalog of scenario-owned test cases. */
 object Plan {
   final case class Case(
-    id:                     String,
-    run:                    Ctx => Unit,
-    description:            String,
-    preparationDescription: String = "",
-    knownBugReason:         Option[String] = None,
-    embeddedSkipReason:     Option[String] = None
-  ) {
-    require(description.trim.nonEmpty, s"test case $id needs a description")
-  }
+    id:                 String,
+    run:                Ctx => Unit,
+    knownBugReason:     Option[String] = None,
+    embeddedSkipReason: Option[String] = None
+  )
 
   /** The deterministic ordered case catalog. Reading it does not execute a case or start Spark. */
   def caseIds: List[String] = cases.map(_.id)

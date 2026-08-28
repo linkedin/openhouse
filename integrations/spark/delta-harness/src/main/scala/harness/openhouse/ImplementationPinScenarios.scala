@@ -16,13 +16,34 @@ import scala.util.control.NonFatal
 trait ImplementationPinScenarios extends ScenarioKit {
   import Rows._
 
-  // OpenHouse delegates table-data encryption to an external KMS plugin. The OSS build never wires
-  // a KeyManagementClient into the catalog, so customer tables use the default
-  // PlaintextEncryptionManager and data is written unencrypted. A Parquet file's footer magic bytes
-  // are "PAR1" when unencrypted and "PARE" under modular encryption regardless of compression, so
-  // this case checks that magic value to confirm the OSS write path produces plaintext data files.
-  // An off-the-shelf KMS plugin alone would not change this result, because nothing in the
-  // OpenHouse write path invokes the encryption hook without that wiring.
+  /**
+   * A data file's Parquet footer magic bytes are the plaintext PAR1 marker, confirming OSS writes
+   * table data in plaintext. OpenHouse delegates table-data encryption to an external KMS plugin
+   * and the OSS build wires no KeyManagementClient into the catalog, so tables use the default
+   * PlaintextEncryptionManager. A Parquet footer reads PAR1 for plaintext and PARE under modular
+   * encryption regardless of compression, so that magic value settles which path wrote the file.
+   */
+  private def surfacePinDataPlaintextCase(
+      preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("surface.pin.dataPlaintext") { table =>
+      val dataFilePath = table.spark
+        .sql(s"SELECT file_path FROM ${table.name}.data_files LIMIT 1")
+        .collect()(0)
+        .getString(0)
+        .stripPrefix("file:")
+      val bytes = java.nio.file.Files.readAllBytes(
+        java.nio.file.Paths.get(dataFilePath))
+
+      assert(
+        bytes.length >= 8,
+        s"data file is too small to inspect: ${bytes.length} bytes")
+      val footerMagic = new String(bytes.takeRight(4), "US-ASCII")
+      assert(
+        footerMagic == "PAR1",
+        s"expected plaintext Parquet footer PAR1, got $footerMagic")
+    }
+
+  /** The encryption pin, starting from three seed rows in a parquet table. */
   lazy val encryptionPinCases: List[Plan.Case] = {
     val preparation = TablePreparation(
       "parquet",
@@ -30,29 +51,9 @@ trait ImplementationPinScenarios extends ScenarioKit {
         .sql("create")(table =>
           s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
             "TBLPROPERTIES ('write.format.default'='parquet')")()
-        .insert(3)(),
-      description = "Three seed rows in a parquet table.")
+        .insert(3)())
 
     List(
-      preparation.test(
-        "surface.pin.dataPlaintext",
-        "A data file's Parquet footer magic bytes are the unencrypted PAR1 marker, confirming " +
-          "OSS writes table data in plaintext.") { table =>
-        val dataFilePath = table.spark
-          .sql(s"SELECT file_path FROM ${table.name}.data_files LIMIT 1")
-          .collect()(0)
-          .getString(0)
-          .stripPrefix("file:")
-        val bytes = java.nio.file.Files.readAllBytes(
-          java.nio.file.Paths.get(dataFilePath))
-
-        assert(
-          bytes.length >= 8,
-          s"data file is too small to inspect: ${bytes.length} bytes")
-        val footerMagic = new String(bytes.takeRight(4), "US-ASCII")
-        assert(
-          footerMagic == "PAR1",
-          s"expected plaintext Parquet footer PAR1, got $footerMagic")
-      })
+      surfacePinDataPlaintextCase(preparation))
   }
 }

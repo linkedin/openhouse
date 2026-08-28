@@ -10,14 +10,22 @@ import scala.annotation.tailrec
 import scala.reflect.{ClassTag, classTag}
 import scala.util.control.NonFatal
 
+// The fork cases. OpenHouse compiles and runs against LinkedIn's fork of Apache Iceberg, the
+// com.linkedin.iceberg artifacts this module depends on, and a case here pins a behavior the
+// Iceberg library decides rather than one the catalog exposes: the column-default path, the write
+// distribution default for a partitioned write, the output-file replication key, the read split
+// size, and the compaction plan. These behaviors have no catalog SQL surface of their own, so a
+// case reaches them through the Iceberg API or a Spark configuration and asserts the result a
+// caller can observe.
 trait ForkScenarios extends ScenarioKit {
   import Rows._
 
-  // Column-default DDL path, format-parameterized.
-  // ALTER TABLE ... ADD COLUMN c int DEFAULT 5 is accepted at Spark parse time, but the connector does
-  // not wire the default into the write path: the default value is not written into the Iceberg schema,
-  // pre-existing rows read null for the new column, and an INSERT that omits the column is rejected
-  // with INCOMPATIBLE_DATA_FOR_TABLE.CANNOT_FIND_DATA because there is no default to fill it in with.
+  /**
+   * ALTER TABLE ADD COLUMN c int DEFAULT 5 parses, and the default value stops at the parser: the
+   * committed schema records no default for c, pre-existing rows read null for it, and an INSERT
+   * that omits c is rejected with INCOMPATIBLE_DATA_FOR_TABLE.CANNOT_FIND_DATA. The file format is
+   * the parameter.
+   */
   private def forkColDefaultAddColumn(fmt: String)(ctx: Ctx): Unit = {
     val spark = ctx.spark
     val table = s"${ctx.namespace}.t_coldef_$fmt"
@@ -51,14 +59,15 @@ trait ForkScenarios extends ScenarioKit {
     spark.sql(s"DROP TABLE IF EXISTS $table")
   }
 
-  // Column-default API serialization at the schema level.
-  // NestedField carries initial-default and write-default, and SchemaParser serializes them into the
-  // schema JSON. toJson takes no format-version parameter, so the key serializes the same regardless of
-  // the table's format version. This runs against either artifact through reflection, since the builder
-  // API does not exist in every Iceberg release jar and a direct reference would fail to compile there:
-  // when NestedField.builder() is absent, the test records that the column-default API is unsupported;
-  // when it is present, the test builds a defaulted field, confirms SchemaParser emits initial-default,
-  // and confirms the value survives a fromJson then toJson round trip.
+  /**
+   * A NestedField built with an initial default serializes initial-default into the schema JSON,
+   * and that value survives a fromJson then toJson round trip. SchemaParser.toJson takes no
+   * format-version parameter, so the key serializes the same at every format version. On an
+   * artifact whose NestedField exposes no builder, the column-default API is absent entirely, down
+   * to the initialDefault and writeDefault accessors, and the case pins that absence. Reflection
+   * reaches the builder because some Iceberg release jars leave it out, which a direct reference
+   * would fail to compile against.
+   */
   private def forkColDefaultApiSerialization(ctx: Ctx): Unit = {
     val nestedFieldCls = Class.forName("org.apache.iceberg.types.Types$NestedField")
     val builderM = scala.util.Try(nestedFieldCls.getMethod("builder"))
@@ -104,8 +113,10 @@ trait ForkScenarios extends ScenarioKit {
     println("fork.colDefault.api: initial-default serialized with no format-version argument and round-trips")
   }
 
-  // Reflectively builds an optional int NestedField carrying initial-default=dflt.
-  // Returns None when the builder API is absent so callers can assert that absence directly.
+  /**
+   * Reflectively builds an optional int NestedField carrying the given initial default. Returns
+   * None when the builder API is absent, so a caller can assert that absence directly.
+   */
   private def buildDefaultedIntField(id: Int, name: String, dflt: Int): Option[org.apache.iceberg.types.Types.NestedField] = {
     val nfCls = Class.forName("org.apache.iceberg.types.Types$NestedField")
     val bm = scala.util.Try(nfCls.getMethod("builder"))
@@ -121,13 +132,13 @@ trait ForkScenarios extends ScenarioKit {
     Some(b.getClass.getMethod("build").invoke(b).asInstanceOf[org.apache.iceberg.types.Types.NestedField])
   }
 
-  // Column-default persistence versus read-apply, over data files written before the default existed.
-  // A schema evolution that adds a defaulted column is committed directly through the low-level
-  // TableMetadata API, since the public UpdateSchema surface has no set-default operation. The test
-  // asserts the one deterministic half of this behavior: the default value persists into the committed
-  // schema. What the OSS Spark read path returns for pre-existing rows over that defaulted column is not
-  // part of this connector's documented read contract, so that value is recorded for reference rather
-  // than asserted.
+  /**
+   * A column default added after data files exist persists into the committed schema. The schema
+   * evolution goes through the low-level TableMetadata API because the public UpdateSchema surface
+   * has no set-default operation. The documented read contract covers schema persistence only. The
+   * case prints the OSS Spark read result for pre-existing rows as diagnostic output, while its
+   * assertions stop at the persisted schema.
+   */
   private def forkColDefaultReadApplyProbe(ctx: Ctx): Unit = {
     val spark = ctx.spark
     val nfCls = Class.forName("org.apache.iceberg.types.Types$NestedField")
@@ -179,13 +190,14 @@ trait ForkScenarios extends ScenarioKit {
     spark.sql(s"DROP TABLE IF EXISTS $t")
   }
 
-  // Partitioned write distribution default, format-parameterized.
-  // The connector defaults write.distribution-mode to NONE for partitioned writes. With HASH, the
-  // writer shuffles rows so each partition is written by a
-  // single task, producing roughly one data file per partition. With NONE, no shuffle happens, so every
-  // input task writes every partition it holds, producing up to (input tasks times partitions) files.
-  // This test appends the same multi-task DataFrame into a 4-partition table twice, once under the
-  // default and once under an explicit hash distribution, and compares the resulting data file counts.
+  /**
+   * A partitioned write defaults write.distribution-mode to NONE, so every input task writes every
+   * partition it holds and one append produces up to (input tasks times partitions) data files.
+   * Under an explicit HASH distribution the writer shuffles rows so one task owns each partition,
+   * clustering the append to roughly one file per partition. Appending the same multi-task
+   * DataFrame into a 4-partition table under each mode therefore yields at least as many files
+   * under the default as under HASH. The file format is the parameter.
+   */
   private def forkPartitionDistDefault(fmt: String)(ctx: Ctx): Unit = {
     val spark = ctx.spark
     val nParts = 4
@@ -214,21 +226,21 @@ trait ForkScenarios extends ScenarioKit {
         s"(default=$nDefault hash=$nHash)")
   }
 
-  // (count, sumBytes) of the current data files, used by the compaction tests below.
+  /** Returns the count and the total byte size of the table's current data files. */
   private def dataFileStats(spark: SparkSession, table: String): (Long, Long) = {
     val r = spark.sql(s"SELECT count(*), coalesce(sum(file_size_in_bytes), 0) FROM $table.data_files").collect()(0)
     (r.getLong(0), r.getLong(1))
   }
 
-  // Output-file replication factor at the OutputFileFactory level.
-  // The property key that OutputFileFactory stamps into the per-output-file property map is
-  // FILE_REPLICATION_FACTOR, "file-replication-factor". It is not a settable table property; it is the
-  // key HDFS reads to set block replication on an output file when a replication factor is supplied to
-  // the factory. Only the delete-file write path feeds a replication factor to the factory; data-file
-  // factories never set it. This test builds a factory with an explicit replication factor and asserts
-  // the exact key it stamps into the output-file property map, then confirms writes still succeed and
-  // return correct rows afterward. Reflection is used because the builder method and getProperties are
-  // not part of the public compiled API on every Iceberg artifact this test runs against.
+  /**
+   * OutputFileFactory exposes FILE_REPLICATION_FACTOR as "file-replication-factor", and a factory
+   * built with a replication factor stamps that key into the property map of the output files it
+   * creates. Writes made through the table afterward still return the correct rows. It is not a
+   * settable table property; it is the key HDFS reads to set block replication on an output file
+   * when a replication factor is supplied to the factory, and the delete-file write path is the one
+   * path that supplies one. Reflection reaches the builder and getProperties because some Iceberg
+   * artifacts leave them out of the public compiled API.
+   */
   private def forkFileReplicationFactor(ctx: Ctx): Unit = {
     val spark = ctx.spark
     val offCls = Class.forName("org.apache.iceberg.io.OutputFileFactory")
@@ -272,11 +284,14 @@ trait ForkScenarios extends ScenarioKit {
     spark.sql(s"DROP TABLE IF EXISTS $table")
   }
 
-  // Spark read split size, format-parameterized.
-  // spark.sql.iceberg.split-size controls how the read path combines or splits data files into read
-  // tasks. With several small files, a large split size combines them into fewer read tasks and a tiny
-  // split size splits them into more, visible through rdd.getNumPartitions, while the row set stays
-  // invariant. This test also checks the same knob at the planner level directly.
+  /**
+   * spark.sql.iceberg.split-size decides how the read path combines data files into read tasks.
+   * Over several small files, a large split size combines them into fewer read tasks and a tiny
+   * split size splits them into more, visible through rdd.getNumPartitions, and both reads return
+   * the same rows. The planner shows the same effect directly: a split size above the whole table
+   * plans one task group, and a split size below one file plans one group per file. The file format
+   * is the parameter.
+   */
   private def forkSplitSize(fmt: String)(ctx: Ctx): Unit = {
     val spark = ctx.spark
     val table = s"${ctx.namespace}.t_splitsize_$fmt"
@@ -334,11 +349,12 @@ trait ForkScenarios extends ScenarioKit {
     }
   }
 
-  // Bin-pack compaction weighted by data-file length.
-  // rewrite_data_files packs data files into rewrite groups weighted by file length. The weighting
-  // decision itself is an internal planner detail with no local SQL surface, so this test observes what
-  // is externally checkable: compacting a table with unevenly sized data files through
-  // rewrite_data_files preserves both the row count and every row's value.
+  /**
+   * rewrite_data_files packs data files into rewrite groups weighted by file length. Compacting a
+   * table whose data files are unevenly sized preserves the row count and every row's value, which
+   * is the observable result of that packing; the weighting itself is a planner decision that no
+   * SQL surface exposes. The file format is the parameter.
+   */
   private def forkBinPackByLength(fmt: String)(ctx: Ctx): Unit = {
     val spark = ctx.spark
     val table = s"${ctx.namespace}.t_binpack_$fmt"
@@ -366,13 +382,13 @@ trait ForkScenarios extends ScenarioKit {
     spark.sql(s"DROP TABLE IF EXISTS $table")
   }
 
-  // Budgeted rewrite ordering by file-sequence-number.
-  // A budgeted rewrite orders candidate files by file-sequence-number when spending its rewrite budget.
-  // That ordering decision is metadata-level with no local SQL surface, and it shares its execution path
-  // with the bin-pack compaction test above, so this test checks the distinct, externally observable
-  // half: the ordering key, file_sequence_number on the entries metadata table, is exposed and increases
-  // monotonically across commits, and rewrite_data_files with rewrite-all preserves the row set. The
-  // Sequence numbers define the ordering, so a single format is sufficient here.
+  /**
+   * file_sequence_number is exposed on the live data-file entries of the entries metadata table and
+   * increases monotonically across commits, and rewrite_data_files with rewrite-all preserves the
+   * row count and the row set. A budgeted rewrite spends its budget in file-sequence-number order,
+   * so that column is the observable half of the ordering decision. Sequence numbers order commits
+   * the same way in every file format, so parquet alone covers this behavior.
+   */
   private def forkCompactionOrder(ctx: Ctx): Unit = {
     val spark = ctx.spark
     val table = s"${ctx.namespace}.t_compord"
@@ -407,82 +423,52 @@ trait ForkScenarios extends ScenarioKit {
     spark.sql(s"DROP TABLE IF EXISTS $table")
   }
 
+  /** The column-default and write-distribution fork cases. */
   val forkColumnDefaultAndDistributionCases: List[Plan.Case] =
     List(
       Plan.Case(
         "fork.colDefault.addColumnInert @ parquet",
-        forkColDefaultAddColumn("parquet"),
-        description = "ALTER TABLE ADD COLUMN ... DEFAULT is accepted on a parquet table, but the " +
-          "default is not written into the schema, pre-existing rows read null for it, and an insert " +
-          "that omits the column is rejected."),
+        forkColDefaultAddColumn("parquet")),
       Plan.Case(
         "fork.colDefault.addColumnInert @ orc",
-        forkColDefaultAddColumn("orc"),
-        description = "ALTER TABLE ADD COLUMN ... DEFAULT is accepted on an orc table, but the " +
-          "default is not written into the schema, pre-existing rows read null for it, and an insert " +
-          "that omits the column is rejected."),
+        forkColDefaultAddColumn("orc")),
       Plan.Case(
         "fork.colDefault.apiSerialization @ core",
-        forkColDefaultApiSerialization,
-        description = "A NestedField built with an initial default serializes 'initial-default' into " +
-          "the schema JSON and the value survives a fromJson/toJson round trip, on a build that carries " +
-          "the column-default API."),
+        forkColDefaultApiSerialization),
       Plan.Case(
         "fork.colDefault.readApplyProbe @ core",
-        forkColDefaultReadApplyProbe,
-        description = "A column default added after existing data files persists into the committed " +
-          "schema. The read path's returned value for pre-existing rows over that column is recorded " +
-          "for reference, since it is not part of this connector's documented read contract."),
+        forkColDefaultReadApplyProbe),
       Plan.Case(
         "fork.partitionDist.default @ parquet",
-        forkPartitionDistDefault("parquet"),
-        description = "Appending the same multi-task write to a 4-way partitioned parquet table " +
-          "produces at least as many data files under the default write distribution mode as under an " +
-          "explicit hash distribution, and hash distribution clusters to about one file per partition."),
+        forkPartitionDistDefault("parquet")),
       Plan.Case(
         "fork.partitionDist.default @ orc",
-        forkPartitionDistDefault("orc"),
-        description = "Appending the same multi-task write to a 4-way partitioned orc table produces " +
-          "at least as many data files under the default write distribution mode as under an explicit " +
-          "hash distribution, and hash distribution clusters to about one file per partition."))
+        forkPartitionDistDefault("orc")))
 
-  // The fork cases are two contribution lists. One more fork entry sits between them in the
-  // catalog; the layer that owns that entry supplies it and Plan keeps the order.
+  /**
+   * The output-file, split-size and compaction fork cases. They are the second of two fork
+   * contribution lists: one more fork entry sits between the two in the catalog, supplied by the
+   * layer that owns it, and Plan keeps that order.
+   */
   val forkFileAndCompactionCases: List[Plan.Case] =
     List(
       Plan.Case(
         "fork.fileReplicationFactor @ core",
-        forkFileReplicationFactor,
-        description = "OutputFileFactory exposes the key 'file-replication-factor', a factory built " +
-          "with replication factor 2 stamps that key into its output-file properties, and writes made " +
-          "through the table afterward still produce the correct rows."),
+        forkFileReplicationFactor),
       Plan.Case(
         "fork.splitSize @ parquet",
-        forkSplitSize("parquet"),
-        description = "Reading a multi-file parquet table under a large spark.sql.iceberg.split-size " +
-          "and a tiny one returns the same rows both times, and the tiny split size does not decrease " +
-          "the read task count relative to the large one."),
+        forkSplitSize("parquet")),
       Plan.Case(
         "fork.splitSize @ orc",
-        forkSplitSize("orc"),
-        description = "Reading a multi-file orc table under a large spark.sql.iceberg.split-size and " +
-          "a tiny one returns the same rows both times, and the tiny split size does not decrease the " +
-          "read task count relative to the large one."),
+        forkSplitSize("orc")),
       Plan.Case(
         "fork.binPackByLength @ parquet",
-        forkBinPackByLength("parquet"),
-        description = "Compacting a parquet table with unevenly sized data files through " +
-          "rewrite_data_files preserves the row count and every row's value."),
+        forkBinPackByLength("parquet")),
       Plan.Case(
         "fork.binPackByLength @ orc",
-        forkBinPackByLength("orc"),
-        description = "Compacting an orc table with unevenly sized data files through " +
-          "rewrite_data_files preserves the row count and every row's value."),
+        forkBinPackByLength("orc")),
       Plan.Case(
         "fork.compactionOrder @ parquet",
-        forkCompactionOrder,
-        description = "File sequence numbers on live data-file entries are exposed and increase " +
-          "monotonically across commits, and rewrite_data_files with rewrite-all preserves the row " +
-          "count and the row set."))
+        forkCompactionOrder))
 
 }

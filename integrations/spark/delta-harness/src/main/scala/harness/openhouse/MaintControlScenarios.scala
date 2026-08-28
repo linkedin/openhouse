@@ -13,176 +13,206 @@ import scala.util.control.NonFatal
 trait MaintControlScenarios extends ScenarioKit {
   import Rows._
 
-  // Time travel and restore/rollback.
-  // A two-snapshot base: seed 3 rows (snapshot A), then insert 2 more (snapshot B). Format is a
-  // parameter so each case below runs against every supported file format.
+  /**
+   * A five-row table across two snapshots in the given file format: a 3-row seed commit, then a
+   * 2-row insert committed at a later timestamp. Time travel, restore and maintenance all start
+   * from this state.
+   */
+  private def twoSnapshotPreparation(format: String): TablePreparation[CoreTable.type] =
+    TablePreparation(format, coreTwoSnapshots(format))
 
+  /**
+   * VERSION AS OF the first snapshot ID reads the 3 rows the seed commit wrote, and VERSION AS OF
+   * the second reads all 5 rows.
+   */
+  private def timeTravelVersionAsOfCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("timeTravel.versionAsOf") { table =>
+      val snapshots = snapshotIds(table.spark, table.name)
+
+      assert(
+        table.spark
+          .sql(
+            s"SELECT count(*) FROM ${table.name} " +
+              s"VERSION AS OF ${snapshots(0)}")
+          .collect()(0)
+          .getLong(0) == 3)
+      assert(
+        table.spark
+          .sql(
+            s"SELECT count(*) FROM ${table.name} " +
+              s"VERSION AS OF ${snapshots(1)}")
+          .collect()(0)
+          .getLong(0) == 5)
+    }
+
+  /** TIMESTAMP AS OF the first commit's time reads the 3 rows that commit wrote. */
+  private def timeTravelTimestampAsOfCase(
+      preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("timeTravel.timestampAsOf") { table =>
+      val firstCommitTimestamp = table.spark
+        .sql(
+          s"SELECT CAST(committed_at AS STRING) FROM ${table.name}.snapshots " +
+            "ORDER BY committed_at LIMIT 1")
+        .collect()(0)
+        .getString(0)
+
+      assert(
+        table.spark
+          .sql(
+            s"SELECT count(*) FROM ${table.name} " +
+              s"TIMESTAMP AS OF '$firstCommitTimestamp'")
+          .collect()(0)
+          .getLong(0) == 3)
+    }
+
+  /**
+   * The snapshots and history metadata tables each report the table's 2 snapshots, and the files
+   * and manifests metadata tables report at least 1 row.
+   */
+  private def timeTravelMetadataTablesCase(
+      preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("timeTravel.metadataTables") { table =>
+      def metadataRowCount(metadataTable: String): Long =
+        table.spark
+          .sql(
+            s"SELECT count(*) FROM ${table.name}.$metadataTable")
+          .collect()(0)
+          .getLong(0)
+
+      assert(metadataRowCount("snapshots") == 2)
+      assert(metadataRowCount("history") == 2)
+      assert(
+        metadataRowCount("files") >= 1 &&
+          metadataRowCount("manifests") >= 1)
+    }
+
+  /** An incremental read spanning both snapshots returns the 2 rows the second commit added. */
+  private def timeTravelIncrementalReadCase(
+      preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("timeTravel.incrementalRead") { table =>
+      val snapshots = snapshotIds(table.spark, table.name)
+      val addedRowCount = table.spark.read
+        .format("iceberg")
+        .option("start-snapshot-id", snapshots(0))
+        .option("end-snapshot-id", snapshots(1))
+        .load(table.name)
+        .count()
+
+      assert(addedRowCount == 2)
+    }
+
+  /** Time travel across both snapshots of the two-snapshot table, in parquet and in orc. */
   val timeTravelCases: List[Plan.Case] =
     List("parquet", "orc").flatMap { format =>
-      val preparation = TablePreparation(
-        format,
-        coreTwoSnapshots(format),
-        description = s"Five seed rows across two snapshots in a $format table.")
+      val preparation = twoSnapshotPreparation(format)
 
       List(
-        preparation.test(
-          "timeTravel.versionAsOf",
-          "VERSION AS OF the first snapshot ID reads 3 rows and VERSION AS OF the second reads " +
-            "5 rows.") { table =>
-          val snapshots = snapshotIds(table.spark, table.name)
-
-          assert(
-            table.spark
-              .sql(
-                s"SELECT count(*) FROM ${table.name} " +
-                  s"VERSION AS OF ${snapshots(0)}")
-              .collect()(0)
-              .getLong(0) == 3)
-          assert(
-            table.spark
-              .sql(
-                s"SELECT count(*) FROM ${table.name} " +
-                  s"VERSION AS OF ${snapshots(1)}")
-              .collect()(0)
-              .getLong(0) == 5)
-        },
-        preparation.test(
-          "timeTravel.timestampAsOf",
-          "TIMESTAMP AS OF the first commit's time reads that snapshot's 3 rows.") { table =>
-          val firstCommitTimestamp = table.spark
-            .sql(
-              s"SELECT CAST(committed_at AS STRING) FROM ${table.name}.snapshots " +
-                "ORDER BY committed_at LIMIT 1")
-            .collect()(0)
-            .getString(0)
-
-          assert(
-            table.spark
-              .sql(
-                s"SELECT count(*) FROM ${table.name} " +
-                  s"TIMESTAMP AS OF '$firstCommitTimestamp'")
-              .collect()(0)
-              .getLong(0) == 3)
-        },
-        preparation.test(
-          "timeTravel.metadataTables",
-          "The snapshots and history metadata tables each report 2 rows, and the files and " +
-            "manifests metadata tables report at least 1 row.") { table =>
-          def metadataRowCount(metadataTable: String): Long =
-            table.spark
-              .sql(
-                s"SELECT count(*) FROM ${table.name}.$metadataTable")
-              .collect()(0)
-              .getLong(0)
-
-          assert(metadataRowCount("snapshots") == 2)
-          assert(metadataRowCount("history") == 2)
-          assert(
-            metadataRowCount("files") >= 1 &&
-              metadataRowCount("manifests") >= 1)
-        },
-        preparation.test(
-          "timeTravel.incrementalRead",
-          "An incremental read spanning the two seed snapshots returns exactly the 2 rows added " +
-            "by the second snapshot.") { table =>
-          val snapshots = snapshotIds(table.spark, table.name)
-          val addedRowCount = table.spark.read
-            .format("iceberg")
-            .option("start-snapshot-id", snapshots(0))
-            .option("end-snapshot-id", snapshots(1))
-            .load(table.name)
-            .count()
-
-          assert(addedRowCount == 2)
-        })
+        timeTravelVersionAsOfCase(preparation),
+        timeTravelTimestampAsOfCase(preparation),
+        timeTravelMetadataTablesCase(preparation),
+        timeTravelIncrementalReadCase(preparation))
     }
 
+  /** rollback_to_snapshot to the first snapshot restores the 3 rows the seed commit wrote. */
+  private def restoreRollbackToSnapshotCase(
+      preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("restore.rollbackToSnapshot") { table =>
+      val firstSnapshotId =
+        snapshotIds(table.spark, table.name).head
+
+      table.spark.sql(
+        "CALL openhouse.system.rollback_to_snapshot(" +
+          s"'${catalogRelative(table.name)}', $firstSnapshotId)")
+
+      assert(table.rows.size == 3)
+    }
+
+  /** set_current_snapshot to the first snapshot restores the 3 rows the seed commit wrote. */
+  private def restoreSetCurrentSnapshotCase(
+      preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("restore.setCurrentSnapshot") { table =>
+      val firstSnapshotId =
+        snapshotIds(table.spark, table.name).head
+
+      table.spark.sql(
+        "CALL openhouse.system.set_current_snapshot(" +
+          s"'${catalogRelative(table.name)}', $firstSnapshotId)")
+
+      assert(table.rows.size == 3)
+    }
+
+  /** Restore back to the seed snapshot of the two-snapshot table, in parquet and in orc. */
   val restoreRollbackCases: List[Plan.Case] =
     List("parquet", "orc").flatMap { format =>
-      val preparation = TablePreparation(
-        format,
-        coreTwoSnapshots(format),
-        description = s"Five seed rows across two snapshots in a $format table.")
+      val preparation = twoSnapshotPreparation(format)
 
       List(
-        preparation.test(
-          "restore.rollbackToSnapshot",
-          "rollback_to_snapshot to the first snapshot restores the table to its 3-row state.") { table =>
-          val firstSnapshotId =
-            snapshotIds(table.spark, table.name).head
-
-          table.spark.sql(
-            "CALL openhouse.system.rollback_to_snapshot(" +
-              s"'${catalogRelative(table.name)}', $firstSnapshotId)")
-
-          assert(table.rows.size == 3)
-        },
-        preparation.test(
-          "restore.setCurrentSnapshot",
-          "set_current_snapshot to the first snapshot restores the table to its 3-row state.") { table =>
-          val firstSnapshotId =
-            snapshotIds(table.spark, table.name).head
-
-          table.spark.sql(
-            "CALL openhouse.system.set_current_snapshot(" +
-              s"'${catalogRelative(table.name)}', $firstSnapshotId)")
-
-          assert(table.rows.size == 3)
-        })
+        restoreRollbackToSnapshotCase(preparation),
+        restoreSetCurrentSnapshotCase(preparation))
     }
 
+  /**
+   * expire_snapshots with retain_last=1 removes the seed snapshot and leaves all 5 current rows
+   * unchanged.
+   */
+  private def maintenanceExpireSnapshotsCase(
+      preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("maintenance.expireSnapshots") { table =>
+      table.spark.sql(
+        "CALL openhouse.system.expire_snapshots(" +
+          s"table => '${catalogRelative(table.name)}', " +
+          "older_than => TIMESTAMP '2999-01-01 00:00:00', " +
+          "retain_last => 1)")
+
+      assert(
+        table.rows.size == 5,
+        "expire_snapshots changed the current data")
+      assert(
+        table.snapshotCount < table.preparedSnapshotCount,
+        "expire_snapshots did not remove a snapshot: " +
+          s"${table.preparedSnapshotCount} -> ${table.snapshotCount}")
+    }
+
+  /** rewrite_data_files compacts the data files and leaves all 5 rows unchanged. */
+  private def maintenanceRewriteDataFilesCase(
+      preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("maintenance.rewriteDataFiles") { table =>
+      table.spark.sql(
+        "CALL openhouse.system.rewrite_data_files(" +
+          s"table => '${catalogRelative(table.name)}')")
+
+      assert(table.rows.size == 5, "compaction changed rows")
+    }
+
+  /** remove_orphan_files leaves all 5 rows unchanged. */
+  private def maintenanceRemoveOrphanFilesCase(
+      preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("maintenance.removeOrphanFiles") { table =>
+      table.spark.sql(
+        "CALL openhouse.system.remove_orphan_files(" +
+          s"table => '${catalogRelative(table.name)}', " +
+          "older_than => TIMESTAMP '2020-01-01 00:00:00')")
+
+      assert(table.rows.size == 5, "orphan removal changed rows")
+    }
+
+  /** The maintenance procedures run over the two-snapshot table, in parquet and in orc. */
   val maintenanceCases: List[Plan.Case] =
     List("parquet", "orc").flatMap { format =>
-      val preparation = TablePreparation(
-        format,
-        coreTwoSnapshots(format),
-        description = s"Five seed rows across two snapshots in a $format table.")
+      val preparation = twoSnapshotPreparation(format)
 
       List(
-        preparation.test(
-          "maintenance.expireSnapshots",
-          "expire_snapshots with retain_last=1 removes an old snapshot and leaves the current 5 " +
-            "rows unchanged.") { table =>
-          table.spark.sql(
-            "CALL openhouse.system.expire_snapshots(" +
-              s"table => '${catalogRelative(table.name)}', " +
-              "older_than => TIMESTAMP '2999-01-01 00:00:00', " +
-              "retain_last => 1)")
-
-          assert(
-            table.rows.size == 5,
-            "expire_snapshots changed the current data")
-          assert(
-            table.snapshotCount < table.preparedSnapshotCount,
-            "expire_snapshots did not remove a snapshot: " +
-              s"${table.preparedSnapshotCount} -> ${table.snapshotCount}")
-        },
-        preparation.test(
-          "maintenance.rewriteDataFiles",
-          "rewrite_data_files compacts the table's data files while preserving all 5 rows.") { table =>
-          table.spark.sql(
-            "CALL openhouse.system.rewrite_data_files(" +
-              s"table => '${catalogRelative(table.name)}')")
-
-          assert(table.rows.size == 5, "compaction changed rows")
-        },
-        preparation.test(
-          "maintenance.removeOrphanFiles",
-          "remove_orphan_files leaves all 5 rows unchanged.") { table =>
-          table.spark.sql(
-            "CALL openhouse.system.remove_orphan_files(" +
-              s"table => '${catalogRelative(table.name)}', " +
-              "older_than => TIMESTAMP '2020-01-01 00:00:00')")
-
-          assert(table.rows.size == 5, "orphan removal changed rows")
-        })
+        maintenanceExpireSnapshotsCase(preparation),
+        maintenanceRewriteDataFilesCase(preparation),
+        maintenanceRemoveOrphanFilesCase(preparation))
     }
 
-  // Control-plane (REST) operations with no SQL surface, driven through the embedded server's
-  // HTTP API. Lock enforcement: POST /lock is a real public endpoint; a subsequent Spark mutation
-  // is rejected server-side with LOCKED_TABLE_OPERATION, and DELETE /lock restores mutability. The
-  // embedded server runs the real TablesController and TablesServiceImpl, so this exercises the
-  // production REST path.
+  /**
+   * POSTing a table lock causes a following Spark UPDATE to be rejected server-side with
+   * LOCKED_TABLE_OPERATION, and DELETEing the lock lets a later UPDATE apply. The lock endpoint has
+   * no SQL surface, so the case drives it over HTTP against the embedded server, which runs the
+   * same TablesController and TablesServiceImpl as production.
+   */
   def controlLockEnforcement(ctx: Ctx): Unit = {
     val spark = ctx.spark
     val table = s"${ctx.namespace}.t_lock"
@@ -205,13 +235,11 @@ trait MaintControlScenarios extends ScenarioKit {
     } finally spark.sql(s"DROP TABLE IF EXISTS $table")
   }
 
+  /** The control-plane cases, each driven over HTTP against the embedded server. */
   val controlPlaneCases: List[Plan.Case] =
     List(
       Plan.Case(
         "control.lock.enforcement @ embedded",
-        controlLockEnforcement,
-        description = "POSTing a table lock causes a subsequent UPDATE to be rejected, and " +
-          "DELETEing the lock allows a following UPDATE to apply."))
-
+        controlLockEnforcement))
 
 }

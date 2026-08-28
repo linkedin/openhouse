@@ -18,11 +18,13 @@ trait DmlScenarios extends ScenarioKit {
   // the row change and the snapshot delta that operation caused. Deltas are relative, so a case
   // holds on any preparation regardless of how many snapshots the preparation itself committed.
 
-  val readTestCases: List[DmlTestCase[CoreTable.type]] = List(
+  /**
+   * SELECT of foo_col_string alone returns that column for every prepared row in key order and
+   * leaves the table state unchanged.
+   */
+  private val readProjection: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "read.projection",
-      s"SELECT of ${Core.string0.columnName} alone returns that column for every prepared row in " +
-        "key order and leaves the table state unchanged.",
       table => {
         val before = table.state
         val projected = table.spark
@@ -38,11 +40,15 @@ trait DmlScenarios extends ScenarioKit {
           projected == before.rows.sortBy(_.get(Core.long0)).map(_.get(Core.string0)),
           s"projection returned $projected")
         assert(after == before, "a read leaves the rows and the snapshot count unchanged")
-      }),
+      })
+
+  /**
+   * SELECT with a foo_col_long >= 2 predicate returns exactly the prepared rows whose key is 2 or
+   * greater and leaves the table state unchanged.
+   */
+  private val readFilter: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "read.filter",
-      s"SELECT with a ${Core.long0.columnName} >= 2 predicate returns exactly the prepared rows " +
-        "whose key is 2 or greater and leaves the table state unchanged.",
       table => {
         val before = table.state
         val selected = table.spark
@@ -58,15 +64,23 @@ trait DmlScenarios extends ScenarioKit {
           selected == before.rows.map(_.get(Core.long0)).filter(_ >= 2).sorted,
           s"filtered read returned $selected")
         assert(after == before, "a read leaves the rows and the snapshot count unchanged")
-      }))
+      })
 
-  // The DELETE for the preparations that already hold a row with a null string. It is its own list
-  // because it only means something against those starting states.
-  val nullStringRowTestCases: List[DmlTestCase[CoreTable.type]] = List(
+  /**
+   * The reads. They select columns by name and write nothing, so they run on any preparation that
+   * starts from the three seed rows, including one whose column list has grown past that shape.
+   */
+  val readTestCases: List[DmlTestCase[CoreTable.type]] = List(
+    readProjection,
+    readFilter)
+
+  /**
+   * DELETE WHERE foo_col_string IS NULL removes exactly the prepared row whose string is null,
+   * leaves every other row unchanged, and commits one snapshot.
+   */
+  private val deleteByNullCondition: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "delete.byNullCondition",
-      s"DELETE WHERE ${Core.string0.columnName} IS NULL removes exactly the prepared row whose " +
-        "string is null, leaves every other row byte for byte as it was, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -80,13 +94,22 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "DELETE by a null condition commits one snapshot")
-      }))
+      })
 
+  /**
+   * The DELETE that selects a null string. It applies to a preparation that already holds a row
+   * whose string column is null, and it removes exactly that row.
+   */
+  val nullStringRowTestCases: List[DmlTestCase[CoreTable.type]] = List(
+    deleteByNullCondition)
+
+  /**
+   * DELETE WHERE datepartition = '2024-01-01-00' removes the rows in that partition value, keeps
+   * the rest, and commits one snapshot.
+   */
   private val deleteByPartitionPredicate: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "delete.byPartitionPredicate",
-      s"DELETE WHERE ${Core.datePartition.columnName} = '2024-01-01-00' removes the rows in that " +
-        "partition value, keeps the rest, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -103,11 +126,13 @@ trait DmlScenarios extends ScenarioKit {
           "DELETE by a partition predicate commits one snapshot")
       })
 
-  private val deleteTestCases: List[DmlTestCase[CoreTable.type]] = List(
+  /**
+   * DELETE WHERE foo_col_long < 2 removes the rows below key 2, leaves every other row unchanged,
+   * and commits one snapshot.
+   */
+  private val deleteByPredicate: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "delete.byPredicate",
-      s"DELETE WHERE ${Core.long0.columnName} < 2 removes the rows below key 2, keeps every other " +
-        "row untouched, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -121,11 +146,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "DELETE by a predicate commits one snapshot")
-      }),
+      })
+
+  /**
+   * DELETE WHERE foo_col_long IN (1, 3) removes keys 1 and 3, leaves every other row exactly as
+   * prepared, and commits one snapshot.
+   */
+  private val deleteByInList: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "delete.byInList",
-      s"DELETE WHERE ${Core.long0.columnName} IN (1, 3) removes keys 1 and 3, leaves every " +
-        "other row exactly as prepared, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -139,11 +168,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "DELETE by an IN list commits one snapshot")
-      }),
+      })
+
+  /**
+   * DELETE WHERE foo_col_long IN (subquery yielding 2) removes key 2, leaves every other row
+   * unchanged, and commits one snapshot.
+   */
+  private val deleteByInSubquery: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "delete.byInSubquery",
-      s"DELETE WHERE ${Core.long0.columnName} IN (subquery yielding 2) removes key 2, leaves " +
-        "every other row exactly as prepared, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -158,11 +191,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "DELETE by an IN subquery commits one snapshot")
-      }),
+      })
+
+  /**
+   * DELETE WHERE foo_col_long NOT IN (subquery yielding 2) removes every key other than 2, leaves
+   * the row for key 2 unchanged, and commits one snapshot.
+   */
+  private val deleteByNotInSubquery: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "delete.byNotInSubquery",
-      s"DELETE WHERE ${Core.long0.columnName} NOT IN (subquery yielding 2) removes every key other " +
-        "than 2 and leaves the row for key 2 exactly as prepared, in one snapshot.",
       table => {
         val before = table.state
 
@@ -177,11 +214,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "DELETE by a NOT IN subquery commits one snapshot")
-      }),
+      })
+
+  /**
+   * DELETE WHERE EXISTS (correlated subquery matching foo_col_long = 2) removes key 2, leaves
+   * every other row unchanged, and commits one snapshot.
+   */
+  private val deleteByExistsSubquery: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "delete.byExistsSubquery",
-      s"DELETE WHERE EXISTS (correlated subquery matching ${Core.long0.columnName} = 2) removes " +
-        "key 2, leaves every other row exactly as prepared, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -197,11 +238,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "DELETE by an EXISTS subquery commits one snapshot")
-      }),
+      })
+
+  /**
+   * DELETE WHERE NOT EXISTS (correlated subquery matching foo_col_long = 2) removes every key
+   * other than 2, leaves the row for key 2 unchanged, and commits one snapshot.
+   */
+  private val deleteByNotExistsSubquery: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "delete.byNotExistsSubquery",
-      s"DELETE WHERE NOT EXISTS (correlated subquery matching ${Core.long0.columnName} = 2) removes " +
-        "every key other than 2 and leaves the row for key 2 exactly as prepared, in one snapshot.",
       table => {
         val before = table.state
 
@@ -217,11 +262,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "DELETE by a NOT EXISTS subquery commits one snapshot")
-      }),
+      })
+
+  /**
+   * DELETE WHERE foo_col_long = (scalar subquery yielding 2) removes key 2, leaves every other row
+   * unchanged, and commits one snapshot.
+   */
+  private val deleteByScalarSubquery: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "delete.byScalarSubquery",
-      s"DELETE WHERE ${Core.long0.columnName} = (scalar subquery yielding 2) removes key 2, " +
-        "leaves every other row exactly as prepared, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -236,10 +285,12 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "DELETE by a scalar subquery commits one snapshot")
-      }),
+      })
+
+  /** DELETE FROM without a predicate empties the table and commits one snapshot. */
+  private val deleteAll: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "delete.all",
-      "DELETE FROM without a predicate empties the table and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -250,11 +301,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "an unconditional DELETE commits one snapshot")
-      }),
+      })
+
+  /**
+   * DELETE WHERE foo_col_long = 999 matches no row, leaves every row unchanged, and still commits
+   * one snapshot.
+   */
+  private val deleteNone: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "delete.none",
-      s"DELETE WHERE ${Core.long0.columnName} = 999 matches no row, keeps every row, and still " +
-        "commits one snapshot.",
       table => {
         val before = table.state
 
@@ -266,12 +321,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "a no-match DELETE with a real predicate still commits one snapshot")
-      }),
-    deleteByPartitionPredicate,
+      })
+
+  /**
+   * DELETE FROM <table> AS x WHERE x.foo_col_long < 2 resolves the alias, removes the rows below
+   * key 2, and commits one snapshot.
+   */
+  private val deleteWithAlias: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "delete.withAlias",
-      s"DELETE FROM <table> AS x WHERE x.${Core.long0.columnName} < 2 resolves the alias, removes " +
-        "the rows below key 2, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -285,10 +343,14 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "DELETE through an alias commits one snapshot")
-      }),
+      })
+
+  /**
+   * DELETE WHERE false is optimized away: the rows stay as they are and no snapshot is committed.
+   */
+  private val deleteWhereFalseNoSnapshot: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "delete.whereFalse.noSnapshot",
-      "DELETE WHERE false is optimized away: the rows stay as they are and no snapshot is committed.",
       table => {
         val before = table.state
 
@@ -299,10 +361,12 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount,
           "DELETE WHERE false must not commit a snapshot")
-      }),
+      })
+
+  /** TRUNCATE TABLE empties the table and commits one snapshot. */
+  private val deleteTruncate: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "delete.truncate",
-      "TRUNCATE TABLE empties the table and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -313,11 +377,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "TRUNCATE commits one snapshot")
-      }),
+      })
+
+  /**
+   * DELETE against a snapshot-pinned identifier is rejected with an IllegalArgumentException
+   * naming that snapshot, and the rows and the snapshot count stay unchanged.
+   */
+  private val deleteAtSnapshotRejected: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "delete.atSnapshot.rejected",
-      "DELETE against a snapshot-pinned identifier is rejected with an IllegalArgumentException " +
-        "naming that snapshot, and the table state stays exactly as prepared.",
       table => {
         val before = table.state
         val snapshotId = table.spark
@@ -338,13 +406,36 @@ trait DmlScenarios extends ScenarioKit {
             s"Cannot delete from table at a specific snapshot: $snapshotId",
           s"unexpected rejection message: ${exception.getMessage}")
         assert(after == before, "a rejected DELETE leaves the rows and the snapshot count unchanged")
-      }))
+      })
 
-  private val updateTestCases: List[DmlTestCase[CoreTable.type]] = List(
+  /**
+   * The DELETE operations. They select rows by column name and write no new row, so they run on
+   * any preparation that starts from the three seed rows, including one whose column list has
+   * grown past that shape.
+   */
+  private val deleteTestCases: List[DmlTestCase[CoreTable.type]] = List(
+    deleteByPredicate,
+    deleteByInList,
+    deleteByInSubquery,
+    deleteByNotInSubquery,
+    deleteByExistsSubquery,
+    deleteByNotExistsSubquery,
+    deleteByScalarSubquery,
+    deleteAll,
+    deleteNone,
+    deleteByPartitionPredicate,
+    deleteWithAlias,
+    deleteWhereFalseNoSnapshot,
+    deleteTruncate,
+    deleteAtSnapshotRejected)
+
+  /**
+   * UPDATE SET foo_col_string = 'X' WHERE foo_col_long = 2 rewrites that column for key 2 only,
+   * leaves every other row unchanged, and commits one snapshot.
+   */
+  private val updateByPredicate: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "update.byPredicate",
-      s"UPDATE SET ${Core.string0.columnName} = 'X' WHERE ${Core.long0.columnName} = 2 rewrites " +
-        "that column for key 2 only, leaves every other key's value alone, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -360,11 +451,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "UPDATE by a predicate commits one snapshot")
-      }),
+      })
+
+  /**
+   * UPDATE SET foo_col_string = 'Z' without a WHERE clause rewrites that column for every row and
+   * commits one snapshot.
+   */
+  private val updateWithoutCondition: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "update.withoutCondition",
-      s"UPDATE SET ${Core.string0.columnName} = 'Z' without a WHERE clause rewrites that column " +
-        "for every row and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -378,11 +473,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "an unconditional UPDATE commits one snapshot")
-      }),
+      })
+
+  /**
+   * UPDATE ... WHERE foo_col_long = 99 matches no row, leaves every row unchanged, and still
+   * commits one snapshot.
+   */
+  private val updateNoMatch: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "update.noMatch",
-      s"UPDATE ... WHERE ${Core.long0.columnName} = 99 matches no row, leaves every value as it " +
-        "was, and still commits one snapshot.",
       table => {
         val before = table.state
 
@@ -397,11 +496,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "a no-match UPDATE still commits one snapshot")
-      }),
+      })
+
+  /**
+   * UPDATE ... WHERE foo_col_long IN (subquery yielding 2) rewrites key 2 only and commits one
+   * snapshot.
+   */
+  private val updateByInSubquery: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "update.byInSubquery",
-      s"UPDATE ... WHERE ${Core.long0.columnName} IN (subquery yielding 2) rewrites key 2 only and " +
-        "commits one snapshot.",
       table => {
         val before = table.state
 
@@ -418,11 +521,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "UPDATE by an IN subquery commits one snapshot")
-      }),
+      })
+
+  /**
+   * UPDATE ... WHERE foo_col_long NOT IN (subquery yielding 2) rewrites every key other than 2 and
+   * commits one snapshot.
+   */
+  private val updateByNotInSubquery: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "update.byNotInSubquery",
-      s"UPDATE ... WHERE ${Core.long0.columnName} NOT IN (subquery yielding 2) rewrites every key " +
-        "other than 2 and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -439,11 +546,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "UPDATE by a NOT IN subquery commits one snapshot")
-      }),
+      })
+
+  /**
+   * UPDATE ... WHERE EXISTS (correlated subquery matching foo_col_long = 2) rewrites key 2 only
+   * and commits one snapshot.
+   */
+  private val updateByExistsSubquery: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "update.byExistsSubquery",
-      s"UPDATE ... WHERE EXISTS (correlated subquery matching ${Core.long0.columnName} = 2) " +
-        "rewrites key 2 only and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -460,11 +571,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "UPDATE by an EXISTS subquery commits one snapshot")
-      }),
+      })
+
+  /**
+   * UPDATE ... WHERE NOT EXISTS (correlated subquery matching foo_col_long = 2) rewrites every key
+   * other than 2 and commits one snapshot.
+   */
+  private val updateByNotExistsSubquery: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "update.byNotExistsSubquery",
-      s"UPDATE ... WHERE NOT EXISTS (correlated subquery matching ${Core.long0.columnName} = 2) " +
-        "rewrites every key other than 2 and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -481,11 +596,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "UPDATE by a NOT EXISTS subquery commits one snapshot")
-      }),
+      })
+
+  /**
+   * UPDATE ... WHERE foo_col_long = (scalar subquery yielding 2) rewrites key 2 only and commits
+   * one snapshot.
+   */
+  private val updateByScalarSubquery: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "update.byScalarSubquery",
-      s"UPDATE ... WHERE ${Core.long0.columnName} = (scalar subquery yielding 2) rewrites key 2 " +
-        "only and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -502,11 +621,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "UPDATE by a scalar subquery commits one snapshot")
-      }),
+      })
+
+  /**
+   * UPDATE <table> AS x SET x.foo_col_string ... WHERE x.foo_col_long = 2 resolves the alias on
+   * both sides, rewrites key 2 only, and commits one snapshot.
+   */
+  private val updateWithAlias: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "update.withAlias",
-      s"UPDATE <table> AS x SET x.${Core.string0.columnName} ... WHERE x.${Core.long0.columnName} " +
-        "= 2 resolves the alias on both sides, rewrites key 2 only, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -522,12 +645,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "UPDATE through an alias commits one snapshot")
-      }),
+      })
+
+  /**
+   * UPDATE SET foo_col_string = 'X', foo_col_int = 99 WHERE foo_col_long = 2 rewrites both columns
+   * of key 2 in one statement and commits one snapshot.
+   */
+  private val updateMultipleColumns: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "update.multipleColumns",
-      s"UPDATE SET ${Core.string0.columnName} = 'X', ${Core.int0.columnName} = 99 WHERE " +
-        s"${Core.long0.columnName} = 2 rewrites both columns of key 2 in one statement and commits " +
-        "one snapshot.",
       table => {
         val before = table.state
 
@@ -545,12 +671,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "a multi-column UPDATE commits one snapshot")
-      }),
+      })
+
+  /**
+   * UPDATE SET foo_col_long = foo_col_long + 10 WHERE foo_col_long = 2 moves key 2 to key 12,
+   * leaves every other row unchanged, and commits one snapshot.
+   */
+  private val updateByExpression: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "update.byExpression",
-      s"UPDATE SET ${Core.long0.columnName} = ${Core.long0.columnName} + 10 WHERE " +
-        s"${Core.long0.columnName} = 2 moves key 2 to key 12, leaves the other keys alone, and " +
-        "commits one snapshot.",
       table => {
         val before = table.state
 
@@ -567,12 +696,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "UPDATE by an expression commits one snapshot")
-      }),
+      })
+
+  /**
+   * UPDATE SET datepartition = '2099-12-31-23' WHERE foo_col_long = 2 moves key 2 to another
+   * partition value, leaves every other row unchanged, and commits one snapshot.
+   */
+  private val updateMovePartition: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "update.movePartition",
-      s"UPDATE SET ${Core.datePartition.columnName} = '2099-12-31-23' WHERE " +
-        s"${Core.long0.columnName} = 2 moves key 2 to another partition value, leaves the other " +
-        "rows in their partitions, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -591,11 +723,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "a partition-moving UPDATE commits one snapshot")
-      }),
+      })
+
+  /**
+   * UPDATE SET foo_col_string = NULL WHERE foo_col_long = 2 stores a null in that column for key 2
+   * only and commits one snapshot.
+   */
+  private val updateNullAssignment: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "update.nullAssignment",
-      s"UPDATE SET ${Core.string0.columnName} = NULL WHERE ${Core.long0.columnName} = 2 stores a " +
-        "null in that column for key 2 only and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -611,14 +747,35 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "an UPDATE assigning null commits one snapshot")
-      }))
+      })
 
-  private val mergeTestCases: List[DmlTestCase[CoreTable.type]] = List(
+  /**
+   * The UPDATE operations. They assign columns by name, so they run on any preparation that starts
+   * from the three seed rows, including one whose column list has grown past that shape.
+   */
+  private val updateTestCases: List[DmlTestCase[CoreTable.type]] = List(
+    updateByPredicate,
+    updateWithoutCondition,
+    updateNoMatch,
+    updateByInSubquery,
+    updateByNotInSubquery,
+    updateByExistsSubquery,
+    updateByNotExistsSubquery,
+    updateByScalarSubquery,
+    updateWithAlias,
+    updateMultipleColumns,
+    updateByExpression,
+    updateMovePartition,
+    updateNullAssignment)
+
+  /**
+   * MERGE with only a WHEN NOT MATCHED THEN INSERT * clause appends the two source rows (keys 4
+   * and 5) with every source column value, leaves the prepared rows unchanged, and commits one
+   * snapshot.
+   */
+  private val mergeInsertNotMatched: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "merge.insertNotMatched",
-      "MERGE with only a WHEN NOT MATCHED THEN INSERT * clause appends the two source rows (keys 4 " +
-        "and 5) with every source column value, leaves the prepared rows exactly as they were, and " +
-        "commits one snapshot.",
       table => {
         val before = table.state
 
@@ -640,11 +797,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "a MERGE that inserts commits one snapshot")
-      }),
+      })
+
+  /**
+   * MERGE with only a WHEN MATCHED THEN UPDATE clause rewrites the matched key 2, leaves the
+   * unmatched rows unchanged, and commits one snapshot.
+   */
+  private val mergeUpdateMatched: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "merge.updateMatched",
-      "MERGE with only a WHEN MATCHED THEN UPDATE clause rewrites the matched key 2, leaves the " +
-        "unmatched rows alone, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -664,11 +825,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "a MERGE that updates commits one snapshot")
-      }),
+      })
+
+  /**
+   * MERGE with only a WHEN MATCHED THEN DELETE clause removes the matched keys 1 and 3, keeps the
+   * unmatched rows, and commits one snapshot.
+   */
+  private val mergeDeleteMatched: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "merge.deleteMatched",
-      "MERGE with only a WHEN MATCHED THEN DELETE clause removes the matched keys 1 and 3, keeps " +
-        "the unmatched rows, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -686,11 +851,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "a MERGE that deletes commits one snapshot")
-      }),
+      })
+
+  /**
+   * MERGE with both an UPDATE clause and an INSERT clause rewrites the matched key 2 and appends
+   * the unmatched key 7 in a single statement, and commits one snapshot.
+   */
+  private val mergeUpsert: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "merge.upsert",
-      "MERGE with both an UPDATE clause and an INSERT clause rewrites the matched key 2 and appends " +
-        "the unmatched key 7 in a single statement, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -715,11 +884,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "an upsert MERGE commits one snapshot")
-      }),
+      })
+
+  /**
+   * MERGE with a WHEN NOT MATCHED BY SOURCE THEN DELETE clause removes every row the source does
+   * not carry, keeps the matched key 2, and commits one snapshot.
+   */
+  private val mergeDeleteNotMatchedBySource: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "merge.deleteNotMatchedBySource",
-      "MERGE with a WHEN NOT MATCHED BY SOURCE THEN DELETE clause removes every row the source does " +
-        "not carry, keeps the matched key 2, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -737,12 +910,16 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "a not-matched-by-source MERGE commits one snapshot")
-      }),
+      })
+
+  /**
+   * MERGE with a WHEN MATCHED AND <condition> THEN UPDATE clause rewrites only the matched row
+   * that also satisfies the condition (key 2), leaves matched key 3 unchanged, and commits one
+   * snapshot.
+   */
+  private val mergeConditionalUpdate: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "merge.conditionalUpdate",
-      "MERGE with a WHEN MATCHED AND <condition> THEN UPDATE clause rewrites only the matched row " +
-        "that also satisfies the condition (key 2), leaves matched key 3 as it was, and commits one " +
-        "snapshot.",
       table => {
         val before = table.state
 
@@ -763,11 +940,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "a conditional-update MERGE commits one snapshot")
-      }),
+      })
+
+  /**
+   * MERGE with two MATCHED clauses applies the first matching clause per row: key 2 is updated by
+   * the conditional clause and key 3 falls through to the DELETE clause, in one snapshot.
+   */
+  private val mergeMultipleMatchedClauses: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "merge.multipleMatchedClauses",
-      "MERGE with two MATCHED clauses applies the first matching clause per row: key 2 is updated " +
-        "by the conditional clause and key 3 falls through to the DELETE clause, in one snapshot.",
       table => {
         val before = table.state
 
@@ -791,11 +972,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "a multi-clause MERGE commits one snapshot")
-      }),
+      })
+
+  /**
+   * MERGE with a WHEN NOT MATCHED AND <condition> THEN INSERT clause appends only the source row
+   * that satisfies the condition (key 4), skips key 5, and commits one snapshot.
+   */
+  private val mergeConditionalInsert: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "merge.conditionalInsert",
-      "MERGE with a WHEN NOT MATCHED AND <condition> THEN INSERT clause appends only the source row " +
-        "that satisfies the condition (key 4), skips key 5, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -815,11 +1000,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "a conditional-insert MERGE commits one snapshot")
-      }),
+      })
+
+  /**
+   * MERGE carrying UPDATE, INSERT, and NOT MATCHED BY SOURCE DELETE clauses updates key 2, inserts
+   * key 4, deletes the rows the source omits, and commits one snapshot.
+   */
+  private val mergeAllClauses: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "merge.allClauses",
-      "MERGE carrying UPDATE, INSERT, and NOT MATCHED BY SOURCE DELETE clauses updates key 2, " +
-        "inserts key 4, deletes the rows the source omits, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -846,11 +1035,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "a MERGE with every clause commits one snapshot")
-      }),
+      })
+
+  /**
+   * MERGE with WHEN MATCHED THEN UPDATE SET * copies every source column onto the matched key 2,
+   * leaves the unmatched rows unchanged, and commits one snapshot.
+   */
+  private val mergeUpdateStar: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "merge.updateStar",
-      "MERGE with WHEN MATCHED THEN UPDATE SET * copies every source column onto the matched key 2, " +
-        "leaves the unmatched rows exactly as prepared, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -872,11 +1065,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "an UPDATE SET * MERGE commits one snapshot")
-      }),
+      })
+
+  /**
+   * MERGE whose INSERT clause names a column subset appends key 7 with the named values, leaves
+   * the unnamed columns null, and commits one snapshot.
+   */
+  private val mergeInsertExplicitColumns: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "merge.insertExplicitColumns",
-      "MERGE whose INSERT clause names a column subset appends key 7 with the named values, leaves " +
-        "the unnamed columns null, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -896,11 +1093,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "an explicit-column MERGE insert commits one snapshot")
-      }),
+      })
+
+  /**
+   * MERGE whose source is a common table expression appends the key 8 that CTE yields, with null
+   * in every column the CTE does not supply, and commits one snapshot.
+   */
+  private val mergeSourceCTE: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "merge.sourceCTE",
-      "MERGE whose source is a common table expression appends the key 8 that CTE yields, with " +
-        "null in every column the CTE does not supply, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -921,11 +1122,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "a MERGE from a CTE source commits one snapshot")
-      }),
+      })
+
+  /**
+   * MERGE whose source is a UNION ALL appends both keys the set operation yields (8 and 9), with
+   * null in every column the source does not supply, and commits one snapshot.
+   */
+  private val mergeSourceSetOp: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "merge.sourceSetOp",
-      "MERGE whose source is a UNION ALL appends both keys the set operation yields (8 and 9), with " +
-        "null in every column the source does not supply, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -947,11 +1152,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "a MERGE from a set-operation source commits one snapshot")
-      }),
+      })
+
+  /**
+   * After the table is emptied, MERGE with a NOT MATCHED INSERT clause inserts both source rows
+   * (keys 4 and 5) into the empty target and commits one snapshot.
+   */
+  private val mergeIntoEmptyTarget: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "merge.intoEmptyTarget",
-      "After the table is emptied, MERGE with a NOT MATCHED INSERT clause inserts both source rows " +
-        "(keys 4 and 5) into the empty target and commits one snapshot.",
       table => {
         table.spark.sql(s"DELETE FROM ${table.name}")
         val before = table.state
@@ -976,11 +1185,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "a MERGE into an empty target commits one snapshot")
-      }),
+      })
+
+  /**
+   * MERGE whose source carries a null join key matches no target row on that key: only the
+   * non-null key 2 is updated, no row is added or removed, and one snapshot is committed.
+   */
+  private val mergeNullJoinKey: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "merge.nullJoinKey",
-      "MERGE whose source carries a null join key matches no target row on that key: only the " +
-        "non-null key 2 is updated, no row is added or removed, and one snapshot is committed.",
       table => {
         val before = table.state
 
@@ -1001,12 +1214,16 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "a MERGE with a null join key commits one snapshot")
-      }),
+      })
+
+  /**
+   * MERGE with INSERT * resolves the source columns by name: key 7 lands with every source value
+   * in its named column when the source lists its columns in another order, and one snapshot is
+   * committed.
+   */
+  private val mergeResolveByName: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "merge.resolveByName",
-      "MERGE with INSERT * resolves the source columns by name: key 7 lands with every source " +
-        "value in its named column when the source lists its columns in another order, and one " +
-        "snapshot is committed.",
       table => {
         val before = table.state
 
@@ -1031,13 +1248,37 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "a name-resolved MERGE insert commits one snapshot")
-      }))
+      })
 
-  private val insertAndOverwriteTestCases: List[DmlTestCase[CoreTable.type]] = List(
+  /**
+   * The MERGE operations. Their INSERT clauses write a whole seed-shaped row, so they run on a
+   * preparation whose column list is still the seed shape.
+   */
+  private val mergeTestCases: List[DmlTestCase[CoreTable.type]] = List(
+    mergeInsertNotMatched,
+    mergeUpdateMatched,
+    mergeDeleteMatched,
+    mergeUpsert,
+    mergeDeleteNotMatchedBySource,
+    mergeConditionalUpdate,
+    mergeMultipleMatchedClauses,
+    mergeConditionalInsert,
+    mergeAllClauses,
+    mergeUpdateStar,
+    mergeInsertExplicitColumns,
+    mergeSourceCTE,
+    mergeSourceSetOp,
+    mergeIntoEmptyTarget,
+    mergeNullJoinKey,
+    mergeResolveByName)
+
+  /**
+   * INSERT INTO ... VALUES appends the two literal rows (keys 4 and 5), leaves the prepared rows
+   * unchanged, and commits one snapshot.
+   */
+  private val insertInto: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "insert.into",
-      "INSERT INTO ... VALUES appends the two literal rows (keys 4 and 5), keeps the prepared rows, " +
-        "and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -1055,11 +1296,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "INSERT INTO commits one snapshot")
-      }),
+      })
+
+  /**
+   * INSERT INTO naming a subset of the columns is rejected by the engine with a message naming the
+   * omitted data, and the rows and the snapshot count stay unchanged.
+   */
+  private val insertExplicitColumns: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "insert.explicitColumns",
-      "INSERT INTO naming a subset of the columns is rejected by the engine with a message naming " +
-        "the omitted data, and the table state stays exactly as prepared.",
       table => {
         val before = table.state
 
@@ -1078,11 +1323,15 @@ trait DmlScenarios extends ScenarioKit {
           "expected a partial-INSERT rejection naming the omitted column " +
             s"(engine limitation), got: ${exceptionMessage.take(200)}")
         assert(after == before, "a rejected INSERT leaves the rows and the snapshot count unchanged")
-      }),
+      })
+
+  /**
+   * INSERT INTO ... SELECT appends the row the SELECT produces (key 6), leaves the prepared rows
+   * unchanged, and commits one snapshot.
+   */
+  private val insertIntoSelect: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "insert.intoSelect",
-      "INSERT INTO ... SELECT appends the row the SELECT produces (key 6), keeps the prepared rows, " +
-        "and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -1098,11 +1347,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "INSERT INTO ... SELECT commits one snapshot")
-      }),
+      })
+
+  /**
+   * The DataFrame writeTo(...).append() path appends the frame's row (key 6), keeps the prepared
+   * rows, and commits one snapshot.
+   */
+  private val appendDataFrame: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "append.dataFrame",
-      "The DataFrame writeTo(...).append() path appends the frame's row (key 6), keeps the prepared " +
-        "rows, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -1121,11 +1374,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "a DataFrame append commits one snapshot")
-      }),
+      })
+
+  /**
+   * INSERT OVERWRITE ... VALUES replaces the table contents with the two literal rows (keys 1 and
+   * 2) and commits one snapshot.
+   */
+  private val insertOverwrite: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "insert.overwrite",
-      "INSERT OVERWRITE ... VALUES replaces the table contents with the two literal rows (keys 1 " +
-        "and 2) and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -1143,11 +1400,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "INSERT OVERWRITE commits one snapshot")
-      }),
+      })
+
+  /**
+   * The DataFrame writeTo(...).overwrite(lit(true)) path replaces every row with the frame's row
+   * (key 8) and commits one snapshot.
+   */
+  private val overwriteDataFrame: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "overwrite.dataFrame",
-      "The DataFrame writeTo(...).overwrite(lit(true)) path replaces every row with the frame's row " +
-        "(key 8) and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -1166,15 +1427,28 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "a DataFrame overwrite commits one snapshot")
-      }))
+      })
 
-  // Partition-scoped writes: they only mean something on a table that is partitioned, so they are
-  // crossed with the partitioned preparations alone.
-  val partitionedTableTestCases: List[DmlTestCase[CoreTable.type]] = List(
+  /**
+   * The appends and the overwrites. They write whole seed-shaped rows, so they run on a
+   * preparation whose column list is still the seed shape.
+   */
+  private val insertAndOverwriteTestCases: List[DmlTestCase[CoreTable.type]] = List(
+    insertInto,
+    insertExplicitColumns,
+    insertIntoSelect,
+    appendDataFrame,
+    insertOverwrite,
+    overwriteDataFrame)
+
+  /**
+   * Under partitionOverwriteMode=dynamic, INSERT OVERWRITE with one row replaces only that row's
+   * partition (2024-01-01-00), leaves the rows of every other partition unchanged, and commits one
+   * snapshot.
+   */
+  private val insertDynamicOverwrite: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "insert.dynamicOverwrite",
-      "Under partitionOverwriteMode=dynamic, INSERT OVERWRITE with one row replaces only that row's " +
-        "partition (2024-01-01-00), keeps the rows of every other partition, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -1196,11 +1470,16 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "a dynamic partition overwrite commits one snapshot")
-      }),
+      })
+
+  /**
+   * The DataFrame writeTo(...).overwritePartitions() path replaces only the partitions the frame
+   * carries (2024-01-01-00), leaves the rows of every other partition unchanged, and commits one
+   * snapshot.
+   */
+  private val overwritePartitions: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "overwrite.partitions",
-      "The DataFrame writeTo(...).overwritePartitions() path replaces only the partitions the frame " +
-        "carries (2024-01-01-00), keeps the rows of every other partition, and commits one snapshot.",
       table => {
         val before = table.state
 
@@ -1221,7 +1500,15 @@ trait DmlScenarios extends ScenarioKit {
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "a partition overwrite commits one snapshot")
-      }))
+      })
+
+  /**
+   * The partition-scoped writes. They replace whole partitions, so they apply to a preparation
+   * that partitions the table, and they cross with the partitioned preparations alone.
+   */
+  val partitionedTableTestCases: List[DmlTestCase[CoreTable.type]] = List(
+    insertDynamicOverwrite,
+    overwritePartitions)
 
   // --- which cases a preparation is compatible with ---
   // Compatibility is a property of the starting state, so each list names the states it fits.
@@ -1245,6 +1532,10 @@ trait DmlScenarios extends ScenarioKit {
   val testCasesCompatibleWithAnAddedColumn: List[DmlTestCase[CoreTable.type]] =
     readTestCases ++ deleteTestCases ++ updateTestCases
 
+  /**
+   * Every DML case, with the partition-predicate DELETE marked as a known bug: the Spark and
+   * Iceberg rewrite crashes on it when the table carries a write order.
+   */
   val orderedDmlTestCases: List[DmlTestCase[CoreTable.type]] =
     allDmlTestCases.map {
       case testCase if testCase == deleteByPartitionPredicate =>
@@ -1257,29 +1548,43 @@ trait DmlScenarios extends ScenarioKit {
 
   // --- standard preparations crossed with the cases they are compatible with ---
 
+  /**
+   * Every DML case on the core preparations, plus the null-string DELETE on the same preparations
+   * extended with a null-string row.
+   */
   val coreDmlCases: List[Plan.Case] =
     preparedCoreTables.flatMap(preparation => allDmlTestCases.map(_.runOn(preparation))) ++
       preparedNullStringCoreTables.flatMap(preparation =>
         nullStringRowTestCases.map(_.runOn(preparation)))
 
+  /** The partition-scoped writes on the partitioned preparations. */
   val partitionedDmlCases: List[Plan.Case] =
     preparedPartitionedCoreTables.flatMap(preparation =>
       partitionedTableTestCases.map(_.runOn(preparation)))
 
+  /**
+   * Every DML case on the write-ordered preparations, plus the null-string DELETE on their
+   * null-string form.
+   */
   val orderedDmlCases: List[Plan.Case] =
     preparedOrderedCoreTables.flatMap(preparation => orderedDmlTestCases.map(_.runOn(preparation))) ++
       preparedNullStringOrderedCoreTables.flatMap(preparation =>
         nullStringRowTestCases.map(_.runOn(preparation)))
 
+  /** The cases that address columns by name, on the preparations that added a column. */
   val evolvedDmlCases: List[Plan.Case] =
     preparedEvolvedCoreTables.flatMap(preparation =>
       testCasesCompatibleWithAnAddedColumn.map(_.runOn(preparation)))
 
   // --- DDL consumers: a DDL evolves the table, then operations are run against it ---
 
-  // Each preparation is one layout evolved by one DDL. A consumer case then runs an operation
-  // against the evolved table. Plan walks this list so every consumer family lands on the same
-  // preparation before the next preparation starts.
+  /**
+   * One preparation per Parquet and ORC layout and per DDL: three seed rows with keys 1, 2 and 3,
+   * then one of ADD COLUMN cc int, which the seed rows read as null; foo_col_int widened from int
+   * to bigint; WRITE ORDERED BY foo_col_long, which gives the table that write sort order; or
+   * write.distribution-mode set to range, which range distributes later writes. Plan walks this
+   * list so every consumer family lands on one preparation before the next preparation starts.
+   */
   val ddlConsumerPreparations: List[TablePreparation[CoreTable.type]] =
     parquetAndOrcLayouts.flatMap { layout =>
       List(
@@ -1287,156 +1592,169 @@ trait DmlScenarios extends ScenarioKit {
           layout.label,
           createAndSeed(layout, 3)
             .sql("ddl")(table => s"ALTER TABLE $table ADD COLUMN cc int")(),
-          "ddlConsume:addColumn.",
-          description = s"Three seed rows with keys 1, 2 and 3 in ${layout.description}, then " +
-            "ADD COLUMN cc int, so the table carries an added column the seed rows read as null."),
+          "ddlConsume:addColumn."),
         TablePreparation(
           layout.label,
           createAndSeed(layout, 3)
             .sql("ddl")(table =>
               s"ALTER TABLE $table ALTER COLUMN ${Core.int0.columnName} TYPE bigint")(),
-          "ddlConsume:typeWiden.",
-          description = s"Three seed rows with keys 1, 2 and 3 in ${layout.description}, then " +
-            s"${Core.int0.columnName} widened from int to bigint."),
+          "ddlConsume:typeWiden."),
         TablePreparation(
           layout.label,
           createAndSeed(layout, 3)
             .sql("ddl")(table =>
               s"ALTER TABLE $table WRITE ORDERED BY ${Core.long0.columnName}")(),
-          "ddlConsume:writeOrder.",
-          description = s"Three seed rows with keys 1, 2 and 3 in ${layout.description}, then " +
-            s"WRITE ORDERED BY ${Core.long0.columnName}, so the table carries that write sort order."),
+          "ddlConsume:writeOrder."),
         TablePreparation(
           layout.label,
           createAndSeed(layout, 3)
             .sql("ddl")(table =>
               s"ALTER TABLE $table SET TBLPROPERTIES " +
                 "('write.distribution-mode'='range')")(),
-          "ddlConsume:distMode.",
-          description = s"Three seed rows with keys 1, 2 and 3 in ${layout.description}, then " +
-            "write.distribution-mode set to range, so writes are range distributed."))
+          "ddlConsume:distMode."))
     }
 
-  // The reads and writes a consumer runs against the evolved table.
+  /** A plain INSERT still lands on the table after the DDL, taking it to four rows. */
+  private def dmlWriteCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("dmlWrite") { table =>
+      table.spark.sql(
+        s"INSERT INTO ${table.name} SELECT * FROM ${table.name} " +
+          s"WHERE ${Core.long0.columnName} = 1")
+
+      assert(
+        table.spark
+          .sql(s"SELECT count(*) FROM ${table.name}")
+          .collect()(0)
+          .getLong(0) == 4,
+        "table is not writable after DDL")
+    }
+
+  /** A row-level DELETE still lands on the table after the DDL, taking it to two rows. */
+  private def dmlMutateCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("dmlMutate") { table =>
+      table.spark.sql(
+        s"DELETE FROM ${table.name} WHERE ${Core.long0.columnName} = 2")
+
+      assert(
+        table.spark
+          .sql(s"SELECT count(*) FROM ${table.name}")
+          .collect()(0)
+          .getLong(0) == 2,
+        "mutation failed after DDL")
+    }
+
+  /**
+   * The seed snapshot from before the DDL is still readable through VERSION AS OF and returns its
+   * three rows.
+   */
+  private def timeTravelCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("timeTravel") { table =>
+      val seedSnapshotId =
+        snapshotIds(table.spark, table.name).head
+
+      assert(
+        table.spark
+          .sql(
+            s"SELECT count(*) FROM ${table.name} " +
+              s"VERSION AS OF $seedSnapshotId")
+          .collect()(0)
+          .getLong(0) == 3,
+        "seed snapshot is not readable after DDL")
+    }
+
+  /**
+   * rollback_to_snapshot back to the seed snapshot undoes an INSERT made after the DDL and returns
+   * the table to its three seed rows.
+   */
+  private def restoreCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("restore") { table =>
+      val seedSnapshotId =
+        snapshotIds(table.spark, table.name).head
+
+      table.spark.sql(
+        s"INSERT INTO ${table.name} SELECT * FROM ${table.name} " +
+          s"WHERE ${Core.long0.columnName} = 1")
+      table.spark.sql(
+        "CALL openhouse.system.rollback_to_snapshot(" +
+          s"'${catalogRelative(table.name)}', $seedSnapshotId)")
+
+      assert(
+        table.spark
+          .sql(s"SELECT count(*) FROM ${table.name}")
+          .collect()(0)
+          .getLong(0) == 3,
+        "restore across DDL failed")
+    }
+
+  /**
+   * expire_snapshots retaining only the newest snapshot leaves the table readable with its four
+   * current rows.
+   */
+  private def expireCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("expire") { table =>
+      table.spark.sql(
+        s"INSERT INTO ${table.name} SELECT * FROM ${table.name} " +
+          s"WHERE ${Core.long0.columnName} = 1")
+      table.spark.sql(
+        "CALL openhouse.system.expire_snapshots(" +
+          s"table => '${catalogRelative(table.name)}', " +
+          "older_than => TIMESTAMP '2999-01-01 00:00:00', " +
+          "retain_last => 1)")
+
+      assert(
+        table.spark
+          .sql(s"SELECT count(*) FROM ${table.name}")
+          .collect()(0)
+          .getLong(0) == 4,
+        "table is unreadable after snapshot expiration")
+    }
+
+  /** The reads and writes a consumer runs against the table this preparation evolved. */
   def ddlConsumerDataCases(
       preparation: TablePreparation[CoreTable.type]): List[Plan.Case] =
     List(
-      preparation.test(
-        "dmlWrite",
-        "A plain INSERT still lands on the table after the DDL, taking it to four rows.") { table =>
-        table.spark.sql(
-          s"INSERT INTO ${table.name} SELECT * FROM ${table.name} " +
-            s"WHERE ${Core.long0.columnName} = 1")
+      dmlWriteCase(preparation),
+      dmlMutateCase(preparation),
+      timeTravelCase(preparation),
+      restoreCase(preparation),
+      expireCase(preparation))
 
-        assert(
-          table.spark
-            .sql(s"SELECT count(*) FROM ${table.name}")
-            .collect()(0)
-            .getLong(0) == 4,
-          "table is not writable after DDL")
-      },
-      preparation.test(
-        "dmlMutate",
-        "A row-level DELETE still lands on the table after the DDL, taking it to two rows.") { table =>
-        table.spark.sql(
-          s"DELETE FROM ${table.name} WHERE ${Core.long0.columnName} = 2")
+  /**
+   * rewrite_data_files compacts the files written across the DDL and preserves the four current
+   * rows.
+   */
+  private def compactCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("compact") { table =>
+      table.spark.sql(
+        s"INSERT INTO ${table.name} SELECT * FROM ${table.name} " +
+          s"WHERE ${Core.long0.columnName} = 1")
+      table.spark.sql(
+        "CALL openhouse.system.rewrite_data_files(" +
+          s"table => '${catalogRelative(table.name)}', " +
+          "options => map('min-input-files', '2'))")
 
-        assert(
-          table.spark
-            .sql(s"SELECT count(*) FROM ${table.name}")
-            .collect()(0)
-            .getLong(0) == 2,
-          "mutation failed after DDL")
-      },
-      preparation.test(
-        "timeTravel",
-        "The seed snapshot from before the DDL is still readable through VERSION AS OF and " +
-          "returns its three rows.") { table =>
-        val seedSnapshotId =
-          snapshotIds(table.spark, table.name).head
+      assert(
+        table.spark
+          .sql(s"SELECT count(*) FROM ${table.name}")
+          .collect()(0)
+          .getLong(0) == 4,
+        "compaction changed rows after DDL")
+    }
 
-        assert(
-          table.spark
-            .sql(
-              s"SELECT count(*) FROM ${table.name} " +
-                s"VERSION AS OF $seedSnapshotId")
-            .collect()(0)
-            .getLong(0) == 3,
-          "seed snapshot is not readable after DDL")
-      },
-      preparation.test(
-        "restore",
-        "rollback_to_snapshot back to the seed snapshot undoes an INSERT made after the DDL " +
-          "and returns the table to its three seed rows.") { table =>
-        val seedSnapshotId =
-          snapshotIds(table.spark, table.name).head
-
-        table.spark.sql(
-          s"INSERT INTO ${table.name} SELECT * FROM ${table.name} " +
-            s"WHERE ${Core.long0.columnName} = 1")
-        table.spark.sql(
-          "CALL openhouse.system.rollback_to_snapshot(" +
-            s"'${catalogRelative(table.name)}', $seedSnapshotId)")
-
-        assert(
-          table.spark
-            .sql(s"SELECT count(*) FROM ${table.name}")
-            .collect()(0)
-            .getLong(0) == 3,
-          "restore across DDL failed")
-      },
-      preparation.test(
-        "expire",
-        "expire_snapshots retaining only the newest snapshot leaves the table readable with " +
-          "its four current rows.") { table =>
-        table.spark.sql(
-          s"INSERT INTO ${table.name} SELECT * FROM ${table.name} " +
-            s"WHERE ${Core.long0.columnName} = 1")
-        table.spark.sql(
-          "CALL openhouse.system.expire_snapshots(" +
-            s"table => '${catalogRelative(table.name)}', " +
-            "older_than => TIMESTAMP '2999-01-01 00:00:00', " +
-            "retain_last => 1)")
-
-        assert(
-          table.spark
-            .sql(s"SELECT count(*) FROM ${table.name}")
-            .collect()(0)
-            .getLong(0) == 4,
-          "table is unreadable after snapshot expiration")
-      })
-
-  // Compaction run against the files written across the DDL.
+  /** The compaction a consumer runs over the files written across this preparation's DDL. */
   def ddlConsumerCompactionCases(
       preparation: TablePreparation[CoreTable.type]): List[Plan.Case] =
     List(
-      preparation.test(
-        "compact",
-        "rewrite_data_files compacts the files written across the DDL and preserves the four " +
-          "current rows.") { table =>
-        table.spark.sql(
-          s"INSERT INTO ${table.name} SELECT * FROM ${table.name} " +
-            s"WHERE ${Core.long0.columnName} = 1")
-        table.spark.sql(
-          "CALL openhouse.system.rewrite_data_files(" +
-            s"table => '${catalogRelative(table.name)}', " +
-            "options => map('min-input-files', '2'))")
-
-        assert(
-          table.spark
-            .sql(s"SELECT count(*) FROM ${table.name}")
-            .collect()(0)
-            .getLong(0) == 4,
-          "compaction changed rows after DDL")
-      })
+      compactCase(preparation))
 
   // --- DDL that changes the schema of a seeded table ---
 
-  val createSchemaCases: List[Plan.Case] = preparedEmptyCoreTables.map { preparation =>
-    preparation.test(
-      "create.schema",
-      "The created table's schema is exactly CoreTable's columns, in declaration order and with " +
-        "their declared types, and the table holds no rows.") { table =>
+  /**
+   * The created table's schema is exactly CoreTable's columns, in declaration order and with their
+   * declared types, and the table holds no rows.
+   */
+  private def createSchemaCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("create.schema") { table =>
       val actual = table.spark
         .table(table.name)
         .schema
@@ -1448,110 +1766,138 @@ trait DmlScenarios extends ScenarioKit {
       assert(actual == expected, s"schema is $actual")
       assert(table.rows.isEmpty, "a table that was never seeded holds no rows")
     }
+
+  /** The created-schema case on every unseeded preparation. */
+  val createSchemaCases: List[Plan.Case] = preparedEmptyCoreTables.map { preparation =>
+    createSchemaCase(preparation)
   }
 
+  /**
+   * ADD COLUMN adds the column to the schema, the existing rows read null for it, and the row
+   * count is unchanged.
+   */
+  private def ddlAddColumnSingleCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("ddl.addColumn.single") { table =>
+      table.spark.sql(s"ALTER TABLE ${table.name} ADD COLUMN added_int int")
+
+      val columnNames = table.spark.table(table.name).schema.fields.toSeq.map(_.name)
+      val nullCount = table.spark
+        .sql(s"SELECT count(*) FROM ${table.name} WHERE added_int IS NULL")
+        .collect()(0)
+        .getLong(0)
+
+      assert(columnNames.contains("added_int"), s"added_int missing: $columnNames")
+      assert(
+        nullCount == table.preparedRows.size,
+        s"existing rows should read null for added_int: $nullCount != ${table.preparedRows.size}")
+      assert(table.rows.size == table.preparedRows.size, "ADD COLUMN changed the row count")
+    }
+
+  /**
+   * ADD COLUMNS with two columns in one statement adds both to the schema and leaves the row count
+   * unchanged.
+   */
+  private def ddlAddColumnMultipleCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("ddl.addColumn.multiple") { table =>
+      table.spark.sql(s"ALTER TABLE ${table.name} ADD COLUMNS (added_a int, added_b string)")
+
+      val columnNames = table.spark.table(table.name).schema.fields.toSeq.map(_.name)
+
+      assert(
+        columnNames.contains("added_a") && columnNames.contains("added_b"),
+        s"added columns missing: $columnNames")
+      assert(table.rows.size == table.preparedRows.size, "ADD COLUMNS changed the row count")
+    }
+
+  /** ADD COLUMN ... COMMENT stores the comment on the added column and the reader sees it. */
+  private def ddlAddColumnCommentCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("ddl.addColumn.comment") { table =>
+      table.spark.sql(s"ALTER TABLE ${table.name} ADD COLUMN added_c int COMMENT 'a note'")
+
+      val addedColumn = table.spark
+        .table(table.name)
+        .schema
+        .fields
+        .find(_.name == "added_c")
+        .getOrElse(throw new AssertionError("added_c missing"))
+
+      assert(
+        addedColumn.getComment().contains("a note"),
+        s"comment not stored: ${addedColumn.getComment()}")
+    }
+
+  /**
+   * ADD COLUMN ... AFTER foo_col_long places the added column directly after that column in the
+   * schema.
+   */
+  private def ddlAddColumnPositionCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("ddl.addColumn.position") { table =>
+      table.spark.sql(
+        s"ALTER TABLE ${table.name} ADD COLUMN added_after int AFTER ${Core.long0.columnName}")
+
+      val columnNames = table.spark.table(table.name).schema.fields.toSeq.map(_.name)
+
+      assert(
+        columnNames.indexOf("added_after") == columnNames.indexOf(Core.long0.columnName) + 1,
+        s"added_after not after long0: $columnNames")
+    }
+
+  /**
+   * ALTER COLUMN foo_col_int TYPE bigint widens the column in the schema and the already-written
+   * values read back unchanged.
+   */
+  private def ddlAlterColumnTypeWidenCase(
+      preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation.test("ddl.alterColumn.typeWiden") { table =>
+      table.spark.sql(
+        s"ALTER TABLE ${table.name} ALTER COLUMN ${Core.int0.columnName} TYPE bigint")
+
+      val liveColumns = table.spark.table(table.name).schema.fields.toSeq
+        .map(field => field.name -> field.dataType.simpleString)
+        .toMap
+      val values = table.spark
+        .sql(
+          s"SELECT ${Core.int0.columnName} FROM ${table.name} ORDER BY ${Core.long0.columnName}")
+        .collect()
+        .toSeq
+        .map(_.getLong(0))
+
+      assert(
+        liveColumns.get(Core.int0.columnName).contains("bigint"),
+        s"int0 not widened: ${liveColumns.get(Core.int0.columnName)}")
+      assert(values == Seq(1L, 2L, 3L), s"values not preserved after widening: $values")
+    }
+
+  /**
+   * RENAME COLUMN renames the column in the schema: the new name is present, the old name is gone,
+   * and the row count is unchanged.
+   */
+  private def ddlRenameColumnCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+    preparation
+      .test("ddl.renameColumn") { table =>
+        table.spark.sql(s"ALTER TABLE ${table.name} ADD COLUMN to_rename int")
+        table.spark.sql(s"ALTER TABLE ${table.name} RENAME COLUMN to_rename TO renamed_col")
+
+        val columnNames = table.spark.table(table.name).schema.fields.toSeq.map(_.name)
+
+        assert(
+          columnNames.contains("renamed_col") && !columnNames.contains("to_rename"),
+          s"RENAME COLUMN silently no-oped: $columnNames")
+        assert(table.rows.size == table.preparedRows.size, "RENAME COLUMN changed the row count")
+      }
+      .copy(knownBugReason = Some(
+        "RENAME COLUMN is a silent no-op because server-side schema casing normalization " +
+          "restores the old name."))
+
+  /** The schema-changing DDL cases on the core preparations. */
   val ddlSchemaCases: List[Plan.Case] = preparedCoreTables.flatMap { preparation =>
     List(
-      preparation.test(
-        "ddl.addColumn.single",
-        "ADD COLUMN adds the column to the schema, the existing rows read null for it, and the row " +
-          "count is unchanged.") { table =>
-        table.spark.sql(s"ALTER TABLE ${table.name} ADD COLUMN added_int int")
-
-        val columnNames = table.spark.table(table.name).schema.fields.toSeq.map(_.name)
-        val nullCount = table.spark
-          .sql(s"SELECT count(*) FROM ${table.name} WHERE added_int IS NULL")
-          .collect()(0)
-          .getLong(0)
-
-        assert(columnNames.contains("added_int"), s"added_int missing: $columnNames")
-        assert(
-          nullCount == table.preparedRows.size,
-          s"existing rows should read null for added_int: $nullCount != ${table.preparedRows.size}")
-        assert(table.rows.size == table.preparedRows.size, "ADD COLUMN changed the row count")
-      },
-      preparation.test(
-        "ddl.addColumn.multiple",
-        "ADD COLUMNS with two columns in one statement adds both to the schema and leaves the row " +
-          "count unchanged.") { table =>
-        table.spark.sql(s"ALTER TABLE ${table.name} ADD COLUMNS (added_a int, added_b string)")
-
-        val columnNames = table.spark.table(table.name).schema.fields.toSeq.map(_.name)
-
-        assert(
-          columnNames.contains("added_a") && columnNames.contains("added_b"),
-          s"added columns missing: $columnNames")
-        assert(table.rows.size == table.preparedRows.size, "ADD COLUMNS changed the row count")
-      },
-      preparation.test(
-        "ddl.addColumn.comment",
-        "ADD COLUMN ... COMMENT stores the comment on the added column and the reader sees it.") { table =>
-        table.spark.sql(s"ALTER TABLE ${table.name} ADD COLUMN added_c int COMMENT 'a note'")
-
-        val addedColumn = table.spark
-          .table(table.name)
-          .schema
-          .fields
-          .find(_.name == "added_c")
-          .getOrElse(throw new AssertionError("added_c missing"))
-
-        assert(
-          addedColumn.getComment().contains("a note"),
-          s"comment not stored: ${addedColumn.getComment()}")
-      },
-      preparation.test(
-        "ddl.addColumn.position",
-        s"ADD COLUMN ... AFTER ${Core.long0.columnName} places the added column directly after that " +
-          "column in the schema.") { table =>
-        table.spark.sql(
-          s"ALTER TABLE ${table.name} ADD COLUMN added_after int AFTER ${Core.long0.columnName}")
-
-        val columnNames = table.spark.table(table.name).schema.fields.toSeq.map(_.name)
-
-        assert(
-          columnNames.indexOf("added_after") == columnNames.indexOf(Core.long0.columnName) + 1,
-          s"added_after not after long0: $columnNames")
-      },
-      preparation.test(
-        "ddl.alterColumn.typeWiden",
-        s"ALTER COLUMN ${Core.int0.columnName} TYPE bigint widens the column in the schema and the " +
-          "already-written values read back unchanged.") { table =>
-        table.spark.sql(
-          s"ALTER TABLE ${table.name} ALTER COLUMN ${Core.int0.columnName} TYPE bigint")
-
-        val liveColumns = table.spark.table(table.name).schema.fields.toSeq
-          .map(field => field.name -> field.dataType.simpleString)
-          .toMap
-        val values = table.spark
-          .sql(
-            s"SELECT ${Core.int0.columnName} FROM ${table.name} ORDER BY ${Core.long0.columnName}")
-          .collect()
-          .toSeq
-          .map(_.getLong(0))
-
-        assert(
-          liveColumns.get(Core.int0.columnName).contains("bigint"),
-          s"int0 not widened: ${liveColumns.get(Core.int0.columnName)}")
-        assert(values == Seq(1L, 2L, 3L), s"values not preserved after widening: $values")
-      },
-      preparation
-        .test(
-          "ddl.renameColumn",
-          "RENAME COLUMN renames the column in the schema: the new name is present, the old name is " +
-            "gone, and the row count is unchanged.") { table =>
-          table.spark.sql(s"ALTER TABLE ${table.name} ADD COLUMN to_rename int")
-          table.spark.sql(s"ALTER TABLE ${table.name} RENAME COLUMN to_rename TO renamed_col")
-
-          val columnNames = table.spark.table(table.name).schema.fields.toSeq.map(_.name)
-
-          assert(
-            columnNames.contains("renamed_col") && !columnNames.contains("to_rename"),
-            s"RENAME COLUMN silently no-oped: $columnNames")
-          assert(table.rows.size == table.preparedRows.size, "RENAME COLUMN changed the row count")
-        }
-        .copy(knownBugReason = Some(
-          "RENAME COLUMN is a silent no-op because server-side schema casing normalization " +
-            "restores the old name.")))
+      ddlAddColumnSingleCase(preparation),
+      ddlAddColumnMultipleCase(preparation),
+      ddlAddColumnCommentCase(preparation),
+      ddlAddColumnPositionCase(preparation),
+      ddlAlterColumnTypeWidenCase(preparation),
+      ddlRenameColumnCase(preparation))
   }
 
 }
