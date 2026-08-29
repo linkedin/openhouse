@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.housetables.model;
 
+import com.linkedin.openhouse.housetables.exception.CorruptEntityTypeConversionException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -34,13 +35,23 @@ public class EntityTypeConverterTest {
     Assertions.assertEquals(expected, converter.convertToEntityAttribute(columnValue));
   }
 
-  /** Only a null carries the legacy meaning; anything else outside the vocabulary is corrupt. */
+  /**
+   * Only a null carries the legacy meaning; anything else outside the vocabulary is corrupt.
+   *
+   * <p>Corrupt storage is a server-state failure whatever wrote it, so the escape is deliberately
+   * not an {@link IllegalArgumentException}: that would land it on the shared advice's 400 branch
+   * and report bad data as a bad request.
+   */
   @ParameterizedTest
-  @ValueSource(strings = {"FOO", "", " ", "TABLES", "TABLE "})
+  @ValueSource(strings = {"FOO", "", " ", "TABLES", "TABLE ", "TÁBLE"})
   void unrecognizedColumnValueFailsLoudly(String columnValue) {
-    IllegalArgumentException thrown =
+    CorruptEntityTypeConversionException thrown =
         Assertions.assertThrows(
-            IllegalArgumentException.class, () -> converter.convertToEntityAttribute(columnValue));
+            CorruptEntityTypeConversionException.class,
+            () -> converter.convertToEntityAttribute(columnValue));
+    Assertions.assertFalse(
+        IllegalArgumentException.class.isAssignableFrom(CorruptEntityTypeConversionException.class),
+        "corruption must not be catchable as a client-error IllegalArgumentException");
     Assertions.assertTrue(thrown.getMessage().contains("user_table_row.entity_type"));
     Assertions.assertTrue(thrown.getMessage().contains(columnValue));
   }

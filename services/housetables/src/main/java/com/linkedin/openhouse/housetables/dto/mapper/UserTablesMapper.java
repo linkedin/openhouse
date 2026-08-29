@@ -28,6 +28,7 @@ import org.mapstruct.Mapping;
  */
 @Mapper(
     componentModel = "spring",
+    imports = {EntityType.class},
     uses = {UserTableVersionMapper.class})
 public interface UserTablesMapper {
 
@@ -105,7 +106,8 @@ public interface UserTablesMapper {
   /** Map a {@link UserTableIcebergRow} to a {@link UserTableRow} */
   UserTableRow toUserTableRow(UserTableIcebergRow userTableIcebergRow);
 
-  /** Map a {@link SoftDeletedUserTableRow} to a {@link UserTableRow} */
+  /** Restores as TABLE: the soft-deleted store has no discriminator, and views never enter it. */
+  @Mapping(target = "entityType", expression = "java(EntityType.TABLE)")
   UserTableRow toUserTableRow(SoftDeletedUserTableRow softDeletedUserTableRow);
 
   /**

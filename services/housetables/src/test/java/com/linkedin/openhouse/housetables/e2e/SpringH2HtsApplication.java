@@ -13,6 +13,7 @@ import org.springframework.context.annotation.ComponentScan;
       "com.linkedin.openhouse.housetables.controller",
       "com.linkedin.openhouse.housetables.services",
       "com.linkedin.openhouse.common.exception.handler",
+      "com.linkedin.openhouse.housetables.exception.handler",
       "com.linkedin.openhouse.common.audit",
       "com.linkedin.openhouse.housetables.repository",
       "com.linkedin.openhouse.housetables.properties",

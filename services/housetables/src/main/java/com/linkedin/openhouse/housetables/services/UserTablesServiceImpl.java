@@ -12,20 +12,28 @@ import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.mapper.SoftDeletedUserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
+import com.linkedin.openhouse.housetables.exception.UserTablePersistenceException;
+import com.linkedin.openhouse.housetables.metrics.UserTableMetricsConstant;
+import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRow;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
+import com.linkedin.openhouse.housetables.repository.UserTableReadRepository;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.SoftDeletedUserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
+import com.linkedin.openhouse.housetables.services.model.PagedUserViewQuery;
+import com.linkedin.openhouse.housetables.services.model.UserViewQuery;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -39,6 +47,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserTablesServiceImpl implements UserTablesService {
 
   @Autowired UserTableHtsJdbcRepository htsJdbcRepository;
+
+  @Autowired UserTableReadRepository userTableReadRepository;
 
   @Autowired UserTablesMapper userTablesMapper;
 
@@ -64,6 +74,78 @@ public class UserTablesServiceImpl implements UserTablesService {
     }
 
     return userTablesMapper.toUserTableDto(userTableRow);
+  }
+
+  @Override
+  public Optional<UserTableDto> getNeutralEntity(String databaseId, String tableId) {
+    // Only an empty Optional is absence; repository and hydration failures escape as module
+    // exceptions, because reporting a broken row as "free" is how an occupant gets overwritten.
+    return userTableReadRepository.findEntity(databaseId, tableId);
+  }
+
+  @Override
+  public Optional<UserTableDto> getUserView(String databaseId, String tableId) {
+    return userTableReadRepository.findView(databaseId, tableId);
+  }
+
+  @Override
+  public List<UserTableDto> getAllUserViews(UserViewQuery query) {
+    METRICS_REPORTER.count(UserTableMetricsConstant.HTS_LIST_VIEWS_REQUEST);
+    return METRICS_REPORTER.executeWithStats(
+        () -> userTableReadRepository.findViews(query),
+        UserTableMetricsConstant.HTS_LIST_VIEWS_TIME);
+  }
+
+  @Override
+  public Page<UserTableDto> getAllUserViews(PagedUserViewQuery query) {
+    METRICS_REPORTER.count(UserTableMetricsConstant.HTS_PAGE_VIEWS_REQUEST);
+    Pageable pageable =
+        createPageable(query.getPage(), query.getSize(), query.getSortBy().orElse(null), "tableId");
+    return METRICS_REPORTER.executeWithStats(
+        () -> userTableReadRepository.findViews(query.getQuery(), pageable),
+        UserTableMetricsConstant.HTS_PAGE_VIEWS_TIME);
+  }
+
+  @Override
+  public Pair<UserTableDto, Boolean> putUserView(UserTable userView) {
+    return translatingMutationFailures(() -> persistTypedEntity(userView, EntityType.VIEW));
+  }
+
+  @Override
+  public boolean deleteUserView(String databaseId, String tableId) {
+    // One conditional statement: never a read-then-delete, and never the soft-delete primitive,
+    // whose store has no discriminator column to record what a view was.
+    return translatingMutationFailures(
+        () ->
+            htsJdbcRepository.deleteViewById(
+                    UserTableRowPrimaryKey.builder()
+                        .databaseId(databaseId)
+                        .tableId(tableId)
+                        .build())
+                != 0);
+  }
+
+  /**
+   * The write-side counterpart to {@link UserTableReadRepository}'s translation: a new view
+   * mutation must expose this module's failure vocabulary, not Spring's, so no caller outside HTS
+   * has to understand ORM wrappers.
+   *
+   * <p>Only otherwise-unhandled {@link DataAccessException}s are converted. The expected write
+   * races are already translated inside {@link #persistTypedEntity} to {@link
+   * EntityConcurrentModificationException}, and a cross-type collision to {@link
+   * AlreadyExistsException}; neither extends {@link DataAccessException}, so both pass through
+   * untouched and keep answering 409.
+   *
+   * <p>Deliberately applied at the view entry points rather than inside the shared write primitive:
+   * the frozen table path keeps exposing exactly what it exposed before.
+   */
+  private <T> T translatingMutationFailures(Supplier<T> mutation) {
+    try {
+      return mutation.get();
+    } catch (DataAccessException dataAccessException) {
+      throw new UserTablePersistenceException(
+          "Mutating the user table store failed", dataAccessException);
+    }
   }
 
   @Override
@@ -95,15 +177,35 @@ public class UserTablesServiceImpl implements UserTablesService {
 
   @Override
   public Pair<UserTableDto, Boolean> putUserTable(UserTable userTable) {
-    Optional<UserTableRow> existingUserTableRow =
-        htsJdbcRepository.findById(
-            UserTableRowPrimaryKey.builder()
-                .databaseId(userTable.getDatabaseId())
-                .tableId(userTable.getTableId())
-                .build());
+    return persistTypedEntity(userTable, EntityType.TABLE);
+  }
 
+  /**
+   * The one write primitive both named entry points share. The type is supplied by the caller that
+   * named it, never read from the transport object, so no direct Java caller can violate either
+   * method's invariant.
+   *
+   * @param entityType the type the invoked entry point owns
+   */
+  private Pair<UserTableDto, Boolean> persistTypedEntity(
+      UserTable userTable, EntityType entityType) {
+    Optional<UserTableRow> existingUserTableRow =
+        userTableReadRepository.findRowForWrite(userTable.getDatabaseId(), userTable.getTableId());
+
+    // Compared before any version mapping runs: a wrong-type collision is not a stale write, and
+    // the conflict names the occupant rather than the type that was requested.
+    if (existingUserTableRow.isPresent()
+        && existingUserTableRow.get().getEntityType() != entityType) {
+      throw new AlreadyExistsException(
+          existingUserTableRow.get().getEntityType().name(),
+          userTable.getDatabaseId() + "." + userTable.getTableId());
+    }
+
+    // Overwritten before mapping, so an absent, contradictory or unrecognized transport spelling
+    // never reaches the enum boundary and never governs what is stored.
+    UserTable ownedEntity = userTable.toBuilder().entityType(entityType.name()).build();
     UserTableRow targetUserTableRow =
-        userTablesMapper.toUserTableRow(userTable, existingUserTableRow);
+        userTablesMapper.toUserTableRow(ownedEntity, existingUserTableRow);
     UserTableDto returnedDto;
 
     try {
@@ -143,11 +245,8 @@ public class UserTablesServiceImpl implements UserTablesService {
       String toDatabaseId,
       String toTableId,
       String metadataLocation) {
-    if (!htsJdbcRepository.existsById(
-        UserTableRowPrimaryKey.builder().databaseId(fromDatabaseId).tableId(fromTableId).build())) {
-      throw new NoSuchUserTableException(fromDatabaseId, fromTableId);
-    }
-    // Renames user table within the same database
+    // No source precheck: the conditional update is itself the check, which closes the TOCTOU
+    // window and makes a VIEW or corrupt source affect zero rows rather than be moved.
     try {
       log.info(
           "Renaming user table from {}.{} to {}.{}",
@@ -158,8 +257,11 @@ public class UserTablesServiceImpl implements UserTablesService {
       // Use fromDatabaseId for destination db to preserve the original case of the database
       // TODO: Use toDataBaseId for destination instead of fromDatabaseId once rename across
       // databases is supported
-      htsJdbcRepository.renameTableId(
-          fromDatabaseId, fromTableId, fromDatabaseId, toTableId, metadataLocation);
+      if (htsJdbcRepository.renameTableId(
+              fromDatabaseId, fromTableId, fromDatabaseId, toTableId, metadataLocation)
+          == 0) {
+        throw new NoSuchUserTableException(fromDatabaseId, fromTableId);
+      }
     } catch (DataIntegrityViolationException e) {
       throw new AlreadyExistsException("Table", toTableId);
     }
@@ -168,17 +270,23 @@ public class UserTablesServiceImpl implements UserTablesService {
   @Override
   @Transactional
   public void deleteUserTable(String databaseId, String tableId, boolean isSoftDeleted) {
-    UserTableRow existingTable =
-        htsJdbcRepository
-            .findById(
-                UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
-            .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
+    UserTableRowPrimaryKey key =
+        UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build();
     if (isSoftDeleted) {
+      // Table-scoped, never the neutral read: the soft-deleted store has no discriminator, so a
+      // view copied into it would restore as a table.
+      UserTableRow existingTable =
+          htsJdbcRepository
+              .findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(databaseId, tableId)
+              .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
       softDeletedHtsJdbcRepository.save(
           softDeletedUserTablesMapper.toSoftDeletedUserTableRow(existingTable));
     }
-    htsJdbcRepository.deleteById(
-        UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build());
+    // Throwing inside the transaction rolls the copy above back, so a row that loses the race is
+    // not left behind in the soft-deleted store.
+    if (htsJdbcRepository.deleteTableById(key) == 0) {
+      throw new NoSuchUserTableException(databaseId, tableId);
+    }
   }
 
   /**

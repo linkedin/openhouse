@@ -1,0 +1,317 @@
+package com.linkedin.openhouse.housetables.mock.exception;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.linkedin.openhouse.common.api.spec.ErrorResponseBody;
+import com.linkedin.openhouse.common.exception.AlreadyExistsException;
+import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
+import com.linkedin.openhouse.common.exception.NoSuchEntityException;
+import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
+import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
+import com.linkedin.openhouse.common.exception.handler.OpenHouseExceptionHandler;
+import com.linkedin.openhouse.housetables.controller.JobTablesController;
+import com.linkedin.openhouse.housetables.controller.ToggleStatusesController;
+import com.linkedin.openhouse.housetables.controller.UserHouseTablesController;
+import com.linkedin.openhouse.housetables.exception.CorruptEntityTypeConversionException;
+import com.linkedin.openhouse.housetables.exception.CorruptUserTableDataException;
+import com.linkedin.openhouse.housetables.exception.UserTablePersistenceException;
+import com.linkedin.openhouse.housetables.exception.UserTableReadException;
+import com.linkedin.openhouse.housetables.exception.handler.UserHouseTablesExceptionHandler;
+import io.swagger.v3.oas.annotations.Hidden;
+import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import javax.persistence.PersistenceException;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.InvalidDataAccessApiUsageException;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.orm.jpa.JpaSystemException;
+import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.method.ControllerAdviceBean;
+import org.springframework.web.method.annotation.ExceptionHandlerMethodResolver;
+
+/**
+ * The scoped advice is composition-based on purpose: it declares exactly three mappings and
+ * inherits none, so anything it does not name falls through to {@link OpenHouseExceptionHandler}
+ * even though the scoped advice runs at the highest precedence.
+ */
+public class UserHouseTablesExceptionHandlerTest {
+
+  private static final String CORRUPT_MSG =
+      "Column user_table_row.entity_type holds unrecognized value ['UNKNOWN']; "
+          + "only TABLE, VIEW (in any case) and NULL are valid";
+
+  private static final String HIBERNATE_MSG = "Error attempting to apply AttributeConverter";
+
+  private final UserHouseTablesExceptionHandler handler = new UserHouseTablesExceptionHandler();
+
+  private final ExceptionHandlerMethodResolver resolver =
+      new ExceptionHandlerMethodResolver(UserHouseTablesExceptionHandler.class);
+
+  private static CorruptEntityTypeConversionException corruption() {
+    return new CorruptEntityTypeConversionException(
+        CORRUPT_MSG, new IllegalArgumentException("UNKNOWN"));
+  }
+
+  private static List<Method> declaredExceptionHandlers() {
+    return Arrays.stream(UserHouseTablesExceptionHandler.class.getDeclaredMethods())
+        .filter(method -> method.isAnnotationPresent(ExceptionHandler.class))
+        .collect(Collectors.toList());
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // shape of the advice
+  // -------------------------------------------------------------------------------------------
+
+  /** Three mappings and no more; a fourth would silently take responsibility for something. */
+  @Test
+  public void testAdviceDeclaresExactlyTheThreeIntendedMappings() {
+    List<Class<?>[]> mapped =
+        declaredExceptionHandlers().stream()
+            .map(method -> method.getAnnotation(ExceptionHandler.class).value())
+            .collect(Collectors.toList());
+
+    Assertions.assertEquals(3, mapped.size());
+    assertThat(mapped.stream().flatMap(Arrays::stream).collect(Collectors.toList()))
+        .containsExactlyInAnyOrder(
+            UserTablePersistenceException.class,
+            CorruptEntityTypeConversionException.class,
+            JpaSystemException.class,
+            InvalidDataAccessApiUsageException.class);
+  }
+
+  /**
+   * Without {@link Hidden}, springdoc adds these responses to every scoped controller operation.
+   */
+  @Test
+  public void testEveryHandlerMethodIsHiddenFromTheGeneratedSpec() {
+    assertThat(declaredExceptionHandlers())
+        .isNotEmpty()
+        .allSatisfy(method -> assertThat(method.isAnnotationPresent(Hidden.class)).isTrue());
+  }
+
+  /**
+   * The advice does not extend the shared one. Inheriting it would register the parent's {@code
+   * Exception.class} mapping through {@code MethodIntrospector}, making this advice total for the
+   * controller and swallowing every 400/404/409 the shared advice owns.
+   */
+  @Test
+  public void testAdviceDoesNotInheritTheSharedAdvice() {
+    Assertions.assertFalse(
+        OpenHouseExceptionHandler.class.isAssignableFrom(UserHouseTablesExceptionHandler.class),
+        "inheriting the shared advice would register its Exception.class mapping here");
+    Assertions.assertEquals(Object.class, UserHouseTablesExceptionHandler.class.getSuperclass());
+  }
+
+  /** Scoped to one controller: the other two House Tables controllers must not be advised. */
+  @Test
+  public void testAdviceAppliesOnlyToTheUserHouseTablesController() {
+    ControllerAdviceBean advice = new ControllerAdviceBean(handler);
+
+    assertThat(advice.isApplicableToBeanType(UserHouseTablesController.class)).isTrue();
+    assertThat(advice.isApplicableToBeanType(JobTablesController.class)).isFalse();
+    assertThat(advice.isApplicableToBeanType(ToggleStatusesController.class)).isFalse();
+  }
+
+  /**
+   * {@code @RestControllerAdvice} is meta-annotated with {@code @ControllerAdvice}, so the merged
+   * form is what Spring reads, and the highest precedence is what puts this advice ahead of the
+   * shared one for the exceptions it does declare.
+   */
+  @Test
+  public void testAdviceIsScopedAndRunsAtHighestPrecedence() {
+    ControllerAdvice merged =
+        AnnotatedElementUtils.findMergedAnnotation(
+            UserHouseTablesExceptionHandler.class, ControllerAdvice.class);
+
+    Assertions.assertNotNull(merged);
+    assertThat(merged.assignableTypes()).containsExactly(UserHouseTablesController.class);
+    Assertions.assertEquals(
+        Ordered.HIGHEST_PRECEDENCE, new ControllerAdviceBean(handler).getOrder());
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // what the resolver does and does not claim
+  // -------------------------------------------------------------------------------------------
+
+  static Stream<Class<? extends Throwable>> claimedExceptions() {
+    return Stream.of(
+        UserTablePersistenceException.class,
+        UserTableReadException.class,
+        CorruptUserTableDataException.class,
+        CorruptEntityTypeConversionException.class,
+        JpaSystemException.class,
+        InvalidDataAccessApiUsageException.class);
+  }
+
+  @ParameterizedTest
+  @MethodSource("claimedExceptions")
+  public void testResolverClaimsEveryModuleAndWrapperFailure(Class<? extends Throwable> claimed) {
+    assertThat(resolver.resolveMethodByExceptionType(claimed))
+        .as("scoped advice must handle %s", claimed.getSimpleName())
+        .isNotNull();
+  }
+
+  static Stream<Class<? extends Throwable>> fallThroughExceptions() {
+    return Stream.of(
+        RequestValidationFailureException.class,
+        NoSuchUserTableException.class,
+        NoSuchEntityException.class,
+        AlreadyExistsException.class,
+        EntityConcurrentModificationException.class,
+        DataIntegrityViolationException.class,
+        CannotAcquireLockException.class,
+        IllegalArgumentException.class,
+        IllegalStateException.class,
+        RuntimeException.class,
+        Exception.class);
+  }
+
+  /**
+   * Everything the shared advice owns must resolve to nothing here, which is what lets Spring
+   * advance to {@link OpenHouseExceptionHandler} despite this advice's higher precedence.
+   */
+  @ParameterizedTest
+  @MethodSource("fallThroughExceptions")
+  public void testResolverClaimsNothingTheSharedAdviceOwns(Class<? extends Throwable> fallThrough) {
+    assertThat(resolver.resolveMethodByExceptionType(fallThrough))
+        .as("%s must fall through to the shared advice", fallThrough.getSimpleName())
+        .isNull();
+    assertThat(
+            new ExceptionHandlerMethodResolver(OpenHouseExceptionHandler.class)
+                .resolveMethodByExceptionType(fallThrough))
+        .as("the shared advice is what answers %s", fallThrough.getSimpleName())
+        .isNotNull();
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // rendered bodies
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * Storage holds a value outside the column's vocabulary. That is a server-state failure whatever
+   * wrote it, so it is a 500 carrying the column and the offending value, not a 400.
+   */
+  @Test
+  public void testModuleFailureCarryingCorruptionRendersTheColumnDiagnostic() {
+    ResponseEntity<ErrorResponseBody> response =
+        handler.handleUserTablePersistenceException(
+            new CorruptUserTableDataException(
+                "read failed",
+                new JpaSystemException(new PersistenceException(HIBERNATE_MSG, corruption()))));
+
+    assertServerErrorCarryingDiagnostic(response);
+    Assertions.assertEquals("UNKNOWN", response.getBody().getCause());
+    Assertions.assertFalse(response.getBody().getMessage().contains(HIBERNATE_MSG));
+  }
+
+  /** The converter exception reaching the advice untranslated takes the same rendering. */
+  @Test
+  public void testDirectConverterEscapeRendersTheColumnDiagnostic() {
+    assertServerErrorCarryingDiagnostic(
+        handler.handleCorruptEntityTypeConversionException(corruption()));
+  }
+
+  /** The compatibility branch for the frozen table reads that still leak a raw wrapper. */
+  @Test
+  public void testRawWrapperCarryingCorruptionRendersTheColumnDiagnostic() {
+    assertServerErrorCarryingDiagnostic(
+        handler.handleRawPersistenceWrapper(
+            new JpaSystemException(new PersistenceException(HIBERNATE_MSG, corruption()))));
+    assertServerErrorCarryingDiagnostic(
+        handler.handleRawPersistenceWrapper(
+            new InvalidDataAccessApiUsageException(HIBERNATE_MSG, corruption())));
+  }
+
+  @Test
+  public void testDeeplyNestedCorruptionIsStillUnwrapped() {
+    assertServerErrorCarryingDiagnostic(
+        handler.handleRawPersistenceWrapper(
+            new JpaSystemException(
+                new PersistenceException(
+                    HIBERNATE_MSG,
+                    new IllegalStateException(
+                        "outer", new RuntimeException("inner", corruption()))))));
+  }
+
+  /**
+   * A module failure with no corruption in it renders the original persistence cause it preserved,
+   * never a corruption diagnostic it does not have.
+   */
+  @Test
+  public void testModuleFailureWithoutCorruptionRendersGenerically() {
+    JpaSystemException original =
+        new JpaSystemException(new PersistenceException("connection reset"));
+
+    ResponseEntity<ErrorResponseBody> response =
+        handler.handleUserTablePersistenceException(
+            new UserTableReadException("read failed", original));
+
+    Assertions.assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+    Assertions.assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getBody().getStatus());
+    Assertions.assertFalse(response.getBody().getMessage().contains(CORRUPT_MSG));
+    Assertions.assertTrue(response.getBody().getMessage().contains("connection reset"));
+    Assertions.assertNotNull(response.getBody().getStacktrace());
+  }
+
+  @Test
+  public void testUnrelatedRawWrapperRendersGenerically() {
+    JpaSystemException unrelated =
+        new JpaSystemException(new PersistenceException("connection reset"));
+
+    ResponseEntity<ErrorResponseBody> response = handler.handleRawPersistenceWrapper(unrelated);
+
+    Assertions.assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+    Assertions.assertEquals(unrelated.toString(), response.getBody().getMessage());
+    Assertions.assertFalse(response.getBody().getMessage().contains(CORRUPT_MSG));
+  }
+
+  /** A cyclic cause chain must terminate rather than spin the request thread. */
+  @Test
+  public void testCyclicCauseChainTerminates() {
+    ResponseEntity<ErrorResponseBody> response =
+        handler.handleRawPersistenceWrapper(
+            new JpaSystemException(new SelfCausedException("cycle")));
+
+    Assertions.assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+    Assertions.assertFalse(response.getBody().getMessage().contains(CORRUPT_MSG));
+  }
+
+  private void assertServerErrorCarryingDiagnostic(ResponseEntity<ErrorResponseBody> response) {
+    Assertions.assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+    ErrorResponseBody body = response.getBody();
+    Assertions.assertNotNull(body);
+    Assertions.assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, body.getStatus());
+    Assertions.assertEquals(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase(), body.getError());
+    Assertions.assertEquals(CORRUPT_MSG, body.getMessage());
+    Assertions.assertNotNull(body.getStacktrace());
+    Assertions.assertTrue(
+        body.getStacktrace().contains(CorruptEntityTypeConversionException.class.getSimpleName()));
+  }
+
+  /**
+   * {@link Throwable#initCause} forbids a self-referential cause, so the cycle is expressed by
+   * overriding the accessor.
+   */
+  private static class SelfCausedException extends RuntimeException {
+    SelfCausedException(String message) {
+      super(message);
+    }
+
+    @Override
+    public synchronized Throwable getCause() {
+      return this;
+    }
+  }
+}

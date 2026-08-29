@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.housetables.model;
 
+import com.linkedin.openhouse.housetables.exception.CorruptEntityTypeConversionException;
 import javax.persistence.AttributeConverter;
 import javax.persistence.Converter;
 
@@ -30,9 +31,11 @@ public class EntityTypeConverter implements AttributeConverter<EntityType, Strin
     try {
       return EntityType.fromName(columnValue);
     } catch (IllegalArgumentException e) {
-      throw new IllegalArgumentException(
+      // Deliberately not an IllegalArgumentException: a value outside the column's vocabulary is a
+      // server-state failure whatever wrote it, and the shared advice answers 400 for an IAE.
+      throw new CorruptEntityTypeConversionException(
           String.format(
-              "Column user_table_row.entity_type holds unrecognized value [%s]; "
+              "Column user_table_row.entity_type holds unrecognized value ['%s']; "
                   + "only TABLE, VIEW (in any case) and NULL are valid",
               columnValue),
           e);
