@@ -3,7 +3,12 @@ package com.linkedin.openhouse.javaclient;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 import com.linkedin.openhouse.javaclient.builder.ClusteringSpecBuilder;
 import com.linkedin.openhouse.javaclient.builder.TimePartitionSpecBuilder;
 import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageException;
@@ -15,6 +20,7 @@ import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.client.model.Policies;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -27,6 +33,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.BaseMetastoreTableOperations;
+import org.apache.iceberg.MetadataUpdate;
+import org.apache.iceberg.MetadataUpdateParser;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SnapshotParser;
 import org.apache.iceberg.SnapshotRefParser;
@@ -404,6 +412,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
             .collect(
                 Collectors.toMap(Map.Entry::getKey, e -> SnapshotRefParser.toJson(e.getValue()))));
     icebergSnapshotsRequestBody.createUpdateTableRequestBody(createUpdateTableRequestBody);
+    icebergSnapshotsRequestBody.updates(serializeMetadataUpdates(newMetadata));
 
     snapshotApi
         .putSnapshotsV1(
@@ -417,6 +426,95 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
                     createUpdateTableRequestBody.getDatabaseId(),
                     createUpdateTableRequestBody.getTableId()))
         .block();
+  }
+
+  /**
+   * The deltas this commit applies, as Iceberg REST {@code CommitTableRequest.updates[]} items.
+   *
+   * <p>{@link TableMetadata#changes()} is the same list every Iceberg REST catalog sends, and
+   * {@code MetadataUpdateParser} emits the spec {@code TableUpdate} object. Reifying that JSON as a
+   * {@link Map} (not a string) is what makes the request field an object array — the REST envelope
+   * — rather than {@code string[]} of serialized JSON.
+   *
+   * <p>A ref-only operation such as {@code CREATE BRANCH b} is visible as a lone {@code
+   * set-snapshot-ref} naming {@code b}, which no amount of inspecting the resulting snapshot list
+   * can recover.
+   *
+   * <p>Advisory only today: the server still builds metadata from the full-state fields, so this
+   * method returns null rather than failing the commit. When {@code updates} becomes authoritative,
+   * unknown actions MUST 400 per the REST spec — do not keep this skip.
+   *
+   * @return spec-shaped update objects, or null when there is nothing trustworthy to report
+   */
+  @VisibleForTesting
+  static List<Map<String, Object>> serializeMetadataUpdates(TableMetadata newMetadata) {
+    try {
+      List<MetadataUpdate> changes = newMetadata.changes();
+      if (changes == null || changes.isEmpty()) {
+        return null;
+      }
+      List<Map<String, Object>> serialized = new ArrayList<>(changes.size());
+      for (MetadataUpdate change : changes) {
+        // MetadataUpdateParser rejects update types it does not recognize. Skip those rather than
+        // dropping the whole list, so one unknown action cannot blind the rest.
+        try {
+          serialized.add(tableUpdateObject(MetadataUpdateParser.toJson(change)));
+        } catch (RuntimeException e) {
+          log.debug("Skipping unserializable metadata update {}", change.getClass().getName(), e);
+        }
+      }
+      return serialized.isEmpty() ? null : serialized;
+    } catch (RuntimeException e) {
+      log.warn("Failed to serialize metadata updates; omitting from commit request", e);
+      return null;
+    }
+  }
+
+  /**
+   * Turns {@link MetadataUpdateParser} JSON into a plain object graph so Jackson writes a JSON
+   * object. Gson {@code fromJson(..., Map.class)} would coerce every number to {@code Double} and
+   * emit {@code 42.0} / lose large snapshot ids; integral values stay {@link Long} here.
+   */
+  @VisibleForTesting
+  static Map<String, Object> tableUpdateObject(String json) {
+    return jsonObjectToPlain(new JsonParser().parse(json).getAsJsonObject());
+  }
+
+  private static Map<String, Object> jsonObjectToPlain(JsonObject object) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    for (Map.Entry<String, JsonElement> entry : object.entrySet()) {
+      map.put(entry.getKey(), jsonValueToPlain(entry.getValue()));
+    }
+    return map;
+  }
+
+  private static Object jsonValueToPlain(JsonElement element) {
+    if (element == null || element.isJsonNull()) {
+      return null;
+    }
+    if (element.isJsonObject()) {
+      return jsonObjectToPlain(element.getAsJsonObject());
+    }
+    if (element.isJsonArray()) {
+      JsonArray array = element.getAsJsonArray();
+      List<Object> values = new ArrayList<>(array.size());
+      for (JsonElement item : array) {
+        values.add(jsonValueToPlain(item));
+      }
+      return values;
+    }
+    JsonPrimitive primitive = element.getAsJsonPrimitive();
+    if (primitive.isBoolean()) {
+      return primitive.getAsBoolean();
+    }
+    if (primitive.isNumber()) {
+      try {
+        return primitive.getAsBigDecimal().toBigIntegerExact().longValue();
+      } catch (ArithmeticException notIntegral) {
+        return primitive.getAsDouble();
+      }
+    }
+    return primitive.getAsString();
   }
 
   /**

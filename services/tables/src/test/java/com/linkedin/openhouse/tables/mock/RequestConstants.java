@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.mock;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
@@ -12,7 +13,11 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBo
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetDatabaseResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
+import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
 
@@ -94,11 +99,27 @@ public final class RequestConstants {
   public static final String TEST_MAIN_SNAPSHOT_REF_JSON =
       "{\"snapshot-id\":2151407017102313398,\"type\":\"branch\"}";
 
+  private static final ObjectMapper TABLE_UPDATE_MAPPER = new ObjectMapper();
+
+  /**
+   * The Iceberg REST spec {@code TableUpdate} actions a plain append to main produces: the snapshot
+   * is added, then main is moved onto it. Objects, not JSON strings — the {@code
+   * CommitTableRequest.updates[]} envelope.
+   */
+  public static final List<Map<String, Object>> TEST_MAIN_APPEND_METADATA_UPDATES =
+      Arrays.asList(
+          tableUpdate(
+              "{\"action\":\"add-snapshot\",\"snapshot\":" + TEST_ICEBERG_SNAPSHOT_JSON + "}"),
+          tableUpdate(
+              "{\"action\":\"set-snapshot-ref\",\"ref-name\":\"main\","
+                  + "\"snapshot-id\":2151407017102313398,\"type\":\"branch\"}"));
+
   public static final IcebergSnapshotsRequestBody TEST_ICEBERG_SNAPSHOTS_REQUEST_BODY =
       IcebergSnapshotsRequestBody.builder()
           .baseTableVersion("v1")
           .jsonSnapshots(Collections.singletonList(TEST_ICEBERG_SNAPSHOT_JSON))
           .snapshotRefs(Collections.singletonMap("main", TEST_MAIN_SNAPSHOT_REF_JSON))
+          .updates(TEST_MAIN_APPEND_METADATA_UPDATES)
           .createUpdateTableRequestBody(TEST_CREATE_TABLE_REQUEST_BODY)
           .build();
 
@@ -123,6 +144,7 @@ public final class RequestConstants {
               .baseTableVersion("INITIAL_VERSION")
               .jsonSnapshots(Collections.singletonList(TEST_ICEBERG_SNAPSHOT_JSON))
               .snapshotRefs(Collections.singletonMap("main", TEST_MAIN_SNAPSHOT_REF_JSON))
+              .updates(TEST_MAIN_APPEND_METADATA_UPDATES)
               .createUpdateTableRequestBody(TEST_CREATE_TABLE_REQUEST_BODY)
               .build();
 
@@ -140,4 +162,16 @@ public final class RequestConstants {
 
   public static final CreateUpdateLockRequestBody TEST_UPDATE_LOCK_POLICIES_REQUEST_BODY =
       CreateUpdateLockRequestBody.builder().locked(true).message("").build();
+
+  /**
+   * Parses one REST {@code TableUpdate} object. Jackson keeps large snapshot ids as {@code Long}.
+   */
+  @SuppressWarnings("unchecked")
+  public static Map<String, Object> tableUpdate(String json) {
+    try {
+      return TABLE_UPDATE_MAPPER.readValue(json, Map.class);
+    } catch (IOException e) {
+      throw new IllegalStateException(e);
+    }
+  }
 }
