@@ -138,6 +138,37 @@ public class TablesControllerTest {
   }
 
   @Test
+  public void tableExists200() throws Exception {
+    mvc.perform(
+            MockMvcRequestBuilders.get(
+                    CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/tables/t1/exists")
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isOk())
+        .andExpect(content().string(""));
+  }
+
+  @Test
+  public void tableExists404() throws Exception {
+    mvc.perform(
+            MockMvcRequestBuilders.get(
+                    CURRENT_MAJOR_VERSION_PREFIX + "/databases/d404/tables/t1/exists")
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isNotFound())
+        .andExpect(content().string(""));
+  }
+
+  @Test
+  public void tableExists401() throws Exception {
+    mvc.perform(
+            MockMvcRequestBuilders.get(
+                    CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/tables/t1/exists")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
   @MockUnauthenticatedUser
   public void findTableById403() throws Exception {
     mvcUnauthenticated

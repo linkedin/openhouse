@@ -49,6 +49,20 @@ public class MockTablesApiHandler implements TablesApiHandler {
   }
 
   @Override
+  public ApiResponse<Void> tableExists(String databaseId, String tableId) {
+    switch (databaseId) {
+      case "d200":
+        return ApiResponse.<Void>builder().httpStatus(HttpStatus.OK).build();
+      case "d404":
+        return ApiResponse.<Void>builder().httpStatus(HttpStatus.NOT_FOUND).build();
+      case "dnullpointer":
+        throw new NullPointerException(); // test for exception handler
+      default:
+        return null;
+    }
+  }
+
+  @Override
   public ApiResponse<GetAllTablesResponseBody> searchTables(String databaseId) {
     switch (databaseId) {
       case "d200":
