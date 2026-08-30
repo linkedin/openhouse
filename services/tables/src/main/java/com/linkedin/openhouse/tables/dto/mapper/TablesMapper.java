@@ -95,6 +95,9 @@ public interface TablesMapper {
         target = "tableVersion"), /* store base version to check later */
     @Mapping(source = "requestBody.createUpdateTableRequestBody.schema", target = "schema"),
     @Mapping(
+        source = "requestBody.createUpdateTableRequestBody.newIntermediateSchemas",
+        target = "newIntermediateSchemas"),
+    @Mapping(
         source = "requestBody.createUpdateTableRequestBody.tableProperties",
         target = "tableProperties"),
     @Mapping(
