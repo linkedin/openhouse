@@ -202,7 +202,10 @@ public class UserTablesServiceImpl implements UserTablesService {
       String toDatabaseId,
       String toTableId,
       String metadataLocation) {
-    // No source precheck: the conditional update is the check, closing the TOCTOU window.
+    // No source precheck: the conditional update is the check, closing the TOCTOU window for the
+    // source's type and existence.
+    // TODO: it does not close the version window. The statement carries no version predicate, so a
+    // writer committing between a caller's read and this rename is overwritten silently.
     try {
       log.info(
           "Renaming user table from {}.{} to {}.{}",
@@ -230,6 +233,11 @@ public class UserTablesServiceImpl implements UserTablesService {
         UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build();
     if (isSoftDeleted) {
       // Table-scoped, never the neutral read: a view copied into that store would restore as one.
+      // TODO: version-guard this archive-then-delete. The read below takes no lock and the delete
+      // below carries no version predicate, so a writer committing between them makes us archive
+      // the stale version and delete the newer one, losing that commit and making restore lossy.
+      // The conditional delete closes the type and existence window only. Fix by locking the source
+      // row, or by constraining the delete to the captured version and requiring one affected row.
       UserTableRow existingTable =
           userTableReadRepository
               .findTableRow(databaseId, tableId)
@@ -254,6 +262,9 @@ public class UserTablesServiceImpl implements UserTablesService {
   @Override
   @Transactional
   public UserTableDto restoreUserTable(String databaseId, String tableId, Long deletedAt) {
+    // TODO: this occupancy check is a read-then-write, so a row created at the key between it and
+    // the save below slips past it. The DataIntegrityViolationException catch further down is the
+    // backstop rather than the guard; a conditional insert would make the check atomic.
     Optional<UserTableDto> existingUserTable =
         userTableReadRepository.findEntity(databaseId, tableId);
     if (existingUserTable.isPresent()) {
