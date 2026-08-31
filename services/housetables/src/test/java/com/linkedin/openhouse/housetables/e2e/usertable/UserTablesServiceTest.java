@@ -9,14 +9,13 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
+import com.linkedin.openhouse.common.exception.CorruptEntityTypeException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import com.linkedin.openhouse.housetables.e2e.SpringH2HtsApplication;
-import com.linkedin.openhouse.housetables.exception.CorruptUserTableDataException;
-import com.linkedin.openhouse.housetables.exception.UserTablePersistenceException;
 import com.linkedin.openhouse.housetables.metrics.UserTableMetricsConstant;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
@@ -51,7 +50,6 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.SpyBean;
-import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.util.Pair;
@@ -996,14 +994,14 @@ public class UserTablesServiceTest {
 
   /** "The name is free" is the dangerous default: a failure here must not read as absence. */
   @Test
-  public void testGetNeutralEntityPropagatesRepositoryFailureAsAModuleFailure() {
-    doThrow(new DataAccessResourceFailureException("injected"))
+  public void testGetNeutralEntityPropagatesRepositoryFailure() {
+    DataAccessResourceFailureException raw = new DataAccessResourceFailureException("injected");
+    doThrow(raw)
         .when(htsRepository)
         .findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(anyString(), anyString());
 
     assertThatThrownBy(() -> userTablesService.getNeutralEntity(ENTITY_TYPE_DB, "neutral_boom"))
-        .isInstanceOf(UserTablePersistenceException.class)
-        .hasStackTraceContaining("injected");
+        .isSameAs(raw);
   }
 
   /**
@@ -1029,7 +1027,7 @@ public class UserTablesServiceTest {
     insertRawEntityType(ENTITY_TYPE_DB, "neutral_corrupt", "UNKNOWN");
 
     assertThatThrownBy(() -> userTablesService.getNeutralEntity(ENTITY_TYPE_DB, "neutral_corrupt"))
-        .isInstanceOf(CorruptUserTableDataException.class)
+        .isInstanceOf(CorruptEntityTypeException.class)
         .hasStackTraceContaining("user_table_row.entity_type")
         .hasStackTraceContaining("UNKNOWN");
 
@@ -1083,7 +1081,7 @@ public class UserTablesServiceTest {
     insertRawEntityType(ENTITY_TYPE_DB, "view_corrupt", "UNKNOWN");
 
     assertThatThrownBy(() -> userTablesService.getNeutralEntity(ENTITY_TYPE_DB, "view_corrupt"))
-        .isInstanceOf(CorruptUserTableDataException.class);
+        .isInstanceOf(CorruptEntityTypeException.class);
   }
 
   @Test
@@ -1332,45 +1330,26 @@ public class UserTablesServiceTest {
   }
 
   /**
-   * Regression guard: the scoped advice's raw-wrapper handler is compatibility for the frozen table
-   * reads only, so a new view mutation must never depend on it.
+   * View mutations expose a raw {@code DataAccessException}, exactly as table mutations always
+   * have. Consistency between the two is the point; neither is wrapped.
    */
   @Test
-  public void testViewDeleteTranslatesAnUnhandledPersistenceFailure() {
+  public void testViewAndTableMutationsBothExposeTheRawFailure() {
     DataAccessResourceFailureException raw =
         new DataAccessResourceFailureException("datasource down");
     doThrow(raw).when(htsRepository).deleteViewById(any());
+    doThrow(raw).when(htsRepository).deleteTableById(any());
 
     assertThatThrownBy(() -> userTablesService.deleteUserView(ENTITY_TYPE_DB, "drop_when_down"))
-        .isInstanceOf(UserTablePersistenceException.class)
-        .isNotInstanceOf(DataAccessException.class)
-        .hasCauseReference(raw);
-  }
-
-  @Test
-  public void testViewPutTranslatesAnUnhandledPersistenceFailure() {
-    DataAccessResourceFailureException raw =
-        new DataAccessResourceFailureException("datasource down");
-    doThrow(raw).when(htsRepository).save(any());
-
+        .isSameAs(raw);
     assertThatThrownBy(
-            () ->
-                userTablesService.putUserView(
-                    UserTable.builder()
-                        .databaseId(ENTITY_TYPE_DB)
-                        .tableId("put_when_down")
-                        .tableVersion(INITIAL_TABLE_VERSION)
-                        .metadataLocation(
-                            "/openhouse/entity_type_db/put_when_down/v0_metadata.json")
-                        .build()))
-        .isInstanceOf(UserTablePersistenceException.class)
-        .isNotInstanceOf(DataAccessException.class)
-        .hasCauseReference(raw);
+            () -> userTablesService.deleteUserTable(ENTITY_TYPE_DB, "drop_when_down", false))
+        .isSameAs(raw);
   }
 
-  /** The translation must not be broad enough to swallow the two expected 409s. */
+  /** The write races still answer 409 rather than escaping as an infrastructure failure. */
   @Test
-  public void testViewPutTranslationDoesNotSwallowTheConflictOutcomes() {
+  public void testViewPutStillAnswersTheConflictOutcomes() {
     seedTypedRow(ENTITY_TYPE_DB, "conflict_view", EntityType.VIEW);
     UserTableRow before = findRow(ENTITY_TYPE_DB, "conflict_view");
 
@@ -1606,7 +1585,7 @@ public class UserTablesServiceTest {
                         .tableVersion(INITIAL_TABLE_VERSION)
                         .metadataLocation("/openhouse/entity_type_db/put_corrupt/v1_metadata.json")
                         .build()))
-        .isInstanceOf(CorruptUserTableDataException.class)
+        .isInstanceOf(CorruptEntityTypeException.class)
         .hasStackTraceContaining("user_table_row.entity_type");
 
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_corrupt")).hasValue("UNKNOWN");

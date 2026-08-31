@@ -3,6 +3,7 @@ package com.linkedin.openhouse.common.exception.handler;
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.linkedin.openhouse.common.api.spec.ErrorResponseBody;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
+import com.linkedin.openhouse.common.exception.CorruptEntityTypeException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
@@ -21,6 +22,8 @@ import io.swagger.v3.oas.annotations.Hidden;
 import java.util.Arrays;
 import java.util.NoSuchElementException;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -47,7 +50,9 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
   private static final String COMMIT_STATE_UNKNOWN_TMPL =
       "Table with key[%s] isn't ack'ed by server about the commit status, nested exception: %s";
 
-  private final ErrorResponseBodyFactory errorResponseBodyFactory = new ErrorResponseBodyFactory();
+  private static final String CAUSE_NOT_AVAILABLE = "Not Available";
+
+  private static final int STACKTRACE_MAX_WIDTH = 6000;
 
   /**
    * Each method needs to be annotated with {@link Hidden} or every methods in advisee controllers
@@ -375,6 +380,27 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
         exception, errorResponseBody, headers, HttpStatus.BAD_REQUEST, request);
   }
 
+  /**
+   * Corrupt stored data is a server-state failure whatever wrote it, so it must not fall through to
+   * the {@link IllegalArgumentException} advice below, which answers 400. The persistence boundary
+   * has already unwrapped it, so this advice needs no ORM vocabulary.
+   */
+  @Hidden
+  @ExceptionHandler(CorruptEntityTypeException.class)
+  protected ResponseEntity<ErrorResponseBody> handleCorruptEntityTypeException(
+      CorruptEntityTypeException corruptEntityTypeException) {
+    ErrorResponseBody errorResponseBody =
+        ErrorResponseBody.builder()
+            .status(HttpStatus.INTERNAL_SERVER_ERROR)
+            .error(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase())
+            .message(corruptEntityTypeException.getMessage())
+            .stacktrace(getAbbreviatedStackTrace(corruptEntityTypeException))
+            .cause(getExceptionCause(corruptEntityTypeException))
+            .build();
+    log.error("Corrupt entity type read from storage:\n", corruptEntityTypeException);
+    return buildResponseEntity(errorResponseBody);
+  }
+
   @Hidden
   @ExceptionHandler(IllegalArgumentException.class)
   protected ResponseEntity<ErrorResponseBody> handleIllegalArgumentException(
@@ -416,14 +442,65 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
   }
 
   /**
-   * Delegated so a service-scoped advice can render a byte-compatible body by composing the same
-   * factory instead of inheriting this class, which would also inherit every mapping above.
+   * Gets reduced size stacktrace. Abbreviated upto defaulted max width. Extracts partial stacktrace
+   * by skipping in between contents. Returns empty or partial stacktrace if there is an exception.
+   *
+   * @param exception
+   * @return String
    */
   private String getAbbreviatedStackTrace(Throwable exception) {
-    return errorResponseBodyFactory.getAbbreviatedStackTrace(exception);
+    String stackTrace = ExceptionUtils.getStackTrace(exception);
+    if (StringUtils.isEmpty(stackTrace)) {
+      return null;
+    }
+    // Return the complete stacktrace if size is max width (i.e. 6000)
+    if (stackTrace.length() <= STACKTRACE_MAX_WIDTH) {
+      return stackTrace;
+    }
+    StringBuilder builder = new StringBuilder();
+    // Extract the first level stacktrace with max width of 1500 so that we get better view of top
+    // level stacktrace
+    builder.append(StringUtils.abbreviate(stackTrace, 0, 1500));
+    // Extract minimal stacktrace from the middle levels
+    int width = 600;
+    // skip every 2000 characters
+    int skipLength = 2000;
+    // Start the next scan from 6000
+    int startOffset = 6000;
+    // So far 1500 is extracted from top level
+    int abbreviatedLength = 1500;
+    // Flag to track the deepest level
+    boolean isDeepestLevel = false;
+    while (startOffset + width <= stackTrace.length()) {
+      try {
+        builder.append(StringUtils.abbreviate(stackTrace, startOffset, width));
+        abbreviatedLength += width;
+        if (isDeepestLevel || abbreviatedLength == STACKTRACE_MAX_WIDTH) {
+          break;
+        }
+        // Extract the deepest level of stacktrace from the remaining stacktrace
+        if (startOffset + width + skipLength > stackTrace.length()) {
+          // reset the skip length to width which is already extracted in this scan so that next
+          // offset can be started
+          // without skipping characters
+          skipLength = width;
+          // Determine the min characters that can be extracted
+          width =
+              Math.min(
+                  stackTrace.length() - (startOffset + width),
+                  STACKTRACE_MAX_WIDTH - abbreviatedLength);
+          isDeepestLevel = true;
+        }
+        // Start the next start offset
+        startOffset += skipLength;
+      } catch (IllegalArgumentException ex) {
+        return builder.toString();
+      }
+    }
+    return builder.toString();
   }
 
   private String getExceptionCause(Throwable exception) {
-    return errorResponseBodyFactory.getExceptionCause(exception);
+    return exception.getCause() != null ? exception.getCause().getMessage() : CAUSE_NOT_AVAILABLE;
   }
 }

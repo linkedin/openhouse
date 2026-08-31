@@ -4,10 +4,9 @@ import static com.linkedin.openhouse.housetables.model.TestHouseTableModelConsta
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.linkedin.openhouse.common.exception.CorruptEntityTypeException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
-import com.linkedin.openhouse.housetables.exception.CorruptEntityTypeConversionException;
-import com.linkedin.openhouse.housetables.exception.CorruptUserTableDataException;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.repository.UserTableReadRepository;
@@ -174,10 +173,10 @@ public class UserTableReadRepositoryTest {
     insertRawEntityType("corrupt_row", "UNKNOWN");
 
     assertThatThrownBy(() -> readRepository.findEntity(ADAPTER_DB, "corrupt_row"))
-        .isInstanceOf(CorruptUserTableDataException.class)
+        .isInstanceOf(CorruptEntityTypeException.class)
         .hasStackTraceContaining("user_table_row.entity_type")
         .hasStackTraceContaining("UNKNOWN")
-        .hasStackTraceContaining(CorruptEntityTypeConversionException.class.getSimpleName());
+        .hasStackTraceContaining(CorruptEntityTypeException.class.getSimpleName());
 
     // The row is retained for operator repair, not quietly dropped.
     assertThat(readRawEntityType("corrupt_row")).hasValue("UNKNOWN");
@@ -189,7 +188,7 @@ public class UserTableReadRepositoryTest {
     insertRawEntityType("corrupt_for_write", "UNKNOWN");
 
     assertThatThrownBy(() -> readRepository.findRowForWrite(ADAPTER_DB, "corrupt_for_write"))
-        .isInstanceOf(CorruptUserTableDataException.class)
+        .isInstanceOf(CorruptEntityTypeException.class)
         .hasStackTraceContaining("user_table_row.entity_type");
   }
 

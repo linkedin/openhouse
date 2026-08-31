@@ -93,14 +93,7 @@ public class ServiceAuditAspect {
    * @return Result of the exception handler method
    * @throws Throwable Any exception during execution of the exception handler method
    */
-  /**
-   * A service-scoped advice must be audited and stripped on the same terms as the shared one, or it
-   * returns a body shape no other error path uses. Enumerated rather than a wildcard subpackage
-   * match so a future advice has to opt in deliberately.
-   */
-  @Around(
-      "execution(* com.linkedin.openhouse.common.exception.handler.*.*(..)) "
-          + "|| execution(* com.linkedin.openhouse.housetables.exception.handler.*.*(..))")
+  @Around("execution(* com.linkedin.openhouse.common.exception.handler.*.*(..))")
   protected Object auditFailedRequests(ProceedingJoinPoint point) throws Throwable {
     Object result = null;
     try {

@@ -8,12 +8,9 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 
+import com.linkedin.openhouse.common.exception.CorruptEntityTypeException;
 import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
-import com.linkedin.openhouse.housetables.exception.CorruptEntityTypeConversionException;
-import com.linkedin.openhouse.housetables.exception.CorruptUserTableDataException;
-import com.linkedin.openhouse.housetables.exception.UserTablePersistenceException;
-import com.linkedin.openhouse.housetables.exception.UserTableReadException;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.repository.UserTableReadRepository;
@@ -96,9 +93,8 @@ public class JpaUserTableReadRepositoryTest {
         .build();
   }
 
-  private static CorruptEntityTypeConversionException corruption() {
-    return new CorruptEntityTypeConversionException(
-        CORRUPT_MSG, new IllegalArgumentException("UNKNOWN"));
+  private static CorruptEntityTypeException corruption() {
+    return new CorruptEntityTypeException(CORRUPT_MSG, new IllegalArgumentException("UNKNOWN"));
   }
 
   private static JpaSystemException corruptWrapper() {
@@ -137,8 +133,8 @@ public class JpaUserTableReadRepositoryTest {
   // -------------------------------------------------------------------------------------------
 
   /**
-   * A {@code Stream} or {@code Iterable} of entities could still fail after the boundary. Only
-   * {@code findRowForWrite} may hand back a row, and it is already hydrated.
+   * A {@code Stream} or {@code Iterable} of entities could still fail after the boundary. Only the
+   * two row-returning methods may hand back an entity, and both are already hydrated.
    */
   @Test
   public void testNoReadFacingMethodExposesAStreamOrAJpaEntity() {
@@ -148,7 +144,8 @@ public class JpaUserTableReadRepositoryTest {
           Stream.class, returnType, method.getName() + " must not return a Stream");
       Assertions.assertNotEquals(
           Iterable.class, returnType, method.getName() + " must not return a raw Iterable");
-      if (!"findRowForWrite".equals(method.getName())) {
+      // The archive copy and the write primitive genuinely need the entity; nothing else does.
+      if (!"findRowForWrite".equals(method.getName()) && !"findTableRow".equals(method.getName())) {
         Assertions.assertFalse(
             method.getGenericReturnType().getTypeName().contains(UserTableRow.class.getName()),
             method.getName() + " must return DTOs, not persistence rows");
@@ -260,14 +257,18 @@ public class JpaUserTableReadRepositoryTest {
         .when(htsJdbcRepository)
         .findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(DB, "corrupt");
 
+    // Unwrapped, so the advice renders the converter's diagnostic rather than the wrapper's.
     assertThatThrownBy(() -> readRepository.findEntity(DB, "corrupt"))
-        .isInstanceOf(CorruptUserTableDataException.class)
-        .hasCauseReference(wrapper);
+        .isInstanceOf(CorruptEntityTypeException.class)
+        .hasMessageContaining("user_table_row.entity_type");
   }
 
-  /** A dependency outage must stay distinguishable from bad data, and the reverse. */
+  /**
+   * Only corruption is translated. An infrastructure failure is rethrown as the very same instance,
+   * so it reaches the advice exactly as it does on any untouched path.
+   */
   @Test
-  public void testUnrelatedExactWrapperBecomesUserTableReadExceptionPreservingItsCause() {
+  public void testUnrelatedWrapperIsRethrownUnchanged() {
     JpaSystemException wrapper =
         new JpaSystemException(new PersistenceException("connection reset"));
     doThrow(wrapper)
@@ -275,11 +276,11 @@ public class JpaUserTableReadRepositoryTest {
         .findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(DB, "boom");
 
     assertThatThrownBy(() -> readRepository.findEntity(DB, "boom"))
-        .isInstanceOf(UserTableReadException.class)
-        .isNotInstanceOf(CorruptUserTableDataException.class)
-        .hasCauseReference(wrapper);
+        .isSameAs(wrapper)
+        .isNotInstanceOf(CorruptEntityTypeException.class);
   }
 
+  /** The other wrapper the translator can pick, given the converter escape's ancestry. */
   @Test
   public void testInvalidDataAccessApiUsageWrapperIsAlsoTranslated() {
     doThrow(new InvalidDataAccessApiUsageException("converter failed", corruption()))
@@ -287,11 +288,11 @@ public class JpaUserTableReadRepositoryTest {
         .findViewByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(DB, "corrupt");
 
     assertThatThrownBy(() -> readRepository.findView(DB, "corrupt"))
-        .isInstanceOf(CorruptUserTableDataException.class);
+        .isInstanceOf(CorruptEntityTypeException.class);
   }
 
   @Test
-  public void testOtherDataAccessExceptionsAreAlsoTranslated() {
+  public void testOtherDataAccessExceptionsAreRethrownUnchanged() {
     DataAccessResourceFailureException failure =
         new DataAccessResourceFailureException("datasource down");
     doThrow(failure)
@@ -299,8 +300,7 @@ public class JpaUserTableReadRepositoryTest {
         .findAllViewsByFilters(DB, null, null, null, null, null);
 
     assertThatThrownBy(() -> readRepository.findViews(UserViewQuery.inDatabase(DB)))
-        .isInstanceOf(UserTablePersistenceException.class)
-        .hasCauseReference(failure);
+        .isSameAs(failure);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -320,7 +320,7 @@ public class JpaUserTableReadRepositoryTest {
 
     assertThatThrownBy(() -> readRepository.findViews(UserViewQuery.inDatabase(DB)))
         .as("corrupt row at position %s", corruptPosition)
-        .isInstanceOf(CorruptUserTableDataException.class);
+        .isInstanceOf(CorruptEntityTypeException.class);
   }
 
   @ParameterizedTest
@@ -336,7 +336,7 @@ public class JpaUserTableReadRepositoryTest {
         .findAllViewsByDatabaseIdAndTableIdLikeAllIgnoreCase(DB, "match_%");
 
     assertThatThrownBy(() -> readRepository.findViews(UserViewQuery.matchingPattern(DB, "match_%")))
-        .isInstanceOf(CorruptUserTableDataException.class);
+        .isInstanceOf(CorruptEntityTypeException.class);
   }
 
   /** The failure is raised while the content is traversed, where {@code Page.map} meets it. */
@@ -355,7 +355,7 @@ public class JpaUserTableReadRepositoryTest {
 
     assertThatThrownBy(() -> readRepository.findViews(UserViewQuery.inDatabase(DB), pageable))
         .as("corrupt content element at position %s", corruptPosition)
-        .isInstanceOf(CorruptUserTableDataException.class);
+        .isInstanceOf(CorruptEntityTypeException.class);
   }
 
   @Test
@@ -366,7 +366,7 @@ public class JpaUserTableReadRepositoryTest {
         .findAllViewsByFilters(eq(DB), any(), any(), any(), any(), any(), eq(pageable));
 
     assertThatThrownBy(() -> readRepository.findViews(UserViewQuery.inDatabase(DB), pageable))
-        .isInstanceOf(CorruptUserTableDataException.class);
+        .isInstanceOf(CorruptEntityTypeException.class);
   }
 
   /**

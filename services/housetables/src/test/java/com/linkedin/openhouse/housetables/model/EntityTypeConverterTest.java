@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.housetables.model;
 
-import com.linkedin.openhouse.housetables.exception.CorruptEntityTypeConversionException;
+import com.linkedin.openhouse.common.exception.CorruptEntityTypeException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -43,12 +43,12 @@ public class EntityTypeConverterTest {
   @ParameterizedTest
   @ValueSource(strings = {"FOO", "", " ", "TABLES", "TABLE ", "TÁBLE"})
   void unrecognizedColumnValueFailsLoudly(String columnValue) {
-    CorruptEntityTypeConversionException thrown =
+    CorruptEntityTypeException thrown =
         Assertions.assertThrows(
-            CorruptEntityTypeConversionException.class,
+            CorruptEntityTypeException.class,
             () -> converter.convertToEntityAttribute(columnValue));
     Assertions.assertFalse(
-        IllegalArgumentException.class.isAssignableFrom(CorruptEntityTypeConversionException.class),
+        IllegalArgumentException.class.isAssignableFrom(CorruptEntityTypeException.class),
         "corruption must not be catchable as a client-error IllegalArgumentException");
     Assertions.assertTrue(thrown.getMessage().contains("user_table_row.entity_type"));
     Assertions.assertTrue(thrown.getMessage().contains(columnValue));

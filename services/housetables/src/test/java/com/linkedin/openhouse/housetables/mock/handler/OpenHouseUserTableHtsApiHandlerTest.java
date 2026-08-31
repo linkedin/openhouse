@@ -325,15 +325,12 @@ public class OpenHouseUserTableHtsApiHandlerTest {
 
   @Test
   public void testPersistenceFailureIsNotConvertedIntoNotFound() {
-    doThrow(
-            new com.linkedin.openhouse.housetables.exception.CorruptUserTableDataException(
-                "corrupt row"))
+    doThrow(new com.linkedin.openhouse.common.exception.CorruptEntityTypeException("corrupt row"))
         .when(userTablesService)
         .getNeutralEntity(anyString(), anyString());
 
     assertThatThrownBy(() -> handler.getNeutralEntity(key("corrupt")))
-        .isInstanceOf(
-            com.linkedin.openhouse.housetables.exception.CorruptUserTableDataException.class);
+        .isInstanceOf(com.linkedin.openhouse.common.exception.CorruptEntityTypeException.class);
   }
 
   // -------------------------------------------------------------------------------------------

@@ -9,12 +9,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import com.linkedin.openhouse.common.exception.CorruptEntityTypeException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateUpdateEntityRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.response.GetAllEntityResponseBody;
 import com.linkedin.openhouse.housetables.dto.mapper.SoftDeletedUserTablesMapper;
-import com.linkedin.openhouse.housetables.exception.CorruptEntityTypeConversionException;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRow;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
@@ -1984,6 +1984,127 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.stacktrace").doesNotExist());
   }
 
+  /**
+   * Regression: {@code TABLE_ROW_PREDICATE} excludes an unrecognized spelling before hydration, so
+   * a corrupt row is simply absent from the table point read under H2. Unchanged from base.
+   */
+  @Test
+  public void testCorruptRowIsExcludedFromTheTablePointReadRatherThanFailing() throws Exception {
+    insertRawEntityType(ENTITY_TYPE_DB, "corrupt_table_point", "UNKNOWN");
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/tables")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "corrupt_table_point")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isNotFound());
+
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "corrupt_table_point")).hasValue("UNKNOWN");
+  }
+
+  /**
+   * The table reads now cross the same boundary as the view reads, so corruption reaching one
+   * produces the column-and-value diagnostic rather than the ORM {@code toString()}. This is the
+   * one intended behavioural change to the table path. Injected, because under a folding collation
+   * — not under H2 — the predicate would match a spelling Java rejects.
+   */
+  @Test
+  public void testCorruptDiscriminatorOnTheTablePointReadCarriesColumnDiagnostic()
+      throws Exception {
+    Mockito.doThrow(corruptWrapper())
+        .when(htsJdbcRepository)
+        .findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(anyString(), anyString());
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/tables")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "corrupt_table_point")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isInternalServerError())
+        .andExpect(jsonPath("$.status", is(equalTo(HttpStatus.INTERNAL_SERVER_ERROR.name()))))
+        .andExpect(
+            jsonPath("$.error", is(equalTo(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase()))))
+        .andExpect(
+            jsonPath(
+                "$.message",
+                containsString("Column user_table_row.entity_type holds unrecognized value")))
+        .andExpect(jsonPath("$.message", containsString("UNKNOWN")))
+        .andExpect(jsonPath("$.entity").doesNotExist());
+  }
+
+  /**
+   * Restore's occupancy read is neutral, so it is the one table path on which a genuinely corrupt
+   * row hydrates under H2. It must fail loudly rather than report the key as free and clobber it.
+   */
+  @Test
+  public void testCorruptOccupantMakesRestoreFailRatherThanOverwrite() throws Exception {
+    insertRawEntityType(ENTITY_TYPE_DB, "corrupt_restore_target", "UNKNOWN");
+
+    mvc.perform(
+            MockMvcRequestBuilders.put("/hts/tables/restore")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "corrupt_restore_target")
+                .param("deletedAtMs", "1")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isInternalServerError())
+        .andExpect(
+            jsonPath(
+                "$.message",
+                containsString("Column user_table_row.entity_type holds unrecognized value")));
+
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "corrupt_restore_target")).hasValue("UNKNOWN");
+  }
+
+  /** The table query family reaches it too, and reports no partial list alongside the failure. */
+  @ParameterizedTest
+  @ValueSource(strings = {"/hts/tables/query", "/v1/hts/tables/query"})
+  public void testCorruptDiscriminatorOnATableQueryCarriesColumnDiagnostic(String route)
+      throws Exception {
+    seedTypedRow(ENTITY_TYPE_DB, "healthy_table", EntityType.TABLE);
+    Mockito.doThrow(corruptWrapper())
+        .when(htsJdbcRepository)
+        .findAllTablesByFilters(anyString(), any(), any(), any(), any(), any());
+    Mockito.doThrow(corruptWrapper())
+        .when(htsJdbcRepository)
+        .findAllTablesByFilters(anyString(), any(), any(), any(), any(), any(), any());
+
+    mvc.perform(
+            MockMvcRequestBuilders.get(route)
+                .params(queryParams("databaseId", ENTITY_TYPE_DB))
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isInternalServerError())
+        .andExpect(
+            jsonPath(
+                "$.message",
+                containsString("Column user_table_row.entity_type holds unrecognized value")))
+        .andExpect(jsonPath("$.results").doesNotExist())
+        .andExpect(jsonPath("$.pageResults").doesNotExist());
+  }
+
+  /**
+   * The other half of the gate: a non-corrupt failure on a table read is rethrown unchanged, so the
+   * body is byte-identical to what the generic advice produced before this change.
+   */
+  @Test
+  public void testNonCorruptFailureOnATableReadKeepsTheGenericBody() throws Exception {
+    DataAccessResourceFailureException raw =
+        new DataAccessResourceFailureException("datasource down");
+    Mockito.doThrow(raw)
+        .when(htsJdbcRepository)
+        .findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(anyString(), anyString());
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/tables")
+                .param("databaseId", ENTITY_TYPE_DB)
+                .param("tableId", "any_table")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isInternalServerError())
+        // handleGenericException renders the exception's own toString(), unchanged by the boundary.
+        .andExpect(jsonPath("$.message", is(equalTo(raw.toString()))))
+        .andExpect(jsonPath("$.cause", is(equalTo("Not Available"))))
+        .andExpect(jsonPath("$.stacktrace").doesNotExist());
+  }
+
   @Test
   public void testCorruptDiscriminatorIsNotFoundOnTypedDeleteAndRename() throws Exception {
     insertRawEntityType(ENTITY_TYPE_DB, "corrupt_mutate", "UNKNOWN");
@@ -2192,7 +2313,7 @@ public class HtsControllerTest {
     return new JpaSystemException(
         new PersistenceException(
             "Error attempting to apply AttributeConverter",
-            new CorruptEntityTypeConversionException(
+            new CorruptEntityTypeException(
                 "Column user_table_row.entity_type holds unrecognized value ['UNKNOWN']; "
                     + "only TABLE, VIEW (in any case) and NULL are valid",
                 new IllegalArgumentException("UNKNOWN"))));

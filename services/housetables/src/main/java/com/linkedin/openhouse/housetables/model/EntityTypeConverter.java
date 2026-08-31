@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.housetables.model;
 
-import com.linkedin.openhouse.housetables.exception.CorruptEntityTypeConversionException;
+import com.linkedin.openhouse.common.exception.CorruptEntityTypeException;
 import javax.persistence.AttributeConverter;
 import javax.persistence.Converter;
 
@@ -33,7 +33,7 @@ public class EntityTypeConverter implements AttributeConverter<EntityType, Strin
     } catch (IllegalArgumentException e) {
       // Not an IllegalArgumentException: the shared advice answers 400 for those, and stored
       // corruption is a server-state failure whatever wrote it.
-      throw new CorruptEntityTypeConversionException(
+      throw new CorruptEntityTypeException(
           String.format(
               "Column user_table_row.entity_type holds unrecognized value ['%s']; "
                   + "only TABLE, VIEW (in any case) and NULL are valid",

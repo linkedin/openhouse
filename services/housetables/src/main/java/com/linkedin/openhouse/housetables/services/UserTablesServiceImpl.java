@@ -12,7 +12,6 @@ import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.mapper.SoftDeletedUserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
-import com.linkedin.openhouse.housetables.exception.UserTablePersistenceException;
 import com.linkedin.openhouse.housetables.metrics.UserTableMetricsConstant;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRow;
@@ -27,13 +26,10 @@ import com.linkedin.openhouse.housetables.services.model.UserViewQuery;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -62,18 +58,13 @@ public class UserTablesServiceImpl implements UserTablesService {
 
   @Override
   public UserTableDto getUserTable(String databaseId, String tableId) {
-    UserTableRow userTableRow;
-
     try {
-      userTableRow =
-          htsJdbcRepository
-              .findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(databaseId, tableId)
-              .orElseThrow(NoSuchElementException::new);
+      return userTableReadRepository
+          .findTable(databaseId, tableId)
+          .orElseThrow(NoSuchElementException::new);
     } catch (NoSuchElementException ne) {
       throw new NoSuchUserTableException(databaseId, tableId, ne);
     }
-
-    return userTablesMapper.toUserTableDto(userTableRow);
   }
 
   @Override
@@ -106,38 +97,15 @@ public class UserTablesServiceImpl implements UserTablesService {
 
   @Override
   public Pair<UserTableDto, Boolean> putUserView(UserTable userView) {
-    return translatingMutationFailures(() -> persistTypedEntity(userView, EntityType.VIEW));
+    return persistTypedEntity(userView, EntityType.VIEW);
   }
 
   @Override
   public boolean deleteUserView(String databaseId, String tableId) {
     // Never the soft-delete primitive: its store has no discriminator to record what a view was.
-    return translatingMutationFailures(
-        () ->
-            htsJdbcRepository.deleteViewById(
-                    UserTableRowPrimaryKey.builder()
-                        .databaseId(databaseId)
-                        .tableId(tableId)
-                        .build())
-                != 0);
-  }
-
-  /**
-   * The write-side counterpart to {@link UserTableReadRepository}'s translation, so a new view
-   * mutation exposes this module's failure vocabulary rather than Spring's.
-   *
-   * <p>{@link EntityConcurrentModificationException} and {@link AlreadyExistsException} extend
-   * neither {@link DataAccessException} nor each other, so the expected races pass through and keep
-   * answering 409. Applied at the view entry points, not in the shared primitive, so the frozen
-   * table path keeps exposing what it did before.
-   */
-  private <T> T translatingMutationFailures(Supplier<T> mutation) {
-    try {
-      return mutation.get();
-    } catch (DataAccessException dataAccessException) {
-      throw new UserTablePersistenceException(
-          "Mutating the user table store failed", dataAccessException);
-    }
+    return htsJdbcRepository.deleteViewById(
+            UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
+        != 0;
   }
 
   @Override
@@ -263,8 +231,8 @@ public class UserTablesServiceImpl implements UserTablesService {
     if (isSoftDeleted) {
       // Table-scoped, never the neutral read: a view copied into that store would restore as one.
       UserTableRow existingTable =
-          htsJdbcRepository
-              .findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(databaseId, tableId)
+          userTableReadRepository
+              .findTableRow(databaseId, tableId)
               .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
       softDeletedHtsJdbcRepository.save(
           softDeletedUserTablesMapper.toSoftDeletedUserTableRow(existingTable));
@@ -286,9 +254,8 @@ public class UserTablesServiceImpl implements UserTablesService {
   @Override
   @Transactional
   public UserTableDto restoreUserTable(String databaseId, String tableId, Long deletedAt) {
-    Optional<UserTableRow> existingUserTable =
-        htsJdbcRepository.findById(
-            UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build());
+    Optional<UserTableDto> existingUserTable =
+        userTableReadRepository.findEntity(databaseId, tableId);
     if (existingUserTable.isPresent()) {
       // If the table already exists, we throw an exception
       throw new AlreadyExistsException("Table", existingUserTable.get().getTableId());
@@ -357,8 +324,7 @@ public class UserTablesServiceImpl implements UserTablesService {
     METRICS_REPORTER.count(MetricsConstant.HTS_LIST_DATABASES_REQUEST);
     return METRICS_REPORTER.executeWithStats(
         () ->
-            StreamSupport.stream(
-                    htsJdbcRepository.findAllDistinctDatabaseIds().spliterator(), false)
+            userTableReadRepository.findAllDistinctDatabaseIds().stream()
                 .map(databaseId -> UserTableDto.builder().databaseId(databaseId).build())
                 .collect(Collectors.toList()),
         MetricsConstant.HTS_LIST_DATABASES_TIME);
@@ -369,7 +335,7 @@ public class UserTablesServiceImpl implements UserTablesService {
     Pageable pageable = createPageable(page, size, sortBy, "databaseId");
     return METRICS_REPORTER.executeWithStats(
         () ->
-            htsJdbcRepository
+            userTableReadRepository
                 .findAllDistinctDatabaseIds(null, pageable)
                 .map(databaseId -> UserTableDto.builder().databaseId(databaseId).build()),
         MetricsConstant.HTS_PAGE_DATABASES_TIME);
@@ -379,14 +345,8 @@ public class UserTablesServiceImpl implements UserTablesService {
     METRICS_REPORTER.count(MetricsConstant.HTS_LIST_TABLES_REQUEST);
     return METRICS_REPORTER.executeWithStats(
         () ->
-            StreamSupport.stream(
-                    htsJdbcRepository
-                        .findAllTablesByFilters(
-                            userTable.getDatabaseId(), null, null, null, null, null)
-                        .spliterator(),
-                    false)
-                .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
-                .collect(Collectors.toList()),
+            userTableReadRepository.findTablesByFilters(
+                userTable.getDatabaseId(), null, null, null, null, null),
         MetricsConstant.HTS_LIST_TABLES_TIME);
   }
 
@@ -395,10 +355,8 @@ public class UserTablesServiceImpl implements UserTablesService {
     Pageable pageable = createPageable(page, size, sortBy, "tableId");
     return METRICS_REPORTER.executeWithStats(
         () ->
-            htsJdbcRepository
-                .findAllTablesByFilters(
-                    userTable.getDatabaseId(), null, null, null, null, null, pageable)
-                .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
+            userTableReadRepository.findTablesByFilters(
+                userTable.getDatabaseId(), null, null, null, null, null, pageable),
         MetricsConstant.HTS_PAGE_TABLES_TIME);
   }
 
@@ -406,14 +364,8 @@ public class UserTablesServiceImpl implements UserTablesService {
     METRICS_REPORTER.count(MetricsConstant.HTS_LIST_TABLES_REQUEST);
     return METRICS_REPORTER.executeWithStats(
         () ->
-            StreamSupport.stream(
-                    htsJdbcRepository
-                        .findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
-                            userTable.getDatabaseId(), userTable.getTableId())
-                        .spliterator(),
-                    false)
-                .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
-                .collect(Collectors.toList()),
+            userTableReadRepository.findTablesByTableIdPattern(
+                userTable.getDatabaseId(), userTable.getTableId()),
         MetricsConstant.HTS_LIST_TABLES_TIME);
   }
 
@@ -423,10 +375,8 @@ public class UserTablesServiceImpl implements UserTablesService {
     Pageable pageable = createPageable(page, size, sortBy, "tableId");
     return METRICS_REPORTER.executeWithStats(
         () ->
-            htsJdbcRepository
-                .findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
-                    userTable.getDatabaseId(), userTable.getTableId(), pageable)
-                .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
+            userTableReadRepository.findTablesByTableIdPattern(
+                userTable.getDatabaseId(), userTable.getTableId(), pageable),
         MetricsConstant.HTS_PAGE_TABLES_TIME);
   }
 
@@ -437,16 +387,14 @@ public class UserTablesServiceImpl implements UserTablesService {
         "Reaching general search for user table which is not expected: {}", userTable.toJson());
     return METRICS_REPORTER.executeWithStats(
         () ->
-            htsJdbcRepository
-                .findAllTablesByFilters(
-                    userTable.getDatabaseId(),
-                    userTable.getTableId(),
-                    userTable.getTableVersion(),
-                    userTable.getMetadataLocation(),
-                    userTable.getStorageType(),
-                    userTable.getCreationTime(),
-                    pageable)
-                .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow)),
+            userTableReadRepository.findTablesByFilters(
+                userTable.getDatabaseId(),
+                userTable.getTableId(),
+                userTable.getTableVersion(),
+                userTable.getMetadataLocation(),
+                userTable.getStorageType(),
+                userTable.getCreationTime(),
+                pageable),
         MetricsConstant.HTS_PAGE_SEARCH_TABLES_TIME);
   }
 
@@ -456,19 +404,13 @@ public class UserTablesServiceImpl implements UserTablesService {
         "Reaching general search for user table which is not expected: {}", userTable.toJson());
     return METRICS_REPORTER.executeWithStats(
         () ->
-            StreamSupport.stream(
-                    htsJdbcRepository
-                        .findAllTablesByFilters(
-                            userTable.getDatabaseId(),
-                            userTable.getTableId(),
-                            userTable.getTableVersion(),
-                            userTable.getMetadataLocation(),
-                            userTable.getStorageType(),
-                            userTable.getCreationTime())
-                        .spliterator(),
-                    false)
-                .map(userTableRow -> userTablesMapper.toUserTableDto(userTableRow))
-                .collect(Collectors.toList()),
+            userTableReadRepository.findTablesByFilters(
+                userTable.getDatabaseId(),
+                userTable.getTableId(),
+                userTable.getTableVersion(),
+                userTable.getMetadataLocation(),
+                userTable.getStorageType(),
+                userTable.getCreationTime()),
         MetricsConstant.HTS_SEARCH_TABLES_TIME);
   }
 
