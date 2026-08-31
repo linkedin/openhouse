@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.*;
 import com.google.common.collect.Lists;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
+import com.linkedin.openhouse.housetables.e2e.fixture.UserTableStoreCleaner;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
@@ -61,6 +62,8 @@ public class HtsRepositoryTest {
 
   @Autowired UserTableHtsJdbcRepository htsRepository;
 
+  @Autowired UserTableStoreCleaner userTableStoreCleaner;
+
   @Autowired DataSource dataSource;
 
   @AfterEach
@@ -68,7 +71,7 @@ public class HtsRepositoryTest {
     // The JPA cleanup loads every row, so a planted non-canonical spelling must go first.
     new JdbcTemplate(dataSource)
         .update("DELETE FROM user_table_row WHERE entity_type NOT IN ('TABLE', 'VIEW')");
-    htsRepository.deleteAll();
+    userTableStoreCleaner.clear();
   }
 
   private UserTableRow row(String databaseId, String tableId, EntityType entityType) {
@@ -1042,7 +1045,8 @@ public class HtsRepositoryTest {
 
   /**
    * Programming-error guard, not an HTTP path: a future caller must not be able to reintroduce a
-   * neutral key-addressed mutation. No-arg {@code deleteAll()} is not sealed: it addresses no key.
+   * neutral mutation. No-arg {@code deleteAll()} is sealed alongside the key-addressed four,
+   * because nothing in production wipes the store and test teardown now owns that job.
    */
   @Test
   public void testInheritedKeyAddressedDeletesAreSealed() {
@@ -1058,11 +1062,13 @@ public class HtsRepositoryTest {
         .isInstanceOf(UnsupportedOperationException.class);
     assertThatThrownBy(() -> htsRepository.deleteAll(Collections.singletonList(sealedView)))
         .isInstanceOf(UnsupportedOperationException.class);
+    assertThatThrownBy(() -> htsRepository.deleteAll())
+        .isInstanceOf(UnsupportedOperationException.class);
 
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "sealed_view")).hasValue("VIEW");
 
-    // The whole-repository administrative form keeps working; three teardowns depend on it.
-    htsRepository.deleteAll();
+    // Teardown owns whole-store cleanup now, and it still reaches every row.
+    userTableStoreCleaner.clear();
     assertThat(htsRepository.existsById(sealedKey)).isFalse();
   }
 

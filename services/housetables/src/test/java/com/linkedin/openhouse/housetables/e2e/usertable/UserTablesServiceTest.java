@@ -16,6 +16,7 @@ import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import com.linkedin.openhouse.housetables.e2e.SpringH2HtsApplication;
+import com.linkedin.openhouse.housetables.e2e.fixture.UserTableStoreCleaner;
 import com.linkedin.openhouse.housetables.metrics.UserTableMetricsConstant;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
@@ -67,6 +68,8 @@ public class UserTablesServiceTest {
 
   @SpyBean UserTableHtsJdbcRepository htsRepository;
 
+  @Autowired UserTableStoreCleaner userTableStoreCleaner;
+
   @SpyBean SoftDeletedUserTableHtsJdbcRepository softDeletedHtsJdbcRepository;
 
   @SpyBean UserTableReadRepository userTableReadRepository;
@@ -114,7 +117,7 @@ public class UserTablesServiceTest {
     // The JPA cleanup loads every row, so a planted non-canonical spelling must go first.
     new JdbcTemplate(dataSource)
         .update("DELETE FROM user_table_row WHERE entity_type NOT IN ('TABLE', 'VIEW')");
-    htsRepository.deleteAll();
+    userTableStoreCleaner.clear();
     softDeletedHtsJdbcRepository.deleteAll();
   }
 

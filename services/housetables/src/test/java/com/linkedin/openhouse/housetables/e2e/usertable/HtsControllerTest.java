@@ -15,6 +15,7 @@ import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateUpdateEntityRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.response.GetAllEntityResponseBody;
 import com.linkedin.openhouse.housetables.dto.mapper.SoftDeletedUserTablesMapper;
+import com.linkedin.openhouse.housetables.e2e.fixture.UserTableStoreCleaner;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRow;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
@@ -64,6 +65,8 @@ public class HtsControllerTest {
 
   @Autowired HtsRepository<UserTableRow, UserTableRowPrimaryKey> htsRepository;
 
+  @Autowired UserTableStoreCleaner userTableStoreCleaner;
+
   @Autowired SoftDeletedUserTableHtsJdbcRepository softDeletedHtsJdbcRepository;
 
   @Autowired MockMvc mvc;
@@ -91,7 +94,7 @@ public class HtsControllerTest {
     // otherwise converter hydration during teardown poisons the rest of the class.
     new JdbcTemplate(dataSource)
         .update("DELETE FROM user_table_row WHERE entity_type NOT IN ('TABLE', 'VIEW')");
-    htsRepository.deleteAll();
+    userTableStoreCleaner.clear();
     softDeletedHtsJdbcRepository.deleteAll();
   }
 

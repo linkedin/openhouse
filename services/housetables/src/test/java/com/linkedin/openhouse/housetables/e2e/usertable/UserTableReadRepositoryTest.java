@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.linkedin.openhouse.common.exception.CorruptEntityTypeException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
+import com.linkedin.openhouse.housetables.e2e.fixture.UserTableStoreCleaner;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.repository.UserTableReadRepository;
@@ -40,6 +41,8 @@ public class UserTableReadRepositoryTest {
 
   @Autowired UserTableHtsJdbcRepository htsRepository;
 
+  @Autowired UserTableStoreCleaner userTableStoreCleaner;
+
   @Autowired DataSource dataSource;
 
   @AfterEach
@@ -47,7 +50,7 @@ public class UserTableReadRepositoryTest {
     // The JPA cleanup loads every row, so a planted non-canonical spelling must go first.
     new JdbcTemplate(dataSource)
         .update("DELETE FROM user_table_row WHERE entity_type NOT IN ('TABLE', 'VIEW')");
-    htsRepository.deleteAll();
+    userTableStoreCleaner.clear();
   }
 
   private UserTableRow row(String tableId, EntityType entityType) {

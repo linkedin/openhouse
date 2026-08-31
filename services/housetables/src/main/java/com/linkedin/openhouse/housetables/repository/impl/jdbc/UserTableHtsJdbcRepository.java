@@ -272,7 +272,8 @@ public interface UserTableHtsJdbcRepository
   /**
    * Sealed because a wrong-type delete is irreversible, and because falling through to {@code
    * SimpleJpaRepository} would silently change the case and absence semantics of the derived
-   * neutral delete this change removed. No-arg {@code deleteAll()} stays: it addresses no key.
+   * neutral delete this change removed. No-arg {@code deleteAll()} is sealed for the same reason:
+   * nothing in production wipes the store, and test teardown is not a reason to publish it.
    */
   @Override
   default void deleteById(UserTableRowPrimaryKey userTableRowPrimaryKey) {
@@ -291,6 +292,11 @@ public interface UserTableHtsJdbcRepository
 
   @Override
   default void deleteAll(Iterable<? extends UserTableRow> entities) {
+    throw new UnsupportedOperationException("Use typed single-entity deletion");
+  }
+
+  @Override
+  default void deleteAll() {
     throw new UnsupportedOperationException("Use typed single-entity deletion");
   }
 
