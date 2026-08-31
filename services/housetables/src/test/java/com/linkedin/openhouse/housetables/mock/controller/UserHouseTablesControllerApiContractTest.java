@@ -20,15 +20,12 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 
 /**
- * The generated client is produced from these annotations, so the declared response-code set of
- * every operation is part of the published contract rather than documentation. This pins the whole
- * surface at once: a new route, a dropped route, or a response code added to an existing operation
- * all fail here.
+ * The declared response-code set is published contract, not documentation, so the whole surface is
+ * pinned at once.
  *
- * <p>Two deliberate mismatches with runtime behavior are preserved rather than corrected, because
- * changing them would change the generated client: {@code PUT /hts/tables/restore} answers 200 but
- * advertises 204, and several operations can return a generic 500 that they do not advertise. The
- * scoped exception advice is {@code @Hidden} precisely so it adds none.
+ * <p>Two mismatches with runtime behaviour are preserved deliberately, because correcting them
+ * would change the generated client: {@code PUT /hts/tables/restore} answers 200 but advertises
+ * 204, and several operations can return a generic 500 they do not advertise.
  */
 public class UserHouseTablesControllerApiContractTest {
 
@@ -78,10 +75,7 @@ public class UserHouseTablesControllerApiContractTest {
             "DELETE /hts/views");
   }
 
-  /**
-   * The view mutations must not gain a synthetic 500 just because the catch-all can produce one.
-   * That is the specific regression a non-{@code @Hidden} scoped advice would cause.
-   */
+  /** The regression a non-{@code @Hidden} scoped advice would cause. */
   @Test
   public void testViewMutationsDeclareNoServerErrorResponse() {
     Map<String, Set<String>> declared = declaredOperations();

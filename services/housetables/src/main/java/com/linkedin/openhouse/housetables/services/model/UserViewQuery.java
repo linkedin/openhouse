@@ -5,12 +5,11 @@ import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
 /**
- * The vocabulary the view query service accepts. Built once, in the handler, after the existing
- * validator has accepted the transport, so no query-shaped {@code UserTable} ever reaches the
- * service and the inert {@code entityType} is discarded at that boundary.
+ * The vocabulary the view query service accepts, built in the handler so no query-shaped {@code
+ * UserTable} reaches the service and the inert {@code entityType} is discarded there.
  *
- * <p>Only the three reachable states are constructible. There is deliberately no factory for a
- * table pattern without a database, which the validator already rejects.
+ * <p>Only the three reachable states are constructible: there is no factory for a table pattern
+ * without a database, which the validator already rejects.
  */
 @EqualsAndHashCode
 @ToString
@@ -25,12 +24,11 @@ public final class UserViewQuery {
     this.tableIdPattern = tableIdPattern;
   }
 
-  /** Every view, unbounded. The empty view query is not a database-name projection. */
+  /** Unbounded: the empty view query is not a database-name projection. */
   public static UserViewQuery all() {
     return new UserViewQuery(null, null);
   }
 
-  /** Every view in one database. */
   public static UserViewQuery inDatabase(String databaseId) {
     if (databaseId == null) {
       throw new IllegalArgumentException("databaseId is required to scope a view query");
@@ -38,7 +36,7 @@ public final class UserViewQuery {
     return new UserViewQuery(databaseId, null);
   }
 
-  /** Views in one database whose tableId matches a SQL {@code LIKE} pattern. */
+  /** {@code tableIdPattern} is a SQL {@code LIKE} pattern. */
   public static UserViewQuery matchingPattern(String databaseId, String tableIdPattern) {
     if (databaseId == null) {
       throw new IllegalArgumentException("tableIdPattern cannot be provided without databaseId");

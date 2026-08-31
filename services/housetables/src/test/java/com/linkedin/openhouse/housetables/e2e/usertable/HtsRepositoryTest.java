@@ -84,9 +84,9 @@ public class HtsRepositoryTest {
   }
 
   /**
-   * Plants a row that predates the discriminator, so its column holds SQL NULL. Kept separate from
-   * {@link #seedTypedRow} rather than folded into one helper with a nullable argument, because
-   * "legacy" and "typed" are different fixtures rather than two modes of one.
+   * Plants a pre-discriminator row, whose column holds SQL NULL. Separate from {@link
+   * #seedTypedRow} rather than one helper with a nullable argument: these are two fixtures, not two
+   * modes.
    */
   private void seedLegacyRow(String databaseId, String tableId) {
     htsRepository.save(row(databaseId, tableId, null));
@@ -116,10 +116,7 @@ public class HtsRepositoryTest {
             entityType);
   }
 
-  /**
-   * The column is nullable, so an absent value is a real outcome rather than a missing one. It is
-   * reported as an empty {@link Optional} so every assertion states presence or absence explicitly.
-   */
+  /** Nullable column: an absent value is a real outcome, so callers state which they expect. */
   private Optional<String> readRawEntityType(String databaseId, String tableId) {
     return Optional.ofNullable(
         new JdbcTemplate(dataSource)
@@ -836,7 +833,6 @@ public class HtsRepositoryTest {
         .isEqualTo(expectedVisible);
   }
 
-  /** A row the SQL predicate matched must never then fail to hydrate. */
   @ParameterizedTest
   @CsvSource({"case04_upper_view, VIEW", "case05_lower_view, view", "case06_mixed_view, ViEw"})
   public void testFindViewByKeyHydratesEveryViewSpelling(String tableId, String storedSpelling) {
@@ -854,7 +850,6 @@ public class HtsRepositoryTest {
     assertThat(readRawEntityType(CASE_DB, tableId)).hasValue(storedSpelling);
   }
 
-  /** The exact-filter view family returns views only, and its page filters before it pages. */
   @Test
   public void testFindAllViewsByFiltersReturnsOnlyViewsAndFiltersBeforePagination() {
     seedCanonicalRows(ENTITY_TYPE_DB, "");
@@ -899,7 +894,6 @@ public class HtsRepositoryTest {
     assertThat(pageTableIds(page1)).doesNotContainAnyElementsOf(Arrays.asList(CANONICAL_TABLE_IDS));
   }
 
-  /** The pattern (LIKE) view family applies the same predicate, plain and paged. */
   @Test
   public void testFindAllViewsByPatternReturnsOnlyViewsAndFiltersBeforePagination() {
     seedCanonicalRows(ENTITY_TYPE_DB, "match_");
@@ -927,10 +921,7 @@ public class HtsRepositoryTest {
     assertThat(pageTableIds(page1)).containsExactly("match_t05_view");
   }
 
-  /**
-   * H2 in {@code MODE=MySQL} compares case-sensitively, so a bare {@code = 'VIEW'} would drop the
-   * lower and mixed-case rows; returning them is what proves {@code upper(...)} is applied.
-   */
+  /** H2 compares case-sensitively, so returning these rows proves {@code upper(...)} is applied. */
   @Test
   public void testViewQueriesIncludeEverySpellingAndExcludeNullAndGarbage() {
     seedCaseNormalizationRows();
@@ -995,7 +986,6 @@ public class HtsRepositoryTest {
     assertThat(htsRepository.existsById(key(ENTITY_TYPE_DB, "del_view"))).isTrue();
   }
 
-  /** The mirror: a view delete cannot reach a table or a legacy null. */
   @Test
   public void testDeleteViewByIdRemovesOnlyViewRows() {
     seedLegacyRow(ENTITY_TYPE_DB, "del_legacy");
@@ -1029,10 +1019,8 @@ public class HtsRepositoryTest {
   }
 
   /**
-   * An {@code "UNKNOWN"} discriminator matches neither predicate under H2, so the row is left for
-   * an operator. This pins H2's behaviour for a value outside the vocabulary in any collation; a
-   * production collation that folded accents or padding could still match a spelling Java rejects,
-   * which is why the read paths translate corruption loudly rather than relying on this.
+   * Pins H2 only: a folding production collation could still match a spelling Java rejects, which
+   * is why the read paths translate corruption loudly rather than relying on this.
    */
   @Test
   public void testTypedDeletesAndTableRenameSkipAnUnknownSpelling() {
@@ -1053,9 +1041,8 @@ public class HtsRepositoryTest {
   }
 
   /**
-   * Programming-error guard, not an HTTP path: no route reaches these, so the point is that a
-   * future caller cannot reintroduce a neutral key-addressed mutation by accident. The no-arg
-   * {@code deleteAll()} is deliberately not sealed because it addresses no key.
+   * Programming-error guard, not an HTTP path: a future caller must not be able to reintroduce a
+   * neutral key-addressed mutation. No-arg {@code deleteAll()} is not sealed: it addresses no key.
    */
   @Test
   public void testInheritedKeyAddressedDeletesAreSealed() {
@@ -1080,10 +1067,9 @@ public class HtsRepositoryTest {
   }
 
   /**
-   * Sealing the four inherited methods is only half the guard: the derived neutral delete they used
-   * to delegate to must be gone from the interface too, or a caller can simply invoke it by name
-   * and delete a row of either type. The declared surface is asserted rather than the behaviour,
-   * because a method that does not exist cannot be called in a test.
+   * Sealing is only half the guard: the derived neutral delete must be gone from the interface too,
+   * or a caller invokes it by name. Asserted on the declared surface, because a method that does
+   * not exist cannot be called.
    */
   @Test
   public void testNoNeutralKeyAddressedDeleteRemainsOnTheRepositoryInterface() {
@@ -1117,7 +1103,6 @@ public class HtsRepositoryTest {
   // table-scoped rename
   // ---------------------------------------------------------------------------------------------
 
-  /** A rename scoped to tables cannot move a view, and reports zero rather than throwing. */
   @Test
   public void testRenameTableIdRefusesViewSource() {
     seedTypedRow(ENTITY_TYPE_DB, "rename_view_src", EntityType.VIEW);
@@ -1139,7 +1124,6 @@ public class HtsRepositoryTest {
     assertThat(after.getVersion()).isEqualTo(before.getVersion());
   }
 
-  /** A missing source is the same zero the service maps to 404. */
   @Test
   public void testRenameTableIdMissingSourceAffectsZeroRows() {
     assertThat(
@@ -1154,9 +1138,8 @@ public class HtsRepositoryTest {
   }
 
   /**
-   * The statement assigns the literal {@code 'TABLE'}; there is no bound type parameter. The source
-   * column holds SQL NULL, so a hydrated {@code getEntityType() == TABLE} would be tautological —
-   * only the raw column distinguishes "stamped" from "left alone".
+   * The statement assigns the literal {@code 'TABLE'}; there is no bound type parameter. A hydrated
+   * check would be tautological on a SQL NULL, so only the raw column distinguishes the two.
    */
   @Test
   public void testRenameStampsCanonicalTableOnLegacyNullSource() {
@@ -1178,7 +1161,6 @@ public class HtsRepositoryTest {
     assertThat(htsRepository.existsById(key(ENTITY_TYPE_DB, "rename_legacy_src"))).isFalse();
   }
 
-  /** The same for a non-canonical stored spelling: the rename rewrites it to the constant. */
   @Test
   public void testRenameStampsCanonicalTableOnMixedCaseSource() {
     insertRawEntityType(ENTITY_TYPE_DB, "rename_mixed_src", "TaBlE");
@@ -1196,11 +1178,8 @@ public class HtsRepositoryTest {
   }
 
   /**
-   * The shared primary key is what turns an occupied destination into a conflict, whatever type or
-   * spelling occupies it. Nothing is mutated on either side.
-   *
-   * <p>Regression guard: a view-typed or corrupt-typed destination must stay "occupied" and never
-   * read as "free" under {@code TABLE_ROW_PREDICATE}.
+   * Regression guard: a view-typed or corrupt-typed destination must stay "occupied" under {@code
+   * TABLE_ROW_PREDICATE}. The shared primary key is what rejects the move; nothing is mutated.
    */
   @Test
   public void testRenameIntoOccupiedDestinationLeavesBothRowsUnchanged() {

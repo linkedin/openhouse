@@ -20,14 +20,12 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
 /**
- * Compositional adapter over the frozen {@link UserTableHtsJdbcRepository}. It delegates the query,
- * consumes the result completely, maps it to DTOs, and translates the exact wrappers Spring's
- * persistence exception translation produces into this module's unchecked failures, preserving the
- * original as cause.
+ * Compositional adapter over the frozen {@link UserTableHtsJdbcRepository}: it delegates, consumes
+ * the result completely, maps to DTOs, and translates Spring's persistence wrappers into this
+ * module's unchecked failures, preserving the original as cause.
  *
- * <p>Consuming completely is the point: a caller must never be handed a lazily hydrated result that
- * can fail after the boundary, because a corrupt row discovered mid-iteration would surface as a
- * partial success.
+ * <p>Consuming completely is the point: a corrupt row discovered after the boundary would surface
+ * as a partial success.
  */
 @Component
 public class JpaUserTableReadRepository implements UserTableReadRepository {
@@ -64,8 +62,6 @@ public class JpaUserTableReadRepository implements UserTableReadRepository {
                       query.getDatabaseId().orElse(null), query.getTableIdPattern().get())
                   : htsJdbcRepository.findAllViewsByFilters(
                       query.getDatabaseId().orElse(null), null, null, null, null, null);
-          // Traversed to exhaustion here, inside the boundary, so a hydration failure cannot
-          // surface later as a short list.
           List<UserTableDto> views = new ArrayList<>();
           for (UserTableRow row : rows) {
             views.add(userTablesMapper.toUserTableDto(row));
@@ -84,8 +80,7 @@ public class JpaUserTableReadRepository implements UserTableReadRepository {
                       query.getDatabaseId().orElse(null), query.getTableIdPattern().get(), pageable)
                   : htsJdbcRepository.findAllViewsByFilters(
                       query.getDatabaseId().orElse(null), null, null, null, null, null, pageable);
-          // Every content element is mapped here rather than through a deferred conversion, so the
-          // traversal, and any failure it raises, happens inside the translation boundary.
+          // Mapped here rather than deferred, so any failure happens inside the boundary.
           List<UserTableDto> content = new ArrayList<>();
           for (UserTableRow row : rows.getContent()) {
             content.add(userTablesMapper.toUserTableDto(row));

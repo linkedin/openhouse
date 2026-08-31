@@ -6,12 +6,10 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * The single cause-chain search this module performs. Shared by the persistence adapter, which
- * translates, and by the scoped advice, which renders; both must agree on what "carries corruption"
- * means.
+ * The single cause-chain search this module performs: the adapter that translates and the advice
+ * that renders must agree on what "carries corruption" means.
  *
- * <p>Returns an {@link Optional} rather than a nullable sentinel, and walks the chain bounded by
- * both depth and visited identity so a self- or mutually-referential cause terminates.
+ * <p>Bounded by both depth and visited identity, so a cyclic cause chain terminates.
  */
 public final class CorruptEntityTypeCauseFinder {
 
@@ -21,10 +19,7 @@ public final class CorruptEntityTypeCauseFinder {
     // Utility class, constructor does nothing
   }
 
-  /**
-   * @param exception the exception to search, which may itself be the corruption
-   * @return the first {@link CorruptEntityTypeConversionException} in the chain, or empty
-   */
+  /** @param exception the exception to search, which may itself be the corruption */
   public static Optional<CorruptEntityTypeConversionException> find(Throwable exception) {
     Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
     Throwable current = exception;

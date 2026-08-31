@@ -4,9 +4,8 @@ import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import java.util.Optional;
 
 /**
- * The outcome of normalizing a PUT payload against the type its route owns. An explicit result
- * rather than an exception, so the ingress rule is a value the controller inspects and the decision
- * to answer 400 stays with the transport layer that owns that status.
+ * The outcome of normalizing a PUT payload against the type its route owns. A value rather than an
+ * exception, so the decision to answer 400 stays with the transport layer that owns that status.
  */
 public final class EntityTypeIngressResult {
 
@@ -37,12 +36,10 @@ public final class EntityTypeIngressResult {
     return failureMessage == null;
   }
 
-  /** Present exactly when {@link #isSuccess()}. */
   public Optional<UserTable> getNormalizedEntity() {
     return Optional.ofNullable(normalizedEntity);
   }
 
-  /** Present exactly when {@link #isSuccess()} is false. */
   public Optional<String> getFailureMessage() {
     return Optional.ofNullable(failureMessage);
   }

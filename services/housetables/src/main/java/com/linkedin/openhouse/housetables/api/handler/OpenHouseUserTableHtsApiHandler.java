@@ -173,9 +173,8 @@ public class OpenHouseUserTableHtsApiHandler implements UserTableHtsApiHandler {
   }
 
   /**
-   * Query transport stops here. Only the three reachable shapes are representable downstream, and
-   * an unsupported one — a table pattern with no database to scope it — cannot be constructed at
-   * all, which is why this runs strictly after the validator has accepted the request.
+   * Query transport stops here. A table pattern with no database to scope it is not constructible,
+   * which is why this must run after the validator has accepted the request.
    */
   private static UserViewQuery toViewQuery(UserTable userView) {
     if (userView.getTableId() != null) {

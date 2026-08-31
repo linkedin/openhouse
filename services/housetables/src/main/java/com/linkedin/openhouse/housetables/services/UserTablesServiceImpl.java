@@ -78,8 +78,6 @@ public class UserTablesServiceImpl implements UserTablesService {
 
   @Override
   public Optional<UserTableDto> getNeutralEntity(String databaseId, String tableId) {
-    // Only an empty Optional is absence; repository and hydration failures escape as module
-    // exceptions, because reporting a broken row as "free" is how an occupant gets overwritten.
     return userTableReadRepository.findEntity(databaseId, tableId);
   }
 
@@ -113,8 +111,7 @@ public class UserTablesServiceImpl implements UserTablesService {
 
   @Override
   public boolean deleteUserView(String databaseId, String tableId) {
-    // One conditional statement: never a read-then-delete, and never the soft-delete primitive,
-    // whose store has no discriminator column to record what a view was.
+    // Never the soft-delete primitive: its store has no discriminator to record what a view was.
     return translatingMutationFailures(
         () ->
             htsJdbcRepository.deleteViewById(
@@ -126,18 +123,13 @@ public class UserTablesServiceImpl implements UserTablesService {
   }
 
   /**
-   * The write-side counterpart to {@link UserTableReadRepository}'s translation: a new view
-   * mutation must expose this module's failure vocabulary, not Spring's, so no caller outside HTS
-   * has to understand ORM wrappers.
+   * The write-side counterpart to {@link UserTableReadRepository}'s translation, so a new view
+   * mutation exposes this module's failure vocabulary rather than Spring's.
    *
-   * <p>Only otherwise-unhandled {@link DataAccessException}s are converted. The expected write
-   * races are already translated inside {@link #persistTypedEntity} to {@link
-   * EntityConcurrentModificationException}, and a cross-type collision to {@link
-   * AlreadyExistsException}; neither extends {@link DataAccessException}, so both pass through
-   * untouched and keep answering 409.
-   *
-   * <p>Deliberately applied at the view entry points rather than inside the shared write primitive:
-   * the frozen table path keeps exposing exactly what it exposed before.
+   * <p>{@link EntityConcurrentModificationException} and {@link AlreadyExistsException} extend
+   * neither {@link DataAccessException} nor each other, so the expected races pass through and keep
+   * answering 409. Applied at the view entry points, not in the shared primitive, so the frozen
+   * table path keeps exposing what it did before.
    */
   private <T> T translatingMutationFailures(Supplier<T> mutation) {
     try {
@@ -181,19 +173,17 @@ public class UserTablesServiceImpl implements UserTablesService {
   }
 
   /**
-   * The one write primitive both named entry points share. The type is supplied by the caller that
-   * named it, never read from the transport object, so no direct Java caller can violate either
-   * method's invariant.
-   *
-   * @param entityType the type the invoked entry point owns
+   * The one write primitive both named entry points share. The type comes from the caller that
+   * named it, never from the transport object, so no direct Java caller can violate either method's
+   * invariant.
    */
   private Pair<UserTableDto, Boolean> persistTypedEntity(
       UserTable userTable, EntityType entityType) {
     Optional<UserTableRow> existingUserTableRow =
         userTableReadRepository.findRowForWrite(userTable.getDatabaseId(), userTable.getTableId());
 
-    // Compared before any version mapping runs: a wrong-type collision is not a stale write, and
-    // the conflict names the occupant rather than the type that was requested.
+    // Before any version mapping: a wrong-type collision is not a stale write, and the conflict
+    // names the occupant rather than the requested type.
     if (existingUserTableRow.isPresent()
         && existingUserTableRow.get().getEntityType() != entityType) {
       throw new AlreadyExistsException(
@@ -201,8 +191,7 @@ public class UserTablesServiceImpl implements UserTablesService {
           userTable.getDatabaseId() + "." + userTable.getTableId());
     }
 
-    // Overwritten before mapping, so an absent, contradictory or unrecognized transport spelling
-    // never reaches the enum boundary and never governs what is stored.
+    // Overwritten before mapping, so no transport spelling reaches the enum boundary.
     UserTable ownedEntity = userTable.toBuilder().entityType(entityType.name()).build();
     UserTableRow targetUserTableRow =
         userTablesMapper.toUserTableRow(ownedEntity, existingUserTableRow);
@@ -245,8 +234,7 @@ public class UserTablesServiceImpl implements UserTablesService {
       String toDatabaseId,
       String toTableId,
       String metadataLocation) {
-    // No source precheck: the conditional update is itself the check, which closes the TOCTOU
-    // window and makes a VIEW or corrupt source affect zero rows rather than be moved.
+    // No source precheck: the conditional update is the check, closing the TOCTOU window.
     try {
       log.info(
           "Renaming user table from {}.{} to {}.{}",
@@ -273,8 +261,7 @@ public class UserTablesServiceImpl implements UserTablesService {
     UserTableRowPrimaryKey key =
         UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build();
     if (isSoftDeleted) {
-      // Table-scoped, never the neutral read: the soft-deleted store has no discriminator, so a
-      // view copied into it would restore as a table.
+      // Table-scoped, never the neutral read: a view copied into that store would restore as one.
       UserTableRow existingTable =
           htsJdbcRepository
               .findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(databaseId, tableId)
@@ -282,8 +269,7 @@ public class UserTablesServiceImpl implements UserTablesService {
       softDeletedHtsJdbcRepository.save(
           softDeletedUserTablesMapper.toSoftDeletedUserTableRow(existingTable));
     }
-    // Throwing inside the transaction rolls the copy above back, so a row that loses the race is
-    // not left behind in the soft-deleted store.
+    // Throwing inside the transaction rolls the copy above back.
     if (htsJdbcRepository.deleteTableById(key) == 0) {
       throw new NoSuchUserTableException(databaseId, tableId);
     }

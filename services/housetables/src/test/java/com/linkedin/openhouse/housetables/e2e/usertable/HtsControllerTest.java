@@ -865,10 +865,7 @@ public class HtsControllerTest {
         .build();
   }
 
-  /**
-   * A non-canonical spelling cannot be expressed by the enum-typed entity, so a row holding one can
-   * only be planted through the column itself.
-   */
+  /** The enum-typed entity cannot express a non-canonical spelling; only the column can. */
   private void insertRawEntityType(String databaseId, String tableId, String entityType) {
     new JdbcTemplate(dataSource)
         .update(
@@ -884,10 +881,7 @@ public class HtsControllerTest {
             entityType);
   }
 
-  /**
-   * The column is nullable, so an absent value is a real outcome rather than a missing one. It is
-   * reported as an empty {@link Optional} so every assertion states presence or absence explicitly.
-   */
+  /** Nullable column: an absent value is a real outcome, so callers state which they expect. */
   private Optional<String> readRawEntityType(String databaseId, String tableId) {
     return Optional.ofNullable(
         new JdbcTemplate(dataSource)
@@ -899,9 +893,9 @@ public class HtsControllerTest {
   }
 
   /**
-   * Plants a row that predates the discriminator, so its column holds SQL NULL. Kept separate from
-   * {@link #seedTypedRow} rather than folded into one helper with a nullable argument, because
-   * "legacy" and "typed" are different fixtures rather than two modes of one.
+   * Plants a pre-discriminator row, whose column holds SQL NULL. Separate from {@link
+   * #seedTypedRow} rather than one helper with a nullable argument: these are two fixtures, not two
+   * modes.
    */
   private void seedLegacyRow(String databaseId, String tableId) {
     htsRepository.save(entityTypeRow(databaseId, tableId, null));
@@ -1013,11 +1007,7 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.pageResults.content[1].tableId", is("t02_explicit")));
   }
 
-  /**
-   * The discriminator survives the HTTP write boundary. The route owns the type, so a legacy writer
-   * that omits it now stores and returns the canonical constant rather than a null column. A view
-   * cannot be read back through {@code GET /hts/tables} because that read is table-scoped.
-   */
+  /** The route owns the type, so a writer that omits it still stores the canonical constant. */
   @Test
   public void testEntityTypePutAndGetRoundTrip() throws Exception {
     UserTable viewEntity =
@@ -1092,9 +1082,8 @@ public class HtsControllerTest {
   }
 
   /**
-   * The API accepts the discriminator case-insensitively but HTS stores and returns the canonical
-   * constant, so the column vocabulary stays exactly TABLE/VIEW/NULL. The lowercase spelling is
-   * sent to the view route, because it is the route that owns the type.
+   * The column vocabulary stays exactly TABLE/VIEW/NULL. The lowercase spelling goes to the view
+   * route, because the route owns the type.
    */
   @Test
   public void testEntityTypePutNormalizesSpellingToCanonicalConstant() throws Exception {
@@ -1244,7 +1233,6 @@ public class HtsControllerTest {
   // view routes
   // ---------------------------------------------------------------------------------------------
 
-  /** {@code GET /hts/views} is the mirror of the table point read, and is equally exclusive. */
   @Test
   public void testGetViewReturnsViewsAndHidesTables() throws Exception {
     seedTypedRow(ENTITY_TYPE_DB, "view_point", EntityType.VIEW);
@@ -1276,7 +1264,6 @@ public class HtsControllerTest {
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "legacy_point")).isEmpty();
   }
 
-  /** A table, a legacy row and a truly absent key are all 404 on the view route. */
   @ParameterizedTest
   @ValueSource(strings = {"table_point", "legacy_point", "absent_point"})
   public void testGetViewIsNotFoundForEveryNonViewKey(String tableId) throws Exception {
@@ -1300,7 +1287,6 @@ public class HtsControllerTest {
                             .replace("$id", ENTITY_TYPE_DB + "." + tableId)))));
   }
 
-  /** An invalid key is a bad request before any lookup happens. */
   @Test
   public void testGetViewWithInvalidKeyIsBadRequest() throws Exception {
     mvc.perform(
@@ -1363,8 +1349,7 @@ public class HtsControllerTest {
   }
 
   /**
-   * Regression: the empty table query keeps projecting database names. The two empty queries mean
-   * different things, and the view route is not permitted to inherit the table route's conflation.
+   * Regression: the two empty queries mean different things; the view route must not inherit this.
    */
   @Test
   public void testEmptyTableQueryStillProjectsDatabaseNames() throws Exception {
@@ -1422,7 +1407,6 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.pageResults.content[0].tableId", is("t01_view")));
   }
 
-  /** The view query is view-scoped by path, so an {@code entityType} parameter changes nothing. */
   @ParameterizedTest
   @ValueSource(strings = {"TABLE", "table", "VIEW", "UNKNOWN"})
   public void testEntityTypeQueryParameterIsIgnoredOnViewQuery(String entityType) throws Exception {
@@ -1459,10 +1443,7 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.pageResults.content[*].entityType", everyItem(is("VIEW"))));
   }
 
-  /**
-   * An empty filter map on the paged route is the unbounded view query, exactly as on the unpaged
-   * one. Only the paging metadata differs.
-   */
+  /** As on the unpaged route; only the paging metadata differs. */
   @Test
   public void testPagedViewQueryWithAnEmptyFilterMapReturnsEveryView() throws Exception {
     seedCanonicalRows("");
@@ -1485,11 +1466,9 @@ public class HtsControllerTest {
   }
 
   /**
-   * {@code LIKE} treats {@code _} as a single-character wildcard, which the view query inherits
-   * verbatim from the table query. Every canonical fixture id contains a literal underscore at that
-   * position, so only a differently spelled row can demonstrate it.
-   *
-   * <p>Regression guard: pre-existing {@code LIKE} behaviour, pinned rather than endorsed.
+   * Regression guard: {@code _} is a single-character wildcard, so {@code match_%} also matches
+   * {@code matchXview}. Every canonical fixture id has a literal underscore there, so only a
+   * differently-spelled row can demonstrate it. Pre-existing behaviour, pinned not endorsed.
    */
   @Test
   public void testViewPatternQueryKeepsUnderscoreAsASqlWildcard() throws Exception {
@@ -1507,7 +1486,6 @@ public class HtsControllerTest {
             jsonPath("$.results[*].tableId", containsInAnyOrder("match_t01_view", "matchXview")));
   }
 
-  /** A view PUT creates then updates, and answers with the canonical type both times. */
   @Test
   public void testPutViewCreatesThenUpdates() throws Exception {
     UserTable view =
@@ -1644,7 +1622,6 @@ public class HtsControllerTest {
         .isFalse();
   }
 
-  /** A view PUT at a key held by a table (or a legacy null) is a conflict, not an overwrite. */
   @ParameterizedTest
   @ValueSource(strings = {"occupied_by_table", "occupied_by_legacy"})
   public void testPutViewCannotOverwriteTableOrLegacyRow(String tableId) throws Exception {
@@ -1699,7 +1676,6 @@ public class HtsControllerTest {
     assertThat(after.getMetadataLocation()).isEqualTo(before.getMetadataLocation());
   }
 
-  /** {@code DELETE /hts/views} removes exactly one view and creates no soft-deleted row. */
   @Test
   public void testDeleteViewRemovesTheViewAndCreatesNoSoftDeletedRow() throws Exception {
     seedTypedRow(ENTITY_TYPE_DB, "drop_view", EntityType.VIEW);
@@ -1737,7 +1713,6 @@ public class HtsControllerTest {
         .andExpect(status().isNotFound());
   }
 
-  /** Wrong-type deletes are 404 in both directions and leave the occupant in place. */
   @Test
   public void testTypedDeletesCannotCrossTypes() throws Exception {
     seedTypedRow(ENTITY_TYPE_DB, "cross_delete_view", EntityType.VIEW);
@@ -1804,7 +1779,6 @@ public class HtsControllerTest {
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "cross_delete_legacy")).isEmpty();
   }
 
-  /** An invalid key on the view delete is a bad request, not a 404. */
   @Test
   public void testDeleteViewWithInvalidKeyIsBadRequest() throws Exception {
     mvc.perform(
@@ -1824,7 +1798,6 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.stacktrace").doesNotExist());
   }
 
-  /** The view query is validated exactly like its table sibling; an invalid filter is a 400. */
   @Test
   public void testViewQueryRejectsInvalidFilters() throws Exception {
     mvc.perform(
@@ -1849,7 +1822,6 @@ public class HtsControllerTest {
         .andExpect(status().isBadRequest());
   }
 
-  /** Paging on the view query is validated, and its documented defaults are page 0 and size 50. */
   @Test
   public void testPaginatedViewQueryRejectsInvalidPagingAndAppliesDefaults() throws Exception {
     seedCanonicalRows("");
@@ -1891,7 +1863,6 @@ public class HtsControllerTest {
   // neutral entity route
   // ---------------------------------------------------------------------------------------------
 
-  /** The occupancy read answers for either type and always names a canonical, non-null one. */
   @Test
   public void testNeutralEntityReadReportsCanonicalType() throws Exception {
     seedTypedRow(ENTITY_TYPE_DB, "neutral_view", EntityType.VIEW);
@@ -1927,7 +1898,6 @@ public class HtsControllerTest {
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "neutral_legacy")).isEmpty();
   }
 
-  /** Only genuine absence is 404 here; an invalid key is still a 400. */
   @Test
   public void testNeutralEntityReadReportsAbsenceAndInvalidKeysDistinctly() throws Exception {
     mvc.perform(
@@ -1957,10 +1927,7 @@ public class HtsControllerTest {
   // corrupt storage over HTTP
   // ---------------------------------------------------------------------------------------------
 
-  /**
-   * A corrupt occupant must never be reported as free, so the occupancy read and the write that
-   * depends on it both fail rather than answering 404 or overwriting.
-   */
+  /** A corrupt occupant must never read as free, so the read and the write on it both fail. */
   @Test
   public void testCorruptDiscriminatorIsServerErrorOnNeutralReadAndPut() throws Exception {
     insertRawEntityType(ENTITY_TYPE_DB, "corrupt_row", "UNKNOWN");
@@ -2017,7 +1984,6 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.stacktrace").doesNotExist());
   }
 
-  /** A typed delete or table rename at a corrupt key is 404, and the row stays put. */
   @Test
   public void testCorruptDiscriminatorIsNotFoundOnTypedDeleteAndRename() throws Exception {
     insertRawEntityType(ENTITY_TYPE_DB, "corrupt_mutate", "UNKNOWN");
@@ -2051,14 +2017,9 @@ public class HtsControllerTest {
   // ---------------------------------------------------------------------------------------------
 
   /**
-   * Every new read route must surface a repository failure as a diagnostic 500. A handler that
-   * swallowed the failure into an empty result would answer 200 with no rows, which is precisely
-   * the "the name is free" default the neutral read exists to prevent — so the absence of any
-   * {@code results} or {@code pageResults} payload is asserted alongside the status.
-   *
-   * <p>The failure is injected at the repository, which is where a corrupt row under a folding
-   * collation, or a datasource outage, would raise it. H2 cannot select a corrupt row through the
-   * view predicate, so injection is the only way to reach this contract end to end.
+   * A handler that swallowed the failure into an empty result would answer 200 with no rows, so the
+   * absence of any payload is asserted alongside the status. The failure is injected because H2
+   * cannot select a corrupt row through the view predicate.
    */
   @ParameterizedTest
   @CsvSource({
@@ -2094,10 +2055,7 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.entity").doesNotExist());
   }
 
-  /**
-   * A dependency failure that is not corruption is still a 500, rendered generically from the
-   * preserved original rather than being reported as an empty result or as bad data.
-   */
+  /** Rendered generically from the preserved original, not as an empty result or as bad data. */
   @ParameterizedTest
   @CsvSource({
     "/hts/views,          point",
@@ -2126,7 +2084,6 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.pageResults").doesNotExist());
   }
 
-  /** The neutral occupancy route has the same contract; absence must never mask a failure. */
   @Test
   public void testDependencyFailureOnTheNeutralRouteIsAGeneric500RatherThanNotFound()
       throws Exception {
@@ -2144,7 +2101,6 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.entity").doesNotExist());
   }
 
-  /** The write path reads occupancy through the same boundary, so it fails the same way. */
   @Test
   public void testDependencyFailureOnTheViewPutIsAGeneric500() throws Exception {
     DataAccessResourceFailureException raw =
@@ -2175,13 +2131,8 @@ public class HtsControllerTest {
   }
 
   /**
-   * The mutation itself, rather than its occupancy read. Translating the failure into a
-   * module-owned type must not change one byte of the rendered body: the scoped advice renders the
-   * preserved original, which is exactly what the shared advice rendered when the raw wrapper
-   * escaped.
-   *
-   * <p>Regression guard for constraint 1: {@code message} is the original failure's {@code
-   * toString()} and {@code cause} is its immediate cause, or the shared "Not Available" fallback.
+   * Regression guard for the frozen wire contract: translating the failure into a module-owned type
+   * must not change one byte of the body, because the advice renders the preserved original.
    */
   @Test
   public void testTranslatedMutationFailureRendersTheSame500BodyAsTheRawFailureDid()
@@ -2218,7 +2169,6 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.entity").doesNotExist());
   }
 
-  /** And the view delete, whose conditional statement is the only thing it runs. */
   @Test
   public void testDependencyFailureOnTheViewDeleteIsAGeneric500RatherThanNotFound()
       throws Exception {
@@ -2274,7 +2224,6 @@ public class HtsControllerTest {
   // table rename is table-scoped
   // ---------------------------------------------------------------------------------------------
 
-  /** The rename route is table-scoped: a view at the source key is a 404, and is not moved. */
   @Test
   public void testRenameTableRefusesToMoveAView() throws Exception {
     seedTypedRow(ENTITY_TYPE_DB, "rename_view_src", EntityType.VIEW);
@@ -2301,8 +2250,7 @@ public class HtsControllerTest {
   }
 
   /**
-   * The statement assigns the literal {@code 'TABLE'} as the row moves. The source column holds SQL
-   * NULL, which already hydrates as TABLE, so only the raw column proves the type was written.
+   * A SQL NULL already hydrates as TABLE, so only the raw column proves the literal was written.
    */
   @Test
   public void testRenameTableStampsCanonicalTableOnLegacyRow() throws Exception {
@@ -2323,10 +2271,8 @@ public class HtsControllerTest {
   }
 
   /**
-   * A destination held by a view or by a corrupt row is still occupied; both rows are left alone.
-   *
-   * <p>Regression guard: a destination occupied by the other type must stay "occupied" (409) and
-   * never read as "free" under {@code TABLE_ROW_PREDICATE}.
+   * Regression guard: a destination held by the other type, or by a corrupt row, must stay
+   * "occupied" under {@code TABLE_ROW_PREDICATE} rather than read as free.
    */
   @ParameterizedTest
   @CsvSource({"rename_dst_view, VIEW", "rename_dst_corrupt, UNKNOWN"})
@@ -2352,10 +2298,7 @@ public class HtsControllerTest {
   // ingress
   // ---------------------------------------------------------------------------------------------
 
-  /**
-   * Ingress normalization runs ahead of the validator, so it is the first code to see an absent
-   * entity, and answering 400 rather than dereferencing it is its job.
-   */
+  /** Ingress runs ahead of the validator, so it is the first code to see an absent entity. */
   @ParameterizedTest
   @ValueSource(strings = {"/hts/tables", "/hts/views"})
   public void testPutWithNullEntityIsBadRequest(String route) throws Exception {
@@ -2374,9 +2317,8 @@ public class HtsControllerTest {
   }
 
   /**
-   * The create path cannot show this: a legacy occupant exists, so it is an update (200, not 201)
-   * that must rewrite the column. An untouched SQL NULL hydrates as TABLE, so only the raw column
-   * proves it.
+   * The create path cannot show this: a legacy occupant makes it an update that must rewrite the
+   * column, and an untouched SQL NULL hydrates as TABLE, so only the raw column proves it.
    */
   @Test
   public void testPutTableOverLegacyNullOccupantUpdatesAndMigratesTheColumn() throws Exception {

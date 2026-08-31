@@ -27,7 +27,6 @@ public class ErrorResponseBodyFactory {
    */
   public static final int STACKTRACE_MAX_WIDTH = 6000;
 
-  /** Builds a body at an arbitrary status, from a supplied diagnostic message. */
   public ErrorResponseBody build(HttpStatus status, String message, Throwable exception) {
     return ErrorResponseBody.builder()
         .status(status)
@@ -39,30 +38,22 @@ public class ErrorResponseBodyFactory {
   }
 
   /**
-   * The generic 500 rendering: the message is the exception's own {@code toString()}, exactly as
-   * {@code OpenHouseExceptionHandler.handleGenericException} produces it.
+   * The message is the exception's own {@code toString()}, as {@code handleGenericException} does.
    */
   public ErrorResponseBody genericServerError(Throwable exception) {
     return build(HttpStatus.INTERNAL_SERVER_ERROR, exception.toString(), exception);
   }
 
   /**
-   * Gets reduced size stacktrace. Keeps the leading 1500 characters, then samples 600-character
-   * windows every 2000 from offset 6000 onwards, and finally takes the remaining tail. Returns
-   * empty or partial stacktrace if there is an exception.
-   *
-   * <p>The result approaches but does not strictly respect {@link #STACKTRACE_MAX_WIDTH}; see that
-   * field for why the overshoot is preserved rather than corrected.
-   *
-   * @param exception
-   * @return String
+   * Keeps the leading 1500 characters, then samples 600-character windows every 2000 from offset
+   * 6000, then the remaining tail. Approaches but does not strictly respect {@link
+   * #STACKTRACE_MAX_WIDTH}; see that field.
    */
   public String getAbbreviatedStackTrace(Throwable exception) {
     String stackTrace = ExceptionUtils.getStackTrace(exception);
     if (StringUtils.isEmpty(stackTrace)) {
       return null;
     }
-    // Return the complete stacktrace if it is already within the budget
     if (stackTrace.length() <= STACKTRACE_MAX_WIDTH) {
       return stackTrace;
     }
@@ -109,7 +100,6 @@ public class ErrorResponseBodyFactory {
     return builder.toString();
   }
 
-  /** The immediate cause's message, or {@value #CAUSE_NOT_AVAILABLE} when there is no cause. */
   public String getExceptionCause(Throwable exception) {
     return exception.getCause() != null ? exception.getCause().getMessage() : CAUSE_NOT_AVAILABLE;
   }

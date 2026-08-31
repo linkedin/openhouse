@@ -5,9 +5,8 @@ import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
 /**
- * A {@link UserViewQuery} plus the paging the v1 route always supplies. A separate type rather than
- * an optional "paged mode" flag on {@link UserViewQuery}, so an unpaged call cannot carry paging
- * and a paged call cannot omit it.
+ * A {@link UserViewQuery} plus paging. A separate type rather than an optional "paged mode" flag,
+ * so an unpaged call cannot carry paging and a paged call cannot omit it.
  */
 @EqualsAndHashCode
 @ToString
@@ -28,10 +27,7 @@ public final class PagedUserViewQuery {
     this.sortBy = sortBy;
   }
 
-  /**
-   * @param sortBy null when the caller supplied no sort, in which case the service applies the
-   *     route's documented default
-   */
+  /** @param sortBy null when unspecified, leaving the service to apply the route's default */
   public static PagedUserViewQuery of(UserViewQuery query, int page, int size, String sortBy) {
     if (query == null) {
       throw new IllegalArgumentException("query is required");

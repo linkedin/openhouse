@@ -107,10 +107,7 @@ public class UserHouseTablesControllerTest {
         .andExpect(status().isNoContent());
   }
 
-  /**
-   * The rename route owns the type it operates on. The controller calls the table handler method,
-   * so the handler never has to infer the type and no caller can supply it.
-   */
+  /** The controller calls the table handler method, so the handler never infers the type. */
   @Test
   public void testRenameThreadsTheControllerOwnedTableType() throws Exception {
     mvc.perform(
@@ -128,7 +125,6 @@ public class UserHouseTablesControllerTest {
     Assertions.assertEquals(TEST_TABLE_ID, mockHandler().getLastRenameFromTable().getTableId());
   }
 
-  /** The neutral occupancy route is wired to its own handler method, not to the table read. */
   @Test
   public void testGetNeutralEntityRow() throws Exception {
     mvc.perform(
@@ -145,7 +141,6 @@ public class UserHouseTablesControllerTest {
     Assertions.assertEquals(TEST_DB_ID, mockHandler().getLastNeutralEntityKey().getDatabaseId());
   }
 
-  /** The view point read is a distinct route bound to a distinct handler method. */
   @Test
   public void testGetViewRow() throws Exception {
     mvc.perform(
@@ -158,7 +153,6 @@ public class UserHouseTablesControllerTest {
         .andExpect(content().json(TestHtsApiConstants.TEST_GET_USER_VIEW_RESPONSE_BODY.toJson()));
   }
 
-  /** Both view query routes, plain and paged, reach the view list handler methods. */
   @Test
   public void testGetViewRows() throws Exception {
     mvc.perform(
@@ -181,10 +175,7 @@ public class UserHouseTablesControllerTest {
         .andExpect(content().contentType(MediaType.APPLICATION_JSON));
   }
 
-  /**
-   * The view PUT is its own route and its own handler method, and the endpoint — not the payload —
-   * is what fixes the type: a body that omits the field still reaches the handler stamped VIEW.
-   */
+  /** The endpoint fixes the type: a body that omits the field still arrives stamped VIEW. */
   @Test
   public void testPutViewRow() throws Exception {
     mvc.perform(
@@ -200,7 +191,6 @@ public class UserHouseTablesControllerTest {
     Assertions.assertNull(mockHandler().getLastPutEntity());
   }
 
-  /** The table PUT stamps the canonical constant on a payload that omitted it. */
   @Test
   public void testPutTableRowStampsCanonicalTable() throws Exception {
     mvc.perform(
@@ -218,7 +208,6 @@ public class UserHouseTablesControllerTest {
     Assertions.assertNull(mockHandler().getLastPutView());
   }
 
-  /** The view DELETE is a distinct route from the table one and answers 204. */
   @Test
   public void testDeleteViewRow() throws Exception {
     mvc.perform(

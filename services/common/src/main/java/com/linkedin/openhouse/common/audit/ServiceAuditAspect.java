@@ -94,11 +94,9 @@ public class ServiceAuditAspect {
    * @throws Throwable Any exception during execution of the exception handler method
    */
   /**
-   * Matches the shared advice and the House Tables scoped advice explicitly, so a service-scoped
-   * advice is audited and has its stacktrace stripped for the client on exactly the same terms.
-   * Without the second expression a scoped advice would silently return a body shape no other error
-   * path uses. The union is enumerated rather than written as a wildcard subpackage match so the
-   * reach stays intentional: a future advice elsewhere must opt in here deliberately.
+   * A service-scoped advice must be audited and stripped on the same terms as the shared one, or it
+   * returns a body shape no other error path uses. Enumerated rather than a wildcard subpackage
+   * match so a future advice has to opt in deliberately.
    */
   @Around(
       "execution(* com.linkedin.openhouse.common.exception.handler.*.*(..)) "

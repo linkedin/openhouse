@@ -1,15 +1,8 @@
 package com.linkedin.openhouse.housetables.metrics;
 
 /**
- * Metric names owned by House Tables' view query paths.
- *
- * <p>Only the four names the two-state owned query design can actually emit are here. PR #697's
- * general-search view metrics are omitted deliberately: after validation every non-key filter is
- * null, so a general-search branch is unreachable, and {@code UserViewQuery}/{@code
- * PagedUserViewQuery} make it unrepresentable even to a direct service caller.
- *
- * <p>Existing table metric names stay in {@code services:common}; moving them is a separate
- * dependency-cleanup change.
+ * Metric names owned by House Tables' view query paths: only the four the owned query types can
+ * actually emit. Existing table metric names stay in {@code services:common} for now.
  */
 public final class UserTableMetricsConstant {
 

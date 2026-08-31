@@ -28,10 +28,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ContextConfiguration;
 
 /**
- * The adapter against a real database: what it returns for healthy rows, and what it raises for a
- * genuinely corrupt one. The translation itself is unit-tested separately; this pins that the
- * corruption a real converter produces is what arrives at the service boundary, already carrying
- * the column diagnostic.
+ * The adapter against a real database. The translation itself is unit-tested separately; this pins
+ * that what a real converter produces arrives at the service boundary carrying the diagnostic.
  */
 @SpringBootTest
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
@@ -98,7 +96,6 @@ public class UserTableReadRepositoryTest {
                 tableId));
   }
 
-  /** The occupancy read sees either type, and reports a legacy null as the table that it means. */
   @Test
   public void testNeutralPointReadReportsCanonicalTypeForEitherType() {
     seedTypedRow("neutral_view", EntityType.VIEW);
@@ -119,7 +116,6 @@ public class UserTableReadRepositoryTest {
     assertThat(readRepository.findEntity(ADAPTER_DB, "neutral_absent")).isEmpty();
   }
 
-  /** The view point read hides a table and a legacy null rather than failing on them. */
   @Test
   public void testViewPointReadResolvesOnlyViews() {
     seedTypedRow("view_point", EntityType.VIEW);
@@ -137,7 +133,6 @@ public class UserTableReadRepositoryTest {
     assertThat(readRawEntityType("legacy_point")).isEmpty();
   }
 
-  /** The unbounded query is every view, and the database-scoped one is every view in it. */
   @Test
   public void testViewQueriesReturnCompleteDtoLists() {
     seedTypedRow("v1", EntityType.VIEW);
@@ -156,7 +151,6 @@ public class UserTableReadRepositoryTest {
         .containsExactlyInAnyOrder("v1", "v2");
   }
 
-  /** Filtering happens before paging, so the totals describe views rather than every row. */
   @Test
   public void testPagedViewQueryFiltersBeforeItPages() {
     seedTypedRow("v1", EntityType.VIEW);
@@ -174,11 +168,7 @@ public class UserTableReadRepositoryTest {
     assertThat(page0.getContent()).extracting(UserTableDto::getTableId).containsExactly("v1", "v2");
   }
 
-  /**
-   * A corrupt discriminator must fail loudly rather than read as absent, because "the key is free"
-   * is what lets a writer overwrite an occupant. The failure crosses the boundary as this module's
-   * type, not as a raw ORM wrapper, and it still carries the column and the offending value.
-   */
+  /** "The key is free" is what lets a writer overwrite an occupant, so this must fail loudly. */
   @Test
   public void testCorruptRowOnTheNeutralReadIsTranslatedAndCarriesTheDiagnostic() {
     insertRawEntityType("corrupt_row", "UNKNOWN");
@@ -203,7 +193,6 @@ public class UserTableReadRepositoryTest {
         .hasStackTraceContaining("user_table_row.entity_type");
   }
 
-  /** The write-preparation read hands back a hydrated row for a healthy occupant. */
   @Test
   public void testWritePreparationReadReturnsTheHydratedOccupant() {
     seedTypedRow("occupied", EntityType.VIEW);
@@ -218,9 +207,8 @@ public class UserTableReadRepositoryTest {
   }
 
   /**
-   * A corrupt row is excluded by the view predicate rather than selected by it, so a view query
-   * beside one still answers completely. This is the H2 case; the collation-dependent case where
-   * SQL matches a spelling Java rejects is covered by the adapter unit tests.
+   * The H2 case: the view predicate excludes the corrupt row rather than selecting it. The
+   * collation-dependent case is covered by the adapter unit tests.
    */
   @Test
   public void testViewQueryBesideACorruptRowStillReturnsEveryView() {

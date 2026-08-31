@@ -18,11 +18,8 @@ import com.linkedin.openhouse.housetables.api.spec.response.GetAllEntityResponse
 public interface UserTableHtsApiHandler extends HouseTablesApiHandler<UserTableKey, UserTable> {
 
   /**
-   * Deletes a row given its key. The soft-delete flag is table-only; {@link #deleteView} has no
-   * equivalent because views have no soft-deleted store.
-   *
-   * @param key The key object to identify the row to delete.
-   * @return the row as part of response body that would be returned to the client.
+   * The soft-delete flag is table-only; {@link #deleteView} has no equivalent because views have no
+   * soft-deleted store.
    */
   ApiResponse<Void> deleteEntity(UserTableKey key, boolean isSoftDelete);
 
@@ -38,10 +35,9 @@ public interface UserTableHtsApiHandler extends HouseTablesApiHandler<UserTableK
 
   ApiResponse<EntityResponseBody<UserTable>> putView(UserTable userView);
 
-  /** Always hard: views have no soft-deleted store, hence no soft-delete flag. */
   ApiResponse<Void> deleteView(UserTableKey key);
 
-  /** Views are not renameable; a {@code renameView} would be the counterpart if that changes. */
+  /** Views are not renameable, so there is deliberately no {@code renameView}. */
   @Override
   ApiResponse<Void> renameEntity(UserTable fromEntity, UserTable toEntity);
 }

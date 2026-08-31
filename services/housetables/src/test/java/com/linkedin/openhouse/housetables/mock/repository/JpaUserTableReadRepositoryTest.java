@@ -45,14 +45,12 @@ import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * The adapter is the one place where the exact wrappers Spring's persistence exception translation
- * produces are replaced with this module's unchecked failures, and the one place that guarantees a
- * read result is complete before the service sees it.
+ * The adapter is the one place that replaces Spring's wrappers and guarantees a read is complete
+ * before the service sees it.
  *
- * <p>The failure is injected as a wrapper raised while the result is consumed, which is the shape
- * Hibernate produces when the attribute converter fails on a row. That shape cannot be reproduced
- * against H2, where the SQL predicate and the Java vocabulary agree on what a view is, so it is
- * simulated here; the real corrupt-row behavior is pinned separately by the integration tests.
+ * <p>Failures are injected as a wrapper raised while the result is consumed — the shape Hibernate
+ * produces when the converter fails on a row. H2 cannot reproduce it, so it is simulated here and
+ * the real corrupt-row behaviour is pinned by the integration tests.
  */
 public class JpaUserTableReadRepositoryTest {
 
@@ -108,10 +106,7 @@ public class JpaUserTableReadRepositoryTest {
         new PersistenceException("Error attempting to apply AttributeConverter", corruption()));
   }
 
-  /**
-   * An {@link Iterable} whose iterator throws once it reaches {@code failAtIndex}, which is how a
-   * row-by-row hydration failure presents itself to a caller that walks the result.
-   */
+  /** How a row-by-row hydration failure presents itself to a caller walking the result. */
   private static Iterable<UserTableRow> failingAt(
       List<UserTableRow> rows, int failAtIndex, RuntimeException failure) {
     return () -> failingIterator(rows.iterator(), failAtIndex, failure);
@@ -142,9 +137,8 @@ public class JpaUserTableReadRepositoryTest {
   // -------------------------------------------------------------------------------------------
 
   /**
-   * A {@code Stream} or an {@code Iterable} of entities could still fail after the boundary, which
-   * is exactly the partial result the translation exists to prevent. Only {@code findRowForWrite}
-   * may hand back a row, and that row is already fully hydrated.
+   * A {@code Stream} or {@code Iterable} of entities could still fail after the boundary. Only
+   * {@code findRowForWrite} may hand back a row, and it is already hydrated.
    */
   @Test
   public void testNoReadFacingMethodExposesAStreamOrAJpaEntity() {
@@ -185,7 +179,6 @@ public class JpaUserTableReadRepositoryTest {
     assertThat(readRepository.findView(DB, "absent")).isEmpty();
   }
 
-  /** The write-preparation read hands back the hydrated row the version mapper needs. */
   @Test
   public void testFindRowForWriteReturnsTheHydratedRow() {
     UserTableRow occupant = row("occupied", EntityType.VIEW);
@@ -200,7 +193,6 @@ public class JpaUserTableReadRepositoryTest {
   // query routing
   // -------------------------------------------------------------------------------------------
 
-  /** An unbounded query is the "every view" state, not a database-scoped one. */
   @Test
   public void testUnboundedQueryDelegatesWithNoDatabaseFilter() {
     doReturn(Arrays.asList(row("v1", EntityType.VIEW), row("v2", EntityType.VIEW)))
@@ -223,10 +215,7 @@ public class JpaUserTableReadRepositoryTest {
         .containsExactly("v1");
   }
 
-  /**
-   * A pattern query must use the LIKE family. Routing it through the exact-filter family would
-   * silently turn {@code my_%} into an equality and answer with nothing.
-   */
+  /** The exact-filter family would turn {@code my_%} into an equality and answer with nothing. */
   @Test
   public void testPatternQueryDelegatesToThePatternFamily() {
     doReturn(Collections.singletonList(row("match_v1", EntityType.VIEW)))
@@ -276,10 +265,7 @@ public class JpaUserTableReadRepositoryTest {
         .hasCauseReference(wrapper);
   }
 
-  /**
-   * A read failure that is not corruption must stay distinguishable from one that is, so a caller
-   * cannot report a dependency outage as bad data or the reverse.
-   */
+  /** A dependency outage must stay distinguishable from bad data, and the reverse. */
   @Test
   public void testUnrelatedExactWrapperBecomesUserTableReadExceptionPreservingItsCause() {
     JpaSystemException wrapper =
@@ -294,7 +280,6 @@ public class JpaUserTableReadRepositoryTest {
         .hasCauseReference(wrapper);
   }
 
-  /** The other wrapper the translator can pick, given the converter escape's ancestry. */
   @Test
   public void testInvalidDataAccessApiUsageWrapperIsAlsoTranslated() {
     doThrow(new InvalidDataAccessApiUsageException("converter failed", corruption()))
@@ -305,7 +290,6 @@ public class JpaUserTableReadRepositoryTest {
         .isInstanceOf(CorruptUserTableDataException.class);
   }
 
-  /** Any other {@code DataAccessException} is still a module failure, never a raw wrapper. */
   @Test
   public void testOtherDataAccessExceptionsAreAlsoTranslated() {
     DataAccessResourceFailureException failure =
@@ -323,11 +307,7 @@ public class JpaUserTableReadRepositoryTest {
   // all-or-nothing consumption
   // -------------------------------------------------------------------------------------------
 
-  /**
-   * The corrupt row takes the first, middle and last position in turn. Whichever it takes, the
-   * caller gets one failure and no rows: an adapter that returned what it had collected so far
-   * would answer 200 with a truncated list.
-   */
+  /** An adapter returning what it had collected so far would answer 200 with a truncated list. */
   @ParameterizedTest
   @ValueSource(ints = {0, 1, 2})
   public void testUnpagedQueryFailsWholeWhenAnyRowIsCorrupt(int corruptPosition) {
@@ -343,7 +323,6 @@ public class JpaUserTableReadRepositoryTest {
         .isInstanceOf(CorruptUserTableDataException.class);
   }
 
-  /** The same for the pattern family, so neither unpaged route can leak a partial list. */
   @ParameterizedTest
   @ValueSource(ints = {0, 2})
   public void testUnpagedPatternQueryFailsWholeWhenAnyRowIsCorrupt(int corruptPosition) {
@@ -360,10 +339,7 @@ public class JpaUserTableReadRepositoryTest {
         .isInstanceOf(CorruptUserTableDataException.class);
   }
 
-  /**
-   * A page whose content fails part way through must not be returned half mapped. The failure is
-   * raised while the content is traversed, which is where {@code Page.map} meets it.
-   */
+  /** The failure is raised while the content is traversed, where {@code Page.map} meets it. */
   @ParameterizedTest
   @ValueSource(ints = {0, 1})
   public void testPagedQueryFailsWholeWhenAnyContentElementIsCorrupt(int corruptPosition) {
@@ -382,7 +358,6 @@ public class JpaUserTableReadRepositoryTest {
         .isInstanceOf(CorruptUserTableDataException.class);
   }
 
-  /** A failure raised by the repository invocation itself is translated the same way. */
   @Test
   public void testPagedQueryTranslatesAFailureRaisedByTheRepositoryCall() {
     Pageable pageable = PageRequest.of(0, 2);
@@ -395,9 +370,8 @@ public class JpaUserTableReadRepositoryTest {
   }
 
   /**
-   * A {@link Page} whose paging metadata is real but whose content throws while it is traversed.
-   * The safe copy is what {@link PageImpl} stores; every traversal path is overridden to go through
-   * the failing view of it instead.
+   * Real paging metadata over content that throws when traversed: {@link PageImpl} stores the safe
+   * copy, and every traversal path is overridden onto the failing view of it.
    */
   private static class FailingContentPage extends PageImpl<UserTableRow> {
 

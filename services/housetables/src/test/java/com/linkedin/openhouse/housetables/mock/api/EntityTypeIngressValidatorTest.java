@@ -13,11 +13,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
-/**
- * Ingress normalization states what is wrong and returns it; it never throws. That is what keeps
- * the choice of HTTP status with the controller, and what makes the rule testable without a
- * request.
- */
+/** Normalization returns what is wrong rather than throwing, so the rule is testable directly. */
 public class EntityTypeIngressValidatorTest {
 
   private final EntityTypeIngressValidator validator = new EntityTypeIngressValidator();
@@ -32,10 +28,7 @@ public class EntityTypeIngressValidatorTest {
         .build();
   }
 
-  /**
-   * The wire field stays nullable for rolling deploys: an un-upgraded client sends no
-   * discriminator, and the route resolves it rather than rejecting the request.
-   */
+  /** The wire field stays nullable for rolling deploys: the route resolves it, never rejects it. */
   @ParameterizedTest
   @NullSource
   @ValueSource(strings = {"TABLE", "table", "TaBlE"})
@@ -80,10 +73,7 @@ public class EntityTypeIngressValidatorTest {
     Assertions.assertEquals(submitted.getCreationTime(), normalized.getCreationTime());
   }
 
-  /**
-   * The endpoint declares the type; a payload may agree with it or stay silent, never override it.
-   * The message names both sides so the caller can see which route it actually reached.
-   */
+  /** The message names both sides, so the caller can see which route it actually reached. */
   @ParameterizedTest
   @CsvSource({"TABLE, VIEW", "TABLE, view", "VIEW, TABLE", "VIEW, TaBlE"})
   public void testContradictoryDeclaredTypeIsAFailureNamingBothSides(
@@ -101,8 +91,7 @@ public class EntityTypeIngressValidatorTest {
   }
 
   /**
-   * An unrecognized spelling is neither agreement nor silence, so it is rejected here too rather
-   * than being carried to a boundary that would answer with a server error.
+   * Neither agreement nor silence, so it is rejected here rather than at a 500-answering boundary.
    */
   @ParameterizedTest
   @ValueSource(strings = {"UNKNOWN", "", " ", "TABLES", "TABLE "})
@@ -114,10 +103,7 @@ public class EntityTypeIngressValidatorTest {
     assertThat(result.getFailureMessage()).isPresent();
   }
 
-  /**
-   * Ingress runs ahead of the validator, so it is the first code to see an absent entity, and
-   * reporting it rather than dereferencing it is its job.
-   */
+  /** Ingress runs ahead of the validator, so it is the first code to see an absent entity. */
   @ParameterizedTest
   @org.junit.jupiter.params.provider.EnumSource(EntityType.class)
   public void testAbsentEntityIsAFailureOnEveryRoute(EntityType routeEntityType) {
@@ -129,7 +115,6 @@ public class EntityTypeIngressValidatorTest {
         .hasValue(EntityTypeIngressValidator.EMPTY_ENTITY_MESSAGE);
   }
 
-  /** The result type itself cannot represent a half state. */
   @Test
   public void testResultCannotBeBothOutcomesAtOnce() {
     Assertions.assertThrows(

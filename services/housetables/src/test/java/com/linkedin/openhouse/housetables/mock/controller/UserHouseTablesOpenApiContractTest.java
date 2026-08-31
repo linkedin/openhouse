@@ -19,14 +19,12 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 /**
- * The generated client is produced from the OpenAPI document springdoc actually emits, not from the
- * annotations in isolation: an advice that is not {@code @Hidden}, or a springdoc convention that
- * differs from the raw annotation, would change the contract without changing any annotation. This
- * asserts the emitted document.
+ * Asserts the document springdoc actually emits, because a non-{@code @Hidden} advice or a
+ * springdoc convention could change the contract without changing any annotation.
  *
  * <p>{@code UserHouseTablesControllerApiContractTest} pins the same surface at the annotation
- * level; if the two ever disagree, the difference is springdoc's behaviour and is exactly what this
- * test exists to catch.
+ * level; a disagreement between the two is springdoc's behaviour, which is what this test exists to
+ * catch.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -117,10 +115,7 @@ public class UserHouseTablesOpenApiContractTest {
             "delete /hts/views");
   }
 
-  /**
-   * The scoped advice is {@code @Hidden}; without that springdoc would attach its responses to
-   * every operation on the advised controller and silently widen the generated client.
-   */
+  /** Without {@code @Hidden}, springdoc would widen every operation on the advised controller. */
   @Test
   public void testTheScopedAdviceContributesNoResponsesToAnyOperation() throws Exception {
     Map<String, Set<String>> generated = generatedUserTableOperations();

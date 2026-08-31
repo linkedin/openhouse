@@ -720,9 +720,8 @@ public class UserTablesServiceTest {
   }
 
   /**
-   * The writers must still see a view at a shared key, otherwise a table create or delete would
-   * silently act on a name another entity already holds. Seeing it is not licence to remove it: the
-   * table-scoped delete refuses.
+   * Writers must still see a view at a shared key, or a table create would act on a name another
+   * entity holds. Seeing it is not licence to remove it: the table-scoped delete refuses.
    */
   @Test
   public void testWritersStillSeeNonTableRowsAtTheSameKey() {
@@ -762,10 +761,7 @@ public class UserTablesServiceTest {
         .build();
   }
 
-  /**
-   * A non-canonical spelling cannot be expressed by the enum-typed entity, so a row holding one can
-   * only be planted through the column itself.
-   */
+  /** The enum-typed entity cannot express a non-canonical spelling; only the column can. */
   private void insertRawEntityType(String databaseId, String tableId, String entityType) {
     new JdbcTemplate(dataSource)
         .update(
@@ -781,10 +777,7 @@ public class UserTablesServiceTest {
             entityType);
   }
 
-  /**
-   * The column is nullable, so an absent value is a real outcome rather than a missing one. It is
-   * reported as an empty {@link Optional} so every assertion states presence or absence explicitly.
-   */
+  /** Nullable column: an absent value is a real outcome, so callers state which they expect. */
   private Optional<String> readRawEntityType(String databaseId, String tableId) {
     return Optional.ofNullable(
         new JdbcTemplate(dataSource)
@@ -796,15 +789,15 @@ public class UserTablesServiceTest {
   }
 
   /**
-   * Plants a row that predates the discriminator, so its column holds SQL NULL. Kept separate from
-   * {@link #seedTypedRow} rather than folded into one helper with a nullable argument, because
-   * "legacy" and "typed" are different fixtures rather than two modes of one.
+   * Plants a pre-discriminator row, whose column holds SQL NULL. Separate from {@link
+   * #seedTypedRow} rather than one helper with a nullable argument: these are two fixtures, not two
+   * modes.
    */
   private void seedLegacyRow(String databaseId, String tableId) {
     htsRepository.save(entityTypeRow(databaseId, tableId, null));
   }
 
-  /** Plants a typed row through JPA, so the enum boundary is still the thing under test. */
+  /** Plants a typed row through JPA, so the enum boundary is still under test. */
   private void seedTypedRow(String databaseId, String tableId, EntityType entityType) {
     htsRepository.save(entityTypeRow(databaseId, tableId, entityType));
   }
@@ -885,11 +878,7 @@ public class UserTablesServiceTest {
     assertThat(pageIds(page1)).containsExactly("match_t04_legacy", "match_t06_explicit");
   }
 
-  /**
-   * Regression: the query endpoint is table-scoped by path, so {@code entityType} is bound onto the
-   * request but never reaches a predicate. An {@code entityType=VIEW} request is answered with
-   * tables, and routing is unaffected by the field.
-   */
+  /** Regression: {@code entityType} is bound onto the request but never reaches a predicate. */
   @ParameterizedTest
   @NullSource
   @ValueSource(strings = {"VIEW", "view", "TABLE", "TaBlE"})
@@ -962,7 +951,6 @@ public class UserTablesServiceTest {
   // neutral entity read
   // ---------------------------------------------------------------------------------------------
 
-  /** A legacy null is reported as TABLE because that is what the data means, not a guess. */
   @Test
   public void testGetNeutralEntityReportsCanonicalTypeForEitherType() {
     seedTypedRow(ENTITY_TYPE_DB, "neutral_view", EntityType.VIEW);
@@ -1001,17 +989,12 @@ public class UserTablesServiceTest {
     assertThat(readRawEntityType(ENTITY_TYPE_DB, tableId)).hasValue(storedSpelling);
   }
 
-  /** Genuine absence, and only genuine absence, is an empty result rather than a failure. */
   @Test
   public void testGetNeutralEntityMissingKeyIsEmpty() {
     assertThat(userTablesService.getNeutralEntity(ENTITY_TYPE_DB, "neutral_absent")).isEmpty();
   }
 
-  /**
-   * "The name is free" is the dangerous default: an unfiltered catch would turn a repository
-   * failure into an empty result and let a caller overwrite an occupied key. The failure is
-   * translated to this module's vocabulary rather than left as an ORM wrapper.
-   */
+  /** "The name is free" is the dangerous default: a failure here must not read as absence. */
   @Test
   public void testGetNeutralEntityPropagatesRepositoryFailureAsAModuleFailure() {
     doThrow(new DataAccessResourceFailureException("injected"))
@@ -1024,9 +1007,8 @@ public class UserTablesServiceTest {
   }
 
   /**
-   * The complement: an empty Optional, and nothing else, is what becomes absence. A real row is
-   * seeded first, so the stubbed empty result is the only possible source of the answer — and the
-   * stub only intercepts if the neutral read is the method the service actually calls.
+   * A real row is seeded first, so the stubbed empty result is the only possible source of the
+   * answer — and the stub intercepts only if the neutral read is what the service calls.
    */
   @Test
   public void testGetNeutralEntityOnlyEmptyOptionalBecomesAbsence() {
@@ -1041,10 +1023,7 @@ public class UserTablesServiceTest {
         .findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(ENTITY_TYPE_DB, "neutral_stubbed");
   }
 
-  /**
-   * A corrupt discriminator must fail, never read as free. Storage corruption is a server-state
-   * failure regardless of what wrote it, so it is a module failure rather than a bad request.
-   */
+  /** Storage corruption is a server-state failure whatever wrote it, not a bad request. */
   @Test
   public void testGetNeutralEntityAtCorruptKeyFailsLoudly() {
     insertRawEntityType(ENTITY_TYPE_DB, "neutral_corrupt", "UNKNOWN");
@@ -1061,7 +1040,6 @@ public class UserTablesServiceTest {
   // view reads
   // ---------------------------------------------------------------------------------------------
 
-  /** A table at the key reads as absent, mirroring the table point read. */
   @Test
   public void testGetUserViewHidesTablesAndLegacyNullRows() {
     seedTypedRow(ENTITY_TYPE_DB, "view_point", EntityType.VIEW);
@@ -1085,12 +1063,9 @@ public class UserTablesServiceTest {
   }
 
   /**
-   * A corrupt row is excluded by {@code VIEW_ROW_PREDICATE} before hydration is ever attempted, so
-   * the view point read answers absence rather than failing. That is the correct outcome and not a
-   * softened expectation: the view predicate is a plain equality on {@code 'VIEW'}, which under
-   * H2's case-sensitive MySQL mode selects exactly the spellings {@code EntityType.fromName} also
-   * accepts. Corruption reaching a view read at all requires a collation that folds accents or
-   * padding, which is simulated at the adapter in {@code JpaUserTableReadRepositoryTest}.
+   * Absence, not failure, is correct here and not a softened expectation: {@code
+   * VIEW_ROW_PREDICATE} excludes the row before hydration is attempted. Corruption can only reach a
+   * view read under a folding collation, simulated in {@code JpaUserTableReadRepositoryTest}.
    */
   @Test
   public void testGetUserViewAtCorruptKeyIsAbsentBecauseThePredicateExcludesIt() {
@@ -1102,11 +1077,7 @@ public class UserTablesServiceTest {
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "view_corrupt")).hasValue("UNKNOWN");
   }
 
-  /**
-   * The neutral read has no type predicate, so it does select the corrupt row and does attempt to
-   * hydrate it. That is the path on which corruption is observable, and it must fail rather than
-   * read as free.
-   */
+  /** The neutral read has no type predicate, so it does select the row and must fail on it. */
   @Test
   public void testNeutralReadIsThePathThatSurfacesCorruption() {
     insertRawEntityType(ENTITY_TYPE_DB, "view_corrupt", "UNKNOWN");
@@ -1115,7 +1086,6 @@ public class UserTablesServiceTest {
         .isInstanceOf(CorruptUserTableDataException.class);
   }
 
-  /** An empty view query returns every view, not the table query's database-name projection. */
   @Test
   public void testGetAllUserViewsWithEmptyQueryReturnsEveryView() {
     seedCanonicalRows("");
@@ -1134,7 +1104,6 @@ public class UserTablesServiceTest {
     assertThat(pageIds(page)).containsExactlyElementsOf(CANONICAL_VIEW_IDS);
   }
 
-  /** The database view call site filters before it pages, exactly like the tables. */
   @Test
   public void testGetAllUserViewsFiltersBeforePagination() {
     seedCanonicalRows("");
@@ -1159,7 +1128,6 @@ public class UserTablesServiceTest {
     assertThat(pageIds(page1)).doesNotContainAnyElementsOf(CANONICAL_TABLE_IDS);
   }
 
-  /** The pattern view call sites (plain and paged) apply the same predicate. */
   @Test
   public void testGetAllUserViewsWithPatternFiltersViews() {
     seedCanonicalRows("match_");
@@ -1177,13 +1145,10 @@ public class UserTablesServiceTest {
   }
 
   /**
-   * {@code LIKE} treats {@code _} as a single-character wildcard, and identifiers here routinely
-   * contain literal underscores, so {@code match_%} also matches {@code matchXview}. Every other
-   * seeded id contains a literal underscore at that position, so only a row spelled with a
-   * different character can demonstrate it.
-   *
-   * <p>Regression guard: this is pre-existing {@code LIKE} behaviour the view query inherits
-   * verbatim. It is pinned rather than endorsed.
+   * Regression guard: {@code _} is a single-character wildcard, so {@code match_%} also matches
+   * {@code matchXview}. Every other seeded id has a literal underscore there, so only a
+   * differently-spelled row can demonstrate it. Pre-existing behaviour, pinned rather than
+   * endorsed.
    */
   @Test
   public void testViewPatternQueryKeepsUnderscoreAsASqlWildcard() {
@@ -1199,7 +1164,6 @@ public class UserTablesServiceTest {
         .containsExactly("matchXview", "match_t01_view");
   }
 
-  /** An omitted sort falls back to the route's documented default rather than failing. */
   @Test
   public void testPagedViewQueryWithoutSortStillPages() {
     seedCanonicalRows("");
@@ -1213,8 +1177,7 @@ public class UserTablesServiceTest {
   }
 
   /**
-   * The query type carries only what a view query can mean, so there is no transport field left for
-   * an {@code entityType} to arrive in and no branch it could re-route.
+   * The query type has no field an {@code entityType} could arrive in, and no branch to re-route.
    */
   @Test
   public void testOwnedQueryTypeCannotCarryAnEntityTypeOrANonKeyFilter() {
@@ -1228,7 +1191,6 @@ public class UserTablesServiceTest {
         IllegalArgumentException.class, () -> UserViewQuery.matchingPattern(null, "t0%"));
   }
 
-  /** Only the two reachable view query metrics are emitted, and each exactly once per call. */
   @Test
   public void testViewListAndPageMetricsAreReported() {
     seedCanonicalRows("");
@@ -1278,7 +1240,6 @@ public class UserTablesServiceTest {
     Assertions.assertFalse(userTablesService.deleteUserView(ENTITY_TYPE_DB, "drop_view"));
   }
 
-  /** The other direction of the cross-type delete guard: a view drop cannot remove a table. */
   @Test
   public void testDeleteUserViewAtTableKeyReportsFailureAndRetainsTheTable() {
     seedTypedRow(ENTITY_TYPE_DB, "drop_table", EntityType.TABLE);
@@ -1291,7 +1252,6 @@ public class UserTablesServiceTest {
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "drop_legacy")).isEmpty();
   }
 
-  /** The view delete never touches the soft-deleted store, even to look. */
   @Test
   public void testDeleteUserViewNeverReadsOrWritesTheSoftDeletedStore() {
     seedTypedRow(ENTITY_TYPE_DB, "drop_view", EntityType.VIEW);
@@ -1301,7 +1261,6 @@ public class UserTablesServiceTest {
     Mockito.verifyNoInteractions(softDeletedHtsJdbcRepository);
   }
 
-  /** A soft table delete at a view key fails before anything is copied. */
   @Test
   public void testSoftDeleteAtViewKeyIsNotFoundAndCreatesNoSoftRow() {
     seedTypedRow(ENTITY_TYPE_DB, "soft_view", EntityType.VIEW);
@@ -1317,10 +1276,7 @@ public class UserTablesServiceTest {
     assertThat(findRow(ENTITY_TYPE_DB, "soft_view").getEntityType()).isEqualTo(EntityType.VIEW);
   }
 
-  /**
-   * The archive source is read through the table-scoped finder, so a view can never be copied into
-   * a store that has no column to record what it was.
-   */
+  /** A view must never be copied into a store with no column to record what it was. */
   @Test
   public void testSoftDeleteReadsItsArchiveSourceThroughTheTableFinder() {
     userTablesService.deleteUserTable(
@@ -1332,7 +1288,6 @@ public class UserTablesServiceTest {
     Mockito.verify(htsRepository, Mockito.never()).findById(any());
   }
 
-  /** A typed delete at a corrupt key reports absence and leaves the row for an operator. */
   @Test
   public void testTypedDeletesAtCorruptKeyAreNotFoundAndRetainTheRow() {
     insertRawEntityType(ENTITY_TYPE_DB, "delete_corrupt", "UNKNOWN");
@@ -1346,11 +1301,9 @@ public class UserTablesServiceTest {
   }
 
   /**
-   * The type collision is decided before any version mapping runs. The request deliberately carries
-   * a STALE version, so a version-first implementation would answer {@link
-   * EntityConcurrentModificationException} and only a type-first one can answer {@link
-   * AlreadyExistsException} — which is what makes this an ordering test rather than a restatement
-   * of the collision itself.
+   * The request carries a STALE version deliberately: a version-first implementation would answer
+   * {@link EntityConcurrentModificationException}, so only a type-first one passes. That is what
+   * makes this an ordering test rather than a restatement of the collision.
    */
   @Test
   public void testTypeCollisionIsDecidedBeforeVersionMapping() {
@@ -1379,12 +1332,8 @@ public class UserTablesServiceTest {
   }
 
   /**
-   * A new view mutation must expose this module's failure vocabulary rather than Spring's, so no
-   * caller outside HTS has to understand ORM wrappers. The read side is translated by the
-   * persistence adapter; these two paths are the write side of the same rule.
-   *
-   * <p>Regression guard: the scoped advice's raw-wrapper handler exists only as compatibility for
-   * the frozen legacy table reads. A new path must never depend on it.
+   * Regression guard: the scoped advice's raw-wrapper handler is compatibility for the frozen table
+   * reads only, so a new view mutation must never depend on it.
    */
   @Test
   public void testViewDeleteTranslatesAnUnhandledPersistenceFailure() {
@@ -1419,11 +1368,7 @@ public class UserTablesServiceTest {
         .hasCauseReference(raw);
   }
 
-  /**
-   * The translation must not be broad enough to swallow the expected write races. A stale version
-   * still answers the concurrency conflict, and a cross-type collision still answers the occupancy
-   * conflict — both 409 rather than 500.
-   */
+  /** The translation must not be broad enough to swallow the two expected 409s. */
   @Test
   public void testViewPutTranslationDoesNotSwallowTheConflictOutcomes() {
     seedTypedRow(ENTITY_TYPE_DB, "conflict_view", EntityType.VIEW);
@@ -1459,16 +1404,12 @@ public class UserTablesServiceTest {
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "conflict_table")).hasValue("TABLE");
   }
 
-  /** A view delete that simply removed nothing is still an ordinary false, not a failure. */
   @Test
   public void testViewDeleteTranslationDoesNotTurnAbsenceIntoAFailure() {
     Assertions.assertFalse(userTablesService.deleteUserView(ENTITY_TYPE_DB, "never_existed"));
   }
 
-  /**
-   * The request states the version the occupant actually holds, so only the type can reject it —
-   * which is what pins the guard as running before version mapping.
-   */
+  /** The same answer at the current version, so the type is the only thing being rejected. */
   @Test
   public void testTablePutAtViewKeyIsAlreadyExistsAndLeavesTheViewUnchanged() {
     seedTypedRow(ENTITY_TYPE_DB, "guard_view", EntityType.VIEW);
@@ -1494,15 +1435,9 @@ public class UserTablesServiceTest {
   }
 
   /**
-   * Two first-creates of different types racing for one key. The cross-type guard cannot arbitrate
-   * this: both racers legitimately read the key as free, so only the shared primary key is left to
-   * pick a winner. The race is simulated deterministically — the loser's occupancy read is pinned
-   * to the empty result it would have taken before the winner committed, and the write then meets
-   * the constraint for real.
-   *
-   * <p>Regression guard: the shared primary key is the only arbiter of a cross-type race the
-   * application-level guard cannot observe, because the losing writer's occupancy read is stale. Do
-   * not delete it as redundant.
+   * Regression guard: both racers legitimately read the key as free, so the shared primary key is
+   * the only arbiter the application-level guard cannot replace. The race is simulated by pinning
+   * the loser's occupancy read to the empty result it would have taken. Do not delete as redundant.
    */
   @Test
   public void testConcurrentCrossTypeFirstCreatesLeaveOneWinnerAndA409Loser() {
@@ -1584,11 +1519,9 @@ public class UserTablesServiceTest {
   }
 
   /**
-   * The named entry point owns the type: a direct caller that supplies a contradictory or absent
-   * transport value still gets the type the method it called promises, including an unrecognized
-   * spelling: the discriminator is overwritten before the mapper's enum conversion, so the wire
-   * value never governs storage. Over HTTP an unrecognized spelling is still a 400, because ingress
-   * rejects it before the service is reached; {@code HtsControllerTest} pins that.
+   * The named entry point owns the type: the discriminator is overwritten before the mapper's enum
+   * conversion, so no transport value governs storage. Over HTTP an unrecognized spelling is still
+   * a 400 because ingress rejects it first; {@code HtsControllerTest} pins that.
    */
   @ParameterizedTest
   @NullSource
@@ -1629,11 +1562,7 @@ public class UserTablesServiceTest {
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "owned_table")).hasValue("TABLE");
   }
 
-  /**
-   * A same-type write still runs the ordinary version logic.
-   *
-   * <p>Regression guard: the cross-type guard must not over-fire and swallow version semantics.
-   */
+  /** Regression guard: the cross-type guard must not over-fire and swallow version semantics. */
   @Test
   public void testSameTypePutStillRunsVersionLogic() {
     seedTypedRow(ENTITY_TYPE_DB, "same_type", EntityType.TABLE);
@@ -1664,7 +1593,6 @@ public class UserTablesServiceTest {
                     .build()));
   }
 
-  /** A write at a corrupt key surfaces the failure; it must never read the key as free. */
   @Test
   public void testPutAtCorruptKeySurfacesFailureAndRetainsTheOccupant() {
     insertRawEntityType(ENTITY_TYPE_DB, "put_corrupt", "UNKNOWN");
@@ -1684,10 +1612,7 @@ public class UserTablesServiceTest {
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "put_corrupt")).hasValue("UNKNOWN");
   }
 
-  /**
-   * Restore reconstructs the type explicitly. The soft-deleted store has no discriminator column,
-   * so without an explicit constant the restored row would come back carrying a null.
-   */
+  /** The soft-deleted store has no discriminator, so the restore must reconstruct one. */
   @Test
   public void testRestoreReconstructsTableType() {
     userTablesService.deleteUserTable(
@@ -1717,11 +1642,8 @@ public class UserTablesServiceTest {
   }
 
   /**
-   * Restore's occupancy check must stay type-neutral. A table-scoped read would see a VIEW at the
-   * destination as free and clobber it, which is exactly the drop → CREATE VIEW → restore sequence
-   * the ticket calls out.
-   *
-   * <p>Regression guard: do not narrow restore's occupancy read to the table-scoped finder.
+   * Regression guard: do not narrow restore's occupancy read to the table-scoped finder. It would
+   * see a VIEW at the destination as free and clobber it — the drop → CREATE VIEW → restore case.
    */
   @Test
   public void testRestoreDoesNotOverwriteAViewOccupyingTheKey() {
@@ -1765,7 +1687,6 @@ public class UserTablesServiceTest {
   // table-scoped rename at the service
   // ---------------------------------------------------------------------------------------------
 
-  /** A rename scoped to tables reports a view source as not-found and moves nothing. */
   @Test
   public void testRenameUserTableRefusesViewSource() {
     seedTypedRow(ENTITY_TYPE_DB, "svc_rename_view", EntityType.VIEW);
@@ -1790,7 +1711,6 @@ public class UserTablesServiceTest {
         .isFalse();
   }
 
-  /** A corrupt source is equally unreachable, and is retained. */
   @Test
   public void testRenameUserTableAtCorruptSourceIsNotFound() {
     insertRawEntityType(ENTITY_TYPE_DB, "svc_rename_corrupt", "UNKNOWN");
@@ -1809,9 +1729,8 @@ public class UserTablesServiceTest {
   }
 
   /**
-   * The update assigns the literal {@code 'TABLE'} to the moved row. Hydrated equality would be
-   * tautological because a SQL NULL already reads as TABLE; the raw column is what proves the
-   * constant was written.
+   * Hydrated equality would be tautological because a SQL NULL already reads as TABLE; only the raw
+   * column proves the literal was written.
    */
   @Test
   public void testRenameUserTableStampsCanonicalTableOnLegacyRow() {
@@ -1829,12 +1748,9 @@ public class UserTablesServiceTest {
   }
 
   /**
-   * A corrupt destination is occupied, not free. The rename must not read it — the shared primary
-   * key is what rejects the move — so the answer is the ordinary conflict rather than the failure a
-   * hydration attempt would produce, and neither row is touched.
-   *
-   * <p>Regression guard: a corrupt-typed destination must stay "occupied" and never read as "free"
-   * under {@code TABLE_ROW_PREDICATE}. Do not delete it as redundant.
+   * Regression guard: a corrupt destination is occupied, not free, under {@code
+   * TABLE_ROW_PREDICATE}. The primary key rejects the move without reading the row, so the answer
+   * is the ordinary conflict rather than the failure a hydration attempt would produce.
    */
   @Test
   public void testRenameIntoCorruptDestinationIsAlreadyExists() {

@@ -23,15 +23,14 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * House Tables' own translation of persistence failures, scoped to {@link
  * UserHouseTablesController} so no other service inherits ORM knowledge.
  *
- * <p>Composition, not inheritance: it deliberately does not extend {@link
- * OpenHouseExceptionHandler}, because {@code ExceptionHandlerMethodResolver} registers every
- * inherited {@code @ExceptionHandler} and a subclass would therefore inherit the parent's {@code
- * Exception.class} mapping and become total for this controller. With only the three mappings below
- * declared, everything else resolves to nothing here and Spring advances to the shared advice —
- * even though this advice runs at the highest precedence.
+ * <p>Composition, not inheritance: {@code ExceptionHandlerMethodResolver} registers every inherited
+ * {@code @ExceptionHandler}, so extending {@link OpenHouseExceptionHandler} would inherit its
+ * {@code Exception.class} mapping and make this advice total for the controller. With only the
+ * three mappings below, everything else falls through to the shared advice despite the highest
+ * precedence here.
  *
- * <p>Every method is {@link Hidden}: springdoc otherwise adds their responses to every operation on
- * the scoped controller and changes the generated client contract.
+ * <p>Every method is {@link Hidden}, or springdoc adds its responses to every operation on the
+ * scoped controller and changes the generated client contract.
  */
 @Slf4j
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -40,11 +39,6 @@ public class UserHouseTablesExceptionHandler {
 
   private final ErrorResponseBodyFactory errorResponseBodyFactory = new ErrorResponseBodyFactory();
 
-  /**
-   * The module's own unchecked persistence failures, corrupt data included. A failure carrying
-   * corruption renders the converter's column-and-value diagnostic; anything else renders its
-   * preserved original cause generically.
-   */
   @Hidden
   @ExceptionHandler(UserTablePersistenceException.class)
   public ResponseEntity<ErrorResponseBody> handleUserTablePersistenceException(
@@ -60,11 +54,7 @@ public class UserHouseTablesExceptionHandler {
     return render(corruptEntityTypeConversionException, corruptEntityTypeConversionException);
   }
 
-  /**
-   * Compatibility only, for the frozen table read paths that still expose raw wrappers. New neutral
-   * and view reads are already translated by {@code JpaUserTableReadRepository}, so they never
-   * arrive here.
-   */
+  /** Compatibility only: the frozen table reads still expose raw wrappers. New paths never do. */
   @Hidden
   @ExceptionHandler({JpaSystemException.class, InvalidDataAccessApiUsageException.class})
   public ResponseEntity<ErrorResponseBody> handleRawPersistenceWrapper(
@@ -73,9 +63,8 @@ public class UserHouseTablesExceptionHandler {
   }
 
   /**
-   * Corruption anywhere in the chain is rendered from the converter exception itself, so the
-   * offending column and value survive the persistence wrapping. Anything else is rendered
-   * generically from the failure that actually occurred.
+   * Corruption is rendered from the converter exception itself, so the offending column and value
+   * survive the persistence wrapping. Anything else is rendered generically.
    */
   private ResponseEntity<ErrorResponseBody> render(
       Throwable received, Throwable genericRenderingSource) {

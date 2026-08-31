@@ -29,10 +29,7 @@ public final class TestHtsApiConstants {
    */
   public static final String NOT_FOUND_ERROR_MSG_TEMPLATE = "User table $db.$tbl cannot be found";
 
-  /**
-   * Copy of {@link com.linkedin.openhouse.common.exception.NoSuchEntityException}'s template, which
-   * the neutral and view point reads use rather than the table-specific one above.
-   */
+  /** Copy of {@code NoSuchEntityException}'s template, used by the neutral and view point reads. */
   public static final String NO_SUCH_ENTITY_ERROR_MSG_TEMPLATE = "$ent $id cannot be found";
 
   public static final EntityResponseBody<UserTable> TEST_GET_USER_TABLE_RESPONSE_BODY =
@@ -62,9 +59,8 @@ public final class TestHtsApiConstants {
           .build();
 
   /**
-   * The neutral read always names a canonical, non-null type. Its identifier differs from both
-   * typed fixtures so a route wired to the table or view handler method fails the body assertion
-   * rather than passing by coincidence.
+   * A distinct identifier from both typed fixtures, so a route wired to the wrong handler method
+   * fails the body assertion rather than passing by coincidence.
    */
   public static final EntityResponseBody<UserTable> TEST_GET_NEUTRAL_ENTITY_RESPONSE_BODY =
       EntityResponseBody.<UserTable>builder()

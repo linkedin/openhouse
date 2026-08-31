@@ -59,9 +59,8 @@ public class UserHouseTablesController {
   @Autowired private EntityTypeIngressValidator entityTypeIngressValidator;
 
   /**
-   * Runs at ingress, ahead of validation, so nothing downstream observes a null and this is the
-   * first code to see an absent entity. The validator returns an outcome rather than throwing; the
-   * status a failed outcome deserves is a transport decision, so it is made here.
+   * Runs ahead of validation, so nothing downstream observes a null. The validator returns an
+   * outcome; choosing the status for a failed one is this layer's decision.
    */
   private UserTable normalizeEntityType(UserTable userTable, EntityType entityType) {
     EntityTypeIngressResult result = entityTypeIngressValidator.normalize(userTable, entityType);

@@ -36,11 +36,9 @@ public class EntityTypeConverterTest {
   }
 
   /**
-   * Only a null carries the legacy meaning; anything else outside the vocabulary is corrupt.
-   *
-   * <p>Corrupt storage is a server-state failure whatever wrote it, so the escape is deliberately
-   * not an {@link IllegalArgumentException}: that would land it on the shared advice's 400 branch
-   * and report bad data as a bad request.
+   * Only a null carries the legacy meaning. The escape is deliberately not an {@link
+   * IllegalArgumentException}: that lands on the shared advice's 400 branch, reporting server-state
+   * corruption as a bad request.
    */
   @ParameterizedTest
   @ValueSource(strings = {"FOO", "", " ", "TABLES", "TABLE ", "TÁBLE"})

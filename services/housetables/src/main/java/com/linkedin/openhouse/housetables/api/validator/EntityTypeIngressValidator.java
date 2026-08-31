@@ -5,12 +5,11 @@ import com.linkedin.openhouse.housetables.model.EntityType;
 import org.springframework.stereotype.Component;
 
 /**
- * Resolves the entity type of a PUT payload at ingress, ahead of every other validation, so nothing
- * downstream observes an absent or contradictory type.
+ * Resolves the entity type of a PUT payload at ingress, ahead of every other validation. The wire
+ * field stays nullable for rolling compatibility: a payload may agree with its route or stay
+ * silent, never override it.
  *
- * <p>The wire field stays nullable for rolling compatibility: a payload may agree with its route or
- * stay silent, never override it. The rule is expressed as a returned outcome rather than a thrown
- * exception, so this class states what is wrong and the controller decides what status says so.
+ * <p>Returns an outcome rather than throwing, so the controller owns the status that says so.
  */
 @Component
 public class EntityTypeIngressValidator {
@@ -22,9 +21,7 @@ public class EntityTypeIngressValidator {
 
   /**
    * @param userTable the payload entity, which may be absent
-   * @param routeEntityType the type the invoked route owns
-   * @return the payload stamped with the route's canonical type, or the failure that describes why
-   *     it could not be
+   * @return the payload stamped with the route's canonical type, or the reason it could not be
    */
   public EntityTypeIngressResult normalize(UserTable userTable, EntityType routeEntityType) {
     if (userTable == null) {

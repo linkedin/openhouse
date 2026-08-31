@@ -12,10 +12,7 @@ import org.springframework.http.HttpStatus;
 
 public class MockUserTableHtsApiHandler implements UserTableHtsApiHandler {
 
-  /**
-   * The rename route is table-typed by the handler method the controller calls, so the routing
-   * tests need to see what actually reached the handler.
-   */
+  /** The routing tests need to see what actually reached the handler. */
   @Getter private UserTable lastRenameFromTable;
 
   /** The typed PUT routes normalize before dispatch; these record what actually arrived. */

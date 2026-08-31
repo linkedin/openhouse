@@ -42,9 +42,8 @@ import org.springframework.web.method.ControllerAdviceBean;
 import org.springframework.web.method.annotation.ExceptionHandlerMethodResolver;
 
 /**
- * The scoped advice is composition-based on purpose: it declares exactly three mappings and
- * inherits none, so anything it does not name falls through to {@link OpenHouseExceptionHandler}
- * even though the scoped advice runs at the highest precedence.
+ * Composition-based on purpose: with three declared mappings and no inheritance, anything unnamed
+ * falls through to {@link OpenHouseExceptionHandler} despite the highest precedence here.
  */
 public class UserHouseTablesExceptionHandlerTest {
 
@@ -102,9 +101,8 @@ public class UserHouseTablesExceptionHandlerTest {
   }
 
   /**
-   * The advice does not extend the shared one. Inheriting it would register the parent's {@code
-   * Exception.class} mapping through {@code MethodIntrospector}, making this advice total for the
-   * controller and swallowing every 400/404/409 the shared advice owns.
+   * Inheriting would register the parent's {@code Exception.class} mapping through {@code
+   * MethodIntrospector}, swallowing every 400/404/409 the shared advice owns.
    */
   @Test
   public void testAdviceDoesNotInheritTheSharedAdvice() {
@@ -114,7 +112,6 @@ public class UserHouseTablesExceptionHandlerTest {
     Assertions.assertEquals(Object.class, UserHouseTablesExceptionHandler.class.getSuperclass());
   }
 
-  /** Scoped to one controller: the other two House Tables controllers must not be advised. */
   @Test
   public void testAdviceAppliesOnlyToTheUserHouseTablesController() {
     ControllerAdviceBean advice = new ControllerAdviceBean(handler);
@@ -124,11 +121,7 @@ public class UserHouseTablesExceptionHandlerTest {
     assertThat(advice.isApplicableToBeanType(ToggleStatusesController.class)).isFalse();
   }
 
-  /**
-   * {@code @RestControllerAdvice} is meta-annotated with {@code @ControllerAdvice}, so the merged
-   * form is what Spring reads, and the highest precedence is what puts this advice ahead of the
-   * shared one for the exceptions it does declare.
-   */
+  /** The merged annotation is what Spring reads for scoping. */
   @Test
   public void testAdviceIsScopedAndRunsAtHighestPrecedence() {
     ControllerAdvice merged =
@@ -178,10 +171,7 @@ public class UserHouseTablesExceptionHandlerTest {
         Exception.class);
   }
 
-  /**
-   * Everything the shared advice owns must resolve to nothing here, which is what lets Spring
-   * advance to {@link OpenHouseExceptionHandler} despite this advice's higher precedence.
-   */
+  /** Resolving to nothing here is what lets Spring advance to the shared advice. */
   @ParameterizedTest
   @MethodSource("fallThroughExceptions")
   public void testResolverClaimsNothingTheSharedAdviceOwns(Class<? extends Throwable> fallThrough) {
@@ -199,10 +189,7 @@ public class UserHouseTablesExceptionHandlerTest {
   // rendered bodies
   // -------------------------------------------------------------------------------------------
 
-  /**
-   * Storage holds a value outside the column's vocabulary. That is a server-state failure whatever
-   * wrote it, so it is a 500 carrying the column and the offending value, not a 400.
-   */
+  /** A server-state failure whatever wrote it, so a 500 with the diagnostic rather than a 400. */
   @Test
   public void testModuleFailureCarryingCorruptionRendersTheColumnDiagnostic() {
     ResponseEntity<ErrorResponseBody> response =
@@ -216,7 +203,6 @@ public class UserHouseTablesExceptionHandlerTest {
     Assertions.assertFalse(response.getBody().getMessage().contains(HIBERNATE_MSG));
   }
 
-  /** The converter exception reaching the advice untranslated takes the same rendering. */
   @Test
   public void testDirectConverterEscapeRendersTheColumnDiagnostic() {
     assertServerErrorCarryingDiagnostic(
@@ -245,10 +231,7 @@ public class UserHouseTablesExceptionHandlerTest {
                         "outer", new RuntimeException("inner", corruption()))))));
   }
 
-  /**
-   * A module failure with no corruption in it renders the original persistence cause it preserved,
-   * never a corruption diagnostic it does not have.
-   */
+  /** Renders the preserved original cause, never a corruption diagnostic it does not have. */
   @Test
   public void testModuleFailureWithoutCorruptionRendersGenerically() {
     JpaSystemException original =
@@ -277,7 +260,6 @@ public class UserHouseTablesExceptionHandlerTest {
     Assertions.assertFalse(response.getBody().getMessage().contains(CORRUPT_MSG));
   }
 
-  /** A cyclic cause chain must terminate rather than spin the request thread. */
   @Test
   public void testCyclicCauseChainTerminates() {
     ResponseEntity<ErrorResponseBody> response =

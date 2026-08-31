@@ -31,8 +31,8 @@ public class EntityTypeConverter implements AttributeConverter<EntityType, Strin
     try {
       return EntityType.fromName(columnValue);
     } catch (IllegalArgumentException e) {
-      // Deliberately not an IllegalArgumentException: a value outside the column's vocabulary is a
-      // server-state failure whatever wrote it, and the shared advice answers 400 for an IAE.
+      // Not an IllegalArgumentException: the shared advice answers 400 for those, and stored
+      // corruption is a server-state failure whatever wrote it.
       throw new CorruptEntityTypeConversionException(
           String.format(
               "Column user_table_row.entity_type holds unrecognized value ['%s']; "

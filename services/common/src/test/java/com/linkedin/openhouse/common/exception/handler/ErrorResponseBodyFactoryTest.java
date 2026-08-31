@@ -7,11 +7,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 
-/**
- * The extraction of the shared advice's formatting mechanics must be behavior-neutral, so this pins
- * the three properties any composing advice depends on: the body shape, the
- * immediate-cause-or-{@code "Not Available"} rule, and the abbreviation cap.
- */
+/** The extraction must be behavior-neutral, so the rendering is pinned exactly. */
 public class ErrorResponseBodyFactoryTest {
 
   private final ErrorResponseBodyFactory factory = new ErrorResponseBodyFactory();
@@ -32,7 +28,6 @@ public class ErrorResponseBodyFactoryTest {
     Assertions.assertTrue(body.getStacktrace().contains("IllegalStateException"));
   }
 
-  /** The supplied message wins over the exception's own, which is what lets an advice re-render. */
   @Test
   public void testBuildPrefersTheSuppliedMessageOverTheExceptionMessage() {
     ErrorResponseBody body =
@@ -41,7 +36,6 @@ public class ErrorResponseBodyFactoryTest {
     Assertions.assertEquals("supplied", body.getMessage());
   }
 
-  /** Only the immediate cause is reported; a missing one is the literal fallback, never null. */
   @Test
   public void testCauselessExceptionReportsNotAvailable() {
     Assertions.assertEquals(
@@ -52,7 +46,6 @@ public class ErrorResponseBodyFactoryTest {
         factory.build(HttpStatus.BAD_REQUEST, "m", new RuntimeException("no cause")).getCause());
   }
 
-  /** The generic 500 message is the exception's own {@code toString()}, not its message. */
   @Test
   public void testGenericServerErrorRendersExceptionToString() {
     RuntimeException exception = new RuntimeException("boom");
@@ -65,10 +58,7 @@ public class ErrorResponseBodyFactoryTest {
     Assertions.assertNotNull(body.getStacktrace());
   }
 
-  /**
-   * A trace under the cap is returned byte-for-byte. The frames are synthetic so the fixture does
-   * not depend on how deep the test runner's own stack happens to be.
-   */
+  /** Synthetic frames, so the fixture does not depend on the test runner's own stack depth. */
   @Test
   public void testShortStackTraceIsReturnedExactlyAsProduced() {
     RuntimeException exception = syntheticTrace(5);
@@ -81,12 +71,9 @@ public class ErrorResponseBodyFactoryTest {
   }
 
   /**
-   * Characterization of the algorithm the shared advice has always applied, asserted exactly
-   * because this is an extract-and-delegate refactor. It keeps the leading 1500 characters, then
-   * takes 600-character windows every 2000 starting at offset 6000, and finally takes the remaining
-   * tail once fewer than 2600 characters are left. The ellipsis markers come from {@code
-   * StringUtils.abbreviate}, so the windows are expressed through it: what is pinned here is the
-   * offsets and widths the algorithm chooses, which is the part that would silently change.
+   * Characterization of the existing algorithm, asserted exactly because this is an
+   * extract-and-delegate refactor. The windows are expressed through {@code StringUtils.abbreviate}
+   * because its ellipses are library behaviour; what is pinned is the offsets and widths chosen.
    */
   @Test
   public void testLongStackTraceKeepsTheDocumentedRetainedAndSkippedRegions() {
@@ -115,12 +102,7 @@ public class ErrorResponseBodyFactoryTest {
 
   /**
    * Pre-existing quirk, pinned so the refactor cannot silently "fix" it and change every 500 body
-   * on the wire: the running total advances in 600-character steps from 1500, so it never lands on
-   * {@link ErrorResponseBodyFactory#STACKTRACE_MAX_WIDTH} exactly. For a very long trace the width
-   * calculation goes negative, {@code StringUtils.abbreviate} rejects it, and the partial result
-   * collected so far is returned — which can exceed the nominal cap.
-   *
-   * <p>Changing this is a coordinated common-contract decision, not part of the extraction.
+   * on the wire: a long enough trace exits through the partial-return branch above the nominal cap.
    */
   @Test
   public void testVeryLongStackTraceReturnsThePartialResultAndExceedsTheNominalCap() {

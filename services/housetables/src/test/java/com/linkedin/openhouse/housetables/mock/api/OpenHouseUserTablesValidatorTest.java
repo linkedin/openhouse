@@ -175,7 +175,6 @@ public class OpenHouseUserTablesValidatorTest {
         "PUT with entityType=" + entityType + " should validate");
   }
 
-  /** Anything outside the vocabulary is rejected by the same pattern. */
   @ParameterizedTest
   @ValueSource(strings = {"UNKNOWN", "TABLES", "VIEWS", "TABLE VIEW"})
   public void validatePutEntityRejectsAnUnrecognizedSpelling(String entityType) {
@@ -185,11 +184,8 @@ public class OpenHouseUserTablesValidatorTest {
   }
 
   /**
-   * Transport nullability is load-bearing for rolling deploys: an un-upgraded client sends no
-   * discriminator, and validation must not be what rejects it — the controller has already resolved
-   * it by then.
-   *
-   * <p>Regression guard: the wire field must stay nullable.
+   * Regression guard: the wire field must stay nullable for rolling deploys. Validation must not be
+   * what rejects an un-upgraded client; the controller has already resolved it by then.
    */
   @Test
   public void validatePutEntityAcceptsATransportNullBeforeNormalization() {
@@ -216,10 +212,8 @@ public class OpenHouseUserTablesValidatorTest {
   }
 
   /**
-   * Type-scoped by path, so an {@code entityType} filter is ignored rather than rejected. Rejecting
-   * it would be a separate, deliberate choice.
-   *
-   * <p>Regression guard: the validator deliberately has no opinion on {@code entityType}.
+   * Regression guard: the validator deliberately has no opinion on {@code entityType}. Rejecting it
+   * would be a separate, deliberate choice.
    */
   @ParameterizedTest
   @NullSource

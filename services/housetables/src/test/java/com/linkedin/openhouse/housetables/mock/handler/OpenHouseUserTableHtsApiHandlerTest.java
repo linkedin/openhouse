@@ -44,9 +44,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * The handler is where transport stops: it validates, converts the request into owned query values,
- * turns absence into the not-found the wire expects, and picks 200 versus 201. Everything asserted
- * here is observable at that boundary, with the service mocked so its own behavior is not restated.
+ * The handler is where transport stops. The service is mocked, so nothing here restates its
+ * behaviour.
  */
 public class OpenHouseUserTableHtsApiHandlerTest {
 
@@ -91,10 +90,7 @@ public class OpenHouseUserTableHtsApiHandlerTest {
   // validation ordering
   // -------------------------------------------------------------------------------------------
 
-  /**
-   * The validator runs before anything is built from the request. If a query value were constructed
-   * first, an invalid filter could throw out of the construction and answer 500 instead of 400.
-   */
+  /** Constructing a query value first would answer 500 for an invalid filter instead of 400. */
   @Test
   public void testViewQueryIsValidatedBeforeTheServiceIsReached() {
     doThrow(new RequestValidationFailureException("Only databaseId and tableId are supported"))
@@ -142,10 +138,8 @@ public class OpenHouseUserTableHtsApiHandlerTest {
   }
 
   /**
-   * Order matters, not just presence. The request is a {@code tableId} with no {@code databaseId} —
-   * the one shape the owned query type refuses to construct — so an implementation that built the
-   * query before validating would raise its own {@link IllegalArgumentException} and answer 500
-   * instead of the validator's 400.
+   * A {@code tableId} with no {@code databaseId} is the one shape the owned query type refuses to
+   * construct, so building before validating would answer 500 instead of the validator's 400.
    */
   @Test
   public void testValidationHappensBeforeQueryConstruction() {
@@ -190,10 +184,7 @@ public class OpenHouseUserTableHtsApiHandlerTest {
   // transport does not cross into the service
   // -------------------------------------------------------------------------------------------
 
-  /**
-   * The three reachable query shapes, and only those, are what the service can be handed. An empty
-   * filter map is the unbounded view query, not a database-name projection.
-   */
+  /** An empty filter map is the unbounded view query, not a database-name projection. */
   @Test
   public void testEachQueryShapeMapsToItsOwnedQueryValue() {
     doReturn(Collections.emptyList())
@@ -218,10 +209,7 @@ public class OpenHouseUserTableHtsApiHandlerTest {
     assertThat(queries.get(2).getTableIdPattern()).hasValue("t0%");
   }
 
-  /**
-   * {@code entityType} on a view query stays accepted and inert. The owned query value has no field
-   * that could carry it, so this asserts it is dropped rather than re-routed.
-   */
+  /** Accepted and inert: the owned query value has no field that could carry it. */
   @ParameterizedTest
   @NullSource
   @ValueSource(strings = {"TABLE", "table", "VIEW", "ViEw", "UNKNOWN"})
@@ -277,7 +265,6 @@ public class OpenHouseUserTableHtsApiHandlerTest {
     assertThat(paged.getQuery().getDatabaseId()).hasValue(DB);
   }
 
-  /** An omitted sort is absent, not an invented default the handler chose. */
   @Test
   public void testOmittedSortStaysAbsentAtTheServiceBoundary() {
     doReturn(new PageImpl<>(Collections.emptyList(), PageRequest.of(0, 50), 0))
@@ -336,7 +323,6 @@ public class OpenHouseUserTableHtsApiHandlerTest {
     Assertions.assertNull(response.getResponseBody());
   }
 
-  /** A module failure is not absence and must not be converted into one. */
   @Test
   public void testPersistenceFailureIsNotConvertedIntoNotFound() {
     doThrow(
@@ -450,7 +436,6 @@ public class OpenHouseUserTableHtsApiHandlerTest {
     Assertions.assertEquals(HttpStatus.OK, handler.putView(submitted).getHttpStatus());
   }
 
-  /** The view route calls the view write, never the table one; the names carry the type. */
   @Test
   public void testViewPutCallsTheViewWriteAndTableWriteIsUntouched() {
     UserTable submitted =

@@ -12,9 +12,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 
 /**
- * The extraction is only safe if the shared advice actually routes through the factory. Otherwise
- * the two would drift and a scoped advice composing the factory would stop producing bodies
- * indistinguishable from the shared one.
+ * The extraction is only safe if the shared advice actually routes through the factory; otherwise a
+ * scoped advice composing it would stop producing indistinguishable bodies.
  */
 public class OpenHouseExceptionHandlerDelegationTest {
 
@@ -37,8 +36,7 @@ public class OpenHouseExceptionHandlerDelegationTest {
   }
 
   /**
-   * Behavioural: for the same exception the advice's rendered body is byte-identical to the
-   * factory's. A private copy of the algorithm would drift from this the moment either changed.
+   * Behavioural: a private copy of the algorithm would drift from this the moment either changed.
    */
   @Test
   public void testGenericRenderingIsIdenticalToTheFactoryOutput() {
@@ -55,7 +53,6 @@ public class OpenHouseExceptionHandlerDelegationTest {
     Assertions.assertEquals(expected.getStacktrace(), response.getBody().getStacktrace());
   }
 
-  /** The same for a mapped status, so the delegation is not limited to the catch-all. */
   @Test
   public void testMappedStatusRenderingUsesTheSameStackTraceAndCause() {
     NoSuchUserTableException notFound = new NoSuchUserTableException("db1", "tb1");

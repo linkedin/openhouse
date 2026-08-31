@@ -54,16 +54,12 @@ public interface UserTableHtsJdbcRepository
    * table, so without it every pre-existing table becomes invisible. Do not reduce it to a plain
    * equality before a verified backfill and a {@code NOT NULL} migration.
    *
-   * <p>Collation assumption, shared with {@link #VIEW_ROW_PREDICATE}: this comparison assumes the
-   * column's collation matches these values exactly, folding neither accents nor trailing spaces,
-   * so that SQL agrees with {@link com.linkedin.openhouse.housetables.model.EntityType#fromName}
-   * about what counts as a table. An accent insensitive collation would let a stored {@code
-   * 'TÁBLE'} match here yet fail hydration, and a PAD SPACE collation would do the same for {@code
-   * 'TABLE '}. Unconfirmed against production; please confirm the deployed collation.
+   * <p>Both type predicates assume a collation folding neither accents nor trailing spaces, so SQL
+   * agrees with {@code EntityType#fromName}; otherwise a stored {@code 'TÁBLE'} matches here yet
+   * fails hydration. Unconfirmed against production.
    */
   String TABLE_ROW_PREDICATE = "(u.entityType IS NULL OR upper(u.entityType) = '" + TABLE + "')";
 
-  /** No legacy-null arm: a stored null is a table, so it is unreachable through a view query. */
   String VIEW_ROW_PREDICATE = "upper(u.entityType) = '" + VIEW + "'";
 
   String PATTERN_KEY_CLAUSES =
@@ -171,9 +167,7 @@ public interface UserTableHtsJdbcRepository
       @Param("storageType") String storageType,
       @Param("creationTime") Long creationTime);
 
-  // -----------------------------------------------------------------------------------------
   // view-scoped reads: the table set mirrored against the same constants
-  // -----------------------------------------------------------------------------------------
 
   @Query(
       "SELECT u FROM UserTableRow u WHERE "
@@ -236,9 +230,7 @@ public interface UserTableHtsJdbcRepository
       @Param("tableIdPattern") String tableIdPattern,
       Pageable pageable);
 
-  // -----------------------------------------------------------------------------------------
   // type-scoped deletion: one conditional statement, never read-then-delete
-  // -----------------------------------------------------------------------------------------
 
   /** Bulk statements bypass the persistence context, hence the flush and clear. */
   @Transactional
@@ -278,11 +270,9 @@ public interface UserTableHtsJdbcRepository
   }
 
   /**
-   * The key-addressed generic deletes are sealed because a wrong-type delete is irreversible, and
-   * because the derived neutral delete they used to reach has been removed entirely: falling
-   * through to {@code SimpleJpaRepository} instead would silently change the case and absence
-   * semantics. No-arg {@code deleteAll()} stays available; it addresses no key, and whole-store
-   * test teardown depends on it.
+   * Sealed because a wrong-type delete is irreversible, and because falling through to {@code
+   * SimpleJpaRepository} would silently change the case and absence semantics of the derived
+   * neutral delete this change removed. No-arg {@code deleteAll()} stays: it addresses no key.
    */
   @Override
   default void deleteById(UserTableRowPrimaryKey userTableRowPrimaryKey) {
@@ -305,16 +295,15 @@ public interface UserTableHtsJdbcRepository
   }
 
   /**
-   * Deletes only a NULL or TABLE row, leaving a VIEW at the same key untouched, and returns the
-   * affected-row count so the service maps missing and wrong-type alike to 404. Deliberately not a
-   * neutral delete: the soft-deleted store has no discriminator and must never receive a view.
+   * Returns the affected-row count so the service maps missing and wrong-type alike to 404.
+   * Deliberately not neutral: the soft-deleted store has no discriminator and must never take a
+   * view.
    */
   default int deleteTableById(UserTableRowPrimaryKey key) {
     return deleteTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
         key.getDatabaseId(), key.getTableId());
   }
 
-  /** The mirror of {@link #deleteTableById}: only a VIEW row, never a TABLE or legacy NULL. */
   default int deleteViewById(UserTableRowPrimaryKey key) {
     return deleteViewByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
         key.getDatabaseId(), key.getTableId());
@@ -323,9 +312,8 @@ public interface UserTableHtsJdbcRepository
   String STAMP_TABLE_TYPE = "u.entityType = '" + TABLE + "' ";
 
   /**
-   * Table-only: views are not renameable, so there is deliberately no {@code renameViewId}. The
-   * conditional update is itself the source check, and the literal {@link #STAMP_TABLE_TYPE}
-   * assignment rewrites a legacy null or non-canonical spelling to the constant as it moves.
+   * Table-only: views are not renameable. The conditional update is itself the source check, and
+   * {@link #STAMP_TABLE_TYPE} rewrites a legacy null or non-canonical spelling as the row moves.
    */
   @Transactional
   @Modifying(flushAutomatically = true, clearAutomatically = true)

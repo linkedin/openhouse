@@ -11,10 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.orm.jpa.JpaSystemException;
 
-/**
- * The single cause search the adapter and the advice share. It returns an {@link Optional} rather
- * than a nullable sentinel, so every assertion here states presence or absence explicitly.
- */
+/** The single cause search the adapter and the advice share. */
 public class CorruptEntityTypeCauseFinderTest {
 
   private static final String CORRUPT_MSG =
@@ -91,7 +88,6 @@ public class CorruptEntityTypeCauseFinderTest {
     assertThat(found).isEmpty();
   }
 
-  /** Absence must also be the answer for a null input, not a NullPointerException. */
   @Test
   public void testNullYieldsAbsence() {
     assertThat(CorruptEntityTypeCauseFinder.find(null)).isEmpty();
@@ -103,10 +99,7 @@ public class CorruptEntityTypeCauseFinderTest {
     assertThat(CorruptEntityTypeCauseFinder.find(new SelfCausedException("cycle"))).isEmpty();
   }
 
-  /**
-   * A chain longer than the bound stops early. The corruption is placed past the bound, so a finder
-   * that ignored the bound would find it and this assertion would fail.
-   */
+  /** The corruption sits past the bound, so a finder that ignored the bound would find it. */
   @Test
   public void testChainBeyondTheDepthBoundIsNotSearched() {
     Throwable chain = corruption();
