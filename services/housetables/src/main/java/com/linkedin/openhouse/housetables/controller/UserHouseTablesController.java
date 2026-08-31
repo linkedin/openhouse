@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.housetables.controller;
 
-import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.housetables.api.handler.SoftDeletedUserTableHtsApiHandler;
 import com.linkedin.openhouse.housetables.api.handler.UserTableHtsApiHandler;
 import com.linkedin.openhouse.housetables.api.spec.model.SoftDeletedUserTableKey;
@@ -9,7 +8,6 @@ import com.linkedin.openhouse.housetables.api.spec.model.UserTableKey;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateUpdateEntityRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.response.EntityResponseBody;
 import com.linkedin.openhouse.housetables.api.spec.response.GetAllEntityResponseBody;
-import com.linkedin.openhouse.housetables.api.validator.EntityTypeIngressResult;
 import com.linkedin.openhouse.housetables.api.validator.EntityTypeIngressValidator;
 import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
 import com.linkedin.openhouse.housetables.model.EntityType;
@@ -57,22 +55,6 @@ public class UserHouseTablesController {
   @Autowired private UserTablesMapper userTablesMapper;
 
   @Autowired private EntityTypeIngressValidator entityTypeIngressValidator;
-
-  /**
-   * Runs ahead of validation, so nothing downstream observes a null. The validator returns an
-   * outcome; choosing the status for a failed one is this layer's decision.
-   */
-  private UserTable normalizeEntityType(UserTable userTable, EntityType entityType) {
-    EntityTypeIngressResult result = entityTypeIngressValidator.normalize(userTable, entityType);
-    return result
-        .getNormalizedEntity()
-        .orElseThrow(
-            () ->
-                new RequestValidationFailureException(
-                    result
-                        .getFailureMessage()
-                        .orElse(EntityTypeIngressValidator.EMPTY_ENTITY_MESSAGE)));
-  }
 
   @Operation(
       summary = "Get User Table identified by databaseID and tableId.",
@@ -247,7 +229,8 @@ public class UserHouseTablesController {
           CreateUpdateEntityRequestBody<UserTable> createUpdateTableRequestBody) {
     com.linkedin.openhouse.common.api.spec.ApiResponse<EntityResponseBody<UserTable>> apiResponse =
         tableHtsApiHandler.putEntity(
-            normalizeEntityType(createUpdateTableRequestBody.getEntity(), EntityType.TABLE));
+            entityTypeIngressValidator.normalize(
+                createUpdateTableRequestBody.getEntity(), EntityType.TABLE));
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }
@@ -412,7 +395,8 @@ public class UserHouseTablesController {
           CreateUpdateEntityRequestBody<UserTable> createUpdateViewRequestBody) {
     com.linkedin.openhouse.common.api.spec.ApiResponse<EntityResponseBody<UserTable>> apiResponse =
         tableHtsApiHandler.putView(
-            normalizeEntityType(createUpdateViewRequestBody.getEntity(), EntityType.VIEW));
+            entityTypeIngressValidator.normalize(
+                createUpdateViewRequestBody.getEntity(), EntityType.VIEW));
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

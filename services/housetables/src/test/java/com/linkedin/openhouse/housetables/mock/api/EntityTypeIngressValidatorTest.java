@@ -1,19 +1,17 @@
 package com.linkedin.openhouse.housetables.mock.api;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
+import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
-import com.linkedin.openhouse.housetables.api.validator.EntityTypeIngressResult;
 import com.linkedin.openhouse.housetables.api.validator.EntityTypeIngressValidator;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
-/** Normalization returns what is wrong rather than throwing, so the rule is testable directly. */
 public class EntityTypeIngressValidatorTest {
 
   private final EntityTypeIngressValidator validator = new EntityTypeIngressValidator();
@@ -33,25 +31,16 @@ public class EntityTypeIngressValidatorTest {
   @NullSource
   @ValueSource(strings = {"TABLE", "table", "TaBlE"})
   public void testTableRouteStampsCanonicalTableForAgreeingOrSilentPayloads(String declared) {
-    EntityTypeIngressResult result = validator.normalize(entity(declared), EntityType.TABLE);
-
-    Assertions.assertTrue(result.isSuccess());
-    assertThat(result.getFailureMessage()).isEmpty();
-    assertThat(result.getNormalizedEntity())
-        .hasValueSatisfying(
-            normalized -> Assertions.assertEquals("TABLE", normalized.getEntityType()));
+    Assertions.assertEquals(
+        "TABLE", validator.normalize(entity(declared), EntityType.TABLE).getEntityType());
   }
 
   @ParameterizedTest
   @NullSource
   @ValueSource(strings = {"VIEW", "view", "ViEw"})
   public void testViewRouteStampsCanonicalViewForAgreeingOrSilentPayloads(String declared) {
-    EntityTypeIngressResult result = validator.normalize(entity(declared), EntityType.VIEW);
-
-    Assertions.assertTrue(result.isSuccess());
-    assertThat(result.getNormalizedEntity())
-        .hasValueSatisfying(
-            normalized -> Assertions.assertEquals("VIEW", normalized.getEntityType()));
+    Assertions.assertEquals(
+        "VIEW", validator.normalize(entity(declared), EntityType.VIEW).getEntityType());
   }
 
   /** Every other field is carried through untouched; only the discriminator is decided here. */
@@ -59,11 +48,7 @@ public class EntityTypeIngressValidatorTest {
   public void testNormalizationChangesNothingButTheDiscriminator() {
     UserTable submitted = entity(null);
 
-    UserTable normalized =
-        validator
-            .normalize(submitted, EntityType.VIEW)
-            .getNormalizedEntity()
-            .orElseThrow(() -> new AssertionError("a silent payload must normalize"));
+    UserTable normalized = validator.normalize(submitted, EntityType.VIEW);
 
     Assertions.assertEquals(submitted.getDatabaseId(), normalized.getDatabaseId());
     Assertions.assertEquals(submitted.getTableId(), normalized.getTableId());
@@ -76,18 +61,19 @@ public class EntityTypeIngressValidatorTest {
   /** The message names both sides, so the caller can see which route it actually reached. */
   @ParameterizedTest
   @CsvSource({"TABLE, VIEW", "TABLE, view", "VIEW, TABLE", "VIEW, TaBlE"})
-  public void testContradictoryDeclaredTypeIsAFailureNamingBothSides(
+  public void testContradictoryDeclaredTypeIsRejectedNamingBothSides(
       EntityType routeEntityType, String declared) {
-    EntityTypeIngressResult result = validator.normalize(entity(declared), routeEntityType);
+    RequestValidationFailureException thrown =
+        Assertions.assertThrows(
+            RequestValidationFailureException.class,
+            () -> validator.normalize(entity(declared), routeEntityType));
 
-    Assertions.assertFalse(result.isSuccess());
-    assertThat(result.getNormalizedEntity()).isEmpty();
-    assertThat(result.getFailureMessage())
-        .hasValue(
-            String.format(
-                EntityTypeIngressValidator.TYPE_MISMATCH_MESSAGE_FORMAT,
-                declared,
-                routeEntityType.name()));
+    Assertions.assertEquals(
+        String.format(
+            EntityTypeIngressValidator.TYPE_MISMATCH_MESSAGE_FORMAT,
+            declared,
+            routeEntityType.name()),
+        thrown.getMessage());
   }
 
   /**
@@ -95,31 +81,21 @@ public class EntityTypeIngressValidatorTest {
    */
   @ParameterizedTest
   @ValueSource(strings = {"UNKNOWN", "", " ", "TABLES", "TABLE "})
-  public void testUnrecognizedDeclaredTypeIsAFailure(String declared) {
-    EntityTypeIngressResult result = validator.normalize(entity(declared), EntityType.TABLE);
-
-    Assertions.assertFalse(result.isSuccess());
-    assertThat(result.getNormalizedEntity()).isEmpty();
-    assertThat(result.getFailureMessage()).isPresent();
+  public void testUnrecognizedDeclaredTypeIsRejected(String declared) {
+    Assertions.assertThrows(
+        RequestValidationFailureException.class,
+        () -> validator.normalize(entity(declared), EntityType.TABLE));
   }
 
   /** Ingress runs ahead of the validator, so it is the first code to see an absent entity. */
   @ParameterizedTest
-  @org.junit.jupiter.params.provider.EnumSource(EntityType.class)
-  public void testAbsentEntityIsAFailureOnEveryRoute(EntityType routeEntityType) {
-    EntityTypeIngressResult result = validator.normalize(null, routeEntityType);
+  @EnumSource(EntityType.class)
+  public void testAbsentEntityIsRejectedOnEveryRoute(EntityType routeEntityType) {
+    RequestValidationFailureException thrown =
+        Assertions.assertThrows(
+            RequestValidationFailureException.class,
+            () -> validator.normalize(null, routeEntityType));
 
-    Assertions.assertFalse(result.isSuccess());
-    assertThat(result.getNormalizedEntity()).isEmpty();
-    assertThat(result.getFailureMessage())
-        .hasValue(EntityTypeIngressValidator.EMPTY_ENTITY_MESSAGE);
-  }
-
-  @Test
-  public void testResultCannotBeBothOutcomesAtOnce() {
-    Assertions.assertThrows(
-        IllegalArgumentException.class, () -> EntityTypeIngressResult.success(null));
-    Assertions.assertThrows(
-        IllegalArgumentException.class, () -> EntityTypeIngressResult.failure(null));
+    Assertions.assertEquals(EntityTypeIngressValidator.EMPTY_ENTITY_MESSAGE, thrown.getMessage());
   }
 }
