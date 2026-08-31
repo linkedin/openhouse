@@ -102,7 +102,11 @@ public class JpaUserTableReadRepositoryTest {
         new PersistenceException("Error attempting to apply AttributeConverter", corruption()));
   }
 
-  /** How a row-by-row hydration failure presents itself to a caller walking the result. */
+  /**
+   * A lazily-failing result, which the frozen finders do not actually produce: they all hydrate
+   * eagerly. Used to exercise the traversal-time branch that would matter if a {@code
+   * Stream}-returning finder were ever added.
+   */
   private static Iterable<UserTableRow> failingAt(
       List<UserTableRow> rows, int failAtIndex, RuntimeException failure) {
     return () -> failingIterator(rows.iterator(), failAtIndex, failure);
@@ -304,13 +308,17 @@ public class JpaUserTableReadRepositoryTest {
   }
 
   // -------------------------------------------------------------------------------------------
-  // all-or-nothing consumption
+  // traversal-time failure: defensive, not reachable through the frozen finders
   // -------------------------------------------------------------------------------------------
 
-  /** An adapter returning what it had collected so far would answer 200 with a truncated list. */
+  /**
+   * Hypothetical rather than reachable: hydration is eager here, so corruption surfaces during the
+   * query. Pins that an adapter meeting a failure mid-traversal would not return what it had
+   * collected so far.
+   */
   @ParameterizedTest
   @ValueSource(ints = {0, 1, 2})
-  public void testUnpagedQueryFailsWholeWhenAnyRowIsCorrupt(int corruptPosition) {
+  public void testUnpagedQueryWouldFailWholeIfAResultFailedMidTraversal(int corruptPosition) {
     List<UserTableRow> rows =
         Arrays.asList(
             row("v0", EntityType.VIEW), row("v1", EntityType.VIEW), row("v2", EntityType.VIEW));
@@ -325,7 +333,8 @@ public class JpaUserTableReadRepositoryTest {
 
   @ParameterizedTest
   @ValueSource(ints = {0, 2})
-  public void testUnpagedPatternQueryFailsWholeWhenAnyRowIsCorrupt(int corruptPosition) {
+  public void testUnpagedPatternQueryWouldFailWholeIfAResultFailedMidTraversal(
+      int corruptPosition) {
     List<UserTableRow> rows =
         Arrays.asList(
             row("match_v0", EntityType.VIEW),
@@ -339,10 +348,10 @@ public class JpaUserTableReadRepositoryTest {
         .isInstanceOf(CorruptEntityTypeException.class);
   }
 
-  /** The failure is raised while the content is traversed, where {@code Page.map} meets it. */
+  /** Same hypothetical, on the paged path, where the content list is walked. */
   @ParameterizedTest
   @ValueSource(ints = {0, 1})
-  public void testPagedQueryFailsWholeWhenAnyContentElementIsCorrupt(int corruptPosition) {
+  public void testPagedQueryWouldFailWholeIfContentFailedMidTraversal(int corruptPosition) {
     Pageable pageable = PageRequest.of(0, 2);
     doReturn(
             new FailingContentPage(

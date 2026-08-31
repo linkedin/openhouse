@@ -21,12 +21,14 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
 /**
- * Compositional adapter over the frozen {@link UserTableHtsJdbcRepository}: it delegates, consumes
- * the result completely, maps to DTOs, and unwraps the converter's corruption from the wrapper
- * Spring's persistence exception translation put it in.
+ * Compositional adapter over the frozen {@link UserTableHtsJdbcRepository}: it delegates, maps to
+ * DTOs, and unwraps the converter's corruption from the wrapper Spring's persistence exception
+ * translation put it in. That unwrapping is why this class exists.
  *
- * <p>Consuming completely is the point: a corrupt row discovered after the boundary would surface
- * as a partial success.
+ * <p>Mapping runs inside the translation rather than above it. With the frozen finders that is
+ * defensive rather than load-bearing, because they all hydrate eagerly, so a corrupt row throws
+ * during the query itself. It becomes load-bearing if a {@code Stream}-returning finder is ever
+ * added.
  */
 @Component
 public class JpaUserTableReadRepository implements UserTableReadRepository {

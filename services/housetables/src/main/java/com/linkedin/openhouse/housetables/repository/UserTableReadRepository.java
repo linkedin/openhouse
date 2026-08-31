@@ -17,8 +17,11 @@ import org.springframework.data.domain.Pageable;
  * that carries it. Corruption is rethrown unwrapped; every other failure is rethrown exactly as
  * Spring produced it, so non-corrupt infrastructure failures behave as they always have.
  *
- * <p>Every result is materialized here, so a corrupt row can never reach a caller as a partial list
- * or page.
+ * <p>Results are materialized here rather than handed back lazily. With the frozen finders that is
+ * belt-and-braces rather than a live guard: they return {@code Optional}, {@code Iterable} and
+ * {@code Page}, all of which Hibernate hydrates during the query, so corruption already surfaces
+ * inside the translation below. It would start mattering the moment a {@code Stream}-returning
+ * finder is added, which is why {@link #findViews} and friends never hand one out.
  */
 public interface UserTableReadRepository {
 
