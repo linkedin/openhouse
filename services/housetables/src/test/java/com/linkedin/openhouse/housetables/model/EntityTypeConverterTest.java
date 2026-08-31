@@ -54,14 +54,30 @@ public class EntityTypeConverterTest {
     Assertions.assertTrue(thrown.getMessage().contains(columnValue));
   }
 
+  /** Write stores the constant name verbatim, so the enum changes no byte in the column. */
+  @ParameterizedTest
+  @CsvSource({"TABLE, TABLE", "VIEW, VIEW"})
+  void everyConstantWritesAsItsName(EntityType entityType, String expectedColumnValue) {
+    Assertions.assertEquals(expectedColumnValue, converter.convertToDatabaseColumn(entityType));
+  }
+
   /**
-   * Write is faithful, not total. Stamping a type belongs to the endpoint that knows which one it
-   * is, so storage passes a null through rather than inventing TABLE.
+   * The write is strict where the read defaults: the {@code IS NULL} predicate arm carries rows
+   * that predate the discriminator, and nothing may add another. An {@link
+   * IllegalArgumentException} because an unstamped write is a caller bug, unlike a corrupt column,
+   * which is server state.
    */
   @Test
-  void writeIsPassThrough() {
-    Assertions.assertEquals("TABLE", converter.convertToDatabaseColumn(EntityType.TABLE));
-    Assertions.assertEquals("VIEW", converter.convertToDatabaseColumn(EntityType.VIEW));
-    Assertions.assertNull(converter.convertToDatabaseColumn(null));
+  void nullWriteIsRejectedRatherThanStoringAnotherLegacyRow() {
+    IllegalArgumentException thrown =
+        Assertions.assertThrows(
+            IllegalArgumentException.class, () -> converter.convertToDatabaseColumn(null));
+
+    Assertions.assertEquals(
+        "Column user_table_row.entity_type cannot be written as null; "
+            + "the endpoint serving the request is responsible for stamping the type",
+        thrown.getMessage());
+    // The two escapes stay disjoint: a caller bug is not stored corruption.
+    Assertions.assertFalse(CorruptEntityTypeException.class.isAssignableFrom(thrown.getClass()));
   }
 }

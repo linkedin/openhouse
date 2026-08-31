@@ -16,6 +16,7 @@ import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import com.linkedin.openhouse.housetables.e2e.SpringH2HtsApplication;
+import com.linkedin.openhouse.housetables.e2e.fixture.UserTableRawSeeder;
 import com.linkedin.openhouse.housetables.e2e.fixture.UserTableStoreCleaner;
 import com.linkedin.openhouse.housetables.metrics.UserTableMetricsConstant;
 import com.linkedin.openhouse.housetables.model.EntityType;
@@ -70,6 +71,8 @@ public class UserTablesServiceTest {
 
   @Autowired UserTableStoreCleaner userTableStoreCleaner;
 
+  @Autowired UserTableRawSeeder userTableRawSeeder;
+
   @SpyBean SoftDeletedUserTableHtsJdbcRepository softDeletedHtsJdbcRepository;
 
   @SpyBean UserTableReadRepository userTableReadRepository;
@@ -80,26 +83,26 @@ public class UserTablesServiceTest {
   public void setup() {
     UserTableRow testUserTableRow =
         new TestHouseTableModelConstants.TestTuple(0).get_userTableRow();
-    htsRepository.save(testUserTableRow);
-    htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_3_0.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_4_0.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_2_1.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_3_1.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_1_2.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_2_2.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(testUserTableRow);
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_2_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_3_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_4_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_1.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_2_1.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_3_1.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_2.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_2_2.get_userTableRow());
 
     // delete candidate
-    htsRepository.save(
+    userTableRawSeeder.seedLegacyRow(
         TEST_TUPLE_1_0
             .get_userTableRow()
             .toBuilder()
             .tableId(CASE_TBL_1)
             .databaseId(CASE_DB_1)
             .build());
-    htsRepository.save(
+    userTableRawSeeder.seedLegacyRow(
         TEST_TUPLE_1_0
             .get_userTableRow()
             .toBuilder()
@@ -448,6 +451,35 @@ public class UserTablesServiceTest {
         });
   }
 
+  /**
+   * Restore is the second and only other path that writes the column, and it stamps through a
+   * mapper expression rather than the service. Seeded legacy so the assertion cannot pass by the
+   * value merely surviving: NULL in, TABLE out.
+   */
+  @Test
+  public void testRestoreStampsTheColumnRatherThanWritingNull() {
+    seedLegacyRow(ENTITY_TYPE_DB, "restore_stamps");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "restore_stamps")).isEmpty();
+
+    userTablesService.deleteUserTable(ENTITY_TYPE_DB, "restore_stamps", true);
+    UserTableDto softDeleted =
+        userTablesService
+            .getAllSoftDeletedTables(
+                UserTable.builder().databaseId(ENTITY_TYPE_DB).tableId("restore_stamps").build(),
+                0,
+                10,
+                null)
+            .getContent()
+            .get(0);
+
+    UserTableDto restored =
+        userTablesService.restoreUserTable(
+            ENTITY_TYPE_DB, "restore_stamps", softDeleted.getDeletedAtMs());
+
+    assertThat(restored.getEntityType()).isEqualTo(EntityType.TABLE);
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "restore_stamps")).hasValue("TABLE");
+  }
+
   @Test
   public void testUserTableRestore() {
     UserTable searchByTable =
@@ -569,7 +601,7 @@ public class UserTablesServiceTest {
         () ->
             userTablesService.deleteUserTable(
                 TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId(), true));
-    htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_0.get_userTableRow());
     // Get the deleted timestamp
     UserTable searchByTableId =
         UserTable.builder()
@@ -600,7 +632,7 @@ public class UserTablesServiceTest {
         () ->
             userTablesService.deleteUserTable(
                 TEST_TUPLE_2_0.getDatabaseId(), TEST_TUPLE_2_0.getTableId(), true));
-    htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_2_0.get_userTableRow());
     Assertions.assertDoesNotThrow(
         () ->
             userTablesService.deleteUserTable(
@@ -795,7 +827,7 @@ public class UserTablesServiceTest {
    * modes.
    */
   private void seedLegacyRow(String databaseId, String tableId) {
-    htsRepository.save(entityTypeRow(databaseId, tableId, null));
+    insertRawEntityType(databaseId, tableId, null);
   }
 
   /** Plants a typed row through JPA, so the enum boundary is still under test. */

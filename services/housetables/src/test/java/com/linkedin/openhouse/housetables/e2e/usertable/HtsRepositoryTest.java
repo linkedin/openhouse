@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.*;
 import com.google.common.collect.Lists;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
+import com.linkedin.openhouse.housetables.e2e.fixture.UserTableRawSeeder;
 import com.linkedin.openhouse.housetables.e2e.fixture.UserTableStoreCleaner;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
@@ -28,6 +29,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -64,6 +66,8 @@ public class HtsRepositoryTest {
 
   @Autowired UserTableStoreCleaner userTableStoreCleaner;
 
+  @Autowired UserTableRawSeeder userTableRawSeeder;
+
   @Autowired DataSource dataSource;
 
   @AfterEach
@@ -87,12 +91,13 @@ public class HtsRepositoryTest {
   }
 
   /**
-   * Plants a pre-discriminator row, whose column holds SQL NULL. Separate from {@link
-   * #seedTypedRow} rather than one helper with a nullable argument: these are two fixtures, not two
-   * modes.
+   * Plants a pre-discriminator row, whose column holds SQL NULL. Goes through the column rather
+   * than JPA because the converter now rejects a null write; only rows predating the discriminator
+   * may hold one. Separate from {@link #seedTypedRow} rather than one helper with a nullable
+   * argument: these are two fixtures, not two modes.
    */
   private void seedLegacyRow(String databaseId, String tableId) {
-    htsRepository.save(row(databaseId, tableId, null));
+    insertRawEntityType(databaseId, tableId, null);
   }
 
   /** Plants a typed row through JPA, so the enum boundary is still the thing under test. */
@@ -173,7 +178,11 @@ public class HtsRepositoryTest {
   @Test
   public void testSaveFirstRecord() {
     UserTableRow testUserTableRow =
-        new TestHouseTableModelConstants.TestTuple(0).get_userTableRow();
+        new TestHouseTableModelConstants.TestTuple(0)
+            .get_userTableRow()
+            .toBuilder()
+            .entityType(EntityType.TABLE)
+            .build();
     // before insertion
     Assertions.assertEquals(null, testUserTableRow.getVersion());
     // after insertion
@@ -182,18 +191,18 @@ public class HtsRepositoryTest {
 
   @Test
   public void testFindDistinctDatabases() {
-    htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_1.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_2_0.get_userTableRow());
     List<String> result = Lists.newArrayList(htsRepository.findAllDistinctDatabaseIds());
     Assertions.assertEquals(Lists.newArrayList("test_db0", "test_db1"), result);
   }
 
   @Test
   public void testFindAllByDatabaseId() {
-    htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_1.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_2_0.get_userTableRow());
     List<UserTableRow> result =
         Lists.newArrayList(
             htsRepository.findAllTablesByFilters("test_db0", null, null, null, null, null));
@@ -204,9 +213,9 @@ public class HtsRepositoryTest {
 
   @Test
   public void testFindAllByTableIdPattern() {
-    htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_1.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_2_0.get_userTableRow());
     List<UserTableRow> result =
         Lists.newArrayList(
             htsRepository.findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
@@ -218,9 +227,9 @@ public class HtsRepositoryTest {
 
   @Test
   public void testFindAllByTableId() {
-    htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_1.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_2_0.get_userTableRow());
     List<UserTableRow> result =
         Lists.newArrayList(
             htsRepository.findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
@@ -233,7 +242,11 @@ public class HtsRepositoryTest {
   @Test
   public void testHouseTable() {
     UserTableRow testUserTableRow =
-        new TestHouseTableModelConstants.TestTuple(0).get_userTableRow();
+        new TestHouseTableModelConstants.TestTuple(0)
+            .get_userTableRow()
+            .toBuilder()
+            .entityType(EntityType.TABLE)
+            .build();
     htsRepository.save(testUserTableRow);
     UserTableRow actual =
         htsRepository
@@ -253,7 +266,7 @@ public class HtsRepositoryTest {
 
   @Test
   public void testDeleteUserTable() {
-    htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_1.get_userTableRow());
     UserTableRowPrimaryKey key =
         UserTableRowPrimaryKey.builder()
             .tableId(TEST_TUPLE_1_1.getTableId())
@@ -270,7 +283,11 @@ public class HtsRepositoryTest {
   @Test
   public void testSaveUserTableWithConflict() {
     UserTableRow testUserTableRow =
-        new TestHouseTableModelConstants.TestTuple(0).get_userTableRow();
+        new TestHouseTableModelConstants.TestTuple(0)
+            .get_userTableRow()
+            .toBuilder()
+            .entityType(EntityType.TABLE)
+            .build();
     Long currentVersion = htsRepository.save(testUserTableRow).getVersion();
     // test create the table again
     Exception exception =
@@ -312,7 +329,7 @@ public class HtsRepositoryTest {
 
   @Test
   public void testRenameUserTable() {
-    htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_1.get_userTableRow());
     UserTableRowPrimaryKey key =
         UserTableRowPrimaryKey.builder()
             .tableId(TEST_TUPLE_1_1.getTableId())
@@ -351,6 +368,7 @@ public class HtsRepositoryTest {
             .toBuilder()
             .tableId(TEST_TUPLE_1_1.getTableId().toUpperCase())
             .databaseId(TEST_TUPLE_1_1.getDatabaseId())
+            .entityType(EntityType.TABLE)
             .build();
     htsRepository.save(testUpperCaseRow);
 
@@ -392,13 +410,46 @@ public class HtsRepositoryTest {
   // entityType discriminator
   // ---------------------------------------------------------------------------------------------
 
+  /**
+   * The converter's strictness is only worth anything if JPA actually invokes it, so this goes
+   * through a real save rather than the converter in isolation. Spring wraps the caller bug as an
+   * API-usage failure, which is what an unstamped write deserves.
+   */
+  @Test
+  public void testSavingAnUnstampedRowIsRejectedAtTheColumn() {
+    assertThatThrownBy(() -> htsRepository.save(row(ENTITY_TYPE_DB, "unstamped", null)))
+        .isInstanceOf(InvalidDataAccessApiUsageException.class)
+        .hasRootCauseInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("Column user_table_row.entity_type cannot be written as null");
+
+    assertThat(htsRepository.existsById(key(ENTITY_TYPE_DB, "unstamped"))).isFalse();
+  }
+
+  /**
+   * The other half: rows that predate the discriminator keep their SQL NULL and still hydrate as
+   * tables, so tightening the write did not orphan the population the read arm exists to carry.
+   */
+  @Test
+  public void testLegacyRowPlantedThroughTheColumnStillReadsAsTable() {
+    seedLegacyRow(ENTITY_TYPE_DB, "legacy_survivor");
+
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "legacy_survivor")).isEmpty();
+    assertThat(findRow(ENTITY_TYPE_DB, "legacy_survivor").getEntityType())
+        .isEqualTo(EntityType.TABLE);
+    assertThat(
+            htsRepository.findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
+                ENTITY_TYPE_DB, "legacy_survivor"))
+        .isPresent();
+  }
+
   /** The discriminator must persist verbatim and must not perturb version/metadata behavior. */
   @Test
   public void testEntityTypePersistenceRoundTrip() {
     UserTableRow viewRow = htsRepository.save(row(ENTITY_TYPE_DB, "persist_view", EntityType.VIEW));
     UserTableRow tableRow =
         htsRepository.save(row(ENTITY_TYPE_DB, "persist_table", EntityType.TABLE));
-    UserTableRow legacyRow = htsRepository.save(row(ENTITY_TYPE_DB, "persist_legacy", null));
+    insertRawEntityType(ENTITY_TYPE_DB, "persist_legacy", null);
+    UserTableRow legacyRow = findRow(ENTITY_TYPE_DB, "persist_legacy");
 
     // Insert still yields version 0 for all three; the discriminator is orthogonal to versioning.
     assertThat(viewRow.getVersion()).isEqualTo(0L);
@@ -412,7 +463,7 @@ public class HtsRepositoryTest {
         .isEqualTo(EntityType.TABLE);
 
     // The stored column text is the constant name, so the enum changes no byte in the database.
-    // The null stays null: only the read defaults, the write stores what it was handed.
+    // The legacy null stays null: only the read defaults it, and nothing rewrites the column.
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "persist_view")).hasValue("VIEW");
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "persist_table")).hasValue("TABLE");
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "persist_legacy")).isEmpty();

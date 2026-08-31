@@ -15,6 +15,7 @@ import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateUpdateEntityRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.response.GetAllEntityResponseBody;
 import com.linkedin.openhouse.housetables.dto.mapper.SoftDeletedUserTablesMapper;
+import com.linkedin.openhouse.housetables.e2e.fixture.UserTableRawSeeder;
 import com.linkedin.openhouse.housetables.e2e.fixture.UserTableStoreCleaner;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRow;
@@ -67,6 +68,8 @@ public class HtsControllerTest {
 
   @Autowired UserTableStoreCleaner userTableStoreCleaner;
 
+  @Autowired UserTableRawSeeder userTableRawSeeder;
+
   @Autowired SoftDeletedUserTableHtsJdbcRepository softDeletedHtsJdbcRepository;
 
   @Autowired MockMvc mvc;
@@ -84,7 +87,7 @@ public class HtsControllerTest {
     // For now manually create the user table upfront.
     UserTableRow testUserTableRow =
         new TestHouseTableModelConstants.TestTuple(0).get_userTableRow();
-    htsRepository.save(testUserTableRow);
+    userTableRawSeeder.seedLegacyRow(testUserTableRow);
   }
 
   @AfterEach
@@ -101,9 +104,9 @@ public class HtsControllerTest {
   @Test
   public void testFindAllFromDbWithTableId() throws Exception {
     // TODO: Use rest API to create the table
-    htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_2_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_1.get_userTableRow());
 
     Map<String, List<String>> paramsInternal = new HashMap<>();
     paramsInternal.put("databaseId", Collections.singletonList(TEST_DB_ID));
@@ -135,9 +138,9 @@ public class HtsControllerTest {
   @Test
   public void testFindAllFromDbWithTablePattern() throws Exception {
     // TODO: Use rest API to create the table
-    htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_2_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_1.get_userTableRow());
 
     Map<String, List<String>> paramsInternal = new HashMap<>();
     paramsInternal.put("databaseId", Collections.singletonList(TEST_DB_ID));
@@ -174,9 +177,9 @@ public class HtsControllerTest {
   /** Using LIST endpoint to test a partially filled user table object as request body */
   public void testFindAllFromDb() throws Exception {
     // TODO: Use rest API to create the table
-    htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_2_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_1.get_userTableRow());
 
     // Inserted two tables in db0, combining the one in the setup method there should be 3
     Map<String, List<String>> paramsInternal = new HashMap<>();
@@ -213,9 +216,9 @@ public class HtsControllerTest {
   @Test
   public void testFindAllDatabases() throws Exception {
     // TODO: Use rest API to create the table
-    htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_1_1.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_2_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_1.get_userTableRow());
 
     mvc.perform(MockMvcRequestBuilders.get("/hts/tables/query").accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
@@ -523,7 +526,7 @@ public class HtsControllerTest {
                 .param("metadataLocation", "mockMetadataLocation"))
         .andExpect(status().isBadRequest());
 
-    htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_2_0.get_userTableRow());
     mvc.perform(
             MockMvcRequestBuilders.patch("/hts/tables/rename")
                 .param("fromDatabaseId", TEST_DB_ID)
@@ -536,7 +539,7 @@ public class HtsControllerTest {
 
   @Test
   public void testQuerySoftDeletedTables() throws Exception {
-    htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_0.get_userTableRow());
     // Soft delete the table
     mvc.perform(
             MockMvcRequestBuilders.delete("/v1/hts/tables")
@@ -564,8 +567,8 @@ public class HtsControllerTest {
 
   @Test
   public void testQuerySoftDeletedTablesByTableId() throws Exception {
-    htsRepository.save(TEST_TUPLE_1_0.get_userTableRow());
-    htsRepository.save(TEST_TUPLE_2_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_1_0.get_userTableRow());
+    userTableRawSeeder.seedLegacyRow(TEST_TUPLE_2_0.get_userTableRow());
 
     mvc.perform(
             MockMvcRequestBuilders.delete("/v1/hts/tables")
@@ -598,7 +601,8 @@ public class HtsControllerTest {
   @Test
   public void testQuerySoftDeletedTablesByPurgeAfterMs() throws Exception {
     String testTableId = "testQuerySoftDeletedTable";
-    htsRepository.save(TEST_TUPLE_1_0.get_userTableRow().toBuilder().tableId(testTableId).build());
+    userTableRawSeeder.seedLegacyRow(
+        TEST_TUPLE_1_0.get_userTableRow().toBuilder().tableId(testTableId).build());
 
     // First, soft delete a table
     mvc.perform(
@@ -901,7 +905,7 @@ public class HtsControllerTest {
    * modes.
    */
   private void seedLegacyRow(String databaseId, String tableId) {
-    htsRepository.save(entityTypeRow(databaseId, tableId, null));
+    insertRawEntityType(databaseId, tableId, null);
   }
 
   /** Plants a typed row through JPA, so the enum boundary is still the thing under test. */

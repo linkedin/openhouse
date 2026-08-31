@@ -65,8 +65,9 @@ public class UserTableReadRepositoryTest {
         .build();
   }
 
+  /** Through the column: the converter rejects a null write, so only a legacy row may hold one. */
   private void seedLegacyRow(String tableId) {
-    htsRepository.save(row(tableId, null));
+    insertRawEntityType(tableId, null);
   }
 
   private void seedTypedRow(String tableId, EntityType entityType) {
