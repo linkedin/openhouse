@@ -58,9 +58,10 @@ public interface UserTableHtsJdbcRepository
    * table, so without it every pre-existing table becomes invisible. Do not reduce it to a plain
    * equality before a verified backfill and a {@code NOT NULL} migration.
    *
-   * <p>Both type predicates assume a collation folding neither accents nor trailing spaces, so SQL
-   * agrees with {@code EntityType#fromName}; otherwise a stored {@code 'TÁBLE'} matches here yet
-   * fails hydration. Unconfirmed against production.
+   * <p>Production collation is confirmed {@code utf8mb4_0900_ai_ci}: accent-insensitive and NO PAD.
+   * A stored {@code 'TÁBLE'} therefore matches this predicate but fails {@code EntityType#fromName}
+   * on hydration (a 500), and a {@code 'TABLE '} does not match at all. Both require a direct
+   * database write; the API writes only canonical enum names, so neither is a reachable state.
    */
   String TABLE_ROW_PREDICATE = "(u.entityType IS NULL OR upper(u.entityType) = '" + TABLE + "')";
 
