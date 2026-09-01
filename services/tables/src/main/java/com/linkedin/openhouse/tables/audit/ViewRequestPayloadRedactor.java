@@ -35,10 +35,10 @@ public class ViewRequestPayloadRedactor implements ServiceAuditPayloadRedactor {
   static final String SQL_FIELD = "sql";
 
   /** The view collection route, which POST creates against. */
-  private static final String VIEW_COLLECTION_PATTERN = "/v2/databases/*/views";
+  private static final String VIEW_COLLECTION_PATTERN = "/v1/databases/*/views";
 
   /** The view item route, which PUT replaces against. */
-  private static final String VIEW_ITEM_PATTERN = "/v2/databases/*/views/*";
+  private static final String VIEW_ITEM_PATTERN = "/v1/databases/*/views/*";
 
   private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
 

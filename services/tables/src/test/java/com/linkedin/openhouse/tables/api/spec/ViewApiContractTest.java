@@ -27,7 +27,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 
 /**
- * Freezes the M1 wire surface of {@code /v2/databases/{databaseId}/views}.
+ * Freezes the M1 wire surface of {@code /v1/databases/{databaseId}/views}.
  *
  * <p>This test exists to satisfy the BDP-108397 acceptance criterion: "A contract test pins the M1
  * wire surface, so adding the admission service, the polymorphic lookup or /versions later changes

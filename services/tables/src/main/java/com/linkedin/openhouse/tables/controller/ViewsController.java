@@ -25,8 +25,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Controller for the Views API. Views are a new resource, so they mount under {@code /v2} and break
- * no existing client: {@code /v1/databases/{databaseId}/tables/{tableId}} stays table-only.
+ * Controller for the Views API. Views are a new resource under {@code /v1}, alongside every other
+ * OpenHouse resource, and break no existing client: they occupy their own {@code views} path
+ * segment, and {@code /v1/databases/{databaseId}/tables/{tableId}} stays table-only.
  *
  * <p>The controller is registered regardless of whether views are enabled, and holds no business
  * logic. Request bodies are deliberately not annotated with {@code @Valid}: the view validator
@@ -53,7 +54,7 @@ public class ViewsController {
         @ApiResponse(responseCode = "503", description = "View GET: SERVICE_UNAVAILABLE")
       })
   @GetMapping(
-      value = {"/v2/databases/{databaseId}/views/{viewId}"},
+      value = {"/v1/databases/{databaseId}/views/{viewId}"},
       produces = {"application/json"})
   @Secured(value = Privileges.Privilege.SELECT)
   public ResponseEntity<GetViewResponseBody> getView(
@@ -81,7 +82,7 @@ public class ViewsController {
         @ApiResponse(responseCode = "503", description = "View SEARCH: SERVICE_UNAVAILABLE")
       })
   @GetMapping(
-      value = {"/v2/databases/{databaseId}/views"},
+      value = {"/v1/databases/{databaseId}/views"},
       produces = {"application/json"})
   @Secured(value = Privileges.Privilege.LIST_VIEW)
   public ResponseEntity<GetAllViewsResponseBody> getAllViews(
@@ -114,7 +115,7 @@ public class ViewsController {
         @ApiResponse(responseCode = "503", description = "View POST: SERVICE_UNAVAILABLE")
       })
   @PostMapping(
-      value = {"/v2/databases/{databaseId}/views"},
+      value = {"/v1/databases/{databaseId}/views"},
       produces = {"application/json"},
       consumes = {"application/json"})
   @Secured(value = Privileges.Privilege.CREATE_VIEW)
@@ -154,7 +155,7 @@ public class ViewsController {
         @ApiResponse(responseCode = "503", description = "View PUT: SERVICE_UNAVAILABLE")
       })
   @PutMapping(
-      value = {"/v2/databases/{databaseId}/views/{viewId}"},
+      value = {"/v1/databases/{databaseId}/views/{viewId}"},
       produces = {"application/json"},
       consumes = {"application/json"})
   @Secured(value = Privileges.Privilege.UPDATE_VIEW_METADATA)
@@ -191,7 +192,7 @@ public class ViewsController {
         @ApiResponse(responseCode = "503", description = "View DELETE: SERVICE_UNAVAILABLE")
       })
   @DeleteMapping(
-      value = {"/v2/databases/{databaseId}/views/{viewId}"},
+      value = {"/v1/databases/{databaseId}/views/{viewId}"},
       produces = {"application/json"})
   @Secured(value = Privileges.Privilege.DELETE_VIEW)
   public ResponseEntity<Void> deleteView(

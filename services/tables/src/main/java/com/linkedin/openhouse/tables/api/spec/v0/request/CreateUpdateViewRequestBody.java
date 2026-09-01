@@ -20,7 +20,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * Request body for POST and PUT on /v2/databases/{databaseId}/views. Nullable fields are omitted
+ * Request body for POST and PUT on /v1/databases/{databaseId}/views. Nullable fields are omitted
  * from the serialized payload rather than emitted as JSON null, so an omitted {@code
  * baseViewVersion} on create stays absent on the wire.
  */

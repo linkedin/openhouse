@@ -16,7 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 /**
- * Default /v2 views API handler. The flow is strictly validate, map, delegate to the service, map
+ * Default /v1 views API handler. The flow is strictly validate, map, delegate to the service, map
  * back, and pick a status: no business logic, no response serialization and no feature gating live
  * here.
  */

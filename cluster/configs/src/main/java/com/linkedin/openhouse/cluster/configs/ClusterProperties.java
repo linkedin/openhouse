@@ -98,7 +98,7 @@ public class ClusterProperties {
   private List<String> allowedClientNameValues;
 
   /**
-   * View SQL dialects this deployment accepts on the /v2 views API. A representation, and the
+   * View SQL dialects this deployment accepts on the /v1 views API. A representation, and the
    * source dialect naming one, is rejected unless its dialect is listed here. Defaults to Spark
    * only; supporting another engine is a configuration change rather than a code change.
    */

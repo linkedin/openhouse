@@ -39,7 +39,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
- * Structural validation of /v2 views requests.
+ * Structural validation of /v1 views requests.
  *
  * <p><b>Security invariant:</b> no message built here interpolates SQL text, schema text or a
  * {@code baseViewVersion} token. Messages are copied verbatim into the error response body and into

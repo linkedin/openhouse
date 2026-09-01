@@ -6,7 +6,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllViewsResponseBod
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetViewResponseBody;
 
 /**
- * Layer between the /v2 views REST routes and the view service. Implementations hold no business
+ * Layer between the /v1 views REST routes and the view service. Implementations hold no business
  * logic: they validate, map, delegate, map back and pick a status.
  */
 public interface ViewsApiHandler {

@@ -3,7 +3,7 @@ package com.linkedin.openhouse.tables.api.validator;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
 
 /**
- * Structural validation for the /v2 views API. No SQL is parsed, translated or validated against an
+ * Structural validation for the /v1 views API. No SQL is parsed, translated or validated against an
  * engine here: view SQL stays opaque and semantic rejection belongs to a later admission step.
  *
  * <p>Every method throws {@link

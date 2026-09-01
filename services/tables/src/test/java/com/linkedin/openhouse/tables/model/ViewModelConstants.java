@@ -19,7 +19,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 
 /**
- * Deterministic fixtures for the /v2 views wire surface. Everything here is a fixed literal: no
+ * Deterministic fixtures for the /v1 views wire surface. Everything here is a fixed literal: no
  * random identifiers, no {@code UUID.randomUUID()} and no {@code System.currentTimeMillis()}, so
  * contract assertions stay byte-stable across runs.
  */

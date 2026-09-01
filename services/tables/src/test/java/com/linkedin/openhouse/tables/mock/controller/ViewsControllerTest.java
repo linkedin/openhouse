@@ -54,7 +54,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 /**
- * MockMvc coverage of the five /v2 view routes: success statuses plus every failure status the
+ * MockMvc coverage of the five /v1 view routes: success statuses plus every failure status the
  * routes can report.
  *
  * <p>Error statuses are driven through {@link MockViewsApiHandler}'s database-id switch, so this
@@ -65,15 +65,16 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
  * status selectors: they choose the HTTP status and are never serialized. The assertions are
  * therefore status plus the fixed message, and one explicit assertion that no code field leaked.
  *
- * <p>Paths are written as literal {@code /v2} strings rather than reusing {@code
- * ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX}, which is {@code /v1} and describes the table
- * routes. Hard-coding {@code /v2} here is what pins views to their own major version.
+ * <p>Paths are written as literal {@code /v1} strings rather than reusing {@code
+ * ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX}. Views share the prefix with tables but are a
+ * separate resource, so spelling the routes out here keeps this class asserting the exact URIs the
+ * controller publishes rather than whatever that constant later becomes.
  */
 @SpringBootTest
 @ContextConfiguration(initializers = AuthorizationPropertiesInitializer.class)
 public class ViewsControllerTest {
 
-  private static final String VIEWS_PATH = "/v2/databases/d200/views";
+  private static final String VIEWS_PATH = "/v1/databases/d200/views";
 
   private MockMvc mvc;
 
@@ -381,7 +382,7 @@ public class ViewsControllerTest {
   }
 
   private static String viewsPath(String databaseId) {
-    return "/v2/databases/" + databaseId + "/views";
+    return "/v1/databases/" + databaseId + "/views";
   }
 
   /** All five routes, so a route cannot quietly skip authentication or exception handling. */
@@ -507,15 +508,16 @@ public class ViewsControllerTest {
   }
 
   /**
-   * Views are a new resource mounted under {@code /v2}; the same path under {@code /v1} must not
-   * resolve. {@link ViewsController} is the only class that could ever map a {@code /v1} view path,
-   * so this fails exactly when someone adds one.
+   * Views mount under {@code /v1} alongside every other OpenHouse resource; the {@code /v2} prefix
+   * they were briefly drafted against must not resolve. {@link ViewsController} is the only class
+   * that could ever map a {@code /v2} view path, so this fails exactly when a stale mapping is left
+   * behind or reintroduced.
    */
   @Test
-  public void theSamePathUnderV1DoesNotResolve() throws Exception {
+  public void theSamePathUnderV2DoesNotResolve() throws Exception {
     mvcThrowingOnUnmappedPath
         .perform(
-            MockMvcRequestBuilders.get("/v1/databases/d200/views/my_view")
+            MockMvcRequestBuilders.get("/v2/databases/d200/views/my_view")
                 .accept(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + jwtAccessToken))
         .andExpect(jsonPath("$.message", Matchers.containsString("cannot be resolved by server")))

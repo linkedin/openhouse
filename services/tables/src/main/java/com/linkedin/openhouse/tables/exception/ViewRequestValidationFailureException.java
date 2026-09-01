@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Structural validation failure of a /v2 views request. Accumulated reasons are joined with {@code
+ * Structural validation failure of a /v1 views request. Accumulated reasons are joined with {@code
  * "; "} exactly like {@link
  * com.linkedin.openhouse.common.exception.RequestValidationFailureException} does for tables, so
  * the two APIs report multiple failures identically.

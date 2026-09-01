@@ -20,11 +20,11 @@ public final class ValidatorConstants {
   public static final int MAX_ALLOWED_CLUSTERING_COLUMNS = 4;
   public static final String INITIAL_TABLE_VERSION = "INITIAL_VERSION";
 
-  /** The only view representation type accepted by the /v2 views API. */
+  /** The only view representation type accepted by the /v1 views API. */
   public static final String SQL_VIEW_REPRESENTATION_TYPE = "sql";
 
   /**
-   * Maximum length of a view or database identifier on the /v2 views API. Mirrors the
+   * Maximum length of a view or database identifier on the /v1 views API. Mirrors the
    * {@code @Size(max = 128)} bean constraint on the request body identifiers so a path identifier
    * cannot bypass the limit the body enforces.
    */

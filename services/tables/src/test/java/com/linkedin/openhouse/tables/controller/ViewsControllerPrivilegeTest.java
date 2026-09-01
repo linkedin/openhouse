@@ -14,7 +14,7 @@ import org.springframework.security.access.annotation.Secured;
 import org.springframework.web.bind.annotation.RequestMapping;
 
 /**
- * Pins the privilege each /v2 views route is guarded by.
+ * Pins the privilege each /v1 views route is guarded by.
  *
  * <p>{@code @Secured} is enforced by a proxy at runtime, so a route that loses its annotation, or
  * has it silently retargeted at the wrong privilege, still compiles and still serves traffic. This

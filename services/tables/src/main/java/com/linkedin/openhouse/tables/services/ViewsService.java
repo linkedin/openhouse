@@ -5,7 +5,7 @@ import com.linkedin.openhouse.tables.model.ViewDto;
 import org.springframework.data.domain.Page;
 import org.springframework.data.util.Pair;
 
-/** Service interface backing the /v2 views endpoints. */
+/** Service interface backing the /v1 views endpoints. */
 public interface ViewsService {
 
   /**

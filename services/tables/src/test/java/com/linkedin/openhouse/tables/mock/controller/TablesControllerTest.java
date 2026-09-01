@@ -33,6 +33,7 @@ import java.util.*;
 import javax.servlet.Filter;
 import javax.servlet.http.HttpServletRequest;
 import org.codehaus.jettison.json.JSONException;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -140,21 +141,23 @@ public class TablesControllerTest {
   }
 
   /**
-   * Adding {@link ViewsController} must not change how a v1 table request is routed. Both
-   * controllers are registered in one dispatcher here, which is the only arrangement in which the
-   * new mappings could shadow or collide with the existing ones, and each assertion checks the
-   * response body, so it fails if a request reaches the wrong handler rather than merely returning
-   * a plausible status.
+   * Adding {@link ViewsController} must not change how a v1 table request is routed. Views now
+   * mount under the same {@code /v1/databases/{databaseId}/} prefix as tables and are told apart
+   * only by the {@code tables} vs {@code views} path segment, so this is the assertion that pins
+   * that disambiguation. Both controllers are registered in one dispatcher here, which is the only
+   * arrangement in which the new mappings could shadow or collide with the existing ones, and each
+   * assertion checks the response body, so it fails if a request reaches the wrong handler rather
+   * than merely returning a plausible status.
    *
    * <p>This <b>partially</b> satisfies the acceptance criterion. It proves the v1 table route is
-   * unchanged and that views answer only under /v2. It cannot prove the other half, that a real
-   * view's name returns 404 from the table route, because no view is persisted in this PR and the
-   * server has no way to tell a view's name from a missing table until the M2 {@code entityType}
-   * discriminator and the table-only read filter land. A test claiming that today would pass for
-   * the wrong reason.
+   * unchanged and that the sibling v1 views route reaches the views handler. It cannot prove the
+   * other half, that a real view's name returns 404 from the table route, because no view is
+   * persisted in this PR and the server has no way to tell a view's name from a missing table until
+   * the M2 {@code entityType} discriminator and the table-only read filter land. A test claiming
+   * that today would pass for the wrong reason.
    */
   @Test
-  public void addingViewsLeavesV1TableRoutingUnchanged() throws Exception {
+  public void v1TableAndViewRoutesResolveToTheirOwnHandlers() throws Exception {
     MockMvc mvcWithBothControllers =
         MockMvcBuilders.standaloneSetup(tablesController, viewsController)
             .setControllerAdvice(openHouseExceptionHandler)
@@ -172,14 +175,35 @@ public class TablesControllerTest {
         .andExpect(status().isOk())
         .andExpect(content().json(RequestConstants.TEST_GET_TABLE_RESPONSE_BODY.toJson()));
 
-    // The same name under /v2 reaches the views handler instead.
+    // A table literally named "views" is still a table: the views mapping must not capture it from
+    // the tableId position under the shared prefix.
     mvcWithBothControllers
         .perform(
-            MockMvcRequestBuilders.get("/v2/databases/d200/views/my_view")
+            MockMvcRequestBuilders.get(
+                    CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/tables/views")
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isOk())
+        .andExpect(content().json(RequestConstants.TEST_GET_TABLE_RESPONSE_BODY.toJson()));
+
+    // The same name under the sibling views segment reaches the views handler instead.
+    mvcWithBothControllers
+        .perform(
+            MockMvcRequestBuilders.get(
+                    CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/views/my_view")
                 .accept(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + jwtAccessToken))
         .andExpect(status().isOk())
         .andExpect(content().json(ViewModelConstants.pointerResponse().toJson()));
+
+    // The views collection route is likewise the views handler's, not the tables handler's.
+    mvcWithBothControllers
+        .perform(
+            MockMvcRequestBuilders.get(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/views")
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pageResults.content[0].viewId", Matchers.is("my_view")));
 
     // The v1 table route is otherwise unchanged, including its not-found behaviour.
     mvcWithBothControllers

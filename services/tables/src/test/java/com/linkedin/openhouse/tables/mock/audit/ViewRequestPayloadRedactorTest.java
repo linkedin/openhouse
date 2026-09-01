@@ -33,9 +33,9 @@ public class ViewRequestPayloadRedactorTest {
   @ParameterizedTest
   @ValueSource(
       strings = {
-        "/v2/databases/my_database/views",
-        "/v2/databases/my_database/views/my_view",
-        "/v2/databases/d200/views"
+        "/v1/databases/my_database/views",
+        "/v1/databases/my_database/views/my_view",
+        "/v1/databases/d200/views"
       })
   public void appliesToTheViewRoutes(String uri) {
     Assertions.assertTrue(redactor.appliesTo(requestFor(uri)));
@@ -43,7 +43,9 @@ public class ViewRequestPayloadRedactorTest {
 
   /**
    * The scoping that protects the existing resources. A table create carries a {@code schema} too,
-   * so the redactor must decline every route but views.
+   * so the redactor must decline every route but views. The {@code /v2} entries pin that the scope
+   * moved off the prefix views were briefly drafted against, and that the live {@code /v2} table
+   * search route is untouched.
    */
   @ParameterizedTest
   @ValueSource(
@@ -52,9 +54,11 @@ public class ViewRequestPayloadRedactorTest {
         "/v1/databases/my_database/tables/my_table",
         "/v1/databases",
         "/v1/databases/my_database/tables/my_table/aclPolicies",
-        "/v2/databases/my_database/views/my_view/extra",
-        "/v2/databases/views",
-        "/v2/databases/my_database/tables"
+        "/v1/databases/my_database/views/my_view/extra",
+        "/v1/databases/views",
+        "/v2/databases/my_database/tables/search",
+        "/v2/databases/my_database/views",
+        "/v2/databases/my_database/views/my_view"
       })
   public void declinesEveryOtherRoute(String uri) {
     Assertions.assertFalse(redactor.appliesTo(requestFor(uri)));

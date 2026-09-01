@@ -5,7 +5,7 @@ import java.util.Objects;
 import org.springframework.http.HttpStatus;
 
 /**
- * Failure of a /v2 views API operation, carrying the internal {@link ViewErrorCode} that selects
+ * Failure of a /v1 views API operation, carrying the internal {@link ViewErrorCode} that selects
  * the response status.
  *
  * <p>The code is deliberately tables-local and never serialized: {@link #getHttpStatus()} is the

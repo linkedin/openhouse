@@ -8,7 +8,7 @@ import org.mapstruct.Mapping;
 import org.mapstruct.Mappings;
 import org.springframework.data.domain.Page;
 
-/** Mapper between the /v2 views wire models and {@link ViewDto}. */
+/** Mapper between the /v1 views wire models and {@link ViewDto}. */
 @Mapper(componentModel = "spring")
 public interface ViewsMapper {
 
