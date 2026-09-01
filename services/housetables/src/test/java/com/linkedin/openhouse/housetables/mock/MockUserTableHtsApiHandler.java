@@ -89,14 +89,6 @@ public class MockUserTableHtsApiHandler implements UserTableHtsApiHandler {
   }
 
   @Override
-  public ApiResponse<GetAllEntityResponseBody<UserTable>> getViewEntities(UserTable userView) {
-    return ApiResponse.<GetAllEntityResponseBody<UserTable>>builder()
-        .httpStatus(HttpStatus.OK)
-        .responseBody(TestHtsApiConstants.TEST_GET_ALL_USER_VIEWS_RESPONSE_BODY)
-        .build();
-  }
-
-  @Override
   public ApiResponse<GetAllEntityResponseBody<UserTable>> getViewEntities(
       UserTable userView, int page, int size, String sortBy) {
     return ApiResponse.<GetAllEntityResponseBody<UserTable>>builder()

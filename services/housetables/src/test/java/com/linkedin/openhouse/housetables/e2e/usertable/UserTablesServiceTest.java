@@ -1111,17 +1111,15 @@ public class UserTablesServiceTest {
   public void testGetAllUserViewsWithEmptyQueryReturnsEveryView() {
     seedCanonicalRows("");
 
-    List<UserTableDto> views = userTablesService.getAllUserViews(UserViewQuery.all());
-
-    assertThat(sortedIds(views)).isEqualTo(CANONICAL_VIEW_IDS);
-    // Not a database-name projection: every result is a fully identified view.
-    assertThat(views).allSatisfy(v -> assertThat(v.getTableId()).isNotNull());
-    assertThat(views).allSatisfy(v -> assertThat(v.getEntityType()).isEqualTo(EntityType.VIEW));
-
     Page<UserTableDto> page =
         userTablesService.getAllUserViews(UserViewQuery.all(), 0, 50, "tableId");
+
     Assertions.assertEquals(3, page.getTotalElements());
     assertThat(pageIds(page)).containsExactlyElementsOf(CANONICAL_VIEW_IDS);
+    // Not a database-name projection: every result is a fully identified view.
+    assertThat(page.getContent()).allSatisfy(v -> assertThat(v.getTableId()).isNotNull());
+    assertThat(page.getContent())
+        .allSatisfy(v -> assertThat(v.getEntityType()).isEqualTo(EntityType.VIEW));
   }
 
   @Test
@@ -1129,8 +1127,8 @@ public class UserTablesServiceTest {
     seedCanonicalRows("");
     UserViewQuery byDatabase = UserViewQuery.inDatabase(ENTITY_TYPE_DB);
 
-    assertThat(sortedIds(userTablesService.getAllUserViews(byDatabase)))
-        .isEqualTo(CANONICAL_VIEW_IDS);
+    assertThat(pageIds(userTablesService.getAllUserViews(byDatabase, 0, 50, "tableId")))
+        .containsExactlyElementsOf(CANONICAL_VIEW_IDS);
 
     Page<UserTableDto> page0 = userTablesService.getAllUserViews(byDatabase, 0, 2, "tableId");
     Assertions.assertEquals(3, page0.getTotalElements());
@@ -1152,7 +1150,7 @@ public class UserTablesServiceTest {
     seedTypedRow(ENTITY_TYPE_DB, "nomatch_view", EntityType.VIEW);
     UserViewQuery byPattern = UserViewQuery.matchingPattern(ENTITY_TYPE_DB, "match_%");
 
-    assertThat(sortedIds(userTablesService.getAllUserViews(byPattern)))
+    assertThat(pageIds(userTablesService.getAllUserViews(byPattern, 0, 50, "tableId")))
         .containsExactly("match_t01_view", "match_t03_view", "match_t05_view");
 
     Page<UserTableDto> page0 = userTablesService.getAllUserViews(byPattern, 0, 2, "tableId");
@@ -1174,16 +1172,16 @@ public class UserTablesServiceTest {
    */
   @Test
   public void testEachViewQueryStateReachesItsOwnFrozenFinder() {
-    userTablesService.getAllUserViews(UserViewQuery.all());
-    Mockito.verify(htsRepository).findAllViewsByFilters(null, null, null, null, null, null);
-
-    userTablesService.getAllUserViews(UserViewQuery.inDatabase(ENTITY_TYPE_DB));
+    userTablesService.getAllUserViews(UserViewQuery.all(), 0, 2, "tableId");
     Mockito.verify(htsRepository)
-        .findAllViewsByFilters(ENTITY_TYPE_DB, null, null, null, null, null);
-
-    userTablesService.getAllUserViews(UserViewQuery.matchingPattern(ENTITY_TYPE_DB, "p%"));
-    Mockito.verify(htsRepository)
-        .findAllViewsByDatabaseIdAndTableIdLikeAllIgnoreCase(ENTITY_TYPE_DB, "p%");
+        .findAllViewsByFilters(
+            Mockito.isNull(),
+            Mockito.isNull(),
+            Mockito.isNull(),
+            Mockito.isNull(),
+            Mockito.isNull(),
+            Mockito.isNull(),
+            Mockito.any(Pageable.class));
 
     userTablesService.getAllUserViews(UserViewQuery.inDatabase(ENTITY_TYPE_DB), 0, 2, "tableId");
     Mockito.verify(htsRepository)
@@ -1213,7 +1211,9 @@ public class UserTablesServiceTest {
     insertRawEntityType(ENTITY_TYPE_DB, "beside_corrupt_row", "UNKNOWN");
 
     assertThat(
-            sortedIds(userTablesService.getAllUserViews(UserViewQuery.inDatabase(ENTITY_TYPE_DB))))
+            pageIds(
+                userTablesService.getAllUserViews(
+                    UserViewQuery.inDatabase(ENTITY_TYPE_DB), 0, 50, "tableId")))
         .containsExactly("beside_corrupt_view");
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "beside_corrupt_row")).hasValue("UNKNOWN");
   }
@@ -1231,8 +1231,10 @@ public class UserTablesServiceTest {
 
     assertThat(
             sortedIds(
-                userTablesService.getAllUserViews(
-                    UserViewQuery.matchingPattern(ENTITY_TYPE_DB, "match_%"))))
+                userTablesService
+                    .getAllUserViews(
+                        UserViewQuery.matchingPattern(ENTITY_TYPE_DB, "match_%"), 0, 50, "tableId")
+                    .getContent()))
         .as("_ matches any single character, so matchXview is included")
         .containsExactly("matchXview", "match_t01_view");
   }
@@ -1269,21 +1271,16 @@ public class UserTablesServiceTest {
     UserViewQuery byDatabase = UserViewQuery.inDatabase(ENTITY_TYPE_DB);
 
     assertMetricsAdvance(
-        UserTableMetricsConstant.HTS_LIST_VIEWS_REQUEST,
-        UserTableMetricsConstant.HTS_LIST_VIEWS_TIME,
-        () -> userTablesService.getAllUserViews(byDatabase));
-
-    assertMetricsAdvance(
         UserTableMetricsConstant.HTS_PAGE_VIEWS_REQUEST,
         UserTableMetricsConstant.HTS_PAGE_VIEWS_TIME,
         () -> userTablesService.getAllUserViews(byDatabase, 0, 2, "tableId"));
 
-    // The pattern forms share the same names as their database-scoped siblings.
+    // The pattern form shares the same names as its database-scoped sibling.
     UserViewQuery byPattern = UserViewQuery.matchingPattern(ENTITY_TYPE_DB, "t0%");
     assertMetricsAdvance(
-        UserTableMetricsConstant.HTS_LIST_VIEWS_REQUEST,
-        UserTableMetricsConstant.HTS_LIST_VIEWS_TIME,
-        () -> userTablesService.getAllUserViews(byPattern));
+        UserTableMetricsConstant.HTS_PAGE_VIEWS_REQUEST,
+        UserTableMetricsConstant.HTS_PAGE_VIEWS_TIME,
+        () -> userTablesService.getAllUserViews(byPattern, 0, 2, "tableId"));
   }
 
   // ---------------------------------------------------------------------------------------------

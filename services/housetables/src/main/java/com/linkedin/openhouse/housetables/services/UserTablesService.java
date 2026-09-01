@@ -55,12 +55,6 @@ public interface UserTablesService {
    */
   Page<UserTableDto> getAllUserTables(UserTable userTable, int page, int size, String sortBy);
 
-  /**
-   * Unlike {@link #getAllUserTables(UserTable)}, an empty query returns every view rather than a
-   * projection of database names; database enumeration stays type-agnostic on the table query.
-   */
-  List<UserTableDto> getAllUserViews(UserViewQuery query);
-
   Page<UserTableDto> getAllUserViews(UserViewQuery query, int page, int size, String sortBy);
 
   /** Given a databaseId and tableId, delete the user table entry from the House Table. */

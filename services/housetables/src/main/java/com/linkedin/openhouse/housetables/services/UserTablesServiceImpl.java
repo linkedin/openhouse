@@ -84,17 +84,6 @@ public class UserTablesServiceImpl implements UserTablesService {
   }
 
   @Override
-  public List<UserTableDto> getAllUserViews(UserViewQuery query) {
-    METRICS_REPORTER.count(UserTableMetricsConstant.HTS_LIST_VIEWS_REQUEST);
-    return METRICS_REPORTER.executeWithStats(
-        () ->
-            StreamSupport.stream(findViewRows(query).spliterator(), false)
-                .map(userTablesMapper::toUserTableDto)
-                .collect(Collectors.toList()),
-        UserTableMetricsConstant.HTS_LIST_VIEWS_TIME);
-  }
-
-  @Override
   public Page<UserTableDto> getAllUserViews(
       UserViewQuery query, int page, int size, String sortBy) {
     METRICS_REPORTER.count(UserTableMetricsConstant.HTS_PAGE_VIEWS_REQUEST);
@@ -341,15 +330,6 @@ public class UserTablesServiceImpl implements UserTablesService {
                     softDeletedUserTableRow ->
                         softDeletedUserTablesMapper.toUserTableDto(softDeletedUserTableRow)),
         MetricsConstant.HTS_PAGE_SEARCH_TABLES_TIME);
-  }
-
-  /** The three reachable view-query states, resolved to the frozen finder each one names. */
-  private Iterable<UserTableRow> findViewRows(UserViewQuery query) {
-    return query.getTableIdPattern().isPresent()
-        ? htsJdbcRepository.findAllViewsByDatabaseIdAndTableIdLikeAllIgnoreCase(
-            query.getDatabaseId().orElse(null), query.getTableIdPattern().get())
-        : htsJdbcRepository.findAllViewsByFilters(
-            query.getDatabaseId().orElse(null), null, null, null, null, null);
   }
 
   private Page<UserTableRow> findViewRows(UserViewQuery query, Pageable pageable) {

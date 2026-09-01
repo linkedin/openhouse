@@ -156,15 +156,6 @@ public class UserHouseTablesControllerTest {
   @Test
   public void testGetViewRows() throws Exception {
     mvc.perform(
-            MockMvcRequestBuilders.get("/hts/views/query")
-                .param("databaseId", TEST_DB_ID)
-                .accept(MediaType.APPLICATION_JSON))
-        .andExpect(status().isOk())
-        .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-        .andExpect(
-            content().json(TestHtsApiConstants.TEST_GET_ALL_USER_VIEWS_RESPONSE_BODY.toJson()));
-
-    mvc.perform(
             MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .param("databaseId", TEST_DB_ID)
                 .param("page", "0")

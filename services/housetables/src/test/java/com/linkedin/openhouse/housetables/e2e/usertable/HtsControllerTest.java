@@ -1321,38 +1321,42 @@ public class HtsControllerTest {
     seedCanonicalRows("");
 
     mvc.perform(
-            MockMvcRequestBuilders.get("/hts/views/query")
+            MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .params(queryParams("databaseId", ENTITY_TYPE_DB))
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
         .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-        .andExpect(jsonPath("$.results", hasSize(3)))
+        .andExpect(jsonPath("$.pageResults.content", hasSize(3)))
         .andExpect(
             jsonPath(
-                "$.results[*].tableId", containsInAnyOrder("t01_view", "t03_view", "t05_view")))
-        .andExpect(jsonPath("$.results[*].tableId", not(hasItem("t00_legacy"))))
-        .andExpect(jsonPath("$.results[*].tableId", not(hasItem("t02_explicit"))))
-        .andExpect(jsonPath("$.results[*].entityType", everyItem(is("VIEW"))));
+                "$.pageResults.content[*].tableId",
+                containsInAnyOrder("t01_view", "t03_view", "t05_view")))
+        .andExpect(jsonPath("$.pageResults.content[*].tableId", not(hasItem("t00_legacy"))))
+        .andExpect(jsonPath("$.pageResults.content[*].tableId", not(hasItem("t02_explicit"))))
+        .andExpect(jsonPath("$.pageResults.content[*].entityType", everyItem(is("VIEW"))));
 
     // Pattern form.
     mvc.perform(
-            MockMvcRequestBuilders.get("/hts/views/query")
+            MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .params(queryParams("databaseId", ENTITY_TYPE_DB, "tableId", "t0%"))
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.results", hasSize(3)))
+        .andExpect(jsonPath("$.pageResults.content", hasSize(3)))
         .andExpect(
             jsonPath(
-                "$.results[*].tableId", containsInAnyOrder("t01_view", "t03_view", "t05_view")));
+                "$.pageResults.content[*].tableId",
+                containsInAnyOrder("t01_view", "t03_view", "t05_view")));
 
     // Empty filter map: every view, fully identified — not a database-name projection.
-    mvc.perform(MockMvcRequestBuilders.get("/hts/views/query").accept(MediaType.APPLICATION_JSON))
+    mvc.perform(
+            MockMvcRequestBuilders.get("/v1/hts/views/query").accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.results", hasSize(3)))
+        .andExpect(jsonPath("$.pageResults.content", hasSize(3)))
         .andExpect(
             jsonPath(
-                "$.results[*].tableId", containsInAnyOrder("t01_view", "t03_view", "t05_view")))
-        .andExpect(jsonPath("$.results[*].databaseId", everyItem(is(ENTITY_TYPE_DB))));
+                "$.pageResults.content[*].tableId",
+                containsInAnyOrder("t01_view", "t03_view", "t05_view")))
+        .andExpect(jsonPath("$.pageResults.content[*].databaseId", everyItem(is(ENTITY_TYPE_DB))));
   }
 
   /**
@@ -1412,22 +1416,6 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.pageResults.totalPages", is(2)))
         .andExpect(jsonPath("$.pageResults.content", hasSize(2)))
         .andExpect(jsonPath("$.pageResults.content[0].tableId", is("t01_view")));
-  }
-
-  @ParameterizedTest
-  @ValueSource(strings = {"TABLE", "table", "VIEW", "UNKNOWN"})
-  public void testEntityTypeQueryParameterIsIgnoredOnViewQuery(String entityType) throws Exception {
-    seedCanonicalRows("");
-
-    mvc.perform(
-            MockMvcRequestBuilders.get("/hts/views/query")
-                .params(queryParams("databaseId", ENTITY_TYPE_DB, "entityType", entityType))
-                .accept(MediaType.APPLICATION_JSON))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.results", hasSize(3)))
-        .andExpect(
-            jsonPath(
-                "$.results[*].tableId", containsInAnyOrder("t01_view", "t03_view", "t05_view")));
   }
 
   /** The paged route drops it at the same boundary; the two routes must not diverge here. */
@@ -1787,7 +1775,7 @@ public class HtsControllerTest {
   @Test
   public void testViewQueryRejectsInvalidFilters() throws Exception {
     mvc.perform(
-            MockMvcRequestBuilders.get("/hts/views/query")
+            MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .params(queryParams("databaseId", "db%"))
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isBadRequest())
@@ -1795,14 +1783,14 @@ public class HtsControllerTest {
 
     // A tableId pattern without a database has no scope to apply to.
     mvc.perform(
-            MockMvcRequestBuilders.get("/hts/views/query")
+            MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .params(queryParams("tableId", "t0%"))
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isBadRequest());
 
     // Only databaseId and tableId are supported filters.
     mvc.perform(
-            MockMvcRequestBuilders.get("/hts/views/query")
+            MockMvcRequestBuilders.get("/v1/hts/views/query")
                 .params(queryParams("databaseId", ENTITY_TYPE_DB, "creationTime", "123"))
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isBadRequest());
@@ -2129,11 +2117,7 @@ public class HtsControllerTest {
    * cannot select a corrupt row through the view predicate.
    */
   @ParameterizedTest
-  @CsvSource({
-    "/hts/views,          point",
-    "/hts/views/query,    unpaged",
-    "/v1/hts/views/query, paged"
-  })
+  @CsvSource({"/hts/views,          point", "/v1/hts/views/query, paged"})
   public void testCorruptRowOnAnyViewRouteIsADiagnostic500WithNoPartialBody(
       String route, String shape) throws Exception {
     seedTypedRow(ENTITY_TYPE_DB, "healthy_view", EntityType.VIEW);
@@ -2164,11 +2148,7 @@ public class HtsControllerTest {
 
   /** Rendered generically from the preserved original, not as an empty result or as bad data. */
   @ParameterizedTest
-  @CsvSource({
-    "/hts/views,          point",
-    "/hts/views/query,    unpaged",
-    "/v1/hts/views/query, paged"
-  })
+  @CsvSource({"/hts/views,          point", "/v1/hts/views/query, paged"})
   public void testUnrelatedDependencyFailureOnAnyViewRouteIsAGeneric500(String route, String shape)
       throws Exception {
     seedTypedRow(ENTITY_TYPE_DB, "healthy_view", EntityType.VIEW);
@@ -2311,11 +2291,6 @@ public class HtsControllerTest {
         Mockito.doThrow(failure)
             .when(htsJdbcRepository)
             .findViewByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(anyString(), anyString());
-        break;
-      case "unpaged":
-        Mockito.doThrow(failure)
-            .when(htsJdbcRepository)
-            .findAllViewsByFilters(anyString(), any(), any(), any(), any(), any());
         break;
       case "paged":
         Mockito.doThrow(failure)

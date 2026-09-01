@@ -10,8 +10,6 @@ public final class UserTableMetricsConstant {
     // Utility class, constructor does nothing
   }
 
-  public static final String HTS_LIST_VIEWS_REQUEST = "hts_list_views_request";
-  public static final String HTS_LIST_VIEWS_TIME = "hts_list_views_time";
   public static final String HTS_PAGE_VIEWS_REQUEST = "hts_page_views_request";
   public static final String HTS_PAGE_VIEWS_TIME = "hts_page_views_time";
 }

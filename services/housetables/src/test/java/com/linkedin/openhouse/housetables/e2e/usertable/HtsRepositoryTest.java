@@ -175,6 +175,11 @@ public class HtsRepositoryTest {
     return PageRequest.of(page, 2, Sort.by("tableId"));
   }
 
+  /** Wide enough to hold every fixture row, so a whole-result assertion needs only one page. */
+  private static Pageable everythingOnOnePage() {
+    return PageRequest.of(0, 100, Sort.by("tableId"));
+  }
+
   @Test
   public void testSaveFirstRecord() {
     UserTableRow testUserTableRow =
@@ -894,20 +899,23 @@ public class HtsRepositoryTest {
     seedTypedRow("other_db", "t01_view", EntityType.VIEW);
 
     assertThat(
-            tableIds(
-                htsRepository.findAllViewsByFilters(ENTITY_TYPE_DB, null, null, null, null, null)))
+            pageTableIds(
+                htsRepository.findAllViewsByFilters(
+                    ENTITY_TYPE_DB, null, null, null, null, null, everythingOnOnePage())))
         .containsExactly(CANONICAL_VIEW_IDS);
 
     // A table is unreachable through this family, by tableId as well as by database.
     assertThat(
-            Lists.newArrayList(
-                htsRepository.findAllViewsByFilters(
-                    ENTITY_TYPE_DB, "t00_legacy", null, null, null, null)))
+            htsRepository
+                .findAllViewsByFilters(
+                    ENTITY_TYPE_DB, "t00_legacy", null, null, null, null, everythingOnOnePage())
+                .getContent())
         .isEmpty();
     assertThat(
-            Lists.newArrayList(
-                htsRepository.findAllViewsByFilters(
-                    ENTITY_TYPE_DB, "t02_explicit", null, null, null, null)))
+            htsRepository
+                .findAllViewsByFilters(
+                    ENTITY_TYPE_DB, "t02_explicit", null, null, null, null, everythingOnOnePage())
+                .getContent())
         .isEmpty();
 
     // A fetch-then-filter implementation would report totalElements=7/totalPages=4 and a 1-row
@@ -938,9 +946,9 @@ public class HtsRepositoryTest {
     seedTypedRow(ENTITY_TYPE_DB, "nomatch_view", EntityType.VIEW);
 
     assertThat(
-            tableIds(
+            pageTableIds(
                 htsRepository.findAllViewsByDatabaseIdAndTableIdLikeAllIgnoreCase(
-                    ENTITY_TYPE_DB, "match_%")))
+                    ENTITY_TYPE_DB, "match_%", everythingOnOnePage())))
         .containsExactly("match_t01_view", "match_t03_view", "match_t05_view");
 
     Page<UserTableRow> page0 =
@@ -966,12 +974,15 @@ public class HtsRepositoryTest {
     List<String> everyViewSpelling =
         Arrays.asList("case04_upper_view", "case05_lower_view", "case06_mixed_view");
 
-    assertThat(tableIds(htsRepository.findAllViewsByFilters(CASE_DB, null, null, null, null, null)))
+    assertThat(
+            pageTableIds(
+                htsRepository.findAllViewsByFilters(
+                    CASE_DB, null, null, null, null, null, everythingOnOnePage())))
         .containsExactlyElementsOf(everyViewSpelling);
     assertThat(
-            tableIds(
+            pageTableIds(
                 htsRepository.findAllViewsByDatabaseIdAndTableIdLikeAllIgnoreCase(
-                    CASE_DB, "case%")))
+                    CASE_DB, "case%", everythingOnOnePage())))
         .containsExactlyElementsOf(everyViewSpelling);
 
     Page<UserTableRow> dbPage0 =
@@ -985,7 +996,10 @@ public class HtsRepositoryTest {
     assertThat(patternPage0.getTotalElements()).isEqualTo(3);
 
     // A legacy null is a table, and an unrecognized value is neither; both fail closed here.
-    assertThat(tableIds(htsRepository.findAllViewsByFilters(CASE_DB, null, null, null, null, null)))
+    assertThat(
+            pageTableIds(
+                htsRepository.findAllViewsByFilters(
+                    CASE_DB, null, null, null, null, null, everythingOnOnePage())))
         .doesNotContain("case00_null", "case01_upper_table", CASE_GARBAGE_ID);
 
     // Rows the view predicate excludes are hidden, not dropped.

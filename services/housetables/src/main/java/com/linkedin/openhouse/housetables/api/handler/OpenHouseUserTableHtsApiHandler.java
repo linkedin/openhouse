@@ -125,21 +125,6 @@ public class OpenHouseUserTableHtsApiHandler implements UserTableHtsApiHandler {
   }
 
   @Override
-  public ApiResponse<GetAllEntityResponseBody<UserTable>> getViewEntities(UserTable userView) {
-    userTablesHtsApiValidator.validateGetEntities(userView);
-    return ApiResponse.<GetAllEntityResponseBody<UserTable>>builder()
-        .httpStatus(HttpStatus.OK)
-        .responseBody(
-            GetAllEntityResponseBody.<UserTable>builder()
-                .results(
-                    userTableService.getAllUserViews(toViewQuery(userView)).stream()
-                        .map(userTableDto -> userTablesMapper.toUserTable(userTableDto))
-                        .collect(Collectors.toList()))
-                .build())
-        .build();
-  }
-
-  @Override
   public ApiResponse<GetAllEntityResponseBody<UserTable>> getViewEntities(
       UserTable userView, int page, int size, String sortBy) {
     userTablesHtsApiValidator.validateGetEntities(userView, page, size, sortBy);

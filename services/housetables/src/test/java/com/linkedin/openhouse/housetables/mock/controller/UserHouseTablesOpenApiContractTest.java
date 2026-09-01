@@ -47,7 +47,6 @@ public class UserHouseTablesOpenApiContractTest {
     expected.put("delete /hts/tables/purge", codes("204", "400", "404"));
     expected.put("get /hts/entities", codes("200", "400", "404", "500"));
     expected.put("get /hts/views", codes("200", "400", "404", "500"));
-    expected.put("get /hts/views/query", codes("200", "400", "500"));
     expected.put("get /v1/hts/views/query", codes("200", "400", "500"));
     expected.put("put /hts/views", codes("200", "201", "400", "409"));
     expected.put("delete /hts/views", codes("204", "400", "404"));
@@ -101,16 +100,20 @@ public class UserHouseTablesOpenApiContractTest {
         .containsExactlyInAnyOrderEntriesOf(EXPECTED_RESPONSE_CODES);
   }
 
-  /** The six operations the generated client gains, named individually so a gap is legible. */
+  /**
+   * The five operations the generated client gains, named individually so a gap is legible. Views
+   * are paginated-only, so there is no unpaginated {@code /hts/views/query} counterpart to the
+   * table route.
+   */
   @Test
-  public void testTheSixNewOperationsAreGenerated() throws Exception {
+  public void testTheFiveNewOperationsAreGenerated() throws Exception {
     assertThat(generatedUserTableOperations().keySet())
         .contains(
             "get /hts/entities",
             "get /hts/views",
-            "get /hts/views/query",
             "get /v1/hts/views/query",
             "put /hts/views",
-            "delete /hts/views");
+            "delete /hts/views")
+        .doesNotContain("get /hts/views/query");
   }
 }

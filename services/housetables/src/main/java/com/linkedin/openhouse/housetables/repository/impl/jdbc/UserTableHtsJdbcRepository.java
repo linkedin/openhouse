@@ -183,19 +183,6 @@ public interface UserTableHtsJdbcRepository
       @Param("databaseId") String databaseId, @Param("tableId") String tableId);
 
   @Query(
-      "select DISTINCT u from UserTableRow u where "
-          + COMMON_FILTER_CLAUSES
-          + " AND "
-          + VIEW_ROW_PREDICATE)
-  Iterable<UserTableRow> findAllViewsByFilters(
-      @Param("databaseId") String databaseId,
-      @Param("tableId") String tableId,
-      @Param("tableVersion") String tableVersion,
-      @Param("metadataLocation") String metadataLocation,
-      @Param("storageType") String storageType,
-      @Param("creationTime") Long creationTime);
-
-  @Query(
       value =
           "select DISTINCT u from UserTableRow u where "
               + COMMON_FILTER_CLAUSES
@@ -214,10 +201,6 @@ public interface UserTableHtsJdbcRepository
       @Param("storageType") String storageType,
       @Param("creationTime") Long creationTime,
       Pageable pageable);
-
-  @Query("SELECT u FROM UserTableRow u WHERE " + PATTERN_KEY_CLAUSES + " AND " + VIEW_ROW_PREDICATE)
-  Iterable<UserTableRow> findAllViewsByDatabaseIdAndTableIdLikeAllIgnoreCase(
-      @Param("databaseId") String databaseId, @Param("tableIdPattern") String tableIdPattern);
 
   @Query(
       value =

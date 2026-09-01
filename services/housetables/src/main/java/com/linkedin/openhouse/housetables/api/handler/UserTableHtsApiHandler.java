@@ -25,8 +25,6 @@ public interface UserTableHtsApiHandler extends HouseTablesApiHandler<UserTableK
 
   ApiResponse<EntityResponseBody<UserTable>> getViewEntity(UserTableKey key);
 
-  ApiResponse<GetAllEntityResponseBody<UserTable>> getViewEntities(UserTable userView);
-
   ApiResponse<GetAllEntityResponseBody<UserTable>> getViewEntities(
       UserTable userView, int page, int size, String sortBy);
 

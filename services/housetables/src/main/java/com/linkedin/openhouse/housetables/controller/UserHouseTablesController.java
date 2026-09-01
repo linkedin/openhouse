@@ -45,7 +45,6 @@ public class UserHouseTablesController {
   private static final String HTS_TABLES_PURGE_ENDPOINT = "/hts/tables/purge";
   private static final String HTS_ENTITIES_GENERAL_ENDPOINT = "/hts/entities";
   private static final String HTS_VIEWS_GENERAL_ENDPOINT = "/hts/views";
-  private static final String HTS_VIEWS_QUERY_ENDPOINT = "/hts/views/query";
   private static final String HTS_VIEWS_QUERY_ENDPOINT_V1 = "/v1/hts/views/query";
 
   @Autowired private UserTableHtsApiHandler tableHtsApiHandler;
@@ -315,30 +314,6 @@ public class UserHouseTablesController {
     com.linkedin.openhouse.common.api.spec.ApiResponse<EntityResponseBody<UserTable>> apiResponse =
         tableHtsApiHandler.getViewEntity(
             UserTableKey.builder().databaseId(databaseId).tableId(tableId).build());
-    return new ResponseEntity<>(
-        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
-  }
-
-  @Operation(
-      summary = "Search User Views by filter.",
-      description =
-          "Returns views from house table that fulfill the predicate. An empty filter returns every "
-              + "view; unlike the table query it does not project database names.",
-      tags = {"UserTable"})
-  @ApiResponses(
-      value = {
-        @ApiResponse(responseCode = "200", description = "User View GET: OK"),
-        @ApiResponse(responseCode = "400", description = "User View GET: BAD_REQUEST"),
-        @ApiResponse(responseCode = "500", description = "User View GET: INTERNAL_SERVER_ERROR")
-      })
-  @GetMapping(
-      value = HTS_VIEWS_QUERY_ENDPOINT,
-      produces = {"application/json"})
-  public ResponseEntity<GetAllEntityResponseBody<UserTable>> getUserViews(
-      @RequestParam Map<String, String> parameters) {
-    com.linkedin.openhouse.common.api.spec.ApiResponse<GetAllEntityResponseBody<UserTable>>
-        apiResponse =
-            tableHtsApiHandler.getViewEntities(userTablesMapper.mapToUserTable(parameters));
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

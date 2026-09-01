@@ -24,7 +24,6 @@ import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.services.UserTablesService;
 import com.linkedin.openhouse.housetables.services.model.UserViewQuery;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -77,6 +76,10 @@ public class OpenHouseUserTableHtsApiHandlerTest {
     return UserTableKey.builder().databaseId(DB).tableId(tableId).build();
   }
 
+  private static Page<UserTableDto> emptyViewPage() {
+    return new PageImpl<>(Collections.emptyList(), PageRequest.of(0, 50), 0);
+  }
+
   private static UserTableDto dto(String tableId, EntityType entityType) {
     return UserTableDto.builder()
         .databaseId(DB)
@@ -96,13 +99,16 @@ public class OpenHouseUserTableHtsApiHandlerTest {
   public void testViewQueryIsValidatedBeforeTheServiceIsReached() {
     doThrow(new RequestValidationFailureException("Only databaseId and tableId are supported"))
         .when(validator)
-        .validateGetEntities(any(UserTable.class));
+        .validateGetEntities(any(UserTable.class), anyInt(), anyInt(), any());
 
     assertThatThrownBy(
-            () -> handler.getViewEntities(UserTable.builder().creationTime(123L).build()))
+            () ->
+                handler.getViewEntities(
+                    UserTable.builder().creationTime(123L).build(), 0, 50, null))
         .isInstanceOf(RequestValidationFailureException.class);
 
-    Mockito.verify(userTablesService, Mockito.never()).getAllUserViews(any(UserViewQuery.class));
+    Mockito.verify(userTablesService, Mockito.never())
+        .getAllUserViews(any(UserViewQuery.class), anyInt(), anyInt(), any());
   }
 
   @Test
@@ -146,22 +152,12 @@ public class OpenHouseUserTableHtsApiHandlerTest {
   public void testValidationHappensBeforeQueryConstruction() {
     doThrow(new RequestValidationFailureException("tableId cannot be provided without databaseId"))
         .when(validator)
-        .validateGetEntities(any(UserTable.class));
-
-    assertThatThrownBy(() -> handler.getViewEntities(UserTable.builder().tableId("t0%").build()))
-        .isInstanceOf(RequestValidationFailureException.class)
-        .hasMessageContaining("tableId cannot be provided without databaseId");
-
-    Mockito.verify(userTablesService, Mockito.never()).getAllUserViews(any(UserViewQuery.class));
-
-    // The same shape on the paged route, which validates paging at the same point.
-    doThrow(new RequestValidationFailureException("tableId cannot be provided without databaseId"))
-        .when(validator)
         .validateGetEntities(any(UserTable.class), anyInt(), anyInt(), any());
 
     assertThatThrownBy(
             () -> handler.getViewEntities(UserTable.builder().tableId("t0%").build(), 0, 50, null))
-        .isInstanceOf(RequestValidationFailureException.class);
+        .isInstanceOf(RequestValidationFailureException.class)
+        .hasMessageContaining("tableId cannot be provided without databaseId");
 
     Mockito.verify(userTablesService, Mockito.never())
         .getAllUserViews(any(UserViewQuery.class), anyInt(), anyInt(), any());
@@ -170,15 +166,17 @@ public class OpenHouseUserTableHtsApiHandlerTest {
   /** And the ordinary case still calls validate, then build, then the service, in that order. */
   @Test
   public void testAcceptedRequestValidatesThenCallsTheService() {
-    doReturn(Collections.emptyList())
+    doReturn(emptyViewPage())
         .when(userTablesService)
-        .getAllUserViews(any(UserViewQuery.class));
+        .getAllUserViews(any(UserViewQuery.class), anyInt(), anyInt(), any());
 
-    handler.getViewEntities(UserTable.builder().databaseId(DB).build());
+    handler.getViewEntities(UserTable.builder().databaseId(DB).build(), 0, 50, null);
 
     InOrder inOrder = Mockito.inOrder(validator, userTablesService);
-    inOrder.verify(validator).validateGetEntities(any(UserTable.class));
-    inOrder.verify(userTablesService).getAllUserViews(any(UserViewQuery.class));
+    inOrder.verify(validator).validateGetEntities(any(UserTable.class), anyInt(), anyInt(), any());
+    inOrder
+        .verify(userTablesService)
+        .getAllUserViews(any(UserViewQuery.class), anyInt(), anyInt(), any());
   }
 
   // -------------------------------------------------------------------------------------------
@@ -188,16 +186,17 @@ public class OpenHouseUserTableHtsApiHandlerTest {
   /** An empty filter map is the unbounded view query, not a database-name projection. */
   @Test
   public void testEachQueryShapeMapsToItsOwnedQueryValue() {
-    doReturn(Collections.emptyList())
+    doReturn(emptyViewPage())
         .when(userTablesService)
-        .getAllUserViews(any(UserViewQuery.class));
+        .getAllUserViews(any(UserViewQuery.class), anyInt(), anyInt(), any());
     ArgumentCaptor<UserViewQuery> captor = ArgumentCaptor.forClass(UserViewQuery.class);
 
-    handler.getViewEntities(UserTable.builder().build());
-    handler.getViewEntities(UserTable.builder().databaseId(DB).build());
-    handler.getViewEntities(UserTable.builder().databaseId(DB).tableId("t0%").build());
+    handler.getViewEntities(UserTable.builder().build(), 0, 50, null);
+    handler.getViewEntities(UserTable.builder().databaseId(DB).build(), 0, 50, null);
+    handler.getViewEntities(UserTable.builder().databaseId(DB).tableId("t0%").build(), 0, 50, null);
 
-    Mockito.verify(userTablesService, Mockito.times(3)).getAllUserViews(captor.capture());
+    Mockito.verify(userTablesService, Mockito.times(3))
+        .getAllUserViews(captor.capture(), anyInt(), anyInt(), any());
     List<UserViewQuery> queries = captor.getAllValues();
 
     assertThat(queries.get(0).getDatabaseId()).isEmpty();
@@ -208,23 +207,6 @@ public class OpenHouseUserTableHtsApiHandlerTest {
 
     assertThat(queries.get(2).getDatabaseId()).hasValue(DB);
     assertThat(queries.get(2).getTableIdPattern()).hasValue("t0%");
-  }
-
-  /** Accepted and inert: the owned query value has no field that could carry it. */
-  @ParameterizedTest
-  @NullSource
-  @ValueSource(strings = {"TABLE", "table", "VIEW", "ViEw", "UNKNOWN"})
-  public void testEntityTypeNeverCrossesIntoTheOwnedQuery(String entityType) {
-    doReturn(Collections.emptyList())
-        .when(userTablesService)
-        .getAllUserViews(any(UserViewQuery.class));
-    ArgumentCaptor<UserViewQuery> captor = ArgumentCaptor.forClass(UserViewQuery.class);
-
-    handler.getViewEntities(
-        UserTable.builder().databaseId(DB).tableId("t0%").entityType(entityType).build());
-
-    Mockito.verify(userTablesService).getAllUserViews(captor.capture());
-    Assertions.assertEquals(UserViewQuery.matchingPattern(DB, "t0%"), captor.getValue());
   }
 
   /** The paged route drops it at the same boundary; the two routes must not diverge here. */
@@ -354,23 +336,6 @@ public class OpenHouseUserTableHtsApiHandlerTest {
     ApiResponse<EntityResponseBody<UserTable>> neutral = handler.getNeutralEntity(key("legacy"));
     Assertions.assertEquals(HttpStatus.OK, neutral.getHttpStatus());
     Assertions.assertEquals("TABLE", neutral.getResponseBody().getEntity().getEntityType());
-  }
-
-  @Test
-  public void testUnpagedViewQueryAnswersWithResultsCarryingTheCanonicalType() {
-    doReturn(Arrays.asList(dto("v1", EntityType.VIEW), dto("v2", EntityType.VIEW)))
-        .when(userTablesService)
-        .getAllUserViews(any(UserViewQuery.class));
-
-    ApiResponse<GetAllEntityResponseBody<UserTable>> response =
-        handler.getViewEntities(UserTable.builder().databaseId(DB).build());
-
-    Assertions.assertEquals(HttpStatus.OK, response.getHttpStatus());
-    assertThat(results(response.getResponseBody()))
-        .extracting(UserTable::getTableId)
-        .containsExactly("v1", "v2");
-    assertThat(results(response.getResponseBody()))
-        .allSatisfy(view -> Assertions.assertEquals("VIEW", view.getEntityType()));
   }
 
   @Test
