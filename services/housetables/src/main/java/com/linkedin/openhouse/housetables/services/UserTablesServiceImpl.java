@@ -21,7 +21,6 @@ import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.UserTableReadRepository;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.SoftDeletedUserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
-import com.linkedin.openhouse.housetables.services.model.PagedUserViewQuery;
 import com.linkedin.openhouse.housetables.services.model.UserViewQuery;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -86,12 +85,12 @@ public class UserTablesServiceImpl implements UserTablesService {
   }
 
   @Override
-  public Page<UserTableDto> getAllUserViews(PagedUserViewQuery query) {
+  public Page<UserTableDto> getAllUserViews(
+      UserViewQuery query, int page, int size, String sortBy) {
     METRICS_REPORTER.count(UserTableMetricsConstant.HTS_PAGE_VIEWS_REQUEST);
-    Pageable pageable =
-        createPageable(query.getPage(), query.getSize(), query.getSortBy().orElse(null), "tableId");
+    Pageable pageable = createPageable(page, size, sortBy, "tableId");
     return METRICS_REPORTER.executeWithStats(
-        () -> userTableReadRepository.findViews(query.getQuery(), pageable),
+        () -> userTableReadRepository.findViews(query, pageable),
         UserTableMetricsConstant.HTS_PAGE_VIEWS_TIME);
   }
 
@@ -102,7 +101,7 @@ public class UserTablesServiceImpl implements UserTablesService {
 
   @Override
   public boolean deleteUserView(String databaseId, String tableId) {
-    // Never the soft-delete primitive: its store has no discriminator to record what a view was.
+    // Views cannot be soft-deleted by design.
     return htsJdbcRepository.deleteViewById(
             UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
         != 0;

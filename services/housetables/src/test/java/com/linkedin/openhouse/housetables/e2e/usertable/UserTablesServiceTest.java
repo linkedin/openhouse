@@ -27,7 +27,6 @@ import com.linkedin.openhouse.housetables.repository.UserTableReadRepository;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.SoftDeletedUserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.services.UserTablesService;
-import com.linkedin.openhouse.housetables.services.model.PagedUserViewQuery;
 import com.linkedin.openhouse.housetables.services.model.UserViewQuery;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Metrics;
@@ -1131,8 +1130,7 @@ public class UserTablesServiceTest {
     assertThat(views).allSatisfy(v -> assertThat(v.getEntityType()).isEqualTo(EntityType.VIEW));
 
     Page<UserTableDto> page =
-        userTablesService.getAllUserViews(
-            PagedUserViewQuery.of(UserViewQuery.all(), 0, 50, "tableId"));
+        userTablesService.getAllUserViews(UserViewQuery.all(), 0, 50, "tableId");
     Assertions.assertEquals(3, page.getTotalElements());
     assertThat(pageIds(page)).containsExactlyElementsOf(CANONICAL_VIEW_IDS);
   }
@@ -1145,15 +1143,13 @@ public class UserTablesServiceTest {
     assertThat(sortedIds(userTablesService.getAllUserViews(byDatabase)))
         .isEqualTo(CANONICAL_VIEW_IDS);
 
-    Page<UserTableDto> page0 =
-        userTablesService.getAllUserViews(PagedUserViewQuery.of(byDatabase, 0, 2, "tableId"));
+    Page<UserTableDto> page0 = userTablesService.getAllUserViews(byDatabase, 0, 2, "tableId");
     Assertions.assertEquals(3, page0.getTotalElements());
     Assertions.assertEquals(2, page0.getTotalPages());
     Assertions.assertEquals(2, page0.getContent().size());
     assertThat(pageIds(page0)).containsExactly("t01_view", "t03_view");
 
-    Page<UserTableDto> page1 =
-        userTablesService.getAllUserViews(PagedUserViewQuery.of(byDatabase, 1, 2, "tableId"));
+    Page<UserTableDto> page1 = userTablesService.getAllUserViews(byDatabase, 1, 2, "tableId");
     Assertions.assertEquals(3, page1.getTotalElements());
     assertThat(pageIds(page1)).containsExactly("t05_view");
 
@@ -1170,8 +1166,7 @@ public class UserTablesServiceTest {
     assertThat(sortedIds(userTablesService.getAllUserViews(byPattern)))
         .containsExactly("match_t01_view", "match_t03_view", "match_t05_view");
 
-    Page<UserTableDto> page0 =
-        userTablesService.getAllUserViews(PagedUserViewQuery.of(byPattern, 0, 2, "tableId"));
+    Page<UserTableDto> page0 = userTablesService.getAllUserViews(byPattern, 0, 2, "tableId");
     Assertions.assertEquals(3, page0.getTotalElements());
     Assertions.assertEquals(2, page0.getTotalPages());
     assertThat(pageIds(page0)).containsExactly("match_t01_view", "match_t03_view");
@@ -1202,8 +1197,7 @@ public class UserTablesServiceTest {
     seedCanonicalRows("");
 
     Page<UserTableDto> page0 =
-        userTablesService.getAllUserViews(
-            PagedUserViewQuery.of(UserViewQuery.inDatabase(ENTITY_TYPE_DB), 0, 2, null));
+        userTablesService.getAllUserViews(UserViewQuery.inDatabase(ENTITY_TYPE_DB), 0, 2, null);
 
     Assertions.assertEquals(3, page0.getTotalElements());
     Assertions.assertEquals(2, page0.getContent().size());
@@ -1237,8 +1231,7 @@ public class UserTablesServiceTest {
     assertMetricsAdvance(
         UserTableMetricsConstant.HTS_PAGE_VIEWS_REQUEST,
         UserTableMetricsConstant.HTS_PAGE_VIEWS_TIME,
-        () ->
-            userTablesService.getAllUserViews(PagedUserViewQuery.of(byDatabase, 0, 2, "tableId")));
+        () -> userTablesService.getAllUserViews(byDatabase, 0, 2, "tableId"));
 
     // The pattern forms share the same names as their database-scoped siblings.
     UserViewQuery byPattern = UserViewQuery.matchingPattern(ENTITY_TYPE_DB, "t0%");

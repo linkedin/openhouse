@@ -10,7 +10,6 @@ import com.linkedin.openhouse.housetables.api.validator.HouseTablesApiValidator;
 import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import com.linkedin.openhouse.housetables.services.UserTablesService;
-import com.linkedin.openhouse.housetables.services.model.PagedUserViewQuery;
 import com.linkedin.openhouse.housetables.services.model.UserViewQuery;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -150,8 +149,7 @@ public class OpenHouseUserTableHtsApiHandler implements UserTableHtsApiHandler {
             GetAllEntityResponseBody.<UserTable>builder()
                 .pageResults(
                     userTableService
-                        .getAllUserViews(
-                            PagedUserViewQuery.of(toViewQuery(userView), page, size, sortBy))
+                        .getAllUserViews(toViewQuery(userView), page, size, sortBy)
                         .map(userTableDto -> userTablesMapper.toUserTable(userTableDto)))
                 .build())
         .build();

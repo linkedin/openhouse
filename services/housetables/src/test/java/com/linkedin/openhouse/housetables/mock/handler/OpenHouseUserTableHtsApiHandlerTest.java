@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 
@@ -21,7 +23,6 @@ import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.services.UserTablesService;
-import com.linkedin.openhouse.housetables.services.model.PagedUserViewQuery;
 import com.linkedin.openhouse.housetables.services.model.UserViewQuery;
 import java.util.Arrays;
 import java.util.Collections;
@@ -115,7 +116,7 @@ public class OpenHouseUserTableHtsApiHandlerTest {
         .isInstanceOf(RequestValidationFailureException.class);
 
     Mockito.verify(userTablesService, Mockito.never())
-        .getAllUserViews(any(PagedUserViewQuery.class));
+        .getAllUserViews(any(UserViewQuery.class), anyInt(), anyInt(), any());
   }
 
   @Test
@@ -163,7 +164,7 @@ public class OpenHouseUserTableHtsApiHandlerTest {
         .isInstanceOf(RequestValidationFailureException.class);
 
     Mockito.verify(userTablesService, Mockito.never())
-        .getAllUserViews(any(PagedUserViewQuery.class));
+        .getAllUserViews(any(UserViewQuery.class), anyInt(), anyInt(), any());
   }
 
   /** And the ordinary case still calls validate, then build, then the service, in that order. */
@@ -233,8 +234,8 @@ public class OpenHouseUserTableHtsApiHandlerTest {
   public void testEntityTypeNeverCrossesIntoTheOwnedPagedQuery(String entityType) {
     doReturn(new PageImpl<>(Collections.emptyList(), PageRequest.of(0, 2), 0))
         .when(userTablesService)
-        .getAllUserViews(any(PagedUserViewQuery.class));
-    ArgumentCaptor<PagedUserViewQuery> captor = ArgumentCaptor.forClass(PagedUserViewQuery.class);
+        .getAllUserViews(any(UserViewQuery.class), anyInt(), anyInt(), any());
+    ArgumentCaptor<UserViewQuery> captor = ArgumentCaptor.forClass(UserViewQuery.class);
 
     handler.getViewEntities(
         UserTable.builder().databaseId(DB).tableId("t0%").entityType(entityType).build(),
@@ -242,40 +243,40 @@ public class OpenHouseUserTableHtsApiHandlerTest {
         2,
         "tableId");
 
-    Mockito.verify(userTablesService).getAllUserViews(captor.capture());
-    Assertions.assertEquals(
-        PagedUserViewQuery.of(UserViewQuery.matchingPattern(DB, "t0%"), 0, 2, "tableId"),
-        captor.getValue());
+    // The paging arguments are matched in the verify; the query is captured so the equality
+    // failure names the field that leaked.
+    Mockito.verify(userTablesService)
+        .getAllUserViews(captor.capture(), eq(0), eq(2), eq("tableId"));
+    Assertions.assertEquals(UserViewQuery.matchingPattern(DB, "t0%"), captor.getValue());
   }
 
   @Test
   public void testPagedQueryCarriesItsPagingIntoTheOwnedValue() {
     doReturn(new PageImpl<>(Collections.emptyList(), PageRequest.of(1, 2), 0))
         .when(userTablesService)
-        .getAllUserViews(any(PagedUserViewQuery.class));
-    ArgumentCaptor<PagedUserViewQuery> captor = ArgumentCaptor.forClass(PagedUserViewQuery.class);
+        .getAllUserViews(any(UserViewQuery.class), anyInt(), anyInt(), any());
+    ArgumentCaptor<UserViewQuery> captor = ArgumentCaptor.forClass(UserViewQuery.class);
 
     handler.getViewEntities(UserTable.builder().databaseId(DB).build(), 1, 2, "tableId");
 
-    Mockito.verify(userTablesService).getAllUserViews(captor.capture());
-    PagedUserViewQuery paged = captor.getValue();
-    Assertions.assertEquals(1, paged.getPage());
-    Assertions.assertEquals(2, paged.getSize());
-    assertThat(paged.getSortBy()).hasValue("tableId");
-    assertThat(paged.getQuery().getDatabaseId()).hasValue(DB);
+    // eq() on each paging argument fails the verify on any mismatch, so page, size and sortBy are
+    // pinned exactly as they were when they travelled inside one object.
+    Mockito.verify(userTablesService)
+        .getAllUserViews(captor.capture(), eq(1), eq(2), eq("tableId"));
+    assertThat(captor.getValue().getDatabaseId()).hasValue(DB);
   }
 
   @Test
   public void testOmittedSortStaysAbsentAtTheServiceBoundary() {
     doReturn(new PageImpl<>(Collections.emptyList(), PageRequest.of(0, 50), 0))
         .when(userTablesService)
-        .getAllUserViews(any(PagedUserViewQuery.class));
-    ArgumentCaptor<PagedUserViewQuery> captor = ArgumentCaptor.forClass(PagedUserViewQuery.class);
-
+        .getAllUserViews(any(UserViewQuery.class), anyInt(), anyInt(), any());
     handler.getViewEntities(UserTable.builder().databaseId(DB).build(), 0, 50, null);
 
-    Mockito.verify(userTablesService).getAllUserViews(captor.capture());
-    assertThat(captor.getValue().getSortBy()).isEmpty();
+    // Absent stays absent: the handler substitutes no default, leaving the service to apply
+    // "tableId". isNull() fails if anything was filled in on the way.
+    Mockito.verify(userTablesService)
+        .getAllUserViews(any(UserViewQuery.class), eq(0), eq(50), isNull());
   }
 
   // -------------------------------------------------------------------------------------------
@@ -378,7 +379,7 @@ public class OpenHouseUserTableHtsApiHandlerTest {
             new PageImpl<>(
                 Collections.singletonList(dto("v1", EntityType.VIEW)), PageRequest.of(0, 2), 3))
         .when(userTablesService)
-        .getAllUserViews(any(PagedUserViewQuery.class));
+        .getAllUserViews(any(UserViewQuery.class), anyInt(), anyInt(), any());
 
     ApiResponse<GetAllEntityResponseBody<UserTable>> response =
         handler.getViewEntities(UserTable.builder().databaseId(DB).build(), 0, 2, "tableId");

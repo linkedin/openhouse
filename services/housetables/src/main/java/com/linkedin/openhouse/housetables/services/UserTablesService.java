@@ -2,7 +2,6 @@ package com.linkedin.openhouse.housetables.services;
 
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
-import com.linkedin.openhouse.housetables.services.model.PagedUserViewQuery;
 import com.linkedin.openhouse.housetables.services.model.UserViewQuery;
 import java.util.List;
 import java.util.Optional;
@@ -62,14 +61,13 @@ public interface UserTablesService {
    */
   List<UserTableDto> getAllUserViews(UserViewQuery query);
 
-  Page<UserTableDto> getAllUserViews(PagedUserViewQuery query);
+  Page<UserTableDto> getAllUserViews(UserViewQuery query, int page, int size, String sortBy);
 
   /** Given a databaseId and tableId, delete the user table entry from the House Table. */
   void deleteUserTable(String databaseId, String tableId, boolean isSoftDelete);
 
   /**
-   * Always a hard delete: {@code soft_deleted_user_table_row} carries no discriminator, so a view
-   * routed through it would restore as a table.
+   * Views cannot be soft-deleted by design.
    *
    * @return false when no view held the key, covering absence and a wrong-type occupant alike
    */

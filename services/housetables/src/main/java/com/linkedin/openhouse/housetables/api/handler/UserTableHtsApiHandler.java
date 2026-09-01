@@ -17,10 +17,7 @@ import com.linkedin.openhouse.housetables.api.spec.response.GetAllEntityResponse
  */
 public interface UserTableHtsApiHandler extends HouseTablesApiHandler<UserTableKey, UserTable> {
 
-  /**
-   * The soft-delete flag is table-only; {@link #deleteView} has no equivalent because views have no
-   * soft-deleted store.
-   */
+  /** The soft-delete flag is table-only; views cannot be soft-deleted by design. */
   ApiResponse<Void> deleteEntity(UserTableKey key, boolean isSoftDelete);
 
   /** Reads whatever occupies the key, of either type, for collision detection. */
