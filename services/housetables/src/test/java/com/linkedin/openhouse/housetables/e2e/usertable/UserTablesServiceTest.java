@@ -23,7 +23,6 @@ import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
-import com.linkedin.openhouse.housetables.repository.UserTableReadRepository;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.SoftDeletedUserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.services.UserTablesService;
@@ -53,6 +52,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.util.Pair;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -73,8 +73,6 @@ public class UserTablesServiceTest {
   @Autowired UserTableRawSeeder userTableRawSeeder;
 
   @SpyBean SoftDeletedUserTableHtsJdbcRepository softDeletedHtsJdbcRepository;
-
-  @SpyBean UserTableReadRepository userTableReadRepository;
 
   @Autowired DataSource dataSource;
 
@@ -111,7 +109,6 @@ public class UserTablesServiceTest {
     // Clear any mocks
     Mockito.reset(htsRepository);
     Mockito.reset(softDeletedHtsJdbcRepository);
-    Mockito.reset(userTableReadRepository);
   }
 
   @AfterEach
@@ -1178,6 +1175,57 @@ public class UserTablesServiceTest {
    * differently-spelled row can demonstrate it. Pre-existing behaviour, pinned rather than
    * endorsed.
    */
+  /**
+   * Each of the three reachable query states must reach the frozen finder that names it; picking a
+   * different one would silently change the SQL. Verified on the repository rather than the result,
+   * because two finders can agree on a fixture and still differ in general.
+   */
+  @Test
+  public void testEachViewQueryStateReachesItsOwnFrozenFinder() {
+    userTablesService.getAllUserViews(UserViewQuery.all());
+    Mockito.verify(htsRepository).findAllViewsByFilters(null, null, null, null, null, null);
+
+    userTablesService.getAllUserViews(UserViewQuery.inDatabase(ENTITY_TYPE_DB));
+    Mockito.verify(htsRepository)
+        .findAllViewsByFilters(ENTITY_TYPE_DB, null, null, null, null, null);
+
+    userTablesService.getAllUserViews(UserViewQuery.matchingPattern(ENTITY_TYPE_DB, "p%"));
+    Mockito.verify(htsRepository)
+        .findAllViewsByDatabaseIdAndTableIdLikeAllIgnoreCase(ENTITY_TYPE_DB, "p%");
+
+    userTablesService.getAllUserViews(UserViewQuery.inDatabase(ENTITY_TYPE_DB), 0, 2, "tableId");
+    Mockito.verify(htsRepository)
+        .findAllViewsByFilters(
+            Mockito.eq(ENTITY_TYPE_DB),
+            Mockito.isNull(),
+            Mockito.isNull(),
+            Mockito.isNull(),
+            Mockito.isNull(),
+            Mockito.isNull(),
+            Mockito.any(Pageable.class));
+
+    userTablesService.getAllUserViews(
+        UserViewQuery.matchingPattern(ENTITY_TYPE_DB, "p%"), 0, 2, "tableId");
+    Mockito.verify(htsRepository)
+        .findAllViewsByDatabaseIdAndTableIdLikeAllIgnoreCase(
+            Mockito.eq(ENTITY_TYPE_DB), Mockito.eq("p%"), Mockito.any(Pageable.class));
+  }
+
+  /**
+   * The view predicate excludes an unrecognized spelling before hydration, so a corrupt row beside
+   * real views neither fails the query nor joins its results.
+   */
+  @Test
+  public void testViewQueryBesideACorruptRowStillReturnsEveryView() {
+    seedTypedRow(ENTITY_TYPE_DB, "beside_corrupt_view", EntityType.VIEW);
+    insertRawEntityType(ENTITY_TYPE_DB, "beside_corrupt_row", "UNKNOWN");
+
+    assertThat(
+            sortedIds(userTablesService.getAllUserViews(UserViewQuery.inDatabase(ENTITY_TYPE_DB))))
+        .containsExactly("beside_corrupt_view");
+    assertThat(readRawEntityType(ENTITY_TYPE_DB, "beside_corrupt_row")).hasValue("UNKNOWN");
+  }
+
   @Test
   public void testViewPatternQueryKeepsUnderscoreAsASqlWildcard() {
     seedTypedRow(ENTITY_TYPE_DB, "match_t01_view", EntityType.VIEW);
@@ -1461,8 +1509,8 @@ public class UserTablesServiceTest {
 
     // The loser's occupancy read was taken before the winner committed.
     doReturn(Optional.empty())
-        .when(userTableReadRepository)
-        .findRowForWrite(anyString(), anyString());
+        .when(htsRepository)
+        .findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(anyString(), anyString());
 
     Assertions.assertThrows(
         EntityConcurrentModificationException.class,
