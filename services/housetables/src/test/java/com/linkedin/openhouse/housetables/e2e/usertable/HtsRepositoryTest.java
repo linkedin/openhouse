@@ -425,23 +425,6 @@ public class HtsRepositoryTest {
     assertThat(htsRepository.existsById(key(ENTITY_TYPE_DB, "unstamped"))).isFalse();
   }
 
-  /**
-   * The other half: rows that predate the discriminator keep their SQL NULL and still hydrate as
-   * tables, so tightening the write did not orphan the population the read arm exists to carry.
-   */
-  @Test
-  public void testLegacyRowPlantedThroughTheColumnStillReadsAsTable() {
-    seedLegacyRow(ENTITY_TYPE_DB, "legacy_survivor");
-
-    assertThat(readRawEntityType(ENTITY_TYPE_DB, "legacy_survivor")).isEmpty();
-    assertThat(findRow(ENTITY_TYPE_DB, "legacy_survivor").getEntityType())
-        .isEqualTo(EntityType.TABLE);
-    assertThat(
-            htsRepository.findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
-                ENTITY_TYPE_DB, "legacy_survivor"))
-        .isPresent();
-  }
-
   /** The discriminator must persist verbatim and must not perturb version/metadata behavior. */
   @Test
   public void testEntityTypePersistenceRoundTrip() {

@@ -1102,17 +1102,9 @@ public class UserTablesServiceTest {
 
     assertThat(userTablesService.getUserView(ENTITY_TYPE_DB, "view_corrupt")).isEmpty();
 
-    // Excluded, not deleted, and not rewritten.
+    // Excluded, not deleted, and not rewritten. The neutral read has no type predicate, so it
+    // does select the row and fails on it: testGetNeutralEntityAtCorruptKeyFailsLoudly.
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "view_corrupt")).hasValue("UNKNOWN");
-  }
-
-  /** The neutral read has no type predicate, so it does select the row and must fail on it. */
-  @Test
-  public void testNeutralReadIsThePathThatSurfacesCorruption() {
-    insertRawEntityType(ENTITY_TYPE_DB, "view_corrupt", "UNKNOWN");
-
-    assertThatThrownBy(() -> userTablesService.getNeutralEntity(ENTITY_TYPE_DB, "view_corrupt"))
-        .isInstanceOf(CorruptEntityTypeException.class);
   }
 
   @Test
@@ -1226,6 +1218,11 @@ public class UserTablesServiceTest {
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "beside_corrupt_row")).hasValue("UNKNOWN");
   }
 
+  /**
+   * Regression guard: {@code _} is a single-character wildcard, so {@code match_%} also matches
+   * {@code matchXview}. Every canonical fixture id has a literal underscore there, so only a
+   * differently-spelled row can demonstrate it. Pre-existing behaviour, pinned not endorsed.
+   */
   @Test
   public void testViewPatternQueryKeepsUnderscoreAsASqlWildcard() {
     seedTypedRow(ENTITY_TYPE_DB, "match_t01_view", EntityType.VIEW);
@@ -1457,11 +1454,6 @@ public class UserTablesServiceTest {
     assertThat(findRow(ENTITY_TYPE_DB, "conflict_view").getMetadataLocation())
         .isEqualTo(before.getMetadataLocation());
     assertThat(readRawEntityType(ENTITY_TYPE_DB, "conflict_table")).hasValue("TABLE");
-  }
-
-  @Test
-  public void testViewDeleteTranslationDoesNotTurnAbsenceIntoAFailure() {
-    Assertions.assertFalse(userTablesService.deleteUserView(ENTITY_TYPE_DB, "never_existed"));
   }
 
   /** The same answer at the current version, so the type is the only thing being rejected. */

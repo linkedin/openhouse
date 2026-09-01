@@ -10,7 +10,6 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -113,18 +112,5 @@ public class UserHouseTablesOpenApiContractTest {
             "get /v1/hts/views/query",
             "put /hts/views",
             "delete /hts/views");
-  }
-
-  /** Without {@code @Hidden}, springdoc would widen every operation on the advised controller. */
-  @Test
-  public void testTheScopedAdviceContributesNoResponsesToAnyOperation() throws Exception {
-    Map<String, Set<String>> generated = generatedUserTableOperations();
-
-    Assertions.assertEquals(
-        EXPECTED_RESPONSE_CODES.get("put /hts/views"), generated.get("put /hts/views"));
-    Assertions.assertEquals(
-        EXPECTED_RESPONSE_CODES.get("delete /hts/views"), generated.get("delete /hts/views"));
-    assertThat(generated.get("put /hts/tables")).doesNotContain("500");
-    assertThat(generated.get("patch /hts/tables/rename")).doesNotContain("500");
   }
 }

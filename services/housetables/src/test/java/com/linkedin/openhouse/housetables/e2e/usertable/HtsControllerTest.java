@@ -1472,27 +1472,6 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.pageResults.content[*].entityType", everyItem(is("VIEW"))));
   }
 
-  /**
-   * Regression guard: {@code _} is a single-character wildcard, so {@code match_%} also matches
-   * {@code matchXview}. Every canonical fixture id has a literal underscore there, so only a
-   * differently-spelled row can demonstrate it. Pre-existing behaviour, pinned not endorsed.
-   */
-  @Test
-  public void testViewPatternQueryKeepsUnderscoreAsASqlWildcard() throws Exception {
-    seedTypedRow(ENTITY_TYPE_DB, "match_t01_view", EntityType.VIEW);
-    seedTypedRow(ENTITY_TYPE_DB, "matchXview", EntityType.VIEW);
-    seedTypedRow(ENTITY_TYPE_DB, "nomatchview", EntityType.VIEW);
-
-    mvc.perform(
-            MockMvcRequestBuilders.get("/hts/views/query")
-                .params(queryParams("databaseId", ENTITY_TYPE_DB, "tableId", "match_%"))
-                .accept(MediaType.APPLICATION_JSON))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.results", hasSize(2)))
-        .andExpect(
-            jsonPath("$.results[*].tableId", containsInAnyOrder("match_t01_view", "matchXview")));
-  }
-
   @Test
   public void testPutViewCreatesThenUpdates() throws Exception {
     UserTable view =
