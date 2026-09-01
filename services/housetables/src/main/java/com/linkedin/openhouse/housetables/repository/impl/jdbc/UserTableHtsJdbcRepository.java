@@ -19,6 +19,10 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>This class gets configured in {@link
  * com.linkedin.openhouse.housetables.config.db.DatabaseConfiguration} with @EnableJpaRepositories.
  * The datasource for the Jpa repository is provided in {@link JdbcProviderConfiguration}.
+ *
+ * <p>Every method here is advised by {@link UserTableRepositoryTranslationAspect}, so a corrupt
+ * discriminator surfaces with its diagnostic whoever calls it. A read added later needs nothing at
+ * its call site.
  */
 public interface UserTableHtsJdbcRepository
     extends HtsRepository<UserTableRow, UserTableRowPrimaryKey> {
