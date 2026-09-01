@@ -4,9 +4,9 @@ import org.junit.jupiter.api.Assertions.{assertEquals, assertTrue}
 import org.junit.jupiter.api.Test
 
 /**
- * Pins how a preparation turns a test body into a catalog case: the ID it builds, the post-test
- * hook every case from that preparation runs, and the known-bug reason a DML test case carries into
- * its cases. Building a case runs no SQL, so these assertions need no Spark session.
+ * Pins how a preparation turns a test body into a catalog case: the ID it builds, the post-test hook every case from
+ * that preparation runs, and the known-bug reason a DML test case carries into its cases. Building a case runs no SQL,
+ * so these assertions need no Spark session.
  */
 final class TablePreparationTest {
   private val emptyPreparation = TableTest(CoreTable)

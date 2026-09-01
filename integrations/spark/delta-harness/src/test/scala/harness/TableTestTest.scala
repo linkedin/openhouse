@@ -11,9 +11,8 @@ import org.junit.jupiter.api.Assertions.{
 import org.junit.jupiter.api.Test
 
 /**
- * Pins fresh table identity and ownership cleanup: generated names stay namespace-scoped and
- * unique across counter resets, cleanup starts after the ownership mark, and a cleanup failure is
- * suppressed behind the primary test failure.
+ * Pins fresh table identity and ownership cleanup: generated names stay namespace-scoped and unique across counter
+ * resets, cleanup starts after the ownership mark, and a cleanup failure is suppressed behind the primary test failure.
  */
 final class TableTestTest {
   @Test

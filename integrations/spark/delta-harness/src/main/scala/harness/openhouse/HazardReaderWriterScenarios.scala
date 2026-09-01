@@ -10,12 +10,11 @@ import scala.annotation.tailrec
 import scala.reflect.{ClassTag, classTag}
 import scala.util.control.NonFatal
 
-// The copy-on-write reader, writer and hazard families. The reader and writer cases pin the
-// changelog view, the incremental read and the structured-streaming reader and writer against a
-// plain copy-on-write table. The hazard cases pin what happens when two operations that can
-// interfere are run against the same table. Plan crosses every family here with the parquet and
-// orc file formats. `cowCreate` states the standard copy-on-write table shape, so a feature layer
-// reaches it through a self-type on this trait.
+// The copy-on-write reader, writer and hazard families. The reader and writer cases pin the changelog view, the
+// incremental read and the structured-streaming reader and writer against a plain copy-on-write table. The hazard cases
+// pin what happens when two operations that can interfere are run against the same table. Plan crosses every family
+// here with the parquet and orc file formats. `cowCreate` states the standard copy-on-write table shape, so a feature
+// layer reaches it through a self-type on this trait.
 trait HazardReaderWriterScenarios extends ScenarioKit {
   import Rows._
 
@@ -24,8 +23,8 @@ trait HazardReaderWriterScenarios extends ScenarioKit {
     s"CREATE TABLE $t ($columnDefinitions) USING $dataSource TBLPROPERTIES ('write.format.default'='$fmt')"
 
   /**
-   * Three seed rows in a copy-on-write table in the given file format. Each family builds its own
-   * table from this recipe, so a family reads on its own.
+   * Three seed rows in a copy-on-write table in the given file format. Each family builds its own table from this
+   * recipe, so a family reads on its own.
    */
   private def cowPreparation(format: String): TablePreparation[CoreTable.type] =
     TablePreparation(
@@ -66,10 +65,7 @@ trait HazardReaderWriterScenarios extends ScenarioKit {
     List(
       readerWriterChangelogAppendCase(format))
 
-  /**
-   * A changelog view over an INSERT OVERWRITE that drops one row reports exactly that row as a
-   * DELETE.
-   */
+  /** A changelog view over an INSERT OVERWRITE that drops one row reports exactly that row as a DELETE. */
   private def readerWriterChangelogOverwriteCase(format: String): Plan.Case =
     cowPreparation(format).test("readerWriter.changelog.overwrite") { table =>
       val seedSnapshotId = snapshotIds(table.spark, table.name).head
@@ -132,10 +128,7 @@ trait HazardReaderWriterScenarios extends ScenarioKit {
     List(
       readerWriterChangelogDeleteCase(format))
 
-  /**
-   * A changelog view over an UPDATE reports the old row as a DELETE and the new value as an
-   * INSERT.
-   */
+  /** A changelog view over an UPDATE reports the old row as a DELETE and the new value as an INSERT. */
   private def readerWriterChangelogUpdateCase(format: String): Plan.Case =
     cowPreparation(format).test("readerWriter.changelog.update") { table =>
       val seedSnapshotId = snapshotIds(table.spark, table.name).head
@@ -166,10 +159,7 @@ trait HazardReaderWriterScenarios extends ScenarioKit {
     List(
       readerWriterChangelogUpdateCase(format))
 
-  /**
-   * A changelog view over a MERGE that updates one row and inserts another reports one DELETE and
-   * two INSERTs.
-   */
+  /** A changelog view over a MERGE that updates one row and inserts another reports one DELETE and two INSERTs. */
   private def readerWriterChangelogMergeCase(format: String): Plan.Case =
     cowPreparation(format).test("readerWriter.changelog.merge") { table =>
       val seedSnapshotId = snapshotIds(table.spark, table.name).head
@@ -182,7 +172,7 @@ trait HazardReaderWriterScenarios extends ScenarioKit {
           "WHEN NOT MATCHED THEN INSERT " +
           s"(${Core.long0.columnName}, ${Core.int0.columnName}, " +
           s"${Core.string0.columnName}, ${Core.double0.columnName}, " +
-          s"${Core.boolean0.columnName}, ${Core.datePartition.columnName}) " +
+          s"${Core.boolean0.columnName}, ${Core.date0.columnName}) " +
           "VALUES (source.key, 9, 'row-9', 9.5, true, '2024-01-09-01')")
       val view = table.spark
         .sql(
@@ -293,8 +283,8 @@ trait HazardReaderWriterScenarios extends ScenarioKit {
     }
 
   /**
-   * A streaming read of the table delivers the seed rows on first run and the newly inserted row
-   * after restart, into a destination table.
+   * A streaming read of the table delivers the seed rows on first run and the newly inserted row after restart, into a
+   * destination table.
    */
   private def readerWriterStreamAppendCase(format: String): Plan.Case =
     cowPreparation(format).test("readerWriter.stream.append") { table =>
@@ -334,8 +324,8 @@ trait HazardReaderWriterScenarios extends ScenarioKit {
     }
 
   /**
-   * An append-only stream restarted after a DELETE snapshot was written fails, with an error
-   * mentioning delete or overwrite.
+   * An append-only stream restarted after a DELETE snapshot was written fails, with an error mentioning delete or
+   * overwrite.
    */
   private def readerWriterStreamDeleteRejectedCase(format: String): Plan.Case =
     cowPreparation(format).test("readerWriter.stream.deleteRejected") { table =>
@@ -379,8 +369,8 @@ trait HazardReaderWriterScenarios extends ScenarioKit {
     }
 
   /**
-   * The incremental reads between two snapshots and the structured-streaming reader and writer, on
-   * three seed rows in the given file format.
+   * The incremental reads between two snapshots and the structured-streaming reader and writer, on three seed rows in
+   * the given file format.
    */
   def readerWriterIncrementalAndStreamCases(format: String): List[Plan.Case] =
     List(
@@ -392,8 +382,8 @@ trait HazardReaderWriterScenarios extends ScenarioKit {
       readerWriterStreamDeleteRejectedCase(format))
 
   /**
-   * A streaming read that resumes after its earliest offset snapshot has been expired fails, with
-   * an error naming the expired or missing snapshot.
+   * A streaming read that resumes after its earliest offset snapshot has been expired fails, with an error naming the
+   * expired or missing snapshot.
    */
   private def hazardStreamExpiredCheckpointCase(
       format: String,
@@ -458,10 +448,10 @@ trait HazardReaderWriterScenarios extends ScenarioKit {
     }
 
   /**
-   * After expire_snapshots removes a changelog start point, create_changelog_view over that start
-   * point either throws or reports fewer changes than the table's history holds, and any message it
-   * throws leaves expiration unnamed. The case covers three start points: an expired snapshot ID, a
-   * timestamp older than the whole history, and a timestamp inside the expired range.
+   * After expire_snapshots removes a changelog start point, create_changelog_view over that start point either throws
+   * or reports fewer changes than the table's history holds, and any message it throws leaves expiration unnamed. The
+   * case covers three start points: an expired snapshot ID, a timestamp older than the whole history, and a timestamp
+   * inside the expired range.
    */
   private def hazardCdcExpiredRangeCase(
       basePreparation: TablePreparation[CoreTable.type]): Plan.Case =
@@ -548,8 +538,8 @@ trait HazardReaderWriterScenarios extends ScenarioKit {
     }
 
   /**
-   * The hazards a reader or a consumer meets when maintenance lands underneath it. Every case
-   * starts from three seed rows in a copy-on-write table in the given file format.
+   * The hazards a reader or a consumer meets when maintenance lands underneath it. Every case starts from three seed
+   * rows in a copy-on-write table in the given file format.
    */
   def hazardReaderCases(format: String): List[Plan.Case] = {
     val basePreparation = TablePreparation(
@@ -564,8 +554,7 @@ trait HazardReaderWriterScenarios extends ScenarioKit {
   }
 
   /**
-   * An explicit-column INSERT that worked before ADD COLUMN is rejected afterward, with an error
-   * naming the new column.
+   * An explicit-column INSERT that worked before ADD COLUMN is rejected afterward, with an error naming the new column.
    */
   private def hazardAddColumnBreaksWritersCase(
       basePreparation: TablePreparation[CoreTable.type]): Plan.Case =
@@ -594,8 +583,8 @@ trait HazardReaderWriterScenarios extends ScenarioKit {
     }
 
   /**
-   * The hazard an explicit-column writer meets after a column is added. The case starts from three
-   * seed rows in a copy-on-write table in the given file format.
+   * The hazard an explicit-column writer meets after a column is added. The case starts from three seed rows in a
+   * copy-on-write table in the given file format.
    */
   def hazardWriterCases(format: String): List[Plan.Case] = {
     val basePreparation = TablePreparation(
@@ -609,9 +598,9 @@ trait HazardReaderWriterScenarios extends ScenarioKit {
   }
 
   /**
-   * While a table is REST-locked, an expire_snapshots call is rejected and snapshots keep
-   * accumulating. After the lock is deleted, expire_snapshots succeeds and the snapshot count
-   * drops, so the lock blocks every maintenance commit while it is held.
+   * While a table is REST-locked, an expire_snapshots call is rejected and snapshots keep accumulating. After the lock
+   * is deleted, expire_snapshots succeeds and the snapshot count drops, so the lock blocks every maintenance commit
+   * while it is held.
    */
   def hazardLockStarvesMaintenance(ctx: Ctx): Unit = {
     val spark = ctx.spark

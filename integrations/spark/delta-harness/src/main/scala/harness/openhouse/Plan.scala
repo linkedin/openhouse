@@ -15,9 +15,9 @@ object Plan {
   def bugReason(testCase: Case): Option[String] =
     testCase.knownBugReason.map(reason => s"bug: $reason")
 
-  // The interaction, surface, reader/writer and hazard families are crossed with these two file
-  // formats. Each family runs on one format before the next format starts, so the format loop is the
-  // outer one and every contribution below keeps the catalog position it holds today.
+  // The interaction, surface, reader/writer and hazard families are crossed with these two file formats. Each family
+  // runs on one format before the next format starts, so the format loop is the outer one and every contribution below
+  // keeps the catalog position it holds today.
   private val crossedFormats: List[String] = List("parquet", "orc")
 
   private def interactionContributions: List[Case] =
@@ -62,8 +62,8 @@ object Plan {
       ).flatten
     }
 
-  // Every DDL-consumer family runs against one evolved preparation before the next preparation
-  // starts, so the preparation loop is the outer one here.
+  // Every DDL-consumer family runs against one evolved preparation before the next preparation starts, so the
+  // preparation loop is the outer one here.
   private def ddlConsumerContributions: List[Case] =
     Scenarios.ddlConsumerPreparations.flatMap { preparation =>
       List(

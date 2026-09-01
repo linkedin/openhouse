@@ -10,11 +10,10 @@ import scala.annotation.tailrec
 import scala.reflect.{ClassTag, classTag}
 import scala.util.control.NonFatal
 
-// The standard surface families. A surface case pins one edge of what the catalog exposes on a
-// plain copy-on-write table: a reader, a procedure, a metadata table, a concurrency outcome, a
-// schema change, or a write property. Each family builds the starting states it needs, so a family
-// reads on its own. The concurrency helpers below are feature neutral, so a feature layer reuses
-// them through a self-type on this trait. The cases run on parquet and orc.
+// The standard surface families. A surface case pins one edge of what the catalog exposes on a plain copy-on-write
+// table: a reader, a procedure, a metadata table, a concurrency outcome, a schema change, or a write property. Each
+// family builds the starting states it needs, so a family reads on its own. The concurrency helpers below are feature
+// neutral, so a feature layer reuses them through a self-type on this trait. The cases run on parquet and orc.
 trait SurfaceScenarios extends ScenarioKit {
   import Rows._
 
@@ -70,8 +69,8 @@ trait SurfaceScenarios extends ScenarioKit {
     }
 
   /**
-   * Three seed rows with keys 1, 2 and 3 in an unpartitioned table in the given file format. This
-   * is the plainest starting state here, so the feature layers build their cases on it too.
+   * Three seed rows with keys 1, 2 and 3 in an unpartitioned table in the given file format. This is the plainest
+   * starting state here, so the feature layers build their cases on it too.
    */
   protected def surfaceBasePreparation(format: String): TablePreparation[CoreTable.type] =
     TablePreparation(
@@ -83,8 +82,8 @@ trait SurfaceScenarios extends ScenarioKit {
         .insert(3)())
 
   /**
-   * Five rows across two snapshots, a three-row seed then a two-row insert, in an unpartitioned
-   * table in the given file format.
+   * Five rows across two snapshots, a three-row seed then a two-row insert, in an unpartitioned table in the given file
+   * format.
    */
   private def surfaceTwoSnapshotPreparation(format: String): TablePreparation[CoreTable.type] =
     TablePreparation(
@@ -109,7 +108,7 @@ trait SurfaceScenarios extends ScenarioKit {
             s"TBLPROPERTIES ('write.format.default'='$format')")())
 
   /**
-   * Three seed rows in a table in the given file format, partitioned by datepartition and carrying
+   * Three seed rows in a table in the given file format, partitioned by the date column and carrying
    * write.distribution-mode=hash.
    */
   private def surfaceHashPreparation(format: String): TablePreparation[CoreTable.type] =
@@ -118,15 +117,14 @@ trait SurfaceScenarios extends ScenarioKit {
       TableTest(Core)
         .sql("create")(table =>
           s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
-            s"PARTITIONED BY (${Core.datePartition.columnName}) " +
+            s"PARTITIONED BY (${Core.date0.columnName}) " +
             "TBLPROPERTIES (" +
             s"'write.format.default'='$format', " +
             "'write.distribution-mode'='hash')")()
         .insert(3)())
 
   /**
-   * Three seed rows in an unpartitioned table in the given file format, carrying
-   * write.target-file-size-bytes=1048576.
+   * Three seed rows in an unpartitioned table in the given file format, carrying write.target-file-size-bytes=1048576.
    */
   private def surfaceTargetFileSizePreparation(format: String): TablePreparation[CoreTable.type] =
     TablePreparation(
@@ -140,8 +138,8 @@ trait SurfaceScenarios extends ScenarioKit {
         .insert(3)())
 
   /**
-   * A Spark structured streaming read of the table, run in AvailableNow batch mode, delivers all 3
-   * seed rows to a memory sink within 120 seconds.
+   * A Spark structured streaming read of the table, run in AvailableNow batch mode, delivers all 3 seed rows to a
+   * memory sink within 120 seconds.
    */
   private def surfaceStreamReadCase(format: String): Plan.Case =
     surfaceBasePreparation(format).test("surface.stream.read") { table =>
@@ -166,8 +164,8 @@ trait SurfaceScenarios extends ScenarioKit {
     }
 
   /**
-   * A Spark structured streaming append of two rows through the iceberg write-stream format lands
-   * both rows, growing the table from 3 to 5 rows.
+   * A Spark structured streaming append of two rows through the iceberg write-stream format lands both rows, growing
+   * the table from 3 to 5 rows.
    */
   private def surfaceStreamWriteCase(format: String): Plan.Case =
     surfaceBasePreparation(format).test("surface.stream.write") { table =>
@@ -183,7 +181,7 @@ trait SurfaceScenarios extends ScenarioKit {
         s"concat('row-', value) AS ${Core.string0.columnName}",
         s"CAST(value AS DOUBLE) AS ${Core.double0.columnName}",
         s"true AS ${Core.boolean0.columnName}",
-        s"'2024-01-01-00' AS ${Core.datePartition.columnName}")
+        s"'2024-01-01-00' AS ${Core.date0.columnName}")
       val checkpoint =
         java.nio.file.Files.createTempDirectory("ck-write").toString
       val query = rows.writeStream
@@ -201,10 +199,7 @@ trait SurfaceScenarios extends ScenarioKit {
         "streaming write should append two rows")
     }
 
-  /**
-   * create_changelog_view over an append-only history reports 5 changes, all of change type
-   * INSERT.
-   */
+  /** create_changelog_view over an append-only history reports 5 changes, all of change type INSERT. */
   private def surfaceCdcChangelogViewCase(format: String): Plan.Case =
     surfaceTwoSnapshotPreparation(format).test("surface.cdc.changelogView") { table =>
       val view = table.spark
@@ -239,8 +234,8 @@ trait SurfaceScenarios extends ScenarioKit {
       surfaceCdcChangelogViewCase(format))
 
   /**
-   * After 5 single-row inserts fragment the manifest list, rewrite_manifests compacts it to fewer
-   * manifests while preserving all 5 rows.
+   * After 5 single-row inserts fragment the manifest list, rewrite_manifests compacts it to fewer manifests while
+   * preserving all 5 rows.
    */
   private def surfaceProcRewriteManifestsCase(format: String): Plan.Case =
     surfaceEmptyPreparation(format).test("surface.proc.rewriteManifests") { table =>
@@ -276,8 +271,8 @@ trait SurfaceScenarios extends ScenarioKit {
     }
 
   /**
-   * The rewrite procedure that compacts the manifest set. The case starts from an unseeded table
-   * in the given file format and fragments the manifest list itself.
+   * The rewrite procedure that compacts the manifest set. The case starts from an unseeded table in the given file
+   * format and fragments the manifest list itself.
    */
   def surfaceRewriteProcedureCases(format: String): List[Plan.Case] =
     List(
@@ -299,8 +294,8 @@ trait SurfaceScenarios extends ScenarioKit {
     }
 
   /**
-   * remove_orphan_files deletes a planted, backdated stray file next to a real data file while the
-   * table's 3 live rows remain intact.
+   * remove_orphan_files deletes a planted, backdated stray file next to a real data file while the table's 3 live rows
+   * remain intact.
    */
   private def surfaceProcRemoveOrphanRealCase(format: String): Plan.Case =
     surfaceBasePreparation(format).test("surface.proc.removeOrphanReal") { table =>
@@ -335,8 +330,8 @@ trait SurfaceScenarios extends ScenarioKit {
     }
 
   /**
-   * The procedures that read snapshot ancestry and remove orphan files. Ancestry runs on a
-   * two-snapshot table and orphan removal on a seeded table, each in the given file format.
+   * The procedures that read snapshot ancestry and remove orphan files. Ancestry runs on a two-snapshot table and
+   * orphan removal on a seeded table, each in the given file format.
    */
   def surfaceSnapshotProcedureCases(format: String): List[Plan.Case] =
     List(
@@ -344,8 +339,8 @@ trait SurfaceScenarios extends ScenarioKit {
       surfaceProcRemoveOrphanRealCase(format))
 
   /**
-   * Selecting the hidden metadata columns _file, _pos, _spec_id and _partition returns one row per
-   * seed row, each with a populated file path and a non-negative position.
+   * Selecting the hidden metadata columns _file, _pos, _spec_id and _partition returns one row per seed row, each with
+   * a populated file path and a non-negative position.
    */
   private def surfaceMetaHiddenColumnsCase(format: String): Plan.Case =
     surfaceBasePreparation(format).test("surface.meta.hiddenColumns") {
@@ -369,9 +364,8 @@ trait SurfaceScenarios extends ScenarioKit {
     }
 
   /**
-   * Every Iceberg metadata table (entries, files, manifests, snapshots, history, refs, partitions,
-   * and their all_* variants) is queryable without error, and the snapshots metadata table reports
-   * the table's 2 snapshots.
+   * Every Iceberg metadata table (entries, files, manifests, snapshots, history, refs, partitions, and their all_*
+   * variants) is queryable without error, and the snapshots metadata table reports the table's 2 snapshots.
    */
   private def surfaceMetaTableSweepCase(format: String): Plan.Case =
     surfaceTwoSnapshotPreparation(format).test("surface.meta.tableSweep") { table =>
@@ -409,9 +403,8 @@ trait SurfaceScenarios extends ScenarioKit {
       surfaceMetaTableSweepCase(format))
 
   /**
-   * Two threads concurrently insert 3 rows each; every insert either commits or fails with a typed
-   * commit-conflict exception, and the final row count matches 3 plus the number of inserts that
-   * actually committed.
+   * Two threads concurrently insert 3 rows each; every insert either commits or fails with a typed commit-conflict
+   * exception, and the final row count matches 3 plus the number of inserts that actually committed.
    */
   private def surfaceConcAppendAppendCase(format: String): Plan.Case =
     surfaceBasePreparation(format).test("surface.conc.appendAppend") { table =>
@@ -453,9 +446,8 @@ trait SurfaceScenarios extends ScenarioKit {
     }
 
   /**
-   * Two threads concurrently UPDATE the same row to different values; the row count stays at 3,
-   * and the final value is one of the two competing updates or the original seed value, with any
-   * failure being a typed commit conflict.
+   * Two threads concurrently UPDATE the same row to different values; the row count stays at 3, and the final value is
+   * one of the two competing updates or the original seed value, with any failure being a typed commit conflict.
    */
   private def surfaceConcUpdateUpdateCase(format: String): Plan.Case =
     surfaceBasePreparation(format).test("surface.conc.updateUpdate") { table =>
@@ -496,18 +488,13 @@ trait SurfaceScenarios extends ScenarioKit {
         "concurrent updates should not change row count")
     }
 
-  /**
-   * Two writers racing on one table. Every outcome is either a commit or a typed commit conflict.
-   */
+  /** Two writers racing on one table. Every outcome is either a commit or a typed commit conflict. */
   def surfaceConcurrencyCases(format: String): List[Plan.Case] =
     List(
       surfaceConcAppendAppendCase(format),
       surfaceConcUpdateUpdateCase(format))
 
-  /**
-   * On a side table, dropping NOT NULL from a column allows a subsequent insert of a null value
-   * for that column.
-   */
+  /** On a side table, dropping NOT NULL from a column allows a subsequent insert of a null value for that column. */
   private def surfaceSchemaRelaxNotNullCase(format: String): Plan.Case =
     surfaceBasePreparation(format).test("surface.schema.relaxNotNull") { table =>
       val sideTable = s"${table.name}_nn"
@@ -532,8 +519,8 @@ trait SurfaceScenarios extends ScenarioKit {
     }
 
   /**
-   * On a side table, widening a decimal column's precision preserves the original row and accepts
-   * a new row whose value only fits the wider precision.
+   * On a side table, widening a decimal column's precision preserves the original row and accepts a new row whose value
+   * only fits the wider precision.
    */
   private def surfaceSchemaDecimalWidenCase(format: String): Plan.Case =
     surfaceBasePreparation(format).test("surface.schema.decimalWiden") { table =>
@@ -563,8 +550,8 @@ trait SurfaceScenarios extends ScenarioKit {
     }
 
   /**
-   * On a side table, ADD COLUMN of a new nested struct field null-fills it for the existing row
-   * and accepts a new row that sets the field.
+   * On a side table, ADD COLUMN of a new nested struct field null-fills it for the existing row and accepts a new row
+   * that sets the field.
    */
   private def surfaceSchemaNestedAddFieldCase(format: String): Plan.Case =
     surfaceBasePreparation(format).test("surface.schema.nestedAddField") { table =>
@@ -602,8 +589,8 @@ trait SurfaceScenarios extends ScenarioKit {
     }
 
   /**
-   * On a side table, ALTER TABLE DROP COLUMN of a nested struct field is rejected with an
-   * exception, and the field remains readable afterward.
+   * On a side table, ALTER TABLE DROP COLUMN of a nested struct field is rejected with an exception, and the field
+   * remains readable afterward.
    */
   private def surfaceSchemaNestedDropFieldCase(format: String): Plan.Case =
     surfaceBasePreparation(format).test("surface.schema.nestedDropField") { table =>
@@ -631,10 +618,7 @@ trait SurfaceScenarios extends ScenarioKit {
       }
     }
 
-  /**
-   * ALTER TABLE ALTER COLUMN ... FIRST moves that column to the front of the schema while
-   * preserving all 3 rows.
-   */
+  /** ALTER TABLE ALTER COLUMN ... FIRST moves that column to the front of the schema while preserving all 3 rows. */
   private def surfaceSchemaReorderExistingCase(format: String): Plan.Case =
     surfaceBasePreparation(format).test("surface.schema.reorderExisting") { table =>
       table.spark.sql(
@@ -665,8 +649,7 @@ trait SurfaceScenarios extends ScenarioKit {
       surfaceSchemaReorderExistingCase(format))
 
   /**
-   * The write.distribution-mode=hash property requested at creation is retained and the table
-   * holds its 3 seed rows.
+   * The write.distribution-mode=hash property requested at creation is retained and the table holds its 3 seed rows.
    */
   private def surfaceWriteDistributionHashCase(format: String): Plan.Case =
     surfaceHashPreparation(format).test("surface.write.distributionHash") { table =>
@@ -685,8 +668,8 @@ trait SurfaceScenarios extends ScenarioKit {
     }
 
   /**
-   * The write.target-file-size-bytes=1048576 property requested at creation is retained and the
-   * table holds its 3 seed rows.
+   * The write.target-file-size-bytes=1048576 property requested at creation is retained and the table holds its 3 seed
+   * rows.
    */
   private def surfaceWriteTargetFileSizeCase(format: String): Plan.Case =
     surfaceTargetFileSizePreparation(format).test("surface.write.targetFileSize") { table =>
@@ -713,10 +696,9 @@ trait SurfaceScenarios extends ScenarioKit {
       surfaceWriteTargetFileSizeCase(format))
 
   /**
-   * register_table onto a new name makes the source table's snapshot readable there (3 rows) and
-   * leaves the source unchanged, and dropping the registered table leaves the source unchanged.
-   * The system.snapshot and system.add_files procedures each reject their unsupported inputs with
-   * an exception.
+   * register_table onto a new name makes the source table's snapshot readable there (3 rows) and leaves the source
+   * unchanged, and dropping the registered table leaves the source unchanged. The system.snapshot and system.add_files
+   * procedures each reject their unsupported inputs with an exception.
    */
   private def surfacePinImportProcsCase(format: String): Plan.Case =
     surfaceBasePreparation(format).test("surface.pin.importProcs") { table =>

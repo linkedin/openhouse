@@ -15,10 +15,7 @@ trait NegativeDdlScenarios extends ScenarioKit {
 
   private val S = CoreTable.string0.columnName
 
-  /**
-   * DELETE with a WHERE clause on a nonexistent column is rejected with an AnalysisException
-   * naming that column.
-   */
+  /** DELETE with a WHERE clause on a nonexistent column is rejected with an AnalysisException naming that column. */
   private def negativeNonExistentColumnCase(
       preparation: TablePreparation[CoreTable.type]): Plan.Case =
     preparation.test("negative.nonExistentColumn") { table =>
@@ -30,8 +27,7 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * DELETE with a nondeterministic WHERE clause (rand() < 0.5) is rejected with an
-   * AnalysisException about determinism.
+   * DELETE with a nondeterministic WHERE clause (rand() < 0.5) is rejected with an AnalysisException about determinism.
    */
   private def negativeNonDeterministicDeleteCase(
       preparation: TablePreparation[CoreTable.type]): Plan.Case =
@@ -45,8 +41,7 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * UPDATE with a nondeterministic WHERE clause (rand() < 0.5) is rejected with an
-   * AnalysisException about determinism.
+   * UPDATE with a nondeterministic WHERE clause (rand() < 0.5) is rejected with an AnalysisException about determinism.
    */
   private def negativeNonDeterministicUpdateCase(
       preparation: TablePreparation[CoreTable.type]): Plan.Case =
@@ -60,8 +55,8 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * INSERT INTO with too few values for the table's columns is rejected with an AnalysisException
-   * about the missing data columns.
+   * INSERT INTO with too few values for the table's columns is rejected with an AnalysisException about the missing
+   * data columns.
    */
   private def negativeInsertArityCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
     preparation.test("negative.insertArity") { table =>
@@ -75,8 +70,8 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * A MERGE whose UPDATE SET assigns the same target column twice is rejected with an
-   * AnalysisException about multiple assignments.
+   * A MERGE whose UPDATE SET assigns the same target column twice is rejected with an AnalysisException about multiple
+   * assignments.
    */
   private def negativeMergeConflictingUpdatesCase(
       preparation: TablePreparation[CoreTable.type]): Plan.Case =
@@ -94,8 +89,8 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * A MERGE whose source has two rows matching the same target row fails with a
-   * cardinality-violation error naming the multi-row match.
+   * A MERGE whose source has two rows matching the same target row fails with a cardinality-violation error naming the
+   * multi-row match.
    */
   private def negativeMergeCardinalityViolationCase(
       preparation: TablePreparation[CoreTable.type]): Plan.Case =
@@ -121,8 +116,8 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * CREATE TABLE PARTITIONED BY a nonexistent column is rejected with an AnalysisException naming
-   * that column, and no scratch table is left behind.
+   * CREATE TABLE PARTITIONED BY a nonexistent column is rejected with an AnalysisException naming that column, and no
+   * scratch table is left behind.
    */
   private def negativePartitionByNonExistentCase(
       preparation: TablePreparation[CoreTable.type]): Plan.Case =
@@ -151,10 +146,7 @@ trait NegativeDdlScenarios extends ScenarioKit {
         negativePartitionByNonExistentCase(preparation))
     }
 
-  /**
-   * ALTER TABLE DROP COLUMN is rejected with a BadRequestException naming the column that would be
-   * dropped.
-   */
+  /** ALTER TABLE DROP COLUMN is rejected with a BadRequestException naming the column that would be dropped. */
   private def ddlNegDropColumnCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
     preparation.test("ddl.neg.dropColumn") { table =>
       val exception = Check.intercept[BadRequestException](
@@ -170,8 +162,8 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * ALTER TABLE ALTER COLUMN to a narrower type (bigint to int) is rejected with an
-   * AnalysisException about the unsupported column change.
+   * ALTER TABLE ALTER COLUMN to a narrower type (bigint to int) is rejected with an AnalysisException about the
+   * unsupported column change.
    */
   private def ddlNegNarrowTypeCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
     preparation.test("ddl.neg.narrowType") { table =>
@@ -185,8 +177,8 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * ALTER TABLE ALTER COLUMN SET NOT NULL on a nullable column is rejected with an
-   * AnalysisException about the nullable-to-non-nullable change.
+   * ALTER TABLE ALTER COLUMN SET NOT NULL on a nullable column is rejected with an AnalysisException about the
+   * nullable-to-non-nullable change.
    */
   private def ddlNegSetNotNullCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
     preparation.test("ddl.neg.setNotNull") { table =>
@@ -223,8 +215,8 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * SET TBLPROPERTIES on the reserved openhouse.tableUUID property is rejected with a
-   * BadRequestException about the restriction.
+   * SET TBLPROPERTIES on the reserved openhouse.tableUUID property is rejected with a BadRequestException about the
+   * restriction.
    */
   private def ddlPropsReservedOpenhouseCase(
       preparation: TablePreparation[CoreTable.type]): Plan.Case =
@@ -240,8 +232,8 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * Even though format-version=1 was requested at creation, the table is forced to
-   * format-version=2 and remains writable.
+   * Even though format-version=1 was requested at creation, the table is forced to format-version=2 and remains
+   * writable.
    */
   private def ddlPropsFormatVersionForcedCase(
       formatVersionPreparation: TablePreparation[CoreTable.type]): Plan.Case =
@@ -256,10 +248,7 @@ trait NegativeDdlScenarios extends ScenarioKit {
         "table not writable at the forced format-version")
     }
 
-  /**
-   * The write.metadata.previous-versions-max property requested at creation is honored and reads
-   * back as 7.
-   */
+  /** The write.metadata.previous-versions-max property requested at creation is honored and reads back as 7. */
   private def ddlPropsPreviousVersionsHonoredCase(
       previousVersionsPreparation: TablePreparation[CoreTable.type]): Plan.Case =
     previousVersionsPreparation.test("ddl.props.previousVersionsHonored") { table =>
@@ -272,9 +261,9 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * The table-property cases. Two of them start from the preparedCoreFormats preparation for the
-   * file format, one from a table created with format-version=1 requested, and one from an unseeded
-   * table created with write.metadata.previous-versions-max=7.
+   * The table-property cases. Two of them start from the preparedCoreFormats preparation for the file format, one from
+   * a table created with format-version=1 requested, and one from an unseeded table created with
+   * write.metadata.previous-versions-max=7.
    */
   val ddlPropertyCases: List[Plan.Case] = preparedCoreFormats.flatMap { preparation =>
     val format = preparation.label
@@ -313,8 +302,8 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * ALTER TABLE WRITE ORDERED BY multiple columns sets range distribution and the table remains
-   * writable, growing from 3 to 5 rows after a follow-up insert.
+   * ALTER TABLE WRITE ORDERED BY multiple columns sets range distribution and the table remains writable, growing from
+   * 3 to 5 rows after a follow-up insert.
    */
   private def ddlSortOrderOrderedByMultiCase(
       preparation: TablePreparation[CoreTable.type]): Plan.Case =
@@ -334,9 +323,8 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * ALTER TABLE RENAME TO moves the table to the new name with its 3 rows intact, and the old name
-   * stops resolving. A second rename puts the table back under its original name, which teardown
-   * drops.
+   * ALTER TABLE RENAME TO moves the table to the new name with its 3 rows intact, and the old name stops resolving. A
+   * second rename puts the table back under its original name, which teardown drops.
    */
   private def ddlRenameTableCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
     preparation.test("ddl.renameTable") { table =>
@@ -351,10 +339,7 @@ trait NegativeDdlScenarios extends ScenarioKit {
       table.spark.sql(s"ALTER TABLE $renamedTable RENAME TO ${table.name}")
     }
 
-  /**
-   * ALTER TABLE RENAME TO a name that already exists is rejected with an error naming the
-   * conflict.
-   */
+  /** ALTER TABLE RENAME TO a name that already exists is rejected with an error naming the conflict. */
   private def ddlRenameTableConflictCase(
       preparation: TablePreparation[CoreTable.type],
       format: String): Plan.Case =
@@ -375,8 +360,8 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * CREATE NAMESPACE is rejected with an UnsupportedOperationException, since this catalog does
-   * not support creating namespaces.
+   * CREATE NAMESPACE is rejected with an UnsupportedOperationException, since this catalog does not support creating
+   * namespaces.
    */
   private def ddlNsCreateRejectedCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
     preparation.test("ddl.ns.createRejected") { table =>
@@ -389,8 +374,8 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * DROP NAMESPACE is rejected with an UnsupportedOperationException, since this catalog does not
-   * support dropping namespaces.
+   * DROP NAMESPACE is rejected with an UnsupportedOperationException, since this catalog does not support dropping
+   * namespaces.
    */
   private def ddlNsDropRejectedCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
     preparation.test("ddl.ns.dropRejected") { table =>
@@ -432,10 +417,7 @@ trait NegativeDdlScenarios extends ScenarioKit {
         "table not queryable after SET POLICY (SHARING)")
     }
 
-  /**
-   * SET POLICY (HISTORY MAX_AGE=2D VERSIONS=20) records the history policy and the table remains
-   * queryable.
-   */
+  /** SET POLICY (HISTORY MAX_AGE=2D VERSIONS=20) records the history policy and the table remains queryable. */
   private def ddlPolicyHistoryCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
     preparation.test("ddl.policy.history") { table =>
       table.spark.sql(
@@ -452,8 +434,7 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * SET POLICY (REPLICATION) followed by UNSET POLICY (REPLICATION) leaves the table queryable
-   * with its 3 rows intact.
+   * SET POLICY (REPLICATION) followed by UNSET POLICY (REPLICATION) leaves the table queryable with its 3 rows intact.
    */
   private def ddlPolicyReplicationCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
     preparation.test("ddl.policy.replication") { table =>
@@ -466,15 +447,15 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * SET POLICY (RETENTION = 30d ON COLUMN datepartition ...) records the retention policy and the
-   * table remains queryable.
+   * SET POLICY (RETENTION = 30d ON COLUMN foo_col_date ...) records the retention policy and the table remains
+   * queryable.
    */
   private def ddlPolicyRetentionCase(
       retentionPreparation: TablePreparation[CoreTable.type]): Plan.Case =
     retentionPreparation.test("ddl.policy.retention") { table =>
       table.spark.sql(
         s"ALTER TABLE ${table.name} SET POLICY (" +
-          "RETENTION = 30d ON COLUMN datepartition WHERE pattern = 'yyyy-MM-dd-HH')")
+          s"RETENTION = 30d ON COLUMN ${Core.date0.columnName} WHERE pattern = 'yyyy-MM-dd-HH')")
 
       val policies = tableProps(table.spark, table.name).getOrElse("policies", "")
 
@@ -487,8 +468,8 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * SET POLICY (HISTORY MAX_AGE=5D) exceeds the allowed range and is rejected with a
-   * BadRequestException stating the 1-to-3-day limit.
+   * SET POLICY (HISTORY MAX_AGE=5D) exceeds the allowed range and is rejected with a BadRequestException stating the
+   * 1-to-3-day limit.
    */
   private def ddlPolicyNegHistoryMaxAgeCase(
       preparation: TablePreparation[CoreTable.type]): Plan.Case =
@@ -503,8 +484,8 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * SET POLICY (HISTORY VERSIONS=200) exceeds the allowed range and is rejected with a
-   * BadRequestException stating the 2-to-100-version limit.
+   * SET POLICY (HISTORY VERSIONS=200) exceeds the allowed range and is rejected with a BadRequestException stating the
+   * 2-to-100-version limit.
    */
   private def ddlPolicyNegHistoryVersionsCase(
       preparation: TablePreparation[CoreTable.type]): Plan.Case =
@@ -519,9 +500,8 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * The table-policy cases. They start from the preparedCoreFormats preparation for the file
-   * format, except the retention case, which starts from three seed rows in a table partitioned by
-   * datepartition.
+   * The table-policy cases. They start from the preparedCoreFormats preparation for the file format, except the
+   * retention case, which starts from three seed rows in a table partitioned by the date column.
    */
   val ddlPolicyCases: List[Plan.Case] = preparedCoreFormats.flatMap { preparation =>
     val format = preparation.label
@@ -530,7 +510,7 @@ trait NegativeDdlScenarios extends ScenarioKit {
       TableTest(Core)
         .sql("create")(table =>
           s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
-            "PARTITIONED BY (datepartition) " +
+            s"PARTITIONED BY (${Core.date0.columnName}) " +
             s"TBLPROPERTIES ('write.format.default'='$format')")()
         .insert(3)())
 
@@ -544,8 +524,7 @@ trait NegativeDdlScenarios extends ScenarioKit {
   }
 
   /**
-   * ALTER TABLE MODIFY COLUMN SET TAG = (PII) tags a column without masking or changing the values
-   * that queries return.
+   * ALTER TABLE MODIFY COLUMN SET TAG = (PII) tags a column without masking or changing the values that queries return.
    */
   private def ddlColTagCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
     preparation.test("ddl.colTag") { table =>
@@ -567,8 +546,8 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * GRANT SELECT on a table that is not marked shared is rejected with an IllegalArgumentException
-   * stating the table is not shared.
+   * GRANT SELECT on a table that is not marked shared is rejected with an IllegalArgumentException stating the table is
+   * not shared.
    */
   private def ddlAclGrantUnsharedCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
     preparation.test("ddl.acl.grantUnshared") { table =>
@@ -581,8 +560,8 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * On a shared table, GRANT SELECT TO PUBLIC makes SHOW GRANTS list SELECT for PUBLIC and the
-   * table stays queryable; REVOKE SELECT then removes that grant from SHOW GRANTS.
+   * On a shared table, GRANT SELECT TO PUBLIC makes SHOW GRANTS list SELECT for PUBLIC and the table stays queryable;
+   * REVOKE SELECT then removes that grant from SHOW GRANTS.
    */
   private def ddlAclGrantSharedCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
     preparation
@@ -618,8 +597,7 @@ trait NegativeDdlScenarios extends ScenarioKit {
           "authorization service."))
 
   /**
-   * The write.distribution-mode=none property requested at creation is honored and the table
-   * remains writable under it.
+   * The write.distribution-mode=none property requested at creation is honored and the table remains writable under it.
    */
   private def ddlFeatureFlagDistributionModeCase(
       distributionModePreparation: TablePreparation[CoreTable.type]): Plan.Case =
@@ -636,8 +614,8 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * ALTER TABLE SET TBLPROPERTIES ('openhouse.tableType'='REPLICA_TABLE') is rejected with a
-   * BadRequestException, since table type cannot be changed after creation.
+   * ALTER TABLE SET TBLPROPERTIES ('openhouse.tableType'='REPLICA_TABLE') is rejected with a BadRequestException, since
+   * table type cannot be changed after creation.
    */
   private def ddlReplTableTypeImmutableCase(
       preparation: TablePreparation[CoreTable.type]): Plan.Case =
@@ -653,9 +631,9 @@ trait NegativeDdlScenarios extends ScenarioKit {
     }
 
   /**
-   * The column-tag, ACL and feature-flag cases. They start from the preparedCoreFormats preparation
-   * for the file format, except the distribution-mode case, which starts from three seed rows in a
-   * table created with write.distribution-mode=none.
+   * The column-tag, ACL and feature-flag cases. They start from the preparedCoreFormats preparation for the file
+   * format, except the distribution-mode case, which starts from three seed rows in a table created with
+   * write.distribution-mode=none.
    */
   val ddlTagAclFeatureCases: List[Plan.Case] = preparedCoreFormats.flatMap { preparation =>
     val format = preparation.label

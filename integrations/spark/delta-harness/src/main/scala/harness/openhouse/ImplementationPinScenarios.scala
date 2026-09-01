@@ -10,18 +10,18 @@ import scala.annotation.tailrec
 import scala.reflect.{ClassTag, classTag}
 import scala.util.control.NonFatal
 
-// Pins on the physical form of what the OSS build writes. A case here fixes an implementation
-// detail of the shipped write path, so a change to that detail shows up as a failing case. The
-// behavior a case pins is an artifact of how OSS is wired, not a documented product feature.
+// Pins on the physical form of what the OSS build writes. A case here fixes an implementation detail of the shipped
+// write path, so a change to that detail shows up as a failing case. The behavior a case pins is an artifact of how OSS
+// is wired, not a documented product feature.
 trait ImplementationPinScenarios extends ScenarioKit {
   import Rows._
 
   /**
-   * A data file's Parquet footer magic bytes are the plaintext PAR1 marker, confirming OSS writes
-   * table data in plaintext. OpenHouse delegates table-data encryption to an external KMS plugin
-   * and the OSS build wires no KeyManagementClient into the catalog, so tables use the default
-   * PlaintextEncryptionManager. A Parquet footer reads PAR1 for plaintext and PARE under modular
-   * encryption regardless of compression, so that magic value settles which path wrote the file.
+   * A data file's Parquet footer magic bytes are the plaintext PAR1 marker, confirming OSS writes table data in
+   * plaintext. OpenHouse delegates table-data encryption to an external KMS plugin and the OSS build wires no
+   * KeyManagementClient into the catalog, so tables use the default PlaintextEncryptionManager. A Parquet footer reads
+   * PAR1 for plaintext and PARE under modular encryption regardless of compression, so that magic value settles which
+   * path wrote the file.
    */
   private def surfacePinDataPlaintextCase(
       preparation: TablePreparation[CoreTable.type]): Plan.Case =

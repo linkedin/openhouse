@@ -25,8 +25,8 @@ trait NestedTypesScenarios extends ScenarioKit {
     TableTest(NestedTable).sql("create")(layout.create)().insert(numberOfRows)()
 
   /**
-   * Selecting the top-level id alongside struct, array, map and nested-struct fields reads back
-   * exactly the seeded values for all 3 rows.
+   * Selecting the top-level id alongside struct, array, map and nested-struct fields reads back exactly the seeded
+   * values for all 3 rows.
    */
   private def nestedRoundtripCase(preparation: TablePreparation[NestedTable.type]): Plan.Case =
     preparation.test("nested.roundtrip") { table =>
@@ -57,10 +57,7 @@ trait NestedTypesScenarios extends ScenarioKit {
       assert(actual == expected)
     }
 
-  /**
-   * Selecting only a nested struct field (s.x) returns just that field's values for all 3 rows, in
-   * id order.
-   */
+  /** Selecting only a nested struct field (s.x) returns just that field's values for all 3 rows, in id order. */
   private def nestedProjectFieldCase(preparation: TablePreparation[NestedTable.type]): Plan.Case =
     preparation.test("nested.projectField") { table =>
       val actual = table.spark
@@ -85,10 +82,7 @@ trait NestedTypesScenarios extends ScenarioKit {
       assert(actual == Seq(2L))
     }
 
-  /**
-   * UPDATE SET s.x = 99 WHERE id = 2 changes only that row's nested field and leaves every other
-   * row unchanged.
-   */
+  /** UPDATE SET s.x = 99 WHERE id = 2 changes only that row's nested field and leaves every other row unchanged. */
   private def nestedUpdateStructFieldCase(
       preparation: TablePreparation[NestedTable.type]): Plan.Case =
     preparation.test("nested.updateStructField") { table =>
@@ -108,8 +102,8 @@ trait NestedTypesScenarios extends ScenarioKit {
     }
 
   /**
-   * MERGE WHEN NOT MATCHED THEN INSERT with a fully nested source row adds a 4th row whose nested
-   * struct field reads back as inserted.
+   * MERGE WHEN NOT MATCHED THEN INSERT with a fully nested source row adds a 4th row whose nested struct field reads
+   * back as inserted.
    */
   private def nestedMergeInsertCase(preparation: TablePreparation[NestedTable.type]): Plan.Case =
     preparation.test("nested.mergeInsert") { table =>
@@ -140,10 +134,7 @@ trait NestedTypesScenarios extends ScenarioKit {
           .getInt(0) == 4)
     }
 
-  /**
-   * DELETE WHERE s.x = 2 filtering on a nested struct field removes only the matching row, leaving
-   * ids 1 and 3.
-   */
+  /** DELETE WHERE s.x = 2 filtering on a nested struct field removes only the matching row, leaving ids 1 and 3. */
   private def nestedDeleteByNestedFieldCase(
       preparation: TablePreparation[NestedTable.type]): Plan.Case =
     preparation
@@ -164,8 +155,8 @@ trait NestedTypesScenarios extends ScenarioKit {
           "rewrite."))
 
   /**
-   * Inserting a row with NULL struct, empty array and empty map reads back a null struct and an
-   * empty array for that row.
+   * Inserting a row with NULL struct, empty array and empty map reads back a null struct and an empty array for that
+   * row.
    */
   private def nestedNullValuesCase(preparation: TablePreparation[NestedTable.type]): Plan.Case =
     preparation.test("nested.nullValues") { table =>
@@ -186,8 +177,8 @@ trait NestedTypesScenarios extends ScenarioKit {
     }
 
   /**
-   * The nested-type cases. Each preparation holds three seed rows with struct, array, map and
-   * doubly-nested struct fields in one unpartitioned nested layout.
+   * The nested-type cases. Each preparation holds three seed rows with struct, array, map and doubly-nested struct
+   * fields in one unpartitioned nested layout.
    */
   val nestedCases: List[Plan.Case] =
     nestedLayouts
@@ -228,8 +219,8 @@ trait NestedTypesScenarios extends ScenarioKit {
       s"DATE '${timestamp.take(10)}', TIMESTAMP '$timestamp', TIMESTAMP_NTZ '$timestamp')"
 
   /**
-   * Selecting id, n, x, dec and str for the first seeded row reads back the exact long, int,
-   * double, decimal and string values that were seeded.
+   * Selecting id, n, x, dec and str for the first seeded row reads back the exact long, int, double, decimal and string
+   * values that were seeded.
    */
   private def typesRoundtripCase(preparation: TablePreparation[TypesTable.type]): Plan.Case =
     preparation.test("types.roundtrip") { table =>
@@ -249,8 +240,8 @@ trait NestedTypesScenarios extends ScenarioKit {
     }
 
   /**
-   * Inserting a row with every non-key column NULL reads back as null for the int, double, string,
-   * timestamp and timestamp_ntz columns.
+   * Inserting a row with every non-key column NULL reads back as null for the int, double, string, timestamp and
+   * timestamp_ntz columns.
    */
   private def typesNullsCase(preparation: TablePreparation[TypesTable.type]): Plan.Case =
     preparation.test("types.nulls") { table =>
@@ -267,10 +258,7 @@ trait NestedTypesScenarios extends ScenarioKit {
       assert((0 to 4).forall(row.isNullAt))
     }
 
-  /**
-   * Inserting rows with double('NaN') and double('Infinity') reads back as NaN and positive
-   * infinity respectively.
-   */
+  /** Inserting rows with double('NaN') and double('Infinity') reads back as NaN and positive infinity respectively. */
   private def typesSpecialFloatsCase(preparation: TablePreparation[TypesTable.type]): Plan.Case =
     preparation.test("types.specialFloats") { table =>
       table.spark.sql(
@@ -293,8 +281,8 @@ trait NestedTypesScenarios extends ScenarioKit {
     }
 
   /**
-   * Inserting a row at Long.MaxValue, Int.MaxValue and a max-precision decimal reads those
-   * boundary values back unchanged.
+   * Inserting a row at Long.MaxValue, Int.MaxValue and a max-precision decimal reads those boundary values back
+   * unchanged.
    */
   private def typesBoundariesCase(preparation: TablePreparation[TypesTable.type]): Plan.Case =
     preparation.test("types.boundaries") { table =>
@@ -341,8 +329,8 @@ trait NestedTypesScenarios extends ScenarioKit {
     }
 
   /**
-   * The type-edge cases. Each preparation holds three seed rows covering the int, double, decimal,
-   * string, binary, date, timestamp and timestamp_ntz columns in one unpartitioned types layout.
+   * The type-edge cases. Each preparation holds three seed rows covering the int, double, decimal, string, binary,
+   * date, timestamp and timestamp_ntz columns in one unpartitioned types layout.
    */
   val typesCases: List[Plan.Case] =
     typesLayouts
@@ -362,10 +350,9 @@ trait NestedTypesScenarios extends ScenarioKit {
   // Partition transforms and evolution.
 
   /**
-   * One supported partition transform: a table PARTITIONED BY that transform reports a single
-   * partition field with the expected name in its partitions metadata table, and the seeded rows
-   * land in the expected number of distinct partitions. The transform, its partition field name,
-   * and that partition count are the parameters.
+   * One supported partition transform: a table PARTITIONED BY that transform reports a single partition field with the
+   * expected name in its partitions metadata table, and the seeded rows land in the expected number of distinct
+   * partitions. The transform, its partition field name, and that partition count are the parameters.
    */
   private def supportedPartitionTransformCase(
       format: String,
@@ -405,9 +392,9 @@ trait NestedTypesScenarios extends ScenarioKit {
       }
 
   /**
-   * One rejected partition transform: CREATE TABLE PARTITIONED BY that transform fails with a
-   * RuntimeException carrying the expected message, and no scratch table is left behind. The
-   * transform and the expected message are the parameters.
+   * One rejected partition transform: CREATE TABLE PARTITIONED BY that transform fails with a RuntimeException carrying
+   * the expected message, and no scratch table is left behind. The transform and the expected message are the
+   * parameters.
    */
   private def rejectedPartitionTransformCase(
       format: String,
@@ -464,9 +451,9 @@ trait NestedTypesScenarios extends ScenarioKit {
     }
 
   /**
-   * On three seed rows in an unpartitioned table in the given file format, ALTER TABLE ADD
-   * PARTITION FIELD is rejected with an exception stating that evolution of table partitioning is
-   * unsupported, which leaves recreating the table as the way to change partitioning.
+   * On three seed rows in an unpartitioned table in the given file format, ALTER TABLE ADD PARTITION FIELD is rejected
+   * with an exception stating that evolution of table partitioning is unsupported, which leaves recreating the table as
+   * the way to change partitioning.
    */
   private def partitionEvolutionAddRejectedCase(format: String): Plan.Case =
     TablePreparation(
@@ -479,16 +466,15 @@ trait NestedTypesScenarios extends ScenarioKit {
       .test("partition.evolutionAdd.rejected") { table =>
         val exception = Check.intercept[Exception](
           table.spark.sql(
-            s"ALTER TABLE ${table.name} ADD PARTITION FIELD datepartition"))
+            s"ALTER TABLE ${table.name} ADD PARTITION FIELD ${Core.date0.columnName}"))
 
         assert(
           exception.getMessage.contains("Evolution of table partitioning"))
       }
 
   /**
-   * On three seed rows in a table partitioned by datepartition in the given file format, ALTER
-   * TABLE DROP PARTITION FIELD is rejected with an exception stating that evolution of table
-   * partitioning is unsupported.
+   * On three seed rows in a table partitioned by the date column in the given file format, ALTER TABLE DROP PARTITION
+   * FIELD is rejected with an exception stating that evolution of table partitioning is unsupported.
    */
   private def partitionEvolutionDropRejectedCase(format: String): Plan.Case =
     TablePreparation(
@@ -496,13 +482,13 @@ trait NestedTypesScenarios extends ScenarioKit {
       TableTest(Core)
         .sql("create")(table =>
           s"CREATE TABLE $table ($columnDefinitions) USING $dataSource " +
-            "PARTITIONED BY (datepartition) " +
+            s"PARTITIONED BY (${Core.date0.columnName}) " +
             s"TBLPROPERTIES ('write.format.default'='$format')")()
         .insert(3)())
       .test("partition.evolutionDrop.rejected") { table =>
         val exception = Check.intercept[Exception](
           table.spark.sql(
-            s"ALTER TABLE ${table.name} DROP PARTITION FIELD datepartition"))
+            s"ALTER TABLE ${table.name} DROP PARTITION FIELD ${Core.date0.columnName}"))
 
         assert(
           exception.getMessage.contains("Evolution of table partitioning"))

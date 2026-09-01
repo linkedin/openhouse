@@ -10,15 +10,15 @@ import scala.annotation.tailrec
 import scala.reflect.{ClassTag, classTag}
 import scala.util.control.NonFatal
 
-// The standard interaction families. Each case composes two table operations, so it shows how a
-// DDL change, a snapshot reference, a maintenance procedure and a property setting behave against
-// each other on a plain copy-on-write table. The cases run on parquet and orc.
+// The standard interaction families. Each case composes two table operations, so it shows how a DDL change, a snapshot
+// reference, a maintenance procedure and a property setting behave against each other on a plain copy-on-write table.
+// The cases run on parquet and orc.
 trait InteractionScenarios extends ScenarioKit {
   import Rows._
 
   /**
-   * After ADD COLUMN and an insert into the new column, time travel to the pre-DDL snapshot reads
-   * the old schema with 3 rows, while a current read sees the new column.
+   * After ADD COLUMN and an insert into the new column, time travel to the pre-DDL snapshot reads the old schema with 3
+   * rows, while a current read sees the new column.
    */
   private def interactDdlTtAfterAddColumnCase(
       preparation: TablePreparation[CoreTable.type]): Plan.Case =
@@ -58,9 +58,8 @@ trait InteractionScenarios extends ScenarioKit {
     }
 
   /**
-   * Rolling back to the pre-DDL snapshot after ADD COLUMN and an insert keeps the evolved schema,
-   * restores 3 rows reading null for the new column, and the table still accepts writes into that
-   * column.
+   * Rolling back to the pre-DDL snapshot after ADD COLUMN and an insert keeps the evolved schema, restores 3 rows
+   * reading null for the new column, and the table still accepts writes into that column.
    */
   private def interactDdlRestoreAfterAddColumnCase(
       preparation: TablePreparation[CoreTable.type]): Plan.Case =
@@ -109,8 +108,8 @@ trait InteractionScenarios extends ScenarioKit {
     }
 
   /**
-   * DROP COLUMN on a column that holds data is rejected, the column's data remains readable, and
-   * the table remains writable.
+   * DROP COLUMN on a column that holds data is rejected, the column's data remains readable, and the table remains
+   * writable.
    */
   private def interactDdlDropColAfterDataCase(
       preparation: TablePreparation[CoreTable.type]): Plan.Case =
@@ -144,10 +143,7 @@ trait InteractionScenarios extends ScenarioKit {
         "rejected drop should leave the table writable")
     }
 
-  /**
-   * The DDL interactions. Every case starts from three seed rows in a table in the given file
-   * format.
-   */
+  /** The DDL interactions. Every case starts from three seed rows in a table in the given file format. */
   def interactionDdlCases(format: String): List[Plan.Case] = {
     val preparation = TablePreparation(
       format,
@@ -164,8 +160,8 @@ trait InteractionScenarios extends ScenarioKit {
   }
 
   /**
-   * Compacting a table after an ADD COLUMN and inserts into the new column preserves all rows, the
-   * new column's non-null values, and null for rows written before the column was added.
+   * Compacting a table after an ADD COLUMN and inserts into the new column preserves all rows, the new column's
+   * non-null values, and null for rows written before the column was added.
    */
   private def interactMaintCompactEvolvedCase(
       basePreparation: TablePreparation[CoreTable.type]): Plan.Case =
@@ -206,10 +202,7 @@ trait InteractionScenarios extends ScenarioKit {
         s"pre-evolution rows should remain null, got $nullValueCount")
     }
 
-  /**
-   * The maintenance interactions. The case starts from three seed rows in a table in the given
-   * file format.
-   */
+  /** The maintenance interactions. The case starts from three seed rows in a table in the given file format. */
   def interactionMiscellaneousCases(
       format: String): List[Plan.Case] = {
     val basePreparation = TablePreparation(

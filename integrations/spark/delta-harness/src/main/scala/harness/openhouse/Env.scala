@@ -50,8 +50,8 @@ object OpenHouseEnv {
       .config(s"spark.sql.catalog.$name.auth-token", token)
 
   def start(): (OpenHouseLocalServer, SparkSession, String, String) = {
-    // The embedded server uses Hibernate to create its H2 schema. Hibernate owns initialization for
-    // this process, so classpath SQL initialization stays disabled.
+    // The embedded server uses Hibernate to create its H2 schema. Hibernate owns initialization for this process, so
+    // classpath SQL initialization stays disabled.
     System.setProperty("spring.sql.init.mode", "never")
     System.setProperty("spring.jpa.hibernate.ddl-auto", "create-drop")
 
@@ -98,8 +98,8 @@ object Main {
       spark.sparkContext.setLogLevel("ERROR")
       val ctx = Ctx(spark, "openhouse.dbMatrix", restUri, restToken)
 
-      // Each command-line argument is an include substring. A case runs when its ID contains every
-      // provided substring. An empty argument list selects the full catalog.
+      // Each command-line argument is an include substring. A case runs when its ID contains every provided substring.
+      // An empty argument list selects the full catalog.
       val filters = args.toList
       val cases = Plan.cases.filter(testCase =>
         filters.forall(testCase.id.contains))
@@ -112,8 +112,8 @@ object Main {
         }
       println(s"\n=== delta-harness :: localized cases @ OpenHouse catalog ($header) ===\n")
 
-      // Each case owns a fresh table. Worker tasks use separate Spark sessions over the shared
-      // Spark context, and results are printed in catalog order.
+      // Each case owns a fresh table. Worker tasks use separate Spark sessions over the shared Spark context, and
+      // results are printed in catalog order.
       val parallelism = sys.env.get("HARNESS_PARALLELISM").map(_.toInt)
         .getOrElse(math.max(1, Runtime.getRuntime.availableProcessors()))
       println(s"parallelism: $parallelism worker sessions\n")

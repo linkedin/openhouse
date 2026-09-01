@@ -9,14 +9,13 @@ import scala.annotation.tailrec
 import scala.reflect.{ClassTag, classTag}
 import scala.util.control.NonFatal
 
-// The harness defines typed, reusable table preparations and localized Plan.Case bodies.
-// Each case gets a fresh table, executes its preparation, runs its action and assertions,
-// and drops the table during teardown.
+// The harness defines typed, reusable table preparations and localized Plan.Case bodies. Each case gets a fresh table,
+// executes its preparation, runs its action and assertions, and drops the table during teardown.
 
 final case class Ctx(spark: SparkSession, namespace: String, restUri: String = "", restToken: String = "")
 
-// Minimal REST client to the embedded OpenHouse server (control-plane ops with no SQL surface:
-// lock/unlock). Uses JDK 17's java.net.http; auth is the same Bearer token the Spark catalog uses.
+// Minimal REST client to the embedded OpenHouse server (control-plane ops with no SQL surface: lock/unlock). Uses JDK
+// 17's java.net.http; auth is the same Bearer token the Spark catalog uses.
 object Rest {
   import java.net.http.{HttpClient, HttpRequest, HttpResponse}
   import java.net.URI
@@ -75,8 +74,8 @@ object Exceptions {
   def root(throwable: Throwable): Throwable = causeChain(throwable).last
 
   /**
-   * Retries errors positively identified as transient. Other failures remain terminal so data,
-   * permission, and assertion failures surface on their first attempt.
+   * Retries errors positively identified as transient. Other failures remain terminal so data, permission, and
+   * assertion failures surface on their first attempt.
    */
   def isTransient(throwable: Throwable): Boolean = causeChain(throwable).exists {
     case _: java.net.SocketTimeoutException => true
@@ -86,12 +85,10 @@ object Exceptions {
   }
 }
 
-// Tests assert with plain `assert`; a failed assertion throws AssertionError, which is NonFatal
-// and so is caught at the Runner edge and reported as a (terminal) failure.
+// Tests assert with plain `assert`; a failed assertion throws AssertionError, which is NonFatal and so is caught at the
+// Runner edge and reported as a (terminal) failure.
 object Check {
-  /**
-   * Requires `operation` to throw `E` and returns the exception for message assertions.
-   */
+  /** Requires `operation` to throw `E` and returns the exception for message assertions. */
   def intercept[E <: Throwable: ClassTag](operation: => Unit): E = {
     val expected = classTag[E].runtimeClass
     val caught: Option[Throwable] =
@@ -116,10 +113,9 @@ object Check {
   }
 }
 
-// `Column[T]` carries the Scala type the column reads back as, so typed
-// row access (`row.get(CoreTable.long0): Long`) is compiler-checked. `literalAt(rowIndex)` is a
-// pure function of the row index, so generated data is reproducible. Value generation lives on
-// the column, which keeps RowGenerator a plain iteration with no knowledge of types.
+// `Column[T]` carries the Scala type the column reads back as, so typed row access (`row.get(CoreTable.long0): Long`)
+// is compiler-checked. `literalAt(rowIndex)` is a pure function of the row index, so generated data is reproducible.
+// Value generation lives on the column, which keeps RowGenerator a plain iteration with no knowledge of types.
 final case class Column[T](columnName: String, sqlType: String, literalAt: Int => String)
 
 sealed trait Schema {
@@ -134,27 +130,29 @@ object Rows {
   }
 }
 
-// A representative core table with one column per common data type and a string date partition.
-// Tests reference columns through these handles, so a column rename propagates to every caller.
+// A representative core table with one column per common data type and a string-encoded date. Tests reference columns
+// through these handles, so a column rename propagates to every caller.
 object CoreTable extends Schema {
-  val long0:         Column[Long]    = Column("foo_col_long",    "bigint",  rowIndex => rowIndex.toString)
-  val int0:          Column[Int]     = Column("foo_col_int",     "int",     rowIndex => rowIndex.toString)
-  val string0:       Column[String]  = Column("foo_col_string",  "string",  rowIndex => s"'row-$rowIndex'")
-  val double0:       Column[Double]  = Column("foo_col_double",  "double",  rowIndex => s"$rowIndex.5")
-  val boolean0:      Column[Boolean] = Column("foo_col_boolean", "boolean", rowIndex => if (rowIndex % 2 == 0) "true" else "false")
-  val datePartition: Column[String]  = Column("datepartition",   "string",  rowIndex => s"'${CoreTable.datePartitionLiteral(rowIndex)}'")
-  def tableColumns: Seq[Column[_]] = Seq(long0, int0, string0, double0, boolean0, datePartition)
+  val long0:    Column[Long]    = Column("foo_col_long",    "bigint",  rowIndex => rowIndex.toString)
+  val int0:     Column[Int]     = Column("foo_col_int",     "int",     rowIndex => rowIndex.toString)
+  val string0:  Column[String]  = Column("foo_col_string",  "string",  rowIndex => s"'row-$rowIndex'")
+  val double0:  Column[Double]  = Column("foo_col_double",  "double",  rowIndex => s"$rowIndex.5")
+  val boolean0: Column[Boolean] =
+    Column("foo_col_boolean", "boolean", rowIndex => if (rowIndex % 2 == 0) "true" else "false")
+  val date0: Column[String] =
+    Column("foo_col_date", "string", rowIndex => s"'${CoreTable.dateLiteral(rowIndex)}'")
+  def tableColumns: Seq[Column[_]] = Seq(long0, int0, string0, double0, boolean0, date0)
 
-  private val DatePartitionFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd-HH")
-  private val DatePartitionEpoch  = LocalDateTime.of(2024, 1, 1, 0, 0)
+  private val DateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd-HH")
+  private val DateEpoch  = LocalDateTime.of(2024, 1, 1, 0, 0)
 
-  /** Deterministic YYYY-MM-DD-HH partition value (one hour per row), formatted via java.time. */
-  def datePartitionLiteral(rowIndex: Int): String =
-    DatePartitionEpoch.plusHours((rowIndex - 1).toLong).format(DatePartitionFormat)
+  /** Deterministic YYYY-MM-DD-HH date value (one hour per row), formatted via java.time. */
+  def dateLiteral(rowIndex: Int): String =
+    DateEpoch.plusHours((rowIndex - 1).toLong).format(DateFormat)
 }
 
-// A schema exercising complex/nested types: a struct, an array, a map, and a struct-in-struct.
-// Struct/array read back as Row/Seq; map as a Map. `id` is first so it is the ordering key.
+// A schema exercising complex/nested types: a struct, an array, a map, and a struct-in-struct. Struct/array read back
+// as Row/Seq; map as a Map. `id` is first so it is the ordering key.
 object NestedTable extends Schema {
   val id:     Column[Long]            = Column("id",     "bigint",                      rowIndex => rowIndex.toString)
   val s:      Column[Row]             = Column("s",      "struct<x:int,y:string>",      rowIndex => s"named_struct('x', $rowIndex, 'y', 'row-$rowIndex')")
@@ -167,8 +165,8 @@ object NestedTable extends Schema {
     "id bigint, s struct<x:int,y:string>, arr array<int>, m map<string,int>, nested struct<inner:struct<z:int>>"
 }
 
-// A schema for type-edge coverage: the common scalar types, exercised with nulls, special float
-// values, boundary values, and unicode/empty strings.
+// A schema for type-edge coverage: the common scalar types, exercised with nulls, special float values, boundary
+// values, and unicode/empty strings.
 object TypesTable extends Schema {
   val id:    Column[Long]   = Column("id",    "bigint",        rowIndex => rowIndex.toString)
   val n:     Column[Int]    = Column("n",     "int",           rowIndex => rowIndex.toString)
@@ -212,9 +210,9 @@ object RowGenerator {
 }
 
 /**
- * What a step's validation thunk sees: the live table, its rows before and after the step, and
- * the table's snapshot (commit) count before and after, so a test can assert the delta in both
- * data and commits (e.g. "a no-match UPDATE still commits exactly one snapshot").
+ * What a step's validation thunk sees: the live table, its rows before and after the step, and the table's snapshot
+ * (commit) count before and after, so a test can assert the delta in both data and commits (e.g. "a no-match UPDATE
+ * still commits exactly one snapshot").
  */
 final case class StepView[S <: Schema](
   spark:           SparkSession,
@@ -262,8 +260,8 @@ final case class Step[S <: Schema](
 final class TableTest[S <: Schema] private (val schema: S, val steps: Vector[Step[S]]) {
   private def add(step: Step[S]): TableTest[S] = new TableTest(schema, steps :+ step)
 
-  // The default validator asserts the seed actually appended `numberOfRows` rows. This defends the
-  // localized assertions from a vacuous pass on an empty or short baseline.
+  // The default validator asserts the seed actually appended `numberOfRows` rows. This defends the localized assertions
+  // from a vacuous pass on an empty or short baseline.
   def insert(numberOfRows: Int)(
       validate: StepView[S] => Unit = view => assert(
         view.after.size == view.before.size + numberOfRows,
@@ -283,8 +281,8 @@ final class TableTest[S <: Schema] private (val schema: S, val steps: Vector[Ste
     step(label)((spark, table) => spark.sql(statement(table)))(validate)
 
   /**
-   * Execute these steps as a reusable preparation, then hand the prepared table to one localized
-   * test body. The fresh-table lifecycle covers both the preparation and the test body.
+   * Execute these steps as a reusable preparation, then hand the prepared table to one localized test body. The
+   * fresh-table lifecycle covers both the preparation and the test body.
    */
   def prepare(ctx: Ctx)(use: PreparedTable[S] => Unit): Unit =
     withTable(ctx) { (table, markTableCreated) =>
@@ -311,10 +309,9 @@ final class TableTest[S <: Schema] private (val schema: S, val steps: Vector[Ste
     use(PreparedTable(ctx.spark, table, schema, preparedRows, preparedSnapshotCount))
   }
 
-  // Gives the preparation a unique table name and drops that table after the test. Cleanup starts
-  // only after the first preparation step creates the table, so a name conflict preserves the
-  // pre-existing table. A test failure stays primary, and a cleanup failure is attached to it as a
-  // suppressed exception.
+  // Gives the preparation a unique table name and drops that table after the test. Cleanup starts only after the first
+  // preparation step creates the table, so a name conflict preserves the pre-existing table. A test failure stays
+  // primary, and a cleanup failure is attached to it as a suppressed exception.
   private def withTable(ctx: Ctx)(use: (String, () => Unit) => Unit): Unit = {
     val table = TableTest.nextQualifiedTableName(ctx.namespace)
     OwnedTableLifecycle.withOwnership(
@@ -368,9 +365,8 @@ final case class TablePreparation[S <: Schema](
   afterTest: PreparedTable[S] => Unit = (_: PreparedTable[S]) => ()
 ) {
   /**
-   * Build the case that runs `body` against one freshly prepared table. The case ID combines the
-   * preparation's prefix and label with `caseName`, so one test body yields a separate case on
-   * every preparation it runs on.
+   * Build the case that runs `body` against one freshly prepared table. The case ID combines the preparation's prefix
+   * and label with `caseName`, so one test body yields a separate case on every preparation it runs on.
    */
   def test(caseName: String)(body: PreparedTable[S] => Unit): Plan.Case =
     Plan.Case(

@@ -14,16 +14,15 @@ trait MaintControlScenarios extends ScenarioKit {
   import Rows._
 
   /**
-   * A five-row table across two snapshots in the given file format: a 3-row seed commit, then a
-   * 2-row insert committed at a later timestamp. Time travel, restore and maintenance all start
-   * from this state.
+   * A five-row table across two snapshots in the given file format: a 3-row seed commit, then a 2-row insert committed
+   * at a later timestamp. Time travel, restore and maintenance all start from this state.
    */
   private def twoSnapshotPreparation(format: String): TablePreparation[CoreTable.type] =
     TablePreparation(format, coreTwoSnapshots(format))
 
   /**
-   * VERSION AS OF the first snapshot ID reads the 3 rows the seed commit wrote, and VERSION AS OF
-   * the second reads all 5 rows.
+   * VERSION AS OF the first snapshot ID reads the 3 rows the seed commit wrote, and VERSION AS OF the second reads all
+   * 5 rows.
    */
   private def timeTravelVersionAsOfCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
     preparation.test("timeTravel.versionAsOf") { table =>
@@ -66,8 +65,8 @@ trait MaintControlScenarios extends ScenarioKit {
     }
 
   /**
-   * The snapshots and history metadata tables each report the table's 2 snapshots, and the files
-   * and manifests metadata tables report at least 1 row.
+   * The snapshots and history metadata tables each report the table's 2 snapshots, and the files and manifests metadata
+   * tables report at least 1 row.
    */
   private def timeTravelMetadataTablesCase(
       preparation: TablePreparation[CoreTable.type]): Plan.Case =
@@ -151,10 +150,7 @@ trait MaintControlScenarios extends ScenarioKit {
         restoreSetCurrentSnapshotCase(preparation))
     }
 
-  /**
-   * expire_snapshots with retain_last=1 removes the seed snapshot and leaves all 5 current rows
-   * unchanged.
-   */
+  /** expire_snapshots with retain_last=1 removes the seed snapshot and leaves all 5 current rows unchanged. */
   private def maintenanceExpireSnapshotsCase(
       preparation: TablePreparation[CoreTable.type]): Plan.Case =
     preparation.test("maintenance.expireSnapshots") { table =>
@@ -208,10 +204,9 @@ trait MaintControlScenarios extends ScenarioKit {
     }
 
   /**
-   * POSTing a table lock causes a following Spark UPDATE to be rejected server-side with
-   * LOCKED_TABLE_OPERATION, and DELETEing the lock lets a later UPDATE apply. The lock endpoint has
-   * no SQL surface, so the case drives it over HTTP against the embedded server, which runs the
-   * same TablesController and TablesServiceImpl as production.
+   * POSTing a table lock causes a following Spark UPDATE to be rejected server-side with LOCKED_TABLE_OPERATION, and
+   * DELETEing the lock lets a later UPDATE apply. The lock endpoint has no SQL surface, so the case drives it over HTTP
+   * against the embedded server, which runs the same TablesController and TablesServiceImpl as production.
    */
   def controlLockEnforcement(ctx: Ctx): Unit = {
     val spark = ctx.spark

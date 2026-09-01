@@ -4,9 +4,9 @@ import org.junit.jupiter.api.Assertions.{assertEquals, assertTrue}
 import org.junit.jupiter.api.Test
 
 /**
- * Pins the shape the standard DML tests are written in: one list of test cases, one list of
- * preparations, and a bucket that is the cross of the two. Each feature layer pins its own buckets
- * in its own test. Reading these lists does not execute a case or start Spark.
+ * Pins the shape the standard DML tests are written in: one list of test cases, one list of preparations, and a bucket
+ * that is the cross of the two. Each feature layer pins its own buckets in its own test. Reading these lists does not
+ * execute a case or start Spark.
  */
 final class DmlCaseCatalogTest {
   private val expectedReadTestCaseIds = List("read.projection", "read.filter")

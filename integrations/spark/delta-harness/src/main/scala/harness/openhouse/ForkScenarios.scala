@@ -10,21 +10,18 @@ import scala.annotation.tailrec
 import scala.reflect.{ClassTag, classTag}
 import scala.util.control.NonFatal
 
-// The fork cases. OpenHouse compiles and runs against LinkedIn's fork of Apache Iceberg, the
-// com.linkedin.iceberg artifacts this module depends on, and a case here pins a behavior the
-// Iceberg library decides rather than one the catalog exposes: the column-default path, the write
-// distribution default for a partitioned write, the output-file replication key, the read split
-// size, and the compaction plan. These behaviors have no catalog SQL surface of their own, so a
-// case reaches them through the Iceberg API or a Spark configuration and asserts the result a
-// caller can observe.
+// The fork cases pin behavior decided by LinkedIn's fork of Apache Iceberg, the com.linkedin.iceberg artifacts this
+// module depends on: the column-default path, the write distribution default for a partitioned write, the output-file
+// replication key, the read split size, and the compaction plan. These behaviors have no catalog SQL surface of their
+// own, so a case reaches them through the Iceberg API or a Spark configuration and asserts the result a caller can
+// observe.
 trait ForkScenarios extends ScenarioKit {
   import Rows._
 
   /**
-   * ALTER TABLE ADD COLUMN c int DEFAULT 5 parses, and the default value stops at the parser: the
-   * committed schema records no default for c, pre-existing rows read null for it, and an INSERT
-   * that omits c is rejected with INCOMPATIBLE_DATA_FOR_TABLE.CANNOT_FIND_DATA. The file format is
-   * the parameter.
+   * ALTER TABLE ADD COLUMN c int DEFAULT 5 parses, and the default value stops at the parser: the committed schema
+   * records no default for c, pre-existing rows read null for it, and an INSERT that omits c is rejected with
+   * INCOMPATIBLE_DATA_FOR_TABLE.CANNOT_FIND_DATA. The file format is the parameter.
    */
   private def forkColDefaultAddColumn(fmt: String)(ctx: Ctx): Unit = {
     val spark = ctx.spark
@@ -60,13 +57,12 @@ trait ForkScenarios extends ScenarioKit {
   }
 
   /**
-   * A NestedField built with an initial default serializes initial-default into the schema JSON,
-   * and that value survives a fromJson then toJson round trip. SchemaParser.toJson takes no
-   * format-version parameter, so the key serializes the same at every format version. On an
-   * artifact whose NestedField exposes no builder, the column-default API is absent entirely, down
-   * to the initialDefault and writeDefault accessors, and the case pins that absence. Reflection
-   * reaches the builder because some Iceberg release jars leave it out, which a direct reference
-   * would fail to compile against.
+   * A NestedField built with an initial default serializes initial-default into the schema JSON, and that value
+   * survives a fromJson then toJson round trip. SchemaParser.toJson takes no format-version parameter, so the key
+   * serializes the same at every format version. On an artifact whose NestedField exposes no builder, the
+   * column-default API is absent entirely, down to the initialDefault and writeDefault accessors, and the case pins
+   * that absence. Reflection reaches the builder because some Iceberg release jars leave it out, which a direct
+   * reference would fail to compile against.
    */
   private def forkColDefaultApiSerialization(ctx: Ctx): Unit = {
     val nestedFieldCls = Class.forName("org.apache.iceberg.types.Types$NestedField")
@@ -104,8 +100,8 @@ trait ForkScenarios extends ScenarioKit {
     // (a) The default is serialized into the schema JSON.
     assert(json.contains("initial-default"),
       s"expected SchemaParser to serialize 'initial-default' into the schema JSON, got: $json")
-    // (b) toJson takes no format-version argument, so the key serializes the same regardless of format version.
-    // (c) The value round-trips through fromJson then toJson.
+    // (b) toJson takes no format-version argument, so the key serializes the same regardless of format version. (c) The
+    // value round-trips through fromJson then toJson.
     val reparsed = org.apache.iceberg.SchemaParser.fromJson(json)
     val json2 = org.apache.iceberg.SchemaParser.toJson(reparsed)
     assert(json2.contains("initial-default"),
@@ -114,8 +110,8 @@ trait ForkScenarios extends ScenarioKit {
   }
 
   /**
-   * Reflectively builds an optional int NestedField carrying the given initial default. Returns
-   * None when the builder API is absent, so a caller can assert that absence directly.
+   * Reflectively builds an optional int NestedField carrying the given initial default. Returns None when the builder
+   * API is absent, so a caller can assert that absence directly.
    */
   private def buildDefaultedIntField(id: Int, name: String, dflt: Int): Option[org.apache.iceberg.types.Types.NestedField] = {
     val nfCls = Class.forName("org.apache.iceberg.types.Types$NestedField")
@@ -133,11 +129,10 @@ trait ForkScenarios extends ScenarioKit {
   }
 
   /**
-   * A column default added after data files exist persists into the committed schema. The schema
-   * evolution goes through the low-level TableMetadata API because the public UpdateSchema surface
-   * has no set-default operation. The documented read contract covers schema persistence only. The
-   * case prints the OSS Spark read result for pre-existing rows as diagnostic output, while its
-   * assertions stop at the persisted schema.
+   * A column default added after data files exist persists into the committed schema. The schema evolution goes through
+   * the low-level TableMetadata API because the public UpdateSchema surface has no set-default operation. The
+   * documented read contract covers schema persistence only. The case prints the OSS Spark read result for pre-existing
+   * rows as diagnostic output, while its assertions stop at the persisted schema.
    */
   private def forkColDefaultReadApplyProbe(ctx: Ctx): Unit = {
     val spark = ctx.spark
@@ -180,8 +175,8 @@ trait ForkScenarios extends ScenarioKit {
     assert(persisted.contains("initial-default"),
       s"expected initial-default to persist into the committed schema, got: $persisted")
 
-    // Recorded for reference only: the read path's treatment of the defaulted column over old files is
-    // not part of this connector's documented contract.
+    // Recorded for reference only: the read path's treatment of the defaulted column over old files is not part of this
+    // connector's documented contract.
     spark.sql(s"REFRESH TABLE $t")
     val vals = spark.sql(s"SELECT c FROM $t ORDER BY id").collect()
                  .map(r => if (r.isNullAt(0)) "NULL" else r.getInt(0).toString)
@@ -191,12 +186,11 @@ trait ForkScenarios extends ScenarioKit {
   }
 
   /**
-   * A partitioned write defaults write.distribution-mode to NONE, so every input task writes every
-   * partition it holds and one append produces up to (input tasks times partitions) data files.
-   * Under an explicit HASH distribution the writer shuffles rows so one task owns each partition,
-   * clustering the append to roughly one file per partition. Appending the same multi-task
-   * DataFrame into a 4-partition table under each mode therefore yields at least as many files
-   * under the default as under HASH. The file format is the parameter.
+   * A partitioned write defaults write.distribution-mode to NONE, so every input task writes every partition it holds
+   * and one append produces up to (input tasks times partitions) data files. Under an explicit HASH distribution the
+   * writer shuffles rows so one task owns each partition, clustering the append to roughly one file per partition.
+   * Appending the same multi-task DataFrame into a 4-partition table under each mode therefore yields at least as many
+   * files under the default as under HASH. The file format is the parameter.
    */
   private def forkPartitionDistDefault(fmt: String)(ctx: Ctx): Unit = {
     val spark = ctx.spark
@@ -233,12 +227,11 @@ trait ForkScenarios extends ScenarioKit {
   }
 
   /**
-   * OutputFileFactory exposes FILE_REPLICATION_FACTOR as "file-replication-factor", and a factory
-   * built with a replication factor stamps that key into the property map of the output files it
-   * creates. Writes made through the table afterward still return the correct rows. It is not a
-   * settable table property; it is the key HDFS reads to set block replication on an output file
-   * when a replication factor is supplied to the factory, and the delete-file write path is the one
-   * path that supplies one. Reflection reaches the builder and getProperties because some Iceberg
+   * OutputFileFactory exposes FILE_REPLICATION_FACTOR as "file-replication-factor", and a factory built with a
+   * replication factor stamps that key into the property map of the output files it creates. Writes made through the
+   * table afterward still return the correct rows. It is not a settable table property; it is the key HDFS reads to set
+   * block replication on an output file when a replication factor is supplied to the factory, and the delete-file write
+   * path is the one path that supplies one. Reflection reaches the builder and getProperties because some Iceberg
    * artifacts leave them out of the public compiled API.
    */
   private def forkFileReplicationFactor(ctx: Ctx): Unit = {
@@ -285,20 +278,18 @@ trait ForkScenarios extends ScenarioKit {
   }
 
   /**
-   * spark.sql.iceberg.split-size decides how the read path combines data files into read tasks.
-   * Over several small files, a large split size combines them into fewer read tasks and a tiny
-   * split size splits them into more, visible through rdd.getNumPartitions, and both reads return
-   * the same rows. The planner shows the same effect directly: a split size above the whole table
-   * plans one task group, and a split size below one file plans one group per file. The file format
-   * is the parameter.
+   * spark.sql.iceberg.split-size decides how the read path combines data files into read tasks. Over several small
+   * files, a large split size combines them into fewer read tasks and a tiny split size splits them into more, visible
+   * through rdd.getNumPartitions, and both reads return the same rows. The planner shows the same effect directly: a
+   * split size above the whole table plans one task group, and a split size below one file plans one group per file.
+   * The file format is the parameter.
    */
   private def forkSplitSize(fmt: String)(ctx: Ctx): Unit = {
     val spark = ctx.spark
     val table = s"${ctx.namespace}.t_splitsize_$fmt"
     spark.sql(s"DROP TABLE IF EXISTS $table")
-    // distribution=none plus several separate inserts produces several distinct data files. An
-    // open-file-cost of 1 sets each file's planning weight to its byte length, making split-size the
-    // knob that governs task-group count.
+    // distribution=none plus several separate inserts produces several distinct data files. An open-file-cost of 1 sets
+    // each file's planning weight to its byte length, making split-size the knob that governs task-group count.
     spark.sql(s"CREATE TABLE $table (id bigint, s string) USING $dataSource " +
       s"TBLPROPERTIES ('write.format.default'='$fmt', 'write.distribution-mode'='none', 'read.split.open-file-cost'='1')")
     val numberOfFiles = 6
@@ -314,8 +305,8 @@ trait ForkScenarios extends ScenarioKit {
     def rddParts(): Int = spark.sql(s"SELECT * FROM $table").rdd.getNumPartitions
     val expected = (0 until numberOfFiles).map(_.toLong)
     try {
-      // (a) Set spark.sql.iceberg.split-size directly and read the multi-file table under a large and a
-      //     tiny split size; the row set must be invariant either way.
+      // (a) Set spark.sql.iceberg.split-size directly and read the multi-file table under a large and a tiny split
+      // size; the row set must be invariant either way.
       spark.conf.set(key, (512L * 1024 * 1024).toString)
       val bigRows = keys(); val bigRdd = rddParts()
       spark.conf.set(key, "1")
@@ -325,9 +316,9 @@ trait ForkScenarios extends ScenarioKit {
       assert(smallRdd >= bigRdd,
         s"[$fmt] a smaller split-size must not decrease the read RDD partition count: small=$smallRdd big=$bigRdd")
 
-      // (b) The same knob checked directly at the planner: with open-file-cost=1, each file's planning
-      //     weight is its byte length, so a split-size below one file combines nothing (one task group
-      //     per file) while a split-size above the whole table combines everything into one group.
+      // (b) The same knob checked directly at the planner: with open-file-cost=1, each file's planning weight is its
+      // byte length, so a split-size below one file combines nothing (one task group per file) while a split-size above
+      // the whole table combines everything into one group.
       val ice = org.apache.iceberg.spark.Spark3Util.loadIcebergTable(spark, table)
       val szKey = org.apache.iceberg.TableProperties.SPLIT_SIZE // "read.split.target-size"
       def planGroups(splitBytes: Long): Int = {
@@ -350,10 +341,9 @@ trait ForkScenarios extends ScenarioKit {
   }
 
   /**
-   * rewrite_data_files packs data files into rewrite groups weighted by file length. Compacting a
-   * table whose data files are unevenly sized preserves the row count and every row's value, which
-   * is the observable result of that packing; the weighting itself is a planner decision that no
-   * SQL surface exposes. The file format is the parameter.
+   * rewrite_data_files packs data files into rewrite groups weighted by file length. Compacting a table whose data
+   * files are unevenly sized preserves the row count and every row's value, which is the observable result of that
+   * packing; the weighting itself is a planner decision that no SQL surface exposes. The file format is the parameter.
    */
   private def forkBinPackByLength(fmt: String)(ctx: Ctx): Unit = {
     val spark = ctx.spark
@@ -383,11 +373,11 @@ trait ForkScenarios extends ScenarioKit {
   }
 
   /**
-   * file_sequence_number is exposed on the live data-file entries of the entries metadata table and
-   * increases monotonically across commits, and rewrite_data_files with rewrite-all preserves the
-   * row count and the row set. A budgeted rewrite spends its budget in file-sequence-number order,
-   * so that column is the observable half of the ordering decision. Sequence numbers order commits
-   * the same way in every file format, so parquet alone covers this behavior.
+   * file_sequence_number is exposed on the live data-file entries of the entries metadata table and increases
+   * monotonically across commits, and rewrite_data_files with rewrite-all preserves the row count and the row set. A
+   * budgeted rewrite spends its budget in file-sequence-number order, so that column is the observable half of the
+   * ordering decision. Sequence numbers order commits the same way in every file format, so parquet alone covers this
+   * behavior.
    */
   private def forkCompactionOrder(ctx: Ctx): Unit = {
     val spark = ctx.spark
@@ -446,9 +436,8 @@ trait ForkScenarios extends ScenarioKit {
         forkPartitionDistDefault("orc")))
 
   /**
-   * The output-file, split-size and compaction fork cases. They are the second of two fork
-   * contribution lists: one more fork entry sits between the two in the catalog, supplied by the
-   * layer that owns it, and Plan keeps that order.
+   * The output-file, split-size and compaction fork cases. They are the second of two fork contribution lists: one more
+   * fork entry sits between the two in the catalog, supplied by the layer that owns it, and Plan keeps that order.
    */
   val forkFileAndCompactionCases: List[Plan.Case] =
     List(

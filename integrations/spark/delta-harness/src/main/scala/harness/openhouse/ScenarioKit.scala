@@ -10,22 +10,21 @@ import scala.annotation.tailrec
 import scala.reflect.{ClassTag, classTag}
 import scala.util.control.NonFatal
 
-// Shared foundation for every Scenario trait: the standard table/layout/prep "kit". All domain
-// traits (DmlScenarios, ForkScenarios, ...) extend this, so mixing them into `object Scenarios` puts
-// ScenarioKit first in the linearization, so its vals initialize before any domain's, exactly as
-// in the original single object. It holds the copy-on-write layouts and preparations only; each
-// feature layer carries its own kit that extends this one. `protected` members are the shared kit;
-// `public` ones are also consumed by `object Plan`.
+// Shared foundation for every Scenario trait: the standard table/layout/prep "kit". All domain traits (DmlScenarios,
+// ForkScenarios, ...) extend this, so mixing them into `object Scenarios` puts ScenarioKit first in the linearization,
+// so its vals initialize before any domain's, exactly as in the original single object. It holds the copy-on-write
+// layouts and preparations only; each feature layer carries its own kit that extends this one. `protected` members are
+// the shared kit; `public` ones are also consumed by `object Plan`.
 trait ScenarioKit {
   import Rows._
 
   protected val Core = CoreTable            // brevity in the typed column references below
   protected val cols = Core.columnNames.mkString(", ") // source column list, so renames propagate
 
-  // The rows a case reads back are ordered by the long column and carry exactly the core columns in
-  // their declared order, so an expected row set is written as the rows the case started from,
-  // filtered, mapped through `withColumnValue`, extended with literal rows, and re-sorted. Both
-  // helpers address columns by position so they also work on the literal rows a case writes out.
+  // The rows a case reads back are ordered by the long column and carry exactly the core columns in their declared
+  // order, so an expected row set is written as the rows the case started from, filtered, mapped through
+  // `withColumnValue`, extended with literal rows, and re-sorted. Both helpers address columns by position so they also
+  // work on the literal rows a case writes out.
   private def columnPosition(column: Column[_]): Int = Core.columnNames.indexOf(column.columnName)
 
   protected def withColumnValue[T](row: Row, column: Column[T], value: T): Row =
@@ -35,28 +34,26 @@ trait ScenarioKit {
     rows.sortBy(_.getLong(columnPosition(Core.long0)))
 
   // --- layouts: one file format and one partitioning per starting table shape ---
-  // A layout is one starting table shape. Each layout is a plain literal CREATE statement: the
-  // column list is one shared literal `columnDefinitions`, and format and partitioning are literal
-  // fragments. createSchema cross-checks the literal against CoreTable's declared columns, so the
-  // two stay in step. A layout belongs to the preparation, so one test case is written once and
-  // runs on every layout.
+  // A layout is one starting table shape. Each layout is a plain literal CREATE statement: the column list is one
+  // shared literal `columnDefinitions`, and format and partitioning are literal fragments. createSchema cross-checks
+  // the literal against CoreTable's declared columns, so the two stay in step. A layout belongs to the preparation, so
+  // one test case is written once and runs on every layout.
   protected val columnDefinitions =
-    "foo_col_long bigint, foo_col_int int, foo_col_string string, foo_col_double double, foo_col_boolean boolean, datepartition string"
+    "foo_col_long bigint, foo_col_int int, foo_col_string string, foo_col_double double, " +
+      "foo_col_boolean boolean, foo_col_date string"
 
-  /** One starting table shape: the label that names it in a case ID and the CREATE statement that
-    * builds it. */
+  /** One starting table shape: the label that names it in a case ID and the CREATE statement that builds it. */
   final case class Layout(label: String, create: String => String)
 
-  /** One partitioning choice: the label that names it in a case ID and the CREATE clause that
-    * applies it. */
+  /** One partitioning choice: the label that names it in a case ID and the CREATE clause that applies it. */
   final case class Partitioning(label: String, clause: String)
 
   /** The empty partitioning clause: the table keeps all its rows in one unpartitioned file set. */
   protected val unpartitioned = Partitioning("unpartitioned", "")
 
-  /** Partitions the table by datepartition, so each distinct date value owns one partition. */
+  /** Partitions the table by its date column, so each distinct date value owns one partition. */
   protected val partitionedByDate =
-    Partitioning("partitioned", "PARTITIONED BY (datepartition)")
+    Partitioning("partitioned", s"PARTITIONED BY (${Core.date0.columnName})")
 
   protected val partitionings: List[Partitioning] = List(unpartitioned, partitionedByDate)
 
@@ -77,13 +74,13 @@ trait ScenarioKit {
       partitioning <- partitionings
     } yield coreLayout(partitioning, format)
 
-  /** The core layouts partitioned by datepartition, one per file format. */
+  /** The core layouts partitioned by the date column, one per file format. */
   val partitionedLayouts: List[Layout] =
     fileFormats.map(format => coreLayout(partitionedByDate, format))
 
   /**
-   * The Parquet and ORC core layouts, each crossed with both partitionings, for the bespoke DDL
-   * cases that do not need the full file-format cross.
+   * The Parquet and ORC core layouts, each crossed with both partitionings, for the bespoke DDL cases that do not need
+   * the full file-format cross.
    */
   val parquetAndOrcLayouts: List[Layout] =
     for {
@@ -102,10 +99,7 @@ trait ScenarioKit {
         layout.label,
         createAndSeed(layout, 3)))
 
-  /**
-   * One preparation per datepartition-partitioned core layout: three seed rows with keys 1, 2 and
-   * 3, one row per datepartition value.
-   */
+  /** One preparation per date-partitioned core layout: three seed rows with keys 1, 2 and 3, one row per date value. */
   val preparedPartitionedCoreTables: List[TablePreparation[CoreTable.type]] =
     partitionedLayouts.map(layout =>
       TablePreparation(
@@ -113,8 +107,8 @@ trait ScenarioKit {
         createAndSeed(layout, 3)))
 
   /**
-   * One preparation per core layout: three seed rows, then ALTER TABLE WRITE ORDERED BY the long
-   * key, so the table carries that write sort order.
+   * One preparation per core layout: three seed rows, then ALTER TABLE WRITE ORDERED BY the long key, so the table
+   * carries that write sort order.
    */
   val preparedOrderedCoreTables: List[TablePreparation[CoreTable.type]] =
     layouts.map(layout =>
@@ -124,8 +118,8 @@ trait ScenarioKit {
         "prep.ordered:"))
 
   /**
-   * One preparation per core layout: three seed rows, then ADD COLUMN prep_extra int, so the table
-   * carries one column beyond the seed row shape and the seeded rows read null for it.
+   * One preparation per core layout: three seed rows, then ADD COLUMN prep_extra int, so the table carries one column
+   * beyond the seed row shape and the seeded rows read null for it.
    */
   val preparedEvolvedCoreTables: List[TablePreparation[CoreTable.type]] =
     layouts.map(layout =>
@@ -134,18 +128,14 @@ trait ScenarioKit {
         createAndSeedEvolved(layout, 3),
         "prep.evolved:"))
 
-  /**
-   * One preparation per core layout: the table is created and left unseeded, so it holds no rows.
-   */
+  /** One preparation per core layout: the table is created and left unseeded, so it holds no rows. */
   val preparedEmptyCoreTables: List[TablePreparation[CoreTable.type]] =
     layouts.map(layout =>
       TablePreparation(
         layout.label,
         TableTest(Core).sql("create")(layout.create)()))
 
-  /**
-   * One preparation per Parquet and ORC unpartitioned layout: three seed rows with keys 1, 2 and 3.
-   */
+  /** One preparation per Parquet and ORC unpartitioned layout: three seed rows with keys 1, 2 and 3. */
   val preparedCoreFormats: List[TablePreparation[CoreTable.type]] =
     List("parquet", "orc").map { format =>
       val layout = coreLayout(unpartitioned, format)
@@ -155,23 +145,22 @@ trait ScenarioKit {
     }
 
   /**
-   * Creates and seeds the table under `layout`, then gives it a write sort order on the long key.
-   * The column list stays as seeded, so every DML case runs on the result.
+   * Creates and seeds the table under `layout`, then gives it a write sort order on the long key. The column list stays
+   * as seeded, so every DML case runs on the result.
    */
   def createAndSeedOrdered(layout: Layout, numberOfRows: Int): TableTest[CoreTable.type] =
     createAndSeed(layout, numberOfRows).sql("prep.ordered")(t => s"ALTER TABLE $t WRITE ORDERED BY ${CoreTable.long0.columnName}")()
 
   /**
-   * Creates and seeds the table under `layout`, then adds the prep_extra column. The column list
-   * grows past the seed row shape, so the cases that address columns by name run on the result:
-   * the reads, the deletes and the updates.
+   * Creates and seeds the table under `layout`, then adds the prep_extra column. The column list grows past the seed
+   * row shape, so the cases that address columns by name run on the result: the reads, the deletes and the updates.
    */
   def createAndSeedEvolved(layout: Layout, numberOfRows: Int): TableTest[CoreTable.type] =
     createAndSeed(layout, numberOfRows).sql("prep.evolved")(t => s"ALTER TABLE $t ADD COLUMN prep_extra int")()
 
   /**
-   * The same starting state with a fourth row whose key is 99 and whose string column is null, so
-   * exactly one row of the table reads null for that column.
+   * The same starting state with a fourth row whose key is 99 and whose string column is null, so exactly one row of
+   * the table reads null for that column.
    */
   protected def withNullStringRow(
       basePreparation: TablePreparation[CoreTable.type]
@@ -189,8 +178,8 @@ trait ScenarioKit {
     preparedOrderedCoreTables.map(withNullStringRow)
 
   /**
-   * Every data file the preparation wrote carries the extension of the table's declared
-   * write.format.default, and listing the files leaves the table state unchanged.
+   * Every data file the preparation wrote carries the extension of the table's declared write.format.default, and
+   * listing the files leaves the table state unchanged.
    */
   private def formatMaterializationCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
     preparation.test("format.materialization") { table =>
@@ -213,8 +202,8 @@ trait ScenarioKit {
     }
 
   /**
-   * The format-materialization case for each preparation given. It applies to any preparation that
-   * leaves data files behind, so each feature layer passes the list its own preparations produce.
+   * The format-materialization case for each preparation given. It applies to any preparation that leaves data files
+   * behind, so each feature layer passes the list its own preparations produce.
    */
   def layoutFormatCasesFor(
       preparations: List[TablePreparation[CoreTable.type]]
@@ -254,8 +243,8 @@ trait ScenarioKit {
   // Shared helpers used across domain traits.
 
   /**
-   * Creates a table in the given file format, seeds three rows as the first snapshot, then inserts
-   * rows 4 and 5 as a second snapshot committed at a later timestamp.
+   * Creates a table in the given file format, seeds three rows as the first snapshot, then inserts rows 4 and 5 as a
+   * second snapshot committed at a later timestamp.
    */
   protected def coreTwoSnapshots(fmt: String): TableTest[CoreTable.type] =
     TableTest(Core)
@@ -268,8 +257,8 @@ trait ScenarioKit {
   /** The two-snapshot table in parquet. */
   protected def coreTwoSnapshots: TableTest[CoreTable.type] = coreTwoSnapshots("parquet")
 
-  // Snapshots in ancestry order (root first), following the parent_id chain. This is deterministic even
-  // if two commits happen to share a committed_at millisecond (which `ORDER BY committed_at` is not).
+  // Snapshots in ancestry order (root first), following the parent_id chain. This is deterministic even if two commits
+  // happen to share a committed_at millisecond (which `ORDER BY committed_at` is not).
   protected def snapshotIds(spark: SparkSession, table: String): Seq[Long] = {
     val rows = spark.sql(s"SELECT snapshot_id, parent_id FROM $table.snapshots").collect().toSeq
     val ids = rows.map(_.getLong(0)).toSet
@@ -288,8 +277,8 @@ trait ScenarioKit {
 
   protected val L = CoreTable.long0.columnName
 
-  // The Spark data source used by CREATE TABLE statements. The LinkedIn adapter overrides this before
-  // building Plan.cases. Catalog procedure calls still use the catalog name "openhouse".
+  // The Spark data source used by CREATE TABLE statements. The LinkedIn adapter overrides this before building
+  // Plan.cases. Catalog procedure calls still use the catalog name "openhouse".
   var dataSource: String = "iceberg"
 
   protected def coreCreateParquet(table: String): String =
