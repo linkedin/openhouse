@@ -272,7 +272,7 @@ public final class Operations implements AutoCloseable {
    * number of snapshots younger than the maxAge
    */
   public void expireSnapshots(Table table, int maxAge, String granularity, int versions) {
-    ExpireSnapshots expireSnapshotsCommand = table.expireSnapshots().cleanExpiredFiles(false);
+    ExpireSnapshots expireSnapshotsCommand = table.expireSnapshots().cleanExpiredFiles(true);
 
     // maxAge will always be defined
     ChronoUnit timeUnitGranularity =
