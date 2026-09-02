@@ -25,7 +25,7 @@ private[harness] final case class TableAlteration(
  *
  * Case families: six families over 16 preparations, contributing 96 cases.
  */
-trait TableEvolutionCompatibilityScenarios extends ScenarioKit {
+trait ScenarioTableEvolutionCompatibility extends ScenarioKit {
 
   /** Every follow-up operation on every altered preparation, one preparation at a time. */
   lazy val tableEvolutionCompatibilityCases: List[Plan.Case] =

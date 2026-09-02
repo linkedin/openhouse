@@ -11,7 +11,7 @@ package harness
  *
  * Case families: three families contributing 6 cases.
  */
-trait SnapshotRestoreScenarios extends ScenarioKit {
+trait ScenarioSnapshotRestore extends ScenarioKit {
 
   /** Every snapshot-restore case, one file format at a time. */
   lazy val snapshotRestoreCases: List[Plan.Case] =

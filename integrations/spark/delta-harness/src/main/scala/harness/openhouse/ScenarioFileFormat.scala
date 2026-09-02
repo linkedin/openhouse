@@ -13,7 +13,7 @@ package harness
  *
  * Case families: one family, `format.materialization`, contributing 12 cases.
  */
-trait FileFormatScenarios extends ScenarioKit {
+trait ScenarioFileFormat extends ScenarioKit {
 
   /** The format-materialization case on every standard preparation that writes data files. */
   lazy val fileFormatCases: List[Plan.Case] = layoutFormatCasesFor(layoutFormatPreparations)

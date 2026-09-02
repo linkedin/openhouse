@@ -18,7 +18,7 @@ import org.apache.spark.sql.streaming.Trigger
  *
  * Case families: five families contributing 10 cases.
  */
-trait StreamingScenarios extends ScenarioKit {
+trait ScenarioStreaming extends ScenarioKit {
 
   /** Every streaming case, one file format at a time. */
   lazy val streamingCases: List[Plan.Case] =

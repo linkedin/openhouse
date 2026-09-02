@@ -19,7 +19,7 @@ import org.apache.iceberg.exceptions.BadRequestException
  * Case families: 14 families contributing 56 cases, 6 created-schema, 36 evolution, and 14 rejection or side-table
  * cases.
  */
-trait SchemaEvolutionScenarios extends ScenarioKit {
+trait ScenarioSchemaEvolution extends ScenarioKit {
 
   /** Every schema-evolution case: the created schema, then the accepted changes, then the boundaries. */
   lazy val schemaEvolutionCases: List[Plan.Case] =

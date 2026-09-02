@@ -21,7 +21,7 @@ import org.apache.spark.sql.functions.lit
  * Case families: 804 cases in four families, `coreDmlCases` (312), `partitionedDmlCases` (6), `orderedDmlCases` (312)
  * and `evolvedDmlCases` (174).
  */
-trait DmlScenarios extends ScenarioKit {
+trait ScenarioDml extends ScenarioKit {
   import Rows._
 
   /** Every DML case, in preparation order: core, partition-scoped, write-ordered, then evolved. */

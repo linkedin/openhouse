@@ -17,7 +17,7 @@ import org.apache.iceberg.exceptions.BadRequestException
  *
  * Case families: eight families contributing 16 cases.
  */
-trait AccessControlScenarios extends ScenarioKit {
+trait ScenarioAccessControl extends ScenarioKit {
 
   /** Every access-control case, one file format at a time. */
   lazy val accessControlCases: List[Plan.Case] =

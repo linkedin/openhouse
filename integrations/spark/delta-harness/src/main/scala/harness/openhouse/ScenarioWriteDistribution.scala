@@ -14,7 +14,7 @@ package harness
  *
  * Case families: three families contributing 6 cases.
  */
-trait WriteDistributionScenarios extends ScenarioKit {
+trait ScenarioWriteDistribution extends ScenarioKit {
 
   /** Every write-distribution case, one file format at a time. */
   lazy val writeDistributionCases: List[Plan.Case] =

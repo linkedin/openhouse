@@ -13,7 +13,7 @@ import org.apache.spark.sql.AnalysisException
  *
  * Case families: one family contributing 2 cases.
  */
-trait WriterCompatibilityScenarios extends ScenarioKit {
+trait ScenarioWriterCompatibility extends ScenarioKit {
 
   /** The explicit-column writer case, one file format at a time. */
   lazy val writerCompatibilityCases: List[Plan.Case] =

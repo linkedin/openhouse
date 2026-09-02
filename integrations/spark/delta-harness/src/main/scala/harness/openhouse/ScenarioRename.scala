@@ -14,7 +14,7 @@ import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageE
  *
  * Case families: two families contributing 4 cases.
  */
-trait RenameScenarios extends ScenarioKit {
+trait ScenarioRename extends ScenarioKit {
 
   /** Every rename case, one file format at a time. */
   lazy val renameCases: List[Plan.Case] =

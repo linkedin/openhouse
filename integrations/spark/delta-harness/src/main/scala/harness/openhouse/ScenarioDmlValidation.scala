@@ -14,7 +14,7 @@ import org.apache.spark.sql.AnalysisException
  *
  * Case families: six families contributing 12 cases.
  */
-trait DmlValidationScenarios extends ScenarioKit {
+trait ScenarioDmlValidation extends ScenarioKit {
 
   /** Every DML-validation case, one file format at a time. */
   lazy val dmlValidationCases: List[Plan.Case] =

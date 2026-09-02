@@ -17,7 +17,7 @@ import scala.collection.JavaConverters._
  *
  * Case families: one family contributing 2 cases.
  */
-trait ScanPlanningScenarios extends ScenarioKit {
+trait ScenarioScanPlanning extends ScenarioKit {
 
   /** The split-size case, one file format at a time. */
   lazy val scanPlanningCases: List[Plan.Case] =

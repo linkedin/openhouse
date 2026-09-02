@@ -10,7 +10,7 @@ package harness
  *
  * Case families: one family contributing 2 cases.
  */
-trait ColumnTagScenarios extends ScenarioKit {
+trait ScenarioColumnTag extends ScenarioKit {
 
   /** The column-tag case, one file format at a time. */
   lazy val columnTagCases: List[Plan.Case] =

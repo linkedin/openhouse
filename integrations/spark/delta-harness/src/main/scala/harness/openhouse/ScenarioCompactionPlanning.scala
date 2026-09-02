@@ -16,7 +16,7 @@ import org.apache.spark.sql.SparkSession
  *
  * Case families: two families contributing 3 cases.
  */
-trait CompactionPlanningScenarios extends ScenarioKit {
+trait ScenarioCompactionPlanning extends ScenarioKit {
 
   /** The bin-packing case in each columnar format, then the file-sequence ordering case on Parquet. */
   lazy val compactionPlanningCases: List[Plan.Case] =

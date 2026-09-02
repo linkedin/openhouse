@@ -15,7 +15,7 @@ import java.math.BigDecimal
  *
  * Case families: five families over three layouts, contributing 15 cases.
  */
-trait DataTypeScenarios extends ScenarioKit {
+trait ScenarioDataType extends ScenarioKit {
 
   /** Every scalar-type case, one layout at a time. */
   lazy val dataTypeCases: List[Plan.Case] =

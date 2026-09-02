@@ -12,7 +12,7 @@ package harness
  *
  * Case families: three families contributing 6 cases.
  */
-trait TimeTravelScenarios extends ScenarioKit {
+trait ScenarioTimeTravel extends ScenarioKit {
 
   /** Every time-travel case, one file format at a time. */
   lazy val timeTravelCases: List[Plan.Case] =

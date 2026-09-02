@@ -15,7 +15,7 @@ package harness
  *
  * Case families: two families contributing 2 cases.
  */
-trait LockingScenarios extends ScenarioKit {
+trait ScenarioLocking extends ScenarioKit {
 
   /** The lock cases, each driven over HTTP against the embedded server. */
   lazy val lockingCases: List[Plan.Case] =

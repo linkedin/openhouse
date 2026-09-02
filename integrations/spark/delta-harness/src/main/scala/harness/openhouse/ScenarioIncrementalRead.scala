@@ -12,7 +12,7 @@ package harness
  *
  * Case families: five families contributing 10 cases.
  */
-trait IncrementalReadScenarios extends ScenarioKit {
+trait ScenarioIncrementalRead extends ScenarioKit {
 
   /** Every incremental-read case, one file format at a time. */
   lazy val incrementalReadCases: List[Plan.Case] =

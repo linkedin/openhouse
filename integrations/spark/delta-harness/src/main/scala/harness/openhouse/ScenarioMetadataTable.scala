@@ -13,7 +13,7 @@ package harness
  *
  * Case families: three families contributing 6 cases.
  */
-trait MetadataTableScenarios extends ScenarioKit {
+trait ScenarioMetadataTable extends ScenarioKit {
 
   /** Every metadata-table case, one file format at a time. */
   lazy val metadataTableCases: List[Plan.Case] =

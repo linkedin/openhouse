@@ -26,7 +26,7 @@ final case class ChangelogOperation(
  * Case families: three families contributing 14 cases, 10 operation cases, 2 append-only history cases and 2
  * expired-range cases.
  */
-trait ChangelogScenarios extends ScenarioKit {
+trait ScenarioChangelog extends ScenarioKit {
 
   /** Every changelog case, one file format at a time. */
   lazy val changelogCases: List[Plan.Case] =

@@ -17,7 +17,7 @@ import org.apache.iceberg.exceptions.BadRequestException
  *
  * Case families: six families contributing 12 cases.
  */
-trait TablePropertyScenarios extends ScenarioKit {
+trait ScenarioTableProperty extends ScenarioKit {
 
   /** Every table-property case, one file format at a time. */
   lazy val tablePropertyCases: List[Plan.Case] =

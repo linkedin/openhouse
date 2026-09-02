@@ -11,7 +11,7 @@ package harness
  *
  * Case families: two families contributing 4 cases.
  */
-trait NamespaceScenarios extends ScenarioKit {
+trait ScenarioNamespace extends ScenarioKit {
 
   /** Every namespace case, one file format at a time. */
   lazy val namespaceCases: List[Plan.Case] =

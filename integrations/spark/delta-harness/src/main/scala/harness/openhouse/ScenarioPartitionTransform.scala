@@ -17,7 +17,7 @@ import org.apache.spark.sql.types.StructType
  *
  * Case families: ten families contributing 20 cases, 14 accepted transforms and 6 rejections.
  */
-trait PartitionTransformScenarios extends ScenarioKit {
+trait ScenarioPartitionTransform extends ScenarioKit {
 
   /** Every partition-transform case, one file format at a time. */
   lazy val partitionTransformCases: List[Plan.Case] =

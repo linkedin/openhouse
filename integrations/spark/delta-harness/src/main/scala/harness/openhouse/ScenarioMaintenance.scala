@@ -16,7 +16,7 @@ import java.nio.file.attribute.FileTime
  *
  * Case families: six families contributing 12 cases.
  */
-trait MaintenanceScenarios extends ScenarioKit {
+trait ScenarioMaintenance extends ScenarioKit {
 
   /** Every maintenance case, one file format at a time. */
   lazy val maintenanceCases: List[Plan.Case] =

@@ -11,7 +11,7 @@ package harness
  *
  * Case families: two families contributing 4 cases.
  */
-trait SortOrderScenarios extends ScenarioKit {
+trait ScenarioSortOrder extends ScenarioKit {
 
   /** Every sort-order case, one file format at a time. */
   lazy val sortOrderCases: List[Plan.Case] =

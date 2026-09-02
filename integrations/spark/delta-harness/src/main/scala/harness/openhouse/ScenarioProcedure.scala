@@ -12,7 +12,7 @@ package harness
  *
  * Case families: three families contributing 6 cases.
  */
-trait ProcedureScenarios extends ScenarioKit {
+trait ScenarioProcedure extends ScenarioKit {
 
   /** Every catalog-procedure case, one file format at a time. */
   lazy val procedureCases: List[Plan.Case] =

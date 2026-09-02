@@ -14,7 +14,7 @@ import java.nio.file.{Files, Paths}
  *
  * Case families: one family contributing 1 case.
  */
-trait EncryptionScenarios extends ScenarioKit {
+trait ScenarioEncryption extends ScenarioKit {
 
   /** The plaintext data-file case, on the standard seeded Parquet table. */
   lazy val encryptionCases: List[Plan.Case] =

@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicInteger
  *
  * Case families: two families contributing 4 cases.
  */
-trait ConcurrencyScenarios extends ScenarioKit {
+trait ScenarioConcurrency extends ScenarioKit {
 
   /** Every concurrency case, one file format at a time. */
   lazy val concurrencyCases: List[Plan.Case] =
