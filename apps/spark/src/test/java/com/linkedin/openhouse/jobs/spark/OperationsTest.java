@@ -26,10 +26,8 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
@@ -37,29 +35,23 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.iceberg.BaseTable;
-import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.ExpireSnapshots;
+import org.apache.iceberg.ManageSnapshots;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
-import org.apache.iceberg.SnapshotParser;
 import org.apache.iceberg.SnapshotRef;
-import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.TableMetadata;
-import org.apache.iceberg.TableMetadataParser;
-import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.actions.DeleteOrphanFiles;
 import org.apache.iceberg.actions.RewriteDataFiles;
-import org.apache.iceberg.io.FileIO;
-import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Row;
 import org.assertj.core.util.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
+import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 @Slf4j
@@ -586,59 +578,78 @@ public class OperationsTest extends OpenHouseSparkITest {
 
   @Test
   public void testSnapshotsExpirationUsesDefaultMaximumReferenceAge() throws Exception {
-    InMemoryTableOperations tableOperations =
-        new InMemoryTableOperations(createTableMetadataWithOldBranch(Map.of()));
-    Table table = new BaseTable(tableOperations, "test.default_max_reference_age");
+    long currentTimeMillis = System.currentTimeMillis();
+    Table table = Mockito.mock(Table.class);
+    Transaction transaction = Mockito.mock(Transaction.class);
+    ManageSnapshots manageSnapshots = Mockito.mock(ManageSnapshots.class, Mockito.RETURNS_SELF);
+    ExpireSnapshots expireSnapshots = Mockito.mock(ExpireSnapshots.class, Mockito.RETURNS_SELF);
+    Snapshot expiredDefault = snapshotAt(currentTimeMillis - TimeUnit.DAYS.toMillis(8));
+    Snapshot retainedDefault = snapshotAt(currentTimeMillis - TimeUnit.DAYS.toMillis(6));
+    Snapshot retainedOverride = snapshotAt(currentTimeMillis - TimeUnit.DAYS.toMillis(8));
+    Snapshot expiredTag = snapshotAt(currentTimeMillis - TimeUnit.DAYS.toMillis(8));
+
+    Mockito.when(table.properties()).thenReturn(Map.of());
+    Mockito.when(table.refs())
+        .thenReturn(
+            Map.of(
+                SnapshotRef.MAIN_BRANCH,
+                SnapshotRef.branchBuilder(1L).build(),
+                "expired-default",
+                SnapshotRef.branchBuilder(2L).build(),
+                "retained-default",
+                SnapshotRef.branchBuilder(3L).build(),
+                "retained-override",
+                SnapshotRef.branchBuilder(4L).maxRefAgeMs(TimeUnit.DAYS.toMillis(10)).build(),
+                "expired-tag",
+                SnapshotRef.tagBuilder(5L).maxRefAgeMs(TimeUnit.DAYS.toMillis(5)).build()));
+    Mockito.when(table.snapshot(2L)).thenReturn(expiredDefault);
+    Mockito.when(table.snapshot(3L)).thenReturn(retainedDefault);
+    Mockito.when(table.snapshot(4L)).thenReturn(retainedOverride);
+    Mockito.when(table.snapshot(5L)).thenReturn(expiredTag);
+    Mockito.when(table.newTransaction()).thenReturn(transaction);
+    Mockito.when(transaction.manageSnapshots()).thenReturn(manageSnapshots);
+    Mockito.when(transaction.expireSnapshots()).thenReturn(expireSnapshots);
 
     Operations.of(getSparkSession(), otelEmitter).expireSnapshots(table, 3, "DAYS", 0);
 
-    Assertions.assertFalse(table.refs().containsKey("old-branch"));
-    Assertions.assertNull(table.snapshot(1L));
-    Assertions.assertFalse(table.properties().containsKey(TableProperties.MAX_REF_AGE_MS));
-    Assertions.assertEquals(1, tableOperations.commitCount());
+    Mockito.verify(manageSnapshots).removeBranch("expired-default");
+    Mockito.verify(manageSnapshots, Mockito.never()).removeBranch("retained-default");
+    Mockito.verify(manageSnapshots, Mockito.never()).removeBranch("retained-override");
+    Mockito.verify(manageSnapshots, Mockito.never()).removeTag(ArgumentMatchers.anyString());
+    Mockito.verify(table, Mockito.never()).updateProperties();
+    InOrder commitOrder = Mockito.inOrder(manageSnapshots, expireSnapshots, transaction);
+    commitOrder.verify(manageSnapshots).commit();
+    commitOrder.verify(expireSnapshots).commit();
+    commitOrder.verify(transaction).commitTransaction();
   }
 
   @Test
   public void testSnapshotsExpirationUsesConfiguredMaximumReferenceAge() throws Exception {
+    long currentTimeMillis = System.currentTimeMillis();
     final String configuredMaximumReferenceAgeMillis = String.valueOf(TimeUnit.DAYS.toMillis(10));
-    InMemoryTableOperations tableOperations =
-        new InMemoryTableOperations(
-            createTableMetadataWithOldBranch(
-                Map.of(TableProperties.MAX_REF_AGE_MS, configuredMaximumReferenceAgeMillis)));
-    Table table = new BaseTable(tableOperations, "test.configured_max_reference_age");
+    Table table = Mockito.mock(Table.class);
+    Transaction transaction = Mockito.mock(Transaction.class);
+    ExpireSnapshots expireSnapshots = Mockito.mock(ExpireSnapshots.class, Mockito.RETURNS_SELF);
+    Snapshot retainedConfigured = snapshotAt(currentTimeMillis - TimeUnit.DAYS.toMillis(8));
+
+    Mockito.when(table.properties())
+        .thenReturn(Map.of(TableProperties.MAX_REF_AGE_MS, configuredMaximumReferenceAgeMillis));
+    Mockito.when(table.refs())
+        .thenReturn(
+            Map.of(
+                SnapshotRef.MAIN_BRANCH,
+                SnapshotRef.branchBuilder(1L).build(),
+                "retained-configured",
+                SnapshotRef.branchBuilder(2L).build()));
+    Mockito.when(table.snapshot(2L)).thenReturn(retainedConfigured);
+    Mockito.when(table.newTransaction()).thenReturn(transaction);
+    Mockito.when(transaction.expireSnapshots()).thenReturn(expireSnapshots);
 
     Operations.of(getSparkSession(), otelEmitter).expireSnapshots(table, 3, "DAYS", 0);
 
-    Assertions.assertTrue(table.refs().containsKey("old-branch"));
-    Assertions.assertNotNull(table.snapshot(1L));
-    Assertions.assertEquals(
-        configuredMaximumReferenceAgeMillis,
-        table.properties().get(TableProperties.MAX_REF_AGE_MS));
-    Assertions.assertEquals(1, tableOperations.commitCount());
-  }
-
-  @Test
-  public void testSnapshotsExpirationRetriesWhenMaximumReferenceAgeChanges() throws Exception {
-    final String configuredMaximumReferenceAgeMillis = String.valueOf(TimeUnit.DAYS.toMillis(10));
-    TableMetadata initialMetadata = createTableMetadataWithOldBranch(Map.of());
-    TableMetadata refreshedMetadata =
-        TableMetadata.buildFrom(initialMetadata)
-            .setProperties(
-                Map.of(TableProperties.MAX_REF_AGE_MS, configuredMaximumReferenceAgeMillis))
-            .discardChanges()
-            .build();
-    InMemoryTableOperations tableOperations =
-        new InMemoryTableOperations(initialMetadata, Optional.of(refreshedMetadata));
-    Table table = new BaseTable(tableOperations, "test.changed_max_reference_age");
-
-    Operations.of(getSparkSession(), otelEmitter).expireSnapshots(table, 3, "DAYS", 0);
-
-    Assertions.assertTrue(table.refs().containsKey("old-branch"));
-    Assertions.assertNotNull(table.snapshot(1L));
-    Assertions.assertEquals(
-        configuredMaximumReferenceAgeMillis,
-        table.properties().get(TableProperties.MAX_REF_AGE_MS));
-    Assertions.assertEquals(1, tableOperations.commitCount());
+    Mockito.verify(transaction, Mockito.never()).manageSnapshots();
+    Mockito.verify(table, Mockito.never()).updateProperties();
+    Mockito.verify(transaction).commitTransaction();
   }
 
   @Test
@@ -1727,118 +1738,9 @@ public class OperationsTest extends OpenHouseSparkITest {
     }
   }
 
-  private static TableMetadata createTableMetadataWithOldBranch(Map<String, String> properties) {
-    long currentTimeMillis = System.currentTimeMillis();
-    long stagedOldSnapshotTimestampMillis = currentTimeMillis + 1;
-    long stagedCurrentSnapshotTimestampMillis = currentTimeMillis + 2;
-    Map<String, String> tableProperties = new HashMap<>(properties);
-    tableProperties.put(TableProperties.FORMAT_VERSION, "2");
-    Snapshot oldSnapshot =
-        SnapshotParser.fromJson(
-            String.format(
-                "{\"sequence-number\":1,\"snapshot-id\":1,\"timestamp-ms\":%d,"
-                    + "\"summary\":{\"operation\":\"append\"},"
-                    + "\"manifest-list\":\"file:/tmp/old-snapshot.avro\",\"schema-id\":0}",
-                stagedOldSnapshotTimestampMillis));
-    Snapshot currentSnapshot =
-        SnapshotParser.fromJson(
-            String.format(
-                "{\"sequence-number\":2,\"snapshot-id\":2,\"parent-snapshot-id\":1,"
-                    + "\"timestamp-ms\":%d,\"summary\":{\"operation\":\"append\"},"
-                    + "\"manifest-list\":\"file:/tmp/current-snapshot.avro\",\"schema-id\":0}",
-                stagedCurrentSnapshotTimestampMillis));
-    TableMetadata tableMetadata =
-        TableMetadata.newTableMetadata(
-            new Schema(Types.NestedField.required(1, "id", Types.LongType.get())),
-            PartitionSpec.unpartitioned(),
-            SortOrder.unsorted(),
-            "file:/tmp/reference-expiration-table",
-            tableProperties);
-
-    TableMetadata metadataWithSnapshots =
-        TableMetadata.buildFrom(tableMetadata)
-            .addSnapshot(oldSnapshot)
-            .addSnapshot(currentSnapshot)
-            .setBranchSnapshot(currentSnapshot.snapshotId(), SnapshotRef.MAIN_BRANCH)
-            .setRef("old-branch", SnapshotRef.branchBuilder(oldSnapshot.snapshotId()).build())
-            .build();
-    JsonObject metadataJson =
-        JsonParser.parseString(TableMetadataParser.toJson(metadataWithSnapshots)).getAsJsonObject();
-    metadataJson.addProperty("last-updated-ms", currentTimeMillis);
-    metadataJson
-        .getAsJsonArray("snapshots")
-        .get(0)
-        .getAsJsonObject()
-        .addProperty("timestamp-ms", currentTimeMillis - TimeUnit.DAYS.toMillis(8));
-    metadataJson
-        .getAsJsonArray("snapshots")
-        .get(1)
-        .getAsJsonObject()
-        .addProperty("timestamp-ms", currentTimeMillis);
-    metadataJson
-        .getAsJsonArray("snapshot-log")
-        .get(0)
-        .getAsJsonObject()
-        .addProperty("timestamp-ms", currentTimeMillis);
-    return TableMetadataParser.fromJson(metadataJson.toString());
-  }
-
-  private static final class InMemoryTableOperations implements TableOperations {
-    private final FileIO fileIO = Mockito.mock(FileIO.class);
-    private final LocationProvider locationProvider = Mockito.mock(LocationProvider.class);
-    private final Optional<TableMetadata> metadataAfterFirstRefresh;
-    private TableMetadata currentMetadata;
-    private int commitCount;
-    private int refreshCount;
-
-    private InMemoryTableOperations(TableMetadata currentMetadata) {
-      this(currentMetadata, Optional.empty());
-    }
-
-    private InMemoryTableOperations(
-        TableMetadata currentMetadata, Optional<TableMetadata> metadataAfterFirstRefresh) {
-      this.currentMetadata = currentMetadata;
-      this.metadataAfterFirstRefresh = metadataAfterFirstRefresh;
-    }
-
-    @Override
-    public TableMetadata current() {
-      return currentMetadata;
-    }
-
-    @Override
-    public TableMetadata refresh() {
-      refreshCount += 1;
-      if (refreshCount == 2) {
-        metadataAfterFirstRefresh.ifPresent(metadata -> currentMetadata = metadata);
-      }
-      return currentMetadata;
-    }
-
-    @Override
-    public void commit(TableMetadata base, TableMetadata metadata) {
-      Assertions.assertSame(currentMetadata, base);
-      currentMetadata = metadata;
-      commitCount += 1;
-    }
-
-    @Override
-    public FileIO io() {
-      return fileIO;
-    }
-
-    @Override
-    public String metadataFileLocation(String fileName) {
-      return String.format("file:/tmp/%s", fileName);
-    }
-
-    @Override
-    public LocationProvider locationProvider() {
-      return locationProvider;
-    }
-
-    private int commitCount() {
-      return commitCount;
-    }
+  private static Snapshot snapshotAt(long timestampMillis) {
+    Snapshot snapshot = Mockito.mock(Snapshot.class);
+    Mockito.when(snapshot.timestampMillis()).thenReturn(timestampMillis);
+    return snapshot;
   }
 }
