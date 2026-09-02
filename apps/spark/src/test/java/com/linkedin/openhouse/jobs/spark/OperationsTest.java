@@ -34,6 +34,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.iceberg.ExpireSnapshots;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
@@ -507,6 +508,18 @@ public class OperationsTest extends OpenHouseSparkITest {
           orphanFiles.get(0).endsWith(table.location() + "/" + testOrphanFileName));
       Assertions.assertFalse(fs.exists(orphanFilePath));
     }
+  }
+
+  @Test
+  public void testExpireSnapshotsCleansExpiredFilesSynchronously() throws Exception {
+    Table table = Mockito.mock(Table.class);
+    ExpireSnapshots expireSnapshots =
+        Mockito.mock(ExpireSnapshots.class, Mockito.RETURNS_SELF);
+    Mockito.when(table.expireSnapshots()).thenReturn(expireSnapshots);
+
+    Operations.of(getSparkSession(), otelEmitter).expireSnapshots(table, 3, "DAYS", 0);
+
+    Mockito.verify(expireSnapshots).cleanExpiredFiles(true);
   }
 
   @Test
