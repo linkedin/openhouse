@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit
  * Every capability trait extends this kit, so mixing them into `object Scenarios` puts ScenarioKit first in the
  * linearization and its vals initialize before any capability's. It holds copy-on-write layouts and preparations only;
  * each feature layer carries its own kit that extends this one. `protected` members are the shared kit; `public` ones
- * are also consumed by `object ScenarioCatalog`, `object Plan` and the catalog tests.
+ * are also consumed by `object ScenarioCatalog`, `object Plan`, and downstream runners.
  */
 trait ScenarioKit {
 
