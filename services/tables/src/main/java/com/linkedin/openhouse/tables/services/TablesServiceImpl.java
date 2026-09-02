@@ -115,8 +115,8 @@ public class TablesServiceImpl implements TablesService {
 
     // Special case handling
     if (tableDto.isPresent() && createUpdateTableRequestBody.isStageReplace()) {
-      // Check if table creator has the privilege to replace the table.
-      authorizationUtils.checkReplaceTablePrivilege(tableDto.get(), tableCreatorUpdater);
+      authorizationUtils.checkTableWritePathPrivileges(
+          tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
     } else if (tableDto.isPresent()) {
       if (failOnExist) {
         throw new AlreadyExistsException("Table", String.format("%s.%s", databaseId, tableId));

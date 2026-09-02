@@ -1,45 +1,60 @@
 package com.linkedin.openhouse.tables.utils;
 
+import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
+import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.model.TableDto;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.security.access.AccessDeniedException;
 
 public class AuthorizationUtilsTest {
 
-  private static final String TABLE_CREATOR =
-      "urn:li:gridUser:test-user/urn:li:sparksvc:sparksvc_oh_2";
+  private static final String ACTING_PRINCIPAL = "test-user";
+  private static final TableDto TABLE =
+      TableDto.builder()
+          .databaseId("database")
+          .tableId("table")
+          .tableCreator("table-creator")
+          .build();
 
-  private final AuthorizationUtils authorizationUtils = new AuthorizationUtils();
+  private AuthorizationHandler authorizationHandler;
+  private AuthorizationUtils authorizationUtils;
 
-  @Test
-  public void testReplaceTablePrivilegeAllowsSameGridUser() {
-    TableDto tableDto =
-        TableDto.builder()
-            .databaseId("database")
-            .tableId("table")
-            .tableCreator(TABLE_CREATOR)
-            .build();
-
-    Assertions.assertDoesNotThrow(
-        () ->
-            authorizationUtils.checkReplaceTablePrivilege(
-                tableDto, "urn:li:gridUser:test-user/urn:li:servicePrincipal:jobs-service"));
+  @BeforeEach
+  public void setUp() {
+    authorizationHandler = Mockito.mock(AuthorizationHandler.class);
+    authorizationUtils = new AuthorizationUtils();
+    authorizationUtils.authorizationHandler = authorizationHandler;
   }
 
   @Test
-  public void testReplaceTablePrivilegeRejectsDifferentGridUser() {
-    TableDto tableDto =
-        TableDto.builder()
-            .databaseId("database")
-            .tableId("table")
-            .tableCreator(TABLE_CREATOR)
-            .build();
+  public void testLegacyTableWritePathAllowsUpdateMetadataPrivilege() {
+    Mockito.when(
+            authorizationHandler.checkAccessDecision(
+                ACTING_PRINCIPAL, TABLE, Privileges.UPDATE_TABLE_METADATA))
+        .thenReturn(true);
+
+    Assertions.assertDoesNotThrow(
+        () ->
+            authorizationUtils.checkTableWritePathPrivileges(
+                TABLE, ACTING_PRINCIPAL, Privileges.UPDATE_TABLE_METADATA));
+    Mockito.verify(authorizationHandler)
+        .checkAccessDecision(ACTING_PRINCIPAL, TABLE, Privileges.UPDATE_TABLE_METADATA);
+  }
+
+  @Test
+  public void testLegacyTableWritePathRejectsMissingUpdateMetadataPrivilege() {
+    Mockito.when(
+            authorizationHandler.checkAccessDecision(
+                ACTING_PRINCIPAL, TABLE, Privileges.UPDATE_TABLE_METADATA))
+        .thenReturn(false);
 
     Assertions.assertThrows(
         AccessDeniedException.class,
         () ->
-            authorizationUtils.checkReplaceTablePrivilege(
-                tableDto, "urn:li:gridUser:another-user/urn:li:servicePrincipal:jobs-service"));
+            authorizationUtils.checkTableWritePathPrivileges(
+                TABLE, ACTING_PRINCIPAL, Privileges.UPDATE_TABLE_METADATA));
   }
 }

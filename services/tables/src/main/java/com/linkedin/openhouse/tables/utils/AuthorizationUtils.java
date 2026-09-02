@@ -61,7 +61,7 @@ public class AuthorizationUtils {
    */
   public void checkTableWritePathPrivileges(
       TableDto tableDto, String actingPrincipal, Privileges privilege) {
-    if (tableDto.getTableType().equals(TableType.REPLICA_TABLE)) {
+    if (TableType.REPLICA_TABLE.equals(tableDto.getTableType())) {
       checkTablePrivilege(tableDto, actingPrincipal, Privileges.SYSTEM_ADMIN);
     } else {
       checkTablePrivilege(tableDto, actingPrincipal, privilege);
@@ -98,29 +98,5 @@ public class AuthorizationUtils {
               "Operation on database [%s] failed as user [%s] is unauthorized",
               databaseDto.getDatabaseId(), actingPrincipal));
     }
-  }
-
-  /**
-   * Checks if the acting principal is authorized to replace the table. Only the original table
-   * creator has the privilege.
-   *
-   * @param tableDto
-   * @param actingPrincipal
-   */
-  public void checkReplaceTablePrivilege(TableDto tableDto, String actingPrincipal) {
-    if (!extractGridUserPrincipal(tableDto.getTableCreator())
-        .equals(extractGridUserPrincipal(actingPrincipal))) {
-      throw new AccessDeniedException(
-          String.format(
-              "Table %s.%s can only be replaced by the same creator. Current creator: %s, request creator: %s",
-              tableDto.getDatabaseId(),
-              tableDto.getTableId(),
-              tableDto.getTableCreator(),
-              actingPrincipal));
-    }
-  }
-
-  private static String extractGridUserPrincipal(String principal) {
-    return principal.split("/", 2)[0];
   }
 }
