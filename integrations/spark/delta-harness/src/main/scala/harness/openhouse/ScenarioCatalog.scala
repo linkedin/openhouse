@@ -46,10 +46,7 @@ object Scenarios
  */
 object ScenarioCatalog {
 
-  /**
-   * The frozen foundation: the reusable DDL and DML capabilities this branch landed, named once, in alphabetical
-   * order. FoundationCatalogTest pins this list, so a later layer adds to `extensionContributions` instead.
-   */
+  /** The reusable DDL and DML capabilities in the foundation, named once in alphabetical order. */
   def foundationContributions: List[(String, List[TestCase])] =
     List(
       "dataTypeCases"           -> Scenarios.dataTypeCases,
