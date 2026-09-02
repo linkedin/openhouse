@@ -26,6 +26,7 @@ object Scenarios
     with ScenarioPartitionEvolution
     with ScenarioSchemaEvolution
     with ScenarioTableProperty
+    with ScenarioRtas
     with ChangelogSupport
 
 /**
@@ -61,11 +62,13 @@ object ScenarioCatalog {
       "tablePropertyCases"      -> Scenarios.tablePropertyCases)
 
   /**
-   * The capabilities a later layer adds on top of the foundation, named the same way. This branch adds none, so the
-   * list is empty here and every entry below it in the file stays untouched as layers arrive.
+   * The capabilities this layer adds on top of the foundation, named the same way. This branch adds the replace-table
+   * capability, so a sibling layer appends its own entry here and leaves the foundation list and every entry below
+   * this one untouched.
    */
   def extensionContributions: List[(String, List[TestCase])] =
-    List.empty
+    List(
+      "rtasCases" -> Scenarios.rtasCases)
 
   /** Every capability contribution, named once, in the order the catalog integrates them. */
   def contributions: List[(String, List[TestCase])] =
