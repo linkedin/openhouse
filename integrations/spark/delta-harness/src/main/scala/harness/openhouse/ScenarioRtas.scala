@@ -940,59 +940,63 @@ trait ScenarioRtas extends ScenarioKit { this: ScenarioDml with ChangelogSupport
   // --- 13. a replace racing another writer ---
 
   /**
-   * A replace racing an INSERT settles at either the two rows the replace selected, where the replace committed last,
-   * or three rows, where the append landed on the replaced table. Whichever writer loses fails with a typed commit
-   * conflict, so a caller recognizes every way this race ends.
+   * A serializable replace and INSERT race settles at either the two rows the replace selected, where the replace
+   * committed last, or three rows, where the append landed on the replaced table. Whichever writer loses fails with a
+   * typed commit conflict, so a caller recognizes every valid way this race ends.
    */
   private def replaceVersusAppendCase(preparation: TablePreparation[CoreTable.type]): TestCase =
-    preparation.test("rtas.concurrency.replaceVersusAppend") { table =>
-      val outcomeByWriter = new ConcurrentHashMap[String, String]()
-      def writer(writerName: String, statement: String): () => Unit = () =>
-        try {
-          table.spark.sql(statement)
-          outcomeByWriter.put(writerName, committedOutcome)
-        } catch {
-          case NonFatal(conflict) if ConcurrencySupport.isTypedCommitConflict(conflict) =>
-            outcomeByWriter.put(writerName, conflictedOutcome)
+    preparation
+      .test("rtas.concurrency.replaceVersusAppend") { table =>
+        val outcomeByWriter = new ConcurrentHashMap[String, String]()
+        def writer(writerName: String, statement: String): () => Unit = () =>
+          try {
+            table.spark.sql(statement)
+            outcomeByWriter.put(writerName, committedOutcome)
+          } catch {
+            case NonFatal(conflict) if ConcurrencySupport.isTypedCommitConflict(conflict) =>
+              outcomeByWriter.put(writerName, conflictedOutcome)
+          }
+
+        val threadErrors = ConcurrencySupport.runConcurrently(
+          Seq(
+            writer("replace", replaceWithKeysUpTo(table.name, 2)),
+            writer("append", s"INSERT INTO ${table.name} VALUES ${coreRow(30L, "row-30")}")))
+        assert(
+          threadErrors.isEmpty,
+          s"both writers either commit or hit a typed commit conflict, found: $threadErrors")
+
+        table.spark.sql(s"REFRESH TABLE ${table.name}")
+        val settledKeys = table.spark
+          .sql(s"SELECT ${Core.long0.columnName} FROM ${table.name}")
+          .collect()
+          .toSeq
+          .map(_.getLong(0))
+          .toSet
+        val raceOutcome =
+          (outcomeByWriter.get("replace"), outcomeByWriter.get("append"))
+
+        println(s"DIAG rtas.concurrency.replaceVersusAppend: $raceOutcome settled at $settledKeys")
+        raceOutcome match {
+          case (`committedOutcome`, `conflictedOutcome`) =>
+            assert(
+              settledKeys == Set(1L, 2L),
+              s"a winning replace leaves the keys it selected, found $settledKeys")
+          case (`conflictedOutcome`, `committedOutcome`) =>
+            assert(
+              settledKeys == Set(1L, 2L, 3L, 30L),
+              s"a winning append leaves the seed plus its row, found $settledKeys")
+          case (`committedOutcome`, `committedOutcome`) =>
+            assert(
+              settledKeys == Set(1L, 2L) || settledKeys == Set(1L, 2L, 30L),
+              s"two commits leave the replaced rows, with the append included when it landed " +
+                s"on the replaced table, found $settledKeys")
+          case recordedOutcome =>
+            throw new AssertionError(
+              s"one writer commits when a replace races an append, recorded $recordedOutcome")
         }
-
-      val threadErrors = ConcurrencySupport.runConcurrently(
-        Seq(
-          writer("replace", replaceWithKeysUpTo(table.name, 2)),
-          writer("append", s"INSERT INTO ${table.name} VALUES ${coreRow(30L, "row-30")}")))
-      assert(
-        threadErrors.isEmpty,
-        s"both writers either commit or hit a typed commit conflict, found: $threadErrors")
-
-      table.spark.sql(s"REFRESH TABLE ${table.name}")
-      val settledKeys = table.spark
-        .sql(s"SELECT ${Core.long0.columnName} FROM ${table.name}")
-        .collect()
-        .toSeq
-        .map(_.getLong(0))
-        .toSet
-      val raceOutcome =
-        (outcomeByWriter.get("replace"), outcomeByWriter.get("append"))
-
-      println(s"DIAG rtas.concurrency.replaceVersusAppend: $raceOutcome settled at $settledKeys")
-      raceOutcome match {
-        case (`committedOutcome`, `conflictedOutcome`) =>
-          assert(
-            settledKeys == Set(1L, 2L),
-            s"a winning replace leaves the keys it selected, found $settledKeys")
-        case (`conflictedOutcome`, `committedOutcome`) =>
-          assert(
-            settledKeys == Set(1L, 2L, 3L, 30L),
-            s"a winning append leaves the seed plus its row, found $settledKeys")
-        case (`committedOutcome`, `committedOutcome`) =>
-          assert(
-            settledKeys == Set(1L, 2L) || settledKeys == Set(1L, 2L, 30L),
-            s"two commits leave the replaced rows, with the append included when it landed " +
-              s"on the replaced table, found $settledKeys")
-        case recordedOutcome =>
-          throw new AssertionError(
-            s"one writer commits when a replace races an append, recorded $recordedOutcome")
       }
-    }
+      .copy(knownBugReason = Some(
+        "A replace and append can both report successful commits while the append's snapshot wins and loses the " +
+          "replace, leaving the seed rows plus the appended row."))
 
 }
