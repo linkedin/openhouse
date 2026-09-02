@@ -27,6 +27,11 @@ object Scenarios
     with ScenarioSchemaEvolution
     with ScenarioTableProperty
     with ScenarioRtas
+    with ScenarioConcurrency
+    with ScenarioLocking
+    with ScenarioStreaming
+    with ScenarioTableEvolutionCompatibility
+    with ScenarioWriterCompatibility
     with ChangelogSupport
 
 /**
@@ -62,13 +67,19 @@ object ScenarioCatalog {
       "tablePropertyCases"      -> Scenarios.tablePropertyCases)
 
   /**
-   * The capabilities this layer adds on top of the foundation, named the same way. This branch adds the replace-table
-   * capability, so a sibling layer appends its own entry here and leaves the foundation list and every entry below
-   * this one untouched.
+   * The capabilities this branch adds on top of the foundation, named the same way. This branch integrates the
+   * replace-table capability and the compatibility-and-streaming bundle (racing writers, REST table locking,
+   * structured streaming, post-alteration table evolution, and explicit-column writer compatibility). A sibling layer
+   * appends its own entry here and leaves the foundation list and every other entry untouched.
    */
   def extensionContributions: List[(String, List[TestCase])] =
     List(
-      "rtasCases" -> Scenarios.rtasCases)
+      "rtasCases"                        -> Scenarios.rtasCases,
+      "concurrencyCases"                 -> Scenarios.concurrencyCases,
+      "lockingCases"                     -> Scenarios.lockingCases,
+      "streamingCases"                   -> Scenarios.streamingCases,
+      "tableEvolutionCompatibilityCases" -> Scenarios.tableEvolutionCompatibilityCases,
+      "writerCompatibilityCases"         -> Scenarios.writerCompatibilityCases)
 
   /** Every capability contribution, named once, in the order the catalog integrates them. */
   def contributions: List[(String, List[TestCase])] =
