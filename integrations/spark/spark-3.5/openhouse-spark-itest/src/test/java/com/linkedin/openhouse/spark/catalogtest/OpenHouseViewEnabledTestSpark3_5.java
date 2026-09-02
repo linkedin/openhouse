@@ -36,8 +36,7 @@ public class OpenHouseViewEnabledTestSpark3_5 extends OpenHouseSparkITest {
       ViewCatalog catalog = (ViewCatalog) getOpenHouseCatalog(spark);
       Namespace namespace = Namespace.of("viewenabled_db");
       TableIdentifier viewId = TableIdentifier.of("viewenabled_db", "v_roundtrip");
-      Schema schema =
-          new Schema(Types.NestedField.required(1, "c", Types.IntegerType.get()));
+      Schema schema = new Schema(Types.NestedField.required(1, "c", Types.IntegerType.get()));
 
       View created =
           catalog
