@@ -2,6 +2,7 @@ package harness
 
 import org.junit.jupiter.api.Assertions.{assertEquals, assertTrue}
 import org.junit.jupiter.api.Test
+import scala.collection.mutable.ListBuffer
 
 /**
  * Pins how a preparation turns a test body into a catalog case: the ID it builds, the post-test hook every case from
@@ -31,7 +32,7 @@ final class TablePreparationTest {
 
   @Test
   def buildsACaseWithoutRunningItsBodyOrItsPostTestHook(): Unit = {
-    val calls = scala.collection.mutable.ListBuffer.empty[String]
+    val calls = ListBuffer.empty[String]
     val preparation = TablePreparation[CoreTable.type](
       "unpartitioned/parquet",
       emptyPreparation,
@@ -44,7 +45,7 @@ final class TablePreparationTest {
 
   @Test
   def runsADmlTestCaseUnderTheIdOfThePreparationItIsGiven(): Unit = {
-    val calls = scala.collection.mutable.ListBuffer.empty[String]
+    val calls = ListBuffer.empty[String]
     val preparation = TablePreparation("unpartitioned/parquet", emptyPreparation)
     val dmlTestCase = DmlTestCase(
       "insert.into",

@@ -1,13 +1,35 @@
 package harness
 
-/** Mixes the standard scenario-owned case lists into one catalog source. */
+/** Mixes every standard capability trait into one catalog source. */
 object Scenarios
-    extends DmlScenarios
-    with NestedTypesScenarios
-    with MaintControlScenarios
-    with ForkScenarios
-    with NegativeDdlScenarios
-    with InteractionScenarios
-    with SurfaceScenarios
-    with HazardReaderWriterScenarios
-    with ImplementationPinScenarios
+    extends AccessControlScenarios
+    with ChangelogScenarios
+    with ColumnTagScenarios
+    with CompactionPlanningScenarios
+    with ConcurrencyScenarios
+    with DataTypeScenarios
+    with DmlScenarios
+    with DmlValidationScenarios
+    with EncryptionScenarios
+    with FileFormatScenarios
+    with FileReplicationScenarios
+    with IncrementalReadScenarios
+    with LockingScenarios
+    with MaintenanceScenarios
+    with MetadataTableScenarios
+    with NamespaceScenarios
+    with NestedTypeScenarios
+    with PartitionEvolutionScenarios
+    with PartitionTransformScenarios
+    with ProcedureScenarios
+    with RenameScenarios
+    with ScanPlanningScenarios
+    with SchemaEvolutionScenarios
+    with SnapshotRestoreScenarios
+    with SortOrderScenarios
+    with StreamingScenarios
+    with TableEvolutionCompatibilityScenarios
+    with TablePropertyScenarios
+    with TimeTravelScenarios
+    with WriteDistributionScenarios
+    with WriterCompatibilityScenarios

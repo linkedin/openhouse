@@ -8,8 +8,9 @@ plugins {
 // it against the embedded catalog, and the LinkedIn acceptance tests supply a remote environment.
 //
 // Only the portable scenario/framework sources are published. Env.scala boots the embedded OpenHouse
-// server and pulls in its test fixtures, so it is excluded from the published library and compiled in
-// the local source set.
+// server and pulls in its test fixtures, and LocalRunner.scala carries the harness.Main launch class
+// that drives it, so both are excluded from the published library and compiled in the local source
+// set.
 
 ext {
   icebergVersion = rootProject.ext.iceberg_1_5_version
@@ -17,18 +18,21 @@ ext {
   scalaLibVersion = '2.12.18'
 }
 
+// The embedded boot wiring and the local run loop. They are excluded from the portable library and
+// are the whole of the local source set.
+def embeddedOnlySources = ['harness/openhouse/Env.scala', 'harness/openhouse/LocalRunner.scala']
+
 sourceSets {
   main {
     scala {
       srcDirs = ['src/main/scala']
-      // Embedded-only boot and run wiring is not part of the portable library.
-      exclude 'harness/openhouse/Env.scala'
+      exclude embeddedOnlySources
     }
   }
   local {
     scala {
       srcDirs = ['src/main/scala']
-      include 'harness/openhouse/Env.scala'
+      include embeddedOnlySources
     }
     compileClasspath += sourceSets.main.output
     runtimeClasspath += sourceSets.main.output
@@ -57,14 +61,18 @@ dependencies {
   testImplementation("com.linkedin.iceberg:iceberg-spark-runtime-3.5_2.12:${icebergVersion}") {
     exclude group: 'io.netty'
   }
-  testImplementation(project(path: ':integrations:spark:spark-3.5:openhouse-spark-3.5-runtime_2.12', configuration: 'shadow'))
+  testImplementation(
+    project(path: ':integrations:spark:spark-3.5:openhouse-spark-3.5-runtime_2.12',
+            configuration: 'shadow'))
 
   localImplementation sourceSets.main.output
   localImplementation "org.scala-lang:scala-library:${scalaLibVersion}"
   localImplementation("org.apache.spark:spark-sql_2.12:${sparkVersion}") {
     exclude group: 'io.netty'
   }
-  localImplementation(project(path: ':integrations:spark:spark-3.5:openhouse-spark-3.5-runtime_2.12', configuration: 'shadow')) {
+  localImplementation(
+    project(path: ':integrations:spark:spark-3.5:openhouse-spark-3.5-runtime_2.12',
+            configuration: 'shadow')) {
     exclude group: 'org.apache.commons', module: 'commons-lang3'
   }
   localImplementation project(':tables-test-fixtures:tables-test-fixtures-iceberg-1.5_2.12')

@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Assertions.{
   assertTrue
 }
 import org.junit.jupiter.api.Test
+import scala.collection.mutable.ListBuffer
 
 /**
  * Pins fresh table identity and ownership cleanup: generated names stay namespace-scoped and unique across counter
@@ -81,4 +82,5 @@ final class TableTestTest {
     assertSame(testFailure, thrown)
     assertEquals(List(cleanupFailure), thrown.getSuppressed.toList)
   }
+
 }

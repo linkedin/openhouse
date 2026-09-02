@@ -4,24 +4,117 @@ import org.apache.spark.sql.Row
 import org.apache.spark.sql.functions.lit
 
 /**
- * Defines 54 reusable DML operations over the six CoreTable columns: bigint, int, string, double, boolean, and a
- * string-encoded date. The operation catalog contains 2 reads, 14 deletes, 13 updates, 16 merges, 6 inserts or
- * overwrites, 1 null-string delete, and 2 partition-scoped overwrites. Each operation covers a distinct SQL or
- * DataFrame form or a distinct observable state change within its family.
+ * Data manipulation on the core table: the reads, deletes, updates, merges, inserts and overwrites the catalog
+ * supports, and the row and snapshot change each one commits.
  *
- * ScenarioKit supplies the starting-state axes. Six core layouts cross three file formats with partitioned and
- * unpartitioned tables. Three date-partitioned layouts receive partition-scoped writes. Six write-ordered layouts
- * exercise the same catalog under sort order. Six evolved layouts receive the 29 operations that address columns by
- * name. Null-string variants isolate the one operation that requires a null value.
+ * Operations: 54 reusable DML operations over the six CoreTable columns (bigint, int, string, double, boolean, and a
+ * string-encoded date), made up of 2 reads, 14 deletes, 13 updates, 16 merges, 6 inserts or overwrites, 1 null-string
+ * delete, and 2 partition-scoped overwrites. Each operation covers a distinct SQL or DataFrame form, or a distinct
+ * observable state change within its family. Every operation is defined once here, so a feature layer covers its own
+ * table mode by crossing these same definitions with its own preparations.
  *
- * The final section defines 13 bespoke DDL follow-up cases. Six consume a table after a DDL state transition, and seven
- * verify schema creation or evolution. These cases stay outside the DML cross-product because the DDL transition is
- * part of the behavior under test.
+ * Preparation axes: ScenarioKit supplies the starting states. Six core layouts cross three file formats with
+ * partitioned and unpartitioned tables. Three date-partitioned layouts receive the partition-scoped writes. Six
+ * write-ordered layouts exercise the same catalog under a sort order. Six evolved layouts receive the 29 operations
+ * that address columns by name. Null-string variants isolate the one operation that requires a null value.
+ *
+ * Case families: 804 cases in four families, `coreDmlCases` (312), `partitionedDmlCases` (6), `orderedDmlCases` (312)
+ * and `evolvedDmlCases` (174).
  */
 trait DmlScenarios extends ScenarioKit {
   import Rows._
 
-  // --- the DML test cases ---
+  /** Every DML case, in preparation order: core, partition-scoped, write-ordered, then evolved. */
+  lazy val dmlCases: List[Plan.Case] =
+    coreDmlCases ++ partitionedDmlCases ++ orderedDmlCases ++ evolvedDmlCases
+
+  /**
+   * The reads. They select columns by name and write nothing, so they run on any preparation that starts from the three
+   * seed rows, including one whose column list has grown past that shape.
+   */
+  lazy val readTestCases: List[DmlTestCase[CoreTable.type]] = List(
+    readProjection,
+    readFilter)
+
+  /**
+   * The DELETE that selects a null string. It applies to a preparation that already holds a row whose string column is
+   * null, and it removes exactly that row.
+   */
+  lazy val nullStringRowTestCases: List[DmlTestCase[CoreTable.type]] = List(
+    deleteByNullCondition)
+
+  /**
+   * The partition-scoped writes. They replace whole partitions, so they apply to a preparation that partitions the
+   * table, and they cross with the partitioned preparations alone.
+   */
+  lazy val partitionedTableTestCases: List[DmlTestCase[CoreTable.type]] = List(
+    insertDynamicOverwrite,
+    overwritePartitions)
+
+  // --- which cases a preparation is compatible with ---
+  // Compatibility is a property of the starting state, so each list names the states it fits.
+
+  /** Every DML case. Runs on any preparation that starts from three seed rows of the seed shape. */
+  lazy val allDmlTestCases: List[DmlTestCase[CoreTable.type]] =
+    readTestCases ++
+      deleteTestCases ++
+      updateTestCases ++
+      mergeTestCases ++
+      insertAndOverwriteTestCases
+
+  /** The row-mutating cases: every DELETE, UPDATE and MERGE. */
+  lazy val rowMutationTestCases: List[DmlTestCase[CoreTable.type]] =
+    deleteTestCases ++ updateTestCases ++ mergeTestCases
+
+  /**
+   * The cases that address columns by name and never write a whole seed-shaped row, so they run on a preparation whose
+   * column list has grown beyond the seed rows.
+   */
+  lazy val testCasesCompatibleWithAnAddedColumn: List[DmlTestCase[CoreTable.type]] =
+    readTestCases ++ deleteTestCases ++ updateTestCases
+
+  /**
+   * Every DML case, with the partition-predicate DELETE marked as a known bug: the Spark and Iceberg rewrite crashes on
+   * it when the table carries a write order.
+   */
+  lazy val orderedDmlTestCases: List[DmlTestCase[CoreTable.type]] =
+    allDmlTestCases.map {
+      case testCase if testCase == deleteByPartitionPredicate =>
+        testCase.copy(knownBugReason = Some(
+          "DELETE by partition predicate crashes in the Spark and Iceberg rewrite when the " +
+            "table has a write order."))
+      case testCase =>
+        testCase
+    }
+
+  // --- standard preparations crossed with the cases they are compatible with ---
+
+  /**
+   * Every DML case on the core preparations, plus the null-string DELETE on the same preparations extended with a
+   * null-string row.
+   */
+  lazy val coreDmlCases: List[Plan.Case] =
+    preparedCoreTables.flatMap(preparation => allDmlTestCases.map(_.runOn(preparation))) ++
+      preparedNullStringCoreTables.flatMap(preparation =>
+        nullStringRowTestCases.map(_.runOn(preparation)))
+
+  /** The partition-scoped writes on the partitioned preparations. */
+  lazy val partitionedDmlCases: List[Plan.Case] =
+    preparedPartitionedCoreTables.flatMap(preparation =>
+      partitionedTableTestCases.map(_.runOn(preparation)))
+
+  /** Every DML case on the write-ordered preparations, plus the null-string DELETE on their null-string form. */
+  lazy val orderedDmlCases: List[Plan.Case] =
+    preparedOrderedCoreTables.flatMap(preparation => orderedDmlTestCases.map(_.runOn(preparation))) ++
+      preparedNullStringOrderedCoreTables.flatMap(preparation =>
+        nullStringRowTestCases.map(_.runOn(preparation)))
+
+  /** The cases that address columns by name, on the preparations that added a column. */
+  lazy val evolvedDmlCases: List[Plan.Case] =
+    preparedEvolvedCoreTables.flatMap(preparation =>
+      testCasesCompatibleWithAnAddedColumn.map(_.runOn(preparation)))
+
+  // --- the operations the surface above composes ---
   // Each case captures the table state, runs one operation, captures the state again, and asserts the row change and
   // the snapshot delta that operation caused. Deltas are relative, so a case holds on any preparation regardless of how
   // many snapshots the preparation itself committed.
@@ -75,14 +168,6 @@ trait DmlScenarios extends ScenarioKit {
       })
 
   /**
-   * The reads. They select columns by name and write nothing, so they run on any preparation that starts from the three
-   * seed rows, including one whose column list has grown past that shape.
-   */
-  val readTestCases: List[DmlTestCase[CoreTable.type]] = List(
-    readProjection,
-    readFilter)
-
-  /**
    * DELETE WHERE foo_col_string IS NULL removes exactly the prepared row whose string is null, leaves every other row
    * unchanged, and commits one snapshot.
    */
@@ -103,13 +188,6 @@ trait DmlScenarios extends ScenarioKit {
           after.snapshotCount == before.snapshotCount + 1,
           "DELETE by a null condition commits one snapshot")
       })
-
-  /**
-   * The DELETE that selects a null string. It applies to a preparation that already holds a row whose string column is
-   * null, and it removes exactly that row.
-   */
-  val nullStringRowTestCases: List[DmlTestCase[CoreTable.type]] = List(
-    deleteByNullCondition)
 
   /**
    * DELETE WHERE foo_col_date = '2024-01-01-00' removes the rows with that date, keeps the rest, and commits one
@@ -775,7 +853,7 @@ trait DmlScenarios extends ScenarioKit {
                 SELECT * FROM VALUES
                   (CAST(4 AS BIGINT), 4, 'row-4', 4.5, true,  '2024-01-04-03'),
                   (CAST(5 AS BIGINT), 5, 'row-5', 5.5, false, '2024-01-05-04')
-                AS s($cols)
+                AS s($columnNameList)
               ) s ON t.${Core.long0.columnName} = s.${Core.long0.columnName}
               WHEN NOT MATCHED THEN INSERT *""")
         val after = table.state
@@ -859,7 +937,7 @@ trait DmlScenarios extends ScenarioKit {
                 SELECT * FROM VALUES
                   (CAST(2 AS BIGINT), 2, 'U', 2.5, true,  '2024-01-02-01'),
                   (CAST(7 AS BIGINT), 7, 'g', 7.5, false, '2024-01-07-06')
-                AS s($cols)
+                AS s($columnNameList)
               ) s ON t.${Core.long0.columnName} = s.${Core.long0.columnName}
               WHEN MATCHED THEN UPDATE
               SET t.${Core.string0.columnName} = s.${Core.string0.columnName}
@@ -979,7 +1057,7 @@ trait DmlScenarios extends ScenarioKit {
                 SELECT * FROM VALUES
                   (CAST(4 AS BIGINT), 4, 'row-4', 4.5, true,  '2024-01-04-03'),
                   (CAST(5 AS BIGINT), 5, 'row-5', 5.5, false, '2024-01-05-04')
-                AS s($cols)
+                AS s($columnNameList)
               ) s ON t.${Core.long0.columnName} = s.${Core.long0.columnName}
               WHEN NOT MATCHED AND s.${Core.long0.columnName} = 4 THEN INSERT *""")
         val after = table.state
@@ -1007,7 +1085,7 @@ trait DmlScenarios extends ScenarioKit {
                 SELECT * FROM VALUES
                   (CAST(2 AS BIGINT), 2, 'M2', 2.5, true,  '2024-01-02-01'),
                   (CAST(4 AS BIGINT), 4, 'row-4', 4.5, false, '2024-01-04-03')
-                AS s($cols)
+                AS s($columnNameList)
               ) s ON t.${Core.long0.columnName} = s.${Core.long0.columnName}
               WHEN MATCHED THEN UPDATE
               SET t.${Core.string0.columnName} = s.${Core.string0.columnName}
@@ -1041,7 +1119,7 @@ trait DmlScenarios extends ScenarioKit {
           s"""MERGE INTO ${table.name} t USING (
                 SELECT * FROM VALUES
                   (CAST(2 AS BIGINT), 22, 'S2', 22.5, true, '2024-06-06-06')
-                AS s($cols)
+                AS s($columnNameList)
               ) s ON t.${Core.long0.columnName} = s.${Core.long0.columnName}
               WHEN MATCHED THEN UPDATE SET *""")
         val after = table.state
@@ -1162,7 +1240,7 @@ trait DmlScenarios extends ScenarioKit {
                 SELECT * FROM VALUES
                   (CAST(4 AS BIGINT), 4, 'row-4', 4.5, true,  '2024-01-04-03'),
                   (CAST(5 AS BIGINT), 5, 'row-5', 5.5, false, '2024-01-05-04')
-                AS s($cols)
+                AS s($columnNameList)
               ) s ON t.${Core.long0.columnName} = s.${Core.long0.columnName}
               WHEN NOT MATCHED THEN INSERT *""")
         val after = table.state
@@ -1327,7 +1405,7 @@ trait DmlScenarios extends ScenarioKit {
         table.spark.sql(
           s"INSERT INTO ${table.name} SELECT * FROM VALUES " +
             s"(CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05') " +
-            s"AS s($cols)")
+            s"AS s($columnNameList)")
         val after = table.state
 
         assert(
@@ -1352,7 +1430,7 @@ trait DmlScenarios extends ScenarioKit {
           .sql(
             s"SELECT * FROM VALUES " +
               s"(CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05') " +
-              s"AS s($cols)")
+              s"AS s($columnNameList)")
           .writeTo(table.name)
           .append()
         val after = table.state
@@ -1405,7 +1483,7 @@ trait DmlScenarios extends ScenarioKit {
           .sql(
             s"SELECT * FROM VALUES " +
               s"(CAST(8 AS BIGINT), 8, 'h', 8.5, false, '2024-01-08-07') " +
-              s"AS s($cols)")
+              s"AS s($columnNameList)")
           .writeTo(table.name)
           .overwrite(lit(true))
         val after = table.state
@@ -1474,7 +1552,7 @@ trait DmlScenarios extends ScenarioKit {
           .sql(
             s"SELECT * FROM VALUES " +
               "(CAST(10 AS BIGINT), 10, 'p', 10.5, true, '2024-01-01-00') " +
-              s"AS s($cols)")
+              s"AS s($columnNameList)")
           .writeTo(table.name)
           .overwritePartitions()
         val after = table.state
@@ -1488,382 +1566,5 @@ trait DmlScenarios extends ScenarioKit {
           after.snapshotCount == before.snapshotCount + 1,
           "a partition overwrite commits one snapshot")
       })
-
-  /**
-   * The partition-scoped writes. They replace whole partitions, so they apply to a preparation that partitions the
-   * table, and they cross with the partitioned preparations alone.
-   */
-  val partitionedTableTestCases: List[DmlTestCase[CoreTable.type]] = List(
-    insertDynamicOverwrite,
-    overwritePartitions)
-
-  // --- which cases a preparation is compatible with ---
-  // Compatibility is a property of the starting state, so each list names the states it fits.
-
-  /** Every DML case. Runs on any preparation that starts from three seed rows of the seed shape. */
-  val allDmlTestCases: List[DmlTestCase[CoreTable.type]] =
-    readTestCases ++
-      deleteTestCases ++
-      updateTestCases ++
-      mergeTestCases ++
-      insertAndOverwriteTestCases
-
-  /** The row-mutating cases: every DELETE, UPDATE and MERGE. */
-  val rowMutationTestCases: List[DmlTestCase[CoreTable.type]] =
-    deleteTestCases ++ updateTestCases ++ mergeTestCases
-
-  /**
-   * The cases that address columns by name and never write a whole seed-shaped row, so they run on a preparation whose
-   * column list has grown beyond the seed rows.
-   */
-  val testCasesCompatibleWithAnAddedColumn: List[DmlTestCase[CoreTable.type]] =
-    readTestCases ++ deleteTestCases ++ updateTestCases
-
-  /**
-   * Every DML case, with the partition-predicate DELETE marked as a known bug: the Spark and Iceberg rewrite crashes on
-   * it when the table carries a write order.
-   */
-  val orderedDmlTestCases: List[DmlTestCase[CoreTable.type]] =
-    allDmlTestCases.map {
-      case testCase if testCase == deleteByPartitionPredicate =>
-        testCase.copy(knownBugReason = Some(
-          "DELETE by partition predicate crashes in the Spark and Iceberg rewrite when the " +
-            "table has a write order."))
-      case testCase =>
-        testCase
-    }
-
-  // --- standard preparations crossed with the cases they are compatible with ---
-
-  /**
-   * Every DML case on the core preparations, plus the null-string DELETE on the same preparations extended with a
-   * null-string row.
-   */
-  val coreDmlCases: List[Plan.Case] =
-    preparedCoreTables.flatMap(preparation => allDmlTestCases.map(_.runOn(preparation))) ++
-      preparedNullStringCoreTables.flatMap(preparation =>
-        nullStringRowTestCases.map(_.runOn(preparation)))
-
-  /** The partition-scoped writes on the partitioned preparations. */
-  val partitionedDmlCases: List[Plan.Case] =
-    preparedPartitionedCoreTables.flatMap(preparation =>
-      partitionedTableTestCases.map(_.runOn(preparation)))
-
-  /** Every DML case on the write-ordered preparations, plus the null-string DELETE on their null-string form. */
-  val orderedDmlCases: List[Plan.Case] =
-    preparedOrderedCoreTables.flatMap(preparation => orderedDmlTestCases.map(_.runOn(preparation))) ++
-      preparedNullStringOrderedCoreTables.flatMap(preparation =>
-        nullStringRowTestCases.map(_.runOn(preparation)))
-
-  /** The cases that address columns by name, on the preparations that added a column. */
-  val evolvedDmlCases: List[Plan.Case] =
-    preparedEvolvedCoreTables.flatMap(preparation =>
-      testCasesCompatibleWithAnAddedColumn.map(_.runOn(preparation)))
-
-  // --- DDL consumers: a DDL evolves the table, then operations are run against it ---
-
-  /**
-   * One preparation per Parquet and ORC layout and per DDL: three seed rows with keys 1, 2 and 3, then one of ADD
-   * COLUMN cc int, which the seed rows read as null; foo_col_int widened from int to bigint; WRITE ORDERED BY
-   * foo_col_long, which gives the table that write sort order; or write.distribution-mode set to range, which range
-   * distributes later writes. Plan walks this list so every consumer family lands on one preparation before the next
-   * preparation starts.
-   */
-  val ddlConsumerPreparations: List[TablePreparation[CoreTable.type]] =
-    parquetAndOrcLayouts.flatMap { layout =>
-      List(
-        TablePreparation(
-          layout.label,
-          createAndSeed(layout, 3)
-            .sql("ddl")(table => s"ALTER TABLE $table ADD COLUMN cc int")(),
-          "ddlConsume:addColumn."),
-        TablePreparation(
-          layout.label,
-          createAndSeed(layout, 3)
-            .sql("ddl")(table =>
-              s"ALTER TABLE $table ALTER COLUMN ${Core.int0.columnName} TYPE bigint")(),
-          "ddlConsume:typeWiden."),
-        TablePreparation(
-          layout.label,
-          createAndSeed(layout, 3)
-            .sql("ddl")(table =>
-              s"ALTER TABLE $table WRITE ORDERED BY ${Core.long0.columnName}")(),
-          "ddlConsume:writeOrder."),
-        TablePreparation(
-          layout.label,
-          createAndSeed(layout, 3)
-            .sql("ddl")(table =>
-              s"ALTER TABLE $table SET TBLPROPERTIES " +
-                "('write.distribution-mode'='range')")(),
-          "ddlConsume:distMode."))
-    }
-
-  /** A plain INSERT still lands on the table after the DDL, taking it to four rows. */
-  private def dmlWriteCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
-    preparation.test("dmlWrite") { table =>
-      table.spark.sql(
-        s"INSERT INTO ${table.name} SELECT * FROM ${table.name} " +
-          s"WHERE ${Core.long0.columnName} = 1")
-
-      assert(
-        table.spark
-          .sql(s"SELECT count(*) FROM ${table.name}")
-          .collect()(0)
-          .getLong(0) == 4,
-        "table is not writable after DDL")
-    }
-
-  /** A row-level DELETE still lands on the table after the DDL, taking it to two rows. */
-  private def dmlMutateCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
-    preparation.test("dmlMutate") { table =>
-      table.spark.sql(
-        s"DELETE FROM ${table.name} WHERE ${Core.long0.columnName} = 2")
-
-      assert(
-        table.spark
-          .sql(s"SELECT count(*) FROM ${table.name}")
-          .collect()(0)
-          .getLong(0) == 2,
-        "mutation failed after DDL")
-    }
-
-  /** The seed snapshot from before the DDL is still readable through VERSION AS OF and returns its three rows. */
-  private def timeTravelCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
-    preparation.test("timeTravel") { table =>
-      val seedSnapshotId =
-        snapshotIds(table.spark, table.name).head
-
-      assert(
-        table.spark
-          .sql(
-            s"SELECT count(*) FROM ${table.name} " +
-              s"VERSION AS OF $seedSnapshotId")
-          .collect()(0)
-          .getLong(0) == 3,
-        "seed snapshot is not readable after DDL")
-    }
-
-  /**
-   * rollback_to_snapshot back to the seed snapshot undoes an INSERT made after the DDL and returns the table to its
-   * three seed rows.
-   */
-  private def restoreCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
-    preparation.test("restore") { table =>
-      val seedSnapshotId =
-        snapshotIds(table.spark, table.name).head
-
-      table.spark.sql(
-        s"INSERT INTO ${table.name} SELECT * FROM ${table.name} " +
-          s"WHERE ${Core.long0.columnName} = 1")
-      table.spark.sql(
-        "CALL openhouse.system.rollback_to_snapshot(" +
-          s"'${catalogRelative(table.name)}', $seedSnapshotId)")
-
-      assert(
-        table.spark
-          .sql(s"SELECT count(*) FROM ${table.name}")
-          .collect()(0)
-          .getLong(0) == 3,
-        "restore across DDL failed")
-    }
-
-  /** expire_snapshots retaining only the newest snapshot leaves the table readable with its four current rows. */
-  private def expireCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
-    preparation.test("expire") { table =>
-      table.spark.sql(
-        s"INSERT INTO ${table.name} SELECT * FROM ${table.name} " +
-          s"WHERE ${Core.long0.columnName} = 1")
-      table.spark.sql(
-        "CALL openhouse.system.expire_snapshots(" +
-          s"table => '${catalogRelative(table.name)}', " +
-          "older_than => TIMESTAMP '2999-01-01 00:00:00', " +
-          "retain_last => 1)")
-
-      assert(
-        table.spark
-          .sql(s"SELECT count(*) FROM ${table.name}")
-          .collect()(0)
-          .getLong(0) == 4,
-        "table is unreadable after snapshot expiration")
-    }
-
-  /** The reads and writes a consumer runs against the table this preparation evolved. */
-  def ddlConsumerDataCases(
-      preparation: TablePreparation[CoreTable.type]): List[Plan.Case] =
-    List(
-      dmlWriteCase(preparation),
-      dmlMutateCase(preparation),
-      timeTravelCase(preparation),
-      restoreCase(preparation),
-      expireCase(preparation))
-
-  /** rewrite_data_files compacts the files written across the DDL and preserves the four current rows. */
-  private def compactCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
-    preparation.test("compact") { table =>
-      table.spark.sql(
-        s"INSERT INTO ${table.name} SELECT * FROM ${table.name} " +
-          s"WHERE ${Core.long0.columnName} = 1")
-      table.spark.sql(
-        "CALL openhouse.system.rewrite_data_files(" +
-          s"table => '${catalogRelative(table.name)}', " +
-          "options => map('min-input-files', '2'))")
-
-      assert(
-        table.spark
-          .sql(s"SELECT count(*) FROM ${table.name}")
-          .collect()(0)
-          .getLong(0) == 4,
-        "compaction changed rows after DDL")
-    }
-
-  /** The compaction a consumer runs over the files written across this preparation's DDL. */
-  def ddlConsumerCompactionCases(
-      preparation: TablePreparation[CoreTable.type]): List[Plan.Case] =
-    List(
-      compactCase(preparation))
-
-  // --- DDL that changes the schema of a seeded table ---
-
-  /**
-   * The created table's schema is exactly CoreTable's columns, in declaration order and with their declared types, and
-   * the table holds no rows.
-   */
-  private def createSchemaCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
-    preparation.test("create.schema") { table =>
-      val actual = table.spark
-        .table(table.name)
-        .schema
-        .fields
-        .toList
-        .map(field => field.name -> field.dataType.simpleString)
-      val expected = Core.tableColumns.toList.map(column => (column.columnName, column.sqlType))
-
-      assert(actual == expected, s"schema is $actual")
-      assert(table.rows.isEmpty, "a table that was never seeded holds no rows")
-    }
-
-  /** The created-schema case on every unseeded preparation. */
-  val createSchemaCases: List[Plan.Case] = preparedEmptyCoreTables.map { preparation =>
-    createSchemaCase(preparation)
-  }
-
-  /** ADD COLUMN adds the column to the schema, the existing rows read null for it, and the row count is unchanged. */
-  private def ddlAddColumnSingleCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
-    preparation.test("ddl.addColumn.single") { table =>
-      table.spark.sql(s"ALTER TABLE ${table.name} ADD COLUMN added_int int")
-
-      val columnNames = table.spark.table(table.name).schema.fields.toSeq.map(_.name)
-      val nullCount = table.spark
-        .sql(s"SELECT count(*) FROM ${table.name} WHERE added_int IS NULL")
-        .collect()(0)
-        .getLong(0)
-
-      assert(columnNames.contains("added_int"), s"added_int missing: $columnNames")
-      assert(
-        nullCount == table.preparedRows.size,
-        s"existing rows should read null for added_int: $nullCount != ${table.preparedRows.size}")
-      assert(table.rows.size == table.preparedRows.size, "ADD COLUMN changed the row count")
-    }
-
-  /** ADD COLUMNS with two columns in one statement adds both to the schema and leaves the row count unchanged. */
-  private def ddlAddColumnMultipleCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
-    preparation.test("ddl.addColumn.multiple") { table =>
-      table.spark.sql(s"ALTER TABLE ${table.name} ADD COLUMNS (added_a int, added_b string)")
-
-      val columnNames = table.spark.table(table.name).schema.fields.toSeq.map(_.name)
-
-      assert(
-        columnNames.contains("added_a") && columnNames.contains("added_b"),
-        s"added columns missing: $columnNames")
-      assert(table.rows.size == table.preparedRows.size, "ADD COLUMNS changed the row count")
-    }
-
-  /** ADD COLUMN ... COMMENT stores the comment on the added column and the reader sees it. */
-  private def ddlAddColumnCommentCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
-    preparation.test("ddl.addColumn.comment") { table =>
-      table.spark.sql(s"ALTER TABLE ${table.name} ADD COLUMN added_c int COMMENT 'a note'")
-
-      val addedColumn = table.spark
-        .table(table.name)
-        .schema
-        .fields
-        .find(_.name == "added_c")
-        .getOrElse(throw new AssertionError("added_c missing"))
-
-      assert(
-        addedColumn.getComment().contains("a note"),
-        s"comment not stored: ${addedColumn.getComment()}")
-    }
-
-  /** ADD COLUMN ... AFTER foo_col_long places the added column directly after that column in the schema. */
-  private def ddlAddColumnPositionCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
-    preparation.test("ddl.addColumn.position") { table =>
-      table.spark.sql(
-        s"ALTER TABLE ${table.name} ADD COLUMN added_after int AFTER ${Core.long0.columnName}")
-
-      val columnNames = table.spark.table(table.name).schema.fields.toSeq.map(_.name)
-
-      assert(
-        columnNames.indexOf("added_after") == columnNames.indexOf(Core.long0.columnName) + 1,
-        s"added_after not after long0: $columnNames")
-    }
-
-  /**
-   * ALTER COLUMN foo_col_int TYPE bigint widens the column in the schema and the already-written values read back
-   * unchanged.
-   */
-  private def ddlAlterColumnTypeWidenCase(
-      preparation: TablePreparation[CoreTable.type]): Plan.Case =
-    preparation.test("ddl.alterColumn.typeWiden") { table =>
-      table.spark.sql(
-        s"ALTER TABLE ${table.name} ALTER COLUMN ${Core.int0.columnName} TYPE bigint")
-
-      val liveColumns = table.spark.table(table.name).schema.fields.toSeq
-        .map(field => field.name -> field.dataType.simpleString)
-        .toMap
-      val values = table.spark
-        .sql(
-          s"SELECT ${Core.int0.columnName} FROM ${table.name} ORDER BY ${Core.long0.columnName}")
-        .collect()
-        .toSeq
-        .map(_.getLong(0))
-
-      assert(
-        liveColumns.get(Core.int0.columnName).contains("bigint"),
-        s"int0 not widened: ${liveColumns.get(Core.int0.columnName)}")
-      assert(values == Seq(1L, 2L, 3L), s"values not preserved after widening: $values")
-    }
-
-  /**
-   * RENAME COLUMN renames the column in the schema: the new name is present, the old name is gone, and the row count is
-   * unchanged.
-   */
-  private def ddlRenameColumnCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
-    preparation
-      .test("ddl.renameColumn") { table =>
-        table.spark.sql(s"ALTER TABLE ${table.name} ADD COLUMN to_rename int")
-        table.spark.sql(s"ALTER TABLE ${table.name} RENAME COLUMN to_rename TO renamed_col")
-
-        val columnNames = table.spark.table(table.name).schema.fields.toSeq.map(_.name)
-
-        assert(
-          columnNames.contains("renamed_col") && !columnNames.contains("to_rename"),
-          s"RENAME COLUMN silently no-oped: $columnNames")
-        assert(table.rows.size == table.preparedRows.size, "RENAME COLUMN changed the row count")
-      }
-      .copy(knownBugReason = Some(
-        "RENAME COLUMN is a silent no-op because server-side schema casing normalization " +
-          "restores the old name."))
-
-  /** The schema-changing DDL cases on the core preparations. */
-  val ddlSchemaCases: List[Plan.Case] = preparedCoreTables.flatMap { preparation =>
-    List(
-      ddlAddColumnSingleCase(preparation),
-      ddlAddColumnMultipleCase(preparation),
-      ddlAddColumnCommentCase(preparation),
-      ddlAddColumnPositionCase(preparation),
-      ddlAlterColumnTypeWidenCase(preparation),
-      ddlRenameColumnCase(preparation))
-  }
 
 }

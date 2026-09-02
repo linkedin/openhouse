@@ -1,10 +1,14 @@
 package harness
 
 import org.apache.spark.sql.{Row, SparkSession}
+import java.math.{BigDecimal => JavaBigDecimal}
+import java.net.{ConnectException, SocketException, SocketTimeoutException}
+import java.sql.{Date, Timestamp}
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
 import scala.annotation.tailrec
 import scala.reflect.{ClassTag, classTag}
 import scala.util.control.NonFatal
@@ -25,20 +29,24 @@ object Rest {
       .header("Authorization", s"Bearer ${ctx.restToken}")
       .header("Content-Type", "application/json")
   def post(ctx: Ctx, path: String, body: String): (Int, String) = {
-    val r = client.send(base(ctx, path).POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString())
-    (r.statusCode(), r.body())
+    val response = client.send(
+      base(ctx, path).POST(HttpRequest.BodyPublishers.ofString(body)).build(),
+      HttpResponse.BodyHandlers.ofString())
+    (response.statusCode(), response.body())
   }
   def delete(ctx: Ctx, path: String): (Int, String) = {
-    val r = client.send(base(ctx, path).DELETE().build(), HttpResponse.BodyHandlers.ofString())
-    (r.statusCode(), r.body())
+    val response = client.send(base(ctx, path).DELETE().build(), HttpResponse.BodyHandlers.ofString())
+    (response.statusCode(), response.body())
   }
   def put(ctx: Ctx, path: String, body: String): (Int, String) = {
-    val r = client.send(base(ctx, path).PUT(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString())
-    (r.statusCode(), r.body())
+    val response = client.send(
+      base(ctx, path).PUT(HttpRequest.BodyPublishers.ofString(body)).build(),
+      HttpResponse.BodyHandlers.ofString())
+    (response.statusCode(), response.body())
   }
   def get(ctx: Ctx, path: String): (Int, String) = {
-    val r = client.send(base(ctx, path).GET().build(), HttpResponse.BodyHandlers.ofString())
-    (r.statusCode(), r.body())
+    val response = client.send(base(ctx, path).GET().build(), HttpResponse.BodyHandlers.ofString())
+    (response.statusCode(), response.body())
   }
 }
 
@@ -78,10 +86,11 @@ object Exceptions {
    * assertion failures surface on their first attempt.
    */
   def isTransient(throwable: Throwable): Boolean = causeChain(throwable).exists {
-    case _: java.net.SocketTimeoutException => true
-    case _: java.net.ConnectException       => true
-    case e: java.net.SocketException        => Option(e.getMessage).exists(_.toLowerCase.contains("reset"))
-    case _                                  => false
+    case _: SocketTimeoutException => true
+    case _: ConnectException       => true
+    case socketFailure: SocketException =>
+      Option(socketFailure.getMessage).exists(_.toLowerCase.contains("reset"))
+    case _ => false
   }
 }
 
@@ -154,11 +163,22 @@ object CoreTable extends Schema {
 // A schema exercising complex/nested types: a struct, an array, a map, and a struct-in-struct. Struct/array read back
 // as Row/Seq; map as a Map. `id` is first so it is the ordering key.
 object NestedTable extends Schema {
-  val id:     Column[Long]            = Column("id",     "bigint",                      rowIndex => rowIndex.toString)
-  val s:      Column[Row]             = Column("s",      "struct<x:int,y:string>",      rowIndex => s"named_struct('x', $rowIndex, 'y', 'row-$rowIndex')")
-  val arr:    Column[Seq[Int]]        = Column("arr",    "array<int>",                  rowIndex => s"array($rowIndex, ${rowIndex + 1})")
-  val m:      Column[Map[String, Int]] = Column("m",     "map<string,int>",             rowIndex => s"map('k', $rowIndex)")
-  val nested: Column[Row]             = Column("nested", "struct<inner:struct<z:int>>", rowIndex => s"named_struct('inner', named_struct('z', $rowIndex))")
+  val id: Column[Long] =
+    Column("id", "bigint", rowIndex => rowIndex.toString)
+  val s: Column[Row] =
+    Column(
+      "s",
+      "struct<x:int,y:string>",
+      rowIndex => s"named_struct('x', $rowIndex, 'y', 'row-$rowIndex')")
+  val arr: Column[Seq[Int]] =
+    Column("arr", "array<int>", rowIndex => s"array($rowIndex, ${rowIndex + 1})")
+  val m: Column[Map[String, Int]] =
+    Column("m", "map<string,int>", rowIndex => s"map('k', $rowIndex)")
+  val nested: Column[Row] =
+    Column(
+      "nested",
+      "struct<inner:struct<z:int>>",
+      rowIndex => s"named_struct('inner', named_struct('z', $rowIndex))")
   def tableColumns: Seq[Column[_]] = Seq(id, s, arr, m, nested)
 
   val columnDefinitions: String =
@@ -168,24 +188,30 @@ object NestedTable extends Schema {
 // A schema for type-edge coverage: the common scalar types, exercised with nulls, special float values, boundary
 // values, and unicode/empty strings.
 object TypesTable extends Schema {
-  val id:    Column[Long]   = Column("id",    "bigint",        rowIndex => rowIndex.toString)
-  val n:     Column[Int]    = Column("n",     "int",           rowIndex => rowIndex.toString)
-  val x:     Column[Double] = Column("x",     "double",        rowIndex => s"$rowIndex.5")
-  val dec:   Column[java.math.BigDecimal] = Column("dec", "decimal(10,2)", rowIndex => s"CAST($rowIndex.50 AS decimal(10,2))")
-  val str:   Column[String] = Column("str",   "string",        rowIndex => s"'row-$rowIndex'")
-  val bin:   Column[Array[Byte]] = Column("bin", "binary",     rowIndex => s"CAST('bin-$rowIndex' AS binary)")
-  val dt: Column[java.sql.Date] =
+  val id: Column[Long] =
+    Column("id", "bigint", rowIndex => rowIndex.toString)
+  val n: Column[Int] =
+    Column("n", "int", rowIndex => rowIndex.toString)
+  val x: Column[Double] =
+    Column("x", "double", rowIndex => s"$rowIndex.5")
+  val dec: Column[JavaBigDecimal] =
+    Column("dec", "decimal(10,2)", rowIndex => s"CAST($rowIndex.50 AS decimal(10,2))")
+  val str: Column[String] =
+    Column("str", "string", rowIndex => s"'row-$rowIndex'")
+  val bin: Column[Array[Byte]] =
+    Column("bin", "binary", rowIndex => s"CAST('bin-$rowIndex' AS binary)")
+  val dt: Column[Date] =
     Column(
       "dt",
       "date",
       rowIndex => s"DATE '${DateEpoch.plusDays((rowIndex - 1).toLong)}'")
-  val ts: Column[java.sql.Timestamp] =
+  val ts: Column[Timestamp] =
     Column(
       "ts",
       "timestamp",
       rowIndex =>
         s"TIMESTAMP '${TimestampEpoch.plusHours((rowIndex - 1).toLong).format(TimestampFormat)}'")
-  val tsntz: Column[java.time.LocalDateTime] =
+  val tsntz: Column[LocalDateTime] =
     Column(
       "tsntz",
       "timestamp_ntz",
@@ -194,7 +220,8 @@ object TypesTable extends Schema {
   def tableColumns: Seq[Column[_]] = Seq(id, n, x, dec, str, bin, dt, ts, tsntz)
 
   val columnDefinitions: String =
-    "id bigint, n int, x double, dec decimal(10,2), str string, bin binary, dt date, ts timestamp, tsntz timestamp_ntz"
+    "id bigint, n int, x double, dec decimal(10,2), str string, bin binary, dt date, ts timestamp, " +
+      "tsntz timestamp_ntz"
 
   private val DateEpoch = LocalDate.of(2024, 1, 1)
   private val TimestampEpoch = LocalDateTime.of(2024, 1, 1, 0, 0)
@@ -322,33 +349,44 @@ final class TableTest[S <: Schema] private (val schema: S, val steps: Vector[Ste
 }
 
 private[harness] object OwnedTableLifecycle {
-  def withOwnership(dropOwnedTable: => Unit)(use: (() => Unit) => Unit): Unit = {
-    var tableCreated = false
-    var testFailure: Option[Throwable] = None
+  /**
+   * Runs `use`, then runs `cleanUp` on every outcome. A failure from `use` is the failure the caller sees, with a
+   * cleanup failure attached to it as a suppressed exception. When `use` returns normally a cleanup failure is the
+   * failure the caller sees, so cleanup that silently fails cannot pass for a clean run.
+   */
+  def withCleanup(cleanUp: => Unit)(use: => Unit): Unit = {
+    var primaryFailure: Option[Throwable] = None
     try {
-      use(() => tableCreated = true)
+      use
     } catch {
       case failure: Throwable =>
-        testFailure = Some(failure)
+        primaryFailure = Some(failure)
         throw failure
     } finally {
-      if (tableCreated) {
-        try {
-          dropOwnedTable
-        } catch {
-          case cleanupFailure: Throwable =>
-            testFailure match {
-              case Some(failure) => failure.addSuppressed(cleanupFailure)
-              case None          => throw cleanupFailure
-            }
-        }
+      try {
+        cleanUp
+      } catch {
+        case cleanupFailure: Throwable =>
+          primaryFailure match {
+            case Some(failure) => failure.addSuppressed(cleanupFailure)
+            case None          => throw cleanupFailure
+          }
       }
     }
+  }
+
+  /**
+   * Runs `use` with a mark it calls once the table exists. `dropOwnedTable` runs only when that mark was set, so a
+   * create that fails leaves whatever already answered to the name untouched.
+   */
+  def withOwnership(dropOwnedTable: => Unit)(use: (() => Unit) => Unit): Unit = {
+    var tableCreated = false
+    withCleanup(if (tableCreated) dropOwnedTable)(use(() => tableCreated = true))
   }
 }
 
 object TableTest {
-  private val counter = new java.util.concurrent.atomic.AtomicInteger(0)
+  private val counter = new AtomicInteger(0)
 
   def apply[S <: Schema](schema: S): TableTest[S] = new TableTest(schema, Vector.empty)
   def seedCounter(value: Int): Unit = counter.set(value)

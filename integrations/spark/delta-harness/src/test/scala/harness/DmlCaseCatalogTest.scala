@@ -163,7 +163,7 @@ final class DmlCaseCatalogTest {
       Scenarios.orderedDmlCases,
       Scenarios.evolvedDmlCases,
       Scenarios.partitionedDmlCases,
-      Scenarios.layoutFormatCases).flatten
+      Scenarios.fileFormatCases).flatten
     val caseIds = describedBuckets.map(_.id)
 
     caseIds.foreach { caseId =>
@@ -177,6 +177,11 @@ final class DmlCaseCatalogTest {
 
   @Test
   def eachLayoutListCrossesItsFormatsWithItsPartitionings(): Unit = {
+    assertEquals(List("parquet", "orc", "avro"), Scenarios.fileFormats)
+    assertEquals(List("parquet", "orc"), Scenarios.standardFormats)
+    assertTrue(
+      Scenarios.standardFormats.forall(Scenarios.fileFormats.contains),
+      "the standard formats are drawn from the full file-format list")
     assertEquals(
       List(
         "unpartitioned/parquet",
@@ -196,6 +201,39 @@ final class DmlCaseCatalogTest {
         "unpartitioned/orc",
         "partitioned/orc"),
       Scenarios.parquetAndOrcLayouts.map(_.label))
+    assertEquals(
+      Scenarios.fileFormats.map(format => s"nested-unpartitioned/$format"),
+      Scenarios.nestedLayouts.map(_.label))
+    assertEquals(
+      Scenarios.fileFormats.map(format => s"types-unpartitioned/$format"),
+      Scenarios.typesLayouts.map(_.label))
+  }
+
+  @Test
+  def everyPreparationLabelDrawsItsFormatFromTheStandardLists(): Unit = {
+    // A preparation label is either a layout path whose last segment is a file format, or one of the two labels for a
+    // case that owns no core table: `core` for an API-level case and `embedded` for a control-plane case.
+    val allowedLabelSuffixes = Scenarios.fileFormats ++ List("core", "embedded")
+    val unknownLabels = Plan.caseIds
+      .map(caseId => caseId.split(" @ ").last)
+      .map(label => label.split("/").last)
+      .distinct
+      .filterNot(allowedLabelSuffixes.contains)
+
+    assertTrue(
+      unknownLabels.isEmpty,
+      "every preparation label names a format from ScenarioKit.fileFormats; " +
+        s"offenders=${unknownLabels.mkString(", ")}")
+  }
+
+  @Test
+  def dmlCasesIsTheFourDmlBucketsInPreparationOrder(): Unit = {
+    assertEquals(
+      (Scenarios.coreDmlCases ++
+        Scenarios.partitionedDmlCases ++
+        Scenarios.orderedDmlCases ++
+        Scenarios.evolvedDmlCases).map(_.id),
+      Scenarios.dmlCases.map(_.id))
   }
 
   @Test
@@ -205,17 +243,37 @@ final class DmlCaseCatalogTest {
       "format.materialization describes the preparation, not an operation run against it")
     assertEquals(
       caseIds(Scenarios.layoutFormatPreparations, "format.materialization"),
-      Scenarios.layoutFormatCases.map(_.id))
+      Scenarios.fileFormatCases.map(_.id))
   }
 
   @Test
   def eachBucketIsThePreparationListCrossedWithItsTestCaseList(): Unit = {
     val noNullStringPreparations = List.empty[TablePreparation[CoreTable.type]]
     val buckets = List(
-      ("coreDmlCases", Scenarios.coreDmlCases, Scenarios.preparedCoreTables, Scenarios.allDmlTestCases, Scenarios.preparedNullStringCoreTables),
-      ("orderedDmlCases", Scenarios.orderedDmlCases, Scenarios.preparedOrderedCoreTables, Scenarios.allDmlTestCases, Scenarios.preparedNullStringOrderedCoreTables),
-      ("evolvedDmlCases", Scenarios.evolvedDmlCases, Scenarios.preparedEvolvedCoreTables, Scenarios.testCasesCompatibleWithAnAddedColumn, noNullStringPreparations),
-      ("partitionedDmlCases", Scenarios.partitionedDmlCases, Scenarios.preparedPartitionedCoreTables, Scenarios.partitionedTableTestCases, noNullStringPreparations))
+      (
+        "coreDmlCases",
+        Scenarios.coreDmlCases,
+        Scenarios.preparedCoreTables,
+        Scenarios.allDmlTestCases,
+        Scenarios.preparedNullStringCoreTables),
+      (
+        "orderedDmlCases",
+        Scenarios.orderedDmlCases,
+        Scenarios.preparedOrderedCoreTables,
+        Scenarios.allDmlTestCases,
+        Scenarios.preparedNullStringOrderedCoreTables),
+      (
+        "evolvedDmlCases",
+        Scenarios.evolvedDmlCases,
+        Scenarios.preparedEvolvedCoreTables,
+        Scenarios.testCasesCompatibleWithAnAddedColumn,
+        noNullStringPreparations),
+      (
+        "partitionedDmlCases",
+        Scenarios.partitionedDmlCases,
+        Scenarios.preparedPartitionedCoreTables,
+        Scenarios.partitionedTableTestCases,
+        noNullStringPreparations))
 
     buckets.foreach { case (bucketName, bucket, preparations, testCases, nullStringPreparations) =>
       val expectedIds =
