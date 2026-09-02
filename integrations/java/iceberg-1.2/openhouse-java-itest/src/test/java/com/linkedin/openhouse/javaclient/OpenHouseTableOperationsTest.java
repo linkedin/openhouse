@@ -865,6 +865,7 @@ public class OpenHouseTableOperationsTest {
     } catch (Exception e) {
       throw new IllegalStateException(e);
     }
+  }
 
   /**
    * A snapshot that round-trips through {@link SnapshotParser}, so commits carrying it exercise the
