@@ -43,7 +43,7 @@ object Scenarios
  * placement.
  *
  * A layer adds a capability through two append points: one mixin on `Scenarios` and one entry in
- * `extensionContributions`. It writes its own scenario source and focused pin test while the foundation tests and
+ * `extensionContributions`. It keeps its behavior and assertions in its own scenario source while the framework and
  * shared kit remain stable.
  *
  * Composition is all this object does: a scenario body, a preparation and a case ID all belong to the capability that
