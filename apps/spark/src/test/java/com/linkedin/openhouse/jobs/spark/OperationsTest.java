@@ -580,6 +580,33 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
+  public void testSnapshotsExpirationRemovesExpiredBranch() throws Exception {
+    final String tableName = "db.test_es_expired_branch_java";
+    final String branchName = "expired-branch";
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, 1);
+      Table table = ops.getTable(tableName);
+      long branchSnapshotId = table.currentSnapshot().snapshotId();
+      populateTable(ops, tableName, 1);
+      table.refresh();
+      table.manageSnapshots().createBranch(branchName, branchSnapshotId).commit();
+
+      Clock clock =
+          Clock.fixed(
+              Instant.ofEpochMilli(table.snapshot(branchSnapshotId).timestampMillis())
+                  .plus(Duration.ofDays(8)),
+              ZoneOffset.UTC);
+      Operations.of(getSparkSession(), otelEmitter, clock).expireSnapshots(table, 3, "DAYS", 0);
+      table.refresh();
+
+      Assertions.assertFalse(table.refs().containsKey(branchName));
+      Assertions.assertNull(table.snapshot(branchSnapshotId));
+    }
+  }
+
+  @Test
   public void testSnapshotsExpirationUsesDefaultMaximumReferenceAge() throws Exception {
     Clock clock = Clock.fixed(Instant.EPOCH, ZoneOffset.UTC);
     Table table = Mockito.mock(Table.class);
