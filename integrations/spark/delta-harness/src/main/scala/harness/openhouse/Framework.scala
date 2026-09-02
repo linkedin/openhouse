@@ -13,8 +13,23 @@ import scala.annotation.tailrec
 import scala.reflect.{ClassTag, classTag}
 import scala.util.control.NonFatal
 
-// The harness defines typed, reusable table preparations and localized Plan.Case bodies. Each case gets a fresh table,
+// The harness defines typed, reusable table preparations and localized TestCase bodies. Each case gets a fresh table,
 // executes its preparation, runs its action and assertions, and drops the table during teardown.
+
+/**
+ * One catalog case: the ID that names it, the body that runs it, and its two skip policies.
+ * `knownBugReason` marks a case the catalog under test is known to fail; `embeddedSkipReason` marks a case the
+ * embedded local catalog cannot run at all. A runner reports either policy as a skip.
+ */
+final case class TestCase(
+  id:                 String,
+  run:                Ctx => Unit,
+  knownBugReason:     Option[String] = None,
+  embeddedSkipReason: Option[String] = None
+) {
+  /** The skip reason a known bug produces, phrased so a run log explains the skip. */
+  def bugReason: Option[String] = knownBugReason.map(reason => s"bug: $reason")
+}
 
 final case class Ctx(spark: SparkSession, namespace: String, restUri: String = "", restToken: String = "")
 
@@ -406,8 +421,8 @@ final case class TablePreparation[S <: Schema](
    * Build the case that runs `body` against one freshly prepared table. The case ID combines the preparation's prefix
    * and label with `caseName`, so one test body yields a separate case on every preparation it runs on.
    */
-  def test(caseName: String)(body: PreparedTable[S] => Unit): Plan.Case =
-    Plan.Case(
+  def test(caseName: String)(body: PreparedTable[S] => Unit): TestCase =
+    TestCase(
       s"$casePrefix$caseName @ $label",
       context => preparation.prepare(context) { table =>
         var testFailure: Option[Throwable] = None
@@ -435,7 +450,7 @@ final case class DmlTestCase[S <: Schema](
   knownBugReason: Option[String] = None
 ) {
   /** Build the case that runs this operation against a table `preparation` produces. */
-  def runOn(preparation: TablePreparation[S]): Plan.Case =
+  def runOn(preparation: TablePreparation[S]): TestCase =
     preparation
       .test(id)(run)
       .copy(knownBugReason = knownBugReason)

@@ -13,12 +13,12 @@ package harness
  * array, map and doubly-nested struct values; plus the standard seeded core table in Parquet and ORC for the two
  * struct-evolution families, which build and drop their own side table.
  *
- * Case families: nine families contributing 25 cases, 21 on the nested layouts and 4 on the standard formats.
+ * Case families: nine families contributing 18 cases, 14 on the nested layouts and 4 on the core formats.
  */
 trait ScenarioNestedType extends ScenarioKit {
 
   /** Every nested-type case: the reads and writes on the nested layouts, then the struct-evolution cases. */
-  lazy val nestedTypeCases: List[Plan.Case] =
+  lazy val nestedTypeCases: List[TestCase] =
     preparedNestedTables.flatMap(preparation =>
       List(
         roundtripCase(preparation),
@@ -55,7 +55,7 @@ trait ScenarioNestedType extends ScenarioKit {
    * Selecting the top-level id alongside struct, array, map and nested-struct fields reads back exactly the seeded
    * values for all 3 rows.
    */
-  private def roundtripCase(preparation: TablePreparation[NestedTable.type]): Plan.Case =
+  private def roundtripCase(preparation: TablePreparation[NestedTable.type]): TestCase =
     preparation.test("nested.roundtrip") { table =>
       val actual = table.spark
         .sql(
@@ -85,7 +85,7 @@ trait ScenarioNestedType extends ScenarioKit {
     }
 
   /** Selecting only a nested struct field (s.x) returns just that field's values for all 3 rows, in id order. */
-  private def projectFieldCase(preparation: TablePreparation[NestedTable.type]): Plan.Case =
+  private def projectFieldCase(preparation: TablePreparation[NestedTable.type]): TestCase =
     preparation.test("nested.projectField") { table =>
       val actual = table.spark
         .sql(s"SELECT s.x FROM ${table.name} ORDER BY id")
@@ -97,7 +97,7 @@ trait ScenarioNestedType extends ScenarioKit {
     }
 
   /** Filtering WHERE s.x = 2 on a nested struct field returns only the matching row's id. */
-  private def filterNestedFieldCase(preparation: TablePreparation[NestedTable.type]): Plan.Case =
+  private def filterNestedFieldCase(preparation: TablePreparation[NestedTable.type]): TestCase =
     preparation.test("nested.filterNestedField") { table =>
       val actual = table.spark
         .sql(s"SELECT id FROM ${table.name} WHERE s.x = 2 ORDER BY id")
@@ -109,7 +109,7 @@ trait ScenarioNestedType extends ScenarioKit {
     }
 
   /** UPDATE SET s.x = 99 WHERE id = 2 changes only that row's nested field and leaves every other row unchanged. */
-  private def updateStructFieldCase(preparation: TablePreparation[NestedTable.type]): Plan.Case =
+  private def updateStructFieldCase(preparation: TablePreparation[NestedTable.type]): TestCase =
     preparation.test("nested.updateStructField") { table =>
       table.spark.sql(
         s"UPDATE ${table.name} SET s.x = 99 WHERE id = 2")
@@ -130,7 +130,7 @@ trait ScenarioNestedType extends ScenarioKit {
    * MERGE WHEN NOT MATCHED THEN INSERT with a fully nested source row adds a 4th row whose nested struct field reads
    * back as inserted.
    */
-  private def mergeInsertCase(preparation: TablePreparation[NestedTable.type]): Plan.Case =
+  private def mergeInsertCase(preparation: TablePreparation[NestedTable.type]): TestCase =
     preparation.test("nested.mergeInsert") { table =>
       table.spark.sql(
         s"""MERGE INTO ${table.name} target USING (
@@ -160,7 +160,7 @@ trait ScenarioNestedType extends ScenarioKit {
     }
 
   /** DELETE WHERE s.x = 2 filtering on a nested struct field removes only the matching row, leaving ids 1 and 3. */
-  private def deleteByNestedFieldCase(preparation: TablePreparation[NestedTable.type]): Plan.Case =
+  private def deleteByNestedFieldCase(preparation: TablePreparation[NestedTable.type]): TestCase =
     preparation
       .test("nested.deleteByNestedField") { table =>
         table.spark.sql(
@@ -182,7 +182,7 @@ trait ScenarioNestedType extends ScenarioKit {
    * Inserting a row with NULL struct, empty array and empty map reads back a null struct and an empty array for that
    * row.
    */
-  private def nullValuesCase(preparation: TablePreparation[NestedTable.type]): Plan.Case =
+  private def nullValuesCase(preparation: TablePreparation[NestedTable.type]): TestCase =
     preparation.test("nested.nullValues") { table =>
       table.spark.sql(
         s"INSERT INTO ${table.name} VALUES (" +
@@ -204,7 +204,7 @@ trait ScenarioNestedType extends ScenarioKit {
    * On a side table, ADD COLUMN of a new nested struct field null-fills it for the existing row and accepts a new row
    * that sets the field.
    */
-  private def addStructFieldCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+  private def addStructFieldCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("nested.addStructField") { table =>
       val sideTable = s"${table.name}_nst"
       withOwnedTable(table.spark.sql(_), sideTable)(
@@ -234,7 +234,7 @@ trait ScenarioNestedType extends ScenarioKit {
    * On a side table, ALTER TABLE DROP COLUMN of a nested struct field is rejected with an exception, and the field
    * remains readable afterward.
    */
-  private def dropStructFieldRejectedCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+  private def dropStructFieldRejectedCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("nested.dropStructField.rejected") { table =>
       val sideTable = s"${table.name}_nsd"
       withOwnedTable(table.spark.sql(_), sideTable)(

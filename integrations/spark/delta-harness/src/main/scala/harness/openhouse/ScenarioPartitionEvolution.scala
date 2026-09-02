@@ -6,7 +6,7 @@ package harness
  * Operations: ALTER TABLE ADD PARTITION FIELD on an unpartitioned table and ALTER TABLE DROP PARTITION FIELD on a
  * date-partitioned table. The catalog rejects both, so recreating the table is the way to change its partitioning.
  *
- * Preparation axes: in each of the two columnar formats, the standard seeded core table for the add case and a
+ * Preparation axes: in each columnar format, the standard seeded core table for the add case and a
  * date-partitioned core table seeded with the standard rows for the drop case.
  *
  * Case families: two families contributing 4 cases.
@@ -14,8 +14,8 @@ package harness
 trait ScenarioPartitionEvolution extends ScenarioKit {
 
   /** The rejected partition-evolution statements, one file format at a time. */
-  lazy val partitionEvolutionCases: List[Plan.Case] =
-    standardFormats.flatMap { format =>
+  lazy val partitionEvolutionCases: List[TestCase] =
+    fileFormats.flatMap { format =>
       List(
         addPartitionFieldRejectedCase(format),
         dropPartitionFieldRejectedCase(format))
@@ -27,7 +27,7 @@ trait ScenarioPartitionEvolution extends ScenarioKit {
    * ALTER TABLE ADD PARTITION FIELD on an unpartitioned table is rejected with an exception stating that evolution of
    * table partitioning is unsupported.
    */
-  private def addPartitionFieldRejectedCase(format: String): Plan.Case =
+  private def addPartitionFieldRejectedCase(format: String): TestCase =
     preparedStandardTable(format).test("partitionEvolution.add.rejected") { table =>
       val exception = Check.intercept[Exception](
         table.spark.sql(
@@ -40,7 +40,7 @@ trait ScenarioPartitionEvolution extends ScenarioKit {
    * ALTER TABLE DROP PARTITION FIELD on a date-partitioned table is rejected with an exception stating that evolution
    * of table partitioning is unsupported.
    */
-  private def dropPartitionFieldRejectedCase(format: String): Plan.Case =
+  private def dropPartitionFieldRejectedCase(format: String): TestCase =
     TablePreparation(
       format,
       TableTest(Core)

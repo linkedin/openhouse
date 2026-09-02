@@ -13,12 +13,12 @@ import java.math.BigDecimal
  * Preparation axes: one unpartitioned TypesTable layout per file format, each seeded with three rows covering every
  * scalar column.
  *
- * Case families: five families over three layouts, contributing 15 cases.
+ * Case families: five families over two layouts, contributing 10 cases.
  */
 trait ScenarioDataType extends ScenarioKit {
 
   /** Every scalar-type case, one layout at a time. */
-  lazy val dataTypeCases: List[Plan.Case] =
+  lazy val dataTypeCases: List[TestCase] =
     preparedTypesTables.flatMap(preparation =>
       List(
         roundtripCase(preparation),
@@ -54,7 +54,7 @@ trait ScenarioDataType extends ScenarioKit {
    * Selecting id, n, x, dec and str for the first seeded row reads back the exact long, int, double, decimal and
    * string values that were seeded.
    */
-  private def roundtripCase(preparation: TablePreparation[TypesTable.type]): Plan.Case =
+  private def roundtripCase(preparation: TablePreparation[TypesTable.type]): TestCase =
     preparation.test("types.roundtrip") { table =>
       val row = table.spark
         .sql(
@@ -74,7 +74,7 @@ trait ScenarioDataType extends ScenarioKit {
    * Inserting a row with every non-key column NULL reads back as null for the int, double, string, timestamp and
    * timestamp_ntz columns.
    */
-  private def nullsCase(preparation: TablePreparation[TypesTable.type]): Plan.Case =
+  private def nullsCase(preparation: TablePreparation[TypesTable.type]): TestCase =
     preparation.test("types.nulls") { table =>
       table.spark.sql(
         s"INSERT INTO ${table.name} VALUES (" +
@@ -90,7 +90,7 @@ trait ScenarioDataType extends ScenarioKit {
     }
 
   /** Inserting rows with double('NaN') and double('Infinity') reads back as NaN and positive infinity respectively. */
-  private def specialFloatsCase(preparation: TablePreparation[TypesTable.type]): Plan.Case =
+  private def specialFloatsCase(preparation: TablePreparation[TypesTable.type]): TestCase =
     preparation.test("types.specialFloats") { table =>
       table.spark.sql(
         s"INSERT INTO ${table.name} VALUES " +
@@ -115,7 +115,7 @@ trait ScenarioDataType extends ScenarioKit {
    * Inserting a row at Long.MaxValue, Int.MaxValue and a max-precision decimal reads those boundary values back
    * unchanged.
    */
-  private def boundariesCase(preparation: TablePreparation[TypesTable.type]): Plan.Case =
+  private def boundariesCase(preparation: TablePreparation[TypesTable.type]): TestCase =
     preparation.test("types.boundaries") { table =>
       table.spark.sql(
         s"INSERT INTO ${table.name} VALUES " +
@@ -139,7 +139,7 @@ trait ScenarioDataType extends ScenarioKit {
     }
 
   /** Inserting rows with a unicode string and an empty string reads each back unchanged. */
-  private def unicodeAndEmptyCase(preparation: TablePreparation[TypesTable.type]): Plan.Case =
+  private def unicodeAndEmptyCase(preparation: TablePreparation[TypesTable.type]): TestCase =
     preparation.test("types.unicodeAndEmpty") { table =>
       table.spark.sql(
         s"INSERT INTO ${table.name} VALUES " +

@@ -72,6 +72,6 @@ final class TablePreparationTest {
     assertEquals(Some("the rewrite crashes on a write-ordered table"), testCase.knownBugReason)
     assertEquals(
       Some("bug: the rewrite crashes on a write-ordered table"),
-      Plan.bugReason(testCase))
+      testCase.bugReason)
   }
 }

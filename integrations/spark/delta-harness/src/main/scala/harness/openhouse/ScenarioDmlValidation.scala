@@ -10,14 +10,14 @@ import org.apache.spark.sql.AnalysisException
  * INSERT INTO with fewer values than the table has columns, a MERGE whose UPDATE SET assigns one target column twice,
  * and a MERGE whose source matches one target row twice.
  *
- * Preparation axes: the standard seeded core table in each of the two columnar formats.
+ * Preparation axes: the standard seeded core table in each columnar format.
  *
  * Case families: six families contributing 12 cases.
  */
 trait ScenarioDmlValidation extends ScenarioKit {
 
   /** Every DML-validation case, one file format at a time. */
-  lazy val dmlValidationCases: List[Plan.Case] =
+  lazy val dmlValidationCases: List[TestCase] =
     preparedCoreFormats.flatMap { preparation =>
       List(
         nonExistentColumnCase(preparation),
@@ -31,7 +31,7 @@ trait ScenarioDmlValidation extends ScenarioKit {
   // --- the preparations, shared helpers and case bodies the surface above composes ---
 
   /** DELETE with a WHERE clause on a nonexistent column is rejected with an AnalysisException naming that column. */
-  private def nonExistentColumnCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+  private def nonExistentColumnCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("dmlValidation.nonExistentColumn") { table =>
       val exception = Check.intercept[AnalysisException](
         table.spark.sql(
@@ -44,7 +44,7 @@ trait ScenarioDmlValidation extends ScenarioKit {
    * DELETE with a nondeterministic WHERE clause (rand() < 0.5) is rejected with an AnalysisException about
    * determinism.
    */
-  private def nonDeterministicDeleteCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+  private def nonDeterministicDeleteCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("dmlValidation.nonDeterministicDelete") { table =>
       val exception = Check.intercept[AnalysisException](
         table.spark.sql(
@@ -57,7 +57,7 @@ trait ScenarioDmlValidation extends ScenarioKit {
    * UPDATE with a nondeterministic WHERE clause (rand() < 0.5) is rejected with an AnalysisException about
    * determinism.
    */
-  private def nonDeterministicUpdateCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+  private def nonDeterministicUpdateCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("dmlValidation.nonDeterministicUpdate") { table =>
       val exception = Check.intercept[AnalysisException](
         table.spark.sql(
@@ -70,7 +70,7 @@ trait ScenarioDmlValidation extends ScenarioKit {
    * INSERT INTO with too few values for the table's columns is rejected with an AnalysisException about the missing
    * data columns.
    */
-  private def insertArityCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+  private def insertArityCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("dmlValidation.insertArity") { table =>
       val exception = Check.intercept[AnalysisException](
         table.spark.sql(
@@ -84,7 +84,7 @@ trait ScenarioDmlValidation extends ScenarioKit {
    * assignments.
    */
   private def mergeConflictingUpdatesCase(
-      preparation: TablePreparation[CoreTable.type]): Plan.Case =
+      preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("dmlValidation.mergeConflictingUpdates") { table =>
       val keyColumn = Core.long0.columnName
       val stringColumn = Core.string0.columnName
@@ -105,7 +105,7 @@ trait ScenarioDmlValidation extends ScenarioKit {
    * multi-row match.
    */
   private def mergeCardinalityViolationCase(
-      preparation: TablePreparation[CoreTable.type]): Plan.Case =
+      preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("dmlValidation.mergeCardinalityViolation") { table =>
       val keyColumn = Core.long0.columnName
       val stringColumn = Core.string0.columnName

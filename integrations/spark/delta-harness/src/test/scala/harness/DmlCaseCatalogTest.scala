@@ -177,30 +177,17 @@ final class DmlCaseCatalogTest {
 
   @Test
   def eachLayoutListCrossesItsFormatsWithItsPartitionings(): Unit = {
-    assertEquals(List("parquet", "orc", "avro"), Scenarios.fileFormats)
-    assertEquals(List("parquet", "orc"), Scenarios.standardFormats)
-    assertTrue(
-      Scenarios.standardFormats.forall(Scenarios.fileFormats.contains),
-      "the standard formats are drawn from the full file-format list")
-    assertEquals(
-      List(
-        "unpartitioned/parquet",
-        "partitioned/parquet",
-        "unpartitioned/orc",
-        "partitioned/orc",
-        "unpartitioned/avro",
-        "partitioned/avro"),
-      Scenarios.layouts.map(_.label))
-    assertEquals(
-      List("partitioned/parquet", "partitioned/orc", "partitioned/avro"),
-      Scenarios.partitionedLayouts.map(_.label))
+    assertEquals(List("parquet", "orc"), Scenarios.fileFormats)
     assertEquals(
       List(
         "unpartitioned/parquet",
         "partitioned/parquet",
         "unpartitioned/orc",
         "partitioned/orc"),
-      Scenarios.parquetAndOrcLayouts.map(_.label))
+      Scenarios.layouts.map(_.label))
+    assertEquals(
+      List("partitioned/parquet", "partitioned/orc"),
+      Scenarios.partitionedLayouts.map(_.label))
     assertEquals(
       Scenarios.fileFormats.map(format => s"nested-unpartitioned/$format"),
       Scenarios.nestedLayouts.map(_.label))
@@ -210,15 +197,13 @@ final class DmlCaseCatalogTest {
   }
 
   @Test
-  def everyPreparationLabelDrawsItsFormatFromTheStandardLists(): Unit = {
-    // A preparation label is either a layout path whose last segment is a file format, or one of the two labels for a
-    // case that owns no core table: `core` for an API-level case and `embedded` for a control-plane case.
-    val allowedLabelSuffixes = Scenarios.fileFormats ++ List("core", "embedded")
-    val unknownLabels = Plan.caseIds
+  def everyPreparationLabelDrawsItsFormatFromTheStandardList(): Unit = {
+    val unknownLabels = ScenarioCatalog.foundationContributions
+      .flatMap { case (_, contribution) => contribution.map(_.id) }
       .map(caseId => caseId.split(" @ ").last)
       .map(label => label.split("/").last)
       .distinct
-      .filterNot(allowedLabelSuffixes.contains)
+      .filterNot(Scenarios.fileFormats.contains)
 
     assertTrue(
       unknownLabels.isEmpty,

@@ -13,19 +13,19 @@ import org.apache.spark.sql.functions.lit
  * observable state change within its family. Every operation is defined once here, so a feature layer covers its own
  * table mode by crossing these same definitions with its own preparations.
  *
- * Preparation axes: ScenarioKit supplies the starting states. Six core layouts cross three file formats with
- * partitioned and unpartitioned tables. Three date-partitioned layouts receive the partition-scoped writes. Six
- * write-ordered layouts exercise the same catalog under a sort order. Six evolved layouts receive the 29 operations
+ * Preparation axes: ScenarioKit supplies the starting states. Four core layouts cross the two columnar formats with
+ * partitioned and unpartitioned tables. Two date-partitioned layouts receive the partition-scoped writes. Four
+ * write-ordered layouts exercise the same catalog under a sort order. Four evolved layouts receive the 29 operations
  * that address columns by name. Null-string variants isolate the one operation that requires a null value.
  *
- * Case families: 804 cases in four families, `coreDmlCases` (312), `partitionedDmlCases` (6), `orderedDmlCases` (312)
- * and `evolvedDmlCases` (174).
+ * Case families: 536 cases in four families, `coreDmlCases` (208), `partitionedDmlCases` (4), `orderedDmlCases` (208)
+ * and `evolvedDmlCases` (116).
  */
 trait ScenarioDml extends ScenarioKit {
   import Rows._
 
   /** Every DML case, in preparation order: core, partition-scoped, write-ordered, then evolved. */
-  lazy val dmlCases: List[Plan.Case] =
+  lazy val dmlCases: List[TestCase] =
     coreDmlCases ++ partitionedDmlCases ++ orderedDmlCases ++ evolvedDmlCases
 
   /**
@@ -93,24 +93,24 @@ trait ScenarioDml extends ScenarioKit {
    * Every DML case on the core preparations, plus the null-string DELETE on the same preparations extended with a
    * null-string row.
    */
-  lazy val coreDmlCases: List[Plan.Case] =
+  lazy val coreDmlCases: List[TestCase] =
     preparedCoreTables.flatMap(preparation => allDmlTestCases.map(_.runOn(preparation))) ++
       preparedNullStringCoreTables.flatMap(preparation =>
         nullStringRowTestCases.map(_.runOn(preparation)))
 
   /** The partition-scoped writes on the partitioned preparations. */
-  lazy val partitionedDmlCases: List[Plan.Case] =
+  lazy val partitionedDmlCases: List[TestCase] =
     preparedPartitionedCoreTables.flatMap(preparation =>
       partitionedTableTestCases.map(_.runOn(preparation)))
 
   /** Every DML case on the write-ordered preparations, plus the null-string DELETE on their null-string form. */
-  lazy val orderedDmlCases: List[Plan.Case] =
+  lazy val orderedDmlCases: List[TestCase] =
     preparedOrderedCoreTables.flatMap(preparation => orderedDmlTestCases.map(_.runOn(preparation))) ++
       preparedNullStringOrderedCoreTables.flatMap(preparation =>
         nullStringRowTestCases.map(_.runOn(preparation)))
 
   /** The cases that address columns by name, on the preparations that added a column. */
-  lazy val evolvedDmlCases: List[Plan.Case] =
+  lazy val evolvedDmlCases: List[TestCase] =
     preparedEvolvedCoreTables.flatMap(preparation =>
       testCasesCompatibleWithAnAddedColumn.map(_.runOn(preparation)))
 

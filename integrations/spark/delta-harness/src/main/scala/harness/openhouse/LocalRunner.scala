@@ -13,7 +13,7 @@ object Runner {
   val MaxAttempts = 3
 
   /** Runs a case, retrying only a transient-infrastructure failure. */
-  def execute(testCase: Plan.Case, context: Ctx): (Outcome, Int) = {
+  def execute(testCase: TestCase, context: Ctx): (Outcome, Int) = {
     @tailrec def attempt(attemptIndex: Int): (Outcome, Int) = {
       val outcome =
         try {
@@ -44,7 +44,7 @@ object Main {
       // Each command-line argument is an include substring. A case runs when its ID contains every provided substring.
       // An empty argument list selects the full catalog.
       val filters = args.toList
-      val cases = Plan.cases.filter(testCase =>
+      val cases = ScenarioCatalog.cases.filter(testCase =>
         filters.forall(testCase.id.contains))
 
       val header =
@@ -61,10 +61,10 @@ object Main {
         .getOrElse(math.max(1, Runtime.getRuntime.availableProcessors()))
       println(s"parallelism: $parallelism worker sessions\n")
 
-      def runOne(testCase: Plan.Case): (Plan.Case, (Outcome, Int)) =
+      def runOne(testCase: TestCase): (TestCase, (Outcome, Int)) =
         testCase.embeddedSkipReason
           .map(reason => s"embedded limitation: $reason")
-          .orElse(Plan.bugReason(testCase)) match {
+          .orElse(testCase.bugReason) match {
           case Some(reason) =>
             (testCase, (Outcome.Skipped(reason): Outcome, 0))
           case None =>
@@ -79,8 +79,8 @@ object Main {
           try {
             val futures = cases.map(testCase =>
               pool.submit(
-                new Callable[(Plan.Case, (Outcome, Int))] {
-                  def call(): (Plan.Case, (Outcome, Int)) = runOne(testCase)
+                new Callable[(TestCase, (Outcome, Int))] {
+                  def call(): (TestCase, (Outcome, Int)) = runOne(testCase)
                 }))
             futures.map(_.get(60, TimeUnit.MINUTES))
           } finally {

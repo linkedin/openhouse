@@ -12,17 +12,17 @@ import org.apache.iceberg.exceptions.BadRequestException
  * RENAME COLUMN, and the rejected forms DROP COLUMN, DROP COLUMN over written data, ALTER COLUMN TYPE to a narrower
  * type and ALTER COLUMN SET NOT NULL.
  *
- * Preparation axes: the six unseeded core layouts for the created-schema family; the six seeded core layouts for the
- * evolution families; the standard seeded table in Parquet and ORC for the rejection families and for the families
- * that build their own side table.
+ * Preparation axes: the four unseeded core layouts for the created-schema family; the four seeded core layouts for
+ * the evolution families; the standard seeded table in Parquet and ORC for the rejection families and for the
+ * families that build their own side table.
  *
- * Case families: 14 families contributing 56 cases, 6 created-schema, 36 evolution, and 14 rejection or side-table
+ * Case families: 14 families contributing 42 cases, 4 created-schema, 24 evolution, and 14 rejection or side-table
  * cases.
  */
 trait ScenarioSchemaEvolution extends ScenarioKit {
 
   /** Every schema-evolution case: the created schema, then the accepted changes, then the boundaries. */
-  lazy val schemaEvolutionCases: List[Plan.Case] =
+  lazy val schemaEvolutionCases: List[TestCase] =
     createdSchemaCases ++ schemaChangeCases ++ schemaBoundaryCases
 
   // --- the preparations, shared helpers and case bodies the surface above composes ---
@@ -31,7 +31,7 @@ trait ScenarioSchemaEvolution extends ScenarioKit {
    * The created table's schema is exactly CoreTable's columns, in declaration order and with their declared types, and
    * the table holds no rows.
    */
-  private def createdSchemaCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+  private def createdSchemaCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("schema.create") { table =>
       val actual = table.spark
         .table(table.name)
@@ -46,7 +46,7 @@ trait ScenarioSchemaEvolution extends ScenarioKit {
     }
 
   /** ADD COLUMN adds the column to the schema, the existing rows read null for it, and the row count is unchanged. */
-  private def addColumnSingleCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+  private def addColumnSingleCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("schema.addColumn.single") { table =>
       table.spark.sql(s"ALTER TABLE ${table.name} ADD COLUMN added_int int")
 
@@ -64,7 +64,7 @@ trait ScenarioSchemaEvolution extends ScenarioKit {
     }
 
   /** ADD COLUMNS with two columns in one statement adds both to the schema and leaves the row count unchanged. */
-  private def addColumnMultipleCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+  private def addColumnMultipleCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("schema.addColumn.multiple") { table =>
       table.spark.sql(s"ALTER TABLE ${table.name} ADD COLUMNS (added_a int, added_b string)")
 
@@ -77,7 +77,7 @@ trait ScenarioSchemaEvolution extends ScenarioKit {
     }
 
   /** ADD COLUMN ... COMMENT stores the comment on the added column and the reader sees it. */
-  private def addColumnCommentCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+  private def addColumnCommentCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("schema.addColumn.comment") { table =>
       table.spark.sql(s"ALTER TABLE ${table.name} ADD COLUMN added_c int COMMENT 'a note'")
 
@@ -94,7 +94,7 @@ trait ScenarioSchemaEvolution extends ScenarioKit {
     }
 
   /** ADD COLUMN ... AFTER foo_col_long places the added column directly after that column in the schema. */
-  private def addColumnPositionCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+  private def addColumnPositionCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("schema.addColumn.position") { table =>
       table.spark.sql(
         s"ALTER TABLE ${table.name} ADD COLUMN added_after int AFTER ${Core.long0.columnName}")
@@ -110,7 +110,7 @@ trait ScenarioSchemaEvolution extends ScenarioKit {
    * ALTER COLUMN foo_col_int TYPE bigint widens the column in the schema and the already-written values read back
    * unchanged.
    */
-  private def alterColumnTypeWidenCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+  private def alterColumnTypeWidenCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("schema.alterColumn.typeWiden") { table =>
       table.spark.sql(
         s"ALTER TABLE ${table.name} ALTER COLUMN ${Core.int0.columnName} TYPE bigint")
@@ -135,7 +135,7 @@ trait ScenarioSchemaEvolution extends ScenarioKit {
    * RENAME COLUMN renames the column in the schema: the new name is present, the old name is gone, and the row count
    * is unchanged.
    */
-  private def renameColumnCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+  private def renameColumnCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation
       .test("schema.renameColumn") { table =>
         table.spark.sql(s"ALTER TABLE ${table.name} ADD COLUMN to_rename int")
@@ -153,7 +153,7 @@ trait ScenarioSchemaEvolution extends ScenarioKit {
           "restores the old name."))
 
   /** ALTER TABLE DROP COLUMN is rejected with a BadRequestException naming the column that would be dropped. */
-  private def dropColumnRejectedCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+  private def dropColumnRejectedCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("schema.dropColumn.rejected") { table =>
       val exception = Check.intercept[BadRequestException](
         table.spark.sql(
@@ -172,7 +172,7 @@ trait ScenarioSchemaEvolution extends ScenarioKit {
    * writable.
    */
   private def dropColumnWithDataRejectedCase(
-      preparation: TablePreparation[CoreTable.type]): Plan.Case =
+      preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("schema.dropColumn.withData.rejected") { table =>
       table.spark.sql(
         s"ALTER TABLE ${table.name} ADD COLUMN extra_col INT")
@@ -203,7 +203,7 @@ trait ScenarioSchemaEvolution extends ScenarioKit {
    * unsupported column change.
    */
   private def alterColumnNarrowTypeRejectedCase(
-      preparation: TablePreparation[CoreTable.type]): Plan.Case =
+      preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("schema.alterColumn.narrowType.rejected") { table =>
       val exception = Check.intercept[AnalysisException](
         table.spark.sql(
@@ -219,7 +219,7 @@ trait ScenarioSchemaEvolution extends ScenarioKit {
    * nullable-to-non-nullable change.
    */
   private def alterColumnSetNotNullRejectedCase(
-      preparation: TablePreparation[CoreTable.type]): Plan.Case =
+      preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("schema.alterColumn.setNotNull.rejected") { table =>
       val exception = Check.intercept[AnalysisException](
         table.spark.sql(
@@ -231,7 +231,7 @@ trait ScenarioSchemaEvolution extends ScenarioKit {
     }
 
   /** On a side table, dropping NOT NULL from a column allows a subsequent insert of a null value for that column. */
-  private def alterColumnDropNotNullCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+  private def alterColumnDropNotNullCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("schema.alterColumn.dropNotNull") { table =>
       val sideTable = s"${table.name}_nn"
       withOwnedTable(table.spark.sql(_), sideTable)(
@@ -252,7 +252,7 @@ trait ScenarioSchemaEvolution extends ScenarioKit {
    * On a side table, widening a decimal column's precision preserves the original row and accepts a new row whose
    * value only fits the wider precision.
    */
-  private def alterColumnDecimalWidenCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+  private def alterColumnDecimalWidenCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("schema.alterColumn.decimalWiden") { table =>
       val sideTable = s"${table.name}_dec"
       withOwnedTable(table.spark.sql(_), sideTable)(
@@ -274,7 +274,7 @@ trait ScenarioSchemaEvolution extends ScenarioKit {
     }
 
   /** ALTER TABLE ALTER COLUMN ... FIRST moves that column to the front of the schema while preserving all 3 rows. */
-  private def alterColumnReorderFirstCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+  private def alterColumnReorderFirstCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("schema.alterColumn.reorderFirst") { table =>
       table.spark.sql(
         s"ALTER TABLE ${table.name} " +
@@ -293,11 +293,11 @@ trait ScenarioSchemaEvolution extends ScenarioKit {
     }
 
   /** The created-schema case on every unseeded core layout. */
-  private val createdSchemaCases: List[Plan.Case] =
+  private val createdSchemaCases: List[TestCase] =
     preparedEmptyCoreTables.map(createdSchemaCase)
 
   /** The accepted schema changes on every seeded core layout. */
-  private val schemaChangeCases: List[Plan.Case] =
+  private val schemaChangeCases: List[TestCase] =
     preparedCoreTables.flatMap { preparation =>
       List(
         addColumnSingleCase(preparation),
@@ -308,8 +308,8 @@ trait ScenarioSchemaEvolution extends ScenarioKit {
         renameColumnCase(preparation))
     }
 
-  /** The rejected schema changes and the side-table schema changes, in each of the two columnar formats. */
-  private val schemaBoundaryCases: List[Plan.Case] =
+  /** The rejected schema changes and the side-table schema changes, in each columnar format. */
+  private val schemaBoundaryCases: List[TestCase] =
     preparedCoreFormats.flatMap { preparation =>
       List(
         dropColumnRejectedCase(preparation),

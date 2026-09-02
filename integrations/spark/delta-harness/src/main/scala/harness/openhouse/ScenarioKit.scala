@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit
  * Every capability trait extends this kit, so mixing them into `object Scenarios` puts ScenarioKit first in the
  * linearization and its vals initialize before any capability's. It holds copy-on-write layouts and preparations only;
  * each feature layer carries its own kit that extends this one. `protected` members are the shared kit; `public` ones
- * are also consumed by `object Plan` and by the catalog tests.
+ * are also consumed by `object ScenarioCatalog`, `object Plan` and the catalog tests.
  */
 trait ScenarioKit {
 
@@ -53,14 +53,12 @@ trait ScenarioKit {
 
   protected val partitionings: List[Partitioning] = List(unpartitioned, partitionedByDate)
 
-  /** Every file format the catalog writes. This is the single source for a format list anywhere in the harness. */
-  val fileFormats: List[String] = List("parquet", "orc", "avro")
-
   /**
-   * The two columnar formats every capability family runs on when it is crossed by format. The file-format capability
-   * itself covers the whole of `fileFormats`; every other family covers these two.
+   * Every file format the standard matrix runs on. This is the single source for a format list anywhere in the
+   * harness, so every format-crossed family covers both columnar formats. A format beyond these two is proven by the
+   * file-format extension layer, which supplies its own list.
    */
-  val standardFormats: List[String] = List("parquet", "orc")
+  val fileFormats: List[String] = List("parquet", "orc")
 
   /** One copy-on-write table in `format`, shaped by `partitioning`, labelled for its case IDs. */
   private def coreLayout(partitioning: Partitioning, format: String): Layout =
@@ -80,13 +78,6 @@ trait ScenarioKit {
   /** The core layouts partitioned by the date column, one per file format. */
   val partitionedLayouts: List[Layout] =
     fileFormats.map(format => coreLayout(partitionedByDate, format))
-
-  /** The Parquet and ORC core layouts, each crossed with both partitionings. */
-  val parquetAndOrcLayouts: List[Layout] =
-    for {
-      format       <- standardFormats
-      partitioning <- partitionings
-    } yield coreLayout(partitioning, format)
 
   /**
    * The standard seed writes three deterministic rows with keys 1, 2 and 3. Row `n` holds key `n` in the long column,
@@ -150,7 +141,10 @@ trait ScenarioKit {
   val preparedEmptyCoreTables: List[TablePreparation[CoreTable.type]] =
     layouts.map(layout => TablePreparation(layout.label, create(layout)))
 
-  /** The CREATE statement for an unpartitioned core table in `format`. */
+  /**
+   * The CREATE statement for an unpartitioned core table in `format`. This generic substrate contributes zero cases
+   * and gives later capability layers a stable shared starting point.
+   */
   protected def coreCreate(table: String, format: String): String =
     coreLayout(unpartitioned, format).create(table)
 
@@ -167,14 +161,16 @@ trait ScenarioKit {
       format,
       create(coreLayout(unpartitioned, format)).insert(standardSeedRowCount)())
 
-  /** The standard seeded table in each of the two columnar formats. */
+  /** The standard seeded table in each file format. */
   val preparedCoreFormats: List[TablePreparation[CoreTable.type]] =
-    standardFormats.map(preparedStandardTable)
+    fileFormats.map(preparedStandardTable)
 
   /**
    * An unpartitioned core table in `format` holding five rows across two snapshots: the standard seed, then rows 4 and
    * 5. The step between the two commits holds until the wall clock passes the seed commit's timestamp, so the two
    * snapshots carry distinct commit times and a timestamp-bounded read resolves to exactly one of them.
+   *
+   * Every family that reads history needs this shape, so the shared kit owns it.
    */
   protected def preparedTwoSnapshotTable(format: String): TablePreparation[CoreTable.type] =
     TablePreparation(
@@ -327,11 +323,12 @@ trait ScenarioKit {
 
   protected def catalogRelative(table: String): String = table.stripPrefix("openhouse.")
 
+  /** One core row in the seed shape, keyed by `long` and tagged in the string column. */
   protected def coreRow(long: Long, tag: String): String =
     s"(CAST($long AS BIGINT), ${long.toInt}, '$tag', ${long}.5, false, '2024-01-01-00')"
 
   // The Spark data source used by CREATE TABLE statements. The LinkedIn adapter overrides this before building
-  // Plan.cases. Catalog procedure calls still use the catalog name "openhouse".
+  // ScenarioCatalog.cases. Catalog procedure calls still use the catalog name "openhouse".
   var dataSource: String = "iceberg"
 
   protected def tableProps(spark: SparkSession, table: String): Map[String, String] =

@@ -11,7 +11,7 @@ import org.apache.iceberg.exceptions.BadRequestException
  * write.metadata.previous-versions-max back from a table that requested 7; reading write.target-file-size-bytes back
  * from a table that requested 1048576; and SET TBLPROPERTIES on openhouse.tableType.
  *
- * Preparation axes: in each of the two columnar formats, the standard seeded core table for the two families that
+ * Preparation axes: in each columnar format, the standard seeded core table for the two families that
  * change properties after creation, plus one purpose-built table per family that asserts a property requested at
  * creation.
  *
@@ -20,8 +20,8 @@ import org.apache.iceberg.exceptions.BadRequestException
 trait ScenarioTableProperty extends ScenarioKit {
 
   /** Every table-property case, one file format at a time. */
-  lazy val tablePropertyCases: List[Plan.Case] =
-    standardFormats.flatMap { format =>
+  lazy val tablePropertyCases: List[TestCase] =
+    fileFormats.flatMap { format =>
       List(
         userRoundTripCase(preparedStandardTable(format)),
         reservedPropertyRejectedCase(preparedStandardTable(format)),
@@ -34,7 +34,7 @@ trait ScenarioTableProperty extends ScenarioKit {
   // --- the preparations, shared helpers and case bodies the surface above composes ---
 
   /** SET TBLPROPERTIES adds a user property that reads back, and UNSET TBLPROPERTIES removes it. */
-  private def userRoundTripCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+  private def userRoundTripCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("tableProperty.userRoundTrip") { table =>
       table.spark.sql(
         s"ALTER TABLE ${table.name} SET TBLPROPERTIES ('my_key'='my_val')")
@@ -53,7 +53,7 @@ trait ScenarioTableProperty extends ScenarioKit {
    * restriction.
    */
   private def reservedPropertyRejectedCase(
-      preparation: TablePreparation[CoreTable.type]): Plan.Case =
+      preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("tableProperty.reservedOpenhouse.rejected") { table =>
       val exception = Check.intercept[BadRequestException](
         table.spark.sql(
@@ -69,7 +69,7 @@ trait ScenarioTableProperty extends ScenarioKit {
    * ALTER TABLE SET TBLPROPERTIES ('openhouse.tableType'='REPLICA_TABLE') is rejected with a BadRequestException,
    * since the table type is fixed at creation.
    */
-  private def tableTypeImmutableCase(preparation: TablePreparation[CoreTable.type]): Plan.Case =
+  private def tableTypeImmutableCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("tableProperty.tableTypeImmutable") { table =>
       val exception = Check.intercept[BadRequestException](
         table.spark.sql(
@@ -85,7 +85,7 @@ trait ScenarioTableProperty extends ScenarioKit {
    * Even though format-version=1 was requested at creation, the catalog stores the table at format-version=2 and the
    * table remains writable there.
    */
-  private def formatVersionForcedCase(format: String): Plan.Case =
+  private def formatVersionForcedCase(format: String): TestCase =
     TablePreparation(
       format,
       TableTest(Core)
@@ -105,7 +105,7 @@ trait ScenarioTableProperty extends ScenarioKit {
       }
 
   /** The write.metadata.previous-versions-max property requested at creation is honored and reads back as 7. */
-  private def previousVersionsHonoredCase(format: String): Plan.Case =
+  private def previousVersionsHonoredCase(format: String): TestCase =
     TablePreparation(
       format,
       TableTest(Core).sql("create")(table =>
@@ -124,7 +124,7 @@ trait ScenarioTableProperty extends ScenarioKit {
    * The write.target-file-size-bytes=1048576 property requested at creation is retained and the table holds its 3 seed
    * rows.
    */
-  private def targetFileSizeCase(format: String): Plan.Case =
+  private def targetFileSizeCase(format: String): TestCase =
     TablePreparation(
       format,
       TableTest(Core)

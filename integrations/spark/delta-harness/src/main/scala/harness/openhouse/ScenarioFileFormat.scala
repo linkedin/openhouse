@@ -7,16 +7,16 @@ package harness
  * Operations: read the declared write.format.default from the table properties, then list the data files the
  * preparation wrote and compare their extensions against it.
  *
- * Preparation axes: the twelve standard preparations that leave data files behind, which are the six core layouts
- * (Parquet, ORC and Avro crossed with unpartitioned and date-partitioned) and the same six carrying a write sort
- * order. A feature layer covers its own table mode by passing its own preparations to `layoutFormatCasesFor`.
+ * Preparation axes: the eight standard preparations that leave data files behind, which are the four core layouts
+ * (Parquet and ORC crossed with unpartitioned and date-partitioned) and the same four carrying a write sort order. A
+ * feature layer covers its own table mode by passing its own preparations to `layoutFormatCasesFor`.
  *
- * Case families: one family, `format.materialization`, contributing 12 cases.
+ * Case families: one family, `format.materialization`, contributing 8 cases.
  */
 trait ScenarioFileFormat extends ScenarioKit {
 
   /** The format-materialization case on every standard preparation that writes data files. */
-  lazy val fileFormatCases: List[Plan.Case] = layoutFormatCasesFor(layoutFormatPreparations)
+  lazy val fileFormatCases: List[TestCase] = layoutFormatCasesFor(layoutFormatPreparations)
 
   /**
    * The format-materialization case for each preparation given: every data file the preparation wrote carries the
@@ -26,7 +26,7 @@ trait ScenarioFileFormat extends ScenarioKit {
    */
   def layoutFormatCasesFor(
       preparations: List[TablePreparation[CoreTable.type]]
-  ): List[Plan.Case] =
+  ): List[TestCase] =
     preparations.map { preparation =>
       preparation.test("format.materialization") { table =>
         val before = table.state
