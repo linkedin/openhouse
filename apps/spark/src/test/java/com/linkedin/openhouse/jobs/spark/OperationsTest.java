@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +38,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.actions.DeleteOrphanFiles;
 import org.apache.iceberg.actions.RewriteDataFiles;
@@ -567,6 +569,48 @@ public class OperationsTest extends OpenHouseSparkITest {
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       // verify that new apps see snapshots correctly
       checkSnapshots(ops, tableName, snapshotIds);
+    }
+  }
+
+  @Test
+  public void testSnapshotsExpirationSetsDefaultMaximumReferenceAge() throws Exception {
+    final String tableName = "db.test_es_default_max_reference_age";
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, 1);
+      Table table = ops.getTable(tableName);
+
+      Assertions.assertFalse(table.properties().containsKey(TableProperties.MAX_REF_AGE_MS));
+      ops.expireSnapshots(table, 3, "DAYS", 0);
+    }
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      Assertions.assertEquals(
+          String.valueOf(TimeUnit.DAYS.toMillis(7)),
+          ops.getTable(tableName).properties().get(TableProperties.MAX_REF_AGE_MS));
+    }
+  }
+
+  @Test
+  public void testSnapshotsExpirationPreservesConfiguredMaximumReferenceAge() throws Exception {
+    final String tableName = "db.test_es_configured_max_reference_age";
+    final String configuredMaximumReferenceAgeMillis = String.valueOf(TimeUnit.DAYS.toMillis(2));
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, 1);
+      ops.spark()
+          .sql(
+              String.format(
+                  "ALTER TABLE %s SET TBLPROPERTIES ('%s' = '%s')",
+                  tableName, TableProperties.MAX_REF_AGE_MS, configuredMaximumReferenceAgeMillis));
+
+      ops.expireSnapshots(ops.getTable(tableName), 3, "DAYS", 0);
+    }
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      Assertions.assertEquals(
+          configuredMaximumReferenceAgeMillis,
+          ops.getTable(tableName).properties().get(TableProperties.MAX_REF_AGE_MS));
     }
   }
 
