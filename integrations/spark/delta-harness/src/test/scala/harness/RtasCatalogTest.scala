@@ -199,9 +199,11 @@ final class RtasCatalogTest {
   }
 
   @Test
-  def theReplaceSkipMetadataIsPinnedToTheOneKnownProductBug(): Unit = {
+  def theReplaceSkipMetadataIsPinnedToTheKnownProductBugs(): Unit = {
     assertEquals(
       List(
+        "rtas.concurrency.replaceVersusAppend @ orc",
+        "rtas.concurrency.replaceVersusAppend @ parquet",
         "rtas.schema.incompatibleType.notSilentlyLossy @ orc",
         "rtas.schema.incompatibleType.notSilentlyLossy @ parquet"),
       Scenarios.rtasCases.collect {
