@@ -108,7 +108,8 @@ public class AuthorizationUtils {
    * @param actingPrincipal
    */
   public void checkReplaceTablePrivilege(TableDto tableDto, String actingPrincipal) {
-    if (!tableDto.getTableCreator().equals(actingPrincipal)) {
+    if (!extractGridUserPrincipal(tableDto.getTableCreator())
+        .equals(extractGridUserPrincipal(actingPrincipal))) {
       throw new AccessDeniedException(
           String.format(
               "Table %s.%s can only be replaced by the same creator. Current creator: %s, request creator: %s",
@@ -117,5 +118,9 @@ public class AuthorizationUtils {
               tableDto.getTableCreator(),
               actingPrincipal));
     }
+  }
+
+  private static String extractGridUserPrincipal(String principal) {
+    return principal.split("/", 2)[0];
   }
 }
