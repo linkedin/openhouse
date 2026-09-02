@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.MoreExecutors;
@@ -22,6 +23,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -38,12 +40,16 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.ExpireSnapshots;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.Transaction;
@@ -51,11 +57,17 @@ import org.apache.iceberg.actions.DeleteOrphanFiles;
 import org.apache.iceberg.actions.RewriteDataFiles;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.encryption.EncryptionManager;
+import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.apache.iceberg.spark.actions.SparkActions;
+import org.apache.iceberg.util.PropertyUtil;
+import org.apache.iceberg.util.Tasks;
 import org.apache.spark.sql.SparkSession;
 import scala.collection.JavaConverters;
 
@@ -275,37 +287,159 @@ public final class Operations implements AutoCloseable {
    * number of snapshots younger than the maxAge
    */
   public void expireSnapshots(Table table, int maxAge, String granularity, int versions) {
-    if (!table.properties().containsKey(TableProperties.MAX_REF_AGE_MS)) {
-      log.info(
-          "Setting default maximum reference age for table {} to {}ms",
-          table,
-          DEFAULT_MAX_REFERENCE_AGE_MILLIS);
-      table
-          .updateProperties()
-          .set(TableProperties.MAX_REF_AGE_MS, String.valueOf(DEFAULT_MAX_REFERENCE_AGE_MILLIS))
-          .commit();
+    Preconditions.checkArgument(
+        table instanceof HasTableOperations,
+        "Snapshot expiration requires table operations access for table %s",
+        table.name());
+    Map<String, String> tableProperties = table.properties();
+    Tasks.foreach(table)
+        .retry(
+            PropertyUtil.propertyAsInt(
+                tableProperties,
+                TableProperties.COMMIT_NUM_RETRIES,
+                TableProperties.COMMIT_NUM_RETRIES_DEFAULT))
+        .exponentialBackoff(
+            PropertyUtil.propertyAsInt(
+                tableProperties,
+                TableProperties.COMMIT_MIN_RETRY_WAIT_MS,
+                TableProperties.COMMIT_MIN_RETRY_WAIT_MS_DEFAULT),
+            PropertyUtil.propertyAsInt(
+                tableProperties,
+                TableProperties.COMMIT_MAX_RETRY_WAIT_MS,
+                TableProperties.COMMIT_MAX_RETRY_WAIT_MS_DEFAULT),
+            PropertyUtil.propertyAsInt(
+                tableProperties,
+                TableProperties.COMMIT_TOTAL_RETRY_TIME_MS,
+                TableProperties.COMMIT_TOTAL_RETRY_TIME_MS_DEFAULT),
+            2.0)
+        .onlyRetryOn(CommitFailedException.class)
+        .run(
+            tableToExpire -> {
+              ExpireSnapshots expireSnapshotsCommand = newSnapshotExpirationCommand(tableToExpire);
+
+              // maxAge will always be defined
+              ChronoUnit timeUnitGranularity =
+                  ChronoUnit.valueOf(
+                      SparkJobUtil.convertGranularityToChrono(granularity.toUpperCase()).name());
+              long expireBeforeTimestampMs =
+                  System.currentTimeMillis()
+                      - timeUnitGranularity.getDuration().multipliedBy(maxAge).toMillis();
+              log.info(
+                  "Expiring snapshots for table: {} older than {}ms",
+                  tableToExpire,
+                  expireBeforeTimestampMs);
+              expireSnapshotsCommand.expireOlderThan(expireBeforeTimestampMs).commit();
+
+              if (versions > 0 && Iterators.size(tableToExpire.snapshots().iterator()) > versions) {
+                log.info(
+                    "Expiring snapshots for table: {} retaining last {} versions",
+                    tableToExpire,
+                    versions);
+                // Note: retainLast keeps the last N snapshots that WOULD be expired, hence
+                // expireOlderThan currentTime
+                newSnapshotExpirationCommand(tableToExpire)
+                    .expireOlderThan(System.currentTimeMillis())
+                    .retainLast(versions)
+                    .commit();
+              }
+            });
+  }
+
+  private static ExpireSnapshots newSnapshotExpirationCommand(Table table) {
+    return new BaseTable(
+            new TableOperationsWithMaximumReferenceAgeDefault(
+                ((HasTableOperations) table).operations(), DEFAULT_MAX_REFERENCE_AGE_MILLIS),
+            table.name())
+        .expireSnapshots()
+        .cleanExpiredFiles(false);
+  }
+
+  private static final class TableOperationsWithMaximumReferenceAgeDefault
+      implements TableOperations {
+    private final TableOperations delegate;
+    private final long defaultMaximumReferenceAgeMillis;
+    private OptionalLong maximumReferenceAgeMillis = OptionalLong.empty();
+
+    TableOperationsWithMaximumReferenceAgeDefault(
+        TableOperations delegate, long defaultMaximumReferenceAgeMillis) {
+      this.delegate = delegate;
+      this.defaultMaximumReferenceAgeMillis = defaultMaximumReferenceAgeMillis;
     }
 
-    ExpireSnapshots expireSnapshotsCommand = table.expireSnapshots().cleanExpiredFiles(false);
+    @Override
+    public TableMetadata current() {
+      TableMetadata currentMetadata = delegate.refresh();
+      maximumReferenceAgeMillis =
+          OptionalLong.of(
+              currentMetadata.propertyAsLong(
+                  TableProperties.MAX_REF_AGE_MS, defaultMaximumReferenceAgeMillis));
+      Map<String, String> operationProperties = new HashMap<>();
+      if (!currentMetadata.properties().containsKey(TableProperties.MAX_REF_AGE_MS)) {
+        operationProperties.put(
+            TableProperties.MAX_REF_AGE_MS, String.valueOf(defaultMaximumReferenceAgeMillis));
+      }
+      operationProperties.put(TableProperties.COMMIT_NUM_RETRIES, "0");
 
-    // maxAge will always be defined
-    ChronoUnit timeUnitGranularity =
-        ChronoUnit.valueOf(
-            SparkJobUtil.convertGranularityToChrono(granularity.toUpperCase()).name());
-    long expireBeforeTimestampMs =
-        System.currentTimeMillis()
-            - timeUnitGranularity.getDuration().multipliedBy(maxAge).toMillis();
-    log.info("Expiring snapshots for table: {} older than {}ms", table, expireBeforeTimestampMs);
-    expireSnapshotsCommand.expireOlderThan(expireBeforeTimestampMs).commit();
+      return TableMetadata.buildFrom(currentMetadata)
+          .setProperties(operationProperties)
+          .discardChanges()
+          .build();
+    }
 
-    if (versions > 0 && Iterators.size(table.snapshots().iterator()) > versions) {
-      log.info("Expiring snapshots for table: {} retaining last {} versions", table, versions);
-      // Note: retainLast keeps the last N snapshots that WOULD be expired, hence expireOlderThan
-      // currentTime
-      expireSnapshotsCommand
-          .expireOlderThan(System.currentTimeMillis())
-          .retainLast(versions)
-          .commit();
+    @Override
+    public TableMetadata refresh() {
+      TableMetadata refreshedMetadata = delegate.refresh();
+      Preconditions.checkState(
+          maximumReferenceAgeMillis.isPresent(),
+          "Maximum reference age must be resolved before refreshing table metadata");
+      long refreshedMaximumReferenceAgeMillis =
+          refreshedMetadata.propertyAsLong(
+              TableProperties.MAX_REF_AGE_MS, defaultMaximumReferenceAgeMillis);
+      if (maximumReferenceAgeMillis.getAsLong() != refreshedMaximumReferenceAgeMillis) {
+        throw new CommitFailedException(
+            "Maximum reference age changed while expiring snapshots for table metadata %s",
+            refreshedMetadata.metadataFileLocation());
+      }
+      return refreshedMetadata;
+    }
+
+    @Override
+    public void commit(TableMetadata base, TableMetadata metadata) {
+      Preconditions.checkState(
+          metadata.properties().equals(delegate.current().properties()),
+          "Snapshot expiration must preserve table properties");
+      delegate.commit(base, metadata);
+    }
+
+    @Override
+    public FileIO io() {
+      return delegate.io();
+    }
+
+    @Override
+    public EncryptionManager encryption() {
+      return delegate.encryption();
+    }
+
+    @Override
+    public String metadataFileLocation(String fileName) {
+      return delegate.metadataFileLocation(fileName);
+    }
+
+    @Override
+    public LocationProvider locationProvider() {
+      return delegate.locationProvider();
+    }
+
+    @Override
+    public TableOperations temp(TableMetadata uncommittedMetadata) {
+      return new TableOperationsWithMaximumReferenceAgeDefault(
+          delegate.temp(uncommittedMetadata), defaultMaximumReferenceAgeMillis);
+    }
+
+    @Override
+    public long newSnapshotId() {
+      return delegate.newSnapshotId();
     }
   }
 
