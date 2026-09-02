@@ -331,7 +331,7 @@ public final class Operations implements AutoCloseable {
       // currentTime
       transaction
           .expireSnapshots()
-          .cleanExpiredFiles(true)
+          .cleanExpiredFiles(false)
           .expireOlderThan(clock.millis())
           .retainLast(versions)
           .commit();
