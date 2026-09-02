@@ -16,6 +16,7 @@ import com.linkedin.openhouse.jobs.util.TableStatsCollector;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import java.io.IOException;
+import java.time.Clock;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Collections;
@@ -80,8 +81,15 @@ public final class Operations implements AutoCloseable {
 
   private final OtelEmitter otelEmitter;
 
+  private final Clock clock;
+
   public static Operations of(SparkSession spark, OtelEmitter otelEmitter) {
-    return new Operations(spark, otelEmitter);
+    return new Operations(spark, otelEmitter, Clock.systemUTC());
+  }
+
+  @VisibleForTesting
+  static Operations of(SparkSession spark, OtelEmitter otelEmitter, Clock clock) {
+    return new Operations(spark, otelEmitter, clock);
   }
 
   public static Operations withCatalog(SparkSession spark, OtelEmitter otelEmitter) {
@@ -279,7 +287,7 @@ public final class Operations implements AutoCloseable {
    * number of snapshots younger than the maxAge
    */
   public void expireSnapshots(Table table, int maxAge, String granularity, int versions) {
-    long branchExpirationEvaluationTimeMillis = System.currentTimeMillis();
+    long branchExpirationEvaluationTimeMillis = clock.millis();
     long maximumReferenceAgeMillis =
         PropertyUtil.propertyAsLong(
             table.properties(), TableProperties.MAX_REF_AGE_MS, DEFAULT_MAX_REFERENCE_AGE_MILLIS);
@@ -306,15 +314,14 @@ public final class Operations implements AutoCloseable {
       manageSnapshots.commit();
     }
 
-    ExpireSnapshots expireSnapshotsCommand = transaction.expireSnapshots().cleanExpiredFiles(false);
+    ExpireSnapshots expireSnapshotsCommand = transaction.expireSnapshots().cleanExpiredFiles(true);
 
     // maxAge will always be defined
     ChronoUnit timeUnitGranularity =
         ChronoUnit.valueOf(
             SparkJobUtil.convertGranularityToChrono(granularity.toUpperCase()).name());
     long expireBeforeTimestampMs =
-        System.currentTimeMillis()
-            - timeUnitGranularity.getDuration().multipliedBy(maxAge).toMillis();
+        clock.millis() - timeUnitGranularity.getDuration().multipliedBy(maxAge).toMillis();
     log.info("Expiring snapshots for table: {} older than {}ms", table, expireBeforeTimestampMs);
     expireSnapshotsCommand.expireOlderThan(expireBeforeTimestampMs).commit();
 
@@ -324,8 +331,8 @@ public final class Operations implements AutoCloseable {
       // currentTime
       transaction
           .expireSnapshots()
-          .cleanExpiredFiles(false)
-          .expireOlderThan(System.currentTimeMillis())
+          .cleanExpiredFiles(true)
+          .expireOlderThan(clock.millis())
           .retainLast(versions)
           .commit();
     }

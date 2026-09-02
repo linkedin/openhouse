@@ -19,6 +19,9 @@ import io.opentelemetry.api.common.Attributes;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -578,15 +581,17 @@ public class OperationsTest extends OpenHouseSparkITest {
 
   @Test
   public void testSnapshotsExpirationUsesDefaultMaximumReferenceAge() throws Exception {
-    long currentTimeMillis = System.currentTimeMillis();
+    Clock clock = Clock.fixed(Instant.EPOCH, ZoneOffset.UTC);
     Table table = Mockito.mock(Table.class);
     Transaction transaction = Mockito.mock(Transaction.class);
     ManageSnapshots manageSnapshots = Mockito.mock(ManageSnapshots.class, Mockito.RETURNS_SELF);
     ExpireSnapshots expireSnapshots = Mockito.mock(ExpireSnapshots.class, Mockito.RETURNS_SELF);
-    Snapshot expiredDefault = snapshotAt(currentTimeMillis - TimeUnit.DAYS.toMillis(8));
-    Snapshot retainedDefault = snapshotAt(currentTimeMillis - TimeUnit.DAYS.toMillis(6));
-    Snapshot retainedOverride = snapshotAt(currentTimeMillis - TimeUnit.DAYS.toMillis(8));
-    Snapshot expiredTag = snapshotAt(currentTimeMillis - TimeUnit.DAYS.toMillis(8));
+    Snapshot expiredDefault = snapshotAt(clock.millis());
+    Snapshot retainedOverride = snapshotAt(clock.millis());
+    Snapshot expiredTag = snapshotAt(clock.millis());
+    clock = Clock.offset(clock, Duration.ofDays(2));
+    Snapshot retainedDefault = snapshotAt(clock.millis());
+    clock = Clock.offset(clock, Duration.ofDays(6));
 
     Mockito.when(table.properties()).thenReturn(Map.of());
     Mockito.when(table.refs())
@@ -610,12 +615,13 @@ public class OperationsTest extends OpenHouseSparkITest {
     Mockito.when(transaction.manageSnapshots()).thenReturn(manageSnapshots);
     Mockito.when(transaction.expireSnapshots()).thenReturn(expireSnapshots);
 
-    Operations.of(getSparkSession(), otelEmitter).expireSnapshots(table, 3, "DAYS", 0);
+    Operations.of(getSparkSession(), otelEmitter, clock).expireSnapshots(table, 3, "DAYS", 0);
 
     Mockito.verify(manageSnapshots).removeBranch("expired-default");
     Mockito.verify(manageSnapshots, Mockito.never()).removeBranch("retained-default");
     Mockito.verify(manageSnapshots, Mockito.never()).removeBranch("retained-override");
     Mockito.verify(manageSnapshots, Mockito.never()).removeTag(ArgumentMatchers.anyString());
+    Mockito.verify(expireSnapshots).cleanExpiredFiles(true);
     Mockito.verify(table, Mockito.never()).updateProperties();
     InOrder commitOrder = Mockito.inOrder(manageSnapshots, expireSnapshots, transaction);
     commitOrder.verify(manageSnapshots).commit();
@@ -625,12 +631,13 @@ public class OperationsTest extends OpenHouseSparkITest {
 
   @Test
   public void testSnapshotsExpirationUsesConfiguredMaximumReferenceAge() throws Exception {
-    long currentTimeMillis = System.currentTimeMillis();
+    Clock clock = Clock.fixed(Instant.EPOCH, ZoneOffset.UTC);
     final String configuredMaximumReferenceAgeMillis = String.valueOf(TimeUnit.DAYS.toMillis(10));
     Table table = Mockito.mock(Table.class);
     Transaction transaction = Mockito.mock(Transaction.class);
     ExpireSnapshots expireSnapshots = Mockito.mock(ExpireSnapshots.class, Mockito.RETURNS_SELF);
-    Snapshot retainedConfigured = snapshotAt(currentTimeMillis - TimeUnit.DAYS.toMillis(8));
+    Snapshot retainedConfigured = snapshotAt(clock.millis());
+    clock = Clock.offset(clock, Duration.ofDays(8));
 
     Mockito.when(table.properties())
         .thenReturn(Map.of(TableProperties.MAX_REF_AGE_MS, configuredMaximumReferenceAgeMillis));
@@ -645,7 +652,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     Mockito.when(table.newTransaction()).thenReturn(transaction);
     Mockito.when(transaction.expireSnapshots()).thenReturn(expireSnapshots);
 
-    Operations.of(getSparkSession(), otelEmitter).expireSnapshots(table, 3, "DAYS", 0);
+    Operations.of(getSparkSession(), otelEmitter, clock).expireSnapshots(table, 3, "DAYS", 0);
 
     Mockito.verify(transaction, Mockito.never()).manageSnapshots();
     Mockito.verify(table, Mockito.never()).updateProperties();
