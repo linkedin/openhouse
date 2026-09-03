@@ -41,7 +41,8 @@ public abstract class HouseTableMapper {
   @Mappings({@Mapping(target = "tableLocation", source = "userTable.metadataLocation")})
   public abstract HouseTable toHouseTable(UserTable userTable);
 
-  // HouseTable has no entityType; the discriminator is owned by HTS, not the tables service.
+  // The pointer carries no discriminator: entity type lives only on the HTS row, and HTS sets it
+  // from the endpoint the write arrived on.
   @Mappings({
     @Mapping(target = "metadataLocation", source = "houseTable.tableLocation"),
     @Mapping(target = "entityType", ignore = true)

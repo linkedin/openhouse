@@ -23,6 +23,7 @@ public class EntityTypeConverter implements AttributeConverter<EntityType, Strin
 
   @Override
   public EntityType convertToEntityAttribute(String columnValue) {
+    // A legacy row predates the column, so its NULL means TABLE.
     if (columnValue == null) {
       return EntityType.TABLE;
     }
