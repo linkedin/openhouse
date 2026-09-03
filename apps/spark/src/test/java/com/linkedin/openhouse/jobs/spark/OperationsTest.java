@@ -592,6 +592,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       populateTable(ops, tableName, 1);
       table.refresh();
       table.manageSnapshots().createBranch(branchName, branchSnapshotId).commit();
+      Assertions.assertTrue(table.refs().containsKey(branchName));
 
       Clock clock =
           Clock.fixed(
