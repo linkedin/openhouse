@@ -338,6 +338,7 @@ public final class Operations implements AutoCloseable {
     }
 
     transaction.commitTransaction();
+    log.info("Expired {} branches for table: {}", branchesToExpire.size(), table);
   }
 
   /**
