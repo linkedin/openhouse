@@ -42,7 +42,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.iceberg.BaseMetastoreTableOperations;
@@ -70,7 +69,6 @@ import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.base.Objects;
 
-@AllArgsConstructor
 @Slf4j
 public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperations {
 
@@ -87,6 +85,50 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   FileIOManager fileIOManager;
 
   TableMetadataCache tableMetadataCache;
+
+  TableStatsPublisher tableStatsPublisher;
+
+  /**
+   * Backward-compatible constructor. Uses a {@link NoOpTableStatsPublisher}, so callers that do not
+   * wire the optimizer stats hook keep the previous behavior.
+   */
+  public OpenHouseInternalTableOperations(
+      HouseTableRepository houseTableRepository,
+      FileIO fileIO,
+      HouseTableMapper houseTableMapper,
+      TableIdentifier tableIdentifier,
+      MetricsReporter metricsReporter,
+      FileIOManager fileIOManager,
+      TableMetadataCache tableMetadataCache) {
+    this(
+        houseTableRepository,
+        fileIO,
+        houseTableMapper,
+        tableIdentifier,
+        metricsReporter,
+        fileIOManager,
+        tableMetadataCache,
+        new NoOpTableStatsPublisher());
+  }
+
+  public OpenHouseInternalTableOperations(
+      HouseTableRepository houseTableRepository,
+      FileIO fileIO,
+      HouseTableMapper houseTableMapper,
+      TableIdentifier tableIdentifier,
+      MetricsReporter metricsReporter,
+      FileIOManager fileIOManager,
+      TableMetadataCache tableMetadataCache,
+      TableStatsPublisher tableStatsPublisher) {
+    this.houseTableRepository = houseTableRepository;
+    this.fileIO = fileIO;
+    this.houseTableMapper = houseTableMapper;
+    this.tableIdentifier = tableIdentifier;
+    this.metricsReporter = metricsReporter;
+    this.fileIOManager = fileIOManager;
+    this.tableMetadataCache = tableMetadataCache;
+    this.tableStatsPublisher = tableStatsPublisher;
+  }
 
   private static final Gson GSON = new Gson();
 
@@ -421,6 +463,17 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         updateMetadataFieldForTable(metadata, newMetadataLocation);
       }
       commitStatus = CommitStatus.SUCCESS;
+      // Best-effort, fire-and-forget publish of commit-time stats to the Table Optimizer. This
+      // must never affect the commit: the publisher contract forbids throwing, but we still guard
+      // against Throwable so a misbehaving implementation cannot fail a successful commit.
+      try {
+        tableStatsPublisher.publishOnCommit(tableIdentifier, updatedMtDataRef);
+      } catch (Throwable statsPublishFailure) {
+        log.warn(
+            "Best-effort table-stats publish failed for table {}; commit is unaffected",
+            tableIdentifier,
+            statsPublishFailure);
+      }
     } catch (IOException ioe) {
       commitStatus = checkCommitStatus(newMetadataLocation, metadata);
       // clean up the HTS entry
