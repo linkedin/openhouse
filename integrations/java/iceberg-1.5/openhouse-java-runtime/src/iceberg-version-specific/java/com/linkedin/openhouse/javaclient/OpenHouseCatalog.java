@@ -330,7 +330,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
   }
 
   @Override
-  public TableOperations newTableOps(TableIdentifier tableIdentifier) {
+  public OpenHouseTableOperations newTableOps(TableIdentifier tableIdentifier) {
     return OpenHouseTableOperations.builder()
         .tableIdentifier(tableIdentifier)
         .fileIO(fileIO)
@@ -793,7 +793,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
      */
     @Override
     public Transaction createOrReplaceTransaction() {
-      TableOperations ops = newTableOps(this.identifier);
+      OpenHouseTableOperations ops = newTableOps(this.identifier);
       if (ops.current() == null) {
         return createTransaction();
       } else {
@@ -808,11 +808,16 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
      */
     @Override
     public Transaction replaceTransaction() {
-      TableOperations ops = newTableOps(this.identifier);
+      OpenHouseTableOperations ops = newTableOps(this.identifier);
       if (ops.current() == null) {
         throw new NoSuchTableException("Table does not exist: %s", new Object[] {this.identifier});
       }
       TableMetadata metadata = replaceStagedMetadata(ops);
+      // Record the replace intent on the very instance that will receive the commit. This is the
+      // only place where RTAS is unambiguously known: by the time doCommit runs, a replace and an
+      // ordinary metadata-plus-snapshot transaction look identical. Every Catalog replace entry
+      // point (including Catalog#newReplaceTableTransaction) funnels through this builder.
+      ops.markReplaceTransaction();
       return Transactions.replaceTableTransaction(this.identifier.toString(), ops, metadata);
     }
 
@@ -823,7 +828,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
      */
     @Override
     public Transaction createTransaction() {
-      TableOperations ops = newTableOps(this.identifier);
+      OpenHouseTableOperations ops = newTableOps(this.identifier);
       if (ops.current() != null) {
         throw new AlreadyExistsException(
             "Table already exists: %s", new Object[] {this.identifier});
