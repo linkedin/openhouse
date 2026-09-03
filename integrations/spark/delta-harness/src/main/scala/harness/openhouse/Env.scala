@@ -30,7 +30,7 @@ object OpenHouseEnv {
       .config(s"spark.sql.catalog.$name.cluster", "local-cluster")
       .config(s"spark.sql.catalog.$name.auth-token", token)
 
-  def start(): (OpenHouseLocalServer, SparkSession, String, String) = {
+  def start(): (OpenHouseLocalServer, SparkSession) = {
     // The embedded server uses Hibernate to create its H2 schema. Hibernate owns initialization for this process, so
     // classpath SQL initialization stays disabled.
     System.setProperty("spring.sql.init.mode", "never")
@@ -57,7 +57,7 @@ object OpenHouseEnv {
       val wired =
         Seq("openhouse", "default_iceberg")
           .foldLeft(base)(wireCatalog(_, _, uri, token))
-      (server, wired.getOrCreate(), uri, token)
+      (server, wired.getOrCreate())
     } catch {
       case startupFailure: Throwable =>
         try {
