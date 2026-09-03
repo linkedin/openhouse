@@ -8,6 +8,7 @@ import com.linkedin.openhouse.gen.tables.client.invoker.ApiClient;
 import com.linkedin.openhouse.gen.tables.client.model.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.gen.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.gen.tables.client.model.History;
+import com.linkedin.openhouse.gen.tables.client.model.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.gen.tables.client.model.Policies;
 import com.linkedin.openhouse.gen.tables.client.model.PolicyTag;
 import com.linkedin.openhouse.gen.tables.client.model.Retention;
@@ -33,9 +34,11 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotParser;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.expressions.Expressions;
@@ -48,6 +51,7 @@ import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.Tasks;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 public class OpenHouseTableOperationsTest {
 
@@ -861,5 +865,182 @@ public class OpenHouseTableOperationsTest {
     } catch (Exception e) {
       throw new IllegalStateException(e);
     }
+  }
+
+  /**
+   * A snapshot that round-trips through {@link SnapshotParser}, so commits carrying it exercise the
+   * real request-body serialization rather than a mock.
+   */
+  private static final String SNAPSHOT_JSON =
+      "{\"snapshot-id\":3051729675574597004,\"timestamp-ms\":1515100955770,"
+          + "\"summary\":{\"operation\":\"append\"},"
+          + "\"manifest-list\":\"file:/tmp/manifest-list-1.avro\"}";
+
+  /** The {@code (base, metadata)} pair handed to {@code doCommit}. */
+  private static final class Commit {
+    private final TableMetadata base;
+    private final TableMetadata metadata;
+
+    Commit(TableMetadata base, TableMetadata metadata) {
+      this.base = base;
+      this.metadata = metadata;
+    }
+  }
+
+  /**
+   * A commit against an existing table that carries both a metadata change and a snapshot change.
+   *
+   * <p>This single shape is the crux of the routing problem: Iceberg's {@code BaseTransaction}
+   * funnels a replace transaction and an ordinary transaction (say, a schema evolution plus an
+   * append) into the identical {@code ops.commit(base, metadata)} call, so both arrive looking
+   * exactly like this. Routing therefore has to come from the transaction that produced the commit,
+   * never from the diff.
+   */
+  private static Commit metadataAndSnapshotsUpdated() {
+    TableMetadata base = mock(TableMetadata.class);
+    TableMetadata metadata = mock(TableMetadata.class);
+
+    when(base.schema()).thenReturn(mock(Schema.class));
+    when(metadata.schema()).thenReturn(mock(Schema.class));
+    when(base.properties()).thenReturn(ImmutableMap.of());
+    when(metadata.properties()).thenReturn(ImmutableMap.of("a", "b"));
+    when(base.metadataFileLocation()).thenReturn("file:/tmp/v1.metadata.json");
+
+    when(base.snapshots()).thenReturn(Collections.emptyList());
+    when(metadata.snapshots())
+        .thenReturn(Collections.singletonList(SnapshotParser.fromJson(SNAPSHOT_JSON)));
+    when(base.refs()).thenReturn(Collections.emptyMap());
+    when(metadata.refs()).thenReturn(Collections.emptyMap());
+
+    return new Commit(base, metadata);
+  }
+
+  private OpenHouseTableOperationsForTest opsFor(SnapshotApi snapshotApi) {
+    return new OpenHouseTableOperationsForTest(
+        TableIdentifier.of("a", "b"),
+        mock(FileIO.class),
+        mock(TableApi.class),
+        snapshotApi,
+        "cluster");
+  }
+
+  private static SnapshotApi acceptingSnapshotApi() {
+    SnapshotApi snapshotApi = mock(SnapshotApi.class);
+    when(snapshotApi.putSnapshotsV1(anyString(), anyString(), any())).thenReturn(Mono.empty());
+    return snapshotApi;
+  }
+
+  /** The {@code replaceCommit} flag on the {@code nth} snapshot request the client sent. */
+  private static Boolean sentReplaceCommitFlag(SnapshotApi snapshotApi, int nth) {
+    ArgumentCaptor<IcebergSnapshotsRequestBody> captor =
+        ArgumentCaptor.forClass(IcebergSnapshotsRequestBody.class);
+    verify(snapshotApi, times(nth)).putSnapshotsV1(eq("db"), eq("tbl"), captor.capture());
+    return captor.getAllValues().get(nth - 1).getCreateUpdateTableRequestBody().getReplaceCommit();
+  }
+
+  /** Commits are ordinary updates until the catalog declares a replace transaction. */
+  @Test
+  public void testNotAReplaceTransactionByDefault() {
+    Assertions.assertFalse(refreshableOps(mock(TableApi.class)).isReplaceTransaction());
+  }
+
+  /**
+   * The regression this guards: an ordinary transaction that updates metadata and appends a
+   * snapshot in one commit must stay an update. This diff used to be read as an RTAS and sent as a
+   * replace commit, which makes the server rebuild the table from scratch — dropping schema and
+   * partition history, and demanding replace privileges — instead of updating it.
+   */
+  @Test
+  public void testMetadataAndSnapshotUpdateIsNotAReplaceCommit() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
+    Commit commit = metadataAndSnapshotsUpdated();
+
+    ops.doCommit(commit.base, commit.metadata);
+
+    Assertions.assertFalse(sentReplaceCommitFlag(snapshotApi, 1));
+  }
+
+  /** The very same diff, once the catalog marks it as a replace, is sent as a replace commit. */
+  @Test
+  public void testMarkedTransactionSendsReplaceCommit() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
+    ops.markReplaceTransaction();
+    Commit commit = metadataAndSnapshotsUpdated();
+
+    ops.doCommit(commit.base, commit.metadata);
+
+    Assertions.assertTrue(sentReplaceCommitFlag(snapshotApi, 1));
+  }
+
+  /**
+   * A replace with no base is not a replace: there is no table to swap out, so the commit falls
+   * back to a plain snapshot put rather than asking the server to replace a table it cannot find.
+   */
+  @Test
+  public void testReplaceTransactionWithoutBaseIsNotAReplaceCommit() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
+    ops.markReplaceTransaction();
+
+    TableMetadata metadata = mock(TableMetadata.class);
+    when(metadata.properties()).thenReturn(ImmutableMap.of("a", "b"));
+    when(metadata.snapshots())
+        .thenReturn(Collections.singletonList(SnapshotParser.fromJson(SNAPSHOT_JSON)));
+    when(metadata.refs()).thenReturn(Collections.emptyMap());
+
+    ops.doCommit(null, metadata);
+
+    Assertions.assertFalse(sentReplaceCommitFlag(snapshotApi, 1));
+  }
+
+  /**
+   * The replace intent is one-shot. A transaction's table can outlive {@code commitTransaction}, so
+   * once the replace lands, later commits on the same instance must go back to being updates.
+   */
+  @Test
+  public void testReplaceIntentClearedAfterSuccessfulCommit() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
+    ops.markReplaceTransaction();
+
+    Commit replace = metadataAndSnapshotsUpdated();
+    ops.doCommit(replace.base, replace.metadata);
+    Assertions.assertTrue(sentReplaceCommitFlag(snapshotApi, 1));
+    Assertions.assertFalse(ops.isReplaceTransaction());
+
+    Commit followUp = metadataAndSnapshotsUpdated();
+    ops.doCommit(followUp.base, followUp.metadata);
+    Assertions.assertFalse(sentReplaceCommitFlag(snapshotApi, 2));
+  }
+
+  /**
+   * Iceberg retries a failed replace against this same instance, so a {@link CommitFailedException}
+   * has to leave the intent standing — otherwise the retry would silently degrade into a plain
+   * update and only half-apply the replace.
+   */
+  @Test
+  public void testReplaceIntentSurvivesCommitFailure() {
+    SnapshotApi snapshotApi = mock(SnapshotApi.class);
+    WebClientResponseException conflict = mock(WebClientResponseException.Conflict.class);
+    when(conflict.getStatusCode()).thenReturn(HttpStatus.CONFLICT);
+    when(snapshotApi.putSnapshotsV1(anyString(), anyString(), any()))
+        .thenReturn(Mono.error(conflict))
+        .thenReturn(Mono.empty());
+
+    OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
+    ops.markReplaceTransaction();
+
+    Commit attempt = metadataAndSnapshotsUpdated();
+    Assertions.assertThrows(
+        CommitFailedException.class, () -> ops.doCommit(attempt.base, attempt.metadata));
+    Assertions.assertTrue(ops.isReplaceTransaction());
+
+    Commit retry = metadataAndSnapshotsUpdated();
+    ops.doCommit(retry.base, retry.metadata);
+
+    Assertions.assertTrue(sentReplaceCommitFlag(snapshotApi, 2));
+    Assertions.assertFalse(ops.isReplaceTransaction());
   }
 }
