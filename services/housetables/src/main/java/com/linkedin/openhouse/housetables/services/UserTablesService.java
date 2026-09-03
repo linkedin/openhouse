@@ -2,11 +2,20 @@ package com.linkedin.openhouse.housetables.services;
 
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
+import com.linkedin.openhouse.housetables.services.model.UserViewQuery;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.util.Pair;
 
-/** Service Interface for Implementing /hts/tables endpoint. */
+/**
+ * Service Interface for Implementing /hts/tables endpoint.
+ *
+ * <p>The neutral and view methods report absence as an empty {@link Optional} and nothing else: a
+ * repository or hydration failure surfaces as {@link CorruptUserTableDataException} or {@link
+ * UserTableReadException}, because reporting an unreadable row as absent is how an occupant gets
+ * overwritten.
+ */
 public interface UserTablesService {
   /**
    * @param databaseId part of the primary composite key
@@ -15,6 +24,12 @@ public interface UserTablesService {
    *     service and transport layer.
    */
   UserTableDto getUserTable(String databaseId, String tableId);
+
+  /** Reads the occupant of a key whatever its type, for collision detection. */
+  Optional<UserTableDto> getNeutralEntity(String databaseId, String tableId);
+
+  /** A table or a legacy null at the key resolves as absent. */
+  Optional<UserTableDto> getUserView(String databaseId, String tableId);
 
   /**
    * Given a partially filled {@link UserTable} object, prepare list of {@link UserTableDto}s that
@@ -40,8 +55,17 @@ public interface UserTablesService {
    */
   Page<UserTableDto> getAllUserTables(UserTable userTable, int page, int size, String sortBy);
 
+  Page<UserTableDto> getAllUserViews(UserViewQuery query, int page, int size, String sortBy);
+
   /** Given a databaseId and tableId, delete the user table entry from the House Table. */
   void deleteUserTable(String databaseId, String tableId, boolean isSoftDelete);
+
+  /**
+   * Views cannot be soft-deleted by design.
+   *
+   * @return false when no view held the key, covering absence and a wrong-type occupant alike
+   */
+  boolean deleteUserView(String databaseId, String tableId);
 
   /**
    * Create or update a {@link UserTable} row in House table.
@@ -52,6 +76,14 @@ public interface UserTablesService {
    *     and update of {@link UserTableDto}.
    */
   Pair<UserTableDto, Boolean> putUserTable(UserTable userTable);
+
+  /**
+   * Create or update a view row in House table. The method, not the payload, is the authority on
+   * the type: a transport {@code entityType} is overwritten with VIEW before the row is saved.
+   *
+   * @return the saved DTO, and true when an existing view was overwritten rather than created
+   */
+  Pair<UserTableDto, Boolean> putUserView(UserTable userView);
 
   /**
    * Rename a {@link UserTable} row in House table.

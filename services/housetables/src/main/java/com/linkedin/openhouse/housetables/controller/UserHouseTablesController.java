@@ -8,7 +8,9 @@ import com.linkedin.openhouse.housetables.api.spec.model.UserTableKey;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateUpdateEntityRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.response.EntityResponseBody;
 import com.linkedin.openhouse.housetables.api.spec.response.GetAllEntityResponseBody;
+import com.linkedin.openhouse.housetables.api.validator.EntityTypeIngressValidator;
 import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
+import com.linkedin.openhouse.housetables.model.EntityType;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -41,12 +43,17 @@ public class UserHouseTablesController {
   private static final String HTS_TABLES_RENAME_ENDPOINT = "/hts/tables/rename";
   private static final String HTS_TABLES_RESTORE_ENDPOINT = "/hts/tables/restore";
   private static final String HTS_TABLES_PURGE_ENDPOINT = "/hts/tables/purge";
+  private static final String HTS_ENTITIES_GENERAL_ENDPOINT = "/hts/entities";
+  private static final String HTS_VIEWS_GENERAL_ENDPOINT = "/hts/views";
+  private static final String HTS_VIEWS_QUERY_ENDPOINT_V1 = "/v1/hts/views/query";
 
   @Autowired private UserTableHtsApiHandler tableHtsApiHandler;
 
   @Autowired private SoftDeletedUserTableHtsApiHandler softDeletedTablesHtsApiHandler;
 
   @Autowired private UserTablesMapper userTablesMapper;
+
+  @Autowired private EntityTypeIngressValidator entityTypeIngressValidator;
 
   @Operation(
       summary = "Get User Table identified by databaseID and tableId.",
@@ -148,7 +155,8 @@ public class UserHouseTablesController {
   @Operation(
       summary = "Delete a User Table",
       description =
-          "Delete a User House Table entry identified by databaseID and tableId. This endpoint will default softDelete to false",
+          "Delete a User House Table entry identified by databaseID and tableId. Table-scoped: a "
+              + "view at the same key is reported as not found. Defaults softDelete to false",
       tags = {"UserTable"})
   @ApiResponses(
       value = {
@@ -219,7 +227,9 @@ public class UserHouseTablesController {
           @RequestBody
           CreateUpdateEntityRequestBody<UserTable> createUpdateTableRequestBody) {
     com.linkedin.openhouse.common.api.spec.ApiResponse<EntityResponseBody<UserTable>> apiResponse =
-        tableHtsApiHandler.putEntity(createUpdateTableRequestBody.getEntity());
+        tableHtsApiHandler.putEntity(
+            entityTypeIngressValidator.normalize(
+                createUpdateTableRequestBody.getEntity(), EntityType.TABLE));
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }
@@ -227,7 +237,8 @@ public class UserHouseTablesController {
   @Operation(
       summary = "Rename a User Table",
       description =
-          "Update an existing user table, identified by databaseID and tableId, to a new databaseID and tableId.",
+          "Update an existing user table, identified by databaseID and tableId, to a new databaseID "
+              + "and tableId. Table-scoped: a view at the source key is reported as not found.",
       tags = {"UserTable"})
   @ApiResponses(
       value = {
@@ -253,6 +264,137 @@ public class UserHouseTablesController {
             .build();
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
         tableHtsApiHandler.renameEntity(fromUserTable, toUserTable);
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Get the entity identified by databaseID and tableId, whatever its type.",
+      description =
+          "Returns the House Table row occupying the given key, of either type, reporting which "
+              + "type it is. Answers name occupancy for collision detection.",
+      tags = {"UserTable"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "Entity GET: OK"),
+        @ApiResponse(responseCode = "400", description = "Entity GET: BAD_REQUEST"),
+        @ApiResponse(responseCode = "404", description = "Entity GET: TBL_DB_NOT_FOUND"),
+        @ApiResponse(responseCode = "500", description = "Entity GET: INTERNAL_SERVER_ERROR")
+      })
+  @GetMapping(
+      value = HTS_ENTITIES_GENERAL_ENDPOINT,
+      produces = {"application/json"})
+  public ResponseEntity<EntityResponseBody<UserTable>> getEntity(
+      @RequestParam(value = "databaseId") String databaseId,
+      @RequestParam(value = "tableId") String tableId) {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<EntityResponseBody<UserTable>> apiResponse =
+        tableHtsApiHandler.getNeutralEntity(
+            UserTableKey.builder().databaseId(databaseId).tableId(tableId).build());
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Get User View identified by databaseID and tableId.",
+      description = "Returns a User House Table view identified by databaseID and tableId.",
+      tags = {"UserTable"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "User View GET: OK"),
+        @ApiResponse(responseCode = "400", description = "User View GET: BAD_REQUEST"),
+        @ApiResponse(responseCode = "404", description = "User View GET: TBL_DB_NOT_FOUND"),
+        @ApiResponse(responseCode = "500", description = "User View GET: INTERNAL_SERVER_ERROR")
+      })
+  @GetMapping(
+      value = HTS_VIEWS_GENERAL_ENDPOINT,
+      produces = {"application/json"})
+  public ResponseEntity<EntityResponseBody<UserTable>> getUserView(
+      @RequestParam(value = "databaseId") String databaseId,
+      @RequestParam(value = "tableId") String tableId) {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<EntityResponseBody<UserTable>> apiResponse =
+        tableHtsApiHandler.getViewEntity(
+            UserTableKey.builder().databaseId(databaseId).tableId(tableId).build());
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Search User Views by filter.",
+      description = "Returns paginated views from house table that fulfill the predicate.",
+      tags = {"UserTable"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "User View GET: OK"),
+        @ApiResponse(responseCode = "400", description = "User View GET: BAD_REQUEST"),
+        @ApiResponse(responseCode = "500", description = "User View GET: INTERNAL_SERVER_ERROR")
+      })
+  @GetMapping(
+      value = HTS_VIEWS_QUERY_ENDPOINT_V1,
+      produces = {"application/json"})
+  public ResponseEntity<GetAllEntityResponseBody<UserTable>> getPaginatedUserViews(
+      @RequestParam Map<String, String> parameters,
+      @RequestParam(required = false, defaultValue = "0") int page,
+      @RequestParam(required = false, defaultValue = "50") int size,
+      @RequestParam(required = false) String sortBy) {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<GetAllEntityResponseBody<UserTable>>
+        apiResponse =
+            tableHtsApiHandler.getViewEntities(
+                userTablesMapper.mapToUserTable(parameters), page, size, sortBy);
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Update a User View",
+      description =
+          "Updates or creates a User House Table view identified by databaseID and tableId. The "
+              + "endpoint declares the type; a payload may agree with it or omit it, never override "
+              + "it.",
+      tags = {"UserTable"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "User View PUT: UPDATED"),
+        @ApiResponse(responseCode = "201", description = "User View PUT: CREATED"),
+        @ApiResponse(responseCode = "400", description = "User View PUT: BAD_REQUEST"),
+        @ApiResponse(responseCode = "409", description = "User View PUT: CONFLICT")
+      })
+  @PutMapping(
+      value = HTS_VIEWS_GENERAL_ENDPOINT,
+      produces = {"application/json"},
+      consumes = {"application/json"})
+  public ResponseEntity<EntityResponseBody<UserTable>> putUserView(
+      @Parameter(
+              description = "Request containing details of the User View to be created/updated",
+              required = true)
+          @RequestBody
+          CreateUpdateEntityRequestBody<UserTable> createUpdateViewRequestBody) {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<EntityResponseBody<UserTable>> apiResponse =
+        tableHtsApiHandler.putView(
+            entityTypeIngressValidator.normalize(
+                createUpdateViewRequestBody.getEntity(), EntityType.VIEW));
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Delete a User View",
+      description =
+          "Delete a User House Table view entry identified by databaseID and tableId. Views are "
+              + "always hard deleted; there is no soft-deleted view store.",
+      tags = {"UserTable"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "204", description = "User View DELETE: NO_CONTENT"),
+        @ApiResponse(responseCode = "400", description = "User View DELETE: BAD_REQUEST"),
+        @ApiResponse(responseCode = "404", description = "User View DELETE: TBL_DB_NOT_FOUND")
+      })
+  @DeleteMapping(value = HTS_VIEWS_GENERAL_ENDPOINT)
+  public ResponseEntity<Void> deleteView(
+      @RequestParam(value = "databaseId") String databaseId,
+      @RequestParam(value = "tableId") String tableId) {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
+        tableHtsApiHandler.deleteView(
+            UserTableKey.builder().tableId(tableId).databaseId(databaseId).build());
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }
