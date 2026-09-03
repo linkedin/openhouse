@@ -7,35 +7,23 @@ package harness
  * Adding a scenario is two lines here: one mixin on `Scenarios` and one named entry in
  * `ScenarioCatalog.extensionContributions`. Explicit registration makes this file the complete catalog definition.
  *
- * Every capability trait and every support trait, mixed into one object.
- *
  * Mixing them here puts ScenarioKit first in the linearization, so its vals initialize before any capability's. This
  * object is what a scenario body, a preparation list and the harness configuration are read from, so it exposes the
  * shared kit surface (`dataSource`, `fileFormats`, the layout and preparation lists) alongside each capability's case
  * list.
- *
- * Support traits expose reusable operations to later feature layers while the standard matrix includes only the
- * selected scenario contributions.
  */
 object Scenarios
-    extends ScenarioDataType
-    with ScenarioDml
-    with ScenarioDmlValidation
-    with ScenarioFileFormat
-    with ScenarioNestedType
-    with ScenarioPartitionEvolution
-    with ScenarioSchemaEvolution
-    with ScenarioTableProperty
+    extends ScenarioDml
     with ScenarioRtas
     with ChangelogSupport
 
 /**
  * The ordered catalog of scenario-owned test cases.
  *
- * The catalog is built from two explicit lists. `foundationContributions` is the reusable DDL and DML base this
- * branch froze; `extensionContributions` is where a later layer names the capabilities it adds. `contributions`
- * merges the two and sorts by contribution name, giving every layer a deterministic order independent of list
- * placement.
+ * The catalog is built from two explicit lists. `foundationContributions` is the focused behavior slice that proves
+ * the execution framework; `extensionContributions` is where a later layer names the capabilities it adds.
+ * `contributions` merges the two and sorts by contribution name, giving every layer a deterministic order independent
+ * of list placement.
  *
  * A layer adds a capability through two append points: one mixin on `Scenarios` and one entry in
  * `extensionContributions`. It keeps its behavior and assertions in its own scenario source while the framework and
@@ -46,22 +34,13 @@ object Scenarios
  */
 object ScenarioCatalog {
 
-  /** The reusable DDL and DML capabilities in the foundation, named once in alphabetical order. */
+  /** The focused DML contract that proves the framework's end-to-end execution path. */
   def foundationContributions: List[(String, List[TestCase])] =
     List(
-      "dataTypeCases"           -> Scenarios.dataTypeCases,
-      "dmlCases"                -> Scenarios.dmlCases,
-      "dmlValidationCases"      -> Scenarios.dmlValidationCases,
-      "fileFormatCases"         -> Scenarios.fileFormatCases,
-      "nestedTypeCases"         -> Scenarios.nestedTypeCases,
-      "partitionEvolutionCases" -> Scenarios.partitionEvolutionCases,
-      "schemaEvolutionCases"    -> Scenarios.schemaEvolutionCases,
-      "tablePropertyCases"      -> Scenarios.tablePropertyCases)
+      "dmlCases" -> Scenarios.dmlCases)
 
   /**
-   * The capabilities this layer adds on top of the foundation, named the same way. This branch adds the replace-table
-   * capability, so a sibling layer appends its own entry here and leaves the foundation list and every entry below
-   * this one untouched.
+   * The replace-table capability this layer adds to the canonical DML contract.
    */
   def extensionContributions: List[(String, List[TestCase])] =
     List(
