@@ -10,14 +10,17 @@ import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import com.linkedin.openhouse.housetables.e2e.SpringH2HtsApplication;
+import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
+import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.SoftDeletedUserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.services.UserTablesService;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -25,6 +28,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.NullSource;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -92,37 +98,37 @@ public class UserTablesServiceTest {
     // TODO: Use service layer function to create/update the repository.
     Assertions.assertTrue(
         isUserTableDtoEqual(
-            TestHouseTableModelConstants.TEST_USER_TABLE_DTO,
+            asStored(TestHouseTableModelConstants.TEST_USER_TABLE_DTO),
             userTablesService.getUserTable(
                 TestHouseTableModelConstants.TEST_DB_ID,
                 TestHouseTableModelConstants.TEST_TABLE_ID)));
     Assertions.assertTrue(
         isUserTableDtoEqual(
-            TEST_TUPLE_1_0.get_userTableDto(),
+            asStored(TEST_TUPLE_1_0.get_userTableDto()),
             userTablesService.getUserTable(
                 TEST_TUPLE_1_0.getDatabaseId(), TEST_TUPLE_1_0.getTableId())));
     Assertions.assertTrue(
         isUserTableDtoEqual(
-            TestHouseTableModelConstants.TEST_TUPLE_1_1.get_userTableDto(),
+            asStored(TestHouseTableModelConstants.TEST_TUPLE_1_1.get_userTableDto()),
             userTablesService.getUserTable(
                 TestHouseTableModelConstants.TEST_TUPLE_1_1.getDatabaseId(),
                 TestHouseTableModelConstants.TEST_TUPLE_1_1.getTableId())));
     // testing case insensitivity when lookup by repeating the lookup again
     Assertions.assertTrue(
         isUserTableDtoEqual(
-            TestHouseTableModelConstants.TEST_USER_TABLE_DTO,
+            asStored(TestHouseTableModelConstants.TEST_USER_TABLE_DTO),
             userTablesService.getUserTable(
                 TestHouseTableModelConstants.TEST_DB_ID.toLowerCase(),
                 TestHouseTableModelConstants.TEST_TABLE_ID.toLowerCase())));
     Assertions.assertTrue(
         isUserTableDtoEqual(
-            TEST_TUPLE_1_0.get_userTableDto(),
+            asStored(TEST_TUPLE_1_0.get_userTableDto()),
             userTablesService.getUserTable(
                 TEST_TUPLE_1_0.getDatabaseId().toLowerCase(),
                 TEST_TUPLE_1_0.getTableId().toLowerCase())));
     Assertions.assertTrue(
         isUserTableDtoEqual(
-            TestHouseTableModelConstants.TEST_TUPLE_1_1.get_userTableDto(),
+            asStored(TestHouseTableModelConstants.TEST_TUPLE_1_1.get_userTableDto()),
             userTablesService.getUserTable(
                 TestHouseTableModelConstants.TEST_TUPLE_1_1.getDatabaseId().toUpperCase(),
                 TestHouseTableModelConstants.TEST_TUPLE_1_1.getTableId().toUpperCase())));
@@ -256,35 +262,11 @@ public class UserTablesServiceTest {
   @Test
   public void testUserTableQuery() {
     List<UserTableDto> results = new ArrayList<>();
-    results.add(
-        TEST_TUPLE_1_0
-            .get_userTableDto()
-            .toBuilder()
-            .tableVersion(TEST_TUPLE_1_0.get_userTableDto().getMetadataLocation())
-            .build());
-    results.add(
-        TEST_TUPLE_2_0
-            .get_userTableDto()
-            .toBuilder()
-            .tableVersion(TEST_TUPLE_2_0.get_userTableDto().getMetadataLocation())
-            .build());
-    results.add(
-        TEST_TUPLE_3_0
-            .get_userTableDto()
-            .toBuilder()
-            .tableVersion(TEST_TUPLE_3_0.get_userTableDto().getMetadataLocation())
-            .build());
-    results.add(
-        TEST_TUPLE_4_0
-            .get_userTableDto()
-            .toBuilder()
-            .tableVersion(TEST_TUPLE_4_0.get_userTableDto().getMetadataLocation())
-            .build());
-    results.add(
-        TEST_USER_TABLE_DTO
-            .toBuilder()
-            .tableVersion(TEST_USER_TABLE_DTO.getMetadataLocation())
-            .build());
+    results.add(asStored(TEST_TUPLE_1_0.get_userTableDto()));
+    results.add(asStored(TEST_TUPLE_2_0.get_userTableDto()));
+    results.add(asStored(TEST_TUPLE_3_0.get_userTableDto()));
+    results.add(asStored(TEST_TUPLE_4_0.get_userTableDto()));
+    results.add(asStored(TEST_USER_TABLE_DTO));
 
     // No filter, should return all tables.
     List<UserTableDto> actual = userTablesService.getAllUserTables(UserTable.builder().build());
@@ -311,7 +293,8 @@ public class UserTablesServiceTest {
         userTablesService.getAllUserTables(
             UserTable.builder().tableId(TEST_TUPLE_2_0.getTableId()).build());
     assertThat(actual.size()).isEqualTo(3);
-    assertThat(isUserTableDtoEqual(actual.get(0), TEST_TUPLE_2_0.get_userTableDto())).isTrue();
+    assertThat(isUserTableDtoEqual(actual.get(0), asStored(TEST_TUPLE_2_0.get_userTableDto())))
+        .isTrue();
   }
 
   @Test
@@ -630,11 +613,263 @@ public class UserTablesServiceTest {
         userTablesService.getAllSoftDeletedTables(searchByTableId, 0, 10, null).getTotalElements());
   }
 
+  /**
+   * The DTO a stored tuple reads back as: HTS answers with the metadata location as the version,
+   * and a stored null entity type is a legacy table.
+   */
+  private static UserTableDto asStored(UserTableDto dto) {
+    return dto.toBuilder()
+        .tableVersion(dto.getMetadataLocation())
+        .entityType(EntityType.TABLE)
+        .build();
+  }
+
   private Boolean isUserTableDtoEqual(UserTableDto expected, UserTableDto actual) {
     return expected
         .toBuilder()
         .tableVersion("")
         .build()
         .equals(actual.toBuilder().tableVersion("").build());
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // entityType discriminator at the service call sites
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * Canonical interleaved fixture. Seeded into its own database so it never perturbs the
+   * pre-existing per-database counts asserted by the tests above.
+   */
+  private static final String ENTITY_TYPE_DB = "entity_type_db";
+
+  private static final List<String> CANONICAL_TABLE_IDS =
+      Arrays.asList("t00_legacy", "t02_explicit", "t04_legacy", "t06_explicit");
+
+  private static final List<String> CANONICAL_VIEW_IDS =
+      Arrays.asList("t01_view", "t03_view", "t05_view");
+
+  /**
+   * {@code getUserTable} is the single HTS endpoint behind every table point read in the tables
+   * service, so filtering it here is what makes doRefresh, dropTable, the rename source and
+   * findTableRefById all treat a view as absent without a check of their own.
+   */
+  @Test
+  public void testGetUserTableHidesNonTableRows() {
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "point_read", EntityType.VIEW));
+
+    Assertions.assertThrows(
+        NoSuchUserTableException.class,
+        () -> userTablesService.getUserTable(ENTITY_TYPE_DB, "point_read"));
+
+    // Hidden from the table read, not deleted.
+    assertThat(
+            htsRepository
+                .findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(ENTITY_TYPE_DB, "point_read")
+                .isPresent())
+        .isTrue();
+  }
+
+  @ParameterizedTest
+  @NullSource
+  @EnumSource(value = EntityType.class, names = "TABLE")
+  public void testGetUserTableResolvesNullAndTableRows(EntityType entityType) {
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "point_read", entityType));
+
+    UserTableDto dto = userTablesService.getUserTable(ENTITY_TYPE_DB, "point_read");
+    assertThat(dto.getTableId()).isEqualTo("point_read");
+    // A stored null is a legacy table, so the DTO carries a type either way.
+    assertThat(dto.getEntityType()).isEqualTo(EntityType.TABLE);
+  }
+
+  /**
+   * The writers must still see a view at a shared key, otherwise a table create or delete would
+   * silently act on a name another entity already holds.
+   */
+  @Test
+  public void testWritersStillSeeNonTableRowsAtTheSameKey() {
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "shared_key", EntityType.VIEW));
+
+    UserTableRow seenByWriter =
+        htsRepository
+            .findById(
+                UserTableRowPrimaryKey.builder()
+                    .databaseId(ENTITY_TYPE_DB)
+                    .tableId("shared_key")
+                    .build())
+            .orElseThrow(() -> new AssertionError("writer read must see the view row"));
+    assertThat(seenByWriter.getEntityType()).isEqualTo(EntityType.VIEW);
+
+    // deleteUserTable resolves through the same neutral read, so it can still remove the row.
+    userTablesService.deleteUserTable(ENTITY_TYPE_DB, "shared_key", false);
+    assertThat(
+            htsRepository
+                .findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(ENTITY_TYPE_DB, "shared_key")
+                .isPresent())
+        .isFalse();
+  }
+
+  private UserTableRow entityTypeRow(String databaseId, String tableId, EntityType entityType) {
+    return UserTableRow.builder()
+        .databaseId(databaseId)
+        .tableId(tableId)
+        .version(null)
+        .metadataLocation(String.format("/openhouse/%s/%s/v0_metadata.json", databaseId, tableId))
+        .storageType(TEST_DEFAULT_STORAGE_TYPE)
+        .creationTime(TEST_CREATION_TIME)
+        .entityType(entityType)
+        .build();
+  }
+
+  private void seedCanonicalRows(String prefix) {
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t00_legacy", null));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t01_view", EntityType.VIEW));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t02_explicit", EntityType.TABLE));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t03_view", EntityType.VIEW));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t04_legacy", null));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t05_view", EntityType.VIEW));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, prefix + "t06_explicit", EntityType.TABLE));
+  }
+
+  private static List<String> sortedIds(List<UserTableDto> dtos) {
+    return dtos.stream().map(UserTableDto::getTableId).sorted().collect(Collectors.toList());
+  }
+
+  private static List<String> pageIds(Page<UserTableDto> page) {
+    return page.getContent().stream().map(UserTableDto::getTableId).collect(Collectors.toList());
+  }
+
+  /** Plain per-database listing through the service hides views and keeps legacy NULL rows. */
+  @Test
+  public void testListTablesCallSiteFiltersViewsAndKeepsNullRows() {
+    seedCanonicalRows("");
+
+    List<UserTableDto> result =
+        userTablesService.getAllUserTables(UserTable.builder().databaseId(ENTITY_TYPE_DB).build());
+
+    assertThat(sortedIds(result)).isEqualTo(CANONICAL_TABLE_IDS);
+  }
+
+  /**
+   * Anti-post-filter assertion at the service layer: a fetch-then-filter implementation yields a
+   * 1-row page 0 with totalElements=7/totalPages=4.
+   */
+  @Test
+  public void testListTablesCallSiteFiltersBeforePagination() {
+    seedCanonicalRows("");
+    UserTable searchBy = UserTable.builder().databaseId(ENTITY_TYPE_DB).build();
+
+    Page<UserTableDto> page0 = userTablesService.getAllUserTables(searchBy, 0, 2, "tableId");
+    Assertions.assertEquals(4, page0.getTotalElements());
+    Assertions.assertEquals(2, page0.getTotalPages());
+    Assertions.assertEquals(2, page0.getContent().size());
+    assertThat(pageIds(page0)).containsExactly("t00_legacy", "t02_explicit");
+
+    Page<UserTableDto> page1 = userTablesService.getAllUserTables(searchBy, 1, 2, "tableId");
+    Assertions.assertEquals(4, page1.getTotalElements());
+    Assertions.assertEquals(2, page1.getTotalPages());
+    Assertions.assertEquals(2, page1.getContent().size());
+    assertThat(pageIds(page1)).containsExactly("t04_legacy", "t06_explicit");
+
+    assertThat(pageIds(page0)).doesNotContainAnyElementsOf(CANONICAL_VIEW_IDS);
+    assertThat(pageIds(page1)).doesNotContainAnyElementsOf(CANONICAL_VIEW_IDS);
+  }
+
+  /** The pattern-listing call sites (plain and paged) apply the same predicate. */
+  @Test
+  public void testPatternCallSitesFilterViewsPlainAndPaged() {
+    seedCanonicalRows("match_");
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "nomatch_table", EntityType.TABLE));
+    UserTable searchBy = UserTable.builder().databaseId(ENTITY_TYPE_DB).tableId("match_%").build();
+
+    assertThat(sortedIds(userTablesService.getAllUserTables(searchBy)))
+        .containsExactly(
+            "match_t00_legacy", "match_t02_explicit", "match_t04_legacy", "match_t06_explicit");
+
+    Page<UserTableDto> page0 = userTablesService.getAllUserTables(searchBy, 0, 2, "tableId");
+    Assertions.assertEquals(4, page0.getTotalElements());
+    Assertions.assertEquals(2, page0.getTotalPages());
+    assertThat(pageIds(page0)).containsExactly("match_t00_legacy", "match_t02_explicit");
+
+    Page<UserTableDto> page1 = userTablesService.getAllUserTables(searchBy, 1, 2, "tableId");
+    Assertions.assertEquals(4, page1.getTotalElements());
+    Assertions.assertEquals(2, page1.getTotalPages());
+    assertThat(pageIds(page1)).containsExactly("match_t04_legacy", "match_t06_explicit");
+  }
+
+  /**
+   * The query endpoint is table-scoped by path, so {@code entityType} is bound onto the request but
+   * never reaches a predicate: an {@code entityType=VIEW} request is answered with tables, and
+   * routing is unaffected by the field.
+   */
+  @Test
+  public void testEntityTypeOnQueryIsIgnoredAndAlwaysReturnsTables() {
+    seedCanonicalRows("");
+
+    for (String entityType : new String[] {"VIEW", "view", "TABLE", "TaBlE", null}) {
+      assertThat(
+              sortedIds(
+                  userTablesService.getAllUserTables(
+                      UserTable.builder()
+                          .databaseId(ENTITY_TYPE_DB)
+                          .entityType(entityType)
+                          .build())))
+          .as("entityType=%s must still resolve to the four visible tables", entityType)
+          .isEqualTo(CANONICAL_TABLE_IDS);
+    }
+
+    Page<UserTableDto> page0 =
+        userTablesService.getAllUserTables(
+            UserTable.builder().databaseId(ENTITY_TYPE_DB).entityType("VIEW").build(),
+            0,
+            2,
+            "tableId");
+    Assertions.assertEquals(4, page0.getTotalElements());
+    Assertions.assertEquals(2, page0.getTotalPages());
+    assertThat(pageIds(page0)).containsExactly("t00_legacy", "t02_explicit");
+  }
+
+  /**
+   * Defense in depth for the shared key space: if a rename ever reaches the HTS storage layer with
+   * an occupied destination, the primary-key violation must roll back cleanly and leave BOTH JPA
+   * rows byte-identical — same numeric {@code version}, {@code metadataLocation} and {@code
+   * entityType}. The table-service tests prove correct code never reaches this fallback; this pins
+   * that the fallback itself is non-mutating.
+   */
+  @Test
+  public void testRenameCollisionLeavesJPARowsUnchanged() {
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "rename_src_table", EntityType.TABLE));
+    htsRepository.save(entityTypeRow(ENTITY_TYPE_DB, "rename_dst_view", EntityType.VIEW));
+
+    UserTableRow sourceBefore = findRow(ENTITY_TYPE_DB, "rename_src_table");
+    UserTableRow destinationBefore = findRow(ENTITY_TYPE_DB, "rename_dst_view");
+
+    Assertions.assertThrows(
+        AlreadyExistsException.class,
+        () ->
+            userTablesService.renameUserTable(
+                ENTITY_TYPE_DB,
+                "rename_src_table",
+                ENTITY_TYPE_DB,
+                "rename_dst_view",
+                "/openhouse/entity_type_db/rename_dst_view/v1_metadata.json"));
+
+    UserTableRow sourceAfter = findRow(ENTITY_TYPE_DB, "rename_src_table");
+    UserTableRow destinationAfter = findRow(ENTITY_TYPE_DB, "rename_dst_view");
+
+    Assertions.assertEquals(sourceBefore.getVersion(), sourceAfter.getVersion());
+    Assertions.assertEquals(sourceBefore.getMetadataLocation(), sourceAfter.getMetadataLocation());
+    Assertions.assertEquals(sourceBefore.getEntityType(), sourceAfter.getEntityType());
+
+    Assertions.assertEquals(destinationBefore.getVersion(), destinationAfter.getVersion());
+    Assertions.assertEquals(
+        destinationBefore.getMetadataLocation(), destinationAfter.getMetadataLocation());
+    Assertions.assertEquals(EntityType.VIEW, destinationAfter.getEntityType());
+  }
+
+  private UserTableRow findRow(String databaseId, String tableId) {
+    return htsRepository
+        .findById(UserTableRowPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
+        .orElseThrow(
+            () -> new AssertionError("Expected row " + databaseId + "." + tableId + " to exist"));
   }
 }

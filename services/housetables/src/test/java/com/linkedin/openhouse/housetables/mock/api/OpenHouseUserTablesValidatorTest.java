@@ -147,4 +147,49 @@ public class OpenHouseUserTablesValidatorTest {
         RequestValidationFailureException.class,
         () -> userTablesHtsApiValidator.validateRenameEntity(fromKey, toKey));
   }
+
+  /**
+   * Load-bearing: the PUT path relies on Bean Validation on the transport model, so the pattern on
+   * {@code UserTable#entityType} must accept every TABLE/VIEW spelling and reject anything else.
+   */
+  @Test
+  public void validatePutEntityTypeCaseInsensitivelyAndRejectsGarbage() {
+    for (String entityType : new String[] {"VIEW", "view", "ViEw", "TABLE", "table", "TaBlE"}) {
+      UserTable userTable =
+          UserTable.builder()
+              .tableId("tb1")
+              .databaseId("db1")
+              .tableVersion("/tmp/test/opt/metadata.json")
+              .metadataLocation("INITIAL_VERSION")
+              .entityType(entityType)
+              .build();
+
+      assertDoesNotThrow(
+          () -> userTablesHtsApiValidator.validatePutEntity(userTable),
+          "PUT with entityType=" + entityType + " should validate");
+    }
+
+    // Omitting the field entirely stays valid (legacy table writers).
+    assertDoesNotThrow(
+        () ->
+            userTablesHtsApiValidator.validatePutEntity(
+                UserTable.builder()
+                    .tableId("tb1")
+                    .databaseId("db1")
+                    .tableVersion("/tmp/test/opt/metadata.json")
+                    .metadataLocation("INITIAL_VERSION")
+                    .build()));
+
+    UserTable garbage =
+        UserTable.builder()
+            .tableId("tb1")
+            .databaseId("db1")
+            .tableVersion("/tmp/test/opt/metadata.json")
+            .metadataLocation("INITIAL_VERSION")
+            .entityType("UNKNOWN")
+            .build();
+    assertThrows(
+        RequestValidationFailureException.class,
+        () -> userTablesHtsApiValidator.validatePutEntity(garbage));
+  }
 }

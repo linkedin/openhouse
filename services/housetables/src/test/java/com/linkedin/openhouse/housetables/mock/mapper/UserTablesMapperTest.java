@@ -1,9 +1,14 @@
 package com.linkedin.openhouse.housetables.mock.mapper;
 
+import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
+import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
+import com.linkedin.openhouse.housetables.model.EntityType;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -63,5 +68,132 @@ public class UserTablesMapperTest {
     Assertions.assertEquals(
         TestHouseTableModelConstants.TEST_USER_TABLE_DTO,
         userTablesMapper.fromUserTable(TestHouseTableModelConstants.TEST_USER_TABLE));
+  }
+
+  /**
+   * The entityType discriminator must survive every hop of the HTS mapping chain (API -> JPA row ->
+   * DTO -> API). A mapper that silently drops it would let a view pointer be persisted as a legacy
+   * table row.
+   */
+  @Test
+  void entityTypeRoundTripsAcrossUserTableRowDtoAndApi() {
+    UserTable viewUserTable =
+        TestHouseTableModelConstants.TEST_USER_TABLE.toBuilder().entityType("VIEW").build();
+
+    UserTableRow row = userTablesMapper.toUserTableRow(viewUserTable, Optional.empty());
+    Assertions.assertEquals(EntityType.VIEW, row.getEntityType());
+
+    UserTableDto dto = userTablesMapper.toUserTableDto(row);
+    Assertions.assertEquals(EntityType.VIEW, dto.getEntityType());
+
+    UserTable roundTripped = userTablesMapper.toUserTable(dto);
+    Assertions.assertEquals("VIEW", roundTripped.getEntityType());
+
+    // Every other field is untouched by the new discriminator.
+    Assertions.assertEquals(viewUserTable.getTableId(), roundTripped.getTableId());
+    Assertions.assertEquals(viewUserTable.getDatabaseId(), roundTripped.getDatabaseId());
+    Assertions.assertEquals(
+        viewUserTable.getMetadataLocation(), roundTripped.getMetadataLocation());
+    Assertions.assertEquals(viewUserTable.getStorageType(), roundTripped.getStorageType());
+    Assertions.assertEquals(viewUserTable.getCreationTime(), roundTripped.getCreationTime());
+
+    // fromUserTable is the other API -> DTO direction and must carry it too.
+    Assertions.assertEquals(
+        EntityType.VIEW, userTablesMapper.fromUserTable(viewUserTable).getEntityType());
+  }
+
+  /**
+   * The transport model validates the discriminator case-insensitively, so the enum boundary must
+   * resolve every spelling it lets through. The canonical constant name is what reaches storage and
+   * the wire.
+   */
+  @Test
+  void entityTypeSpellingsNormalizeToTheCanonicalConstant() {
+    Map<String, EntityType> spellings = new HashMap<>();
+    spellings.put("VIEW", EntityType.VIEW);
+    spellings.put("view", EntityType.VIEW);
+    spellings.put("ViEw", EntityType.VIEW);
+    spellings.put("TABLE", EntityType.TABLE);
+    spellings.put("table", EntityType.TABLE);
+    spellings.put("TaBlE", EntityType.TABLE);
+
+    for (Map.Entry<String, EntityType> spelling : spellings.entrySet()) {
+      UserTable userTable =
+          TestHouseTableModelConstants.TEST_USER_TABLE
+              .toBuilder()
+              .entityType(spelling.getKey())
+              .build();
+
+      UserTableRow row = userTablesMapper.toUserTableRow(userTable, Optional.empty());
+      Assertions.assertEquals(spelling.getValue(), row.getEntityType(), spelling.getKey());
+      Assertions.assertEquals(
+          spelling.getValue().name(),
+          userTablesMapper.toUserTable(userTablesMapper.toUserTableDto(row)).getEntityType(),
+          spelling.getKey());
+    }
+  }
+
+  /**
+   * An unrecognized spelling must stay a client error at every entry point. Bean Validation rejects
+   * it first on the PUT path; this pins that a caller reaching the mapper directly still gets a
+   * request failure rather than the raw {@link IllegalArgumentException} MapStruct's implicit
+   * conversion would raise.
+   */
+  @Test
+  void unknownEntityTypeIsARequestFailureNotAnInternalError() {
+    UserTable garbage =
+        TestHouseTableModelConstants.TEST_USER_TABLE.toBuilder().entityType("UNKNOWN").build();
+
+    Assertions.assertThrows(
+        RequestValidationFailureException.class,
+        () -> userTablesMapper.toUserTableRow(garbage, Optional.empty()));
+    Assertions.assertThrows(
+        RequestValidationFailureException.class, () -> userTablesMapper.fromUserTable(garbage));
+    Assertions.assertThrows(
+        RequestValidationFailureException.class, () -> userTablesMapper.toEntityType("VIEWS"));
+  }
+
+  /**
+   * Backward compatibility: legacy writers omit the field entirely, and the mapping chain must
+   * carry that null through untouched so the write stores a null column. Defaulting a null to
+   * "TABLE" belongs to the storage read, not here, otherwise every legacy table write would start
+   * stamping a value the writer never asked for.
+   */
+  @Test
+  void nullEntityTypeRemainsNullAcrossLegacyMappings() {
+    UserTable legacyUserTable = TestHouseTableModelConstants.TEST_USER_TABLE;
+    Assertions.assertNull(legacyUserTable.getEntityType());
+
+    UserTableRow row = userTablesMapper.toUserTableRow(legacyUserTable, Optional.empty());
+    Assertions.assertNull(row.getEntityType());
+
+    UserTableDto dto = userTablesMapper.toUserTableDto(row);
+    Assertions.assertNull(dto.getEntityType());
+
+    Assertions.assertNull(userTablesMapper.toUserTable(dto).getEntityType());
+    Assertions.assertNull(userTablesMapper.fromUserTable(legacyUserTable).getEntityType());
+
+    // The legacy fixture row (built without the field) must still map cleanly.
+    UserTableRow legacyRow = new TestHouseTableModelConstants.TestTuple(0).get_userTableRow();
+    Assertions.assertNull(legacyRow.getEntityType());
+    Assertions.assertNull(userTablesMapper.toUserTableDto(legacyRow).getEntityType());
+  }
+
+  /**
+   * {@code mapToUserTable} still binds an {@code entityType} request parameter onto the model, but
+   * the query endpoint is table-scoped by path so nothing consumes it. This pins where the value
+   * stops: bound here, never reaching a predicate.
+   */
+  @Test
+  void mapToUserTableBindsButDoesNotConsumeEntityType() {
+    Map<String, String> parameters = new HashMap<>();
+    parameters.put("databaseId", "test_db0");
+    parameters.put("entityType", "VIEW");
+
+    UserTable mapped = userTablesMapper.mapToUserTable(parameters);
+
+    Assertions.assertEquals("test_db0", mapped.getDatabaseId());
+    Assertions.assertEquals("VIEW", mapped.getEntityType());
+    Assertions.assertNull(mapped.getTableId());
   }
 }

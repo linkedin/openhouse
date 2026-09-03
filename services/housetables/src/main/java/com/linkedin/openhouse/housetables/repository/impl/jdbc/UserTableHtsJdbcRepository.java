@@ -39,10 +39,36 @@ public interface UserTableHtsJdbcRepository
 
   void deleteByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(String databaseId, String tableId);
 
+  String COMMON_FILTER_CLAUSES =
+      "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId)) AND "
+          + "(:tableId IS NULL OR lower(u.tableId) = lower(:tableId)) AND "
+          + "(:tableVersion IS NULL OR u.version = :tableVersion) AND "
+          + "(:metadataLocation IS NULL OR u.metadataLocation = :metadataLocation) AND "
+          + "(:storageType IS NULL OR u.storageType = :storageType) AND "
+          + "(:creationTime IS NULL OR u.creationTime = :creationTime)";
+
+  String TABLE_ROW_PREDICATE = "(u.entityType IS NULL OR upper(u.entityType) = 'TABLE')";
+
+  String PATTERN_KEY_CLAUSES =
+      "lower(u.databaseId) = lower(:databaseId) AND "
+          + "lower(u.tableId) LIKE lower(:tableIdPattern)";
+
+  /**
+   * Table-scoped point read serving {@code getUserTable}, the single HTS endpoint behind every
+   * table point read in the tables service. The neutral {@link
+   * #findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase} above stays unfiltered because the writers
+   * must see a row of any type to detect a collision at a shared key.
+   */
+  @Query(
+      "SELECT u FROM UserTableRow u WHERE "
+          + "lower(u.databaseId) = lower(:databaseId) AND "
+          + "lower(u.tableId) = lower(:tableId) AND "
+          + TABLE_ROW_PREDICATE)
+  Optional<UserTableRow> findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
+      @Param("databaseId") String databaseId, @Param("tableId") String tableId);
+
   @Query("SELECT DISTINCT databaseId FROM UserTableRow")
   Iterable<String> findAllDistinctDatabaseIds();
-
-  Iterable<UserTableRow> findAllByDatabaseIdIgnoreCase(String databaseId);
 
   Iterable<UserTableRow> findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
       String databaseId, String tableIdPattern);
@@ -52,19 +78,10 @@ public interface UserTableHtsJdbcRepository
           + "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId))")
   Page<String> findAllDistinctDatabaseIds(String databaseId, Pageable pageable);
 
-  Page<UserTableRow> findAllByDatabaseIdIgnoreCase(String databaseId, Pageable pageable);
-
   Page<UserTableRow> findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
       String databaseId, String tableIdPattern, Pageable pageable);
 
-  @Query(
-      "select DISTINCT u from UserTableRow u where "
-          + "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId)) AND "
-          + "(:tableId IS NULL OR lower(u.tableId) = lower(:tableId)) AND "
-          + "(:tableVersion IS NULL OR u.version = :tableVersion) AND "
-          + "(:metadataLocation IS NULL OR u.metadataLocation = :metadataLocation) AND "
-          + "(:storageType IS NULL OR u.storageType = :storageType) AND "
-          + "(:creationTime IS NULL OR u.creationTime = :creationTime)")
+  @Query("select DISTINCT u from UserTableRow u where " + COMMON_FILTER_CLAUSES)
   Page<UserTableRow> findAllByFilters(
       String databaseId,
       String tableId,
@@ -74,14 +91,7 @@ public interface UserTableHtsJdbcRepository
       Long creationTime,
       Pageable pageable);
 
-  @Query(
-      "select DISTINCT u from UserTableRow u where "
-          + "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId)) AND "
-          + "(:tableId IS NULL OR lower(u.tableId) = lower(:tableId)) AND "
-          + "(:tableVersion IS NULL OR u.version = :tableVersion) AND "
-          + "(:metadataLocation IS NULL OR u.metadataLocation = :metadataLocation) AND "
-          + "(:storageType IS NULL OR u.storageType = :storageType) AND "
-          + "(:creationTime IS NULL OR u.creationTime = :creationTime)")
+  @Query("select DISTINCT u from UserTableRow u where " + COMMON_FILTER_CLAUSES)
   Iterable<UserTableRow> findAllByFilters(
       String databaseId,
       String tableId,
@@ -89,6 +99,60 @@ public interface UserTableHtsJdbcRepository
       String metadataLocation,
       String storageType,
       Long creationTime);
+
+  @Query(
+      "SELECT u FROM UserTableRow u WHERE " + PATTERN_KEY_CLAUSES + " AND " + TABLE_ROW_PREDICATE)
+  Iterable<UserTableRow> findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
+      @Param("databaseId") String databaseId, @Param("tableIdPattern") String tableIdPattern);
+
+  @Query(
+      value =
+          "SELECT u FROM UserTableRow u WHERE "
+              + PATTERN_KEY_CLAUSES
+              + " AND "
+              + TABLE_ROW_PREDICATE,
+      countQuery =
+          "SELECT COUNT(u) FROM UserTableRow u WHERE "
+              + PATTERN_KEY_CLAUSES
+              + " AND "
+              + TABLE_ROW_PREDICATE)
+  Page<UserTableRow> findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
+      @Param("databaseId") String databaseId,
+      @Param("tableIdPattern") String tableIdPattern,
+      Pageable pageable);
+
+  @Query(
+      value =
+          "select DISTINCT u from UserTableRow u where "
+              + COMMON_FILTER_CLAUSES
+              + " AND "
+              + TABLE_ROW_PREDICATE,
+      countQuery =
+          "select COUNT(DISTINCT u) from UserTableRow u where "
+              + COMMON_FILTER_CLAUSES
+              + " AND "
+              + TABLE_ROW_PREDICATE)
+  Page<UserTableRow> findAllTablesByFilters(
+      @Param("databaseId") String databaseId,
+      @Param("tableId") String tableId,
+      @Param("tableVersion") String tableVersion,
+      @Param("metadataLocation") String metadataLocation,
+      @Param("storageType") String storageType,
+      @Param("creationTime") Long creationTime,
+      Pageable pageable);
+
+  @Query(
+      "select DISTINCT u from UserTableRow u where "
+          + COMMON_FILTER_CLAUSES
+          + " AND "
+          + TABLE_ROW_PREDICATE)
+  Iterable<UserTableRow> findAllTablesByFilters(
+      @Param("databaseId") String databaseId,
+      @Param("tableId") String tableId,
+      @Param("tableVersion") String tableVersion,
+      @Param("metadataLocation") String metadataLocation,
+      @Param("storageType") String storageType,
+      @Param("creationTime") Long creationTime);
 
   /*
    * The following methods are required to maintain the generality of the interface {@link com.linkedin.openhouse.housetables.repository.HtsRepository}
