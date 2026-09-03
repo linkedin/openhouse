@@ -145,6 +145,30 @@ trait ScenarioLocking extends ScenarioKit {
     }
   }
 
+  /**
+   * Runs `use` while the case holds a table lock. The boundary validates acquisition and release, releases exactly
+   * once, and preserves a body failure as the primary failure when release also fails.
+   */
+  private def withTableLock(
+      lock: () => TableLockResponse,
+      unlock: () => TableLockResponse)(use: (() => Unit) => Unit): Unit = {
+    val lockResponse = lock()
+    assert(
+      lockResponse.statusCode >= 200 && lockResponse.statusCode < 300,
+      s"lock request failed: ${lockResponse.statusCode} ${lockResponse.diagnosticText}")
+
+    var lockHeld = true
+    def releaseLock(): Unit = {
+      val unlockResponse = unlock()
+      lockHeld = false
+      assert(
+        unlockResponse.statusCode >= 200 && unlockResponse.statusCode < 300,
+        s"unlock request failed: ${unlockResponse.statusCode} ${unlockResponse.diagnosticText}")
+    }
+
+    OwnedTableLifecycle.withCleanup(if (lockHeld) releaseLock())(use(() => releaseLock()))
+  }
+
   /** The snapshot the table's main branch currently points at, read from the refs metadata table. */
   private def activeSnapshotId(spark: SparkSession, table: String): Long =
     spark.sql(s"SELECT snapshot_id FROM $table.refs WHERE name = 'main'").collect()(0).getLong(0)

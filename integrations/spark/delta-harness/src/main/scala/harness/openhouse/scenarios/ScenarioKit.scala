@@ -275,33 +275,6 @@ trait ScenarioKit {
     }
   }
 
-  /**
-   * Runs `use` while the case holds a table lock. `lock` is taken first and its response is checked; `use` receives a
-   * release function so a case that reads behavior after the lock is gone releases it itself. The boundary releases
-   * the lock afterwards only while the case still holds it, so exactly one release is attempted. Every release checks
-   * its response, so a rejected release fails the case, and a release failure that follows a failure inside `use`
-   * rides along as a suppressed exception.
-   */
-  private[harness] def withTableLock(
-      lock: () => TableLockResponse,
-      unlock: () => TableLockResponse)(use: (() => Unit) => Unit): Unit = {
-    val lockResponse = lock()
-    assert(
-      lockResponse.statusCode >= 200 && lockResponse.statusCode < 300,
-      s"lock request failed: ${lockResponse.statusCode} ${lockResponse.diagnosticText}")
-
-    var lockHeld = true
-    def releaseLock(): Unit = {
-      val unlockResponse = unlock()
-      lockHeld = false
-      assert(
-        unlockResponse.statusCode >= 200 && unlockResponse.statusCode < 300,
-        s"unlock request failed: ${unlockResponse.statusCode} ${unlockResponse.diagnosticText}")
-    }
-
-    OwnedTableLifecycle.withCleanup(if (lockHeld) releaseLock())(use(() => releaseLock()))
-  }
-
   // --- shared query helpers used across capability traits ---
 
   // Snapshots in ancestry order (root first), following the parent_id chain. The chain orders commits deterministically
