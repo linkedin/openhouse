@@ -31,18 +31,14 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.iceberg.ExpireSnapshots;
-import org.apache.iceberg.ManageSnapshots;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
-import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.Transaction;
@@ -54,7 +50,6 @@ import org.assertj.core.util.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
-import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 @Slf4j
@@ -604,87 +599,53 @@ public class OperationsTest extends OpenHouseSparkITest {
 
       Assertions.assertFalse(table.refs().containsKey(branchName));
       Assertions.assertNull(table.snapshot(branchSnapshotId));
+      Assertions.assertFalse(table.properties().containsKey(TableProperties.MAX_REF_AGE_MS));
     }
   }
 
   @Test
-  public void testSnapshotsExpirationUsesDefaultMaximumReferenceAge() throws Exception {
-    Clock clock = Clock.fixed(Instant.EPOCH, ZoneOffset.UTC);
-    Table table = Mockito.mock(Table.class);
-    Transaction transaction = Mockito.mock(Transaction.class);
-    ManageSnapshots manageSnapshots = Mockito.mock(ManageSnapshots.class, Mockito.RETURNS_SELF);
-    ExpireSnapshots expireSnapshots = Mockito.mock(ExpireSnapshots.class, Mockito.RETURNS_SELF);
-    Snapshot expiredDefault = snapshotAt(clock.millis());
-    Snapshot retainedOverride = snapshotAt(clock.millis());
-    Snapshot expiredTag = snapshotAt(clock.millis());
-    clock = Clock.offset(clock, Duration.ofDays(2));
-    Snapshot retainedDefault = snapshotAt(clock.millis());
-    clock = Clock.offset(clock, Duration.ofDays(6));
+  public void testSnapshotsExpirationUsesConfiguredMaximumReferenceAges() throws Exception {
+    final String tableName = "db.test_es_configured_ref_ages_java";
+    final String tableConfiguredBranchName = "table-configured-branch";
+    final String branchConfiguredName = "branch-configured";
+    final String configuredMaximumReferenceAgeMillis =
+        String.valueOf(Duration.ofDays(10).toMillis());
 
-    Mockito.when(table.properties()).thenReturn(Map.of());
-    Mockito.when(table.refs())
-        .thenReturn(
-            Map.of(
-                SnapshotRef.MAIN_BRANCH,
-                SnapshotRef.branchBuilder(1L).build(),
-                "expired-default",
-                SnapshotRef.branchBuilder(2L).build(),
-                "retained-default",
-                SnapshotRef.branchBuilder(3L).build(),
-                "retained-override",
-                SnapshotRef.branchBuilder(4L).maxRefAgeMs(TimeUnit.DAYS.toMillis(10)).build(),
-                "expired-tag",
-                SnapshotRef.tagBuilder(5L).maxRefAgeMs(TimeUnit.DAYS.toMillis(5)).build()));
-    Mockito.when(table.snapshot(2L)).thenReturn(expiredDefault);
-    Mockito.when(table.snapshot(3L)).thenReturn(retainedDefault);
-    Mockito.when(table.snapshot(4L)).thenReturn(retainedOverride);
-    Mockito.when(table.snapshot(5L)).thenReturn(expiredTag);
-    Mockito.when(table.newTransaction()).thenReturn(transaction);
-    Mockito.when(transaction.manageSnapshots()).thenReturn(manageSnapshots);
-    Mockito.when(transaction.expireSnapshots()).thenReturn(expireSnapshots);
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, 1);
+      Table table = ops.getTable(tableName);
+      long branchSnapshotId = table.currentSnapshot().snapshotId();
+      populateTable(ops, tableName, 1);
+      table.refresh();
+      table
+          .manageSnapshots()
+          .createBranch(tableConfiguredBranchName, branchSnapshotId)
+          .createBranch(branchConfiguredName, branchSnapshotId)
+          .setMaxRefAgeMs(branchConfiguredName, Duration.ofDays(5).toMillis())
+          .commit();
+      table
+          .updateProperties()
+          .set(TableProperties.MAX_REF_AGE_MS, configuredMaximumReferenceAgeMillis)
+          .commit();
+      Assertions.assertTrue(table.refs().containsKey(tableConfiguredBranchName));
+      Assertions.assertTrue(table.refs().containsKey(branchConfiguredName));
 
-    Operations.of(getSparkSession(), otelEmitter, clock).expireSnapshots(table, 3, "DAYS", 0);
+      Clock clock =
+          Clock.fixed(
+              Instant.ofEpochMilli(table.snapshot(branchSnapshotId).timestampMillis())
+                  .plus(Duration.ofDays(8)),
+              ZoneOffset.UTC);
+      Operations.of(getSparkSession(), otelEmitter, clock).expireSnapshots(table, 3, "DAYS", 0);
+      table.refresh();
 
-    Mockito.verify(manageSnapshots).removeBranch("expired-default");
-    Mockito.verify(manageSnapshots, Mockito.never()).removeBranch("retained-default");
-    Mockito.verify(manageSnapshots, Mockito.never()).removeBranch("retained-override");
-    Mockito.verify(manageSnapshots, Mockito.never()).removeTag(ArgumentMatchers.anyString());
-    Mockito.verify(expireSnapshots).cleanExpiredFiles(true);
-    Mockito.verify(table, Mockito.never()).updateProperties();
-    InOrder commitOrder = Mockito.inOrder(manageSnapshots, expireSnapshots, transaction);
-    commitOrder.verify(manageSnapshots).commit();
-    commitOrder.verify(expireSnapshots).commit();
-    commitOrder.verify(transaction).commitTransaction();
-  }
-
-  @Test
-  public void testSnapshotsExpirationUsesConfiguredMaximumReferenceAge() throws Exception {
-    Clock clock = Clock.fixed(Instant.EPOCH, ZoneOffset.UTC);
-    final String configuredMaximumReferenceAgeMillis = String.valueOf(TimeUnit.DAYS.toMillis(10));
-    Table table = Mockito.mock(Table.class);
-    Transaction transaction = Mockito.mock(Transaction.class);
-    ExpireSnapshots expireSnapshots = Mockito.mock(ExpireSnapshots.class, Mockito.RETURNS_SELF);
-    Snapshot retainedConfigured = snapshotAt(clock.millis());
-    clock = Clock.offset(clock, Duration.ofDays(8));
-
-    Mockito.when(table.properties())
-        .thenReturn(Map.of(TableProperties.MAX_REF_AGE_MS, configuredMaximumReferenceAgeMillis));
-    Mockito.when(table.refs())
-        .thenReturn(
-            Map.of(
-                SnapshotRef.MAIN_BRANCH,
-                SnapshotRef.branchBuilder(1L).build(),
-                "retained-configured",
-                SnapshotRef.branchBuilder(2L).build()));
-    Mockito.when(table.snapshot(2L)).thenReturn(retainedConfigured);
-    Mockito.when(table.newTransaction()).thenReturn(transaction);
-    Mockito.when(transaction.expireSnapshots()).thenReturn(expireSnapshots);
-
-    Operations.of(getSparkSession(), otelEmitter, clock).expireSnapshots(table, 3, "DAYS", 0);
-
-    Mockito.verify(transaction, Mockito.never()).manageSnapshots();
-    Mockito.verify(table, Mockito.never()).updateProperties();
-    Mockito.verify(transaction).commitTransaction();
+      Assertions.assertTrue(table.refs().containsKey(tableConfiguredBranchName));
+      Assertions.assertFalse(table.refs().containsKey(branchConfiguredName));
+      Assertions.assertNotNull(table.snapshot(branchSnapshotId));
+      Assertions.assertEquals(
+          configuredMaximumReferenceAgeMillis,
+          table.properties().get(TableProperties.MAX_REF_AGE_MS));
+    }
   }
 
   @Test
@@ -1771,11 +1732,5 @@ public class OperationsTest extends OpenHouseSparkITest {
       // (implementation-specific, but should not throw exception)
       log.info("Empty table stats count: {}", stats.size());
     }
-  }
-
-  private static Snapshot snapshotAt(long timestampMillis) {
-    Snapshot snapshot = Mockito.mock(Snapshot.class);
-    Mockito.when(snapshot.timestampMillis()).thenReturn(timestampMillis);
-    return snapshot;
   }
 }
