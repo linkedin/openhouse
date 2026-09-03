@@ -283,18 +283,20 @@ trait ScenarioKit {
    * rides along as a suppressed exception.
    */
   private[harness] def withTableLock(
-      lock: () => (Int, String),
-      unlock: () => (Int, String))(use: (() => Unit) => Unit): Unit = {
-    val (lockStatus, lockBody) = lock()
-    assert(lockStatus >= 200 && lockStatus < 300, s"lock request failed: $lockStatus $lockBody")
+      lock: () => TableLockResponse,
+      unlock: () => TableLockResponse)(use: (() => Unit) => Unit): Unit = {
+    val lockResponse = lock()
+    assert(
+      lockResponse.statusCode >= 200 && lockResponse.statusCode < 300,
+      s"lock request failed: ${lockResponse.statusCode} ${lockResponse.diagnosticText}")
 
     var lockHeld = true
     def releaseLock(): Unit = {
-      val (unlockStatus, unlockBody) = unlock()
+      val unlockResponse = unlock()
       lockHeld = false
       assert(
-        unlockStatus >= 200 && unlockStatus < 300,
-        s"unlock request failed: $unlockStatus $unlockBody")
+        unlockResponse.statusCode >= 200 && unlockResponse.statusCode < 300,
+        s"unlock request failed: ${unlockResponse.statusCode} ${unlockResponse.diagnosticText}")
     }
 
     OwnedTableLifecycle.withCleanup(if (lockHeld) releaseLock())(use(() => releaseLock()))

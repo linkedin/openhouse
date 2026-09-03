@@ -31,38 +31,15 @@ final case class TestCase(
   def bugReason: Option[String] = knownBugReason.map(reason => s"bug: $reason")
 }
 
-final case class Ctx(spark: SparkSession, namespace: String, restUri: String = "", restToken: String = "")
+final case class Ctx(spark: SparkSession, namespace: String, tableLockClient: TableLockClient)
 
-// Minimal REST client to the embedded OpenHouse server (control-plane ops with no SQL surface: lock/unlock). Uses JDK
-// 17's java.net.http; auth is the same Bearer token the Spark catalog uses.
-object Rest {
-  import java.net.http.{HttpClient, HttpRequest, HttpResponse}
-  import java.net.URI
-  private lazy val client = HttpClient.newHttpClient()
-  private def base(ctx: Ctx, path: String): HttpRequest.Builder =
-    HttpRequest.newBuilder(URI.create(ctx.restUri + path))
-      .header("Authorization", s"Bearer ${ctx.restToken}")
-      .header("Content-Type", "application/json")
-  def post(ctx: Ctx, path: String, body: String): (Int, String) = {
-    val response = client.send(
-      base(ctx, path).POST(HttpRequest.BodyPublishers.ofString(body)).build(),
-      HttpResponse.BodyHandlers.ofString())
-    (response.statusCode(), response.body())
-  }
-  def delete(ctx: Ctx, path: String): (Int, String) = {
-    val response = client.send(base(ctx, path).DELETE().build(), HttpResponse.BodyHandlers.ofString())
-    (response.statusCode(), response.body())
-  }
-  def put(ctx: Ctx, path: String, body: String): (Int, String) = {
-    val response = client.send(
-      base(ctx, path).PUT(HttpRequest.BodyPublishers.ofString(body)).build(),
-      HttpResponse.BodyHandlers.ofString())
-    (response.statusCode(), response.body())
-  }
-  def get(ctx: Ctx, path: String): (Int, String) = {
-    val response = client.send(base(ctx, path).GET().build(), HttpResponse.BodyHandlers.ofString())
-    (response.statusCode(), response.body())
-  }
+object Ctx {
+  def apply(
+      spark:              SparkSession,
+      namespace:          String,
+      tablesUri:          String,
+      authorizationToken: String): Ctx =
+    Ctx(spark, namespace, TableLockClient.create(tablesUri, authorizationToken))
 }
 
 sealed trait Outcome { def label: String }

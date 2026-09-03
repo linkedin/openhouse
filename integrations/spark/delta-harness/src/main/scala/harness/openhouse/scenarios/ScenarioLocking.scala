@@ -7,12 +7,12 @@ import org.apache.spark.sql.SparkSession
  * deleting the lock lets them through again.
  *
  * Operations: POST the lock endpoint, then run an UPDATE and an expire_snapshots call against the locked table, then
- * DELETE the lock and run each of them again. The lock endpoint has no SQL surface, so both cases drive it over HTTP
- * against the embedded server, which runs the same TablesController and TablesServiceImpl as production. Both cases
- * hold the lock through the shared lock boundary, which checks every lock and release response and releases the lock
- * once, whichever way the case ends.
+ * DELETE the lock and run each of them again. The lock endpoint has no SQL surface, so both cases drive the generated
+ * Tables client against the embedded server, which runs the same TablesController and TablesServiceImpl as
+ * production. Both cases hold the lock through the shared lock boundary, which checks every lock and release
+ * response and releases the lock once, whichever way the case ends.
  *
- * Preparation axes: each case builds its own parquet core table and seeds it directly, because the REST path
+ * Preparation axes: each case builds its own parquet core table and seeds it directly, because the Tables API
  * addresses the table by its database and table name.
  *
  * Case families: two families contributing 2 cases.
@@ -149,12 +149,18 @@ trait ScenarioLocking extends ScenarioKit {
   private def activeSnapshotId(spark: SparkSession, table: String): Long =
     spark.sql(s"SELECT snapshot_id FROM $table.refs WHERE name = 'main'").collect()(0).getLong(0)
 
-  /** The POST that takes the REST lock on the named table. */
-  private def lockRequest(ctx: Ctx, database: String, tableName: String): () => (Int, String) =
-    () => Rest.post(ctx, s"/v1/databases/$database/tables/$tableName/lock", """{"locked":true}""")
+  /** The generated Tables client call that takes the lock on the named table. */
+  private def lockRequest(
+      ctx: Ctx,
+      database: String,
+      tableName: String): () => TableLockResponse =
+    () => ctx.tableLockClient.createLock(database, tableName)
 
-  /** The DELETE that releases the REST lock on the named table. */
-  private def unlockRequest(ctx: Ctx, database: String, tableName: String): () => (Int, String) =
-    () => Rest.delete(ctx, s"/v1/databases/$database/tables/$tableName/lock")
+  /** The generated Tables client call that releases the lock on the named table. */
+  private def unlockRequest(
+      ctx: Ctx,
+      database: String,
+      tableName: String): () => TableLockResponse =
+    () => ctx.tableLockClient.deleteLock(database, tableName)
 
 }

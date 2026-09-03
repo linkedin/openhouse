@@ -35,11 +35,11 @@ object Runner {
 
 object Main {
   def main(args: Array[String]): Unit = {
-    val (server, spark, restUri, restToken) = OpenHouseEnv.start()
+    val (server, spark, tablesUri, authorizationToken) = OpenHouseEnv.start()
     var runFailure: Option[Throwable] = None
     try {
       spark.sparkContext.setLogLevel("ERROR")
-      val ctx = Ctx(spark, "openhouse.dbMatrix", restUri, restToken)
+      val ctx = Ctx(spark, "openhouse.dbMatrix", tablesUri, authorizationToken)
 
       // Each command-line argument is an include substring. A case runs when its ID contains every provided substring.
       // An empty argument list selects the full catalog.
