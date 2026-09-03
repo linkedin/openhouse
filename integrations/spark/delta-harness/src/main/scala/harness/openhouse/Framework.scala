@@ -31,7 +31,7 @@ final case class TestCase(
   def bugReason: Option[String] = knownBugReason.map(reason => s"bug: $reason")
 }
 
-final case class Ctx(spark: SparkSession, namespace: String, restUri: String = "", restToken: String = "")
+final case class Ctx(spark: SparkSession, namespace: String)
 
 sealed trait Outcome { def label: String }
 object Outcome {
