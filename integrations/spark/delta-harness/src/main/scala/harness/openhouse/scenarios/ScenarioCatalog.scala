@@ -12,7 +12,11 @@ package harness
  * shared kit surface (`dataSource`, `fileFormats`, the layout and preparation lists) alongside each capability's case
  * list.
  */
-object Scenarios extends ScenarioDml
+object Scenarios
+    extends ScenarioDml
+    with ScenarioDataType
+    with ScenarioNestedType
+    with ScenarioSchemaEvolution
 
 /**
  * The ordered catalog of scenario-owned test cases.
@@ -37,11 +41,13 @@ object ScenarioCatalog {
       "dmlCases" -> Scenarios.dmlCases)
 
   /**
-   * The capabilities a later layer adds on top of the foundation, named the same way. The core branch starts with an
-   * empty extension list, and each child branch supplies its own capability entries.
+   * The table-shape capabilities this layer adds on top of the core execution contract.
    */
   def extensionContributions: List[(String, List[TestCase])] =
-    List.empty
+    List(
+      "dataTypeCases"        -> Scenarios.dataTypeCases,
+      "nestedTypeCases"      -> Scenarios.nestedTypeCases,
+      "schemaEvolutionCases" -> Scenarios.schemaEvolutionCases)
 
   /** Every capability contribution, named once, in the order the catalog integrates them. */
   def contributions: List[(String, List[TestCase])] =
