@@ -8,12 +8,6 @@ import org.junit.jupiter.api.Test
 import org.mockito.Mockito.{mock, when}
 
 final class RunnerTest {
-  private def context(): Ctx = {
-    val spark = mock(classOf[SparkSession])
-    when(spark.newSession()).thenReturn(spark)
-    Ctx(spark, "openhouse.test")
-  }
-
   @Test
   def configuredParallelismRequiresAPositiveInteger(): Unit = {
     assertEquals(8, RunnerConfiguration.parallelism(Map.empty, 8))
@@ -37,16 +31,16 @@ final class RunnerTest {
 
   @Test
   def transientClassificationMatchesTheRetryContract(): Unit = {
-    assertTrue(Exceptions.isTransient(new SocketTimeoutException("timeout")))
-    assertTrue(Exceptions.isTransient(new ConnectException("refused")))
-    assertTrue(Exceptions.isTransient(new SocketException("Connection reset by peer")))
+    assertTrue(Exceptions.isTransientConnectionFailure(new SocketTimeoutException("timeout")))
+    assertTrue(Exceptions.isTransientConnectionFailure(new ConnectException("refused")))
+    assertTrue(Exceptions.isTransientConnectionFailure(new SocketException("Connection reset by peer")))
     assertTrue(
-      Exceptions.isTransient(
+      Exceptions.isTransientConnectionFailure(
         new Exception("outer", new Exception("middle", new SocketTimeoutException("timeout")))))
 
-    assertFalse(Exceptions.isTransient(new SocketException("broken pipe")))
-    assertFalse(Exceptions.isTransient(new java.io.IOException("input failed")))
-    assertFalse(Exceptions.isTransient(new AssertionError("wrong rows")))
+    assertFalse(Exceptions.isTransientConnectionFailure(new SocketException("broken pipe")))
+    assertFalse(Exceptions.isTransientConnectionFailure(new java.io.IOException("input failed")))
+    assertFalse(Exceptions.isTransientConnectionFailure(new AssertionError("wrong rows")))
   }
 
   @Test
@@ -59,43 +53,81 @@ final class RunnerTest {
   }
 
   @Test
-  def runnerRetriesOnlyTransientFailures(): Unit = {
-    val retryAttempts = new AtomicInteger()
-    val retryThenPass = TestCase(
-      "retry-then-pass",
-      _ =>
-        if (retryAttempts.incrementAndGet() == 1) {
-          throw new SocketTimeoutException("retry")
-        })
+  def runnerRetriesOnlyTransientSessionCreationFailures(): Unit = {
+    val rootSpark = mock(classOf[SparkSession])
+    val freshSpark = mock(classOf[SparkSession])
+    val retryFailure =
+      new RuntimeException("session creation failed", new SocketTimeoutException("retry"))
+    when(rootSpark.newSession())
+      .thenThrow(retryFailure)
+      .thenReturn(freshSpark)
+    var receivedSpark = Option.empty[SparkSession]
+    val retryThenPass = TestCase("retry-then-pass", ctx => receivedSpark = Some(ctx.spark))
 
-    assertEquals((Outcome.Passed, 2), Runner.execute(retryThenPass, context()))
+    assertEquals(
+      (Outcome.Passed, 2),
+      Runner.execute(retryThenPass, Ctx(rootSpark, "openhouse.test")))
+    assertSame(freshSpark, receivedSpark.get)
 
-    val exhaustedAttempts = new AtomicInteger()
-    val exhaustedFailure = new SocketTimeoutException("exhausted")
-    val exhaustRetries = TestCase(
-      "exhaust-retries",
-      _ => {
-        exhaustedAttempts.incrementAndGet()
-        throw exhaustedFailure
-      })
-    val (exhaustedOutcome, exhaustedCount) = Runner.execute(exhaustRetries, context())
+    val exhaustedSpark = mock(classOf[SparkSession])
+    val exhaustedFailure =
+      new RuntimeException("session creation failed", new SocketTimeoutException("exhausted"))
+    when(exhaustedSpark.newSession()).thenThrow(exhaustedFailure)
+    val caseRuns = new AtomicInteger()
+    val (exhaustedOutcome, exhaustedCount) = Runner.execute(
+      TestCase("exhaust-retries", _ => caseRuns.incrementAndGet()),
+      Ctx(exhaustedSpark, "openhouse.test"))
 
     assertEquals(Runner.MaxAttempts, exhaustedCount)
-    assertEquals(Runner.MaxAttempts, exhaustedAttempts.get())
+    assertEquals(0, caseRuns.get())
     assertSame(exhaustedFailure, exhaustedOutcome.asInstanceOf[Outcome.Failed].cause)
 
-    val terminalAttempts = new AtomicInteger()
+    val terminalSpark = mock(classOf[SparkSession])
     val terminalFailure = new AssertionError("wrong rows")
-    val terminal = TestCase(
-      "terminal",
-      _ => {
-        terminalAttempts.incrementAndGet()
-        throw terminalFailure
-      })
-    val (terminalOutcome, terminalCount) = Runner.execute(terminal, context())
+    when(terminalSpark.newSession()).thenThrow(terminalFailure)
+    val (terminalOutcome, terminalCount) = Runner.execute(
+      TestCase("terminal", _ => ()),
+      Ctx(terminalSpark, "openhouse.test"))
 
     assertEquals(1, terminalCount)
-    assertEquals(1, terminalAttempts.get())
     assertSame(terminalFailure, terminalOutcome.asInstanceOf[Outcome.Failed].cause)
+  }
+
+  @Test
+  def runnerNeverRetriesAfterTheCaseStarts(): Unit = {
+    val rootSpark = mock(classOf[SparkSession])
+    val freshSpark = mock(classOf[SparkSession])
+    when(rootSpark.newSession()).thenReturn(freshSpark)
+
+    val assertionAttempts = new AtomicInteger()
+    val assertionFailure =
+      new AssertionError("unexpected exception", new SocketTimeoutException("nested timeout"))
+    val (assertionOutcome, assertionCount) = Runner.execute(
+      TestCase(
+        "assertion",
+        _ => {
+          assertionAttempts.incrementAndGet()
+          throw assertionFailure
+        }),
+      Ctx(rootSpark, "openhouse.test"))
+
+    assertEquals(1, assertionCount)
+    assertEquals(1, assertionAttempts.get())
+    assertSame(assertionFailure, assertionOutcome.asInstanceOf[Outcome.Failed].cause)
+
+    val cleanupAttempts = new AtomicInteger()
+    val cleanupFailure = new SocketTimeoutException("cleanup timeout")
+    val (cleanupOutcome, cleanupCount) = Runner.execute(
+      TestCase(
+        "cleanup",
+        _ => {
+          cleanupAttempts.incrementAndGet()
+          OwnedTableLifecycle.withCleanup(throw cleanupFailure)(())
+        }),
+      Ctx(rootSpark, "openhouse.test"))
+
+    assertEquals(1, cleanupCount)
+    assertEquals(1, cleanupAttempts.get())
+    assertSame(cleanupFailure, cleanupOutcome.asInstanceOf[Outcome.Failed].cause)
   }
 }
