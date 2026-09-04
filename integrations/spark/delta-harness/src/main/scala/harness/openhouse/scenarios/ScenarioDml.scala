@@ -7,8 +7,8 @@ import org.apache.spark.sql.Row
  * columnar format.
  *
  * Each case starts from the same unpartitioned three-row table. The preparation proves table creation and seeding,
- * the body applies one operation, and the assertions prove the exact rows and snapshot delta it produced. Later
- * layers extend this operation catalog and reuse the same cases on additional table states.
+ * the body applies one operation, and the assertions prove the exact rows and snapshot delta it produced. The
+ * operation definitions can run on additional preparations without changing their assertions.
  *
  * Case families: six operations over Parquet and ORC, contributing 12 cases.
  */
@@ -31,7 +31,7 @@ trait ScenarioDml extends ScenarioKit {
       mergeUpsert)
 
   /**
-   * SELECT of foo_col_string alone returns that column for every prepared row in key order and leaves the table state
+   * SELECT of foo_col_string alone agrees with the same column read through the full table state and leaves that state
    * unchanged.
    */
   private val readProjection: DmlTestCase[CoreTable.type] =
@@ -65,14 +65,14 @@ trait ScenarioDml extends ScenarioKit {
 
         table.spark.sql(
           s"""INSERT INTO ${table.name} VALUES
-                (CAST(4 AS BIGINT), 4, 'row-4', 4.5, true,  '2024-01-04-03'),
-                (CAST(5 AS BIGINT), 5, 'row-5', 5.5, false, '2024-01-05-04')""")
+                (CAST(4 AS BIGINT), 4, 'row-4', 4.5, true,  '2024-01-01-03'),
+                (CAST(5 AS BIGINT), 5, 'row-5', 5.5, false, '2024-01-01-04')""")
         val after = table.state
 
         assert(
           after.rows == inKeyOrder(before.rows ++ Seq(
-            Row(4L, 4, "row-4", 4.5, true, "2024-01-04-03"),
-            Row(5L, 5, "row-5", 5.5, false, "2024-01-05-04"))),
+            Row(4L, 4, "row-4", 4.5, true, "2024-01-01-03"),
+            Row(5L, 5, "row-5", 5.5, false, "2024-01-01-04"))),
           s"rows after the INSERT: ${after.rows}")
         assert(
           after.snapshotCount == before.snapshotCount + 1,
@@ -163,7 +163,7 @@ trait ScenarioDml extends ScenarioKit {
           s"""MERGE INTO ${table.name} t USING (
                 SELECT * FROM VALUES
                   (CAST(2 AS BIGINT), 2, 'U', 2.5, true,  '2024-01-02-01'),
-                  (CAST(7 AS BIGINT), 7, 'g', 7.5, false, '2024-01-07-06')
+                  (CAST(7 AS BIGINT), 7, 'g', 7.5, false, '2024-01-01-06')
                 AS s($columnNameList)
               ) s ON t.${Core.long0.columnName} = s.${Core.long0.columnName}
               WHEN MATCHED THEN UPDATE
@@ -175,7 +175,7 @@ trait ScenarioDml extends ScenarioKit {
           after.rows == inKeyOrder(
             before.rows.map(row =>
               if (row.get(Core.long0) == 2L) withColumnValue(row, Core.string0, "U") else row) :+
-              Row(7L, 7, "g", 7.5, false, "2024-01-07-06")),
+              Row(7L, 7, "g", 7.5, false, "2024-01-01-06")),
           s"rows after the MERGE: ${after.rows}")
         assert(
           after.snapshotCount == before.snapshotCount + 1,

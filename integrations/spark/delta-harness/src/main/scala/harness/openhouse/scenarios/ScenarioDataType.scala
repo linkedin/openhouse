@@ -43,9 +43,7 @@ trait ScenarioDataType extends ScenarioKit {
         layout.label,
         TableTest(TypesTable).sql("create")(layout.create)().insert(standardSeedRowCount)()))
 
-  // --- the preparations, shared helpers and case bodies the surface above composes ---
-
-  // A fully valued TypesTable row with the given id; each case supplies the columns it is about.
+  // A fully valued TypesTable row with the given ID; each case supplies the columns it is about.
   private def typesRow(id: Long, n: String, x: String, dec: String, str: String): String =
     s"(CAST($id AS BIGINT), $n, $x, $dec, $str, CAST('b' AS binary), DATE '2024-01-01', " +
       s"TIMESTAMP '2024-01-01 00:00:00', TIMESTAMP_NTZ '2024-01-01 00:00:00')"
@@ -157,5 +155,4 @@ trait ScenarioDataType extends ScenarioKit {
           .collect()(0)
           .getString(0) == "")
     }
-
 }
