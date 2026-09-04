@@ -100,6 +100,7 @@ public class OpenHouseInternalRepositoryImplTest {
 
   @Test
   void testComputePropsForTableCreation_DefaultMaximumReferenceAge() {
+    // Table creation stamps the seven-day reference age when the request omits the property.
     Map<String, String> actualProps =
         openHouseInternalRepository.computePropsForTableCreation(createTableDto(new HashMap<>()));
 
@@ -109,6 +110,7 @@ public class OpenHouseInternalRepositoryImplTest {
 
   @Test
   void testComputePropsForTableCreation_UserProvidedMaximumReferenceAge() {
+    // Table creation preserves an accepted caller-provided reference age instead of defaulting it.
     String userProvidedMaximumReferenceAge = String.valueOf(TimeUnit.DAYS.toMillis(14));
     Map<String, String> userProps = new HashMap<>();
     userProps.put(TableProperties.MAX_REF_AGE_MS, userProvidedMaximumReferenceAge);

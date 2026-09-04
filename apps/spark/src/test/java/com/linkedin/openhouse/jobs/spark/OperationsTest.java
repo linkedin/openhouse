@@ -582,6 +582,8 @@ public class OperationsTest extends OpenHouseSparkITest {
     final String branchName = "expired-branch";
     final String tagName = "expired-tag";
 
+    // A legacy table receives the seven-day default while explicit short ages expire both ref
+    // types.
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
       populateTable(ops, tableName, 1);
@@ -618,6 +620,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     final String tableName = "db.test_es_live_branch_java";
     final String branchName = "live-branch";
 
+    // The backfilled seven-day age preserves a branch whose snapshot remains within that window.
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
       populateTable(ops, tableName, 1);
@@ -648,6 +651,7 @@ public class OperationsTest extends OpenHouseSparkITest {
     final String configuredMaximumReferenceAgeMillis =
         String.valueOf(Duration.ofDays(10).toMillis());
 
+    // An existing table-level age remains authoritative and preserves live branches and tags.
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
       populateTable(ops, tableName, 1);
@@ -688,6 +692,8 @@ public class OperationsTest extends OpenHouseSparkITest {
     final String tableMaximumReferenceAgeMillis = "1";
     final long branchMaximumReferenceAgeMillis = Duration.ofDays(10).toMillis();
 
+    // SparkActions expires a table-aged branch while a longer branch-specific age preserves its
+    // peer.
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
       populateTable(ops, tableName, 1);
