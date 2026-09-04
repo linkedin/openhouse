@@ -10,7 +10,6 @@ import com.linkedin.openhouse.tables.api.validator.IcebergSnapshotsApiValidator;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
 import java.util.ArrayList;
 import java.util.List;
-import javax.validation.ConstraintViolation;
 import javax.validation.Validator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -20,10 +19,6 @@ public class IcebergSnapshotsApiValidatorImpl implements IcebergSnapshotsApiVali
   @Autowired private TablesApiValidator tablesApiValidator;
   @Autowired private Validator validator;
 
-  // Suppression needed as checkstyle and spotless doesn't agree to each other in terms of whether
-  // `:` should be
-  // in the same line with the for-loop main body or not.
-  @SuppressWarnings("checkstyle:OperatorWrap")
   @Override
   public void validatePutSnapshots(
       String clusterId,
@@ -31,11 +26,7 @@ public class IcebergSnapshotsApiValidatorImpl implements IcebergSnapshotsApiVali
       String tableId,
       IcebergSnapshotsRequestBody icebergSnapshotsRequestBody) {
     List<String> validationFailures = new ArrayList<>();
-    for (ConstraintViolation<IcebergSnapshotsRequestBody> violation :
-        validator.validate(icebergSnapshotsRequestBody)) {
-      validationFailures.add(
-          String.format("%s : %s", ApiValidatorUtil.getField(violation), violation.getMessage()));
-    }
+    ApiValidatorUtil.collectViolations(validator, icebergSnapshotsRequestBody, validationFailures);
 
     // Only iff all constraints are fulfilled will it be safe to proceed to rest of check
     if (validationFailures.isEmpty()) {

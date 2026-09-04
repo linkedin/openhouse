@@ -9,7 +9,6 @@ import com.linkedin.openhouse.housetables.api.spec.model.JobKey;
 import com.linkedin.openhouse.housetables.api.validator.HouseTablesApiValidator;
 import java.util.ArrayList;
 import java.util.List;
-import javax.validation.ConstraintViolation;
 import javax.validation.Validator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -66,10 +65,7 @@ public class OpenHouseJobTablesHtsApiValidator implements HouseTablesApiValidato
   public void validatePutEntity(Job entity) {
     List<String> validationFailures = new ArrayList<>();
 
-    for (ConstraintViolation<Job> violation : validator.validate(entity)) {
-      validationFailures.add(
-          String.format("%s : %s", ApiValidatorUtil.getField(violation), violation.getMessage()));
-    }
+    ApiValidatorUtil.collectViolations(validator, entity, validationFailures);
 
     if (!validationFailures.isEmpty()) {
       throw new RequestValidationFailureException(validationFailures);
