@@ -8,7 +8,7 @@ final class CaseCatalogTest {
   def catalogContainsEachCoreScenarioInStableOrder(): Unit = {
     assertEquals(
       List("dataTypeCases", "dmlCases", "dmlValidationCases"),
-      Catalog.contributions.map(_._1))
+      Catalog.foundationContributions.map(_._1))
     assertEquals(
       List(
         "types.roundtrip @ types-unpartitioned/parquet",
@@ -45,7 +45,7 @@ final class CaseCatalogTest {
         "dmlValidation.insertArity @ orc",
         "dmlValidation.mergeConflictingUpdates @ orc",
         "dmlValidation.mergeCardinalityViolation @ orc"),
-      Catalog.caseIds)
+      Catalog.foundationContributions.flatMap { case (_, contribution) => contribution.map(_.id) })
 
     val duplicateCaseIds = Catalog.caseIds
       .groupBy(identity)
