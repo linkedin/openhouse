@@ -613,6 +613,34 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
+  public void testSnapshotsExpirationPreservesLiveBranchWithBackfilledMaximumReferenceAge()
+      throws Exception {
+    final String tableName = "db.test_es_live_branch_java";
+    final String branchName = "live-branch";
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, 1);
+      Table table = ops.getTable(tableName);
+      table.updateProperties().remove(TableProperties.MAX_REF_AGE_MS).commit();
+      long branchSnapshotId = table.currentSnapshot().snapshotId();
+      populateTable(ops, tableName, 1);
+      table.refresh();
+      table.manageSnapshots().createBranch(branchName, branchSnapshotId).commit();
+      Assertions.assertTrue(table.refs().containsKey(branchName));
+      Assertions.assertFalse(table.properties().containsKey(TableProperties.MAX_REF_AGE_MS));
+
+      ops.expireSnapshots(table, 3, "DAYS", 0);
+      table.refresh();
+
+      Assertions.assertTrue(table.refs().containsKey(branchName));
+      Assertions.assertEquals(
+          String.valueOf(Duration.ofDays(7).toMillis()),
+          table.properties().get(TableProperties.MAX_REF_AGE_MS));
+    }
+  }
+
+  @Test
   public void testSnapshotsExpirationPreservesConfiguredMaximumReferenceAge() throws Exception {
     final String tableName = "db.test_es_configured_ref_ages_java";
     final String branchName = "table-configured-branch";
