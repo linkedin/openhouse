@@ -11,6 +11,10 @@ object Scenarios
     with ScenarioStandardDml
     with ScenarioRtas
     with ChangelogSupport
+    with ScenarioCompactionPlanning
+    with ScenarioMaintenance
+    with ScenarioMetadataTable
+    with ScenarioScanPlanning
 
 /**
  * The ordered case catalog. Each named contribution owns its scenario body, preparation, assertions, and case IDs.
@@ -29,7 +33,11 @@ object Catalog {
   def extensionContributions: List[(String, List[TestCase])] =
     List(
       "standardDmlCases" -> Scenarios.standardDmlCases,
-      "rtasCases"        -> Scenarios.rtasCases)
+      "rtasCases"              -> Scenarios.rtasCases,
+      "compactionPlanningCases" -> Scenarios.compactionPlanningCases,
+      "maintenanceCases"        -> Scenarios.maintenanceCases,
+      "metadataTableCases"      -> Scenarios.metadataTableCases,
+      "scanPlanningCases"       -> Scenarios.scanPlanningCases)
 
   /** Every capability contribution, named once, in the order the catalog integrates them. */
   def contributions: List[(String, List[TestCase])] =
