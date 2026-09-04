@@ -107,6 +107,7 @@ trait ScenarioDmlValidation extends ScenarioKit {
     preparation.test("dmlValidation.mergeCardinalityViolation") { table =>
       val keyColumn = Core.long0.columnName
       val stringColumn = Core.string0.columnName
+      val before = table.state
       val exception = Check.intercept[Exception](
         table.spark.sql(
           s"""MERGE INTO ${table.name} target USING (
@@ -124,5 +125,7 @@ trait ScenarioDmlValidation extends ScenarioKit {
             _.contains("matched a single row from the target table"))
         },
         s"expected a MERGE cardinality-violation message, got: ${exception.getMessage}")
+      val after = table.state
+      assert(after == before, s"rejected MERGE changed table state: before=$before, after=$after")
     }
 }
