@@ -1,39 +1,14 @@
 package harness
 
 import java.util.concurrent.{Callable, Executors, TimeUnit}
-import scala.annotation.tailrec
-import scala.util.control.NonFatal
 
 /**
- * The local runner: the `harness.Main` launch class the `runOpenHouse` task starts, plus the retry policy it executes
- * each case under. This file is compiled into the `local` source set only, so the published portable library carries
- * the catalog and the framework without a run loop of its own.
+ * The `harness.Main` launch class used by the embedded OpenHouse Gradle tasks. This file is compiled into the `local`
+ * source set only, so the published portable library carries the catalog and retry policy without a launch loop.
  */
-object Runner {
-  val MaxAttempts = 3
-
-  /** Runs a case, retrying only a transient-infrastructure failure. */
-  def execute(testCase: TestCase, context: Ctx): (Outcome, Int) = {
-    @tailrec def attempt(attemptIndex: Int): (Outcome, Int) = {
-      val outcome =
-        try {
-          testCase.run(context.copy(spark = context.spark.newSession()))
-          Outcome.Passed
-        }
-        catch { case NonFatal(throwable) => Outcome.Failed(throwable) }
-      outcome match {
-        case failure: Outcome.Failed
-            if failure.retryable && attemptIndex + 1 < MaxAttempts =>
-          attempt(attemptIndex + 1)
-        case terminal =>
-          (terminal, attemptIndex + 1)
-      }
-    }
-    attempt(0)
-  }
-}
-
 object Main {
+  private val FoundationCatalogArgument = "--catalog=foundation"
+
   def main(args: Array[String]): Unit = {
     val (server, spark) = OpenHouseEnv.start()
     var runFailure: Option[Throwable] = None
@@ -41,24 +16,33 @@ object Main {
       spark.sparkContext.setLogLevel("ERROR")
       val ctx = Ctx(spark, "openhouse.dbMatrix")
 
-      // Each command-line argument is an include substring. A case runs when its ID contains every provided substring.
-      // An empty argument list selects the full catalog.
-      val filters = args.toList
-      val cases = ScenarioCatalog.cases.filter(testCase =>
+      val (catalogArguments, filters) = args.toList.partition(_.startsWith("--catalog="))
+      val selectedCatalog = catalogArguments match {
+        case Nil =>
+          Catalog.cases
+        case List(FoundationCatalogArgument) =>
+          Catalog.foundationContributions.flatMap { case (_, contribution) => contribution }
+        case unsupported =>
+          throw new HarnessConfigurationException(
+            s"supported catalog selection: $FoundationCatalogArgument; received ${unsupported.mkString(", ")}")
+      }
+      val cases = selectedCatalog.filter(testCase =>
         filters.forall(testCase.id.contains))
 
       val header =
-        if (filters.isEmpty) {
-          "all cases"
+        if (catalogArguments.nonEmpty && filters.isEmpty) {
+          "foundation catalog"
+        } else if (filters.isEmpty) {
+          "full catalog"
         } else {
           s"filter ${filters.mkString(", ")} -> ${cases.size} cases"
         }
-      println(s"\n=== delta-harness :: localized cases @ OpenHouse catalog ($header) ===\n")
+      println(s"\n=== delta-harness :: scenario cases @ OpenHouse catalog ($header) ===\n")
 
       // Each case owns a fresh table. Worker tasks use separate Spark sessions over the shared Spark context, and
       // results are printed in catalog order.
-      val parallelism = sys.env.get("HARNESS_PARALLELISM").map(_.toInt)
-        .getOrElse(math.max(1, Runtime.getRuntime.availableProcessors()))
+      val parallelism =
+        RunnerConfiguration.parallelism(sys.env, Runtime.getRuntime.availableProcessors())
       println(s"parallelism: $parallelism worker sessions\n")
 
       def runOne(testCase: TestCase): (TestCase, (Outcome, Int)) =

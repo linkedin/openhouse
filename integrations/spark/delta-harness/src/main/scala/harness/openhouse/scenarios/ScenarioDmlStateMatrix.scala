@@ -13,7 +13,8 @@ package harness
  * Case families: 104 partitioned cases, 208 write-ordered cases, and 116 evolved-schema cases, contributing 428
  * cases.
  */
-trait ScenarioDmlStateMatrix extends ScenarioKit { this: ScenarioDml =>
+trait ScenarioDmlStateMatrix extends ScenarioKit {
+  this: ScenarioDml with ScenarioStandardDml =>
 
   /** Every additional standard-state crossing, ordered by partitioned, write-ordered, then evolved state. */
   lazy val dmlStateMatrixCases: List[TestCase] =
