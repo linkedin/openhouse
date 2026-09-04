@@ -161,6 +161,7 @@ allprojects {
   }
 }
 
+// Resolve the repository hooks directory through Git so linked worktrees and standard checkouts use the same task.
 def gitHooksDirectory = providers.exec {
   commandLine 'git', 'rev-parse', '--git-path', 'hooks'
 }.standardOutput.asText.map { it.trim() }
