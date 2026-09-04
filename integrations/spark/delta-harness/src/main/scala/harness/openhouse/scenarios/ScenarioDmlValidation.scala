@@ -28,8 +28,6 @@ trait ScenarioDmlValidation extends ScenarioKit {
         mergeCardinalityViolationCase(preparation))
     }
 
-  // --- the preparations, shared helpers and case bodies the surface above composes ---
-
   /** DELETE with a WHERE clause on a nonexistent column is rejected with an AnalysisException naming that column. */
   private def nonExistentColumnCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("dmlValidation.nonExistentColumn") { table =>
@@ -127,5 +125,4 @@ trait ScenarioDmlValidation extends ScenarioKit {
         },
         s"expected a MERGE cardinality-violation message, got: ${exception.getMessage}")
     }
-
 }
