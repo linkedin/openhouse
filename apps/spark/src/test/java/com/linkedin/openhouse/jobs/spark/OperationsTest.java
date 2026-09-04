@@ -680,6 +680,49 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
+  public void testSnapshotsExpirationWithFilesHonorsTableAndReferenceMaximumAges()
+      throws Exception {
+    final String tableName = "db.test_es_reference_age_matrix_java";
+    final String tableAgeBranchName = "table-age-branch";
+    final String referenceAgeBranchName = "reference-age-branch";
+    final String tableMaximumReferenceAgeMillis = "1";
+    final long branchMaximumReferenceAgeMillis = Duration.ofDays(10).toMillis();
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, 1);
+      Table table = ops.getTable(tableName);
+      long branchSnapshotId = table.currentSnapshot().snapshotId();
+      populateTable(ops, tableName, 1);
+      table.refresh();
+      table
+          .manageSnapshots()
+          .createBranch(tableAgeBranchName, branchSnapshotId)
+          .createBranch(referenceAgeBranchName, branchSnapshotId)
+          .setMaxRefAgeMs(referenceAgeBranchName, branchMaximumReferenceAgeMillis)
+          .commit();
+      table
+          .updateProperties()
+          .set(TableProperties.MAX_REF_AGE_MS, tableMaximumReferenceAgeMillis)
+          .commit();
+      Assertions.assertTrue(
+          System.currentTimeMillis() - table.snapshot(branchSnapshotId).timestampMillis() > 1,
+          "The branch snapshot must exceed the table-level maximum reference age");
+      Assertions.assertTrue(table.refs().containsKey(tableAgeBranchName));
+      Assertions.assertTrue(table.refs().containsKey(referenceAgeBranchName));
+
+      ops.expireSnapshots(table, 3, "DAYS", 0, true, false, BACKUP_DIR);
+      table.refresh();
+
+      Assertions.assertFalse(table.refs().containsKey(tableAgeBranchName));
+      Assertions.assertTrue(table.refs().containsKey(referenceAgeBranchName));
+      Assertions.assertNotNull(table.snapshot(branchSnapshotId));
+      Assertions.assertEquals(
+          tableMaximumReferenceAgeMillis, table.properties().get(TableProperties.MAX_REF_AGE_MS));
+    }
+  }
+
+  @Test
   public void testSnapshotsExpirationVersionsNoop() throws Exception {
     final String tableName = "db.test_es_versions_noop_java";
     final int numInserts = 3;
