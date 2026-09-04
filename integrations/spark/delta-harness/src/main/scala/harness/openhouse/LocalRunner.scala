@@ -75,7 +75,7 @@ object Main {
       results.foreach { case (testCase, (outcome, attempts)) =>
         val note = outcome match {
           case failure: Outcome.Failed =>
-            s"  (${failure.reason}${if (failure.retryable) " [retryable]" else ""})"
+            s"  (${failure.reason})"
           case Outcome.Skipped(reason) =>
             s"  ($reason)"
           case Outcome.Passed =>

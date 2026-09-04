@@ -124,8 +124,32 @@ def verifyOpenHouseFoundation = tasks.register('verifyOpenHouseFoundation', Java
   args '--catalog=foundation'
 }
 
+def verifyPortableJar = tasks.register('verifyPortableJar') {
+  group = 'verification'
+  description = 'Checks that the published harness jar contains only portable entry points.'
+  dependsOn tasks.named('jar')
+  doLast {
+    def jarFile = tasks.named('jar').get().archiveFile.get().asFile
+    def entries = new java.util.zip.ZipFile(jarFile).withCloseable { archive ->
+      archive.entries().collect { entry -> entry.name }.toSet()
+    }
+    ['harness/Plan.class', 'harness/Runner.class'].each { requiredEntry ->
+      if (!entries.contains(requiredEntry)) {
+        throw new GradleException("Portable harness jar is missing ${requiredEntry}")
+      }
+    }
+    ['harness/Main.class', 'harness/Main$.class', 'harness/OpenHouseEnv.class', 'harness/OpenHouseEnv$.class']
+      .each { embeddedEntry ->
+        if (entries.contains(embeddedEntry)) {
+          throw new GradleException("Portable harness jar contains embedded-only ${embeddedEntry}")
+        }
+      }
+  }
+}
+
 tasks.named('check') {
   dependsOn verifyOpenHouseFoundation
+  dependsOn verifyPortableJar
 }
 
 jar.enabled = true

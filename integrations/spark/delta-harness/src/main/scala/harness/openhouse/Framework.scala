@@ -47,7 +47,6 @@ object Outcome {
   case object Passed extends Outcome { val label = "PASS" }
   final case class Failed(cause: Throwable) extends Outcome {
     val label = "FAIL"
-    def retryable: Boolean = Exceptions.isTransient(cause)
     def reason: String = {
       val rootCause = Exceptions.root(cause)
       val rootReason =
@@ -86,7 +85,7 @@ object Exceptions {
    * Retries errors positively identified as transient. Other failures remain terminal so data, permission, and
    * assertion failures surface on their first attempt.
    */
-  def isTransient(throwable: Throwable): Boolean = causeChain(throwable).exists {
+  def isTransientConnectionFailure(throwable: Throwable): Boolean = causeChain(throwable).exists {
     case _: SocketTimeoutException => true
     case _: ConnectException       => true
     case socketFailure: SocketException =>
