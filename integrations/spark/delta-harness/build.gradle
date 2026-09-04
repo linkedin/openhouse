@@ -53,8 +53,8 @@ dependencies {
   // Provides the OpenHouse catalog runtime plus its authenticated, generated Tables client.
   compileOnly(project(path: ':integrations:spark:spark-3.5:openhouse-spark-3.5-runtime_2.12', configuration: 'shadow'))
 
-  // The catalog regression test builds Plan.cases without starting Spark. Its JVM still loads the
-  // harness signatures, so the compile-only harness dependencies must be present on the test classpath.
+  // The catalog tests read Catalog contributions and cases without starting Spark. Their JVM still
+  // loads the harness signatures, so the compile-only harness dependencies must be present on the test classpath.
   testImplementation("org.apache.spark:spark-sql_2.12:${sparkVersion}") {
     exclude group: 'io.netty'
   }
