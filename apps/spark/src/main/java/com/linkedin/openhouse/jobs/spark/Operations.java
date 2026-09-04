@@ -16,14 +16,12 @@ import com.linkedin.openhouse.jobs.util.TableStatsCollector;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import java.io.IOException;
-import java.time.Clock;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -43,9 +41,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.FileScanTask;
-import org.apache.iceberg.ManageSnapshots;
 import org.apache.iceberg.Schema;
-import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
@@ -62,7 +58,6 @@ import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.apache.iceberg.spark.actions.SparkActions;
-import org.apache.iceberg.util.PropertyUtil;
 import org.apache.spark.sql.SparkSession;
 import scala.collection.JavaConverters;
 
@@ -83,15 +78,8 @@ public final class Operations implements AutoCloseable {
 
   private final OtelEmitter otelEmitter;
 
-  private final Clock clock;
-
   public static Operations of(SparkSession spark, OtelEmitter otelEmitter) {
-    return new Operations(spark, otelEmitter, Clock.systemUTC());
-  }
-
-  @VisibleForTesting
-  static Operations of(SparkSession spark, OtelEmitter otelEmitter, Clock clock) {
-    return new Operations(spark, otelEmitter, clock);
+    return new Operations(spark, otelEmitter);
   }
 
   public static Operations withCatalog(SparkSession spark, OtelEmitter otelEmitter) {
@@ -367,38 +355,23 @@ public final class Operations implements AutoCloseable {
       boolean deleteFiles,
       boolean backupEnabled,
       String backupDir) {
-    long branchExpirationEvaluationTimeMillis = clock.millis();
-    long maximumReferenceAgeMillis =
-        PropertyUtil.propertyAsLong(
-            table.properties(), TableProperties.MAX_REF_AGE_MS, DEFAULT_MAX_REFERENCE_AGE_MILLIS);
-    List<String> branchesToExpire =
-        table.refs().entrySet().stream()
-            .filter(entry -> !SnapshotRef.MAIN_BRANCH.equals(entry.getKey()))
-            .filter(entry -> entry.getValue().isBranch())
-            .filter(
-                entry ->
-                    Optional.ofNullable(table.snapshot(entry.getValue().snapshotId()))
-                        .map(
-                            snapshot ->
-                                branchExpirationEvaluationTimeMillis - snapshot.timestampMillis()
-                                    > Optional.ofNullable(entry.getValue().maxRefAgeMs())
-                                        .orElse(maximumReferenceAgeMillis))
-                        .orElse(false))
-            .map(Map.Entry::getKey)
-            .collect(Collectors.toList());
-
-    if (!branchesToExpire.isEmpty()) {
-      ManageSnapshots manageSnapshots = table.manageSnapshots();
-      branchesToExpire.forEach(manageSnapshots::removeBranch);
-      manageSnapshots.commit();
+    if (!table.properties().containsKey(TableProperties.MAX_REF_AGE_MS)) {
+      log.info(
+          "Backfilling maximum reference age for table {} to {}ms",
+          table,
+          DEFAULT_MAX_REFERENCE_AGE_MILLIS);
+      table
+          .updateProperties()
+          .set(TableProperties.MAX_REF_AGE_MS, String.valueOf(DEFAULT_MAX_REFERENCE_AGE_MILLIS))
+          .commit();
     }
-    log.info("Expired {} branches for table: {}", branchesToExpire.size(), table);
 
     ChronoUnit timeUnitGranularity =
         ChronoUnit.valueOf(
             SparkJobUtil.convertGranularityToChrono(granularity.toUpperCase()).name());
     long expireBeforeTimestampMs =
-        clock.millis() - timeUnitGranularity.getDuration().multipliedBy(maxAge).toMillis();
+        System.currentTimeMillis()
+            - timeUnitGranularity.getDuration().multipliedBy(maxAge).toMillis();
 
     log.info(
         "Expiring snapshots for table: {} older than {}ms with deleteFiles={}, backupEnabled={}, backupDir={}",
@@ -422,8 +395,9 @@ public final class Operations implements AutoCloseable {
       log.info("Expiring snapshots for table: {} retaining last {} versions", table, versions);
       ExpireSnapshots.Result versionsResult =
           deleteFiles
-              ? expireSnapshotsWithFiles(table, clock.millis(), versions, backupEnabled, backupDir)
-              : expireSnapshotsMetadataOnly(table, clock.millis(), versions);
+              ? expireSnapshotsWithFiles(
+                  table, System.currentTimeMillis(), versions, backupEnabled, backupDir)
+              : expireSnapshotsMetadataOnly(table, System.currentTimeMillis(), versions);
       result = combineResults(result, versionsResult);
     }
 

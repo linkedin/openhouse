@@ -19,9 +19,7 @@ import io.opentelemetry.api.common.Attributes;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -578,39 +576,47 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testSnapshotsExpirationRemovesExpiredBranch() throws Exception {
-    final String tableName = "db.test_es_expired_branch_java";
+  public void testSnapshotsExpirationBackfillsMaximumReferenceAgeAndExpiresReferences()
+      throws Exception {
+    final String tableName = "db.test_es_backfill_ref_age_java";
     final String branchName = "expired-branch";
+    final String tagName = "expired-tag";
 
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       prepareTable(ops, tableName);
       populateTable(ops, tableName, 1);
       Table table = ops.getTable(tableName);
+      table.updateProperties().remove(TableProperties.MAX_REF_AGE_MS).commit();
       long branchSnapshotId = table.currentSnapshot().snapshotId();
       populateTable(ops, tableName, 1);
       table.refresh();
-      table.manageSnapshots().createBranch(branchName, branchSnapshotId).commit();
+      table
+          .manageSnapshots()
+          .createBranch(branchName, branchSnapshotId)
+          .setMaxRefAgeMs(branchName, 1)
+          .createTag(tagName, branchSnapshotId)
+          .setMaxRefAgeMs(tagName, 1)
+          .commit();
       Assertions.assertTrue(table.refs().containsKey(branchName));
+      Assertions.assertTrue(table.refs().containsKey(tagName));
+      Assertions.assertFalse(table.properties().containsKey(TableProperties.MAX_REF_AGE_MS));
 
-      Clock clock =
-          Clock.fixed(
-              Instant.ofEpochMilli(table.snapshot(branchSnapshotId).timestampMillis())
-                  .plus(Duration.ofDays(8)),
-              ZoneOffset.UTC);
-      Operations.of(getSparkSession(), otelEmitter, clock).expireSnapshots(table, 3, "DAYS", 0);
+      ops.expireSnapshots(table, 3, "DAYS", 0);
       table.refresh();
 
       Assertions.assertFalse(table.refs().containsKey(branchName));
-      Assertions.assertNull(table.snapshot(branchSnapshotId));
-      Assertions.assertFalse(table.properties().containsKey(TableProperties.MAX_REF_AGE_MS));
+      Assertions.assertFalse(table.refs().containsKey(tagName));
+      Assertions.assertEquals(
+          String.valueOf(Duration.ofDays(7).toMillis()),
+          table.properties().get(TableProperties.MAX_REF_AGE_MS));
     }
   }
 
   @Test
-  public void testSnapshotsExpirationUsesConfiguredMaximumReferenceAges() throws Exception {
+  public void testSnapshotsExpirationPreservesConfiguredMaximumReferenceAge() throws Exception {
     final String tableName = "db.test_es_configured_ref_ages_java";
-    final String tableConfiguredBranchName = "table-configured-branch";
-    final String branchConfiguredName = "branch-configured";
+    final String branchName = "table-configured-branch";
+    final String tagName = "table-configured-tag";
     final String configuredMaximumReferenceAgeMillis =
         String.valueOf(Duration.ofDays(10).toMillis());
 
@@ -623,27 +629,21 @@ public class OperationsTest extends OpenHouseSparkITest {
       table.refresh();
       table
           .manageSnapshots()
-          .createBranch(tableConfiguredBranchName, branchSnapshotId)
-          .createBranch(branchConfiguredName, branchSnapshotId)
-          .setMaxRefAgeMs(branchConfiguredName, Duration.ofDays(5).toMillis())
+          .createBranch(branchName, branchSnapshotId)
+          .createTag(tagName, branchSnapshotId)
           .commit();
       table
           .updateProperties()
           .set(TableProperties.MAX_REF_AGE_MS, configuredMaximumReferenceAgeMillis)
           .commit();
-      Assertions.assertTrue(table.refs().containsKey(tableConfiguredBranchName));
-      Assertions.assertTrue(table.refs().containsKey(branchConfiguredName));
+      Assertions.assertTrue(table.refs().containsKey(branchName));
+      Assertions.assertTrue(table.refs().containsKey(tagName));
 
-      Clock clock =
-          Clock.fixed(
-              Instant.ofEpochMilli(table.snapshot(branchSnapshotId).timestampMillis())
-                  .plus(Duration.ofDays(8)),
-              ZoneOffset.UTC);
-      Operations.of(getSparkSession(), otelEmitter, clock).expireSnapshots(table, 3, "DAYS", 0);
+      ops.expireSnapshots(table, 3, "DAYS", 0);
       table.refresh();
 
-      Assertions.assertTrue(table.refs().containsKey(tableConfiguredBranchName));
-      Assertions.assertFalse(table.refs().containsKey(branchConfiguredName));
+      Assertions.assertTrue(table.refs().containsKey(branchName));
+      Assertions.assertTrue(table.refs().containsKey(tagName));
       Assertions.assertNotNull(table.snapshot(branchSnapshotId));
       Assertions.assertEquals(
           configuredMaximumReferenceAgeMillis,
