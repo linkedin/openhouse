@@ -61,7 +61,7 @@ public class AuthorizationUtils {
    */
   public void checkTableWritePathPrivileges(
       TableDto tableDto, String actingPrincipal, Privileges privilege) {
-    if (TableType.REPLICA_TABLE.equals(tableDto.getTableType())) {
+    if (tableDto.getTableType().equals(TableType.REPLICA_TABLE)) {
       checkTablePrivilege(tableDto, actingPrincipal, Privileges.SYSTEM_ADMIN);
     } else {
       checkTablePrivilege(tableDto, actingPrincipal, privilege);

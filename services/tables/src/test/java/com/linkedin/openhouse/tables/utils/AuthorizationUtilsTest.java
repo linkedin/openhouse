@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.utils;
 
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
+import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.model.TableDto;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,6 +18,7 @@ public class AuthorizationUtilsTest {
           .databaseId("database")
           .tableId("table")
           .tableCreator("table-creator")
+          .tableType(TableType.PRIMARY_TABLE)
           .build();
 
   private AuthorizationHandler authorizationHandler;
@@ -30,7 +32,7 @@ public class AuthorizationUtilsTest {
   }
 
   @Test
-  public void testLegacyTableWritePathAllowsUpdateMetadataPrivilege() {
+  public void testPrimaryTableWritePathAllowsUpdateMetadataPrivilege() {
     Mockito.when(
             authorizationHandler.checkAccessDecision(
                 ACTING_PRINCIPAL, TABLE, Privileges.UPDATE_TABLE_METADATA))
@@ -45,7 +47,7 @@ public class AuthorizationUtilsTest {
   }
 
   @Test
-  public void testLegacyTableWritePathRejectsMissingUpdateMetadataPrivilege() {
+  public void testPrimaryTableWritePathRejectsMissingUpdateMetadataPrivilege() {
     Mockito.when(
             authorizationHandler.checkAccessDecision(
                 ACTING_PRINCIPAL, TABLE, Privileges.UPDATE_TABLE_METADATA))
