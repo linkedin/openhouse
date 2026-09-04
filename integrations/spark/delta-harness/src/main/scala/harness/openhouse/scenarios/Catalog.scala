@@ -11,6 +11,8 @@ object Scenarios
     with ScenarioStandardDml
     with ScenarioRtas
     with ScenarioMergeOnRead
+    with ScenarioBranch
+    with ScenarioWriteAuditPublish
     with ChangelogSupport
 
 /**
@@ -31,7 +33,9 @@ object Catalog {
     List(
       "standardDmlCases" -> Scenarios.standardDmlCases,
       "rtasCases"        -> Scenarios.rtasCases,
-      "mergeOnReadCases" -> Scenarios.mergeOnReadCases)
+      "mergeOnReadCases" -> Scenarios.mergeOnReadCases,
+      "branchCases"      -> Scenarios.branchCases,
+      "writeAuditPublishCases" -> Scenarios.writeAuditPublishCases)
 
   /** Every capability contribution, named once, in the order the catalog integrates them. */
   def contributions: List[(String, List[TestCase])] =
