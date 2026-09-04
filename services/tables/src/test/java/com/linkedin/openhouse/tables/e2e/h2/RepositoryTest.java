@@ -18,6 +18,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.History;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.PolicyTag;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.model.TableDto;
@@ -172,6 +173,8 @@ public class RepositoryTest {
             .toBuilder()
             .tableId("tblReplaceMergesPolicies")
             .tableVersion(INITIAL_TABLE_VERSION)
+            .timePartitioning(null)
+            .clustering(null)
             .tableProperties(props)
             .policies(TABLE_POLICIES_COMPLEX)
             .build();
@@ -509,6 +512,181 @@ public class RepositoryTest {
     TableDtoPrimaryKey pk =
         TableDtoPrimaryKey.builder()
             .tableId("tblReplacePreservesColumnTags")
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .build();
+    openHouseInternalRepository.deleteById(pk);
+    Assertions.assertFalse(openHouseInternalRepository.existsById(pk));
+  }
+
+  @Test
+  public void testReplaceFailsWhenRetentionColumnDroppedFromSchema() {
+    // A table whose retention policy points at a column, with RTAS enabled.
+    Schema oldSchema =
+        new Schema(
+            required(1, "id", Types.StringType.get()),
+            required(2, "datepartition", Types.StringType.get()));
+    Map<String, String> props = new HashMap<>();
+    props.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    TableDto createDto =
+        TABLE_DTO
+            .toBuilder()
+            .tableId("tblReplaceDropsRetentionColumn")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .schema(SchemaParser.toJson(oldSchema, false))
+            .timePartitioning(null)
+            .clustering(null)
+            .tableProperties(props)
+            .policies(
+                Policies.builder()
+                    .retention(
+                        Retention.builder()
+                            .count(3)
+                            .granularity(TimePartitionSpec.Granularity.DAY)
+                            .columnPattern(
+                                RetentionColumnPattern.builder()
+                                    .columnName("datepartition")
+                                    .pattern("yyyy-MM-dd")
+                                    .build())
+                            .build())
+                    .build())
+            .build();
+    TableDto createdDto = openHouseInternalRepository.save(createDto);
+    Assertions.assertNotNull(createdDto.getPolicies().getRetention());
+
+    // RTAS whose new schema no longer has the retention column. The carried-over retention policy
+    // is unsatisfiable, so the staged replace must fail before any data is written.
+    TableDto stageReplaceDto =
+        createdDto
+            .toBuilder()
+            .tableVersion(createdDto.getTableLocation())
+            .schema(
+                SchemaParser.toJson(new Schema(required(1, "id", Types.StringType.get())), false))
+            .policies(null)
+            .stageReplace(true)
+            .build();
+
+    RequestValidationFailureException thrown =
+        Assertions.assertThrows(
+            RequestValidationFailureException.class,
+            () -> openHouseInternalRepository.save(stageReplaceDto));
+    Assertions.assertTrue(
+        thrown.getMessage().contains("retention policy is incompatible with the new schema"),
+        "Unexpected failure message: " + thrown.getMessage());
+
+    // Cleanup
+    TableDtoPrimaryKey pk =
+        TableDtoPrimaryKey.builder()
+            .tableId("tblReplaceDropsRetentionColumn")
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .build();
+    openHouseInternalRepository.deleteById(pk);
+    Assertions.assertFalse(openHouseInternalRepository.existsById(pk));
+  }
+
+  @Test
+  public void testReplaceFailsWhenTimePartitioningDropped() {
+    // A time-partitioned table with a plain retention policy, with RTAS enabled.
+    Map<String, String> props = new HashMap<>();
+    props.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    TableDto createDto =
+        TABLE_DTO
+            .toBuilder()
+            .tableId("tblReplaceDropsTimePartitioning")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .tableProperties(props)
+            .policies(Policies.builder().retention(RETENTION_POLICY).build())
+            .build();
+    TableDto createdDto = openHouseInternalRepository.save(createDto);
+    Assertions.assertNotNull(createdDto.getPolicies().getRetention());
+
+    // RTAS that produces an unpartitioned table. Retention without a column pattern cannot be
+    // applied to an unpartitioned table, so the replace must fail.
+    TableDto stageReplaceDto =
+        createdDto
+            .toBuilder()
+            .tableVersion(createdDto.getTableLocation())
+            .timePartitioning(null)
+            .clustering(null)
+            .policies(null)
+            .stageReplace(true)
+            .build();
+
+    RequestValidationFailureException thrown =
+        Assertions.assertThrows(
+            RequestValidationFailureException.class,
+            () -> openHouseInternalRepository.save(stageReplaceDto));
+    Assertions.assertTrue(
+        thrown.getMessage().contains("retention policy is incompatible with the new schema"),
+        "Unexpected failure message: " + thrown.getMessage());
+
+    // Cleanup
+    TableDtoPrimaryKey pk =
+        TableDtoPrimaryKey.builder()
+            .tableId("tblReplaceDropsTimePartitioning")
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .build();
+    openHouseInternalRepository.deleteById(pk);
+    Assertions.assertFalse(openHouseInternalRepository.existsById(pk));
+  }
+
+  @Test
+  public void testReplaceSucceedsWhenRetentionColumnRetained() {
+    // Same setup as testReplaceFailsWhenRetentionColumnDroppedFromSchema, except the new schema
+    // keeps the retention column. The replace must be allowed.
+    Schema schema =
+        new Schema(
+            required(1, "id", Types.StringType.get()),
+            required(2, "datepartition", Types.StringType.get()));
+    Map<String, String> props = new HashMap<>();
+    props.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    Retention retention =
+        Retention.builder()
+            .count(3)
+            .granularity(TimePartitionSpec.Granularity.DAY)
+            .columnPattern(
+                RetentionColumnPattern.builder()
+                    .columnName("datepartition")
+                    .pattern("yyyy-MM-dd")
+                    .build())
+            .build();
+    TableDto createDto =
+        TABLE_DTO
+            .toBuilder()
+            .tableId("tblReplaceKeepsRetentionColumn")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .schema(SchemaParser.toJson(schema, false))
+            .timePartitioning(null)
+            .clustering(null)
+            .tableProperties(props)
+            .policies(Policies.builder().retention(retention).build())
+            .build();
+    TableDto createdDto = openHouseInternalRepository.save(createDto);
+
+    TableDto stageReplaceDto =
+        createdDto
+            .toBuilder()
+            .tableVersion(createdDto.getTableLocation())
+            .schema(
+                SchemaParser.toJson(
+                    new Schema(
+                        required(1, "id", Types.StringType.get()),
+                        required(2, "datepartition", Types.StringType.get()),
+                        required(3, "extra", Types.StringType.get())),
+                    false))
+            .policies(null)
+            .stageReplace(true)
+            .build();
+    TableDto replacedDto = openHouseInternalRepository.save(stageReplaceDto);
+
+    Assertions.assertEquals(
+        "datepartition",
+        replacedDto.getPolicies().getRetention().getColumnPattern().getColumnName(),
+        "RTAS should carry the still-valid retention policy forward");
+
+    // Cleanup
+    TableDtoPrimaryKey pk =
+        TableDtoPrimaryKey.builder()
+            .tableId("tblReplaceKeepsRetentionColumn")
             .databaseId(TABLE_DTO.getDatabaseId())
             .build();
     openHouseInternalRepository.deleteById(pk);
