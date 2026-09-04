@@ -3,8 +3,8 @@ package harness
 import java.math.BigDecimal
 
 /**
- * Scalar data types: how the long, int, double, decimal, string, binary, date, timestamp and timestamp_ntz columns
- * round trip, and how the catalog stores the edge values of each one.
+ * Scalar data types: representative round-trip, null, numeric-boundary, special-floating-value, and string behavior
+ * for the typed scalar table.
  *
  * Operations: a round trip of the seeded long, int, double, decimal and string values; an INSERT of an all-null row;
  * an INSERT of the special double values NaN and Infinity; an INSERT at the long, int and decimal boundaries; and an
