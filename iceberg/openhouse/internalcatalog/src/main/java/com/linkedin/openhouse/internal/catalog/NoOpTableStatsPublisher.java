@@ -1,8 +1,6 @@
 package com.linkedin.openhouse.internal.catalog;
 
 import lombok.extern.slf4j.Slf4j;
-import org.apache.iceberg.TableMetadata;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.springframework.stereotype.Component;
 
 /**
@@ -17,7 +15,7 @@ import org.springframework.stereotype.Component;
 public class NoOpTableStatsPublisher implements TableStatsPublisher {
 
   @Override
-  public void publishOnCommit(TableIdentifier tableIdentifier, TableMetadata committedMetadata) {
+  public void publishOnCommit(CommitStats commitStats) {
     // Intentionally a no-op. A concrete @Primary publisher replaces this in production.
   }
 }

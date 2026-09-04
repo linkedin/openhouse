@@ -88,9 +88,12 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
   TableStatsPublisher tableStatsPublisher;
 
+  CommitStatsCollectionGate commitStatsCollectionGate;
+
   /**
-   * Backward-compatible constructor. Uses a {@link NoOpTableStatsPublisher}, so callers that do not
-   * wire the optimizer stats hook keep the previous behavior.
+   * Backward-compatible constructor. Uses a {@link NoOpTableStatsPublisher} and a property-only
+   * {@link ConfigurableCommitStatsCollectionGate} (no database filter), so callers that do not wire
+   * the optimizer stats hook keep the previous behavior.
    */
   public OpenHouseInternalTableOperations(
       HouseTableRepository houseTableRepository,
@@ -108,7 +111,32 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         metricsReporter,
         fileIOManager,
         tableMetadataCache,
-        new NoOpTableStatsPublisher());
+        new NoOpTableStatsPublisher(),
+        new ConfigurableCommitStatsCollectionGate(null));
+  }
+
+  /**
+   * Convenience constructor with a custom publisher and a property-only gate (no database filter).
+   */
+  public OpenHouseInternalTableOperations(
+      HouseTableRepository houseTableRepository,
+      FileIO fileIO,
+      HouseTableMapper houseTableMapper,
+      TableIdentifier tableIdentifier,
+      MetricsReporter metricsReporter,
+      FileIOManager fileIOManager,
+      TableMetadataCache tableMetadataCache,
+      TableStatsPublisher tableStatsPublisher) {
+    this(
+        houseTableRepository,
+        fileIO,
+        houseTableMapper,
+        tableIdentifier,
+        metricsReporter,
+        fileIOManager,
+        tableMetadataCache,
+        tableStatsPublisher,
+        new ConfigurableCommitStatsCollectionGate(null));
   }
 
   public OpenHouseInternalTableOperations(
@@ -119,7 +147,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       MetricsReporter metricsReporter,
       FileIOManager fileIOManager,
       TableMetadataCache tableMetadataCache,
-      TableStatsPublisher tableStatsPublisher) {
+      TableStatsPublisher tableStatsPublisher,
+      CommitStatsCollectionGate commitStatsCollectionGate) {
     this.houseTableRepository = houseTableRepository;
     this.fileIO = fileIO;
     this.houseTableMapper = houseTableMapper;
@@ -128,6 +157,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     this.fileIOManager = fileIOManager;
     this.tableMetadataCache = tableMetadataCache;
     this.tableStatsPublisher = tableStatsPublisher;
+    this.commitStatsCollectionGate = commitStatsCollectionGate;
   }
 
   private static final Gson GSON = new Gson();
@@ -463,11 +493,15 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         updateMetadataFieldForTable(metadata, newMetadataLocation);
       }
       commitStatus = CommitStatus.SUCCESS;
-      // Best-effort, fire-and-forget publish of commit-time stats to the Table Optimizer. This
-      // must never affect the commit: the publisher contract forbids throwing, but we still guard
-      // against Throwable so a misbehaving implementation cannot fail a successful commit.
+      // Best-effort, fire-and-forget publish of commit-time stats to the Table Optimizer. Gated
+      // per-table; extraction is neutral (no optimizer-client types). This must never affect the
+      // commit: the publisher contract forbids throwing, but we still guard against Throwable so a
+      // misbehaving implementation cannot fail a successful commit.
       try {
-        tableStatsPublisher.publishOnCommit(tableIdentifier, updatedMtDataRef);
+        if (commitStatsCollectionGate.isEnabled(tableIdentifier, updatedMtDataRef)) {
+          CommitStatsFactory.extract(tableIdentifier, updatedMtDataRef)
+              .ifPresent(tableStatsPublisher::publishOnCommit);
+        }
       } catch (Throwable statsPublishFailure) {
         log.warn(
             "Best-effort table-stats publish failed for table {}; commit is unaffected",

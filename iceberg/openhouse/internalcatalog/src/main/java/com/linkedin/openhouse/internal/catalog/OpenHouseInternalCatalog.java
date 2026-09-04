@@ -70,6 +70,8 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Autowired TableStatsPublisher tableStatsPublisher;
 
+  @Autowired CommitStatsCollectionGate commitStatsCollectionGate;
+
   @Override
   protected TableOperations newTableOps(TableIdentifier tableIdentifier) {
     FileIO fileIO = resolveFileIO(tableIdentifier);
@@ -83,7 +85,8 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
         metricsReporter,
         fileIOManager,
         tableMetadataCache,
-        tableStatsPublisher);
+        tableStatsPublisher,
+        commitStatsCollectionGate);
   }
 
   @Override

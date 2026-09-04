@@ -180,9 +180,52 @@ public class OpenHouseInternalTableOperationsTest {
     }
   }
 
-  /** The commit-time stats hook fires once on a successful commit, with the committed metadata. */
+  /** The commit-time stats hook fires once on a successful commit when gated on. */
   @Test
   void testDoCommitInvokesTableStatsPublisherOnSuccess() throws IOException {
+    TableStatsPublisher mockPublisher = Mockito.mock(TableStatsPublisher.class);
+    ArgumentCaptor<CommitStats> commitStatsCaptor = ArgumentCaptor.forClass(CommitStats.class);
+    OpenHouseInternalTableOperations opsWithPublisher =
+        new OpenHouseInternalTableOperations(
+            mockHouseTableRepository,
+            new HadoopFileIO(new Configuration()),
+            mockHouseTableMapper,
+            TEST_TABLE_IDENTIFIER,
+            new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList()),
+            fileIOManager,
+            tableMetadataCache,
+            mockPublisher);
+
+    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      properties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(testSnapshots));
+      properties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.createMainBranchRefPointingTo(
+                  testSnapshots.get(testSnapshots.size() - 1))));
+      // Enable the per-table gate and provide the stable UUID the extractor keys on.
+      properties.put(
+          ConfigurableCommitStatsCollectionGate.COMMIT_STATS_COLLECTION_ENABLED_PROP, "true");
+      properties.put(getCanonicalFieldName("tableUUID"), "test-uuid");
+
+      TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+      opsWithPublisher.doCommit(BASE_TABLE_METADATA, metadata);
+
+      Mockito.verify(mockPublisher, Mockito.times(1)).publishOnCommit(commitStatsCaptor.capture());
+      CommitStats published = commitStatsCaptor.getValue();
+      Assertions.assertEquals("test-uuid", published.getTableUuid());
+      Assertions.assertEquals("test_db", published.getDatabaseName());
+      Assertions.assertEquals("test_table", published.getTableName());
+    }
+  }
+
+  /** With the gate off (default), the stats publisher is not invoked on commit. */
+  @Test
+  void testDoCommitSkipsTableStatsPublisherWhenGateDisabled() throws IOException {
     TableStatsPublisher mockPublisher = Mockito.mock(TableStatsPublisher.class);
     OpenHouseInternalTableOperations opsWithPublisher =
         new OpenHouseInternalTableOperations(
@@ -206,17 +249,53 @@ public class OpenHouseInternalTableOperationsTest {
           SnapshotsUtil.serializeMap(
               IcebergTestUtil.createMainBranchRefPointingTo(
                   testSnapshots.get(testSnapshots.size() - 1))));
+      // Gate property intentionally absent (default off).
+      properties.put(getCanonicalFieldName("tableUUID"), "test-uuid");
 
       TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
       opsWithPublisher.doCommit(BASE_TABLE_METADATA, metadata);
 
-      Mockito.verify(mockPublisher, Mockito.times(1))
-          .publishOnCommit(Mockito.eq(TEST_TABLE_IDENTIFIER), tblMetadataCaptor.capture());
-      Assertions.assertTrue(
-          tblMetadataCaptor
-              .getValue()
-              .properties()
-              .containsKey(getCanonicalFieldName("tableLocation")));
+      Mockito.verify(mockPublisher, Mockito.never()).publishOnCommit(Mockito.any());
+    }
+  }
+
+  /** A database-level filter match enables the stats publisher without any per-table property. */
+  @Test
+  void testDoCommitInvokesTableStatsPublisherWhenDatabaseFilterMatches() throws IOException {
+    TableStatsPublisher mockPublisher = Mockito.mock(TableStatsPublisher.class);
+    // TEST_TABLE_IDENTIFIER database is "test_db"; enable it via the DB filter regex.
+    CommitStatsCollectionGate dbGate =
+        new ConfigurableCommitStatsCollectionGate("(test_db|other_db)");
+    OpenHouseInternalTableOperations opsWithPublisher =
+        new OpenHouseInternalTableOperations(
+            mockHouseTableRepository,
+            new HadoopFileIO(new Configuration()),
+            mockHouseTableMapper,
+            TEST_TABLE_IDENTIFIER,
+            new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList()),
+            fileIOManager,
+            tableMetadataCache,
+            mockPublisher,
+            dbGate);
+
+    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      properties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(testSnapshots));
+      properties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.createMainBranchRefPointingTo(
+                  testSnapshots.get(testSnapshots.size() - 1))));
+      // No per-table gate property; enablement comes purely from the database filter.
+      properties.put(getCanonicalFieldName("tableUUID"), "test-uuid");
+
+      TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+      opsWithPublisher.doCommit(BASE_TABLE_METADATA, metadata);
+
+      Mockito.verify(mockPublisher, Mockito.times(1)).publishOnCommit(Mockito.any());
     }
   }
 
@@ -226,7 +305,7 @@ public class OpenHouseInternalTableOperationsTest {
     TableStatsPublisher throwingPublisher = Mockito.mock(TableStatsPublisher.class);
     Mockito.doThrow(new RuntimeException("boom"))
         .when(throwingPublisher)
-        .publishOnCommit(Mockito.any(), Mockito.any());
+        .publishOnCommit(Mockito.any());
     OpenHouseInternalTableOperations opsWithPublisher =
         new OpenHouseInternalTableOperations(
             mockHouseTableRepository,
@@ -249,12 +328,14 @@ public class OpenHouseInternalTableOperationsTest {
           SnapshotsUtil.serializeMap(
               IcebergTestUtil.createMainBranchRefPointingTo(
                   testSnapshots.get(testSnapshots.size() - 1))));
+      properties.put(
+          ConfigurableCommitStatsCollectionGate.COMMIT_STATS_COLLECTION_ENABLED_PROP, "true");
+      properties.put(getCanonicalFieldName("tableUUID"), "test-uuid");
 
       TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
       // Commit must not throw despite the publisher failing, and HTS save must still happen.
       Assertions.assertDoesNotThrow(() -> opsWithPublisher.doCommit(BASE_TABLE_METADATA, metadata));
-      Mockito.verify(throwingPublisher, Mockito.times(1))
-          .publishOnCommit(Mockito.eq(TEST_TABLE_IDENTIFIER), Mockito.any());
+      Mockito.verify(throwingPublisher, Mockito.times(1)).publishOnCommit(Mockito.any());
       Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
     }
   }
