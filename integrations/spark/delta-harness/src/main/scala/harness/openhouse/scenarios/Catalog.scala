@@ -8,6 +8,7 @@ object Scenarios
     extends ScenarioDml
     with ScenarioDataType
     with ScenarioDmlValidation
+    with ScenarioColumnDefault
 
 /**
  * The ordered case catalog. Each named contribution owns its scenario body, preparation, assertions, and case IDs.
@@ -24,7 +25,7 @@ object Catalog {
 
   /** Additional named scenario contributions supplied by a composed catalog. */
   def extensionContributions: List[(String, List[TestCase])] =
-    List.empty
+    List("columnDefaultCases" -> Scenarios.columnDefaultCases)
 
   /** Every capability contribution, named once, in the order the catalog integrates them. */
   def contributions: List[(String, List[TestCase])] =
