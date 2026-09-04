@@ -13,7 +13,7 @@ import scala.annotation.tailrec
 import scala.reflect.{ClassTag, classTag}
 import scala.util.control.NonFatal
 
-// The harness defines typed, reusable table preparations and localized TestCase bodies. Each case gets a fresh table,
+// The harness defines typed, reusable table preparations and self-contained TestCase bodies. Each case gets a fresh table,
 // executes its preparation, runs its action and assertions, and drops the table during teardown.
 
 /**
@@ -48,7 +48,16 @@ object Outcome {
   final case class Failed(cause: Throwable) extends Outcome {
     val label = "FAIL"
     def retryable: Boolean = Exceptions.isTransient(cause)
-    def reason: String = s"${Exceptions.root(cause).getClass.getSimpleName}: ${cause.getMessage}"
+    def reason: String = {
+      val rootCause = Exceptions.root(cause)
+      val rootReason =
+        s"${rootCause.getClass.getSimpleName}: ${Option(rootCause.getMessage).getOrElse(rootCause.toString)}"
+      if (rootCause eq cause) {
+        rootReason
+      } else {
+        s"${cause.getClass.getSimpleName}: ${Option(cause.getMessage).getOrElse(cause.toString)}; caused by $rootReason"
+      }
+    }
   }
   final case class Skipped(reason: String) extends Outcome { val label = "SKIP" }
 }
@@ -152,7 +161,7 @@ object CoreTable extends Schema {
     DateEpoch.plusHours((rowIndex - 1).toLong).format(DateFormat)
 }
 
-// A schema exercising complex/nested types: a struct, an array, a map, and a struct-in-struct. Struct/array read back
+// A schema containing complex/nested types: a struct, an array, a map, and a struct-in-struct. Struct/array read back
 // as Row/Seq; map as a Map. `id` is first so it is the ordering key.
 object NestedTable extends Schema {
   val id: Column[Long] =
@@ -177,8 +186,8 @@ object NestedTable extends Schema {
     "id bigint, s struct<x:int,y:string>, arr array<int>, m map<string,int>, nested struct<inner:struct<z:int>>"
 }
 
-// A schema for type-edge coverage: the common scalar types, exercised with nulls, special float values, boundary
-// values, and unicode/empty strings.
+// A schema for the common scalar types, including literals for null, floating-point, boundary, unicode, and empty
+// string cases.
 object TypesTable extends Schema {
   val id: Column[Long] =
     Column("id", "bigint", rowIndex => rowIndex.toString)
@@ -279,7 +288,7 @@ final case class Step[S <: Schema](
 final class TableTest[S <: Schema] private (val schema: S, val steps: Vector[Step[S]]) {
   private def add(step: Step[S]): TableTest[S] = new TableTest(schema, steps :+ step)
 
-  // The default validator asserts the seed actually appended `numberOfRows` rows. This defends the localized assertions
+  // The default validator asserts the seed actually appended `numberOfRows` rows. This defends the case assertions
   // from a vacuous pass on an empty or short baseline.
   def insert(numberOfRows: Int)(
       validate: StepView[S] => Unit = view => assert(
@@ -300,7 +309,7 @@ final class TableTest[S <: Schema] private (val schema: S, val steps: Vector[Ste
     step(label)((spark, table) => spark.sql(statement(table)))(validate)
 
   /**
-   * Execute these steps as a reusable preparation, then hand the prepared table to one localized test body. The
+   * Execute these steps as a reusable preparation, then hand the prepared table to one self-contained test body. The
    * fresh-table lifecycle covers both the preparation and the test body.
    */
   def prepare(ctx: Ctx)(use: PreparedTable[S] => Unit): Unit =
@@ -387,7 +396,7 @@ object TableTest {
     s"$namespace.t_${UUID.randomUUID().toString.replace("-", "")}_${counter.incrementAndGet()}"
 }
 
-/** An immutable recipe that prepares one fresh table for each localized test case. */
+/** An immutable recipe that prepares one fresh table for each test case. */
 final case class TablePreparation[S <: Schema](
   label: String,
   preparation: TableTest[S],
@@ -402,22 +411,7 @@ final case class TablePreparation[S <: Schema](
     TestCase(
       s"$casePrefix$caseName @ $label",
       context => preparation.prepare(context) { table =>
-        var testFailure: Option[Throwable] = None
-        try body(table)
-        catch {
-          case failure: Throwable =>
-            testFailure = Some(failure)
-            throw failure
-        } finally {
-          try afterTest(table)
-          catch {
-            case afterTestFailure: Throwable =>
-              testFailure match {
-                case Some(failure) => failure.addSuppressed(afterTestFailure)
-                case None          => throw afterTestFailure
-              }
-          }
-        }
+        OwnedTableLifecycle.withCleanup(afterTest(table))(body(table))
       })
 }
 

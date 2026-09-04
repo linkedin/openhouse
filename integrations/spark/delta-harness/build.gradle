@@ -10,7 +10,7 @@ plugins {
 // Only the portable scenario/framework sources are published. Env.scala boots the embedded OpenHouse
 // server and pulls in its test fixtures, and LocalRunner.scala carries the harness.Main launch class
 // that drives it, so both are excluded from the published library and compiled in the local source
-// set.
+// set. Runner.scala remains portable so its retry contract is exercised by the module tests.
 
 ext {
   icebergVersion = rootProject.ext.iceberg_1_5_version
@@ -98,19 +98,34 @@ configurations.localRuntimeClasspath {
     'com.fasterxml.jackson.module:jackson-module-scala_2.12:2.15.2')
 }
 
-tasks.register('runOpenHouse', JavaExec) {
-  group = 'verification'
-  description = 'Runs the delta harness against an embedded OpenHouse catalog.'
-  dependsOn localClasses
-  classpath = sourceSets.local.runtimeClasspath
-  mainClass = 'harness.Main'
+def configureEmbeddedHarnessRun = { JavaExec task ->
+  task.dependsOn localClasses
+  task.classpath = sourceSets.local.runtimeClasspath
+  task.mainClass = 'harness.Main'
   if (JavaVersion.current() >= JavaVersion.VERSION_1_9) {
-    jvmArgs(
+    task.jvmArgs(
       '--add-opens=java.base/java.nio=ALL-UNNAMED',
       '--add-exports=java.base/sun.nio.ch=ALL-UNNAMED',
       '--add-opens=java.base/sun.util.calendar=ALL-UNNAMED',
       '--add-exports=java.base/sun.util.calendar=ALL-UNNAMED')
   }
+}
+
+tasks.register('runOpenHouse', JavaExec) {
+  group = 'verification'
+  description = 'Runs the delta harness against an embedded OpenHouse catalog.'
+  configureEmbeddedHarnessRun(delegate)
+}
+
+def verifyOpenHouseFoundation = tasks.register('verifyOpenHouseFoundation', JavaExec) {
+  group = 'verification'
+  description = 'Runs the foundation scenarios against an embedded OpenHouse catalog.'
+  configureEmbeddedHarnessRun(delegate)
+  args '--catalog=foundation'
+}
+
+tasks.named('check') {
+  dependsOn verifyOpenHouseFoundation
 }
 
 jar.enabled = true

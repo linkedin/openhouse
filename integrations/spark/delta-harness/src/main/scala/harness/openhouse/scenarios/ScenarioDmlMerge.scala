@@ -128,8 +128,8 @@ trait ScenarioDmlMerge extends ScenarioKit {
         table.spark.sql(
           s"""MERGE INTO ${table.name} t USING (
                 SELECT * FROM VALUES
-                  (CAST(2 AS BIGINT), 2, 'U', 2.5, true,  '2024-01-02-01'),
-                  (CAST(7 AS BIGINT), 7, 'g', 7.5, false, '2024-01-07-06')
+                  (CAST(2 AS BIGINT), 2, 'U', 2.5, true,  '2024-01-01-01'),
+                  (CAST(7 AS BIGINT), 7, 'g', 7.5, false, '2024-01-01-06')
                 AS s($columnNameList)
               ) s ON t.${Core.long0.columnName} = s.${Core.long0.columnName}
               WHEN MATCHED THEN UPDATE
@@ -141,7 +141,7 @@ trait ScenarioDmlMerge extends ScenarioKit {
           after.rows == inKeyOrder(
             before.rows.map(row =>
               if (row.get(Core.long0) == 2L) withColumnValue(row, Core.string0, "U") else row) :+
-              Row(7L, 7, "g", 7.5, false, "2024-01-07-06")),
+              Row(7L, 7, "g", 7.5, false, "2024-01-01-06")),
           s"rows after the MERGE: ${after.rows}")
         assert(
           after.snapshotCount == before.snapshotCount + 1,

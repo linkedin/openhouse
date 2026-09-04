@@ -39,7 +39,8 @@ import scala.util.control.NonFatal
  * Case families: 264 cases. The DML axis contributes 212 in three families, and the replace contract contributes 52
  * in 26 families, each family running in both columnar formats.
  */
-trait ScenarioRtas extends ScenarioKit { this: ScenarioDml with ChangelogSupport =>
+trait ScenarioRtas extends ScenarioKit {
+  this: ScenarioDml with ScenarioStandardDml with ChangelogSupport =>
 
   /** Every replace case: the reusable DML operations on replaced tables first, then the replace contract. */
   lazy val rtasCases: List[TestCase] = rtasDmlCases ++ rtasContractCases
