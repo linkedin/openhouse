@@ -65,13 +65,16 @@ final class CaseCatalogTest {
     val originalDataSource = Scenarios.dataSource
     try {
       val layouts = Scenarios.layouts
+      val typesLayouts = Scenarios.typesLayouts
       Catalog.cases
 
       Scenarios.dataSource = "openhouse"
       assertTrue(layouts.forall(_.create("db.t").contains(" USING openhouse ")))
+      assertTrue(typesLayouts.forall(_.create("db.t").contains(" USING openhouse ")))
 
       Scenarios.dataSource = "alternate"
       assertTrue(layouts.forall(_.create("db.t").contains(" USING alternate ")))
+      assertTrue(typesLayouts.forall(_.create("db.t").contains(" USING alternate ")))
     } finally {
       Scenarios.dataSource = originalDataSource
     }
