@@ -42,7 +42,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.iceberg.BaseMetastoreTableOperations;
@@ -70,7 +69,6 @@ import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.base.Objects;
 
-@AllArgsConstructor
 @Slf4j
 public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperations {
 
@@ -87,6 +85,80 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   FileIOManager fileIOManager;
 
   TableMetadataCache tableMetadataCache;
+
+  TableStatsPublisher tableStatsPublisher;
+
+  CommitStatsCollectionGate commitStatsCollectionGate;
+
+  /**
+   * Backward-compatible constructor. Uses a {@link NoOpTableStatsPublisher} and a property-only
+   * {@link ConfigurableCommitStatsCollectionGate} (no database filter), so callers that do not wire
+   * the optimizer stats hook keep the previous behavior.
+   */
+  public OpenHouseInternalTableOperations(
+      HouseTableRepository houseTableRepository,
+      FileIO fileIO,
+      HouseTableMapper houseTableMapper,
+      TableIdentifier tableIdentifier,
+      MetricsReporter metricsReporter,
+      FileIOManager fileIOManager,
+      TableMetadataCache tableMetadataCache) {
+    this(
+        houseTableRepository,
+        fileIO,
+        houseTableMapper,
+        tableIdentifier,
+        metricsReporter,
+        fileIOManager,
+        tableMetadataCache,
+        new NoOpTableStatsPublisher(),
+        new ConfigurableCommitStatsCollectionGate(null));
+  }
+
+  /**
+   * Convenience constructor with a custom publisher and a property-only gate (no database filter).
+   */
+  public OpenHouseInternalTableOperations(
+      HouseTableRepository houseTableRepository,
+      FileIO fileIO,
+      HouseTableMapper houseTableMapper,
+      TableIdentifier tableIdentifier,
+      MetricsReporter metricsReporter,
+      FileIOManager fileIOManager,
+      TableMetadataCache tableMetadataCache,
+      TableStatsPublisher tableStatsPublisher) {
+    this(
+        houseTableRepository,
+        fileIO,
+        houseTableMapper,
+        tableIdentifier,
+        metricsReporter,
+        fileIOManager,
+        tableMetadataCache,
+        tableStatsPublisher,
+        new ConfigurableCommitStatsCollectionGate(null));
+  }
+
+  public OpenHouseInternalTableOperations(
+      HouseTableRepository houseTableRepository,
+      FileIO fileIO,
+      HouseTableMapper houseTableMapper,
+      TableIdentifier tableIdentifier,
+      MetricsReporter metricsReporter,
+      FileIOManager fileIOManager,
+      TableMetadataCache tableMetadataCache,
+      TableStatsPublisher tableStatsPublisher,
+      CommitStatsCollectionGate commitStatsCollectionGate) {
+    this.houseTableRepository = houseTableRepository;
+    this.fileIO = fileIO;
+    this.houseTableMapper = houseTableMapper;
+    this.tableIdentifier = tableIdentifier;
+    this.metricsReporter = metricsReporter;
+    this.fileIOManager = fileIOManager;
+    this.tableMetadataCache = tableMetadataCache;
+    this.tableStatsPublisher = tableStatsPublisher;
+    this.commitStatsCollectionGate = commitStatsCollectionGate;
+  }
 
   private static final Gson GSON = new Gson();
 
@@ -257,6 +329,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
     int version = currentVersion() + 1;
     CommitStatus commitStatus = CommitStatus.FAILURE;
+    // Holds the committed metadata for the post-commit stats publish (see the guarded block after
+    // the try/catch/finally). Only set on the success path.
+    TableMetadata committedMetadataForStats = null;
 
     /* This method adds no fs scheme, and it persists in HTS that way. */
     final String newMetadataLocation = rootMetadataFileLocation(metadata, version);
@@ -421,6 +496,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         updateMetadataFieldForTable(metadata, newMetadataLocation);
       }
       commitStatus = CommitStatus.SUCCESS;
+      // Capture the committed metadata; the actual stats publish happens after the commit machinery
+      // completes, gated on the final commitStatus (see below).
+      committedMetadataForStats = updatedMtDataRef;
     } catch (IOException ioe) {
       commitStatus = checkCommitStatus(newMetadataLocation, metadata);
       // clean up the HTS entry
@@ -482,9 +560,36 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         case UNKNOWN:
           metricsReporter.count(InternalCatalogMetricsConstant.COMMIT_STATE_UNKNOWN);
           break;
+        case SUCCESS:
+          // Publish commit-time stats only for successful commits. Best-effort; never affects the
+          // commit (guarded in the helper).
+          publishCommitStatsBestEffort(committedMetadataForStats);
+          break;
         default:
           break; /*should never happen, kept to silence SpotBugs*/
       }
+    }
+  }
+
+  /**
+   * Best-effort publish of commit-time stats to the Table Optimizer for a successful commit. Gated
+   * per-table and guarded against {@link Throwable} so a misbehaving publisher can never affect the
+   * commit. No-op when there is no committed metadata (i.e. the commit did not reach SUCCESS).
+   */
+  private void publishCommitStatsBestEffort(TableMetadata committedMetadata) {
+    if (committedMetadata == null) {
+      return;
+    }
+    try {
+      if (commitStatsCollectionGate.isEnabled(tableIdentifier, committedMetadata)) {
+        CommitStatsFactory.extract(tableIdentifier, committedMetadata)
+            .ifPresent(tableStatsPublisher::publishOnCommit);
+      }
+    } catch (Throwable statsPublishFailure) {
+      log.warn(
+          "Best-effort table-stats publish failed for table {}; commit is unaffected",
+          tableIdentifier,
+          statsPublishFailure);
     }
   }
 
