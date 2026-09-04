@@ -10,6 +10,7 @@ object Scenarios
     with ScenarioDmlValidation
     with ScenarioStandardDml
     with ScenarioRtas
+    with ScenarioMergeOnRead
     with ChangelogSupport
 
 /**
@@ -29,7 +30,8 @@ object Catalog {
   def extensionContributions: List[(String, List[TestCase])] =
     List(
       "standardDmlCases" -> Scenarios.standardDmlCases,
-      "rtasCases"        -> Scenarios.rtasCases)
+      "rtasCases"        -> Scenarios.rtasCases,
+      "mergeOnReadCases" -> Scenarios.mergeOnReadCases)
 
   /** Every capability contribution, named once, in the order the catalog integrates them. */
   def contributions: List[(String, List[TestCase])] =
