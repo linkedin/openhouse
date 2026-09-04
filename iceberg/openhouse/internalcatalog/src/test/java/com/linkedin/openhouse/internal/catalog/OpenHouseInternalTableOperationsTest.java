@@ -340,6 +340,40 @@ public class OpenHouseInternalTableOperationsTest {
     }
   }
 
+  /**
+   * A failed commit must not publish stats, even when the collection gate would otherwise enable
+   * it. The publish is gated on commitStatus == SUCCESS.
+   */
+  @Test
+  void testDoCommitDoesNotPublishOnFailedCommit() {
+    TableStatsPublisher mockPublisher = Mockito.mock(TableStatsPublisher.class);
+    OpenHouseInternalTableOperations opsWithPublisher =
+        new OpenHouseInternalTableOperations(
+            mockHouseTableRepository,
+            new HadoopFileIO(new Configuration()),
+            mockHouseTableMapper,
+            TEST_TABLE_IDENTIFIER,
+            new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList()),
+            fileIOManager,
+            tableMetadataCache,
+            mockPublisher,
+            // Gate that would enable publishing for every database, to prove the commit failure
+            // (not the gate) is what suppresses the publish.
+            new ConfigurableCommitStatsCollectionGate("all"));
+
+    TableMetadata base = BASE_TABLE_METADATA;
+    TableMetadata metadata =
+        BASE_TABLE_METADATA.replaceProperties(
+            ImmutableMap.of(getCanonicalFieldName("tableUUID"), "test-uuid"));
+    // Force the commit to fail at the HTS save step.
+    when(mockHouseTableRepository.save(Mockito.any(HouseTable.class)))
+        .thenThrow(HouseTableCallerException.class);
+
+    Assertions.assertThrows(
+        CommitFailedException.class, () -> opsWithPublisher.doCommit(base, metadata));
+    Mockito.verify(mockPublisher, Mockito.never()).publishOnCommit(Mockito.any());
+  }
+
   @Test
   void testDoCommitAppendSnapshotsExistingVersion() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();

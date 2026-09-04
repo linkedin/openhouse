@@ -9,8 +9,8 @@ import org.apache.iceberg.catalog.TableIdentifier;
  * <p>Evaluated by {@link OpenHouseInternalTableOperations} right after a successful commit, before
  * any stats are extracted or published. The default {@link ConfigurableCommitStatsCollectionGate}
  * enables collection at the database level via a configured regex (mirroring the maintenance cron's
- * {@code databaseFilter}), with an optional per-table property override. LinkedIn can provide a
- * {@code @Primary} implementation driven by LIX / per-database onboarding config.
+ * {@code databaseFilter}), with an optional per-table property override. LinkedIn inter can provide
+ * a {@code @Primary} implementation for per-database onboarding config.
  */
 public interface CommitStatsCollectionGate {
 

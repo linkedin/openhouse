@@ -329,6 +329,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
     int version = currentVersion() + 1;
     CommitStatus commitStatus = CommitStatus.FAILURE;
+    // Holds the committed metadata for the post-commit stats publish (see the guarded block after
+    // the try/catch/finally). Only set on the success path.
+    TableMetadata committedMetadataForStats = null;
 
     /* This method adds no fs scheme, and it persists in HTS that way. */
     final String newMetadataLocation = rootMetadataFileLocation(metadata, version);
@@ -493,21 +496,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         updateMetadataFieldForTable(metadata, newMetadataLocation);
       }
       commitStatus = CommitStatus.SUCCESS;
-      // Best-effort, fire-and-forget publish of commit-time stats to the Table Optimizer. Gated
-      // per-table; extraction is neutral (no optimizer-client types). This must never affect the
-      // commit: the publisher contract forbids throwing, but we still guard against Throwable so a
-      // misbehaving implementation cannot fail a successful commit.
-      try {
-        if (commitStatsCollectionGate.isEnabled(tableIdentifier, updatedMtDataRef)) {
-          CommitStatsFactory.extract(tableIdentifier, updatedMtDataRef)
-              .ifPresent(tableStatsPublisher::publishOnCommit);
-        }
-      } catch (Throwable statsPublishFailure) {
-        log.warn(
-            "Best-effort table-stats publish failed for table {}; commit is unaffected",
-            tableIdentifier,
-            statsPublishFailure);
-      }
+      // Capture the committed metadata; the actual stats publish happens after the commit machinery
+      // completes, gated on the final commitStatus (see below).
+      committedMetadataForStats = updatedMtDataRef;
     } catch (IOException ioe) {
       commitStatus = checkCommitStatus(newMetadataLocation, metadata);
       // clean up the HTS entry
@@ -569,9 +560,36 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         case UNKNOWN:
           metricsReporter.count(InternalCatalogMetricsConstant.COMMIT_STATE_UNKNOWN);
           break;
+        case SUCCESS:
+          // Publish commit-time stats only for successful commits. Best-effort; never affects the
+          // commit (guarded in the helper).
+          publishCommitStatsBestEffort(committedMetadataForStats);
+          break;
         default:
           break; /*should never happen, kept to silence SpotBugs*/
       }
+    }
+  }
+
+  /**
+   * Best-effort publish of commit-time stats to the Table Optimizer for a successful commit. Gated
+   * per-table and guarded against {@link Throwable} so a misbehaving publisher can never affect the
+   * commit. No-op when there is no committed metadata (i.e. the commit did not reach SUCCESS).
+   */
+  private void publishCommitStatsBestEffort(TableMetadata committedMetadata) {
+    if (committedMetadata == null) {
+      return;
+    }
+    try {
+      if (commitStatsCollectionGate.isEnabled(tableIdentifier, committedMetadata)) {
+        CommitStatsFactory.extract(tableIdentifier, committedMetadata)
+            .ifPresent(tableStatsPublisher::publishOnCommit);
+      }
+    } catch (Throwable statsPublishFailure) {
+      log.warn(
+          "Best-effort table-stats publish failed for table {}; commit is unaffected",
+          tableIdentifier,
+          statsPublishFailure);
     }
   }
 
