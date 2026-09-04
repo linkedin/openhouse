@@ -1,6 +1,9 @@
 package harness
 
 import java.math.BigDecimal
+import java.nio.charset.StandardCharsets
+import java.sql.Date
+import java.time.{Instant, LocalDateTime}
 
 /**
  * Scalar data types: representative round-trip, null, numeric-boundary, special-floating-value, and string behavior
@@ -49,28 +52,42 @@ trait ScenarioDataType extends ScenarioKit {
       s"TIMESTAMP '2024-01-01 00:00:00', TIMESTAMP_NTZ '2024-01-01 00:00:00')"
 
   /**
-   * Selecting id, n, x, dec and str for the first seeded row reads back the exact long, int, double, decimal and
-   * string values that were seeded.
+   * Selecting the first seeded row reads back every scalar value exactly.
    */
   private def roundtripCase(preparation: TablePreparation[TypesTable.type]): TestCase =
     preparation.test("types.roundtrip") { table =>
       val row = table.spark
         .sql(
-          s"SELECT id, n, x, dec, str FROM ${table.name} WHERE id = 1")
+          s"SELECT id, n, x, dec, str, bin, dt, ts, tsntz FROM ${table.name} WHERE id = 1")
         .collect()(0)
 
       assert(
         row.getLong(0) == 1L &&
           row.getInt(1) == 1 &&
-          row.getDouble(2) == 1.5)
+          row.getDouble(2) == 1.5,
+        s"unexpected numeric values: ${row.toSeq}")
       assert(
-        row.getDecimal(3).compareTo(new BigDecimal("1.50")) == 0)
-      assert(row.getString(4) == "row-1")
+        row.getDecimal(3).compareTo(new BigDecimal("1.50")) == 0,
+        s"unexpected decimal value: ${row.getDecimal(3)}")
+      assert(row.getString(4) == "row-1", s"unexpected string value: ${row.getString(4)}")
+      assert(
+        java.util.Arrays.equals(
+          row.getAs[Array[Byte]](5),
+          "bin-1".getBytes(StandardCharsets.UTF_8)),
+        s"unexpected binary value: ${row.getAs[Array[Byte]](5).mkString("[", ",", "]")}")
+      assert(
+        row.getDate(6) == Date.valueOf("2024-01-01"),
+        s"unexpected date value: ${row.getDate(6)}")
+      assert(
+        row.getTimestamp(7).toInstant == Instant.parse("2024-01-01T00:00:00Z"),
+        s"unexpected timestamp value: ${row.getTimestamp(7)}")
+      assert(
+        row.getAs[LocalDateTime](8) == LocalDateTime.of(2024, 1, 1, 0, 0),
+        s"unexpected timestamp_ntz value: ${row.getAs[LocalDateTime](8)}")
     }
 
   /**
-   * Inserting a row with every non-key column NULL reads back as null for the int, double, string, timestamp and
-   * timestamp_ntz columns.
+   * Inserting a row with every non-key column NULL reads every non-key column back as null.
    */
   private def nullsCase(preparation: TablePreparation[TypesTable.type]): TestCase =
     preparation.test("types.nulls") { table =>
@@ -81,10 +98,10 @@ trait ScenarioDataType extends ScenarioKit {
 
       val row = table.spark
         .sql(
-          s"SELECT n, x, str, ts, tsntz FROM ${table.name} WHERE id = 10")
+          s"SELECT n, x, dec, str, bin, dt, ts, tsntz FROM ${table.name} WHERE id = 10")
         .collect()(0)
 
-      assert((0 to 4).forall(row.isNullAt))
+      assert((0 until 8).forall(row.isNullAt))
     }
 
   /** Inserting rows with double('NaN') and double('Infinity') reads back as NaN and positive infinity respectively. */
@@ -105,8 +122,7 @@ trait ScenarioDataType extends ScenarioKit {
         table.spark
           .sql(s"SELECT x FROM ${table.name} WHERE id = 12")
           .collect()(0)
-          .getDouble(0)
-          .isInfinite)
+          .getDouble(0) == Double.PositiveInfinity)
     }
 
   /**
