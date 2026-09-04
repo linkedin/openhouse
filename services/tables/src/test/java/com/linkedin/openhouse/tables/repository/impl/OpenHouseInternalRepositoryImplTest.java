@@ -19,6 +19,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -95,6 +96,28 @@ public class OpenHouseInternalRepositoryImplTest {
     Assertions.assertEquals(
         userProvidedMaxMetadataVersions,
         actualProps.get(TableProperties.METADATA_PREVIOUS_VERSIONS_MAX));
+  }
+
+  @Test
+  void testComputePropsForTableCreation_DefaultMaximumReferenceAge() {
+    Map<String, String> actualProps =
+        openHouseInternalRepository.computePropsForTableCreation(createTableDto(new HashMap<>()));
+
+    Assertions.assertEquals(
+        String.valueOf(TimeUnit.DAYS.toMillis(7)), actualProps.get(TableProperties.MAX_REF_AGE_MS));
+  }
+
+  @Test
+  void testComputePropsForTableCreation_UserProvidedMaximumReferenceAge() {
+    String userProvidedMaximumReferenceAge = String.valueOf(TimeUnit.DAYS.toMillis(14));
+    Map<String, String> userProps = new HashMap<>();
+    userProps.put(TableProperties.MAX_REF_AGE_MS, userProvidedMaximumReferenceAge);
+
+    Map<String, String> actualProps =
+        openHouseInternalRepository.computePropsForTableCreation(createTableDto(userProps));
+
+    Assertions.assertEquals(
+        userProvidedMaximumReferenceAge, actualProps.get(TableProperties.MAX_REF_AGE_MS));
   }
 
   @Test
