@@ -82,8 +82,9 @@ definitions, and catalog composition.
 
 `Runner.scala` contains the portable execution contract. It validates
 `HARNESS_PARALLELISM`, runs each case in a fresh Spark session, retries only
-positively classified transient connection failures, and returns results in catalog
-order.
+transient connection failures while creating that session, and returns results in
+catalog order. Once a case body starts, every failure is terminal because the case
+may have changed observable table state.
 
 `Env.scala` and `LocalRunner.scala` are embedded-only. `Env` starts the local
 OpenHouse services and configures Spark. `LocalRunner` filters the catalog, invokes
@@ -164,7 +165,9 @@ published jar. A consumer supplies those dependencies and constructs its own
 
 This boundary keeps retry policy and configuration parsing portable and directly
 testable while preventing the embedded OpenHouse server fixtures from leaking into
-the acceptance artifact.
+the acceptance artifact. `verifyPortableJar`, which is attached to `check`, requires
+the published `Plan` and `Runner` classes and rejects the embedded `Main` and
+`OpenHouseEnv` classes.
 
 ## Case identity
 
@@ -266,4 +269,3 @@ Paths are relative to `integrations/spark/delta-harness/`.
 | `src/test/scala/harness/scenarios/CaseCatalogTest.scala` | Foundation inventory, catalog uniqueness, and data-source override checks. |
 | `src/test/scala/harness/framework/RunnerTest.scala` | Retry, terminal failure, configuration, cause traversal, and result behavior. |
 | `src/test/scala/harness/framework/TableLifecycleTest.scala` | Ownership and cleanup precedence. |
-
