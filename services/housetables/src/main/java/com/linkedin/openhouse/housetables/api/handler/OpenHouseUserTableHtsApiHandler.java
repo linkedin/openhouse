@@ -9,6 +9,7 @@ import com.linkedin.openhouse.housetables.api.validator.HouseTablesApiValidator;
 import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import com.linkedin.openhouse.housetables.services.UserTablesService;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.util.Pair;
@@ -113,12 +114,14 @@ public class OpenHouseUserTableHtsApiHandler implements UserTableHtsApiHandler {
             .tableId(toUserTable.getTableId())
             .build();
     userTablesHtsApiValidator.validateRenameEntity(fromUserTableKey, toUserTableKey);
+    // The source metadata location carries the caller's optimistic-concurrency token.
     userTableService.renameUserTable(
         fromUserTable.getDatabaseId(),
         fromUserTable.getTableId(),
         toUserTable.getDatabaseId(),
         toUserTable.getTableId(),
-        toUserTable.getMetadataLocation());
+        toUserTable.getMetadataLocation(),
+        Optional.ofNullable(fromUserTable.getMetadataLocation()));
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
   }
 }

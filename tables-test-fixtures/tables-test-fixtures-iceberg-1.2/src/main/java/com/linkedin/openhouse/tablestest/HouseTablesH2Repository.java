@@ -4,6 +4,7 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -42,12 +43,25 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
       String fromTableId,
       String toDatabaseId,
       String toTableId,
-      String metadataLocation) {
+      String metadataLocation,
+      Optional<String> expectedMetadataLocation) {
     HouseTablePrimaryKey fromKey =
         HouseTablePrimaryKey.builder().databaseId(fromDatabaseId).tableId(fromTableId).build();
     this.findById(fromKey)
         .ifPresent(
             houseTable -> {
+              expectedMetadataLocation
+                  .filter(expected -> !expected.equals(houseTable.getTableLocation()))
+                  .ifPresent(
+                      expected -> {
+                        throw new HouseTableConcurrentUpdateException(
+                            String.format("%s.%s", fromDatabaseId, fromTableId),
+                            new IllegalStateException(
+                                String.format(
+                                    "Rename expected metadataLocation %s; current"
+                                        + " metadataLocation is %s",
+                                    expected, houseTable.getTableLocation())));
+                      });
               HouseTable renamedTable =
                   houseTable.toBuilder().tableId(toTableId).tableLocation(metadataLocation).build();
               this.save(renamedTable);

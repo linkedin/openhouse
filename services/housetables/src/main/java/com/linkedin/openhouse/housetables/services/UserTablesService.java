@@ -3,6 +3,7 @@ package com.linkedin.openhouse.housetables.services;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.dto.model.UserTableDto;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.util.Pair;
 
@@ -62,13 +63,17 @@ public interface UserTablesService {
    * @param toTableId The new tableId of the renamed row.
    * @param metadataLocation The new metadata file of the table with updated table properties for
    *     updated ids.
+   * @param expectedMetadataLocation The metadata location the caller observed when it decided to
+   *     rename. A present value must match the row's current metadata location. An empty value uses
+   *     the version read by the service as the optimistic-concurrency token.
    */
   void renameUserTable(
       String fromDatabaseId,
       String fromTableId,
       String toDatabaseId,
       String toTableId,
-      String metadataLocation);
+      String metadataLocation,
+      Optional<String> expectedMetadataLocation);
 
   /**
    * Restore a soft-deleted user table identified by its databaseId, tableId, and deletedAtMs

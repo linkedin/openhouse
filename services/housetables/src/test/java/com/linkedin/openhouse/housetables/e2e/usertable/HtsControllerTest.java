@@ -463,6 +463,44 @@ public class HtsControllerTest {
   }
 
   @Test
+  public void testRenameUserTableWithExpectedMetadataLocation() throws Exception {
+    // Declaring the current metadata location as the expected base succeeds.
+    mvc.perform(
+            MockMvcRequestBuilders.patch("/hts/tables/rename")
+                .param("fromDatabaseId", TEST_DB_ID)
+                .param("fromTableId", TEST_TABLE_ID)
+                .param("toDatabaseId", TEST_DB_ID)
+                .param("toTableId", TEST_TABLE_ID + "_renamed")
+                .param("metadataLocation", "mockMetadataLocation")
+                .param("expectedMetadataLocation", TEST_TBL_META_LOC))
+        .andExpect(status().isNoContent())
+        .andExpect(content().string(""));
+  }
+
+  @Test
+  public void testRenameUserTableConflictsOnStaleExpectedMetadataLocation() throws Exception {
+    // A stale base yields 409 and preserves the concurrent commit's metadataLocation.
+    mvc.perform(
+            MockMvcRequestBuilders.patch("/hts/tables/rename")
+                .param("fromDatabaseId", TEST_DB_ID)
+                .param("fromTableId", TEST_TABLE_ID)
+                .param("toDatabaseId", TEST_DB_ID)
+                .param("toTableId", TEST_TABLE_ID + "_renamed")
+                .param("metadataLocation", "mockMetadataLocation")
+                .param("expectedMetadataLocation", TEST_TBL_META_LOC + "_stale"))
+        .andExpect(status().isConflict());
+
+    // The source table retains the winning metadata location.
+    mvc.perform(
+            MockMvcRequestBuilders.get("/hts/tables")
+                .param("databaseId", TEST_DB_ID)
+                .param("tableId", TEST_TABLE_ID)
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.entity.metadataLocation", is(equalTo(TEST_TBL_META_LOC))));
+  }
+
+  @Test
   public void testRenameUserTableFails() throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.patch("/hts/tables/rename")

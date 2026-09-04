@@ -242,13 +242,19 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
       String fromTableId,
       String toDatabaseId,
       String toTableId,
-      String metadataLocation) {
+      String metadataLocation,
+      Optional<String> expectedMetadataLocation) {
     getHtsRetryTemplate(Arrays.asList(IllegalStateException.class))
         .execute(
             context ->
                 apiInstance
                     .renameTable(
-                        fromDatabaseId, fromTableId, toDatabaseId, toTableId, metadataLocation)
+                        fromDatabaseId,
+                        fromTableId,
+                        toDatabaseId,
+                        toTableId,
+                        metadataLocation,
+                        expectedMetadataLocation.orElse(null))
                     .onErrorResume(e -> handleHtsHttpError(e).then())
                     .block());
   }

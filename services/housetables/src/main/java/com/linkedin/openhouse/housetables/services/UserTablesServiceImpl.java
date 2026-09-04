@@ -136,6 +136,9 @@ public class UserTablesServiceImpl implements UserTablesService {
    * @param toTableId The new tableId of the renamed row.
    * @param metadataLocation The new metadata file of the table with updated table properties that
    *     match the new tableId
+   * @param expectedMetadataLocation The metadata location the caller observed when initiating the
+   *     rename. A present value validates the caller's base, while the row version read below
+   *     protects the service read-to-update interval.
    */
   @Override
   public void renameUserTable(
@@ -143,11 +146,38 @@ public class UserTablesServiceImpl implements UserTablesService {
       String fromTableId,
       String toDatabaseId,
       String toTableId,
-      String metadataLocation) {
-    if (!htsJdbcRepository.existsById(
-        UserTableRowPrimaryKey.builder().databaseId(fromDatabaseId).tableId(fromTableId).build())) {
-      throw new NoSuchUserTableException(fromDatabaseId, fromTableId);
-    }
+      String metadataLocation,
+      Optional<String> expectedMetadataLocation) {
+    UserTableRow fromUserTableRow =
+        htsJdbcRepository
+            .findById(
+                UserTableRowPrimaryKey.builder()
+                    .databaseId(fromDatabaseId)
+                    .tableId(fromTableId)
+                    .build())
+            .orElseThrow(() -> new NoSuchUserTableException(fromDatabaseId, fromTableId));
+    expectedMetadataLocation
+        .filter(expected -> !expected.equals(fromUserTableRow.getMetadataLocation()))
+        .ifPresent(
+            expected -> {
+              throw new EntityConcurrentModificationException(
+                  String.format(
+                      "databaseId : %s, tableId : %s, metadataLocation: %s %s",
+                      fromDatabaseId,
+                      fromTableId,
+                      expected,
+                      "The requested user table has been modified/created by other processes."),
+                  UserTableRowPrimaryKey.builder()
+                      .databaseId(fromDatabaseId)
+                      .tableId(fromTableId)
+                      .build()
+                      .toString(),
+                  // The 409 body includes this cause message so the client can reconcile its base.
+                  new IllegalStateException(
+                      String.format(
+                          "Rename expected metadataLocation %s; current metadataLocation is %s",
+                          expected, fromUserTableRow.getMetadataLocation())));
+            });
     // Renames user table within the same database
     try {
       log.info(
@@ -156,11 +186,39 @@ public class UserTablesServiceImpl implements UserTablesService {
           fromTableId,
           toTableId,
           toDatabaseId);
-      // Use fromDatabaseId for destination db to preserve the original case of the database
+      // Uses fromDatabaseId for the destination to preserve the original database case.
       // TODO: Use toDataBaseId for destination instead of fromDatabaseId once rename across
       // databases is supported
-      htsJdbcRepository.renameTableId(
-          fromDatabaseId, fromTableId, fromDatabaseId, toTableId, metadataLocation);
+      // The version-qualified update atomically advances the row version. A racing commit causes
+      // a zero-row result that maps to a retriable conflict.
+      int updatedRows =
+          htsJdbcRepository.renameTableId(
+              fromDatabaseId,
+              fromTableId,
+              fromDatabaseId,
+              toTableId,
+              metadataLocation,
+              fromUserTableRow.getVersion());
+      if (updatedRows == 0) {
+        throw new EntityConcurrentModificationException(
+            String.format(
+                "databaseId : %s, tableId : %s, version: %s %s",
+                fromDatabaseId,
+                fromTableId,
+                fromUserTableRow.getVersion(),
+                "The requested user table has been modified/created by other processes."),
+            UserTableRowPrimaryKey.builder()
+                .databaseId(fromDatabaseId)
+                .tableId(fromTableId)
+                .build()
+                .toString(),
+            // The 409 body includes the row state used by the conditional update.
+            new IllegalStateException(
+                String.format(
+                    "Rename expected version %s and metadataLocation %s;"
+                        + " the row changed before the update",
+                    fromUserTableRow.getVersion(), fromUserTableRow.getMetadataLocation())));
+      }
     } catch (DataIntegrityViolationException e) {
       throw new AlreadyExistsException("Table", toTableId);
     }

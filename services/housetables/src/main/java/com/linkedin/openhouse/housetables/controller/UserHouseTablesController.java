@@ -242,9 +242,20 @@ public class UserHouseTablesController {
       @RequestParam(value = "fromTableId") String fromTableId,
       @RequestParam(value = "toDatabaseId") String toDatabaseId,
       @RequestParam(value = "toTableId") String toTableId,
-      @RequestParam(value = "metadataLocation") String metadataLocation) {
+      @RequestParam(value = "metadataLocation") String metadataLocation,
+      @Parameter(
+              description =
+                  "The metadata location the caller observed for the source table when initiating "
+                      + "the rename. When provided, the rename fails with 409 CONFLICT if the "
+                      + "table has been concurrently modified (optimistic concurrency control).")
+          @RequestParam(value = "expectedMetadataLocation", required = false)
+          String expectedMetadataLocation) {
     UserTable fromUserTable =
-        UserTable.builder().databaseId(fromDatabaseId).tableId(fromTableId).build();
+        UserTable.builder()
+            .databaseId(fromDatabaseId)
+            .tableId(fromTableId)
+            .metadataLocation(expectedMetadataLocation)
+            .build();
     UserTable toUserTable =
         UserTable.builder()
             .databaseId(toDatabaseId)
