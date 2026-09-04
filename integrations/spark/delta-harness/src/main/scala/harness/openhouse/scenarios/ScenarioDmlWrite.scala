@@ -42,14 +42,14 @@ trait ScenarioDmlWrite extends ScenarioKit {
 
         table.spark.sql(
           s"""INSERT INTO ${table.name} VALUES
-                (CAST(4 AS BIGINT), 4, 'row-4', 4.5, true,  '2024-01-04-03'),
-                (CAST(5 AS BIGINT), 5, 'row-5', 5.5, false, '2024-01-05-04')""")
+                (CAST(4 AS BIGINT), 4, 'row-4', 4.5, true,  '2024-01-01-03'),
+                (CAST(5 AS BIGINT), 5, 'row-5', 5.5, false, '2024-01-01-04')""")
         val after = table.state
 
         assert(
           after.rows == inKeyOrder(before.rows ++ Seq(
-            Row(4L, 4, "row-4", 4.5, true, "2024-01-04-03"),
-            Row(5L, 5, "row-5", 5.5, false, "2024-01-05-04"))),
+            Row(4L, 4, "row-4", 4.5, true, "2024-01-01-03"),
+            Row(5L, 5, "row-5", 5.5, false, "2024-01-01-04"))),
           s"rows after the INSERT: ${after.rows}")
         assert(
           after.snapshotCount == before.snapshotCount + 1,
