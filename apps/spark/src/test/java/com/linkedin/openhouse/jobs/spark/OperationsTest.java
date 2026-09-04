@@ -19,6 +19,7 @@ import io.opentelemetry.api.common.Attributes;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -38,6 +39,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.actions.DeleteOrphanFiles;
 import org.apache.iceberg.actions.ExpireSnapshots;
@@ -570,6 +572,159 @@ public class OperationsTest extends OpenHouseSparkITest {
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       // verify that new apps see snapshots correctly
       checkSnapshots(ops, tableName, snapshotIds);
+    }
+  }
+
+  @Test
+  public void testSnapshotsExpirationBackfillsMaximumReferenceAgeAndExpiresReferences()
+      throws Exception {
+    final String tableName = "db.test_es_backfill_ref_age_java";
+    final String branchName = "expired-branch";
+    final String tagName = "expired-tag";
+
+    // A legacy table receives the seven-day default while explicit short ages expire both ref
+    // types.
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, 1);
+      Table table = ops.getTable(tableName);
+      table.updateProperties().remove(TableProperties.MAX_REF_AGE_MS).commit();
+      long branchSnapshotId = table.currentSnapshot().snapshotId();
+      populateTable(ops, tableName, 1);
+      table.refresh();
+      table
+          .manageSnapshots()
+          .createBranch(branchName, branchSnapshotId)
+          .setMaxRefAgeMs(branchName, 1)
+          .createTag(tagName, branchSnapshotId)
+          .setMaxRefAgeMs(tagName, 1)
+          .commit();
+      Assertions.assertTrue(table.refs().containsKey(branchName));
+      Assertions.assertTrue(table.refs().containsKey(tagName));
+      Assertions.assertFalse(table.properties().containsKey(TableProperties.MAX_REF_AGE_MS));
+
+      ops.expireSnapshots(table, 3, "DAYS", 0);
+      table.refresh();
+
+      Assertions.assertFalse(table.refs().containsKey(branchName));
+      Assertions.assertFalse(table.refs().containsKey(tagName));
+      Assertions.assertEquals(
+          String.valueOf(Duration.ofDays(7).toMillis()),
+          table.properties().get(TableProperties.MAX_REF_AGE_MS));
+    }
+  }
+
+  @Test
+  public void testSnapshotsExpirationPreservesLiveBranchWithBackfilledMaximumReferenceAge()
+      throws Exception {
+    final String tableName = "db.test_es_live_branch_java";
+    final String branchName = "live-branch";
+
+    // The backfilled seven-day age preserves a branch whose snapshot remains within that window.
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, 1);
+      Table table = ops.getTable(tableName);
+      table.updateProperties().remove(TableProperties.MAX_REF_AGE_MS).commit();
+      long branchSnapshotId = table.currentSnapshot().snapshotId();
+      populateTable(ops, tableName, 1);
+      table.refresh();
+      table.manageSnapshots().createBranch(branchName, branchSnapshotId).commit();
+      Assertions.assertTrue(table.refs().containsKey(branchName));
+      Assertions.assertFalse(table.properties().containsKey(TableProperties.MAX_REF_AGE_MS));
+
+      ops.expireSnapshots(table, 3, "DAYS", 0);
+      table.refresh();
+
+      Assertions.assertTrue(table.refs().containsKey(branchName));
+      Assertions.assertEquals(
+          String.valueOf(Duration.ofDays(7).toMillis()),
+          table.properties().get(TableProperties.MAX_REF_AGE_MS));
+    }
+  }
+
+  @Test
+  public void testSnapshotsExpirationPreservesConfiguredMaximumReferenceAge() throws Exception {
+    final String tableName = "db.test_es_configured_ref_ages_java";
+    final String branchName = "table-configured-branch";
+    final String tagName = "table-configured-tag";
+    final String configuredMaximumReferenceAgeMillis =
+        String.valueOf(Duration.ofDays(10).toMillis());
+
+    // An existing table-level age remains authoritative and preserves live branches and tags.
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, 1);
+      Table table = ops.getTable(tableName);
+      long branchSnapshotId = table.currentSnapshot().snapshotId();
+      populateTable(ops, tableName, 1);
+      table.refresh();
+      table
+          .manageSnapshots()
+          .createBranch(branchName, branchSnapshotId)
+          .createTag(tagName, branchSnapshotId)
+          .commit();
+      table
+          .updateProperties()
+          .set(TableProperties.MAX_REF_AGE_MS, configuredMaximumReferenceAgeMillis)
+          .commit();
+      Assertions.assertTrue(table.refs().containsKey(branchName));
+      Assertions.assertTrue(table.refs().containsKey(tagName));
+
+      ops.expireSnapshots(table, 3, "DAYS", 0);
+      table.refresh();
+
+      Assertions.assertTrue(table.refs().containsKey(branchName));
+      Assertions.assertTrue(table.refs().containsKey(tagName));
+      Assertions.assertNotNull(table.snapshot(branchSnapshotId));
+      Assertions.assertEquals(
+          configuredMaximumReferenceAgeMillis,
+          table.properties().get(TableProperties.MAX_REF_AGE_MS));
+    }
+  }
+
+  @Test
+  public void testSnapshotsExpirationWithFilesHonorsTableAndReferenceMaximumAges()
+      throws Exception {
+    final String tableName = "db.test_es_reference_age_matrix_java";
+    final String tableAgeBranchName = "table-age-branch";
+    final String referenceAgeBranchName = "reference-age-branch";
+    final String tableMaximumReferenceAgeMillis = "1";
+    final long branchMaximumReferenceAgeMillis = Duration.ofDays(10).toMillis();
+
+    // SparkActions expires a table-aged branch while a longer branch-specific age preserves its
+    // peer.
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, 1);
+      Table table = ops.getTable(tableName);
+      long branchSnapshotId = table.currentSnapshot().snapshotId();
+      populateTable(ops, tableName, 1);
+      table.refresh();
+      table
+          .manageSnapshots()
+          .createBranch(tableAgeBranchName, branchSnapshotId)
+          .createBranch(referenceAgeBranchName, branchSnapshotId)
+          .setMaxRefAgeMs(referenceAgeBranchName, branchMaximumReferenceAgeMillis)
+          .commit();
+      table
+          .updateProperties()
+          .set(TableProperties.MAX_REF_AGE_MS, tableMaximumReferenceAgeMillis)
+          .commit();
+      Assertions.assertTrue(
+          System.currentTimeMillis() - table.snapshot(branchSnapshotId).timestampMillis() > 1,
+          "The branch snapshot must exceed the table-level maximum reference age");
+      Assertions.assertTrue(table.refs().containsKey(tableAgeBranchName));
+      Assertions.assertTrue(table.refs().containsKey(referenceAgeBranchName));
+
+      ops.expireSnapshots(table, 3, "DAYS", 0, true, false, BACKUP_DIR);
+      table.refresh();
+
+      Assertions.assertFalse(table.refs().containsKey(tableAgeBranchName));
+      Assertions.assertTrue(table.refs().containsKey(referenceAgeBranchName));
+      Assertions.assertNotNull(table.snapshot(branchSnapshotId));
+      Assertions.assertEquals(
+          tableMaximumReferenceAgeMillis, table.properties().get(TableProperties.MAX_REF_AGE_MS));
     }
   }
 

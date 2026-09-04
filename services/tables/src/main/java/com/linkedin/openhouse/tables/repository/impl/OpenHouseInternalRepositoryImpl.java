@@ -43,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
@@ -81,6 +82,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   private static final String TABLE_TYPE_KEY = "tableType";
   private static final String CLUSTER_ID = "clusterId";
+  private static final long DEFAULT_MAX_REFERENCE_AGE_MILLIS = TimeUnit.DAYS.toMillis(7);
 
   @Autowired Catalog catalog;
 
@@ -536,6 +538,9 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
                     !preservedKeyChecker.isKeyPreservedForTable(entry.getKey(), tableDto)
                         || preservedKeyChecker.allowKeyInCreation(entry.getKey(), tableDto))
             .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
+    propertiesMap.putIfAbsent(
+        TableProperties.MAX_REF_AGE_MS, String.valueOf(DEFAULT_MAX_REFERENCE_AGE_MILLIS));
 
     // Only set cluster default for DEFAULT_FILE_FORMAT if user hasn't provided a value
     // (which means either they didn't specify it, or the feature toggle filtered it out)
