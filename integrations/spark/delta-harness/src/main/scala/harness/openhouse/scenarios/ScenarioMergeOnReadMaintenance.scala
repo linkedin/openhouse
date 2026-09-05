@@ -27,7 +27,7 @@ import org.apache.hadoop.fs.{FileSystem, Path}
  * Case families: seven families contributing 14 cases, 12 on the two deleted preparations and 2 on the self-deleting
  * one.
  */
-trait ScenarioMergeOnReadMaintenance extends ScenarioMergeOnReadKit {
+trait ScenarioMergeOnReadMaintenance extends MergeOnReadTableFixtures {
 
   /** Every merge-on-read maintenance case, one deleted preparation at a time, then the self-deleting family. */
   lazy val mergeOnReadMaintenanceCases: List[TestCase] =
@@ -60,7 +60,7 @@ trait ScenarioMergeOnReadMaintenance extends ScenarioMergeOnReadKit {
       val rewriteReport = table.spark
         .sql(
           "CALL openhouse.system.rewrite_data_files(" +
-            s"table => '${catalogRelative(table.name)}', " +
+            s"table => '${catalogRelativeTableName(table.name)}', " +
             "options => map('rewrite-all', 'true'))")
         .collect()(0)
       val dataFilePathsAfter = currentDataFilePaths(table.spark, table.name)
@@ -92,13 +92,13 @@ trait ScenarioMergeOnReadMaintenance extends ScenarioMergeOnReadKit {
     preparation.test("mergeOnRead.maintenance.rewritePositionDeletesClearsDangling") { table =>
       table.spark.sql(
         "CALL openhouse.system.rewrite_data_files(" +
-          s"table => '${catalogRelative(table.name)}', " +
+          s"table => '${catalogRelativeTableName(table.name)}', " +
           "options => map('rewrite-all', 'true'))")
       val danglingDeleteFileCount = currentDeleteFileCount(table.spark, table.name)
       val rewriteReport = table.spark
         .sql(
           "CALL openhouse.system.rewrite_position_delete_files(" +
-            s"table => '${catalogRelative(table.name)}', " +
+            s"table => '${catalogRelativeTableName(table.name)}', " +
             "options => map('rewrite-all', 'true'))")
         .collect()(0)
 
@@ -141,7 +141,7 @@ trait ScenarioMergeOnReadMaintenance extends ScenarioMergeOnReadKit {
 
       table.spark.sql(
         "CALL openhouse.system.expire_snapshots(" +
-          s"table => '${catalogRelative(table.name)}', " +
+          s"table => '${catalogRelativeTableName(table.name)}', " +
           s"older_than => TIMESTAMP '$expirationCutoff', " +
           "retain_last => 1)")
       val snapshotIdsAfter = retainedSnapshotIds(table.spark, table.name)
@@ -189,7 +189,7 @@ trait ScenarioMergeOnReadMaintenance extends ScenarioMergeOnReadKit {
       val rewriteReport = table.spark
         .sql(
           "CALL openhouse.system.rewrite_manifests(" +
-            s"table => '${catalogRelative(table.name)}')")
+            s"table => '${catalogRelativeTableName(table.name)}')")
         .collect()(0)
       val dataManifestPathsAfter =
         currentManifestPaths(table.spark, table.name, dataManifestContent)
@@ -258,7 +258,7 @@ trait ScenarioMergeOnReadMaintenance extends ScenarioMergeOnReadKit {
         val removedPaths = table.spark
           .sql(
             "CALL openhouse.system.remove_orphan_files(" +
-              s"table => '${catalogRelative(table.name)}', " +
+              s"table => '${catalogRelativeTableName(table.name)}', " +
               s"older_than => TIMESTAMP '${orphanRemovalCutoffTimestamp()}')")
           .collect()
           .toSeq
@@ -356,7 +356,7 @@ trait ScenarioMergeOnReadMaintenance extends ScenarioMergeOnReadKit {
       val compactionReport = table.spark
         .sql(
           "CALL openhouse.system.rewrite_position_delete_files(" +
-            s"table => '${catalogRelative(table.name)}', " +
+            s"table => '${catalogRelativeTableName(table.name)}', " +
             "options => map('rewrite-all', 'true'))")
         .collect()(0)
 
@@ -379,7 +379,7 @@ trait ScenarioMergeOnReadMaintenance extends ScenarioMergeOnReadKit {
       val currentSnapshotIdBeforeExpiration = currentSnapshotId(table.spark, table.name)
       table.spark.sql(
         "CALL openhouse.system.expire_snapshots(" +
-          s"table => '${catalogRelative(table.name)}', " +
+          s"table => '${catalogRelativeTableName(table.name)}', " +
           s"older_than => TIMESTAMP '$expirationCutoff', " +
           "retain_last => 1)")
       val snapshotIdsAfterExpiration = retainedSnapshotIds(table.spark, table.name)
@@ -424,7 +424,7 @@ trait ScenarioMergeOnReadMaintenance extends ScenarioMergeOnReadKit {
       val rewriteReport = table.spark
         .sql(
           "CALL openhouse.system.rewrite_position_delete_files(" +
-            s"table => '${catalogRelative(table.name)}', " +
+            s"table => '${catalogRelativeTableName(table.name)}', " +
             "options => map('rewrite-all', 'true'))")
         .collect()(0)
 

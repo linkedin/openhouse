@@ -5,8 +5,8 @@ package harness
  *
  * A merge-on-read table is format version 2 whose delete, update and merge modes are merge-on-read, so a mutation
  * records position-delete files beside the data files it matched and leaves those data files in place. Copy-on-write
- * rewrites the matched data file instead. That physical difference is the whole subject of this layer, so this kit
- * supplies the starting states that put a table on one write path or the other and leaves the operations to the
+ * rewrites the matched data file instead. That physical difference is the whole subject of this layer, so these
+ * fixtures supply the starting states that put a table on one write path or the other and leave the operations to the
  * foundation.
  *
  * Several families need a table whose delete is a partial-file match, because a delete aligned with a whole data file
@@ -17,7 +17,7 @@ package harness
  * The members are lazy so they initialize on first read, after every trait mixed into `object Scenarios` has been
  * constructed.
  */
-trait ScenarioMergeOnReadKit extends ScenarioKit {
+trait MergeOnReadTableFixtures extends RtasTableFixtures {
 
   /** Every merge-on-read layout: each file format crossed with each partitioning. */
   lazy val mergeOnReadLayouts: List[Layout] =
@@ -55,7 +55,10 @@ trait ScenarioMergeOnReadKit extends ScenarioKit {
   /** One preparation per merge-on-read layout: created, then seeded with the standard rows. */
   lazy val preparedMergeOnReadCoreTables: List[TablePreparation[CoreTable.type]] =
     mergeOnReadLayouts.map(layout =>
-      TablePreparation(layout.label, create(layout).insert(standardSeedRowCount)(), mergeOnReadCasePrefix))
+      TablePreparation(
+        layout.label,
+        createCoreTable(layout).insert(standardSeedRowCount)(),
+        mergeOnReadCasePrefix))
 
   /** The merge-on-read core preparations, each carrying one row whose string column is null. */
   lazy val preparedNullStringMergeOnReadCoreTables: List[TablePreparation[CoreTable.type]] =
@@ -135,7 +138,7 @@ trait ScenarioMergeOnReadKit extends ScenarioKit {
    * match: merge-on-read writes a position delete for it, and copy-on-write rewrites the data file.
    */
   protected def singleFileSeed(layout: Layout): TableTest[CoreTable.type] =
-    create(layout)
+    createCoreTable(layout)
       .sql(s"seed($standardSeedRowCount, one-file)")(table =>
         s"INSERT INTO $table SELECT /*+ COALESCE(1) */ * FROM " +
           s"(${RowGenerator.valuesClause(Core, standardSeedRowCount)}) AS seed")(view =>
@@ -250,7 +253,7 @@ trait ScenarioMergeOnReadKit extends ScenarioKit {
       spark: org.apache.spark.sql.SparkSession,
       table: String,
       propertyName: String): Option[String] =
-    tableProps(spark, table).get(propertyName)
+    tableProperties(spark, table).get(propertyName)
 
   /** The live keys the table reads back, in key order, with every position delete applied. */
   protected def liveKeys(spark: org.apache.spark.sql.SparkSession, table: String): Seq[Long] =

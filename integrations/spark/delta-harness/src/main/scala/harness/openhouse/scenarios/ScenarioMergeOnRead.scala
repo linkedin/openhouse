@@ -11,8 +11,8 @@ package harness
  * or carry it. Maintenance is large enough to review on its own, so it lives in ScenarioMergeOnReadMaintenance and
  * joins the one contribution this layer names.
  *
- * Operations, DML: the row-mutating operations `ScenarioDml` defines, its null-string DELETE and its reads, reused as
- * data. A merge-on-read table runs the same statements and the same row and snapshot delta assertions as a
+ * Operations, DML: the row-mutating operations `ScenarioDmlOperations` defines, its null-string DELETE and its reads,
+ * reused as data. A merge-on-read table runs the same statements and the same row and snapshot delta assertions as a
  * copy-on-write one, so this file holds one definition of each preparation and none of each operation.
  *
  * Operations, merge-on-read contract: 26 focused families. Nineteen live here and cover the physical delete file
@@ -32,7 +32,7 @@ package harness
  * contributes 52 in 26 families: 38 in the 19 families here and 14 in the 7 maintenance families.
  */
 trait ScenarioMergeOnRead extends ScenarioMergeOnReadMaintenance {
-  this: ScenarioDml with ScenarioStandardDml with ChangelogSupport =>
+  this: ScenarioCoreDml with ScenarioDmlOperations with ChangelogSupport =>
 
   /** Every merge-on-read case: the reusable DML operations on merge-on-read tables, then the write-mode contract. */
   lazy val mergeOnReadCases: List[TestCase] =
@@ -245,7 +245,7 @@ trait ScenarioMergeOnRead extends ScenarioMergeOnReadMaintenance {
     preparation.test("mergeOnRead.coexistence.compactDeletes") { table =>
       table.spark.sql(
         "CALL openhouse.system.rewrite_position_delete_files(" +
-          s"table => '${catalogRelative(table.name)}', " +
+          s"table => '${catalogRelativeTableName(table.name)}', " +
           "options => map('rewrite-all', 'true'))")
 
       assert(
@@ -436,9 +436,9 @@ trait ScenarioMergeOnRead extends ScenarioMergeOnReadMaintenance {
             s"ALTER TABLE ${table.name} SET TBLPROPERTIES ('write.delete-file-replication'='2')")
 
           assert(
-            tableProps(table.spark, table.name).get("write.delete-file-replication").contains("2"),
+            tableProperties(table.spark, table.name).get("write.delete-file-replication").contains("2"),
             s"the delete-file replication property round-trips, found " +
-              s"${tableProps(table.spark, table.name).get("write.delete-file-replication")}")
+              s"${tableProperties(table.spark, table.name).get("write.delete-file-replication")}")
 
           table.spark.sql(s"DELETE FROM ${table.name} WHERE ${Core.long0.columnName} = 1")
 
@@ -450,7 +450,7 @@ trait ScenarioMergeOnRead extends ScenarioMergeOnReadMaintenance {
             liveKeys(table.spark, table.name) == Seq(2L, 3L),
             s"the delete leaves keys 2 and 3, found ${liveKeys(table.spark, table.name)}")
           assert(
-            tableProps(table.spark, table.name).get("write.delete-file-replication").contains("2"),
+            tableProperties(table.spark, table.name).get("write.delete-file-replication").contains("2"),
             "the delete-file replication property survives the delete that used it")
         })
 
@@ -495,7 +495,7 @@ trait ScenarioMergeOnRead extends ScenarioMergeOnReadMaintenance {
       val seedSnapshotId = snapshotIds(table.spark, table.name).head
       table.spark.sql(
         "CALL openhouse.system.rollback_to_snapshot(" +
-          s"table => '${catalogRelative(table.name)}', " +
+          s"table => '${catalogRelativeTableName(table.name)}', " +
           s"snapshot_id => ${seedSnapshotId}L)")
 
       assert(
