@@ -31,7 +31,16 @@ final case class TestCase(
   def bugReason: Option[String] = knownBugReason.map(reason => s"bug: $reason")
 }
 
-final case class Ctx(spark: SparkSession, namespace: String)
+final case class Ctx(spark: SparkSession, namespace: String, tableLockClient: TableLockClient)
+
+object Ctx {
+  def apply(
+      spark:              SparkSession,
+      namespace:          String,
+      tablesUri:          String,
+      authorizationToken: String): Ctx =
+    Ctx(spark, namespace, TableLockClient.create(tablesUri, authorizationToken))
+}
 
 sealed trait Outcome { def label: String }
 object Outcome {

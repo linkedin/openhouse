@@ -50,7 +50,7 @@ dependencies {
   compileOnly("com.linkedin.iceberg:iceberg-spark-runtime-3.5_2.12:${icebergVersion}") {
     exclude group: 'io.netty'
   }
-  // Provides com.linkedin.openhouse.javaclient.* (WebClientResponseWithMessageException, etc.).
+  // Provides the OpenHouse catalog runtime plus its authenticated, generated Tables client.
   compileOnly(project(path: ':integrations:spark:spark-3.5:openhouse-spark-3.5-runtime_2.12', configuration: 'shadow'))
 
   // The catalog tests read Catalog contributions and cases without starting Spark. Their JVM still

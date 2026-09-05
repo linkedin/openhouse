@@ -8,6 +8,9 @@ import org.junit.jupiter.api.Test
 import org.mockito.Mockito.{mock, when}
 
 final class RunnerTest {
+  private def context(spark: SparkSession): Ctx =
+    Ctx(spark, "openhouse.test", mock(classOf[TableLockClient]))
+
   @Test
   def configuredParallelismRequiresAPositiveInteger(): Unit = {
     assertEquals(8, RunnerConfiguration.parallelism(Map.empty, 8))
@@ -66,7 +69,7 @@ final class RunnerTest {
 
     assertEquals(
       (Outcome.Passed, 2),
-      Runner.execute(retryThenPass, Ctx(rootSpark, "openhouse.test")))
+      Runner.execute(retryThenPass, context(rootSpark)))
     assertSame(freshSpark, receivedSpark.get)
 
     val exhaustedSpark = mock(classOf[SparkSession])
@@ -76,7 +79,7 @@ final class RunnerTest {
     val caseRuns = new AtomicInteger()
     val (exhaustedOutcome, exhaustedCount) = Runner.execute(
       TestCase("exhaust-retries", _ => caseRuns.incrementAndGet()),
-      Ctx(exhaustedSpark, "openhouse.test"))
+      context(exhaustedSpark))
 
     assertEquals(Runner.MaxAttempts, exhaustedCount)
     assertEquals(0, caseRuns.get())
@@ -87,7 +90,7 @@ final class RunnerTest {
     when(terminalSpark.newSession()).thenThrow(terminalFailure)
     val (terminalOutcome, terminalCount) = Runner.execute(
       TestCase("terminal", _ => ()),
-      Ctx(terminalSpark, "openhouse.test"))
+      context(terminalSpark))
 
     assertEquals(1, terminalCount)
     assertSame(terminalFailure, terminalOutcome.asInstanceOf[Outcome.Failed].cause)
@@ -109,7 +112,7 @@ final class RunnerTest {
           assertionAttempts.incrementAndGet()
           throw assertionFailure
         }),
-      Ctx(rootSpark, "openhouse.test"))
+      context(rootSpark))
 
     assertEquals(1, assertionCount)
     assertEquals(1, assertionAttempts.get())
@@ -124,7 +127,7 @@ final class RunnerTest {
           cleanupAttempts.incrementAndGet()
           OwnedTableLifecycle.withCleanup(throw cleanupFailure)(())
         }),
-      Ctx(rootSpark, "openhouse.test"))
+      context(rootSpark))
 
     assertEquals(1, cleanupCount)
     assertEquals(1, cleanupAttempts.get())

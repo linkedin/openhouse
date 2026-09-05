@@ -10,11 +10,11 @@ object Main {
   private val FoundationCatalogArgument = "--catalog=foundation"
 
   def main(args: Array[String]): Unit = {
-    val (server, spark) = OpenHouseEnv.start()
+    val (server, spark, tablesUri, authorizationToken) = OpenHouseEnv.start()
     var runFailure: Option[Throwable] = None
     try {
       spark.sparkContext.setLogLevel("ERROR")
-      val ctx = Ctx(spark, "openhouse.dbMatrix")
+      val ctx = Ctx(spark, "openhouse.dbMatrix", tablesUri, authorizationToken)
 
       val (catalogArguments, filters) = args.toList.partition(_.startsWith("--catalog="))
       val selectedCatalog = catalogArguments match {

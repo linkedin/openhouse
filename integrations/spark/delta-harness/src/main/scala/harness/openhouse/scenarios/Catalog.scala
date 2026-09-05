@@ -10,6 +10,11 @@ object Scenarios
     with ScenarioDmlRejection
     with ScenarioDmlOperations
     with ScenarioRtas
+    with ScenarioConcurrency
+    with ScenarioLocking
+    with ScenarioStreaming
+    with ScenarioTableEvolutionCompatibility
+    with ScenarioWriterCompatibility
     with ChangelogSupport
 
 /**
@@ -28,8 +33,13 @@ object Catalog {
   /** Additional named scenario contributions supplied by a composed catalog. */
   def extensionContributions: List[(String, List[TestCase])] =
     List(
-      "dmlOperationCases" -> Scenarios.dmlOperationCases,
-      "rtasCases"         -> Scenarios.rtasCases)
+      "dmlOperationCases"                 -> Scenarios.dmlOperationCases,
+      "rtasCases"                         -> Scenarios.rtasCases,
+      "concurrencyCases"                  -> Scenarios.concurrencyCases,
+      "lockingCases"                      -> Scenarios.lockingCases,
+      "streamingCases"                    -> Scenarios.streamingCases,
+      "tableEvolutionCompatibilityCases" -> Scenarios.tableEvolutionCompatibilityCases,
+      "writerCompatibilityCases"          -> Scenarios.writerCompatibilityCases)
 
   /** Every capability contribution, named once, in the order the catalog integrates them. */
   def contributions: List[(String, List[TestCase])] =
