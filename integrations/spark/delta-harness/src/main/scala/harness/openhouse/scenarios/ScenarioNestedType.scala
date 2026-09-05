@@ -15,7 +15,7 @@ package harness
  *
  * Case families: nine families contributing 18 cases, 14 on the nested layouts and 4 on the core formats.
  */
-trait ScenarioNestedType extends ScenarioKit {
+trait ScenarioNestedType extends SchemaTableFixtures {
 
   /** Every nested-type case: the reads and writes on the nested layouts, then the struct-evolution cases. */
   lazy val nestedTypeCases: List[TestCase] =

@@ -19,7 +19,7 @@ import org.apache.iceberg.exceptions.BadRequestException
  * Case families: 14 families contributing 42 cases, 4 created-schema, 24 evolution, and 14 rejection or side-table
  * cases.
  */
-trait ScenarioSchemaEvolution extends ScenarioKit {
+trait ScenarioSchemaEvolution extends SchemaTableFixtures {
 
   /** Every schema-evolution case: the created schema, then the accepted changes, then the boundaries. */
   lazy val schemaEvolutionCases: List[TestCase] =
@@ -177,7 +177,7 @@ trait ScenarioSchemaEvolution extends ScenarioKit {
       table.spark.sql(
         s"ALTER TABLE ${table.name} ADD COLUMN extra_col INT")
       table.spark.sql(
-        s"INSERT INTO ${table.name} VALUES $extraColInsert9")
+        s"INSERT INTO ${table.name} VALUES $extraColumnRowNine")
       val exception = Check.intercept[BadRequestException](
         table.spark.sql(
           s"ALTER TABLE ${table.name} DROP COLUMN extra_col"))
@@ -192,7 +192,7 @@ trait ScenarioSchemaEvolution extends ScenarioKit {
         "rejected drop should leave the column data readable")
 
       table.spark.sql(
-        s"INSERT INTO ${table.name} VALUES $extraColInsert10")
+        s"INSERT INTO ${table.name} VALUES $extraColumnRowTen")
       assert(
         countOf(table.spark, s"SELECT count(*) FROM ${table.name}") == "5",
         "rejected drop should leave the table writable")
