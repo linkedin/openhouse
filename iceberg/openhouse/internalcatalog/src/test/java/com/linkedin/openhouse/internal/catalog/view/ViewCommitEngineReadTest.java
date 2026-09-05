@@ -173,16 +173,23 @@ public class ViewCommitEngineReadTest {
    */
   @Test
   void loadViewPropagatesAnAdapterContractViolationUntouched() {
+    IllegalStateException reportedByTheAdapter =
+        new IllegalStateException(
+            "House Table answered the view route for viewdb.v1 with a row whose entity type is"
+                + " 'TABLE'");
     when(houseTableRepository.findViewById(any(HouseTablePrimaryKey.class)))
-        .thenThrow(
-            new IllegalStateException(
-                "House Table answered the view route for viewdb.v1 with a row whose entity type is"
-                    + " 'TABLE'"));
+        .thenThrow(reportedByTheAdapter);
 
     IllegalStateException thrown =
         Assertions.assertThrows(
             IllegalStateException.class, () -> viewCommitEngine.loadView(DB, VIEW));
 
+    // The same instance, not merely one of the same type: wrapping or rebuilding it here would lose
+    // the adapter's report of which key and which value were corrupt.
+    Assertions.assertSame(
+        reportedByTheAdapter,
+        thrown,
+        "the engine must propagate the adapter's own exception untouched");
     Assertions.assertTrue(
         thrown.getMessage().contains(DB) && thrown.getMessage().contains(VIEW),
         "corruption must surface as itself, naming the key: " + thrown.getMessage());
