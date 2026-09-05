@@ -20,7 +20,7 @@ import org.apache.spark.sql.SparkSession
  * Case families: three families contributing 14 cases, 10 operation cases, 2 append-only history cases and 2
  * expired-start cases.
  */
-trait ScenarioChangelog extends ChangelogSupport {
+trait ScenarioChangelog extends ChangelogSupport with HistoryTableFixtures {
 
   /** Every changelog case, one file format at a time. */
   lazy val changelogCases: List[TestCase] =
@@ -48,7 +48,7 @@ trait ScenarioChangelog extends ChangelogSupport {
     table.spark
       .sql(
         "CALL openhouse.system.create_changelog_view(" +
-          s"table => '${catalogRelative(table.name)}', " +
+          s"table => '${catalogRelativeTableName(table.name)}', " +
           s"options => map('start-timestamp', '$startTimestampMillis'))")
       .collect()(0)
       .getString(0)
@@ -78,7 +78,7 @@ trait ScenarioChangelog extends ChangelogSupport {
       val view = table.spark
         .sql(
           "CALL openhouse.system.create_changelog_view(" +
-            s"table => '${catalogRelative(table.name)}')")
+            s"table => '${catalogRelativeTableName(table.name)}')")
         .collect()(0)
         .getString(0)
       val actualChangeCounts = changeCounts(table, view)
@@ -116,7 +116,7 @@ trait ScenarioChangelog extends ChangelogSupport {
 
       table.spark.sql(
         "CALL openhouse.system.expire_snapshots(" +
-          s"table => '${catalogRelative(table.name)}', " +
+          s"table => '${catalogRelativeTableName(table.name)}', " +
           "older_than => TIMESTAMP '2999-01-01 00:00:00', " +
           "retain_last => 1)")
       assert(

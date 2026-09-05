@@ -14,7 +14,7 @@ import org.apache.spark.sql.SparkSession
  *
  * Case families: three families contributing 6 cases.
  */
-trait ScenarioTimeTravel extends ScenarioKit {
+trait ScenarioTimeTravel extends HistoryTableFixtures {
 
   /** The standard seed as its (key, string) rows, so a snapshot read proves it returned exactly these rows. */
   private val seedKeyStrings: Seq[(Long, String)] =
@@ -96,7 +96,7 @@ trait ScenarioTimeTravel extends ScenarioKit {
     preparation.test("timeTravel.afterAddColumn") { table =>
       val seedSnapshot = snapshotIds(table.spark, table.name).last
       table.spark.sql(s"ALTER TABLE ${table.name} ADD COLUMN extra_col INT")
-      table.spark.sql(s"INSERT INTO ${table.name} VALUES $extraColInsert9")
+      table.spark.sql(s"INSERT INTO ${table.name} VALUES $extraColumnRowNine")
 
       assert(
         columnNamesFrom(table.spark, table.name) == Core.columnNames :+ "extra_col",

@@ -13,7 +13,7 @@ import org.apache.spark.sql.SparkSession
  *
  * Case families: three families contributing 6 cases.
  */
-trait ScenarioSnapshotRestore extends ScenarioKit {
+trait ScenarioSnapshotRestore extends HistoryTableFixtures {
 
   /** The standard seed as its restored (key, string) rows, so a restore proves it recovered exactly these rows. */
   private val seedKeyStrings: Seq[(Long, String)] =
@@ -73,7 +73,7 @@ trait ScenarioSnapshotRestore extends ScenarioKit {
       val seedSnapshot = snapshotIds(table.spark, table.name).head
 
       table.spark.sql(
-        s"CALL openhouse.system.$procedure('${catalogRelative(table.name)}', $seedSnapshot)")
+        s"CALL openhouse.system.$procedure('${catalogRelativeTableName(table.name)}', $seedSnapshot)")
 
       assert(
         mainSnapshotId(table.spark, table.name) == seedSnapshot,
@@ -100,10 +100,10 @@ trait ScenarioSnapshotRestore extends ScenarioKit {
     preparation.test("restore.afterAddColumn") { table =>
       val seedSnapshot = mainSnapshotId(table.spark, table.name)
       table.spark.sql(s"ALTER TABLE ${table.name} ADD COLUMN extra_col INT")
-      table.spark.sql(s"INSERT INTO ${table.name} VALUES $extraColInsert9")
+      table.spark.sql(s"INSERT INTO ${table.name} VALUES $extraColumnRowNine")
       table.spark.sql(
         "CALL openhouse.system.rollback_to_snapshot(" +
-          s"'${catalogRelative(table.name)}', $seedSnapshot)")
+          s"'${catalogRelativeTableName(table.name)}', $seedSnapshot)")
 
       assert(
         mainSnapshotId(table.spark, table.name) == seedSnapshot,
@@ -115,12 +115,12 @@ trait ScenarioSnapshotRestore extends ScenarioKit {
         keyStringsOf(table) == seedKeyStrings,
         s"the rollback recovers exactly the seed rows: ${keyStringsOf(table)}")
       assert(
-        countOf(
+        queryCount(
           table.spark,
           s"SELECT count(*) FROM ${table.name} WHERE extra_col IS NOT NULL") == "0",
         "the recovered seed rows read the evolved column as null")
 
-      table.spark.sql(s"INSERT INTO ${table.name} VALUES $extraColInsert10")
+      table.spark.sql(s"INSERT INTO ${table.name} VALUES $extraColumnRowTen")
       assert(
         keysOf(table) == Seq(1L, 2L, 3L, 10L),
         s"the rolled-back table accepts an evolved-schema insert: ${keysOf(table)}")

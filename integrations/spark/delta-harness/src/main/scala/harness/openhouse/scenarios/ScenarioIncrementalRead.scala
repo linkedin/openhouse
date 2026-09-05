@@ -15,7 +15,7 @@ import org.apache.spark.sql.SparkSession
  *
  * Case families: five families contributing 10 cases.
  */
-trait ScenarioIncrementalRead extends ScenarioKit {
+trait ScenarioIncrementalRead extends HistoryTableFixtures {
 
   /** Every incremental-read case, one file format at a time. */
   lazy val incrementalReadCases: List[TestCase] =

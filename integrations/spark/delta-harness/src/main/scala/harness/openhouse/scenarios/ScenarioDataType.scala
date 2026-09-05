@@ -18,7 +18,7 @@ import java.time.{Instant, LocalDateTime}
  *
  * Case families: five families over two layouts, contributing 10 cases.
  */
-trait ScenarioDataType extends ScenarioKit {
+trait ScenarioDataType extends TableTestFixtures {
 
   /** Every scalar-type case, one layout at a time. */
   lazy val dataTypeCases: List[TestCase] =
