@@ -3,7 +3,7 @@ package harness
 import org.apache.spark.sql.AnalysisException
 
 /**
- * DML validation: the DML statements the analyzer and the row-level rewrite refuse, and the message each rejection
+ * DML rejection: the DML statements the analyzer and the row-level rewrite refuse, and the message each rejection
  * carries.
  *
  * Operations: DELETE on a column the table does not declare, DELETE and UPDATE with a nondeterministic predicate,
@@ -14,10 +14,10 @@ import org.apache.spark.sql.AnalysisException
  *
  * Case families: six families contributing 12 cases.
  */
-trait ScenarioDmlValidation extends ScenarioKit {
+trait ScenarioDmlRejection extends TableTestFixtures {
 
-  /** Every DML-validation case, one file format at a time. */
-  lazy val dmlValidationCases: List[TestCase] =
+  /** Every rejected-DML case, one file format at a time. */
+  lazy val dmlRejectionCases: List[TestCase] =
     preparedCoreFormats.flatMap { preparation =>
       List(
         nonExistentColumnCase(preparation),

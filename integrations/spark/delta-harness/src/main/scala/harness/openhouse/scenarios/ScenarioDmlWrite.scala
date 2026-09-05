@@ -7,7 +7,7 @@ import org.apache.spark.sql.functions.lit
  * Insert and overwrite operations over the core table. Each case verifies the appended or replaced rows and the
  * snapshot behavior of its SQL or DataFrame form.
  */
-trait ScenarioDmlWrite extends ScenarioKit {
+trait ScenarioDmlWrite extends TableTestFixtures {
   import Rows._
 
   /**
