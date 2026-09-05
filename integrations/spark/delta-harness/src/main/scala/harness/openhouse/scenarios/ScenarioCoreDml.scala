@@ -12,16 +12,16 @@ import org.apache.spark.sql.Row
  *
  * Case families: six operations over Parquet and ORC, contributing 12 cases.
  */
-trait ScenarioDml extends ScenarioKit {
+trait ScenarioCoreDml extends TableTestFixtures {
   import Rows._
 
   /** One representative from every principal read and write family, on each standard format. */
-  lazy val dmlCases: List[TestCase] =
+  lazy val dmlCoreCases: List[TestCase] =
     preparedCoreFormats.flatMap(preparation =>
-      coreDmlTestCases.map(_.runOn(preparation)))
+      coreDmlOperations.map(_.runOn(preparation)))
 
   /** The six operations that prove the complete table lifecycle and each principal DML family. */
-  lazy val coreDmlTestCases: List[DmlTestCase[CoreTable.type]] =
+  lazy val coreDmlOperations: List[DmlTestCase[CoreTable.type]] =
     List(
       readProjection,
       insertInto,
