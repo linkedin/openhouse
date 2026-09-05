@@ -17,7 +17,6 @@ import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableEntityTypeCorruptException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import com.linkedin.openhouse.internal.catalog.view.model.LoadedView;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewPointer;
@@ -175,13 +174,15 @@ public class ViewCommitEngineReadTest {
   @Test
   void loadViewPropagatesAnAdapterContractViolationUntouched() {
     when(houseTableRepository.findViewById(any(HouseTablePrimaryKey.class)))
-        .thenThrow(new HouseTableEntityTypeCorruptException(DB, VIEW, "TABLE", "VIEW"));
+        .thenThrow(
+            new IllegalStateException(
+                "House Table answered the view route for viewdb.v1 with a row whose entity type is"
+                    + " 'TABLE'"));
 
-    HouseTableEntityTypeCorruptException thrown =
+    IllegalStateException thrown =
         Assertions.assertThrows(
-            HouseTableEntityTypeCorruptException.class, () -> viewCommitEngine.loadView(DB, VIEW));
+            IllegalStateException.class, () -> viewCommitEngine.loadView(DB, VIEW));
 
-    Assertions.assertEquals("TABLE", thrown.getEntityType());
     Assertions.assertTrue(
         thrown.getMessage().contains(DB) && thrown.getMessage().contains(VIEW),
         "corruption must surface as itself, naming the key: " + thrown.getMessage());

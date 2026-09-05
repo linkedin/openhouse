@@ -79,6 +79,15 @@ public interface HouseTableRepository
    *     .HouseTableRepositoryStateUnknownException the read could not be completed
    */
   Optional<HouseTable> findEntityById(HouseTablePrimaryKey houseTablePrimaryKey);
+  /*
+   * The two typed view reads declare `throws IllegalStateException` even though it is unchecked, and
+   * that is load-bearing rather than documentation. This repository is a Spring `@Repository`, so
+   * under JPA the persistence exception translator would otherwise rewrite the contract violation
+   * below into `InvalidDataAccessApiUsageException` and disguise corruption as data-access misuse;
+   * `PersistenceExceptionTranslationInterceptor` rethrows an exception the method declares, and a
+   * Javadoc `@throws` alone does not qualify. Declared on both the interface and the implementation
+   * so either proxy strategy selects a declaring method. It imposes nothing on callers.
+   */
 
   /**
    * Resolves only VIEW rows; a table at the same key reads as absent.
@@ -91,7 +100,8 @@ public interface HouseTableRepository
    * @throws com.linkedin.openhouse.internal.catalog.repository.exception
    *     .HouseTableRepositoryStateUnknownException the read could not be completed
    */
-  Optional<HouseTable> findViewById(HouseTablePrimaryKey houseTablePrimaryKey);
+  Optional<HouseTable> findViewById(HouseTablePrimaryKey houseTablePrimaryKey)
+      throws IllegalStateException;
 
   /**
    * House Table filters VIEW before paginating, so no row is read to be discarded.
@@ -103,7 +113,8 @@ public interface HouseTableRepository
    * @throws com.linkedin.openhouse.internal.catalog.repository.exception
    *     .HouseTableRepositoryStateUnknownException the read could not be completed
    */
-  Page<HouseTable> findAllViewsByDatabaseId(String databaseId, Pageable pageable);
+  Page<HouseTable> findAllViewsByDatabaseId(String databaseId, Pageable pageable)
+      throws IllegalStateException;
 
   /**
    * Exactly one attempt, un-retried: an ambiguous 5xx, 504, or block timeout surfaces as unknown

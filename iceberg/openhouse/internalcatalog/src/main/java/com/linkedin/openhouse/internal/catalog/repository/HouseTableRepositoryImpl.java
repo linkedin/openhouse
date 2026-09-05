@@ -15,7 +15,6 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableEntityTypeCorruptException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import io.netty.resolver.dns.DnsNameResolverTimeoutException;
@@ -408,7 +407,8 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
   }
 
   @Override
-  public Optional<HouseTable> findViewById(HouseTablePrimaryKey houseTablePrimaryKey) {
+  public Optional<HouseTable> findViewById(HouseTablePrimaryKey houseTablePrimaryKey)
+      throws IllegalStateException {
     Optional<HouseTable> found =
         pointReadWithRetry(
             apiInstance.getUserView(
@@ -448,15 +448,30 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
    * is corruption rather than a miss. Reporting it as absent would tell a later create the name is
    * free.
    */
+  /**
+   * House Table cannot answer a view route with anything but a view, so a row that says otherwise
+   * is corruption rather than a miss. Reporting it as absent would tell a later create the name is
+   * free.
+   *
+   * <p>Deliberately an {@link IllegalStateException}, which the read retry template treats as
+   * retryable: the subscription-count tests rely on that to prove this runs after the retry has
+   * finished rather than inside it. A bespoke non-retryable type would make those tests pass either
+   * way and quietly lose the guarantee.
+   */
   private static void requireCanonicalView(HouseTable row, String databaseId, String tableId) {
     if (!ENTITY_TYPE_VIEW.equals(row.getEntityType())) {
-      throw new HouseTableEntityTypeCorruptException(
-          databaseId, tableId, row.getEntityType(), ENTITY_TYPE_VIEW);
+      throw new IllegalStateException(
+          String.format(
+              "House Table answered the view route for %s.%s with a row whose entity type is %s",
+              databaseId,
+              tableId,
+              row.getEntityType() == null ? "missing" : "'" + row.getEntityType() + "'"));
     }
   }
 
   @Override
-  public Page<HouseTable> findAllViewsByDatabaseId(String databaseId, Pageable pageable) {
+  public Page<HouseTable> findAllViewsByDatabaseId(String databaseId, Pageable pageable)
+      throws IllegalStateException {
     Map<String, String> params = new HashMap<>();
     if (Strings.isNotEmpty(databaseId)) {
       params.put("databaseId", databaseId);
