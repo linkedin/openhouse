@@ -43,6 +43,17 @@ final class TableLifecycleTest {
   }
 
   @Test
+  def cleanupFailureAfterSuccessfulBodyIsPrimary(): Unit = {
+    val cleanupFailure = new Exception("cleanup failed")
+
+    val thrown = assertThrows(
+      classOf[Exception],
+      () => OwnedTableLifecycle.withCleanup(throw cleanupFailure)(()))
+
+    assertSame(cleanupFailure, thrown)
+  }
+
+  @Test
   def generatedTableNamesStayUniqueAcrossCounterResets(): Unit = {
     val pool = Executors.newFixedThreadPool(8)
     try {

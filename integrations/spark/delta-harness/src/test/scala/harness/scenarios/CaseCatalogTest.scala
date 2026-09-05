@@ -7,7 +7,7 @@ final class CaseCatalogTest {
   @Test
   def catalogContainsEachCoreScenarioInStableOrder(): Unit = {
     assertEquals(
-      List("dataTypeCases", "dmlCases", "dmlValidationCases"),
+      List("dataTypeCases", "dmlCoreCases", "dmlRejectionCases"),
       Catalog.foundationContributions.map(_._1))
     assertEquals(
       List(
@@ -64,16 +64,16 @@ final class CaseCatalogTest {
   def layoutsReadTheConfiguredDataSourceAtExecutionTime(): Unit = {
     val originalDataSource = Scenarios.dataSource
     try {
-      val layouts = Scenarios.layouts
+      val coreLayouts = Scenarios.coreLayouts
       val typesLayouts = Scenarios.typesLayouts
       Catalog.cases
 
       Scenarios.dataSource = "openhouse"
-      assertTrue(layouts.forall(_.create("db.t").contains(" USING openhouse ")))
+      assertTrue(coreLayouts.forall(_.create("db.t").contains(" USING openhouse ")))
       assertTrue(typesLayouts.forall(_.create("db.t").contains(" USING openhouse ")))
 
       Scenarios.dataSource = "alternate"
-      assertTrue(layouts.forall(_.create("db.t").contains(" USING alternate ")))
+      assertTrue(coreLayouts.forall(_.create("db.t").contains(" USING alternate ")))
       assertTrue(typesLayouts.forall(_.create("db.t").contains(" USING alternate ")))
     } finally {
       Scenarios.dataSource = originalDataSource
