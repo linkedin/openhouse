@@ -25,7 +25,7 @@ import org.apache.spark.sql.AnalysisException
  *
  * Case families: 7 families over 2 formats, contributing 14 cases.
  */
-trait ScenarioBranchIntersection extends ScenarioBranchKit {
+trait ScenarioBranchIntersection extends BranchTableFixtures {
 
   /** Every branch-intersection case, in the order this file introduces the families. */
   lazy val branchIntersectionCases: List[TestCase] =
@@ -147,7 +147,7 @@ trait ScenarioBranchIntersection extends ScenarioBranchKit {
           table.spark.sql(s"SELECT count(*) FROM ${table.name}").collect())
 
         assert(
-          rejection.getMessage.contains(catalogRelative(table.name).split('.').last),
+          rejection.getMessage.contains(catalogRelativeTableName(table.name).split('.').last),
           s"the rejection names the table the old name no longer resolves to, found " +
             s"${rejection.getMessage.take(160)}")
 
@@ -237,7 +237,7 @@ trait ScenarioBranchIntersection extends ScenarioBranchKit {
       val rewriteReport = table.spark
         .sql(
           "CALL openhouse.system.rewrite_data_files(" +
-            s"table => '${catalogRelative(table.name)}', " +
+            s"table => '${catalogRelativeTableName(table.name)}', " +
             "options => map('rewrite-all', 'true'))")
         .collect()(0)
 
@@ -287,7 +287,8 @@ trait ScenarioBranchIntersection extends ScenarioBranchKit {
 
       val rejection = Check.intercept[IllegalArgumentException](
         table.spark.sql(
-          s"CALL openhouse.system.expire_snapshots(table => '${catalogRelative(table.name)}', " +
+          "CALL openhouse.system.expire_snapshots(" +
+            s"table => '${catalogRelativeTableName(table.name)}', " +
             s"snapshot_ids => ARRAY(${branchSnapshotId}L))"))
 
       assert(

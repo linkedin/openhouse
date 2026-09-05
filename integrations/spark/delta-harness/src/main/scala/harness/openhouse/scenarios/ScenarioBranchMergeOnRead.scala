@@ -20,7 +20,7 @@ package harness
  *
  * Case families: 5 families over 2 formats, contributing 10 cases.
  */
-trait ScenarioBranchMergeOnRead extends ScenarioBranchKit {
+trait ScenarioBranchMergeOnRead extends BranchTableFixtures {
   import Rows._
 
   /** Every branch merge-on-read case, one merge-on-read verify preparation at a time. */

@@ -1,5 +1,7 @@
 package harness
 
+import java.util.concurrent.TimeUnit
+
 import org.apache.spark.sql.{Row, SparkSession}
 
 /**
@@ -20,7 +22,7 @@ import org.apache.spark.sql.{Row, SparkSession}
  * The members are lazy so they initialize on first read, after every trait mixed into `object Scenarios` has been
  * constructed.
  */
-trait ScenarioBranchKit extends ScenarioMergeOnReadKit {
+trait BranchTableFixtures extends MergeOnReadTableFixtures {
 
   /** The branch every branch preparation creates and the branch families write through. */
   val auditBranchName: String = "audit"
@@ -62,7 +64,7 @@ trait ScenarioBranchKit extends ScenarioMergeOnReadKit {
     fileFormats.map(routedBranchTable)
 
   /**
-   * One branched two-snapshot preparation per columnar format: the parent's two-snapshot table with
+   * One branched two-snapshot preparation per columnar format: this layer's two-snapshot table with
    * `write.wap.enabled` set and branch `audit` created at the second snapshot, so a case has one snapshot from before
    * the branch point to travel to and a branch to diverge from it.
    */
@@ -97,7 +99,7 @@ trait ScenarioBranchKit extends ScenarioMergeOnReadKit {
   lazy val preparedWriteAuditPublishAtCreateTables: List[TablePreparation[CoreTable.type]] =
     fileFormats.map(writeAuditPublishAtCreateTable)
 
-  /** One two-snapshot preparation per columnar format, which the parent owns and this layer branches from. */
+  /** One two-snapshot preparation per columnar format, built here because branch lifecycle cases consume it. */
   lazy val preparedTwoSnapshotTables: List[TablePreparation[CoreTable.type]] =
     fileFormats.map(preparedTwoSnapshotTable)
 
@@ -165,6 +167,41 @@ trait ScenarioBranchKit extends ScenarioMergeOnReadKit {
               s"${referenceNames(view.spark, view.table)}")
         }))
 
+  /**
+   * An unpartitioned core table in `format` holding five rows across two snapshots: the standard seed, then rows 4
+   * and 5. The wait between commits gives the snapshots distinct timestamps for the branch cases that resolve the
+   * earlier snapshot by time.
+   */
+  protected def preparedTwoSnapshotTable(format: String): TablePreparation[CoreTable.type] =
+    TablePreparation(
+      format,
+      createCoreTable(coreLayout(format, format, ""))
+        .insert(standardSeedRowCount)()
+        .step("waitForNextSnapshotTimestamp")(waitForNextSnapshotTimestamp)()
+        .sql("insertRowsFourAndFive")(table =>
+          s"INSERT INTO $table VALUES ${coreRow(4L, "row-4")}, ${coreRow(5L, "row-5")}")())
+
+  private def waitForNextSnapshotTimestamp(spark: SparkSession, table: String): Unit = {
+    val previousTimestamp = spark
+      .sql(
+        s"SELECT committed_at FROM $table.snapshots " +
+          "ORDER BY committed_at DESC LIMIT 1")
+      .collect()(0)
+      .getTimestamp(0)
+      .getTime
+    val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+
+    while (
+      System.currentTimeMillis() <= previousTimestamp &&
+      System.nanoTime() < deadline) {
+      Thread.sleep(1L)
+    }
+
+    assert(
+      System.currentTimeMillis() > previousTimestamp,
+      s"clock did not advance beyond snapshot timestamp $previousTimestamp")
+  }
+
   // --- the session scopes a case writes through ---
 
   /**
@@ -206,6 +243,15 @@ trait ScenarioBranchKit extends ScenarioMergeOnReadKit {
       markReferenceCreated()
       use
     }
+
+  /**
+   * Runs `use`, then attempts the cleanup statement on every outcome. Branch rejection cases use this when the
+   * operation under test should not create an owned reference but a partial or unexpected success must still be
+   * cleaned up.
+   */
+  private[harness] def withCleanupStatement(runStatement: String => Unit, cleanupStatement: String)(
+      use: => Unit): Unit =
+    OwnedTableLifecycle.withCleanup(runStatement(cleanupStatement))(use)
 
   // --- the reference, row and snapshot lookups every branch family reads ---
 
@@ -304,7 +350,9 @@ trait ScenarioBranchKit extends ScenarioMergeOnReadKit {
   /** Moves `main` onto `snapshotId` through cherrypick_snapshot, which is the publish a snapshot identifier reaches. */
   protected def cherryPick(spark: SparkSession, table: String, snapshotId: Long): Seq[Row] =
     spark
-      .sql(s"CALL openhouse.system.cherrypick_snapshot('${catalogRelative(table)}', ${snapshotId}L)")
+      .sql(
+        s"CALL openhouse.system.cherrypick_snapshot(" +
+          s"'${catalogRelativeTableName(table)}', ${snapshotId}L)")
       .collect()
       .toSeq
 
@@ -312,7 +360,7 @@ trait ScenarioBranchKit extends ScenarioMergeOnReadKit {
   protected def publishChanges(spark: SparkSession, table: String, writeAuditPublishId: String): Seq[Row] =
     spark
       .sql(
-        s"CALL openhouse.system.publish_changes(table => '${catalogRelative(table)}', " +
+        s"CALL openhouse.system.publish_changes(table => '${catalogRelativeTableName(table)}', " +
           s"wap_id => '$writeAuditPublishId')")
       .collect()
       .toSeq
@@ -320,7 +368,9 @@ trait ScenarioBranchKit extends ScenarioMergeOnReadKit {
   /** Moves `target` onto the snapshot `source` names through fast_forward. */
   protected def fastForward(spark: SparkSession, table: String, target: String, source: String): Seq[Row] =
     spark
-      .sql(s"CALL openhouse.system.fast_forward('${catalogRelative(table)}', '$target', '$source')")
+      .sql(
+        s"CALL openhouse.system.fast_forward(" +
+          s"'${catalogRelativeTableName(table)}', '$target', '$source')")
       .collect()
       .toSeq
 
@@ -328,7 +378,8 @@ trait ScenarioBranchKit extends ScenarioMergeOnReadKit {
   protected def expireUnreferencedSnapshots(spark: SparkSession, table: String): Seq[Row] =
     spark
       .sql(
-        s"CALL openhouse.system.expire_snapshots(table => '${catalogRelative(table)}', " +
+        s"CALL openhouse.system.expire_snapshots(" +
+          s"table => '${catalogRelativeTableName(table)}', " +
           "older_than => TIMESTAMP '2999-01-01 00:00:00', retain_last => 1)")
       .collect()
       .toSeq
@@ -337,8 +388,7 @@ trait ScenarioBranchKit extends ScenarioMergeOnReadKit {
 
   /** The standard seed in `format`: an unpartitioned core table, created and seeded with the standard rows. */
   private def seededCoreTable(format: String): TableTest[CoreTable.type] =
-    TableTest(Core)
-      .sql("create")(table => coreCreate(table, format))()
+    createCoreTable(coreLayout(format, format, ""))
       .insert(standardSeedRowCount)()
 
   /**

@@ -22,7 +22,7 @@ import org.apache.spark.sql.Row
  *
  * Case families: 10 families over 2 formats, contributing 20 cases.
  */
-trait ScenarioWriteAuditPublishStaging extends ScenarioBranchKit {
+trait ScenarioWriteAuditPublishStaging extends BranchTableFixtures {
   import Rows._
 
   /** Every write-audit-publish staging and publish case, in the order this file introduces the families. */

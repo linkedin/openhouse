@@ -23,7 +23,7 @@ import org.apache.iceberg.exceptions.ValidationException
  *
  * Case families: 8 families over 2 formats, contributing 16 cases.
  */
-trait ScenarioBranchLifecycle extends ScenarioBranchKit {
+trait ScenarioBranchLifecycle extends BranchTableFixtures {
 
   /** Every branch and tag lifecycle case, in the order this file introduces the families. */
   lazy val branchLifecycleCases: List[TestCase] =

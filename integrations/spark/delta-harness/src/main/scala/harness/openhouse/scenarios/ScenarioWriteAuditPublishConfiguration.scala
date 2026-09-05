@@ -25,7 +25,7 @@ import org.apache.iceberg.exceptions.ValidationException
  *
  * Case families: 7 families over 2 formats, contributing 14 cases.
  */
-trait ScenarioWriteAuditPublishConfiguration extends ScenarioBranchKit {
+trait ScenarioWriteAuditPublishConfiguration extends BranchTableFixtures {
 
   /** Every write-audit-publish configuration case, in the order this file introduces the families. */
   lazy val writeAuditPublishConfigurationCases: List[TestCase] =

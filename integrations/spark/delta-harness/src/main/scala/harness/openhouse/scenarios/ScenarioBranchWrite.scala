@@ -21,7 +21,7 @@ package harness
  *
  * Case families: 9 families over 2 formats, contributing 18 cases.
  */
-trait ScenarioBranchWrite extends ScenarioBranchKit {
+trait ScenarioBranchWrite extends BranchTableFixtures {
   import Rows._
 
   /** Every branch-write case, in the order this file introduces the families. */

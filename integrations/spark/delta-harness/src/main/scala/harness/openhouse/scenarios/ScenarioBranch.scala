@@ -12,7 +12,7 @@ package harness
  *
  * Each family lives in its own file with its own operations, preparation axes and count, so a reviewer reads one
  * contract at a time. This trait names them in the order the contribution integrates them, and
- * `ScenarioBranchKit` holds the preparations and lookups they share.
+ * `BranchTableFixtures` holds the preparations and lookups they share.
  *
  * Case families: 34 families over 2 columnar formats, contributing 68 cases: 16 lifecycle, 18 write, 10 merge, 14
  * intersection and 10 merge-on-read.

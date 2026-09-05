@@ -21,7 +21,7 @@ import org.apache.spark.sql.Row
  *
  * Case families: 5 families over 2 formats, contributing 10 cases.
  */
-trait ScenarioBranchMerge extends ScenarioBranchKit {
+trait ScenarioBranchMerge extends BranchTableFixtures {
 
   /** Every branch-merge case, in the order this file introduces the families. */
   lazy val branchMergeCases: List[TestCase] =
