@@ -52,8 +52,8 @@ The root catalog is a fixed 34-case sample of three composition paths:
 | Contribution | Cases | Families |
 |--------------|------:|----------|
 | `dataTypeCases` | 10 | Five scalar behavior families across Parquet and ORC. |
-| `dmlCases` | 12 | Six representative DML operations across Parquet and ORC. |
-| `dmlValidationCases` | 12 | Six rejected DML forms across Parquet and ORC. |
+| `dmlCoreCases` | 12 | Six representative DML operations across Parquet and ORC. |
+| `dmlRejectionCases` | 12 | Six rejected DML forms across Parquet and ORC. |
 
 The representative DML operations are:
 
@@ -70,7 +70,7 @@ The foundation has no skipped cases.
 
 ## Standard DML
 
-`ScenarioStandardDml` contributes the remaining reusable DML surface without
+`ScenarioDmlOperations` contributes the remaining reusable DML surface without
 duplicating the six operations owned by the foundation.
 
 | Family | Added operations | Cases |
@@ -198,9 +198,9 @@ This RTAS sibling contributes 38 cases:
 | Rename | 4 |
 | Sort order | 4 |
 
-The layer owns a small `CatalogDdlSupport` helper for direct Iceberg metadata reads.
-That helper stays in the layer instead of creating a dependency on a schema or
-catalog-constraint sibling.
+The layer owns `CatalogDdlTableFixtures` for direct Iceberg metadata reads,
+side-table ownership, and rejected-create cleanup. Those fixtures stay in the
+layer instead of creating a dependency on a schema or catalog-constraint sibling.
 
 ## Merge-on-read
 
@@ -208,6 +208,9 @@ This RTAS child contributes 320 cases:
 
 - 268 DML cases across merge-on-read preparations.
 - 52 focused physical and maintenance contracts.
+
+`MergeOnReadTableFixtures` owns the write-mode layouts, prepared delete-file
+states, and physical metadata lookups consumed by those contracts.
 
 The contracts assert position-delete files, mode changes, behavior with live
 deletes, metadata tables, time travel, rollback, changelog limitations, compaction,
@@ -229,6 +232,9 @@ intersections.
 Write-audit-publish coverage includes enablement, session routing, staged writes,
 independent staging IDs, publish operations, and rejected republish or expired
 staging attempts.
+
+`BranchTableFixtures` owns the branch and write-audit-publish preparations,
+reference lifecycle boundaries, snapshot timing, and reference-aware lookups.
 
 ## Column defaults
 

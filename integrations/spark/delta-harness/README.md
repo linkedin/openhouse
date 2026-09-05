@@ -90,16 +90,22 @@ may have changed observable table state.
 OpenHouse services and configures Spark. `LocalRunner` filters the catalog, invokes
 `Runner`, and prints the local result report.
 
-### Typed scenarios
+### Table fixtures and behavioral scenarios
 
-`ScenarioKit.scala` defines the reusable data model:
+`TableTestFixtures.scala` defines only the table primitives used by the foundation:
 
-- Typed `Schema` and `Column[T]` values.
+- The typed core `Schema` and its `Column[T]` values.
 - Deterministic row generation.
 - Parquet and ORC layouts.
-- Partitioned and unpartitioned preparations.
-- Fresh table names.
-- Row, schema, snapshot, metadata, and cleanup helpers.
+- Standard unpartitioned preparations.
+- The late-bound data source that adapters override before reading the catalog.
+
+Capability layers own their specialized starting states. `DmlTableFixtures` adds
+the partitioned and null-row DML preparations, while `RtasTableFixtures` adds
+replacement-specific partitioning, lineage, metadata, query, and rename helpers.
+The same rule applies to later layers: a `Scenario*` trait contributes behavioral
+cases, and a `*TableFixtures` trait provides the table construction or prepared
+state those cases consume.
 
 Each case creates its own table. A preparation marks ownership only after `CREATE
 TABLE` succeeds. Cleanup drops only owned artifacts. If both a case and cleanup
@@ -114,8 +120,8 @@ fail, the case failure remains primary and the cleanup failure is suppressed.
 | Contribution | Cases | Purpose |
 |--------------|------:|---------|
 | `dataTypeCases` | 10 | Scalar values, nulls, boundaries, special floating values, and strings. |
-| `dmlCases` | 12 | Six representative DML operations across Parquet and ORC. |
-| `dmlValidationCases` | 12 | Rejected DML forms and their observable diagnostics. |
+| `dmlCoreCases` | 12 | Six representative DML operations across Parquet and ORC. |
+| `dmlRejectionCases` | 12 | Rejected DML forms and their observable diagnostics. |
 
 `Catalog.extensionContributions` contains the additive capabilities owned by the
 current branch. A capability integrates at two explicit points:
@@ -136,9 +142,9 @@ The foundation is intentionally small. It demonstrates that the framework scales
 across generated values, successful mutations, and rejected mutations without
 making the root pull request carry the complete behavioral matrix.
 
-The Standard DML layer adds the other 48 reusable DML operations. Crossing those
-operations with Parquet and ORC contributes 96 cases, for a 130-case Standard DML
-catalog.
+The Standard DML layer adds the other 48 reusable DML operations through
+`ScenarioDmlOperations`. Crossing those operations with Parquet and ORC
+contributes 96 cases, for a 130-case Standard DML catalog.
 
 The RTAS layer stacks on Standard DML. It replays compatible DML after replacement
 and adds focused replacement contracts. It contributes 264 cases, for a 394-case
@@ -149,7 +155,7 @@ delta, cumulative catalog size, and local result.
 
 ## Published boundary
 
-The portable library publishes the framework, `Runner`, scenario kit, scenario
+The portable library publishes the framework, `Runner`, table fixtures, scenario
 traits, and `Catalog`. It excludes only the embedded environment and launcher:
 
 ```groovy
@@ -239,8 +245,9 @@ OPA endpoint.
 ## Add a capability
 
 1. Add a scenario trait under `src/main/scala/harness/openhouse/scenarios/`.
-2. Keep its preparations, operations, and assertions in that capability or in a
-   narrowly named support trait owned by the same layer.
+2. Keep its operations and assertions in that capability. Put specialized table
+   construction and prepared states in a narrowly named `*TableFixtures` trait
+   owned by the same layer.
 3. Mix the trait into `Scenarios`.
 4. Add one named case list to `Catalog.extensionContributions`.
 5. Add focused Spark-free tests when the capability changes framework behavior.
@@ -262,10 +269,14 @@ Paths are relative to `integrations/spark/delta-harness/`.
 | `src/main/scala/harness/openhouse/Runner.scala` | Portable configuration, retry, parallel execution, and deterministic results. |
 | `src/main/scala/harness/openhouse/Env.scala` | Embedded OpenHouse and Spark wiring. |
 | `src/main/scala/harness/openhouse/LocalRunner.scala` | Local filtering, execution, and reporting. |
-| `src/main/scala/harness/openhouse/scenarios/ScenarioKit.scala` | Typed schemas, layouts, preparations, seeds, and shared table helpers. |
+| `src/main/scala/harness/openhouse/scenarios/TableTestFixtures.scala` | Foundation table shape, layouts, standard seed, and late-bound data source. |
+| `src/main/scala/harness/openhouse/scenarios/DmlTableFixtures.scala` | Partitioned and null-row preparations consumed by reusable DML operations. |
+| `src/main/scala/harness/openhouse/scenarios/RtasTableFixtures.scala` | Replacement partitioning, lineage, metadata, query, and rename fixtures. |
 | `src/main/scala/harness/openhouse/scenarios/Catalog.scala` | Foundation, extensions, complete catalog, and `Plan` facade. |
-| `src/main/scala/harness/openhouse/scenarios/ScenarioStandardDml.scala` | The 96-case Standard DML extension and reusable full operation lists. |
-| `src/main/scala/harness/openhouse/scenarios/ScenarioRtas.scala` | RTAS preparations, DML replay, and replacement contracts. |
+| `src/main/scala/harness/openhouse/scenarios/ScenarioCoreDml.scala` | Six representative operations in the 12-case foundation contribution. |
+| `src/main/scala/harness/openhouse/scenarios/ScenarioDmlRejection.scala` | Rejected DML forms and unchanged-state assertions. |
+| `src/main/scala/harness/openhouse/scenarios/ScenarioDmlOperations.scala` | The 96-case Standard DML extension and reusable full operation lists. |
+| `src/main/scala/harness/openhouse/scenarios/ScenarioRtas.scala` | RTAS DML replay and replacement contracts. |
 | `src/test/scala/harness/scenarios/CaseCatalogTest.scala` | Foundation inventory, catalog uniqueness, and data-source override checks. |
 | `src/test/scala/harness/framework/RunnerTest.scala` | Retry, terminal failure, configuration, cause traversal, and result behavior. |
 | `src/test/scala/harness/framework/TableLifecycleTest.scala` | Ownership and cleanup precedence. |
