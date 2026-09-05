@@ -395,7 +395,7 @@ public class HouseTableViewRepositoryImplTest {
    */
   @Test
   public void findViewByIdRejectsAPresentNonViewDiscriminatorWithoutRetrying() {
-    for (String corrupt : Arrays.asList("TABLE", "view", "View", "MATERIALIZED_VIEW", "")) {
+    for (String corrupt : Arrays.asList("TABLE", "view", "View", "MATERIALIZED_VIEW")) {
       AtomicInteger subscriptions = stubViewPointRead(entityBody(viewUserTable(corrupt)));
       CustomRetryListener retryListener = listenOnReadRetries();
 
@@ -413,6 +413,20 @@ public class HouseTableViewRepositoryImplTest {
       Assertions.assertEquals(0, retryListener.getRetryCount(), "discriminator " + corrupt);
       Mockito.clearInvocations(userTableApi);
     }
+  }
+
+  /** Blank is not a spelling of VIEW either, and it must not read as a missing field. */
+  @Test
+  public void findViewByIdRejectsABlankDiscriminatorWithoutRetrying() {
+    AtomicInteger subscriptions = stubViewPointRead(entityBody(viewUserTable("")));
+    CustomRetryListener retryListener = listenOnReadRetries();
+
+    IllegalStateException thrown =
+        Assertions.assertThrows(IllegalStateException.class, () -> htsRepo.findViewById(viewKey()));
+
+    assertThat(thrown.getMessage()).contains(VIEW_DB).contains(VIEW_ID);
+    Assertions.assertEquals(1, subscriptions.get());
+    Assertions.assertEquals(0, retryListener.getRetryCount());
   }
 
   @Test
