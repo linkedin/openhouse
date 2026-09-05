@@ -17,7 +17,7 @@ import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageE
  *
  * Case families: two families contributing 4 cases.
  */
-trait ScenarioRename extends CatalogDdlSupport {
+trait ScenarioRename extends CatalogDdlTableFixtures {
 
   /** Every rename case, one file format at a time. */
   lazy val renameCases: List[TestCase] =
@@ -55,7 +55,7 @@ trait ScenarioRename extends CatalogDdlSupport {
 
   private def captureIdentity(spark: org.apache.spark.sql.SparkSession, table: String): TableIdentity = {
     val icebergTable = icebergTableOf(spark, table)
-    val properties = tableProps(spark, table)
+    val properties = tableProperties(spark, table)
     val currentSnapshot = Option(icebergTable.currentSnapshot()).map(_.snapshotId())
     TableIdentity(
       spark.sql(s"SELECT $columnNameList FROM $table ORDER BY ${Core.long0.columnName}").collect().toSeq,
@@ -150,7 +150,7 @@ trait ScenarioRename extends CatalogDdlSupport {
       val conflictingTable = s"${table.name}_other"
 
       withOwnedTable(table.spark.sql(_), conflictingTable)(
-        table.spark.sql(coreCreate(conflictingTable, format))) {
+        table.spark.sql(coreLayout(format, format, "").create(conflictingTable))) {
         table.spark.sql(
           s"INSERT INTO $conflictingTable VALUES ${coreRow(7, "row-7")}, ${coreRow(8, "row-8")}")
         val sourceBefore = captureIdentity(table.spark, table.name)

@@ -17,7 +17,7 @@ import org.apache.iceberg.{NullOrder, SortOrder}
  *
  * Case families: two families contributing 4 cases.
  */
-trait ScenarioSortOrder extends CatalogDdlSupport {
+trait ScenarioSortOrder extends CatalogDdlTableFixtures {
 
   /** Every sort-order case, one file format at a time. */
   lazy val sortOrderCases: List[TestCase] =

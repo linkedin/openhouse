@@ -15,7 +15,7 @@ import org.apache.spark.sql.SparkSession
  *
  * Case families: three families contributing 6 cases.
  */
-trait ScenarioWriteDistribution extends CatalogDdlSupport {
+trait ScenarioWriteDistribution extends CatalogDdlTableFixtures {
 
   /** Every write-distribution case, one file format at a time. */
   lazy val writeDistributionCases: List[TestCase] =

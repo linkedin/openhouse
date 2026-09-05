@@ -19,7 +19,7 @@ import scala.collection.JavaConverters._
  *
  * Case families: ten families contributing 20 cases, 14 accepted transforms and 6 rejections.
  */
-trait ScenarioPartitionTransform extends CatalogDdlSupport {
+trait ScenarioPartitionTransform extends CatalogDdlTableFixtures {
 
   /** Every partition-transform case, one file format at a time. */
   lazy val partitionTransformCases: List[TestCase] =

@@ -12,7 +12,7 @@ package harness
  *
  * Case families: two families contributing 4 cases.
  */
-trait ScenarioNamespace extends ScenarioKit {
+trait ScenarioNamespace extends CatalogDdlTableFixtures {
 
   /** Every namespace case, one file format at a time. */
   lazy val namespaceCases: List[TestCase] =
