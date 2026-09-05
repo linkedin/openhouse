@@ -6,7 +6,7 @@ import org.apache.spark.sql.Row
  * Merge operations over the core table. Each case verifies the rows selected by its clauses and the single snapshot
  * committed by the statement.
  */
-trait ScenarioDmlMerge extends ScenarioKit {
+trait ScenarioDmlMerge extends TableTestFixtures {
   import Rows._
 
   /**
