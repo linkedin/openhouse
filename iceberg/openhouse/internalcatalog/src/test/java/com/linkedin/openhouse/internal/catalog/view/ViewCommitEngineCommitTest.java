@@ -780,8 +780,8 @@ public class ViewCommitEngineCommitTest {
         persistedByDialect(persisted),
         "every submitted representation must be persisted after changing " + changedField);
     Assertions.assertEquals(
-        Collections.singleton(intent.getSchema().identifierFieldIds()),
-        Collections.singleton(persisted.schema().identifierFieldIds()),
+        intent.getSchema().identifierFieldIds(),
+        persisted.schema().identifierFieldIds(),
         "identifier fields are part of the definition after changing " + changedField);
 
     LoadedView reloaded = harness.newEngineInstance().loadView(DB, VIEW);
@@ -791,6 +791,13 @@ public class ViewCommitEngineCommitTest {
         "a fresh load must report the submitted definition after changing " + changedField);
     Assertions.assertEquals(intent.getSourceDialect(), reloaded.getSourceDialect());
     Assertions.assertEquals(intent.getDefaultCatalog(), reloaded.getDefaultCatalog());
+    Assertions.assertEquals(
+        intent.getDefaultNamespace() == null ? Namespace.empty() : intent.getDefaultNamespace(),
+        reloaded.getDefaultNamespace());
+    Assertions.assertEquals(
+        intent.getSchema().asStruct(),
+        reloaded.getSchema().asStruct(),
+        "a fresh load must report the submitted schema after changing " + changedField);
   }
 
   private static Map<String, String> submittedByDialect(ViewCommitIntent intent) {
