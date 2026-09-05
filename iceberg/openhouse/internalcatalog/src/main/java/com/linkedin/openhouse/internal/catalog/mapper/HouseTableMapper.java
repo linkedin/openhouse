@@ -18,6 +18,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 @Mapper(componentModel = "spring")
 public abstract class HouseTableMapper {
+
+  static final String ENTITY_TYPE_TABLE = "TABLE";
+
+  static final String ENTITY_TYPE_VIEW = "VIEW";
+
   @Autowired FileIOManager fileIOManager;
 
   @Mapping(target = "lastModifiedTime", ignore = true)
@@ -38,16 +43,25 @@ public abstract class HouseTableMapper {
   @Mapping(target = "databaseId", source = "houseTable.databaseId")
   public abstract UserTable toUserTableWithDatabaseId(HouseTable houseTable);
 
-  @Mappings({@Mapping(target = "tableLocation", source = "userTable.metadataLocation")})
+  @Mappings({
+    @Mapping(target = "tableLocation", source = "userTable.metadataLocation"),
+    @Mapping(target = "entityType", source = "userTable.entityType")
+  })
   public abstract HouseTable toHouseTable(UserTable userTable);
 
-  // The pointer carries no discriminator: entity type lives only on the HTS row, and HTS sets it
-  // from the endpoint the write arrived on.
+  /** Stamps TABLE here so no table-shaped caller can omit the required discriminator. */
   @Mappings({
     @Mapping(target = "metadataLocation", source = "houseTable.tableLocation"),
-    @Mapping(target = "entityType", ignore = true)
+    @Mapping(target = "entityType", constant = ENTITY_TYPE_TABLE)
   })
   public abstract UserTable toUserTable(HouseTable houseTable);
+
+  /** Same pointer shape as a table write; only the discriminator differs. */
+  @Mappings({
+    @Mapping(target = "metadataLocation", source = "houseTable.tableLocation"),
+    @Mapping(target = "entityType", constant = ENTITY_TYPE_VIEW)
+  })
+  public abstract UserTable toUserView(HouseTable houseTable);
 
   private Map<String, String> extractRawHTSFields(Map<String, String> input) {
     Map<String, String> output = new HashMap<>();
@@ -67,7 +81,8 @@ public abstract class HouseTableMapper {
         && HouseTableSerdeUtils.HTS_FIELD_NAMES.contains(stripOhNamespace(key));
   }
 
-  static String stripOhNamespace(String key) {
+  /** Private so MapStruct cannot adopt it as an implicit String mapping for every field value. */
+  private static String stripOhNamespace(String key) {
     return IS_OH_PREFIXED.test(key) ? key.substring(OPENHOUSE_NAMESPACE.length()) : key;
   }
 }

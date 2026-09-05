@@ -3,6 +3,7 @@ package com.linkedin.openhouse.internal.catalog.repository;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.repository.PagingAndSortingRepository;
@@ -63,4 +64,67 @@ public interface HouseTableRepository
    * @param deletedAtMs The timestamp when the table was deleted
    */
   void restoreTable(String databaseId, String tableId, long deletedAtMs);
+
+  /**
+   * Returns whichever entity occupies the key, of any type, so a caller can classify a collision.
+   * Advisory only: never a write precondition, because the single House Table compare-and-swap is
+   * the sole race arbiter.
+   *
+   * <p>Deliberately untyped: it has no expected entity type, so it never applies the typed-view
+   * contract check. A legacy row arrives already resolved to {@code TABLE}.
+   *
+   * @throws com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException
+   *     the request was rejected as invalid or unauthorized
+   * @throws com.linkedin.openhouse.internal.catalog.repository.exception
+   *     .HouseTableRepositoryStateUnknownException the read could not be completed
+   */
+  Optional<HouseTable> findEntityById(HouseTablePrimaryKey houseTablePrimaryKey);
+
+  /**
+   * Resolves only VIEW rows; a table at the same key reads as absent.
+   *
+   * @throws IllegalStateException the typed view endpoint returned a present row whose discriminator
+   *     is absent or not canonical VIEW, which is a server contract violation and is never retried
+   * @throws com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException
+   *     the request was rejected as invalid or unauthorized
+   * @throws com.linkedin.openhouse.internal.catalog.repository.exception
+   *     .HouseTableRepositoryStateUnknownException the read could not be completed
+   */
+  Optional<HouseTable> findViewById(HouseTablePrimaryKey houseTablePrimaryKey);
+
+  /**
+   * House Table filters VIEW before paginating, so no row is read to be discarded.
+   *
+   * @throws IllegalStateException any row on the page carries an absent or non-canonical VIEW
+   *     discriminator; one bad row fails the page, because dropping it would hide corruption and
+   *     invalidate the totals
+   * @throws com.linkedin.openhouse.internal.catalog.repository.exception
+   *     .HouseTableRepositoryStateUnknownException the read could not be completed
+   */
+  Page<HouseTable> findAllViewsByDatabaseId(String databaseId, Pageable pageable);
+
+  /**
+   * Exactly one attempt, un-retried: an ambiguous 5xx, 504, or block timeout surfaces as unknown
+   * state rather than a blind second write that could double-apply.
+   *
+   * @throws com.linkedin.openhouse.internal.catalog.repository.exception
+   *     .HouseTableConcurrentUpdateException the compare-and-swap lost
+   * @throws com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException
+   *     the request was rejected as invalid or unauthorized
+   * @throws com.linkedin.openhouse.internal.catalog.repository.exception
+   *     .HouseTableRepositoryStateUnknownException the outcome of the single attempt is unknown
+   */
+  HouseTable saveView(HouseTable houseTable);
+
+  /**
+   * Hard delete; views have no soft-delete store. One attempt, un-retried, for the same reason as
+   * {@link #saveView(HouseTable)}.
+   *
+   * @return false when the key is absent or holds a non-view
+   * @throws com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException
+   *     the request was rejected as invalid or unauthorized
+   * @throws com.linkedin.openhouse.internal.catalog.repository.exception
+   *     .HouseTableRepositoryStateUnknownException the outcome of the single attempt is unknown
+   */
+  boolean deleteViewById(HouseTablePrimaryKey houseTablePrimaryKey);
 }

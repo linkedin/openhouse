@@ -380,4 +380,29 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                     .onErrorResume(e -> handleHtsHttpError(e).then(Mono.empty()))
                     .block());
   }
+
+  @Override
+  public Optional<HouseTable> findEntityById(HouseTablePrimaryKey houseTablePrimaryKey) {
+    throw new UnsupportedOperationException("findEntityById is not implemented yet");
+  }
+
+  @Override
+  public Optional<HouseTable> findViewById(HouseTablePrimaryKey houseTablePrimaryKey) {
+    throw new UnsupportedOperationException("findViewById is not implemented yet");
+  }
+
+  @Override
+  public Page<HouseTable> findAllViewsByDatabaseId(String databaseId, Pageable pageable) {
+    throw new UnsupportedOperationException("findAllViewsByDatabaseId is not implemented yet");
+  }
+
+  @Override
+  public HouseTable saveView(HouseTable houseTable) {
+    throw new UnsupportedOperationException("saveView is not implemented yet");
+  }
+
+  @Override
+  public boolean deleteViewById(HouseTablePrimaryKey houseTablePrimaryKey) {
+    throw new UnsupportedOperationException("deleteViewById is not implemented yet");
+  }
 }
