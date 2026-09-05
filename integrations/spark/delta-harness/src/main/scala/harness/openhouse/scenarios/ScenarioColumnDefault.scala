@@ -29,7 +29,7 @@ import scala.collection.JavaConverters._
  *
  * Case families: three families contributing 4 cases.
  */
-trait ScenarioColumnDefault extends ScenarioKit {
+trait ScenarioColumnDefault extends ColumnDefaultTableFixtures {
 
   /** Every column-default case: the two ADD COLUMN formats, then the API serialization and read-apply probes. */
   lazy val columnDefaultCases: List[TestCase] =
