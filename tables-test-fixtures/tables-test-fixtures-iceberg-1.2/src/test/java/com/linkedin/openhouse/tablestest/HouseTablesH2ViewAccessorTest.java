@@ -14,6 +14,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 
 /**
  * Point, list, and typed accessors over the H2-backed House Table stand-in. A view, a table, and a
@@ -113,37 +114,82 @@ public class HouseTablesH2ViewAccessorTest {
    */
   @Test
   public void tableListsExcludeViewsAndFilterBeforePaginating() {
-    List<String> unpaged =
-        repository.findAllByDatabaseId(DB).stream()
-            .map(HouseTable::getTableId)
-            .sorted()
-            .collect(Collectors.toList());
-    Assertions.assertEquals(Arrays.asList("legacy_a", "table_a"), unpaged);
+    List<HouseTable> unpaged = repository.findAllByDatabaseId(DB);
+    Assertions.assertEquals(
+        Arrays.asList("legacy_a", "table_a"),
+        unpaged.stream().map(HouseTable::getTableId).sorted().collect(Collectors.toList()));
+    Assertions.assertTrue(
+        unpaged.stream().allMatch(row -> "TABLE".equals(row.getEntityType())),
+        "every row the unpaged list returns must report its resolved type, legacy included: "
+            + unpaged.stream()
+                .map(row -> row.getTableId() + "=" + row.getEntityType())
+                .collect(Collectors.toList()));
 
-    Page<HouseTable> firstPage = repository.findAllByDatabaseId(DB, PageRequest.of(0, 1));
+    Page<HouseTable> firstPage =
+        repository.findAllByDatabaseId(DB, PageRequest.of(0, 1, Sort.by("tableId").ascending()));
+    Page<HouseTable> secondPage =
+        repository.findAllByDatabaseId(DB, PageRequest.of(1, 1, Sort.by("tableId").ascending()));
     Assertions.assertEquals(
         2L,
         firstPage.getTotalElements(),
         "the total counts table rows only, not the whole key space");
     Assertions.assertEquals(2, firstPage.getTotalPages());
-    Assertions.assertEquals(1, firstPage.getContent().size());
-
-    Page<HouseTable> secondPage = repository.findAllByDatabaseId(DB, PageRequest.of(1, 1));
-    Assertions.assertEquals(1, secondPage.getContent().size());
-    List<String> paged =
-        Arrays.asList(
-            firstPage.getContent().get(0).getTableId(),
-            secondPage.getContent().get(0).getTableId());
-    Assertions.assertTrue(paged.contains("table_a"), paged.toString());
-    Assertions.assertTrue(paged.contains("legacy_a"), paged.toString());
+    Assertions.assertEquals(
+        "legacy_a", firstPage.getContent().get(0).getTableId(), "page one, ascending");
+    Assertions.assertEquals(
+        "table_a", secondPage.getContent().get(0).getTableId(), "page two, ascending");
+    Assertions.assertEquals(
+        "TABLE",
+        firstPage.getContent().get(0).getEntityType(),
+        "the legacy row is hydrated on the paginated overload too");
+    Assertions.assertEquals("TABLE", secondPage.getContent().get(0).getEntityType());
 
     Page<HouseTable> wholePage = repository.findAllByDatabaseId(DB, PageRequest.of(0, 10));
-    Assertions.assertTrue(
-        wholePage.getContent().stream().noneMatch(row -> "VIEW".equals(row.getEntityType())),
-        "no view may appear on a table page");
+    Assertions.assertEquals(2, wholePage.getContent().size());
     Assertions.assertTrue(
         wholePage.getContent().stream().allMatch(row -> "TABLE".equals(row.getEntityType())),
-        "every row on a table page reports its resolved type");
+        "no view may appear on a table page, and every row reports its resolved type");
+  }
+
+  /**
+   * The derived query this replaced applied the sort in SQL. Filtering in Java must not drop it, or
+   * page two becomes an arbitrary set of rows and a caller paging through a database silently
+   * misses some.
+   */
+  @Test
+  public void tableAndViewListsHonourTheRequestedSortAcrossPages() {
+    repository.save(row("table_b", "TABLE"));
+    repository.save(row("view_c", "VIEW"));
+
+    Page<HouseTable> descendingFirst =
+        repository.findAllByDatabaseId(DB, PageRequest.of(0, 2, Sort.by("tableId").descending()));
+    Page<HouseTable> descendingSecond =
+        repository.findAllByDatabaseId(DB, PageRequest.of(1, 2, Sort.by("tableId").descending()));
+    Assertions.assertEquals(3L, descendingFirst.getTotalElements());
+    Assertions.assertEquals(
+        Arrays.asList("table_b", "table_a"),
+        descendingFirst.getContent().stream()
+            .map(HouseTable::getTableId)
+            .collect(Collectors.toList()));
+    Assertions.assertEquals(
+        Collections.singletonList("legacy_a"),
+        descendingSecond.getContent().stream()
+            .map(HouseTable::getTableId)
+            .collect(Collectors.toList()));
+    Assertions.assertEquals(
+        Sort.by("tableId").descending(),
+        descendingFirst.getSort(),
+        "the returned page must report the sort it was asked for");
+
+    Page<HouseTable> viewsDescending =
+        repository.findAllViewsByDatabaseId(
+            DB, PageRequest.of(0, 2, Sort.by("tableId").descending()));
+    Assertions.assertEquals(3L, viewsDescending.getTotalElements());
+    Assertions.assertEquals(
+        Arrays.asList("view_c", "view_b"),
+        viewsDescending.getContent().stream()
+            .map(HouseTable::getTableId)
+            .collect(Collectors.toList()));
   }
 
   @Test

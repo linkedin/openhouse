@@ -14,7 +14,6 @@ import static org.mockito.Mockito.when;
 
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
-import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
@@ -57,7 +56,6 @@ public class ViewCommitEngineReadTest {
   private FileIOManager fileIOManager;
   private ViewMetadataCodec viewMetadataCodec;
   private StorageType storageType;
-  private HouseTableMapper houseTableMapper;
   private ViewCommitEngine viewCommitEngine;
 
   @BeforeEach
@@ -66,10 +64,9 @@ public class ViewCommitEngineReadTest {
     fileIOManager = mock(FileIOManager.class);
     viewMetadataCodec = mock(ViewMetadataCodec.class);
     storageType = mock(StorageType.class);
-    houseTableMapper = mock(HouseTableMapper.class);
     viewCommitEngine =
         new ViewCommitEngineImpl(
-            houseTableRepository, fileIOManager, viewMetadataCodec, storageType, houseTableMapper);
+            houseTableRepository, fileIOManager, viewMetadataCodec, storageType);
   }
 
   /** The common case, so it must not cost a FileIO or a parse. */

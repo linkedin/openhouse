@@ -5,6 +5,7 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,6 +16,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -59,12 +61,49 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
     return ENTITY_TYPE_VIEW.equalsIgnoreCase(houseTable.getEntityType());
   }
 
+  /**
+   * Sorts before it slices and hands the pageable straight back, because the derived query this
+   * replaced applied the sort in SQL: filtering in Java must not quietly drop the ordering the
+   * caller asked for, or turn page two into an arbitrary set of rows.
+   */
   static Page<HouseTable> pageOf(List<HouseTable> rows, Pageable pageable) {
+    List<HouseTable> ordered = new ArrayList<>(rows);
+    Comparator<HouseTable> comparator = comparatorOf(pageable.getSort());
+    if (comparator != null) {
+      ordered.sort(comparator);
+    }
     int page = pageable.getPageNumber();
     int size = pageable.getPageSize();
     List<HouseTable> pageContent =
-        rows.subList(Math.min(page * size, rows.size()), Math.min((page + 1) * size, rows.size()));
-    return new PageImpl<>(pageContent, PageRequest.of(page, size), rows.size());
+        ordered.subList(
+            Math.min(page * size, ordered.size()), Math.min((page + 1) * size, ordered.size()));
+    return new PageImpl<>(pageContent, pageable, rows.size());
+  }
+
+  /** Property-name driven, like the derived query, so any sortable field keeps working. */
+  static Comparator<HouseTable> comparatorOf(Sort sort) {
+    Comparator<HouseTable> comparator = null;
+    for (Sort.Order order : sort) {
+      Comparator<HouseTable> next =
+          Comparator.comparing(
+              houseTable -> propertyOf(houseTable, order.getProperty()),
+              Comparator.nullsFirst(Comparator.naturalOrder()));
+      if (order.isDescending()) {
+        next = next.reversed();
+      }
+      comparator = comparator == null ? next : comparator.thenComparing(next);
+    }
+    return comparator;
+  }
+
+  @SuppressWarnings("unchecked")
+  static Comparable<Object> propertyOf(HouseTable houseTable, String property) {
+    String getter = "get" + Character.toUpperCase(property.charAt(0)) + property.substring(1);
+    try {
+      return (Comparable<Object>) HouseTable.class.getMethod(getter).invoke(houseTable);
+    } catch (ReflectiveOperationException e) {
+      throw new IllegalArgumentException("cannot sort House Table rows by " + property, e);
+    }
   }
 
   /** A view at a shared key is absent here, which is what keeps it out of every table path. */

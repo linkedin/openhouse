@@ -25,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import org.apache.iceberg.Schema;
@@ -33,6 +34,7 @@ import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.NoSuchViewException;
+import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.view.SQLViewRepresentation;
@@ -42,6 +44,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.Mockito;
 
 /**
  * Create and replace: collision classification, caller-supplied identity and location,
@@ -197,6 +200,76 @@ public class ViewCommitEngineCommitTest {
 
     // Resolved from the supplied storage type; there is no selector seam left to consult.
     verify(harness.getFileIOManager(), times(1)).getFileIO(StorageType.LOCAL);
+    verify(harness.getFileIOManager(), never()).getStorage(any(FileIO.class));
+  }
+
+  /**
+   * LOCAL is the fixture default, so a create that only ever ran against it could not tell a
+   * supplied storage type from a hardcoded one. This supplies a different type end to end.
+   */
+  @Test
+  void createResolvesFileIoFromTheSuppliedStorageTypeRatherThanTheDefault() {
+    ViewCommitResult created =
+        harness
+            .getViewCommitEngine()
+            .commit(
+                ViewTestFixtures.baseIntent(root)
+                    .storageType(ViewCommitEngineHarness.ALTERNATE_STORAGE_TYPE)
+                    .build());
+
+    verify(harness.getFileIOManager(), times(1)).getFileIO(StorageType.HDFS);
+    verify(harness.getFileIOManager(), never()).getFileIO(StorageType.LOCAL);
+    // Recovering the type from the FileIO would be lossy: two storages may share one FileIO.
+    verify(harness.getFileIOManager(), never()).getStorage(any(FileIO.class));
+
+    Assertions.assertEquals(
+        ViewCommitEngineHarness.ALTERNATE_STORAGE_TYPE, created.getPointer().getStorageType());
+    Assertions.assertEquals(
+        ViewCommitEngineHarness.ALTERNATE_STORAGE_TYPE,
+        harness.getHouseTableRepository().peek(DB, VIEW).get().getStorageType(),
+        "the persisted row must carry the storage the caller selected");
+  }
+
+  /**
+   * The whole point of ignoring the incoming physical fields on a replace: the published row's own
+   * storage decides both which FileIO is used and what the new pointer reports, so an unusable
+   * incoming value cannot redirect the write and the fixture default cannot mask the failure.
+   */
+  @Test
+  void replaceResolvesFileIoFromThePublishedRowStorageNotTheIncomingValue() {
+    ViewCommitResult created =
+        harness
+            .getViewCommitEngine()
+            .commit(
+                ViewTestFixtures.baseIntent(root)
+                    .storageType(ViewCommitEngineHarness.ALTERNATE_STORAGE_TYPE)
+                    .build());
+    Mockito.clearInvocations(harness.getFileIOManager());
+
+    ViewCommitResult replaced =
+        harness
+            .getViewCommitEngine()
+            .commit(
+                ViewTestFixtures.baseIntent(root)
+                    .schema(ViewTestFixtures.schemaV2())
+                    .representations(
+                        Collections.singletonList(
+                            ViewTestFixtures.sql(
+                                ViewTestFixtures.SQL_V2, ViewTestFixtures.SPARK_DIALECT)))
+                    .storageType("no-such-storage")
+                    .baseViewVersion(created.getPointer().getMetadataLocation())
+                    .build());
+
+    verify(harness.getFileIOManager(), times(1)).getFileIO(StorageType.HDFS);
+    verify(harness.getFileIOManager(), never()).getFileIO(StorageType.LOCAL);
+    verify(harness.getFileIOManager(), never()).getStorage(any(FileIO.class));
+
+    Assertions.assertEquals(
+        ViewCommitEngineHarness.ALTERNATE_STORAGE_TYPE, replaced.getPointer().getStorageType());
+    Assertions.assertEquals(
+        ViewCommitEngineHarness.ALTERNATE_STORAGE_TYPE,
+        harness.getHouseTableRepository().peek(DB, VIEW).get().getStorageType(),
+        "a replace must not rewrite the published storage fact");
   }
 
   /** One immutable file per commit, each with its own collision-avoidance UUID. */
@@ -214,16 +287,30 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertTrue(firstFile.startsWith("00001-"), firstFile);
     Assertions.assertTrue(secondFile.startsWith("00002-"), secondFile);
     Assertions.assertTrue(firstFile.endsWith(".metadata.json"), firstFile);
+    Assertions.assertTrue(secondFile.endsWith(".metadata.json"), secondFile);
 
-    String firstFileUuid = firstFile.substring("00001-".length(), firstFile.indexOf(".metadata"));
-    String secondFileUuid =
-        secondFile.substring("00002-".length(), secondFile.indexOf(".metadata"));
+    // Parsed, not merely compared as text: two distinct arbitrary strings would satisfy a plain
+    // inequality while telling us nothing about collision avoidance.
+    UUID firstFileUuid = fileUuidOf(firstFile, "00001-");
+    UUID secondFileUuid = fileUuidOf(secondFile, "00002-");
     Assertions.assertNotEquals(
         firstFileUuid, secondFileUuid, "each file needs its own collision-avoidance UUID");
     Assertions.assertNotEquals(
-        ViewTestFixtures.VIEW_UUID,
+        UUID.fromString(ViewTestFixtures.VIEW_UUID),
         firstFileUuid,
         "the per-file UUID is not the entity identity, and must not be reused as one");
+    Assertions.assertNotEquals(UUID.fromString(ViewTestFixtures.VIEW_UUID), secondFileUuid);
+  }
+
+  private static UUID fileUuidOf(String fileName, String versionPrefix) {
+    String candidate =
+        fileName.substring(versionPrefix.length(), fileName.indexOf(".metadata.json"));
+    try {
+      return UUID.fromString(candidate);
+    } catch (IllegalArgumentException e) {
+      throw new AssertionError(
+          "the metadata file name must embed a real UUID, got: " + candidate, e);
+    }
   }
 
   /**
@@ -382,6 +469,7 @@ public class ViewCommitEngineCommitTest {
     ViewMetadata afterCreate = harness.readMetadata(created.getPointer().getMetadataLocation());
     int filesAfterCreate = harness.metadataFiles().size();
     int savesAfterCreate = harness.getHouseTableRepository().getSaveViewCalls();
+    int writesAfterCreate = harness.codecWrites();
     HouseTable pointerAfterCreate = harness.getHouseTableRepository().peek(DB, VIEW).get();
 
     ViewCommitResult replayed =
@@ -398,6 +486,11 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertEquals(created.getLastModifiedTime(), replayed.getLastModifiedTime());
     Assertions.assertEquals(filesAfterCreate, harness.metadataFiles().size());
     Assertions.assertEquals(savesAfterCreate, harness.getHouseTableRepository().getSaveViewCalls());
+    Assertions.assertEquals(
+        writesAfterCreate,
+        harness.codecWrites(),
+        "a no-op must not ask the codec to write at all; an unchanged file count would also pass"
+            + " if the candidate simply overwrote its predecessor");
 
     HouseTable pointerAfterReplay = harness.getHouseTableRepository().peek(DB, VIEW).get();
     Assertions.assertEquals(
@@ -430,6 +523,7 @@ public class ViewCommitEngineCommitTest {
 
     int filesAfterCreate = harness.metadataFiles().size();
     int savesAfterCreate = harness.getHouseTableRepository().getSaveViewCalls();
+    int writesAfterCreate = harness.codecWrites();
 
     ViewCommitResult replayedWithNull =
         harness
@@ -456,6 +550,59 @@ public class ViewCommitEngineCommitTest {
 
     Assertions.assertEquals(filesAfterCreate, harness.metadataFiles().size());
     Assertions.assertEquals(savesAfterCreate, harness.getHouseTableRepository().getSaveViewCalls());
+    Assertions.assertEquals(
+        writesAfterCreate, harness.codecWrites(), "neither replay may ask the codec to write");
+  }
+
+  /**
+   * Null properties and empty properties are the same submission, and neither may be read as an
+   * instruction to clear what is already stored.
+   */
+  @Test
+  void nullAndEmptyViewPropertiesAreTheSameSubmissionAndPreserveStoredOnes() {
+    Map<String, String> initial = new LinkedHashMap<>();
+    initial.put("a", "1");
+    initial.put("keep", "yes");
+    ViewCommitResult created =
+        harness
+            .getViewCommitEngine()
+            .commit(ViewTestFixtures.baseIntent(root).viewProperties(initial).build());
+    int filesAfterCreate = harness.metadataFiles().size();
+    int savesAfterCreate = harness.getHouseTableRepository().getSaveViewCalls();
+    int writesAfterCreate = harness.codecWrites();
+
+    ViewCommitResult replayedWithNull =
+        harness
+            .getViewCommitEngine()
+            .commit(
+                ViewTestFixtures.baseIntent(root)
+                    .viewProperties(null)
+                    .baseViewVersion(created.getPointer().getMetadataLocation())
+                    .build());
+    Assertions.assertFalse(
+        replayedWithNull.isMetadataChanged(),
+        "omitting properties is not a change; it certainly is not a request to delete them");
+
+    ViewCommitResult replayedWithEmpty =
+        harness
+            .getViewCommitEngine()
+            .commit(
+                ViewTestFixtures.baseIntent(root)
+                    .viewProperties(Collections.emptyMap())
+                    .baseViewVersion(created.getPointer().getMetadataLocation())
+                    .build());
+    Assertions.assertFalse(
+        replayedWithEmpty.isMetadataChanged(), "an empty map means exactly what null meant");
+
+    Assertions.assertEquals(filesAfterCreate, harness.metadataFiles().size());
+    Assertions.assertEquals(savesAfterCreate, harness.getHouseTableRepository().getSaveViewCalls());
+    Assertions.assertEquals(writesAfterCreate, harness.codecWrites());
+
+    Map<String, String> stillStored =
+        harness.readMetadata(created.getPointer().getMetadataLocation()).properties();
+    Assertions.assertEquals("1", stillStored.get("a"));
+    Assertions.assertEquals(
+        "yes", stillStored.get("keep"), "omitted properties must survive an omitting replace");
   }
 
   /** Equivalence is not blindness: moving off the empty namespace is still a change. */
@@ -565,7 +712,11 @@ public class ViewCommitEngineCommitTest {
         .commit(ViewTestFixtures.baseIntent(root).representations(BOTH_DIALECTS_V1).build());
   }
 
-  /** A replace differing in exactly one structural field must be a real change. */
+  /**
+   * A replace differing in exactly one structural field must be a real change, and must persist the
+   * NEW value. Asserting only that a file appeared would pass an implementation that detects the
+   * change and then writes the field it already had.
+   */
   private void assertStructuralChangeIsNotANoOp(
       UnaryOperator<ViewCommitIntent.ViewCommitIntentBuilder> mutation, String changedField) {
     ViewCommitResult created = createWithBothDialects();
@@ -597,6 +748,85 @@ public class ViewCommitEngineCommitTest {
         savesAfterCreate + 1,
         harness.getHouseTableRepository().getSaveViewCalls(),
         "a changed " + changedField + " must publish");
+
+    assertPersistedDefinitionMatches(intent, result, changedField);
+  }
+
+  /**
+   * Reads the submitted definition back out of the file that was actually written, and out of a
+   * fresh load, so persisting a stale value cannot pass as a detected change.
+   */
+  private void assertPersistedDefinitionMatches(
+      ViewCommitIntent intent, ViewCommitResult result, String changedField) {
+    ViewMetadata persisted = harness.readMetadata(result.getPointer().getMetadataLocation());
+    Assertions.assertEquals(
+        intent.getSchema().asStruct(),
+        persisted.schema().asStruct(),
+        "the persisted schema must be the submitted one after changing " + changedField);
+    Assertions.assertEquals(
+        intent.getSourceDialect(),
+        persisted.currentVersion().summary().get(ViewTestFixtures.SOURCE_DIALECT_SUMMARY_KEY),
+        "the persisted source dialect must be the submitted one after changing " + changedField);
+    Assertions.assertEquals(
+        intent.getDefaultCatalog(),
+        persisted.currentVersion().defaultCatalog(),
+        "the persisted default catalog must be the submitted one after changing " + changedField);
+    Assertions.assertEquals(
+        intent.getDefaultNamespace() == null ? Namespace.empty() : intent.getDefaultNamespace(),
+        persisted.currentVersion().defaultNamespace(),
+        "the persisted default namespace must be the submitted one after changing " + changedField);
+    Assertions.assertEquals(
+        submittedByDialect(intent),
+        persistedByDialect(persisted),
+        "every submitted representation must be persisted after changing " + changedField);
+    Assertions.assertEquals(
+        Collections.singleton(intent.getSchema().identifierFieldIds()),
+        Collections.singleton(persisted.schema().identifierFieldIds()),
+        "identifier fields are part of the definition after changing " + changedField);
+
+    LoadedView reloaded = harness.newEngineInstance().loadView(DB, VIEW);
+    Assertions.assertEquals(
+        submittedByDialect(intent),
+        loadedByDialect(reloaded),
+        "a fresh load must report the submitted definition after changing " + changedField);
+    Assertions.assertEquals(intent.getSourceDialect(), reloaded.getSourceDialect());
+    Assertions.assertEquals(intent.getDefaultCatalog(), reloaded.getDefaultCatalog());
+  }
+
+  private static Map<String, String> submittedByDialect(ViewCommitIntent intent) {
+    Map<String, String> byDialect = new LinkedHashMap<>();
+    intent
+        .getRepresentations()
+        .forEach(
+            representation -> byDialect.put(representation.getDialect(), representation.getSql()));
+    return byDialect;
+  }
+
+  private static Map<String, String> persistedByDialect(ViewMetadata metadata) {
+    Map<String, String> byDialect = new LinkedHashMap<>();
+    metadata
+        .currentVersion()
+        .representations()
+        .forEach(
+            representation -> {
+              SQLViewRepresentation sql = (SQLViewRepresentation) representation;
+              Assertions.assertNull(
+                  byDialect.put(sql.dialect(), sql.sql()),
+                  "a dialect must not be persisted twice: " + sql.dialect());
+            });
+    return byDialect;
+  }
+
+  private static Map<String, String> loadedByDialect(LoadedView loaded) {
+    Map<String, String> byDialect = new LinkedHashMap<>();
+    loaded
+        .getRepresentations()
+        .forEach(
+            representation ->
+                Assertions.assertNull(
+                    byDialect.put(representation.getDialect(), representation.getSql()),
+                    "a dialect must not be reported twice: " + representation.getDialect()));
+    return byDialect;
   }
 
   @Test
@@ -757,8 +987,7 @@ public class ViewCommitEngineCommitTest {
             harness.getHouseTableRepository(),
             harness.getFileIOManager(),
             harness.getRecordingCodec(),
-            new StorageType(),
-            harness.getHouseTableMapper()) {
+            new StorageType()) {
           @Override
           protected long nowMillis() {
             return fixedNow;

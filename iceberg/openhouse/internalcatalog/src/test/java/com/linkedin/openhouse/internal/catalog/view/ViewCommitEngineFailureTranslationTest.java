@@ -56,6 +56,7 @@ public class ViewCommitEngineFailureTranslationTest {
 
     Assertions.assertEquals(1, harness.getHouseTableRepository().getSaveViewCalls());
     assertNothingHappenedAfterThePublishAttempt();
+    assertTheCandidateWasWrittenOnceAndLeftAlone();
     Assertions.assertFalse(
         harness.getHouseTableRepository().peek(DB, VIEW).isPresent(),
         "an ambiguous create must not have moved this engine's view of the pointer");
@@ -67,6 +68,7 @@ public class ViewCommitEngineFailureTranslationTest {
         harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root));
     HouseTable pointerBefore = harness.getHouseTableRepository().peek(DB, VIEW).get();
     int savesBefore = harness.getHouseTableRepository().getSaveViewCalls();
+    int filesBefore = harness.metadataFiles().size();
     harness.getHouseTableRepository().clearEvents();
     harness.getHouseTableRepository().failNextSaveViewWith(unknownState());
 
@@ -80,9 +82,37 @@ public class ViewCommitEngineFailureTranslationTest {
         "an ambiguous publish must never be followed by a second write");
     assertNothingHappenedAfterThePublishAttempt();
     Assertions.assertEquals(
+        filesBefore + 1,
+        harness.metadataFiles().size(),
+        "the candidate written before an ambiguous publish must survive: the write may have landed,"
+            + " so deleting it could strand a pointer that now references it");
+    Assertions.assertEquals(
+        1,
+        harness.codecWrites(),
+        "an ambiguous publish must not be followed by a rebuild: " + harness.events());
+    Assertions.assertTrue(
+        harness.metadataFiles().stream()
+            .anyMatch(path -> path.toString().equals(pointerBefore.getTableLocation())),
+        "the previously published file must also still be there");
+    Assertions.assertEquals(
         pointerBefore,
         harness.getHouseTableRepository().peek(DB, VIEW).get(),
         "the pointer row must be untouched after an ambiguous publish");
+  }
+
+  /**
+   * A cleanup after an ambiguous publish is invisible to the House Table event log, so it is
+   * asserted against the file system: exactly one candidate was written, and it is still there.
+   */
+  private void assertTheCandidateWasWrittenOnceAndLeftAlone() {
+    Assertions.assertEquals(
+        1,
+        harness.codecWrites(),
+        "exactly one candidate is built for one attempt: " + harness.events());
+    Assertions.assertEquals(
+        1,
+        harness.metadataFiles().size(),
+        "an ambiguous outcome is not a cleanable failure, so the candidate must remain on storage");
   }
 
   /** A create that loses the swap is a name collision from the caller's point of view. */

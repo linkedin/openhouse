@@ -170,16 +170,24 @@ public class IcebergViewBeanBoundaryTest {
   }
 
   private static void inspect(List<String> offenders, String beanName, Class<?> type) {
+    inspect(offenders, beanName, type, VIEW_PACKAGE_PREFIX);
+  }
+
+  /**
+   * Every place a type can be named: declared and inherited members, the generic supertypes that
+   * bind a parent's type variables to a concrete argument, method and constructor type bounds that
+   * no parameter mentions, and the throws clause.
+   */
+  private static void inspect(
+      List<String> offenders, String beanName, Class<?> type, String prefix) {
     safely(
         offenders,
         beanName,
         type,
+        prefix,
         () -> {
           for (Method method : type.getDeclaredMethods()) {
-            record(offenders, beanName, type, method.getGenericReturnType());
-            for (Type parameter : method.getGenericParameterTypes()) {
-              record(offenders, beanName, type, parameter);
-            }
+            recordMethod(offenders, beanName, type, method, prefix);
           }
         });
     // Inherited public API is just as visible to Spring as declared API.
@@ -187,22 +195,30 @@ public class IcebergViewBeanBoundaryTest {
         offenders,
         beanName,
         type,
+        prefix,
         () -> {
           for (Method method : type.getMethods()) {
-            record(offenders, beanName, type, method.getGenericReturnType());
-            for (Type parameter : method.getGenericParameterTypes()) {
-              record(offenders, beanName, type, parameter);
-            }
+            recordMethod(offenders, beanName, type, method, prefix);
           }
         });
     safely(
         offenders,
         beanName,
         type,
+        prefix,
         () -> {
           for (Constructor<?> constructor : type.getDeclaredConstructors()) {
             for (Type parameter : constructor.getGenericParameterTypes()) {
-              record(offenders, beanName, type, parameter);
+              record(offenders, beanName, type, parameter, prefix, new HashSet<Type>());
+            }
+            for (Type thrown : constructor.getGenericExceptionTypes()) {
+              record(offenders, beanName, type, thrown, prefix, new HashSet<Type>());
+            }
+            // A bound no parameter mentions is still part of the declared signature.
+            for (TypeVariable<?> variable : constructor.getTypeParameters()) {
+              for (Type bound : variable.getBounds()) {
+                record(offenders, beanName, type, bound, prefix, new HashSet<Type>());
+              }
             }
           }
         });
@@ -210,22 +226,54 @@ public class IcebergViewBeanBoundaryTest {
         offenders,
         beanName,
         type,
+        prefix,
         () -> {
           for (Field field : type.getDeclaredFields()) {
-            record(offenders, beanName, type, field.getGenericType());
+            record(offenders, beanName, type, field.getGenericType(), prefix, new HashSet<Type>());
           }
         });
     safely(
         offenders,
         beanName,
         type,
+        prefix,
         () -> {
           for (TypeVariable<?> variable : type.getTypeParameters()) {
             for (Type bound : variable.getBounds()) {
-              record(offenders, beanName, type, bound);
+              record(offenders, beanName, type, bound, prefix, new HashSet<Type>());
             }
           }
         });
+    // `class Child extends Parent<Forbidden>` names Forbidden nowhere else: Parent<T>.get() erases
+    // to Object, so a member walk alone sees a clean signature.
+    safely(
+        offenders,
+        beanName,
+        type,
+        prefix,
+        () -> {
+          record(
+              offenders, beanName, type, type.getGenericSuperclass(), prefix, new HashSet<Type>());
+          for (Type implemented : type.getGenericInterfaces()) {
+            record(offenders, beanName, type, implemented, prefix, new HashSet<Type>());
+          }
+        });
+  }
+
+  private static void recordMethod(
+      List<String> offenders, String beanName, Class<?> type, Method method, String prefix) {
+    record(offenders, beanName, type, method.getGenericReturnType(), prefix, new HashSet<Type>());
+    for (Type parameter : method.getGenericParameterTypes()) {
+      record(offenders, beanName, type, parameter, prefix, new HashSet<Type>());
+    }
+    for (Type thrown : method.getGenericExceptionTypes()) {
+      record(offenders, beanName, type, thrown, prefix, new HashSet<Type>());
+    }
+    for (TypeVariable<?> variable : method.getTypeParameters()) {
+      for (Type bound : variable.getBounds()) {
+        record(offenders, beanName, type, bound, prefix, new HashSet<Type>());
+      }
+    }
   }
 
   /**
@@ -235,11 +283,11 @@ public class IcebergViewBeanBoundaryTest {
    * because "could not check" is not "clean".
    */
   private static void safely(
-      List<String> offenders, String beanName, Class<?> type, Runnable inspection) {
+      List<String> offenders, String beanName, Class<?> type, String prefix, Runnable inspection) {
     try {
       inspection.run();
     } catch (TypeNotPresentException | NoClassDefFoundError e) {
-      handleInspectionFailure(offenders, beanName, type, e, VIEW_PACKAGE_PREFIX);
+      handleInspectionFailure(offenders, beanName, type, e, prefix);
     }
   }
 
@@ -341,11 +389,6 @@ public class IcebergViewBeanBoundaryTest {
     return gaps;
   }
 
-  private static void record(
-      List<String> offenders, String beanName, Class<?> beanType, Type candidate) {
-    record(offenders, beanName, beanType, candidate, VIEW_PACKAGE_PREFIX, new HashSet<Type>());
-  }
-
   /** Walks parameterized types, arrays, wildcards, and bounds to their components. */
   private static void record(
       List<String> offenders,
@@ -370,6 +413,8 @@ public class IcebergViewBeanBoundaryTest {
     if (candidate instanceof ParameterizedType) {
       ParameterizedType parameterized = (ParameterizedType) candidate;
       record(offenders, beanName, beanType, parameterized.getRawType(), prefix, seen);
+      // An inner class carries its enclosing type's arguments on the owner, not on itself.
+      record(offenders, beanName, beanType, parameterized.getOwnerType(), prefix, seen);
       for (Type argument : parameterized.getActualTypeArguments()) {
         record(offenders, beanName, beanType, argument, prefix, seen);
       }
@@ -517,6 +562,59 @@ public class IcebergViewBeanBoundaryTest {
     Assertions.assertFalse(
         isKnownOptionalDependencyGap(CleanProbe.class, "com/querydsl/core/types/Predicate"),
         "an arbitrary bean may not ride the allowlist");
+  }
+
+  /**
+   * The two shapes a member-only walk cannot see. Both probes are inspected through {@code
+   * inspect()}, the same entry point the real audits use, so passing here means the real audits
+   * would catch them too.
+   */
+  @Test
+  public void inspectFindsAnInheritedConcreteBindingAndAnUnusedBound() {
+    String probedPrefix = "java.util.concurrent.";
+
+    List<String> inherited = new ArrayList<>();
+    inspect(inherited, "inheritedBinding", InheritedBindingProbe.class, probedPrefix);
+    Assertions.assertTrue(
+        inherited.stream().anyMatch(offender -> offender.contains("java.util.concurrent.Callable")),
+        "a parent's type variable bound to a concrete forbidden argument must be found; its"
+            + " inherited method erases to Object, so only the generic supertype names it: "
+            + inherited);
+
+    List<String> unusedBound = new ArrayList<>();
+    inspect(unusedBound, "unusedBound", UnusedBoundProbe.class, probedPrefix);
+    Assertions.assertTrue(
+        unusedBound.stream()
+            .anyMatch(offender -> offender.contains("java.util.concurrent.ExecutorService")),
+        "a method type bound that no parameter mentions is still declared signature: "
+            + unusedBound);
+    Assertions.assertTrue(
+        unusedBound.stream()
+            .anyMatch(offender -> offender.contains("java.util.concurrent.TimeoutException")),
+        "a generic throws clause is part of the signature too: " + unusedBound);
+
+    List<String> clean = new ArrayList<>();
+    inspect(clean, "clean", CleanProbe.class, probedPrefix);
+    Assertions.assertTrue(clean.isEmpty(), "a clean type must not be flagged by inspect: " + clean);
+  }
+
+  @SuppressWarnings("unused")
+  private static class GenericParent<T> {
+    T get() {
+      return null;
+    }
+  }
+
+  /** Names Callable only through its generic supertype; every member of it erases to Object. */
+  @SuppressWarnings("unused")
+  private static final class InheritedBindingProbe
+      extends GenericParent<java.util.concurrent.Callable<String>> {}
+
+  @SuppressWarnings("unused")
+  private static final class UnusedBoundProbe {
+    <T extends java.util.concurrent.ExecutorService> void boundMentionedNowhereElse() {}
+
+    void declaredThrows() throws java.util.concurrent.TimeoutException {}
   }
 
   @SuppressWarnings("unused")

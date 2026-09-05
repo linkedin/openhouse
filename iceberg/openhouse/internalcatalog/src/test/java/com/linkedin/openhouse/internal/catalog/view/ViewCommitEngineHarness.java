@@ -1,16 +1,12 @@
 package com.linkedin.openhouse.internal.catalog.view;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
-import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
-import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
-import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapperImpl;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -26,47 +22,49 @@ import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.view.ViewMetadata;
 import org.apache.iceberg.view.ViewMetadataParser;
-import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * Real files, real Iceberg parsing, and a faithful House Table double, so a commit is asserted end
  * to end rather than through stubs.
  *
- * <p>There is deliberately no {@code StorageSelector} and no allocation stub: the engine no longer
- * has a seam to select storage or allocate a root, and a harness that still offered one could hide
- * a regression that reintroduced it.
+ * <p>There is deliberately no {@code Storage} and no {@code StorageSelector} here. The engine has
+ * no seam left to select storage or allocate a root, and it must not recover the storage type by
+ * asking which storage a {@code FileIO} belongs to, so a harness that still offered either could
+ * hide a regression that reintroduced one.
+ *
+ * <p>Two storage types are wired, each to its own real local {@code HadoopFileIO}, so a test can
+ * supply a non-default type and prove the engine used the type it was handed rather than defaulting
+ * to LOCAL. {@code StorageType} is real rather than mocked, so {@code fromString} performs exactly
+ * the conversion production performs.
  */
 @Getter
 public class ViewCommitEngineHarness {
 
+  /** A second, deliberately non-default storage type, wired to its own FileIO instance. */
+  public static final String ALTERNATE_STORAGE_TYPE = "hdfs";
+
   private final Path root;
   private final FileIO fileIO;
-  private final Storage storage;
+  private final FileIO alternateFileIO;
   private final FileIOManager fileIOManager;
   private final ViewMetadataCodec codec;
   private final ViewMetadataCodec recordingCodec;
   private final List<String> events;
   private final InMemoryViewHouseTableRepository houseTableRepository;
-  private final HouseTableMapper houseTableMapper;
   private final ViewCommitEngine viewCommitEngine;
 
   public ViewCommitEngineHarness(Path root) {
     this.root = root;
     this.fileIO = new HadoopFileIO(new Configuration());
+    this.alternateFileIO = new HadoopFileIO(new Configuration());
     this.fileIOManager = mock(FileIOManager.class);
-    this.storage = mock(Storage.class);
     this.codec = spy(new IcebergViewMetadataCodec());
     this.events = Collections.synchronizedList(new ArrayList<>());
     this.recordingCodec = new RecordingViewMetadataCodec(codec, events);
     this.houseTableRepository = new InMemoryViewHouseTableRepository(events);
 
-    when(storage.getType()).thenReturn(StorageType.LOCAL);
     when(fileIOManager.getFileIO(eq(StorageType.LOCAL))).thenReturn(fileIO);
-    when(fileIOManager.getStorage(any(FileIO.class))).thenReturn(storage);
-
-    HouseTableMapperImpl mapper = new HouseTableMapperImpl();
-    ReflectionTestUtils.setField(mapper, "fileIOManager", fileIOManager);
-    this.houseTableMapper = mapper;
+    when(fileIOManager.getFileIO(eq(StorageType.HDFS))).thenReturn(alternateFileIO);
 
     this.viewCommitEngine = newEngineInstance();
   }
@@ -74,7 +72,7 @@ public class ViewCommitEngineHarness {
   /** A new instance over the same rows and storage, so a load cannot come from process state. */
   public ViewCommitEngine newEngineInstance() {
     return new ViewCommitEngineImpl(
-        houseTableRepository, fileIOManager, recordingCodec, new StorageType(), houseTableMapper);
+        houseTableRepository, fileIOManager, recordingCodec, new StorageType());
   }
 
   /** The single ordered log of codec and House Table interactions, in the order they happened. */
@@ -86,6 +84,14 @@ public class ViewCommitEngineHarness {
 
   public void clearEvents() {
     events.clear();
+  }
+
+  /** How many metadata files the codec was asked to write, candidates that lost included. */
+  public int codecWrites() {
+    return (int)
+        events().stream()
+            .filter(event -> event.startsWith(RecordingViewMetadataCodec.WRITE))
+            .count();
   }
 
   /** Reads a metadata file back through the real Iceberg parser. */

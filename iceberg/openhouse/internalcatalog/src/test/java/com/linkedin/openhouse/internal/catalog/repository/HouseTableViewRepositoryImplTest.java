@@ -42,6 +42,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -213,9 +214,10 @@ public class HouseTableViewRepositoryImplTest {
 
   /**
    * A write timeout of a minute is correct in production and useless in a test, so this instance
-   * shortens only that seam and keeps every other behaviour of the real adapter.
+   * shortens only that seam and keeps every other behaviour of the real adapter. The returned repo
+   * has its own retry template, so a listener must be bound to it rather than to the injected bean.
    */
-  private HouseTableRepository fastWriteTimeoutRepo() {
+  private HouseTableRepositoryImpl fastWriteTimeoutRepo() {
     HouseTableRepositoryImpl repo =
         new HouseTableRepositoryImpl() {
           @Override
@@ -226,6 +228,13 @@ public class HouseTableViewRepositoryImplTest {
     ReflectionTestUtils.setField(repo, "apiInstance", userTableApi);
     ReflectionTestUtils.setField(repo, "houseTableMapper", houseTableMapper);
     return repo;
+  }
+
+  private static CustomRetryListener listenOnMutationRetriesOf(HouseTableRepositoryImpl repo) {
+    CustomRetryListener retryListener = new CustomRetryListener();
+    repo.getHtsRetryTemplate(Collections.singletonList(IllegalStateException.class))
+        .registerListener(retryListener);
+    return retryListener;
   }
 
   /* -------------------------------------------------------------------------
@@ -445,26 +454,33 @@ public class HouseTableViewRepositoryImplTest {
   /** One bad row fails the page: dropping it would hide corruption and break the totals. */
   @Test
   public void findAllViewsByDatabaseIdRejectsAnyNonViewRowOnThePage() throws InterruptedException {
-    List<UserTable> views = new ArrayList<>();
-    views.add(viewUserTable("VIEW"));
-    UserTable corrupt = viewUserTable("TABLE");
-    corrupt.setTableId("v2");
-    views.add(corrupt);
-    enqueueViewPage(views, 0, 2, 2L);
+    for (String corrupt : Arrays.asList("TABLE", "view", "View", "MATERIALIZED_VIEW", "")) {
+      List<UserTable> views = new ArrayList<>();
+      views.add(viewUserTable("VIEW"));
+      UserTable bad = viewUserTable(corrupt);
+      bad.setTableId("v2");
+      views.add(bad);
+      enqueueViewPage(views, 0, 2, 2L);
 
-    CustomRetryListener retryListener = listenOnReadRetries();
+      CustomRetryListener retryListener = listenOnReadRetries();
 
-    IllegalStateException thrown =
-        Assertions.assertThrows(
-            IllegalStateException.class,
-            () -> htsRepo.findAllViewsByDatabaseId(VIEW_DB, PageRequest.of(0, 2, Sort.unsorted())));
+      IllegalStateException thrown =
+          Assertions.assertThrows(
+              IllegalStateException.class,
+              () ->
+                  htsRepo.findAllViewsByDatabaseId(VIEW_DB, PageRequest.of(0, 2, Sort.unsorted())),
+              "discriminator " + corrupt);
 
-    assertThat(thrown.getMessage()).contains("v2").contains("TABLE");
-    Assertions.assertEquals(
-        0, retryListener.getRetryCount(), "a corrupt page is not retried into a second read");
-    nextRequest();
-    Assertions.assertNull(
-        mockHtsServer.takeRequest(1, TimeUnit.SECONDS), "the corrupt page must not be re-fetched");
+      assertThat(thrown.getMessage()).contains("v2");
+      Assertions.assertEquals(
+          0,
+          retryListener.getRetryCount(),
+          "a corrupt page is not retried into a second read, discriminator " + corrupt);
+      nextRequest();
+      Assertions.assertNull(
+          mockHtsServer.takeRequest(1, TimeUnit.SECONDS),
+          "the corrupt page must not be re-fetched, discriminator " + corrupt);
+    }
   }
 
   @Test
@@ -474,10 +490,15 @@ public class HouseTableViewRepositoryImplTest {
 
     CustomRetryListener retryListener = listenOnReadRetries();
 
-    Assertions.assertThrows(
-        IllegalStateException.class,
-        () -> htsRepo.findAllViewsByDatabaseId(VIEW_DB, PageRequest.of(0, 1, Sort.unsorted())));
+    IllegalStateException thrown =
+        Assertions.assertThrows(
+            IllegalStateException.class,
+            () -> htsRepo.findAllViewsByDatabaseId(VIEW_DB, PageRequest.of(0, 1, Sort.unsorted())));
 
+    assertThat(thrown.getMessage()).contains(VIEW_DB).contains(VIEW_ID);
+    assertThat(thrown.getMessage().toLowerCase())
+        .as("a missing discriminator must be described, not left to be inferred")
+        .containsAnyOf("null", "missing", "absent");
     Assertions.assertEquals(0, retryListener.getRetryCount());
     nextRequest();
     Assertions.assertNull(mockHtsServer.takeRequest(1, TimeUnit.SECONDS));
@@ -554,8 +575,10 @@ public class HouseTableViewRepositoryImplTest {
   /**
    * A publisher that never completes, so the {@code timeout} operator itself has to produce the
    * failure. An injected {@code IllegalStateException} would pass even with the operator deleted.
+   * The outer deadline turns a deleted operator into a bounded failure instead of a hung worker.
    */
   @Test
+  @Timeout(value = 30, unit = TimeUnit.SECONDS)
   public void saveViewReportsUnknownStateOnARealWriteTimeout() {
     AtomicInteger subscriptions = new AtomicInteger();
     Mockito.doReturn(
@@ -564,12 +587,12 @@ public class HouseTableViewRepositoryImplTest {
         .when(userTableApi)
         .putUserView(Mockito.any());
 
-    CustomRetryListener retryListener = listenOnMutationRetries();
+    HouseTableRepositoryImpl repo = fastWriteTimeoutRepo();
+    CustomRetryListener retryListener = listenOnMutationRetriesOf(repo);
 
     HouseTableRepositoryStateUnknownException thrown =
         Assertions.assertThrows(
-            HouseTableRepositoryStateUnknownException.class,
-            () -> fastWriteTimeoutRepo().saveView(viewPointer()));
+            HouseTableRepositoryStateUnknownException.class, () -> repo.saveView(viewPointer()));
 
     Assertions.assertTrue(
         thrown.getCause() instanceof TimeoutException,
@@ -580,6 +603,7 @@ public class HouseTableViewRepositoryImplTest {
   }
 
   @Test
+  @Timeout(value = 30, unit = TimeUnit.SECONDS)
   public void deleteViewByIdReportsUnknownStateOnARealWriteTimeout() {
     AtomicInteger subscriptions = new AtomicInteger();
     Mockito.doReturn(
@@ -587,12 +611,12 @@ public class HouseTableViewRepositoryImplTest {
         .when(userTableApi)
         .deleteView(Mockito.any(), Mockito.any());
 
-    CustomRetryListener retryListener = listenOnMutationRetries();
+    HouseTableRepositoryImpl repo = fastWriteTimeoutRepo();
+    CustomRetryListener retryListener = listenOnMutationRetriesOf(repo);
 
     HouseTableRepositoryStateUnknownException thrown =
         Assertions.assertThrows(
-            HouseTableRepositoryStateUnknownException.class,
-            () -> fastWriteTimeoutRepo().deleteViewById(viewKey()));
+            HouseTableRepositoryStateUnknownException.class, () -> repo.deleteViewById(viewKey()));
 
     Assertions.assertTrue(
         thrown.getCause() instanceof TimeoutException,

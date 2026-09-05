@@ -81,6 +81,35 @@ public class HouseTableMapperTest {
     Assertions.assertEquals("VIEW", houseTableMapper.toUserView(pointer).getEntityType());
   }
 
+  /**
+   * The stamp is authoritative, not a default: a pointer that already carries the wrong type must
+   * still leave through its route's own discriminator, or a mis-typed caller could reach the wrong
+   * table.
+   */
+  @Test
+  public void outgoingStampsOverrideAConflictingIncomingEntityType() {
+    HouseTable mislabelledAsView =
+        HouseTable.builder()
+            .databaseId("d1")
+            .tableId("t1")
+            .tableLocation("/openhouse/d1/t1/v0.metadata.json")
+            .entityType("VIEW")
+            .build();
+    HouseTable mislabelledAsTable = mislabelledAsView.toBuilder().entityType("TABLE").build();
+    HouseTable nonsense = mislabelledAsView.toBuilder().entityType("MATERIALIZED_VIEW").build();
+
+    Assertions.assertEquals(
+        "TABLE",
+        houseTableMapper.toUserTable(mislabelledAsView).getEntityType(),
+        "the table route always declares TABLE, whatever the pointer claims");
+    Assertions.assertEquals(
+        "VIEW",
+        houseTableMapper.toUserView(mislabelledAsTable).getEntityType(),
+        "the view route always declares VIEW, whatever the pointer claims");
+    Assertions.assertEquals("TABLE", houseTableMapper.toUserTable(nonsense).getEntityType());
+    Assertions.assertEquals("VIEW", houseTableMapper.toUserView(nonsense).getEntityType());
+  }
+
   /** The two write mappings differ in the discriminator and in nothing else. */
   @Test
   public void theViewWriteMappingCarriesTheSamePointerShapeAsTheTableOne() {

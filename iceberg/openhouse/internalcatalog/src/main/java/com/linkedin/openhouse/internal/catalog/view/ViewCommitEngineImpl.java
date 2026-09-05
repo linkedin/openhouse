@@ -2,7 +2,6 @@ package com.linkedin.openhouse.internal.catalog.view;
 
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
-import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.view.model.LoadedView;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
@@ -21,6 +20,12 @@ import org.springframework.data.domain.Pageable;
  * captures the base, builds the metadata, writes the immutable file, then performs exactly one
  * House Table compare-and-swap on the captured token; the swap is the sole arbiter of a race and is
  * never retried, since a second attempt could double-apply.
+ *
+ * <p>The pointer row is built here rather than through {@code HouseTableMapper}, because that
+ * mapper recovers the storage type by asking {@link FileIOManager#getStorage} which storage a
+ * {@code FileIO} belongs to. That reverse lookup is lossy — HDFS and LOCAL can be configured with
+ * equal {@code HadoopFileIO} instances — so it would silently replace the storage fact the caller
+ * supplied, or the one the published row already carries, with whichever storage matches first.
  */
 @AllArgsConstructor
 @Slf4j
@@ -33,8 +38,6 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
   private final ViewMetadataCodec viewMetadataCodec;
 
   private final StorageType storageType;
-
-  private final HouseTableMapper houseTableMapper;
 
   @Override
   public ViewCommitResult commit(ViewCommitIntent intent) {

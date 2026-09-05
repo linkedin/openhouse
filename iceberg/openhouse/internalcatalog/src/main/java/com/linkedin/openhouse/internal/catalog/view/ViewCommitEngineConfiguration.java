@@ -2,7 +2,6 @@ package com.linkedin.openhouse.internal.catalog.view;
 
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
-import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.context.annotation.Bean;
@@ -30,9 +29,8 @@ public class ViewCommitEngineConfiguration {
       HouseTableRepository houseTableRepository,
       FileIOManager fileIOManager,
       ViewMetadataCodec viewMetadataCodec,
-      StorageType storageType,
-      HouseTableMapper houseTableMapper) {
+      StorageType storageType) {
     return new ViewCommitEngineImpl(
-        houseTableRepository, fileIOManager, viewMetadataCodec, storageType, houseTableMapper);
+        houseTableRepository, fileIOManager, viewMetadataCodec, storageType);
   }
 }

@@ -1672,28 +1672,92 @@ public class RepositoryTest {
   void houseTableStandInFiltersEntityTypeBeforeItPaginates() {
     seedIsolationRows();
     try {
-      java.util.List<String> tableIds =
-          houseTablesRepository.findAllByDatabaseId(ISOLATION_DB).stream()
-              .map(HouseTable::getTableId)
-              .sorted()
-              .collect(Collectors.toList());
-      Assertions.assertEquals(Arrays.asList("legacy_a", "table_a"), tableIds);
-
-      org.springframework.data.domain.Page<HouseTable> tablePage =
-          houseTablesRepository.findAllByDatabaseId(
-              ISOLATION_DB, org.springframework.data.domain.PageRequest.of(0, 1));
+      java.util.List<HouseTable> unpaged = houseTablesRepository.findAllByDatabaseId(ISOLATION_DB);
       Assertions.assertEquals(
-          2L, tablePage.getTotalElements(), "views must not inflate a table page total");
-      Assertions.assertEquals(2, tablePage.getTotalPages());
+          Arrays.asList("legacy_a", "table_a"),
+          unpaged.stream().map(HouseTable::getTableId).sorted().collect(Collectors.toList()));
+      Assertions.assertTrue(
+          unpaged.stream().allMatch(row -> "TABLE".equals(row.getEntityType())),
+          "every row the unpaged list returns must report its resolved type, legacy included: "
+              + unpaged.stream()
+                  .map(row -> row.getTableId() + "=" + row.getEntityType())
+                  .collect(Collectors.toList()));
 
-      org.springframework.data.domain.Page<HouseTable> viewPage =
+      org.springframework.data.domain.Page<HouseTable> firstTablePage =
+          houseTablesRepository.findAllByDatabaseId(
+              ISOLATION_DB,
+              org.springframework.data.domain.PageRequest.of(
+                  0, 1, org.springframework.data.domain.Sort.by("tableId").ascending()));
+      org.springframework.data.domain.Page<HouseTable> secondTablePage =
+          houseTablesRepository.findAllByDatabaseId(
+              ISOLATION_DB,
+              org.springframework.data.domain.PageRequest.of(
+                  1, 1, org.springframework.data.domain.Sort.by("tableId").ascending()));
+      Assertions.assertEquals(
+          2L, firstTablePage.getTotalElements(), "views must not inflate a table page total");
+      Assertions.assertEquals(2, firstTablePage.getTotalPages());
+      Assertions.assertEquals("legacy_a", firstTablePage.getContent().get(0).getTableId());
+      Assertions.assertEquals("table_a", secondTablePage.getContent().get(0).getTableId());
+      Assertions.assertEquals(
+          "TABLE",
+          firstTablePage.getContent().get(0).getEntityType(),
+          "the legacy row is hydrated on the paginated overload too");
+      Assertions.assertEquals("TABLE", secondTablePage.getContent().get(0).getEntityType());
+
+      org.springframework.data.domain.Page<HouseTable> firstViewPage =
           houseTablesRepository.findAllViewsByDatabaseId(
-              ISOLATION_DB, org.springframework.data.domain.PageRequest.of(0, 1));
-      Assertions.assertEquals(2L, viewPage.getTotalElements());
-      Assertions.assertEquals(2, viewPage.getTotalPages());
-      Assertions.assertEquals(1, viewPage.getContent().size());
-      Assertions.assertEquals("VIEW", viewPage.getContent().get(0).getEntityType());
+              ISOLATION_DB,
+              org.springframework.data.domain.PageRequest.of(
+                  0, 1, org.springframework.data.domain.Sort.by("tableId").ascending()));
+      org.springframework.data.domain.Page<HouseTable> secondViewPage =
+          houseTablesRepository.findAllViewsByDatabaseId(
+              ISOLATION_DB,
+              org.springframework.data.domain.PageRequest.of(
+                  1, 1, org.springframework.data.domain.Sort.by("tableId").ascending()));
+      Assertions.assertEquals(2L, firstViewPage.getTotalElements());
+      Assertions.assertEquals(2, firstViewPage.getTotalPages());
+      Assertions.assertEquals("view_a", firstViewPage.getContent().get(0).getTableId());
+      Assertions.assertEquals(
+          "view_b",
+          secondViewPage.getContent().get(0).getTableId(),
+          "view pagination must be isolated from the table rows sharing the key space");
+      Assertions.assertEquals("VIEW", firstViewPage.getContent().get(0).getEntityType());
     } finally {
+      deleteIsolationRows();
+    }
+  }
+
+  /**
+   * The derived query this replaced applied the sort in SQL, so filtering in Java must not drop it:
+   * otherwise page two is an arbitrary set of rows and a caller paging a database misses some.
+   */
+  @Test
+  void houseTableStandInHonoursTheRequestedSortAcrossPages() {
+    seedIsolationRows();
+    houseTablesRepository.save(isolationRow("table_b", "TABLE"));
+    try {
+      org.springframework.data.domain.Sort descending =
+          org.springframework.data.domain.Sort.by("tableId").descending();
+      org.springframework.data.domain.Page<HouseTable> first =
+          houseTablesRepository.findAllByDatabaseId(
+              ISOLATION_DB, org.springframework.data.domain.PageRequest.of(0, 2, descending));
+      org.springframework.data.domain.Page<HouseTable> second =
+          houseTablesRepository.findAllByDatabaseId(
+              ISOLATION_DB, org.springframework.data.domain.PageRequest.of(1, 2, descending));
+
+      Assertions.assertEquals(3L, first.getTotalElements());
+      Assertions.assertEquals(
+          Arrays.asList("table_b", "table_a"),
+          first.getContent().stream().map(HouseTable::getTableId).collect(Collectors.toList()));
+      Assertions.assertEquals(
+          Collections.singletonList("legacy_a"),
+          second.getContent().stream().map(HouseTable::getTableId).collect(Collectors.toList()));
+      Assertions.assertEquals(
+          descending, first.getSort(), "the returned page must report the sort it was asked for");
+    } finally {
+      if (houseTablesRepository.findEntityById(isolationKey("table_b")).isPresent()) {
+        houseTablesRepository.deleteById(isolationKey("table_b"));
+      }
       deleteIsolationRows();
     }
   }
