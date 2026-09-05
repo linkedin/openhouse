@@ -19,9 +19,11 @@ import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
 import java.lang.reflect.WildcardType;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -244,20 +246,42 @@ public class IcebergViewBeanBoundaryTest {
             }
           }
         });
-    // `class Child extends Parent<Forbidden>` names Forbidden nowhere else: Parent<T>.get() erases
-    // to Object, so a member walk alone sees a clean signature.
     safely(
-        offenders,
-        beanName,
-        type,
-        prefix,
-        () -> {
-          record(
-              offenders, beanName, type, type.getGenericSuperclass(), prefix, new HashSet<Type>());
-          for (Type implemented : type.getGenericInterfaces()) {
-            record(offenders, beanName, type, implemented, prefix, new HashSet<Type>());
-          }
-        });
+        offenders, beanName, type, prefix, () -> recordAncestry(offenders, beanName, type, prefix));
+  }
+
+  /**
+   * `class Middle extends Parent<Forbidden>` names Forbidden nowhere a member walk can see:
+   * Parent's method still returns its own type variable, bounded by Object. Inspecting a Grandchild
+   * of Middle sees only a raw `Class<Middle>` as its immediate supertype, so the binding has to be
+   * read at every level of the ancestry rather than one. The walk covers supertypes only; member
+   * class graphs are out of scope.
+   */
+  private static void recordAncestry(
+      List<String> offenders, String beanName, Class<?> beanType, String prefix) {
+    Set<Class<?>> visited = new HashSet<>();
+    Deque<Class<?>> pending = new ArrayDeque<>();
+    pending.add(beanType);
+    while (!pending.isEmpty()) {
+      Class<?> current = pending.poll();
+      if (current == null || Object.class.equals(current) || !visited.add(current)) {
+        continue;
+      }
+      record(
+          offenders,
+          beanName,
+          beanType,
+          current.getGenericSuperclass(),
+          prefix,
+          new HashSet<Type>());
+      for (Type implemented : current.getGenericInterfaces()) {
+        record(offenders, beanName, beanType, implemented, prefix, new HashSet<Type>());
+      }
+      if (current.getSuperclass() != null) {
+        pending.add(current.getSuperclass());
+      }
+      Collections.addAll(pending, current.getInterfaces());
+    }
   }
 
   private static void recordMethod(
@@ -593,6 +617,26 @@ public class IcebergViewBeanBoundaryTest {
             .anyMatch(offender -> offender.contains("java.util.concurrent.TimeoutException")),
         "a generic throws clause is part of the signature too: " + unusedBound);
 
+    List<String> twoLevel = new ArrayList<>();
+    inspect(twoLevel, "twoLevelBinding", TwoLevelBindingProbe.class, probedPrefix);
+    Assertions.assertTrue(
+        twoLevel.stream().anyMatch(offender -> offender.contains("java.util.concurrent.Callable")),
+        "a binding two levels up must be found; this class's immediate supertype is a raw Class,"
+            + " so a single-hop ancestor check sees nothing: "
+            + twoLevel);
+
+    List<String> throughInterfaces = new ArrayList<>();
+    inspect(
+        throughInterfaces,
+        "inheritedInterfaceBinding",
+        InheritedInterfaceBindingProbe.class,
+        probedPrefix);
+    Assertions.assertTrue(
+        throughInterfaces.stream()
+            .anyMatch(offender -> offender.contains("java.util.concurrent.Future")),
+        "the same hole exists through an interface chain and must be closed too: "
+            + throughInterfaces);
+
     List<String> clean = new ArrayList<>();
     inspect(clean, "clean", CleanProbe.class, probedPrefix);
     Assertions.assertTrue(clean.isEmpty(), "a clean type must not be flagged by inspect: " + clean);
@@ -600,15 +644,36 @@ public class IcebergViewBeanBoundaryTest {
 
   @SuppressWarnings("unused")
   private static class GenericParent<T> {
-    T get() {
+    public T get() {
       return null;
     }
   }
 
   /** Names Callable only through its generic supertype; every member of it erases to Object. */
   @SuppressWarnings("unused")
-  private static final class InheritedBindingProbe
+  private static class InheritedBindingProbe
       extends GenericParent<java.util.concurrent.Callable<String>> {}
+
+  /** Two levels up: this class's immediate supertype is a raw Class, so one hop sees nothing. */
+  @SuppressWarnings("unused")
+  private static final class TwoLevelBindingProbe extends InheritedBindingProbe {}
+
+  @SuppressWarnings("unused")
+  private interface GenericFace<T> {
+    T get();
+  }
+
+  @SuppressWarnings("unused")
+  private interface MiddleFace extends GenericFace<java.util.concurrent.Future<String>> {}
+
+  /** The same hole through interfaces: the binding sits on an inherited interface, not on this. */
+  @SuppressWarnings("unused")
+  private static final class InheritedInterfaceBindingProbe implements MiddleFace {
+    @Override
+    public java.util.concurrent.Future<String> get() {
+      return null;
+    }
+  }
 
   @SuppressWarnings("unused")
   private static final class UnusedBoundProbe {

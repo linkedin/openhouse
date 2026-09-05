@@ -192,6 +192,27 @@ public class HouseTablesH2ViewAccessorTest {
             .collect(Collectors.toList()));
   }
 
+  /**
+   * Case-insensitive ordering lives in the generated SQL, so a hand-written comparator silently
+   * drops it: binary order puts {@code B_upper} before {@code a_lower}, the requested order does
+   * not. Keeping the sort delegated to the derived query is what makes this hold.
+   */
+  @Test
+  public void tableListsHonourCaseInsensitiveOrdering() {
+    repository.deleteAll();
+    repository.save(row("B_upper", "TABLE"));
+    repository.save(row("a_lower", "TABLE"));
+
+    Page<HouseTable> ignoringCase =
+        repository.findAllByDatabaseId(
+            DB, PageRequest.of(0, 10, Sort.by(Sort.Order.asc("tableId").ignoreCase())));
+
+    Assertions.assertEquals(
+        Arrays.asList("a_lower", "B_upper"),
+        ignoringCase.getContent().stream().map(HouseTable::getTableId).collect(Collectors.toList()),
+        "an ignore-case ascending sort must order the rows as the database would");
+  }
+
   @Test
   public void typedListReturnsOnlyViewsWithCorrectTotals() {
     Page<HouseTable> page = repository.findAllViewsByDatabaseId(DB, PageRequest.of(0, 10));

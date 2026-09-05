@@ -5,7 +5,6 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -44,6 +43,14 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
   /** Untyped access to a database's rows, so a typed list can filter before it paginates. */
   List<HouseTable> findByDatabaseId(String databaseId);
 
+  /**
+   * Sorting stays delegated to the derived query, so the ordering keeps the SQL semantics the
+   * paginated table list had before it was filtered in Java. Re-implementing it as a comparator
+   * would quietly drop the parts of {@link Sort} that live in the generated SQL, starting with
+   * case-insensitive ordering.
+   */
+  List<HouseTable> findByDatabaseId(String databaseId, Sort sort);
+
   /** Mirrors the column converter: a row stored before the discriminator existed is a table. */
   static HouseTable hydrateEntityType(HouseTable houseTable) {
     return houseTable.getEntityType() == null
@@ -62,48 +69,18 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
   }
 
   /**
-   * Sorts before it slices and hands the pageable straight back, because the derived query this
-   * replaced applied the sort in SQL: filtering in Java must not quietly drop the ordering the
-   * caller asked for, or turn page two into an arbitrary set of rows.
+   * Slices rows the database already ordered, and hands the pageable straight back so the page
+   * reports the sort it was asked for. Filtering in Java must not turn page two into an arbitrary
+   * set of rows, and must not re-implement the ordering either.
    */
-  static Page<HouseTable> pageOf(List<HouseTable> rows, Pageable pageable) {
-    List<HouseTable> ordered = new ArrayList<>(rows);
-    Comparator<HouseTable> comparator = comparatorOf(pageable.getSort());
-    if (comparator != null) {
-      ordered.sort(comparator);
-    }
+  static Page<HouseTable> pageOf(List<HouseTable> sortedRows, Pageable pageable) {
     int page = pageable.getPageNumber();
     int size = pageable.getPageSize();
     List<HouseTable> pageContent =
-        ordered.subList(
-            Math.min(page * size, ordered.size()), Math.min((page + 1) * size, ordered.size()));
-    return new PageImpl<>(pageContent, pageable, rows.size());
-  }
-
-  /** Property-name driven, like the derived query, so any sortable field keeps working. */
-  static Comparator<HouseTable> comparatorOf(Sort sort) {
-    Comparator<HouseTable> comparator = null;
-    for (Sort.Order order : sort) {
-      Comparator<HouseTable> next =
-          Comparator.comparing(
-              houseTable -> propertyOf(houseTable, order.getProperty()),
-              Comparator.nullsFirst(Comparator.naturalOrder()));
-      if (order.isDescending()) {
-        next = next.reversed();
-      }
-      comparator = comparator == null ? next : comparator.thenComparing(next);
-    }
-    return comparator;
-  }
-
-  @SuppressWarnings("unchecked")
-  static Comparable<Object> propertyOf(HouseTable houseTable, String property) {
-    String getter = "get" + Character.toUpperCase(property.charAt(0)) + property.substring(1);
-    try {
-      return (Comparable<Object>) HouseTable.class.getMethod(getter).invoke(houseTable);
-    } catch (ReflectiveOperationException e) {
-      throw new IllegalArgumentException("cannot sort House Table rows by " + property, e);
-    }
+        sortedRows.subList(
+            Math.min(page * size, sortedRows.size()),
+            Math.min((page + 1) * size, sortedRows.size()));
+    return new PageImpl<>(pageContent, pageable, sortedRows.size());
   }
 
   /** A view at a shared key is absent here, which is what keeps it out of every table path. */
@@ -126,7 +103,12 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
 
   @Override
   default Page<HouseTable> findAllByDatabaseId(String databaseId, Pageable pageable) {
-    return pageOf(this.findAllByDatabaseId(databaseId), pageable);
+    return pageOf(
+        this.findByDatabaseId(databaseId, pageable.getSort()).stream()
+            .filter(HouseTablesH2Repository::isTableOrLegacy)
+            .map(HouseTablesH2Repository::hydrateEntityType)
+            .collect(Collectors.toList()),
+        pageable);
   }
 
   /** Any occupant, so a writer can classify a collision at the shared key. */
@@ -148,7 +130,7 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
   @Override
   default Page<HouseTable> findAllViewsByDatabaseId(String databaseId, Pageable pageable) {
     return pageOf(
-        this.findByDatabaseId(databaseId).stream()
+        this.findByDatabaseId(databaseId, pageable.getSort()).stream()
             .filter(HouseTablesH2Repository::isView)
             .collect(Collectors.toList()),
         pageable);

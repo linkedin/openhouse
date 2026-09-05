@@ -1762,6 +1762,40 @@ public class RepositoryTest {
     }
   }
 
+  /**
+   * Case-insensitive ordering lives in the generated SQL, so a hand-written comparator silently
+   * drops it: binary order puts {@code B_upper} before {@code a_lower}, the requested order does
+   * not. Keeping the sort delegated to the derived query is what makes this hold.
+   */
+  @Test
+  void houseTableStandInHonoursCaseInsensitiveOrdering() {
+    houseTablesRepository.save(isolationRow("B_upper", "TABLE"));
+    houseTablesRepository.save(isolationRow("a_lower", "TABLE"));
+    try {
+      org.springframework.data.domain.Page<HouseTable> ignoringCase =
+          houseTablesRepository.findAllByDatabaseId(
+              ISOLATION_DB,
+              org.springframework.data.domain.PageRequest.of(
+                  0,
+                  10,
+                  org.springframework.data.domain.Sort.by(
+                      org.springframework.data.domain.Sort.Order.asc("tableId").ignoreCase())));
+
+      Assertions.assertEquals(
+          Arrays.asList("a_lower", "B_upper"),
+          ignoringCase.getContent().stream()
+              .map(HouseTable::getTableId)
+              .collect(Collectors.toList()),
+          "an ignore-case ascending sort must order the rows as the database would");
+    } finally {
+      for (String tableId : Arrays.asList("B_upper", "a_lower")) {
+        if (houseTablesRepository.findEntityById(isolationKey(tableId)).isPresent()) {
+          houseTablesRepository.deleteById(isolationKey(tableId));
+        }
+      }
+    }
+  }
+
   @Test
   void houseTableStandInStampsAndDeletesViewsWithoutTouchingTables() {
     seedIsolationRows();
