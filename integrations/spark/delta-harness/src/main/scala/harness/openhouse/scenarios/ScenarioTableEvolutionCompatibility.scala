@@ -33,7 +33,7 @@ private[harness] final case class TableAlteration(
  *
  * Case families: six families over 16 preparations, contributing 96 cases.
  */
-trait ScenarioTableEvolutionCompatibility extends ScenarioKit {
+trait ScenarioTableEvolutionCompatibility extends CompatibilityTableFixtures {
 
   /** Every follow-up operation on every altered preparation, one preparation at a time. */
   lazy val tableEvolutionCompatibilityCases: List[TestCase] =
@@ -53,11 +53,11 @@ trait ScenarioTableEvolutionCompatibility extends ScenarioKit {
    * a preparation's six families sit together before the next preparation begins.
    */
   lazy val alteredTablePreparations: List[TablePreparation[CoreTable.type]] =
-    layouts.flatMap { layout =>
+    compatibilityCoreLayouts.flatMap { layout =>
       alterations.map { alteration =>
         TablePreparation(
           layout.label,
-          create(layout)
+          createCoreTable(layout)
             .insert(standardSeedRowCount)()
             .step(alteration.stepLabel)(alteration.applyAndValidate)(),
           alteration.casePrefix)
@@ -82,7 +82,7 @@ trait ScenarioTableEvolutionCompatibility extends ScenarioKit {
               columnShapeOf(spark.table(table).schema) == coreColumnShape :+ ("cc" -> "int"),
               "ADD COLUMN cc appends an int column to the core schema")
             assert(
-              countOf(spark, s"SELECT count(*) FROM $table WHERE cc IS NOT NULL") == "0",
+              queryCount(spark, s"SELECT count(*) FROM $table WHERE cc IS NOT NULL") == "0",
               "the seeded rows read null for the added column")
             assert(
               inKeyOrder(PreparedTable.currentRows(spark, table, Core)) == inKeyOrder(rowsBefore),
@@ -117,7 +117,7 @@ trait ScenarioTableEvolutionCompatibility extends ScenarioKit {
           alterMetadataOnly(spark, table)(
             s"ALTER TABLE $table WRITE ORDERED BY ${Core.long0.columnName}") { rowsBefore =>
             assert(
-              tableProps(spark, table).get("write.distribution-mode").contains("range"),
+              tableProperties(spark, table).get("write.distribution-mode").contains("range"),
               "WRITE ORDERED BY persists a range write distribution")
             val icebergTable = Spark3Util.loadIcebergTable(spark, table)
             val sortFields = icebergTable.sortOrder().fields()
@@ -146,7 +146,7 @@ trait ScenarioTableEvolutionCompatibility extends ScenarioKit {
           alterMetadataOnly(spark, table)(
             s"ALTER TABLE $table SET TBLPROPERTIES ('write.distribution-mode'='range')") { rowsBefore =>
             assert(
-              tableProps(spark, table).get("write.distribution-mode").contains("range"),
+              tableProperties(spark, table).get("write.distribution-mode").contains("range"),
               "the write.distribution-mode property persists as range")
             assert(
               inKeyOrder(PreparedTable.currentRows(spark, table, Core)) == inKeyOrder(rowsBefore),
@@ -286,7 +286,7 @@ trait ScenarioTableEvolutionCompatibility extends ScenarioKit {
 
       table.spark.sql(
         "CALL openhouse.system.rollback_to_snapshot(" +
-          s"'${catalogRelative(table.name)}', $seedSnapshotId)")
+          s"'${catalogRelativeTableName(table.name)}', $seedSnapshotId)")
 
       assert(
         activeSnapshotId(table.spark, table.name) == seedSnapshotId,
@@ -316,7 +316,7 @@ trait ScenarioTableEvolutionCompatibility extends ScenarioKit {
         s"the case builds a multi-snapshot history to expire, found $snapshotsBeforeExpire")
       table.spark.sql(
         "CALL openhouse.system.expire_snapshots(" +
-          s"table => '${catalogRelative(table.name)}', " +
+          s"table => '${catalogRelativeTableName(table.name)}', " +
           "older_than => TIMESTAMP '2999-01-01 00:00:00', " +
           "retain_last => 1)")
 
@@ -339,7 +339,7 @@ trait ScenarioTableEvolutionCompatibility extends ScenarioKit {
     preparation.test("rewriteDataFiles") { table =>
       duplicateKeyOne(table)
       duplicateKeyOne(table)
-      val filesBefore = countOf(table.spark, s"SELECT count(*) FROM ${table.name}.files").toLong
+      val filesBefore = queryCount(table.spark, s"SELECT count(*) FROM ${table.name}.files").toLong
       val rowsBeforeRewrite = table.rows
       val snapshotsBeforeRewrite = table.snapshotCount
 
@@ -348,10 +348,10 @@ trait ScenarioTableEvolutionCompatibility extends ScenarioKit {
         s"the case builds a multi-file baseline to rewrite, found $filesBefore files")
       table.spark.sql(
         "CALL openhouse.system.rewrite_data_files(" +
-          s"table => '${catalogRelative(table.name)}', " +
+          s"table => '${catalogRelativeTableName(table.name)}', " +
           "options => map('min-input-files', '2'))")
 
-      val filesAfter = countOf(table.spark, s"SELECT count(*) FROM ${table.name}.files").toLong
+      val filesAfter = queryCount(table.spark, s"SELECT count(*) FROM ${table.name}.files").toLong
       assert(
         filesAfter < filesBefore,
         s"rewrite compacts the data files, found $filesBefore -> $filesAfter")

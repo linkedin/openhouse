@@ -17,7 +17,7 @@ import org.apache.spark.sql.SparkSession
  *
  * Case families: two families contributing 2 cases.
  */
-trait ScenarioLocking extends ScenarioKit {
+trait ScenarioLocking extends CompatibilityTableFixtures {
 
   /** The lock cases, each driven over HTTP against the embedded server. */
   lazy val lockingCases: List[TestCase] =
@@ -38,7 +38,7 @@ trait ScenarioLocking extends ScenarioKit {
     val table = TableTest.nextQualifiedTableName(ctx.namespace)
     val Array(database, tableName) = table.stripPrefix("openhouse.").split("\\.", 2)
 
-    withOwnedTable(spark.sql(_), table)(spark.sql(coreCreate(table, "parquet"))) {
+    withOwnedTable(spark.sql(_), table)(spark.sql(coreCreateStatement(table, "parquet"))) {
       spark.sql(s"INSERT INTO $table ${RowGenerator.valuesClause(Core, standardSeedRowCount)}")
       val rowsBeforeLock = PreparedTable.currentRows(spark, table, Core)
       val snapshotCountBeforeLock = PreparedTable.snapshotCount(spark, table)
@@ -66,7 +66,7 @@ trait ScenarioLocking extends ScenarioKit {
             PreparedTable.currentRows(spark, table, Core) == rowsBeforeLock,
             "a locked table keeps its exact rows")
           assert(
-            countOf(
+            queryCount(
               spark,
               s"SELECT count(*) FROM $table WHERE ${Core.string0.columnName} = 'locked-write'") == "0",
             "the rejected write leaves no locked-write value behind")
@@ -112,16 +112,16 @@ trait ScenarioLocking extends ScenarioKit {
     val table = TableTest.nextQualifiedTableName(ctx.namespace)
     val Array(database, tableName) = table.stripPrefix("openhouse.").split("\\.", 2)
     val expireSnapshots =
-      s"CALL openhouse.system.expire_snapshots(table => '${catalogRelative(table)}', " +
+      s"CALL openhouse.system.expire_snapshots(table => '${catalogRelativeTableName(table)}', " +
         "older_than => TIMESTAMP '2999-01-01 00:00:00', retain_last => 1)"
 
-    withOwnedTable(spark.sql(_), table)(spark.sql(coreCreate(table, "parquet"))) {
+    withOwnedTable(spark.sql(_), table)(spark.sql(coreCreateStatement(table, "parquet"))) {
       spark.sql(s"INSERT INTO $table ${RowGenerator.valuesClause(Core, standardSeedRowCount)}")
       spark.sql(
         s"INSERT INTO $table VALUES (CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
       withTableLock(lockRequest(ctx, database, tableName), unlockRequest(ctx, database, tableName)) {
         releaseLock =>
-          val snapshotsBefore = countOf(spark, s"SELECT count(*) FROM $table.snapshots")
+          val snapshotsBefore = queryCount(spark, s"SELECT count(*) FROM $table.snapshots")
 
           val lockedFailure = Check.intercept[Exception](spark.sql(expireSnapshots))
           assert(
@@ -132,14 +132,14 @@ trait ScenarioLocking extends ScenarioKit {
               Option(lockedFailure.getMessage).getOrElse("").take(180))
           spark.sql(s"REFRESH TABLE $table")
           assert(
-            countOf(spark, s"SELECT count(*) FROM $table.snapshots") == snapshotsBefore,
+            queryCount(spark, s"SELECT count(*) FROM $table.snapshots") == snapshotsBefore,
             "a locked table keeps every snapshot it holds")
 
           releaseLock()
           spark.sql(expireSnapshots)
           spark.sql(s"REFRESH TABLE $table")
           assert(
-            countOf(spark, s"SELECT count(*) FROM $table.snapshots").toLong < snapshotsBefore.toLong,
+            queryCount(spark, s"SELECT count(*) FROM $table.snapshots").toLong < snapshotsBefore.toLong,
             "maintenance must proceed after unlock")
       }
     }

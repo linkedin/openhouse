@@ -21,7 +21,7 @@ import scala.util.control.NonFatal
  *
  * Case families: two families contributing 4 cases.
  */
-trait ScenarioConcurrency extends ScenarioKit {
+trait ScenarioConcurrency extends CompatibilityTableFixtures {
 
   /** Every concurrency case, one file format at a time. */
   lazy val concurrencyCases: List[TestCase] =

@@ -13,7 +13,7 @@ import org.apache.spark.sql.AnalysisException
  *
  * Case families: one family contributing 2 cases.
  */
-trait ScenarioWriterCompatibility extends ScenarioKit {
+trait ScenarioWriterCompatibility extends CompatibilityTableFixtures {
 
   /** The explicit-column writer case, one file format at a time. */
   lazy val writerCompatibilityCases: List[TestCase] =
@@ -32,7 +32,7 @@ trait ScenarioWriterCompatibility extends ScenarioKit {
           "(CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')"
       table.spark.sql(writerStatement)
       assert(
-        countOf(table.spark, s"SELECT count(*) FROM ${table.name}") == "4",
+        queryCount(table.spark, s"SELECT count(*) FROM ${table.name}") == "4",
         "explicit-column writer should work before schema evolution")
 
       table.spark.sql(

@@ -25,7 +25,7 @@ import org.apache.spark.sql.streaming.{StreamingQuery, Trigger}
  *
  * Case families: five families contributing 10 cases.
  */
-trait ScenarioStreaming extends ScenarioKit {
+trait ScenarioStreaming extends CompatibilityTableFixtures {
 
   /** Every streaming case, one file format at a time. */
   lazy val streamingCases: List[TestCase] =
@@ -107,7 +107,7 @@ trait ScenarioStreaming extends ScenarioKit {
             query.awaitTermination(120000),
             "streaming read did not finish in 120 seconds")
           assert(
-            countOf(table.spark, s"SELECT count(*) FROM $sink") == "3",
+            queryCount(table.spark, s"SELECT count(*) FROM $sink") == "3",
             "streaming read should deliver the three seed rows")
         }
       }
@@ -140,7 +140,7 @@ trait ScenarioStreaming extends ScenarioKit {
         withStoppedQuery(query) {
           query.processAllAvailable()
           assert(
-            countOf(table.spark, s"SELECT count(*) FROM ${table.name}") == "5",
+            queryCount(table.spark, s"SELECT count(*) FROM ${table.name}") == "5",
             "streaming write should append two rows")
         }
       }
@@ -158,17 +158,17 @@ trait ScenarioStreaming extends ScenarioKit {
         val destination = s"${table.name}_s"
 
         withOwnedTable(table.spark.sql(_), destination)(
-          table.spark.sql(coreCreate(destination, format))) {
+          table.spark.sql(coreCreateStatement(destination, format))) {
           streamOneBatch(table, destination, checkpoint)
           assert(
-            countOf(table.spark, s"SELECT count(*) FROM $destination") == "3",
+            queryCount(table.spark, s"SELECT count(*) FROM $destination") == "3",
             "initial stream did not deliver the seed")
           table.spark.sql(
             s"INSERT INTO ${table.name} VALUES " +
               "(CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
           streamOneBatch(table, destination, checkpoint)
           assert(
-            countOf(table.spark, s"SELECT count(*) FROM $destination") == "4",
+            queryCount(table.spark, s"SELECT count(*) FROM $destination") == "4",
             "stream restart did not deliver the appended row")
         }
       }
@@ -186,7 +186,7 @@ trait ScenarioStreaming extends ScenarioKit {
         val destination = s"${table.name}_sd"
 
         withOwnedTable(table.spark.sql(_), destination)(
-          table.spark.sql(coreCreate(destination, format))) {
+          table.spark.sql(coreCreateStatement(destination, format))) {
           streamOneBatch(table, destination, checkpoint)
           table.spark.sql(
             s"DELETE FROM ${table.name} WHERE ${Core.long0.columnName} = 1")
@@ -216,10 +216,10 @@ trait ScenarioStreaming extends ScenarioKit {
         val destination = s"${table.name}_sink"
 
         withOwnedTable(table.spark.sql(_), destination)(
-          table.spark.sql(coreCreate(destination, format))) {
+          table.spark.sql(coreCreateStatement(destination, format))) {
           streamOneBatch(table, destination, checkpoint)
           assert(
-            countOf(table.spark, s"SELECT count(*) FROM $destination") == "3",
+            queryCount(table.spark, s"SELECT count(*) FROM $destination") == "3",
             "initial stream should deliver the seed")
 
           table.spark.sql(
@@ -227,7 +227,7 @@ trait ScenarioStreaming extends ScenarioKit {
               "(CAST(6 AS BIGINT), 6, 'row-6', 6.5, true, '2024-01-06-05')")
           streamOneBatch(table, destination, checkpoint)
           assert(
-            countOf(table.spark, s"SELECT count(*) FROM $destination") == "4",
+            queryCount(table.spark, s"SELECT count(*) FROM $destination") == "4",
             "control restart should deliver one incremental row")
 
           table.spark.sql(
@@ -235,7 +235,7 @@ trait ScenarioStreaming extends ScenarioKit {
               "(CAST(7 AS BIGINT), 7, 'row-7', 7.5, true, '2024-01-07-06')")
           table.spark.sql(
             "CALL openhouse.system.expire_snapshots(" +
-              s"table => '${catalogRelative(table.name)}', " +
+              s"table => '${catalogRelativeTableName(table.name)}', " +
               "older_than => TIMESTAMP '2999-01-01 00:00:00', " +
               "retain_last => 1)")
           val exception =
