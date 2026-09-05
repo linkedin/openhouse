@@ -217,7 +217,7 @@ trait ScenarioNestedType extends SchemaTableFixtures {
         table.spark.sql(
           s"ALTER TABLE $sideTable ADD COLUMN s.w INT")
         assert(
-          countOf(table.spark, s"SELECT count(*) FROM $sideTable WHERE s.w IS NULL") == "1",
+          queryCount(table.spark, s"SELECT count(*) FROM $sideTable WHERE s.w IS NULL") == "1",
           "new nested field should null-fill the existing row")
 
         table.spark.sql(
@@ -225,7 +225,7 @@ trait ScenarioNestedType extends SchemaTableFixtures {
             "(CAST(2 AS BIGINT), " +
             "named_struct('x', 2, 'y', 'b', 'w', 9))")
         assert(
-          countOf(table.spark, s"SELECT count(*) FROM $sideTable WHERE s.w = 9") == "1",
+          queryCount(table.spark, s"SELECT count(*) FROM $sideTable WHERE s.w = 9") == "1",
           "new nested field should be writable")
       }
     }

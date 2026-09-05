@@ -39,7 +39,7 @@ trait SchemaTableFixtures extends TableTestFixtures {
         use
     }
 
-  protected def countOf(spark: SparkSession, sql: String): String =
+  protected def queryCount(spark: SparkSession, sql: String): String =
     spark.sql(sql).collect()(0).getLong(0).toString
 
   protected val extraColumnRowNine =

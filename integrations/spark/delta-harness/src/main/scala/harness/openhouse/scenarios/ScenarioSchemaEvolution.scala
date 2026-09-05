@@ -186,7 +186,7 @@ trait ScenarioSchemaEvolution extends SchemaTableFixtures {
         exception.getMessage.contains("not found in newSchema"),
         s"drop rejection message changed: ${exception.getMessage.take(200)}")
       assert(
-        countOf(
+        queryCount(
           table.spark,
           s"SELECT count(*) FROM ${table.name} WHERE extra_col = 42") == "1",
         "rejected drop should leave the column data readable")
@@ -194,7 +194,7 @@ trait ScenarioSchemaEvolution extends SchemaTableFixtures {
       table.spark.sql(
         s"INSERT INTO ${table.name} VALUES $extraColumnRowTen")
       assert(
-        countOf(table.spark, s"SELECT count(*) FROM ${table.name}") == "5",
+        queryCount(table.spark, s"SELECT count(*) FROM ${table.name}") == "5",
         "rejected drop should leave the table writable")
     }
 
@@ -243,7 +243,7 @@ trait ScenarioSchemaEvolution extends SchemaTableFixtures {
         table.spark.sql(
           s"INSERT INTO $sideTable VALUES (CAST(1 AS BIGINT), NULL)")
         assert(
-          countOf(table.spark, s"SELECT count(*) FROM $sideTable WHERE req IS NULL") == "1",
+          queryCount(table.spark, s"SELECT count(*) FROM $sideTable WHERE req IS NULL") == "1",
           "relaxing NOT NULL should allow a null write")
       }
     }
@@ -268,7 +268,7 @@ trait ScenarioSchemaEvolution extends SchemaTableFixtures {
           s"INSERT INTO $sideTable VALUES " +
             "(CAST(2 AS BIGINT), CAST(1234567890.99 AS DECIMAL(12,2)))")
         assert(
-          countOf(table.spark, s"SELECT count(*) FROM $sideTable") == "2",
+          queryCount(table.spark, s"SELECT count(*) FROM $sideTable") == "2",
           "decimal widening should preserve old and new values")
       }
     }
@@ -288,7 +288,7 @@ trait ScenarioSchemaEvolution extends SchemaTableFixtures {
         columns.head == Core.string0.columnName,
         s"FIRST should move the column to the front: $columns")
       assert(
-        countOf(table.spark, s"SELECT count(*) FROM ${table.name}") == "3",
+        queryCount(table.spark, s"SELECT count(*) FROM ${table.name}") == "3",
         "column reorder should preserve the rows")
     }
 
