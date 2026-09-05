@@ -15,6 +15,7 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableEntityTypeCorruptException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import io.netty.resolver.dns.DnsNameResolverTimeoutException;
@@ -24,6 +25,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeoutException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.directory.api.util.Strings;
@@ -59,6 +61,9 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
 
   /** Write request timeout is 60 secs due to no retries on table write operations */
   private static final int WRITE_REQUEST_TIMEOUT_SECONDS = 60;
+
+  /** Exact spelling House Table stores and exchanges for a view row. */
+  private static final String ENTITY_TYPE_VIEW = "VIEW";
 
   /**
    * A seam, like {@link #getHtsRetryTemplate(List)}: a test can shorten the budget so an actual
@@ -195,6 +200,11 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
    * OpenHouseInternalTableOperations}.
    */
   private Mono<? extends HouseTable> handleHtsHttpError(Throwable e) {
+    return mapHtsReadError(e);
+  }
+
+  /** Generic in the response type so a paginated read can share the classification. */
+  private <T> Mono<T> mapHtsReadError(Throwable e) {
     if (e instanceof WebClientResponseException.NotFound) {
       return Mono.error(new HouseTableNotFoundException("", e));
     } else if (e instanceof WebClientResponseException.Conflict) {
@@ -392,26 +402,160 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
 
   @Override
   public Optional<HouseTable> findEntityById(HouseTablePrimaryKey houseTablePrimaryKey) {
-    throw new UnsupportedOperationException("findEntityById is not implemented yet");
+    return pointReadWithRetry(
+        apiInstance.getEntity(
+            houseTablePrimaryKey.getDatabaseId(), houseTablePrimaryKey.getTableId()));
   }
 
   @Override
   public Optional<HouseTable> findViewById(HouseTablePrimaryKey houseTablePrimaryKey) {
-    throw new UnsupportedOperationException("findViewById is not implemented yet");
+    Optional<HouseTable> found =
+        pointReadWithRetry(
+            apiInstance.getUserView(
+                houseTablePrimaryKey.getDatabaseId(), houseTablePrimaryKey.getTableId()));
+    // Applied after the retry template has finished, never inside the reactive callback: the
+    // template retries IllegalStateException, and a contract violation is not a transport failure.
+    found.ifPresent(
+        row ->
+            requireCanonicalView(
+                row, houseTablePrimaryKey.getDatabaseId(), houseTablePrimaryKey.getTableId()));
+    return found;
+  }
+
+  /**
+   * A missing row is an answer here, unlike {@link #findById}, whose callers expect a table. A
+   * valid non-view occupant is filtered out by the server's typed predicate and arrives as a 404,
+   * so absence already covers it; only a present row with the wrong discriminator is a violation.
+   */
+  private Optional<HouseTable> pointReadWithRetry(Mono<EntityResponseBodyUserTable> call) {
+    return getHtsRetryTemplate(
+            Arrays.asList(
+                HouseTableRepositoryStateUnknownException.class, IllegalStateException.class))
+        .execute(
+            context ->
+                call.map(EntityResponseBodyUserTable::getEntity)
+                    .map(houseTableMapper::toHouseTable)
+                    .onErrorResume(
+                        e ->
+                            e instanceof WebClientResponseException.NotFound
+                                ? Mono.empty()
+                                : handleHtsHttpError(e))
+                    .blockOptional(Duration.ofSeconds(READ_REQUEST_TIMEOUT_SECONDS)));
+  }
+
+  /**
+   * House Table cannot answer a view route with anything but a view, so a row that says otherwise
+   * is corruption rather than a miss. Reporting it as absent would tell a later create the name is
+   * free.
+   */
+  private static void requireCanonicalView(HouseTable row, String databaseId, String tableId) {
+    if (!ENTITY_TYPE_VIEW.equals(row.getEntityType())) {
+      throw new HouseTableEntityTypeCorruptException(
+          databaseId, tableId, row.getEntityType(), ENTITY_TYPE_VIEW);
+    }
   }
 
   @Override
   public Page<HouseTable> findAllViewsByDatabaseId(String databaseId, Pageable pageable) {
-    throw new UnsupportedOperationException("findAllViewsByDatabaseId is not implemented yet");
+    Map<String, String> params = new HashMap<>();
+    if (Strings.isNotEmpty(databaseId)) {
+      params.put("databaseId", databaseId);
+    }
+
+    GetAllEntityResponseBodyUserTable result =
+        getHtsRetryTemplate(
+                Arrays.asList(
+                    HouseTableRepositoryStateUnknownException.class, IllegalStateException.class))
+            .execute(
+                context ->
+                    apiInstance
+                        .getPaginatedUserViews(
+                            params,
+                            pageable.getPageNumber(),
+                            pageable.getPageSize(),
+                            getSortByStr(pageable))
+                        // Classify before blocking, or the raw failure is not retryable and the
+                        // bounded read retry never engages.
+                        .onErrorResume(this::mapHtsReadError)
+                        .block(Duration.ofSeconds(READ_REQUEST_TIMEOUT_SECONDS)));
+
+    Page<UserTable> userTablePage = getUserTablePageFromPageUserTable(result.getPageResults());
+    Page<HouseTable> views = userTablePage.map(houseTableMapper::toHouseTable);
+    // One bad row fails the page: dropping it would hide corruption and invalidate the totals.
+    views.getContent().forEach(row -> requireCanonicalView(row, databaseId, row.getTableId()));
+    return views;
   }
 
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE",
+      justification = "Handled in switchIfEmpty")
   @Override
   public HouseTable saveView(HouseTable houseTable) {
-    throw new UnsupportedOperationException("saveView is not implemented yet");
+    CreateUpdateEntityRequestBodyUserTable requestBody =
+        new CreateUpdateEntityRequestBodyUserTable()
+            .entity(houseTableMapper.toUserView(houseTable));
+
+    return apiInstance
+        .putUserView(requestBody)
+        .map(EntityResponseBodyUserTable::getEntity)
+        .map(houseTableMapper::toHouseTable)
+        .onErrorResume(this::handleViewMutationError)
+        // An empty completion is a success signal that never reaches the error handler, so the
+        // ambiguity is caught here rather than dereferenced into a plain null.
+        .switchIfEmpty(
+            Mono.error(
+                new HouseTableRepositoryStateUnknownException(
+                    "HTS accepted the view write but returned no entity",
+                    new IllegalStateException("empty response"))))
+        // Narrow, and placed so a never-completing publisher reaches it: a broad catch around block
+        // would also swallow the typed-view contract failure raised on the read path.
+        .timeout(writeRequestTimeout(), Mono.error(writeTimedOut("PUT /hts/views")))
+        .block();
   }
 
   @Override
   public boolean deleteViewById(HouseTablePrimaryKey houseTablePrimaryKey) {
-    throw new UnsupportedOperationException("deleteViewById is not implemented yet");
+    return Boolean.TRUE.equals(
+        apiInstance
+            .deleteView(houseTablePrimaryKey.getDatabaseId(), houseTablePrimaryKey.getTableId())
+            .thenReturn(Boolean.TRUE)
+            .onErrorResume(
+                e ->
+                    e instanceof WebClientResponseException.NotFound
+                        ? Mono.just(Boolean.FALSE)
+                        : handleViewMutationError(e))
+            .timeout(writeRequestTimeout(), Mono.error(writeTimedOut("DELETE /hts/views")))
+            .block());
+  }
+
+  private HouseTableRepositoryStateUnknownException writeTimedOut(String route) {
+    return new HouseTableRepositoryStateUnknownException(
+        "Cannot determine if HTS has persisted the proposed view change",
+        new TimeoutException(route + " exceeded " + writeRequestTimeout()));
+  }
+
+  /**
+   * Differs from {@link #handleHtsHttpError} in its default: on a single-attempt write an
+   * unclassified failure leaves the outcome unknown, and "failed" would invite a double-applying
+   * retry.
+   */
+  private <T> Mono<T> handleViewMutationError(Throwable e) {
+    if (e instanceof WebClientResponseException.NotFound) {
+      return Mono.error(new HouseTableNotFoundException("", e));
+    } else if (e instanceof WebClientResponseException.Conflict) {
+      return Mono.error(new HouseTableConcurrentUpdateException("", e));
+    } else if (e instanceof WebClientResponseException.BadRequest
+        || e instanceof WebClientResponseException.Forbidden
+        || e instanceof WebClientResponseException.Unauthorized
+        || e instanceof WebClientResponseException.TooManyRequests) {
+      return Mono.error(
+          new HouseTableCallerException(
+              "[Client side failure]Error status code for HTS:"
+                  + ((WebClientResponseException) e).getStatusCode(),
+              e));
+    }
+    return Mono.error(
+        new HouseTableRepositoryStateUnknownException(
+            "Cannot determine if HTS has persisted the proposed view change", e));
   }
 }

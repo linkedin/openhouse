@@ -19,6 +19,7 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableEntityTypeCorruptException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import java.io.IOException;
@@ -408,9 +409,9 @@ public class HouseTableViewRepositoryImplTest {
       AtomicInteger subscriptions = stubViewPointRead(entityBody(viewUserTable(corrupt)));
       CustomRetryListener retryListener = listenOnReadRetries();
 
-      IllegalStateException thrown =
+      HouseTableEntityTypeCorruptException thrown =
           Assertions.assertThrows(
-              IllegalStateException.class,
+              HouseTableEntityTypeCorruptException.class,
               () -> htsRepo.findViewById(viewKey()),
               "discriminator " + corrupt);
 
@@ -430,8 +431,9 @@ public class HouseTableViewRepositoryImplTest {
     AtomicInteger subscriptions = stubViewPointRead(entityBody(viewUserTable("")));
     CustomRetryListener retryListener = listenOnReadRetries();
 
-    IllegalStateException thrown =
-        Assertions.assertThrows(IllegalStateException.class, () -> htsRepo.findViewById(viewKey()));
+    HouseTableEntityTypeCorruptException thrown =
+        Assertions.assertThrows(
+            HouseTableEntityTypeCorruptException.class, () -> htsRepo.findViewById(viewKey()));
 
     assertThat(thrown.getMessage()).contains(VIEW_DB).contains(VIEW_ID);
     Assertions.assertEquals(1, subscriptions.get());
@@ -443,8 +445,9 @@ public class HouseTableViewRepositoryImplTest {
     AtomicInteger subscriptions = stubViewPointRead(entityBody(viewUserTable(null)));
     CustomRetryListener retryListener = listenOnReadRetries();
 
-    IllegalStateException thrown =
-        Assertions.assertThrows(IllegalStateException.class, () -> htsRepo.findViewById(viewKey()));
+    HouseTableEntityTypeCorruptException thrown =
+        Assertions.assertThrows(
+            HouseTableEntityTypeCorruptException.class, () -> htsRepo.findViewById(viewKey()));
 
     assertThat(thrown.getMessage()).contains(VIEW_DB).contains(VIEW_ID);
     Assertions.assertEquals(1, subscriptions.get());
@@ -464,9 +467,9 @@ public class HouseTableViewRepositoryImplTest {
 
       CustomRetryListener retryListener = listenOnReadRetries();
 
-      IllegalStateException thrown =
+      HouseTableEntityTypeCorruptException thrown =
           Assertions.assertThrows(
-              IllegalStateException.class,
+              HouseTableEntityTypeCorruptException.class,
               () ->
                   htsRepo.findAllViewsByDatabaseId(VIEW_DB, PageRequest.of(0, 2, Sort.unsorted())),
               "discriminator " + corrupt);
@@ -490,9 +493,9 @@ public class HouseTableViewRepositoryImplTest {
 
     CustomRetryListener retryListener = listenOnReadRetries();
 
-    IllegalStateException thrown =
+    HouseTableEntityTypeCorruptException thrown =
         Assertions.assertThrows(
-            IllegalStateException.class,
+            HouseTableEntityTypeCorruptException.class,
             () -> htsRepo.findAllViewsByDatabaseId(VIEW_DB, PageRequest.of(0, 1, Sort.unsorted())));
 
     assertThat(thrown.getMessage()).contains(VIEW_DB).contains(VIEW_ID);

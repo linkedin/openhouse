@@ -17,6 +17,7 @@ import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableEntityTypeCorruptException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import com.linkedin.openhouse.internal.catalog.view.model.LoadedView;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewPointer;
@@ -174,17 +175,16 @@ public class ViewCommitEngineReadTest {
   @Test
   void loadViewPropagatesAnAdapterContractViolationUntouched() {
     when(houseTableRepository.findViewById(any(HouseTablePrimaryKey.class)))
-        .thenThrow(
-            new IllegalStateException(
-                "House Table returned a non-view row on the view route for viewdb.v1: TABLE"));
+        .thenThrow(new HouseTableEntityTypeCorruptException(DB, VIEW, "TABLE", "VIEW"));
 
-    IllegalStateException thrown =
+    HouseTableEntityTypeCorruptException thrown =
         Assertions.assertThrows(
-            IllegalStateException.class, () -> viewCommitEngine.loadView(DB, VIEW));
+            HouseTableEntityTypeCorruptException.class, () -> viewCommitEngine.loadView(DB, VIEW));
 
+    Assertions.assertEquals("TABLE", thrown.getEntityType());
     Assertions.assertTrue(
-        thrown.getMessage().contains("non-view row"),
-        "corruption must surface as itself, not be swallowed into absence: " + thrown.getMessage());
+        thrown.getMessage().contains(DB) && thrown.getMessage().contains(VIEW),
+        "corruption must surface as itself, naming the key: " + thrown.getMessage());
     verifyNoInteractions(fileIOManager);
     verifyNoInteractions(viewMetadataCodec);
   }
