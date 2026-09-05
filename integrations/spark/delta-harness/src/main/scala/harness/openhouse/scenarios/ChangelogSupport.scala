@@ -19,7 +19,7 @@ final case class ChangelogOperation(
  * preparations. The replace-table layer uses it to require rejection when a changelog range crosses a table
  * replacement. The follow-up standard changelog scenario builds on the same operation definitions.
  */
-trait ChangelogSupport extends ScenarioKit {
+trait ChangelogSupport extends RtasTableFixtures {
 
   /**
    * The five row-level operations whose change feed the catalog reports: an append, an INSERT OVERWRITE that drops one
@@ -87,7 +87,7 @@ trait ChangelogSupport extends ScenarioKit {
     table.spark
       .sql(
         "CALL openhouse.system.create_changelog_view(" +
-          s"table => '${catalogRelative(table.name)}', " +
+          s"table => '${catalogRelativeTableName(table.name)}', " +
           s"options => map('start-snapshot-id', '$startSnapshotId'))")
       .collect()(0)
       .getString(0)
