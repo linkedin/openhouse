@@ -17,7 +17,7 @@ import org.apache.iceberg.exceptions.BadRequestException
  *
  * Case families: six families contributing 12 cases.
  */
-trait ScenarioTableProperty extends ScenarioKit {
+trait ScenarioTableProperty extends CatalogConstraintTableFixtures {
 
   /** Every table-property case, one file format at a time. */
   lazy val tablePropertyCases: List[TestCase] =
@@ -39,12 +39,12 @@ trait ScenarioTableProperty extends ScenarioKit {
       table.spark.sql(
         s"ALTER TABLE ${table.name} SET TBLPROPERTIES ('my_key'='my_val')")
       assert(
-        tableProps(table.spark, table.name).get("my_key").contains("my_val"),
+        tableProperties(table.spark, table.name).get("my_key").contains("my_val"),
         "user property was not set")
 
       table.spark.sql(s"ALTER TABLE ${table.name} UNSET TBLPROPERTIES ('my_key')")
       assert(
-        !tableProps(table.spark, table.name).contains("my_key"),
+        !tableProperties(table.spark, table.name).contains("my_key"),
         "user property was not removed")
     }
 
@@ -94,7 +94,7 @@ trait ScenarioTableProperty extends ScenarioKit {
             s"'write.format.default'='$format', 'format-version'='1')")()
         .insert(standardSeedRowCount)())
       .test("tableProperty.formatVersionForced") { table =>
-        val formatVersion = tableProps(table.spark, table.name).get("format-version")
+        val formatVersion = tableProperties(table.spark, table.name).get("format-version")
 
         assert(
           formatVersion.contains("2"),
@@ -113,7 +113,7 @@ trait ScenarioTableProperty extends ScenarioKit {
           s"'write.format.default'='$format', 'write.metadata.previous-versions-max'='7')")())
       .test("tableProperty.previousVersionsHonored") { table =>
         val previousVersions =
-          tableProps(table.spark, table.name).get("write.metadata.previous-versions-max")
+          tableProperties(table.spark, table.name).get("write.metadata.previous-versions-max")
 
         assert(
           previousVersions.contains("7"),
@@ -134,7 +134,7 @@ trait ScenarioTableProperty extends ScenarioKit {
         .insert(standardSeedRowCount)())
       .test("tableProperty.targetFileSize") { table =>
         assert(
-          tableProps(table.spark, table.name)
+          tableProperties(table.spark, table.name)
             .get("write.target-file-size-bytes")
             .contains("1048576"),
           "target file size should be retained")

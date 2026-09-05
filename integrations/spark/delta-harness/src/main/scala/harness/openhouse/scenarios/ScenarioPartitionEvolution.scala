@@ -11,7 +11,7 @@ package harness
  *
  * Case families: two families contributing 4 cases.
  */
-trait ScenarioPartitionEvolution extends ScenarioKit {
+trait ScenarioPartitionEvolution extends CatalogConstraintTableFixtures {
 
   /** The rejected partition-evolution statements, one file format at a time. */
   lazy val partitionEvolutionCases: List[TestCase] =
