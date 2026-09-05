@@ -18,7 +18,7 @@ import org.apache.spark.sql.{Row, SparkSession}
  *
  * Case families: six families contributing 12 cases.
  */
-trait ScenarioMaintenance extends ScenarioKit {
+trait ScenarioMaintenance extends MaintenanceTableFixtures {
 
   /** Every maintenance case, one file format at a time. */
   lazy val maintenanceCases: List[TestCase] =
@@ -39,7 +39,7 @@ trait ScenarioMaintenance extends ScenarioKit {
     preparation.test("maintenance.expireSnapshots") { table =>
       table.spark.sql(
         "CALL openhouse.system.expire_snapshots(" +
-          s"table => '${catalogRelative(table.name)}', " +
+          s"table => '${catalogRelativeTableName(table.name)}', " +
           "older_than => TIMESTAMP '2999-01-01 00:00:00', " +
           "retain_last => 1)")
 
@@ -89,7 +89,7 @@ trait ScenarioMaintenance extends ScenarioKit {
     preparation.test("maintenance.removeOrphanFiles") { table =>
       table.spark.sql(
         "CALL openhouse.system.remove_orphan_files(" +
-          s"table => '${catalogRelative(table.name)}', " +
+          s"table => '${catalogRelativeTableName(table.name)}', " +
           "older_than => TIMESTAMP '2020-01-01 00:00:00')")
 
       assert(table.rows.size == 5, "orphan removal must preserve rows")
@@ -111,7 +111,7 @@ trait ScenarioMaintenance extends ScenarioKit {
         .getLong(0)
       table.spark.sql(
         "CALL openhouse.system.rewrite_manifests(" +
-          s"table => '${catalogRelative(table.name)}', " +
+          s"table => '${catalogRelativeTableName(table.name)}', " +
           "use_caching => false)")
       val manifestCountAfter = table.spark
         .sql(s"SELECT count(*) FROM ${table.name}.manifests")
@@ -119,7 +119,7 @@ trait ScenarioMaintenance extends ScenarioKit {
         .getLong(0)
 
       assert(
-        countOf(table.spark, s"SELECT count(*) FROM ${table.name}") == "5",
+        queryCount(table.spark, s"SELECT count(*) FROM ${table.name}") == "5",
         "rewrite_manifests should preserve the five rows")
       assert(
         manifestCountBefore >= 2 &&
@@ -148,13 +148,13 @@ trait ScenarioMaintenance extends ScenarioKit {
 
       table.spark.sql(
         "CALL openhouse.system.remove_orphan_files(" +
-          s"table => '${catalogRelative(table.name)}', " +
+          s"table => '${catalogRelativeTableName(table.name)}', " +
           "older_than => TIMESTAMP '2020-01-01 00:00:00')")
       assert(
         Files.notExists(orphanFile),
         "remove_orphan_files should delete the planted orphan")
       assert(
-        countOf(table.spark, s"SELECT count(*) FROM ${table.name}") == "3",
+        queryCount(table.spark, s"SELECT count(*) FROM ${table.name}") == "3",
         "remove_orphan_files should preserve live data")
     }
 
@@ -168,9 +168,9 @@ trait ScenarioMaintenance extends ScenarioKit {
       table.spark.sql(
         s"ALTER TABLE ${table.name} ADD COLUMN extra_col INT")
       table.spark.sql(
-        s"INSERT INTO ${table.name} VALUES $extraColInsert9")
+        s"INSERT INTO ${table.name} VALUES $extraColumnRowNine")
       table.spark.sql(
-        s"INSERT INTO ${table.name} VALUES $extraColInsert10")
+        s"INSERT INTO ${table.name} VALUES $extraColumnRowTen")
       val schemaBefore = table.spark.table(table.name).schema.fieldNames.toSeq
       val rowsBefore = coreRowsWithExtraColumn(table.spark, table.name)
       val snapshotsBefore = table.snapshotCount
@@ -204,12 +204,12 @@ trait ScenarioMaintenance extends ScenarioKit {
         "rewrite_data_files preserves the evolved schema")
       assert(rowsAfter == rowsBefore, s"rewrite_data_files preserves exact evolved rows: $rowsAfter")
       assert(
-        countOf(
+        queryCount(
           table.spark,
           s"SELECT count(*) FROM ${table.name} WHERE extra_col IN (42, 43)") == "2",
         "compaction should preserve both evolved values")
       assert(
-        countOf(
+        queryCount(
           table.spark,
           s"SELECT count(*) FROM ${table.name} WHERE extra_col IS NULL") == "3",
         "pre-evolution rows should remain null")
@@ -237,7 +237,7 @@ trait ScenarioMaintenance extends ScenarioKit {
       options: String): RewriteDataFilesResult = {
     val result = spark.sql(
       "CALL openhouse.system.rewrite_data_files(" +
-        s"table => '${catalogRelative(table)}', " +
+        s"table => '${catalogRelativeTableName(table)}', " +
         s"options => map($options))")
     val rows = result.collect().toSeq
 

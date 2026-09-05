@@ -16,7 +16,7 @@ import org.apache.spark.sql.{Row, SparkSession}
  *
  * Case families: two families contributing 3 cases.
  */
-trait ScenarioCompactionPlanning extends ScenarioKit {
+trait ScenarioCompactionPlanning extends MaintenanceTableFixtures {
 
   /** The bin-packing case in each columnar format, then the file-sequence metadata case on Parquet. */
   lazy val compactionPlanningCases: List[TestCase] =
@@ -40,7 +40,7 @@ trait ScenarioCompactionPlanning extends ScenarioKit {
 
   private def rewriteAll(spark: SparkSession, table: String): RewriteDataFilesResult = {
     val result = spark.sql(
-      s"CALL openhouse.system.rewrite_data_files(table => '${catalogRelative(table)}', " +
+      s"CALL openhouse.system.rewrite_data_files(table => '${catalogRelativeTableName(table)}', " +
         "options => map('rewrite-all', 'true'))")
     val rows = result.collect().toSeq
 

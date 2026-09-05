@@ -16,7 +16,7 @@ import scala.annotation.tailrec
  *
  * Case families: three families contributing 6 cases.
  */
-trait ScenarioMetadataTable extends ScenarioKit {
+trait ScenarioMetadataTable extends MaintenanceTableFixtures {
 
   /** Every metadata-table case, one file format at a time. */
   lazy val metadataTableCases: List[TestCase] =

@@ -4,7 +4,7 @@ package harness
  * Read operations over the core table. Each case captures the table state before and after the query and verifies that
  * reading changes neither the rows nor the snapshot count.
  */
-trait ScenarioDmlRead extends ScenarioKit {
+trait ScenarioDmlRead extends TableTestFixtures {
   import Rows._
 
   /**
