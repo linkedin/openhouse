@@ -8,6 +8,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 import org.springframework.context.annotation.Primary;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -25,6 +27,108 @@ import org.springframework.stereotype.Repository;
 public interface HouseTablesH2Repository extends HouseTableRepository {
 
   Map<SoftDeletedTablePrimaryKey, HouseTable> softDeletedTables = new HashMap<>();
+
+  /* ---- Entity-type discrimination, reproducing what House Table does in SQL and in its
+   * column converter. Default bodies throughout, because Spring Data derives a query from every
+   * abstract method name it sees and none of these predicates is derivable. ---- */
+
+  String ENTITY_TYPE_TABLE = "TABLE";
+
+  String ENTITY_TYPE_VIEW = "VIEW";
+
+  /** Untyped access to the shared key space; every typed accessor filters this itself. */
+  Optional<HouseTable> findByDatabaseIdAndTableId(String databaseId, String tableId);
+
+  /** Untyped access to a database's rows, so a typed list can filter before it paginates. */
+  List<HouseTable> findByDatabaseId(String databaseId);
+
+  /** Mirrors the column converter: a row stored before the discriminator existed is a table. */
+  static HouseTable hydrateEntityType(HouseTable houseTable) {
+    return houseTable.getEntityType() == null
+        ? houseTable.toBuilder().entityType(ENTITY_TYPE_TABLE).build()
+        : houseTable;
+  }
+
+  /** The table predicate keeps its null arm: legacy rows are tables, not untyped strangers. */
+  static boolean isTableOrLegacy(HouseTable houseTable) {
+    return houseTable.getEntityType() == null
+        || ENTITY_TYPE_TABLE.equalsIgnoreCase(houseTable.getEntityType());
+  }
+
+  static boolean isView(HouseTable houseTable) {
+    return ENTITY_TYPE_VIEW.equalsIgnoreCase(houseTable.getEntityType());
+  }
+
+  static Page<HouseTable> pageOf(List<HouseTable> rows, Pageable pageable) {
+    int page = pageable.getPageNumber();
+    int size = pageable.getPageSize();
+    List<HouseTable> pageContent =
+        rows.subList(Math.min(page * size, rows.size()), Math.min((page + 1) * size, rows.size()));
+    return new PageImpl<>(pageContent, PageRequest.of(page, size), rows.size());
+  }
+
+  /** A view at a shared key is absent here, which is what keeps it out of every table path. */
+  @Override
+  default Optional<HouseTable> findById(HouseTablePrimaryKey houseTablePrimaryKey) {
+    return this.findByDatabaseIdAndTableId(
+            houseTablePrimaryKey.getDatabaseId(), houseTablePrimaryKey.getTableId())
+        .filter(HouseTablesH2Repository::isTableOrLegacy)
+        .map(HouseTablesH2Repository::hydrateEntityType);
+  }
+
+  /** Filtered before the page is cut, so a view never consumes a slot or inflates a total. */
+  @Override
+  default List<HouseTable> findAllByDatabaseId(String databaseId) {
+    return this.findByDatabaseId(databaseId).stream()
+        .filter(HouseTablesH2Repository::isTableOrLegacy)
+        .map(HouseTablesH2Repository::hydrateEntityType)
+        .collect(Collectors.toList());
+  }
+
+  @Override
+  default Page<HouseTable> findAllByDatabaseId(String databaseId, Pageable pageable) {
+    return pageOf(this.findAllByDatabaseId(databaseId), pageable);
+  }
+
+  /** Any occupant, so a writer can classify a collision at the shared key. */
+  @Override
+  default Optional<HouseTable> findEntityById(HouseTablePrimaryKey houseTablePrimaryKey) {
+    return this.findByDatabaseIdAndTableId(
+            houseTablePrimaryKey.getDatabaseId(), houseTablePrimaryKey.getTableId())
+        .map(HouseTablesH2Repository::hydrateEntityType);
+  }
+
+  /** Queries the shared key space directly: delegating to the table read would find nothing. */
+  @Override
+  default Optional<HouseTable> findViewById(HouseTablePrimaryKey houseTablePrimaryKey) {
+    return this.findByDatabaseIdAndTableId(
+            houseTablePrimaryKey.getDatabaseId(), houseTablePrimaryKey.getTableId())
+        .filter(HouseTablesH2Repository::isView);
+  }
+
+  @Override
+  default Page<HouseTable> findAllViewsByDatabaseId(String databaseId, Pageable pageable) {
+    return pageOf(
+        this.findByDatabaseId(databaseId).stream()
+            .filter(HouseTablesH2Repository::isView)
+            .collect(Collectors.toList()),
+        pageable);
+  }
+
+  @Override
+  default HouseTable saveView(HouseTable houseTable) {
+    // Mirrors House Table stamping the type from the route.
+    return this.save(houseTable.toBuilder().entityType(ENTITY_TYPE_VIEW).build());
+  }
+
+  @Override
+  default boolean deleteViewById(HouseTablePrimaryKey houseTablePrimaryKey) {
+    if (!this.findViewById(houseTablePrimaryKey).isPresent()) {
+      return false;
+    }
+    this.deleteById(houseTablePrimaryKey);
+    return true;
+  }
 
   @Override
   default void rename(

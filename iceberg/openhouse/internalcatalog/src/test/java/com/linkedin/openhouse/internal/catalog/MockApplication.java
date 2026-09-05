@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.internal.catalog;
 
 import com.linkedin.openhouse.cluster.storage.StorageManager;
+import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOConfig;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import java.io.IOException;
@@ -31,6 +32,14 @@ public class MockApplication {
   @MockBean FileIOManager fileIOManager;
 
   @MockBean FileIOConfig fileIOConfig;
+
+  /**
+   * Required by {@link com.linkedin.openhouse.internal.catalog.view.ViewCommitEngineConfiguration},
+   * which is component-scanned here under Iceberg 1.5 and needs the seam that turns a persisted
+   * storage-type string into the type its {@code FileIO} is resolved from. It lives in the cluster
+   * package, which this application does not scan.
+   */
+  @MockBean StorageType storageType;
 
   static final FsPermission FS_PERMISSION =
       new FsPermission(FsAction.ALL, FsAction.NONE, FsAction.NONE);

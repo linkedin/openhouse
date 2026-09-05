@@ -60,6 +60,15 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
   /** Write request timeout is 60 secs due to no retries on table write operations */
   private static final int WRITE_REQUEST_TIMEOUT_SECONDS = 60;
 
+  /**
+   * A seam, like {@link #getHtsRetryTemplate(List)}: a test can shorten the budget so an actual
+   * elapsed timeout is observable without spending a minute of wall time proving it.
+   */
+  @VisibleForTesting
+  protected Duration writeRequestTimeout() {
+    return Duration.ofSeconds(WRITE_REQUEST_TIMEOUT_SECONDS);
+  }
+
   @Autowired private UserTableApi apiInstance;
 
   @Autowired private HouseTableMapper houseTableMapper;

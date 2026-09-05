@@ -4,6 +4,9 @@ import static com.linkedin.openhouse.internal.catalog.HouseTableModelConstants.*
 import static org.assertj.core.api.Assertions.*;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.linkedin.openhouse.housetables.client.api.ToggleStatusApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
@@ -32,7 +35,10 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.mockwebserver.QueueDispatcher;
+import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -119,6 +125,78 @@ public class HouseTableRepositoryImplTest {
   @AfterAll
   static void tearDown() throws IOException {
     mockHtsServer.shutdown();
+  }
+
+  /**
+   * The server outlives a method, so a leftover response or request would leak to the next test.
+   */
+  @AfterEach
+  void resetMockServerState() throws InterruptedException {
+    mockHtsServer.setDispatcher(new QueueDispatcher());
+    RecordedRequest leftover = mockHtsServer.takeRequest(1, TimeUnit.MILLISECONDS);
+    while (leftover != null) {
+      leftover = mockHtsServer.takeRequest(1, TimeUnit.MILLISECONDS);
+    }
+  }
+
+  /** Entity type is required by the contract, so the table write states TABLE rather than omit. */
+  @Test
+  public void testRepoSaveDeclaresTheTableEntityTypeOnTheOutgoingBody()
+      throws InterruptedException {
+    EntityResponseBodyUserTable putResponse = new EntityResponseBodyUserTable();
+    putResponse.entity(houseTableMapper.toUserTable(HOUSE_TABLE));
+    mockHtsServer.enqueue(
+        new MockResponse()
+            .setResponseCode(201)
+            .setBody((new Gson()).toJson(putResponse))
+            .addHeader("Content-Type", "application/json"));
+
+    htsRepo.save(HOUSE_TABLE);
+
+    RecordedRequest request = mockHtsServer.takeRequest(30, TimeUnit.SECONDS);
+    Assertions.assertNotNull(request);
+    Assertions.assertEquals("PUT", request.getMethod());
+    Assertions.assertEquals("/hts/tables", request.getPath());
+
+    JsonObject entity =
+        JsonParser.parseString(request.getBody().readUtf8())
+            .getAsJsonObject()
+            .getAsJsonObject("entity");
+    JsonElement declaredEntityType = entity.get("entityType");
+    Assertions.assertTrue(
+        declaredEntityType != null && !declaredEntityType.isJsonNull(),
+        "outgoing table body must declare its entity type");
+    Assertions.assertEquals(
+        "TABLE",
+        declaredEntityType.getAsString(),
+        "the table route must be told, in the canonical spelling, that it is receiving a table");
+    Assertions.assertEquals(HOUSE_TABLE.getTableId(), entity.get("tableId").getAsString());
+  }
+
+  /** A table point read still resolves through the table route, and keeps the row's own type. */
+  @Test
+  public void testRepoFindByIdCarriesTheServerResolvedDiscriminator() throws InterruptedException {
+    EntityResponseBodyUserTable response = new EntityResponseBodyUserTable();
+    response.entity(houseTableMapper.toUserTable(HOUSE_TABLE));
+    mockHtsServer.enqueue(
+        new MockResponse()
+            .setResponseCode(200)
+            .setBody((new Gson()).toJson(response))
+            .addHeader("Content-Type", "application/json"));
+
+    HouseTable result =
+        htsRepo
+            .findById(
+                HouseTablePrimaryKey.builder()
+                    .tableId(HOUSE_TABLE.getTableId())
+                    .databaseId(HOUSE_TABLE.getDatabaseId())
+                    .build())
+            .get();
+
+    RecordedRequest request = mockHtsServer.takeRequest(30, TimeUnit.SECONDS);
+    Assertions.assertNotNull(request);
+    assertThat(request.getPath()).startsWith("/hts/tables?");
+    Assertions.assertEquals("TABLE", result.getEntityType());
   }
 
   @Test

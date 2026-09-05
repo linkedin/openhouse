@@ -1597,4 +1597,134 @@ public class RepositoryTest {
             table.getTableId() + "-" + table.getTableUUID());
     Assertions.assertTrue(table.getTableLocation().startsWith(path.toString()));
   }
+
+  /* ---- Entity-type isolation in this module's own House Table stand-in. Views and tables share
+   * one key space, so the stand-in has to discriminate exactly as the server does or every test
+   * that leans on it is testing the wrong thing. ---- */
+
+  private static final String ISOLATION_DB = "entity_type_isolation_db";
+
+  private static HouseTable isolationRow(String tableId, String entityType) {
+    return HouseTable.builder()
+        .databaseId(ISOLATION_DB)
+        .tableId(tableId)
+        .tableLocation("/loc/" + tableId + "/00001-a.metadata.json")
+        .tableVersion("INITIAL_VERSION")
+        .storageType("local")
+        .entityType(entityType)
+        .build();
+  }
+
+  private static HouseTablePrimaryKey isolationKey(String tableId) {
+    return HouseTablePrimaryKey.builder().databaseId(ISOLATION_DB).tableId(tableId).build();
+  }
+
+  private void seedIsolationRows() {
+    houseTablesRepository.save(isolationRow("view_a", "VIEW"));
+    houseTablesRepository.save(isolationRow("view_b", "VIEW"));
+    houseTablesRepository.save(isolationRow("table_a", "TABLE"));
+    houseTablesRepository.save(isolationRow("legacy_a", null));
+  }
+
+  private void deleteIsolationRows() {
+    for (String tableId : Arrays.asList("view_a", "view_b", "view_c", "table_a", "legacy_a")) {
+      if (houseTablesRepository.findEntityById(isolationKey(tableId)).isPresent()) {
+        houseTablesRepository.deleteById(isolationKey(tableId));
+      }
+    }
+  }
+
+  @Test
+  void houseTableStandInKeepsTableAndViewReadsApart() {
+    seedIsolationRows();
+    try {
+      Assertions.assertFalse(
+          houseTablesRepository.findById(isolationKey("view_a")).isPresent(),
+          "a view at a shared key must be absent from the table point read");
+      Assertions.assertEquals(
+          "TABLE", houseTablesRepository.findById(isolationKey("table_a")).get().getEntityType());
+      Assertions.assertEquals(
+          "TABLE",
+          houseTablesRepository.findById(isolationKey("legacy_a")).get().getEntityType(),
+          "a row written before the discriminator existed is a table");
+
+      Assertions.assertTrue(
+          houseTablesRepository.findViewById(isolationKey("view_a")).isPresent());
+      Assertions.assertFalse(
+          houseTablesRepository.findViewById(isolationKey("table_a")).isPresent());
+      Assertions.assertFalse(
+          houseTablesRepository.findViewById(isolationKey("legacy_a")).isPresent());
+
+      Assertions.assertEquals(
+          "VIEW",
+          houseTablesRepository.findEntityById(isolationKey("view_a")).get().getEntityType());
+      Assertions.assertEquals(
+          "TABLE",
+          houseTablesRepository.findEntityById(isolationKey("legacy_a")).get().getEntityType(),
+          "the neutral read resolves a legacy null the way the server's converter does");
+      Assertions.assertFalse(
+          houseTablesRepository.findEntityById(isolationKey("absent")).isPresent());
+    } finally {
+      deleteIsolationRows();
+    }
+  }
+
+  @Test
+  void houseTableStandInFiltersEntityTypeBeforeItPaginates() {
+    seedIsolationRows();
+    try {
+      java.util.List<String> tableIds =
+          houseTablesRepository.findAllByDatabaseId(ISOLATION_DB).stream()
+              .map(HouseTable::getTableId)
+              .sorted()
+              .collect(Collectors.toList());
+      Assertions.assertEquals(Arrays.asList("legacy_a", "table_a"), tableIds);
+
+      org.springframework.data.domain.Page<HouseTable> tablePage =
+          houseTablesRepository.findAllByDatabaseId(
+              ISOLATION_DB, org.springframework.data.domain.PageRequest.of(0, 1));
+      Assertions.assertEquals(
+          2L, tablePage.getTotalElements(), "views must not inflate a table page total");
+      Assertions.assertEquals(2, tablePage.getTotalPages());
+
+      org.springframework.data.domain.Page<HouseTable> viewPage =
+          houseTablesRepository.findAllViewsByDatabaseId(
+              ISOLATION_DB, org.springframework.data.domain.PageRequest.of(0, 1));
+      Assertions.assertEquals(2L, viewPage.getTotalElements());
+      Assertions.assertEquals(2, viewPage.getTotalPages());
+      Assertions.assertEquals(1, viewPage.getContent().size());
+      Assertions.assertEquals("VIEW", viewPage.getContent().get(0).getEntityType());
+    } finally {
+      deleteIsolationRows();
+    }
+  }
+
+  @Test
+  void houseTableStandInStampsAndDeletesViewsWithoutTouchingTables() {
+    seedIsolationRows();
+    try {
+      HouseTable saved = houseTablesRepository.saveView(isolationRow("view_c", null));
+      Assertions.assertEquals("VIEW", saved.getEntityType(), "the view route stamps the type");
+      Assertions.assertFalse(
+          houseTablesRepository.findById(isolationKey("view_c")).isPresent(),
+          "a stamped view stays out of the table path");
+
+      Assertions.assertTrue(houseTablesRepository.deleteViewById(isolationKey("view_c")));
+      Assertions.assertFalse(
+          houseTablesRepository.findEntityById(isolationKey("view_c")).isPresent());
+
+      Assertions.assertFalse(
+          houseTablesRepository.deleteViewById(isolationKey("table_a")),
+          "a typed delete must decline a table rather than remove it");
+      Assertions.assertFalse(
+          houseTablesRepository.deleteViewById(isolationKey("legacy_a")),
+          "a typed delete must decline a legacy row rather than remove it");
+      Assertions.assertTrue(
+          houseTablesRepository.findEntityById(isolationKey("table_a")).isPresent());
+      Assertions.assertTrue(
+          houseTablesRepository.findEntityById(isolationKey("legacy_a")).isPresent());
+    } finally {
+      deleteIsolationRows();
+    }
+  }
 }
