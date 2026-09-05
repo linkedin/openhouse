@@ -209,8 +209,7 @@ public class ViewCommitEngineReadTest {
     Assertions.assertEquals(VIEW, page.getContent().get(0).getViewId());
     Assertions.assertEquals("v2", page.getContent().get(1).getViewId());
     Assertions.assertEquals(METADATA_PATH, page.getContent().get(0).getMetadataLocation());
-    Assertions.assertEquals(
-        LOCAL_STORAGE_TYPE, page.getContent().get(0).getStorageType());
+    Assertions.assertEquals(LOCAL_STORAGE_TYPE, page.getContent().get(0).getStorageType());
     verify(houseTableRepository, times(1)).findAllViewsByDatabaseId(DB, pageable);
     verifyNoInteractions(viewMetadataCodec);
     verifyNoInteractions(fileIOManager);
@@ -247,8 +246,7 @@ public class ViewCommitEngineReadTest {
   @Test
   void dropViewReportsAnAmbiguousDeleteAsCommitStateUnknown() {
     when(houseTableRepository.deleteViewById(any(HouseTablePrimaryKey.class)))
-        .thenThrow(
-            new HouseTableRepositoryStateUnknownException("", new RuntimeException("504")));
+        .thenThrow(new HouseTableRepositoryStateUnknownException("", new RuntimeException("504")));
 
     Assertions.assertThrows(
         CommitStateUnknownException.class, () -> viewCommitEngine.dropView(DB, VIEW));

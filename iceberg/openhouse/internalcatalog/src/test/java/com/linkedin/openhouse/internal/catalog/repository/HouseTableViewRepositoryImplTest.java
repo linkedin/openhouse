@@ -443,8 +443,7 @@ public class HouseTableViewRepositoryImplTest {
     IllegalStateException thrown =
         Assertions.assertThrows(
             IllegalStateException.class,
-            () ->
-                htsRepo.findAllViewsByDatabaseId(VIEW_DB, PageRequest.of(0, 2, Sort.unsorted())));
+            () -> htsRepo.findAllViewsByDatabaseId(VIEW_DB, PageRequest.of(0, 2, Sort.unsorted())));
 
     assertThat(thrown.getMessage()).contains("v2").contains("TABLE");
     Assertions.assertEquals(
@@ -561,8 +560,7 @@ public class HouseTableViewRepositoryImplTest {
     Assertions.assertTrue(
         thrown.getCause() instanceof TimeoutException,
         "an elapsed write budget must be reported as a timeout, got: " + thrown.getCause());
-    Assertions.assertEquals(
-        1, subscriptions.get(), "a timed-out write must never be resubscribed");
+    Assertions.assertEquals(1, subscriptions.get(), "a timed-out write must never be resubscribed");
     Mockito.verify(userTableApi, Mockito.times(1)).putUserView(Mockito.any());
     Assertions.assertEquals(0, retryListener.getRetryCount());
   }

@@ -83,8 +83,9 @@ public interface HouseTableRepository
   /**
    * Resolves only VIEW rows; a table at the same key reads as absent.
    *
-   * @throws IllegalStateException the typed view endpoint returned a present row whose discriminator
-   *     is absent or not canonical VIEW, which is a server contract violation and is never retried
+   * @throws IllegalStateException the typed view endpoint returned a present row whose
+   *     discriminator is absent or not canonical VIEW, which is a server contract violation and is
+   *     never retried
    * @throws com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException
    *     the request was rejected as invalid or unauthorized
    * @throws com.linkedin.openhouse.internal.catalog.repository.exception

@@ -140,7 +140,9 @@ public class InMemoryViewHouseTableRepository implements HouseTableRepository {
 
   /** Mirrors {@code EntityTypeConverter}: a stored null is read back as canonical TABLE. */
   private static HouseTable hydrate(HouseTable row) {
-    return row.getEntityType() == null ? row.toBuilder().entityType(ENTITY_TYPE_TABLE).build() : row;
+    return row.getEntityType() == null
+        ? row.toBuilder().entityType(ENTITY_TYPE_TABLE).build()
+        : row;
   }
 
   private static boolean isTableOrLegacy(HouseTable row) {

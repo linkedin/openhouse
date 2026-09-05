@@ -64,8 +64,7 @@ public class ViewCommitEngineMixedEntityTest {
 
   @Test
   void listPaginatesOverViewsOnlyAndNeverParsesMetadata() {
-    Page<ViewPointer> firstPage =
-        harness.getViewCommitEngine().listViews(DB, PageRequest.of(0, 1));
+    Page<ViewPointer> firstPage = harness.getViewCommitEngine().listViews(DB, PageRequest.of(0, 1));
     Assertions.assertEquals(1, firstPage.getContent().size());
     Assertions.assertEquals(2L, firstPage.getTotalElements());
     Assertions.assertEquals(2, firstPage.getTotalPages());
@@ -158,21 +157,22 @@ public class ViewCommitEngineMixedEntityTest {
         harness.getHouseTableRepository().findById(key("view_a")).isPresent(),
         "a view must be absent from the table point read");
     Assertions.assertEquals(
-        "TABLE",
-        harness.getHouseTableRepository().findById(key("table_a")).get().getEntityType());
+        "TABLE", harness.getHouseTableRepository().findById(key("table_a")).get().getEntityType());
     Assertions.assertEquals(
         "TABLE",
         harness.getHouseTableRepository().findById(key("legacy_a")).get().getEntityType(),
         "a legacy row reads back as a table");
 
-    Assertions.assertTrue(harness.getHouseTableRepository().findViewById(key("view_a")).isPresent());
+    Assertions.assertTrue(
+        harness.getHouseTableRepository().findViewById(key("view_a")).isPresent());
     Assertions.assertFalse(
         harness.getHouseTableRepository().findViewById(key("table_a")).isPresent());
     Assertions.assertFalse(
         harness.getHouseTableRepository().findViewById(key("legacy_a")).isPresent());
 
     Assertions.assertEquals(
-        "VIEW", harness.getHouseTableRepository().findEntityById(key("view_a")).get().getEntityType());
+        "VIEW",
+        harness.getHouseTableRepository().findEntityById(key("view_a")).get().getEntityType());
     Assertions.assertEquals(
         "TABLE",
         harness.getHouseTableRepository().findEntityById(key("table_a")).get().getEntityType());

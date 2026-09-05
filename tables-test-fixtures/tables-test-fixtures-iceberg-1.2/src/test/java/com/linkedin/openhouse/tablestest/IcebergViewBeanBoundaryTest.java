@@ -336,7 +336,8 @@ public class IcebergViewBeanBoundaryTest {
   private static Map<String, String> optionalDependencyGaps() {
     Map<String, String> gaps = new HashMap<>();
     // Registered unconditionally by springdoc, but Querydsl is not a dependency of this fixture.
-    gaps.put("org.springdoc.data.rest.customisers.QuerydslPredicateOperationCustomizer", "querydsl");
+    gaps.put(
+        "org.springdoc.data.rest.customisers.QuerydslPredicateOperationCustomizer", "querydsl");
     return gaps;
   }
 
@@ -426,7 +427,12 @@ public class IcebergViewBeanBoundaryTest {
           new HashSet<>());
       for (Type parameter : method.getGenericParameterTypes()) {
         record(
-            offenders, "probe", NestedTypeProbe.class, parameter, probedPrefix, new HashSet<Type>());
+            offenders,
+            "probe",
+            NestedTypeProbe.class,
+            parameter,
+            probedPrefix,
+            new HashSet<Type>());
       }
     }
     for (Field field : NestedTypeProbe.class.getDeclaredFields()) {
@@ -456,7 +462,12 @@ public class IcebergViewBeanBoundaryTest {
     List<String> clean = new ArrayList<>();
     for (Field field : CleanProbe.class.getDeclaredFields()) {
       record(
-          clean, "clean", CleanProbe.class, field.getGenericType(), probedPrefix, new HashSet<Type>());
+          clean,
+          "clean",
+          CleanProbe.class,
+          field.getGenericType(),
+          probedPrefix,
+          new HashSet<Type>());
     }
     Assertions.assertTrue(clean.isEmpty(), "a clean signature must not be flagged: " + clean);
   }

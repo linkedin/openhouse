@@ -108,7 +108,9 @@ public class HouseTablesH2ViewAccessorTest {
         "a view at a shared key must be absent from every table read");
   }
 
-  /** Both database-scoped table lists filter before they count, so a view never inflates a total. */
+  /**
+   * Both database-scoped table lists filter before they count, so a view never inflates a total.
+   */
   @Test
   public void tableListsExcludeViewsAndFilterBeforePaginating() {
     List<String> unpaged =
@@ -130,7 +132,8 @@ public class HouseTablesH2ViewAccessorTest {
     Assertions.assertEquals(1, secondPage.getContent().size());
     List<String> paged =
         Arrays.asList(
-            firstPage.getContent().get(0).getTableId(), secondPage.getContent().get(0).getTableId());
+            firstPage.getContent().get(0).getTableId(),
+            secondPage.getContent().get(0).getTableId());
     Assertions.assertTrue(paged.contains("table_a"), paged.toString());
     Assertions.assertTrue(paged.contains("legacy_a"), paged.toString());
 

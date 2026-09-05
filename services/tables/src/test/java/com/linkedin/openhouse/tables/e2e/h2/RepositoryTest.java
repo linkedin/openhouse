@@ -1648,8 +1648,7 @@ public class RepositoryTest {
           houseTablesRepository.findById(isolationKey("legacy_a")).get().getEntityType(),
           "a row written before the discriminator existed is a table");
 
-      Assertions.assertTrue(
-          houseTablesRepository.findViewById(isolationKey("view_a")).isPresent());
+      Assertions.assertTrue(houseTablesRepository.findViewById(isolationKey("view_a")).isPresent());
       Assertions.assertFalse(
           houseTablesRepository.findViewById(isolationKey("table_a")).isPresent());
       Assertions.assertFalse(

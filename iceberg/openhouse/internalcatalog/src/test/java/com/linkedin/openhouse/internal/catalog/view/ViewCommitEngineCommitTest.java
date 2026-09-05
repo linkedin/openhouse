@@ -35,18 +35,18 @@ import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.NoSuchViewException;
 import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.view.SQLViewRepresentation;
+import org.apache.iceberg.view.ViewMetadata;
+import org.apache.iceberg.view.ViewProperties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.apache.iceberg.view.SQLViewRepresentation;
-import org.apache.iceberg.view.ViewMetadata;
-import org.apache.iceberg.view.ViewProperties;
 
 /**
- * Create and replace: collision classification, caller-supplied identity and location, Iceberg-owned
- * version identity, no-op detection, dialect safety, stamping. Every metadata assertion is a golden
- * round trip.
+ * Create and replace: collision classification, caller-supplied identity and location,
+ * Iceberg-owned version identity, no-op detection, dialect safety, stamping. Every metadata
+ * assertion is a golden round trip.
  */
 public class ViewCommitEngineCommitTest {
 
@@ -206,7 +206,8 @@ public class ViewCommitEngineCommitTest {
         harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root));
     ViewCommitResult replaced = harness.getViewCommitEngine().commit(changedReplaceOf(created));
 
-    String firstFile = Paths.get(created.getPointer().getMetadataLocation()).getFileName().toString();
+    String firstFile =
+        Paths.get(created.getPointer().getMetadataLocation()).getFileName().toString();
     String secondFile =
         Paths.get(replaced.getPointer().getMetadataLocation()).getFileName().toString();
 
@@ -215,7 +216,8 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertTrue(firstFile.endsWith(".metadata.json"), firstFile);
 
     String firstFileUuid = firstFile.substring("00001-".length(), firstFile.indexOf(".metadata"));
-    String secondFileUuid = secondFile.substring("00002-".length(), secondFile.indexOf(".metadata"));
+    String secondFileUuid =
+        secondFile.substring("00002-".length(), secondFile.indexOf(".metadata"));
     Assertions.assertNotEquals(
         firstFileUuid, secondFileUuid, "each file needs its own collision-avoidance UUID");
     Assertions.assertNotEquals(
@@ -364,9 +366,7 @@ public class ViewCommitEngineCommitTest {
         afterThird.history().get(afterThird.history().size() - 1).versionId());
 
     List<Integer> historyIds =
-        afterThird.history().stream()
-            .map(entry -> entry.versionId())
-            .collect(Collectors.toList());
+        afterThird.history().stream().map(entry -> entry.versionId()).collect(Collectors.toList());
     Assertions.assertEquals(historyIds.size(), historyIds.stream().distinct().count());
     Assertions.assertTrue(historyIds.contains(afterCreate.currentVersionId()));
     Assertions.assertTrue(historyIds.contains(afterSecond.currentVersionId()));
