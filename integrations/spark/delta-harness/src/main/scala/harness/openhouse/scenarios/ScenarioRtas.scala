@@ -15,7 +15,7 @@ import scala.util.control.NonFatal
  * table that reached its starting state through a replace. The second is that everything the catalog governs, and
  * everything a reader can ask about history, behaves the way a new lineage requires.
  *
- * Operations, DML: every reusable operation `ScenarioDml` defines, reused as data. A replaced table runs the same
+ * Operations, DML: every reusable operation `ScenarioDmlOperations` defines, reused as data. A replaced table runs the
  * statements and the same assertions as a freshly created one, so this file holds one definition of each operation.
  * The 51 operations that
  * fit any seeded table cross all four replace preparations, the null-string DELETE crosses the four replace
@@ -39,8 +39,8 @@ import scala.util.control.NonFatal
  * Case families: 264 cases. The DML axis contributes 212 in three families, and the replace contract contributes 52
  * in 26 families, each family running in both columnar formats.
  */
-trait ScenarioRtas extends ScenarioKit {
-  this: ScenarioDml with ScenarioStandardDml with ChangelogSupport =>
+trait ScenarioRtas extends RtasTableFixtures {
+  this: ScenarioCoreDml with ScenarioDmlOperations with ChangelogSupport =>
 
   /** Every replace case: the reusable DML operations on replaced tables first, then the replace contract. */
   lazy val rtasCases: List[TestCase] = rtasDmlCases ++ rtasContractCases
@@ -153,7 +153,7 @@ trait ScenarioRtas extends ScenarioKit {
   private def replaceLineage(
       partitioning: Partitioning,
       format: String): TableTest[CoreTable.type] =
-    create(replaceEnabledLayout(partitioning, format))
+    createCoreTable(replaceEnabledLayout(partitioning, format))
       .insert(standardSeedRowCount)()
       .sql("prep.rtas")(table =>
         s"CREATE OR REPLACE TABLE $table USING $dataSource ${partitioning.clause} " +
@@ -234,14 +234,14 @@ trait ScenarioRtas extends ScenarioKit {
   private def preparedReplaceEnabledTable(format: String): TablePreparation[CoreTable.type] =
     TablePreparation(
       format,
-      create(replaceEnabledLayout(unpartitioned, format)).insert(standardSeedRowCount)())
+      createCoreTable(replaceEnabledLayout(unpartitioned, format)).insert(standardSeedRowCount)())
 
   /** The same starting state partitioned by the date column, for the cases that repartition after a replace. */
   private def preparedReplaceEnabledPartitionedTable(
       format: String): TablePreparation[CoreTable.type] =
     TablePreparation(
       format,
-      create(replaceEnabledLayout(partitionedByDate, format)).insert(standardSeedRowCount)())
+      createCoreTable(replaceEnabledLayout(partitionedByDate, format)).insert(standardSeedRowCount)())
 
   /**
    * A replace-enabled table in `format` carrying the user property user.key=v1, so a case reads back what a replace
@@ -263,7 +263,7 @@ trait ScenarioRtas extends ScenarioKit {
   private def preparedRetentionPolicyTable(format: String): TablePreparation[CoreTable.type] =
     TablePreparation(
       format,
-      create(replaceEnabledLayout(partitionedByDate, format))
+      createCoreTable(replaceEnabledLayout(partitionedByDate, format))
         .insert(standardSeedRowCount)()
         .sql("setRetentionPolicy")(table =>
           s"ALTER TABLE $table SET POLICY " +
@@ -277,7 +277,7 @@ trait ScenarioRtas extends ScenarioKit {
   private def preparedTaggedTable(format: String): TablePreparation[CoreTable.type] =
     TablePreparation(
       format,
-      create(replaceEnabledLayout(unpartitioned, format))
+      createCoreTable(replaceEnabledLayout(unpartitioned, format))
         .insert(standardSeedRowCount)()
         .sql("tagStringColumnAsPii")(table =>
           s"ALTER TABLE $table MODIFY COLUMN ${Core.string0.columnName} SET TAG = (PII)")())
@@ -320,7 +320,7 @@ trait ScenarioRtas extends ScenarioKit {
   /** The values `table` currently reports for the reserved identity properties. */
   private def identityProperties(
       table: PreparedTable[CoreTable.type]): Map[String, String] = {
-    val properties = tableProps(table.spark, table.name)
+    val properties = tableProperties(table.spark, table.name)
     identityPropertyNames.flatMap(name => properties.get(name).map(name -> _)).toMap
   }
 
@@ -340,7 +340,7 @@ trait ScenarioRtas extends ScenarioKit {
       table.spark.sql(replaceWithKeysUpTo(table.name, 2))
 
       assert(
-        countOf(table.spark, s"SELECT count(*) FROM ${table.name}") == "2",
+        queryCount(table.spark, s"SELECT count(*) FROM ${table.name}") == "2",
         "an enabled replace should leave only the rows its query selected")
     }
 
@@ -414,10 +414,10 @@ trait ScenarioRtas extends ScenarioKit {
       table.spark.sql(s"INSERT INTO ${table.name} VALUES ${coreRow(6L, "row-6")}")
 
       assert(
-        countOf(table.spark, s"SELECT count(*) FROM ${table.name}") == "3",
+        queryCount(table.spark, s"SELECT count(*) FROM ${table.name}") == "3",
         "the replaced table should hold the two selected rows plus the inserted one")
       assert(
-        countOf(
+        queryCount(
           table.spark,
           s"SELECT count(*) FROM ${table.name} WHERE ${Core.long0.columnName} = 6") == "1",
         "the row inserted after the replace should be readable")
@@ -438,7 +438,7 @@ trait ScenarioRtas extends ScenarioKit {
         columnNamesOf(table, table.name) == Core.columnNames :+ "added_col",
         "a replace that projects a new column should add it after the existing ones")
       assert(
-        countOf(
+        queryCount(
           table.spark,
           s"SELECT count(*) FROM ${table.name} WHERE added_col = 7") ==
           standardSeedRowCount.toString,
@@ -461,7 +461,7 @@ trait ScenarioRtas extends ScenarioKit {
           Seq(Core.long0.columnName, Core.string0.columnName),
         "a replace that projects two columns should leave exactly those two")
       assert(
-        countOf(table.spark, s"SELECT count(*) FROM ${table.name}") ==
+        queryCount(table.spark, s"SELECT count(*) FROM ${table.name}") ==
           standardSeedRowCount.toString,
         "dropping a column through a replace should preserve every row")
     }
@@ -590,7 +590,7 @@ trait ScenarioRtas extends ScenarioKit {
           description.count(_.getString(0) == Core.date0.columnName) == 2,
         "the replace should install the partition specification it named")
       assert(
-        countOf(table.spark, s"SELECT count(*) FROM ${table.name}") ==
+        queryCount(table.spark, s"SELECT count(*) FROM ${table.name}") ==
           standardSeedRowCount.toString,
         "repartitioning through a replace should preserve every row")
     }
@@ -622,12 +622,12 @@ trait ScenarioRtas extends ScenarioKit {
         !description.exists(_.getString(0) == "# Partition Information"),
         "the second replace should leave the table unpartitioned")
       assert(
-        countOf(table.spark, s"SELECT count(*) FROM ${table.name}") ==
+        queryCount(table.spark, s"SELECT count(*) FROM ${table.name}") ==
           standardSeedRowCount.toString,
         "repartitioning through a second replace should preserve every row")
       table.spark.sql(s"INSERT INTO ${table.name} VALUES ${coreRow(6L, "row-6")}")
       assert(
-        countOf(table.spark, s"SELECT count(*) FROM ${table.name}") == "4",
+        queryCount(table.spark, s"SELECT count(*) FROM ${table.name}") == "4",
         "the repartitioned table should stay writable")
     }
 
@@ -640,11 +640,11 @@ trait ScenarioRtas extends ScenarioKit {
   private def userPropertyPreservedCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("rtas.property.userPropertyPreserved") { table =>
       assert(
-        tableProps(table.spark, table.name).get("user.key").contains("v1"),
+        tableProperties(table.spark, table.name).get("user.key").contains("v1"),
         "the preparation should set the user property the replace is asked to preserve")
 
       table.spark.sql(replaceWithKeysUpTo(table.name, 2))
-      val properties = tableProps(table.spark, table.name)
+      val properties = tableProperties(table.spark, table.name)
 
       assert(
         properties.get("user.key").contains("v1"),
@@ -665,7 +665,7 @@ trait ScenarioRtas extends ScenarioKit {
         s"CREATE OR REPLACE TABLE ${table.name} USING $dataSource " +
           "TBLPROPERTIES ('user.key'='v2') " +
           s"AS SELECT * FROM ${table.name} WHERE ${Core.long0.columnName} <= 2")
-      val properties = tableProps(table.spark, table.name)
+      val properties = tableProperties(table.spark, table.name)
 
       assert(
         properties.get("user.key").contains("v2"),
@@ -684,7 +684,7 @@ trait ScenarioRtas extends ScenarioKit {
   private def retentionPolicyPreservedCase(
       preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("rtas.policy.retentionPreserved") { table =>
-      val policiesBefore = tableProps(table.spark, table.name).getOrElse("policies", "")
+      val policiesBefore = tableProperties(table.spark, table.name).getOrElse("policies", "")
       assert(
         policiesBefore.toLowerCase.contains("retention"),
         s"the preparation should store the retention policy the replace must preserve: $policiesBefore")
@@ -695,7 +695,7 @@ trait ScenarioRtas extends ScenarioKit {
           s"AS SELECT * FROM ${table.name} WHERE ${Core.long0.columnName} <= 2")
 
       assert(
-        tableProps(table.spark, table.name).getOrElse("policies", "") == policiesBefore,
+        tableProperties(table.spark, table.name).getOrElse("policies", "") == policiesBefore,
         "the replace should preserve the retention policy")
     }
 
@@ -705,7 +705,7 @@ trait ScenarioRtas extends ScenarioKit {
    */
   private def columnTagPreservedCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("rtas.policy.columnTagPreserved") { table =>
-      val policiesBefore = tableProps(table.spark, table.name).getOrElse("policies", "")
+      val policiesBefore = tableProperties(table.spark, table.name).getOrElse("policies", "")
       assert(
         policiesBefore.toLowerCase.contains("pii"),
         s"the preparation should store the PII tag the replace must preserve: $policiesBefore")
@@ -713,7 +713,7 @@ trait ScenarioRtas extends ScenarioKit {
       table.spark.sql(replaceWithKeysUpTo(table.name, 2))
 
       assert(
-        tableProps(table.spark, table.name).getOrElse("policies", "") == policiesBefore,
+        tableProperties(table.spark, table.name).getOrElse("policies", "") == policiesBefore,
         "the replace should preserve the PII column tag")
     }
 
@@ -729,10 +729,10 @@ trait ScenarioRtas extends ScenarioKit {
       table.spark.sql(replaceWithKeysUpTo(table.name, 2))
 
       assert(
-        countOf(table.spark, s"SELECT count(*) FROM ${table.name}.snapshots") == "2",
+        queryCount(table.spark, s"SELECT count(*) FROM ${table.name}.snapshots") == "2",
         "the replace appends to the history it found, leaving the pre-replace snapshot in place")
       assert(
-        countOf(
+        queryCount(
           table.spark,
           s"SELECT count(*) FROM ${table.name} VERSION AS OF $preReplaceSnapshotId") ==
           standardSeedRowCount.toString,
@@ -752,7 +752,7 @@ trait ScenarioRtas extends ScenarioKit {
       val exception = Check.intercept[ValidationException](
         table.spark.sql(
           "CALL openhouse.system.rollback_to_snapshot(" +
-            s"'${catalogRelative(table.name)}', $preReplaceSnapshotId)"))
+            s"'${catalogRelativeTableName(table.name)}', $preReplaceSnapshotId)"))
 
       assert(
         exception.getMessage.contains("not an ancestor"),
@@ -770,10 +770,10 @@ trait ScenarioRtas extends ScenarioKit {
       table.spark.sql(replaceWithKeysUpTo(table.name, 2))
       table.spark.sql(
         "CALL openhouse.system.set_current_snapshot(" +
-          s"'${catalogRelative(table.name)}', $preReplaceSnapshotId)")
+          s"'${catalogRelativeTableName(table.name)}', $preReplaceSnapshotId)")
 
       assert(
-        countOf(table.spark, s"SELECT count(*) FROM ${table.name}") ==
+        queryCount(table.spark, s"SELECT count(*) FROM ${table.name}") ==
           standardSeedRowCount.toString,
         "set_current_snapshot should recover the pre-replace rows")
     }
@@ -848,7 +848,7 @@ trait ScenarioRtas extends ScenarioKit {
         renameTo(renamedTable)
 
         assert(
-          countOf(table.spark, s"SELECT count(*) FROM $renamedTable") == "2",
+          queryCount(table.spark, s"SELECT count(*) FROM $renamedTable") == "2",
           "the renamed table should hold the rows the replace left")
         renameTo(table.name)
       }
@@ -867,7 +867,7 @@ trait ScenarioRtas extends ScenarioKit {
         table.spark.sql(replaceWithKeysUpTo(renamedTable, 2))
 
         assert(
-          countOf(table.spark, s"SELECT count(*) FROM $renamedTable") == "2",
+          queryCount(table.spark, s"SELECT count(*) FROM $renamedTable") == "2",
           "the table renamed before the replace should hold the rows the replace left")
         renameTo(table.name)
       }
@@ -884,14 +884,14 @@ trait ScenarioRtas extends ScenarioKit {
     preparation.test("rtas.sortOrder.changedAfterReplace") { table =>
       table.spark.sql(replaceWithKeysUpTo(table.name, 2))
       table.spark.sql(s"ALTER TABLE ${table.name} WRITE ORDERED BY ${Core.long0.columnName}")
-      val distributionMode = tableProps(table.spark, table.name).get("write.distribution-mode")
+      val distributionMode = tableProperties(table.spark, table.name).get("write.distribution-mode")
 
       assert(
         distributionMode.contains("range"),
         s"a write sort order after a replace should set range distribution, got $distributionMode")
       table.spark.sql(s"INSERT INTO ${table.name} VALUES ${coreRow(6L, "row-6")}")
       assert(
-        countOf(table.spark, s"SELECT count(*) FROM ${table.name}") == "3",
+        queryCount(table.spark, s"SELECT count(*) FROM ${table.name}") == "3",
         "the ordered replaced table should stay writable")
     }
 
@@ -905,14 +905,14 @@ trait ScenarioRtas extends ScenarioKit {
       table.spark.sql(replaceWithKeysUpTo(table.name, 2))
       table.spark.sql(s"ALTER TABLE ${table.name} WRITE ORDERED BY ${Core.long0.columnName}")
       table.spark.sql(s"ALTER TABLE ${table.name} WRITE UNORDERED")
-      val distributionMode = tableProps(table.spark, table.name).get("write.distribution-mode")
+      val distributionMode = tableProperties(table.spark, table.name).get("write.distribution-mode")
 
       assert(
         !distributionMode.contains("range"),
         s"dropping the sort order should drop range distribution, got $distributionMode")
       table.spark.sql(s"INSERT INTO ${table.name} VALUES ${coreRow(6L, "row-6")}")
       assert(
-        countOf(table.spark, s"SELECT count(*) FROM ${table.name}") == "3",
+        queryCount(table.spark, s"SELECT count(*) FROM ${table.name}") == "3",
         "the unordered replaced table should stay writable")
     }
 

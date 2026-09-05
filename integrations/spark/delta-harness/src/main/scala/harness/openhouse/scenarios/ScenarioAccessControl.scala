@@ -18,7 +18,7 @@ import scala.util.Try
  *
  * Case families: eight families contributing 16 cases.
  */
-trait ScenarioAccessControl extends ScenarioKit {
+trait ScenarioAccessControl extends GovernanceTableFixtures {
 
   /** Every access-control case, one file format at a time. */
   lazy val accessControlCases: List[TestCase] =
@@ -222,7 +222,7 @@ trait ScenarioAccessControl extends ScenarioKit {
           "authorization service."))
 
   private def policiesFor(table: PreparedTable[CoreTable.type]): JsonObject =
-    GovernancePolicies.parse(tableProps(table.spark, table.name))
+    GovernancePolicies.parse(tableProperties(table.spark, table.name))
 
   private def assertRowsPreserved(table: PreparedTable[CoreTable.type], operation: String): Unit =
     assert(

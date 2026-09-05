@@ -13,7 +13,7 @@ import scala.collection.JavaConverters._
  *
  * Case families: one family contributing 2 cases.
  */
-trait ScenarioColumnTag extends ScenarioKit {
+trait ScenarioColumnTag extends GovernanceTableFixtures {
 
   /** The column-tag case, one file format at a time. */
   lazy val columnTagCases: List[TestCase] =
@@ -28,7 +28,7 @@ trait ScenarioColumnTag extends ScenarioKit {
 
       val columnTags =
         GovernancePolicies.objectField(
-          GovernancePolicies.parse(tableProps(table.spark, table.name)),
+          GovernancePolicies.parse(tableProperties(table.spark, table.name)),
           "columnTags")
       val tagsForColumn =
         columnTags

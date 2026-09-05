@@ -18,7 +18,7 @@ import scala.util.Try
  *
  * Case families: one family contributing 1 case.
  */
-trait ScenarioFileReplication extends ScenarioKit {
+trait ScenarioFileReplication extends GovernanceTableFixtures {
 
   /** The output-file replication property case. */
   lazy val fileReplicationCases: List[TestCase] =

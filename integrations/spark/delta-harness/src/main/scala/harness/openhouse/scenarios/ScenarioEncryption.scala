@@ -16,7 +16,7 @@ import org.apache.iceberg.spark.Spark3Util
  *
  * Case families: one family contributing 2 cases.
  */
-trait ScenarioEncryption extends ScenarioKit {
+trait ScenarioEncryption extends GovernanceTableFixtures {
 
   /** The plaintext data-file case, one file format at a time. */
   lazy val encryptionCases: List[TestCase] =
