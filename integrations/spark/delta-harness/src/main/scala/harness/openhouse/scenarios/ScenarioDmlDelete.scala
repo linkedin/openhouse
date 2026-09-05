@@ -4,7 +4,7 @@ package harness
  * Delete operations over the core table. Each case verifies the selected row removal and the snapshot behavior of its
  * SQL form.
  */
-trait ScenarioDmlDelete extends ScenarioKit {
+trait ScenarioDmlDelete extends TableTestFixtures {
   import Rows._
 
   /**
