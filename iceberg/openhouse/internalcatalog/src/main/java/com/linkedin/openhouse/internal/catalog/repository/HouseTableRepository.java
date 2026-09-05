@@ -79,6 +79,7 @@ public interface HouseTableRepository
    *     .HouseTableRepositoryStateUnknownException the read could not be completed
    */
   Optional<HouseTable> findEntityById(HouseTablePrimaryKey houseTablePrimaryKey);
+
   /*
    * The two typed view reads declare `throws IllegalStateException` even though it is unchecked, and
    * that is load-bearing rather than documentation. This repository is a Spring `@Repository`, so
@@ -106,10 +107,9 @@ public interface HouseTableRepository
   /**
    * House Table filters VIEW before paginating, so no row is read to be discarded.
    *
-   * @throws com.linkedin.openhouse.internal.catalog.repository.exception
-   *     .HouseTableEntityTypeCorruptException any row on the page carries an absent or
-   *     non-canonical VIEW discriminator; one bad row fails the page, because dropping it would
-   *     hide corruption and invalidate the totals
+   * @throws IllegalStateException any row on the page carries an absent or non-canonical VIEW
+   *     discriminator; one bad row fails the page, because dropping it would hide corruption and
+   *     invalidate the totals
    * @throws com.linkedin.openhouse.internal.catalog.repository.exception
    *     .HouseTableRepositoryStateUnknownException the read could not be completed
    */

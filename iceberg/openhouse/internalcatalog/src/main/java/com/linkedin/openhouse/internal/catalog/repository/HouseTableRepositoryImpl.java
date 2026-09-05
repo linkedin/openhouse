@@ -447,11 +447,6 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
    * House Table cannot answer a view route with anything but a view, so a row that says otherwise
    * is corruption rather than a miss. Reporting it as absent would tell a later create the name is
    * free.
-   */
-  /**
-   * House Table cannot answer a view route with anything but a view, so a row that says otherwise
-   * is corruption rather than a miss. Reporting it as absent would tell a later create the name is
-   * free.
    *
    * <p>Deliberately an {@link IllegalStateException}, which the read retry template treats as
    * retryable: the subscription-count tests rely on that to prove this runs after the retry has
