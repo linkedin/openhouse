@@ -1,0 +1,155 @@
+plugins {
+  id 'openhouse.java-minimal-conventions'
+  id 'openhouse.maven-publish'
+  id 'scala'
+}
+
+// The delta-harness behavioral matrix is published as a portable Scala library. This repository runs
+// it against the embedded catalog, and the LinkedIn acceptance tests supply a remote environment.
+//
+// Only the portable scenario/framework sources are published. Env.scala boots the embedded OpenHouse
+// server and pulls in its test fixtures, and LocalRunner.scala carries the harness.Main launch class
+// that drives it, so both are excluded from the published library and compiled in the local source
+// set. Runner.scala remains portable so its retry contract is exercised by the module tests.
+
+ext {
+  icebergVersion = rootProject.ext.iceberg_1_5_version
+  sparkVersion = '3.5.2'
+  scalaLibVersion = '2.12.18'
+}
+
+// The embedded boot wiring and the local run loop. They are excluded from the portable library and
+// are the whole of the local source set.
+def embeddedOnlySources = ['harness/openhouse/Env.scala', 'harness/openhouse/LocalRunner.scala']
+
+sourceSets {
+  main {
+    scala {
+      srcDirs = ['src/main/scala']
+      exclude embeddedOnlySources
+    }
+  }
+  local {
+    scala {
+      srcDirs = ['src/main/scala']
+      include embeddedOnlySources
+    }
+    compileClasspath += sourceSets.main.output
+    runtimeClasspath += sourceSets.main.output
+  }
+}
+
+dependencies {
+  implementation "org.scala-lang:scala-library:${scalaLibVersion}"
+
+  // The consumer provides the Spark, Iceberg, and OpenHouse runtime. The library jar carries only the
+  // harness classes.
+  compileOnly("org.apache.spark:spark-sql_2.12:${sparkVersion}") {
+    exclude group: 'io.netty'
+  }
+  compileOnly("com.linkedin.iceberg:iceberg-spark-runtime-3.5_2.12:${icebergVersion}") {
+    exclude group: 'io.netty'
+  }
+  // Provides com.linkedin.openhouse.javaclient.* (WebClientResponseWithMessageException, etc.).
+  compileOnly(project(path: ':integrations:spark:spark-3.5:openhouse-spark-3.5-runtime_2.12', configuration: 'shadow'))
+
+  // The catalog tests read Catalog contributions and cases without starting Spark. Their JVM still
+  // loads the harness signatures, so the compile-only harness dependencies must be present on the test classpath.
+  testImplementation("org.apache.spark:spark-sql_2.12:${sparkVersion}") {
+    exclude group: 'io.netty'
+  }
+  testImplementation("com.linkedin.iceberg:iceberg-spark-runtime-3.5_2.12:${icebergVersion}") {
+    exclude group: 'io.netty'
+  }
+  testImplementation(
+    project(path: ':integrations:spark:spark-3.5:openhouse-spark-3.5-runtime_2.12',
+            configuration: 'shadow'))
+
+  localImplementation sourceSets.main.output
+  localImplementation "org.scala-lang:scala-library:${scalaLibVersion}"
+  localImplementation("org.apache.spark:spark-sql_2.12:${sparkVersion}") {
+    exclude group: 'io.netty'
+  }
+  localImplementation(
+    project(path: ':integrations:spark:spark-3.5:openhouse-spark-3.5-runtime_2.12',
+            configuration: 'shadow')) {
+    exclude group: 'org.apache.commons', module: 'commons-lang3'
+  }
+  localImplementation project(':tables-test-fixtures:tables-test-fixtures-iceberg-1.5_2.12')
+}
+
+configurations.localRuntimeClasspath {
+  exclude group: 'com.linkedin.iceberg', module: 'iceberg-core'
+  exclude group: 'com.linkedin.iceberg', module: 'iceberg-api'
+  exclude group: 'com.linkedin.iceberg', module: 'iceberg-common'
+  exclude group: 'com.linkedin.iceberg', module: 'iceberg-data'
+  resolutionStrategy.force(
+    'com.fasterxml.jackson.core:jackson-annotations:2.15.2',
+    'com.fasterxml.jackson.core:jackson-core:2.15.2',
+    'com.fasterxml.jackson.core:jackson-databind:2.15.2',
+    'com.fasterxml.jackson.dataformat:jackson-dataformat-xml:2.15.2',
+    'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.15.2',
+    'com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.15.2',
+    'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.15.2',
+    'com.fasterxml.jackson.jaxrs:jackson-jaxrs-base:2.15.2',
+    'com.fasterxml.jackson.jaxrs:jackson-jaxrs-json-provider:2.15.2',
+    'com.fasterxml.jackson.module:jackson-module-jaxb-annotations:2.15.2',
+    'com.fasterxml.jackson.module:jackson-module-parameter-names:2.15.2',
+    'com.fasterxml.jackson.module:jackson-module-scala_2.12:2.15.2')
+}
+
+def configureEmbeddedHarnessRun = { JavaExec task ->
+  task.dependsOn localClasses
+  task.classpath = sourceSets.local.runtimeClasspath
+  task.mainClass = 'harness.Main'
+  if (JavaVersion.current() >= JavaVersion.VERSION_1_9) {
+    task.jvmArgs(
+      '--add-opens=java.base/java.nio=ALL-UNNAMED',
+      '--add-exports=java.base/sun.nio.ch=ALL-UNNAMED',
+      '--add-opens=java.base/sun.util.calendar=ALL-UNNAMED',
+      '--add-exports=java.base/sun.util.calendar=ALL-UNNAMED')
+  }
+}
+
+tasks.register('runOpenHouse', JavaExec) {
+  group = 'verification'
+  description = 'Runs the delta harness against an embedded OpenHouse catalog.'
+  configureEmbeddedHarnessRun(delegate)
+}
+
+def verifyOpenHouseFoundation = tasks.register('verifyOpenHouseFoundation', JavaExec) {
+  group = 'verification'
+  description = 'Runs the foundation scenarios against an embedded OpenHouse catalog.'
+  configureEmbeddedHarnessRun(delegate)
+  args '--catalog=foundation'
+}
+
+def verifyPortableJar = tasks.register('verifyPortableJar') {
+  group = 'verification'
+  description = 'Checks that the published harness jar contains only portable entry points.'
+  dependsOn tasks.named('jar')
+  doLast {
+    def jarFile = tasks.named('jar').get().archiveFile.get().asFile
+    def entries = new java.util.zip.ZipFile(jarFile).withCloseable { archive ->
+      archive.entries().collect { entry -> entry.name }.toSet()
+    }
+    ['harness/Plan.class', 'harness/Runner.class'].each { requiredEntry ->
+      if (!entries.contains(requiredEntry)) {
+        throw new GradleException("Portable harness jar is missing ${requiredEntry}")
+      }
+    }
+    ['harness/Main.class', 'harness/Main$.class', 'harness/OpenHouseEnv.class', 'harness/OpenHouseEnv$.class']
+      .each { embeddedEntry ->
+        if (entries.contains(embeddedEntry)) {
+          throw new GradleException("Portable harness jar contains embedded-only ${embeddedEntry}")
+        }
+      }
+  }
+}
+
+tasks.named('check') {
+  dependsOn verifyOpenHouseFoundation
+  dependsOn verifyPortableJar
+}
+
+jar.enabled = true
