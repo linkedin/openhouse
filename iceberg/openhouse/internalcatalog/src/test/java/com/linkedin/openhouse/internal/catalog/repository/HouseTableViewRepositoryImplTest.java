@@ -32,6 +32,7 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.QueueDispatcher;
@@ -54,6 +55,9 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.retry.RetryCallback;
+import org.springframework.retry.RetryContext;
+import org.springframework.retry.RetryListener;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.util.ReflectionUtils;
@@ -502,6 +506,115 @@ public class HouseTableViewRepositoryImplTest {
     Assertions.assertEquals(0, retryListener.getRetryCount());
     nextRequest();
     Assertions.assertNull(mockHtsServer.takeRequest(1, TimeUnit.SECONDS));
+  }
+
+  /**
+   * Where the discriminator is examined, proven without reference to retry counts.
+   *
+   * <p>The subscription-count assertions already discriminate placement, because the read policy
+   * retries {@link IllegalStateException}. This adds a second, independent signal that does not
+   * depend on retryability at all: Spring Retry reports every exception the callback throws to
+   * {@code onError} and closes the context with it, whether or not the policy would retry. So a
+   * check that ran inside the callback is an errored context, and one that ran after is a context
+   * that closed cleanly. Should the exception type ever change, this assertion keeps working.
+   */
+  @Test
+  public void theDiscriminatorIsExaminedAfterTheRetryContextHasClosed() {
+    stubViewPointRead(entityBody(viewUserTable("TABLE")));
+    RetryContextProbe probe = new RetryContextProbe();
+    ((HouseTableRepositoryImpl) htsRepo)
+        .getHtsRetryTemplate(
+            Arrays.asList(
+                HouseTableRepositoryStateUnknownException.class, IllegalStateException.class))
+        .registerListener(probe);
+
+    // Deliberately not asserting the type first: placement must be provable on its own, so a
+    // regression reports where the check ran rather than what it happened to throw.
+    Throwable thrown =
+        Assertions.assertThrows(Throwable.class, () -> htsRepo.findViewById(viewKey()));
+
+    Assertions.assertEquals(
+        0,
+        probe.errorsSeenInsideContext.get(),
+        "the retry context must never have seen this failure; validating inside the callback would"
+            + " report it here whether or not the exception is retryable, and it reported: "
+            + thrown);
+    Assertions.assertEquals(
+        Boolean.TRUE,
+        probe.closedWithoutError.get(),
+        "the read itself must have succeeded and the retry context closed cleanly before the"
+            + " discriminator was examined");
+    Assertions.assertTrue(
+        thrown instanceof IllegalStateException,
+        "and the corruption must still escape as itself, undisguised by the persistence exception"
+            + " translator: "
+            + thrown);
+  }
+
+  /** The same guarantee for the paginated read, whose validation also runs post-execute. */
+  @Test
+  public void theListDiscriminatorIsExaminedAfterTheRetryContextHasClosed()
+      throws InterruptedException {
+    List<UserTable> views = new ArrayList<>();
+    views.add(viewUserTable("VIEW"));
+    UserTable corrupt = viewUserTable("TABLE");
+    corrupt.setTableId("v2");
+    views.add(corrupt);
+    enqueueViewPage(views, 0, 2, 2L);
+
+    RetryContextProbe probe = new RetryContextProbe();
+    ((HouseTableRepositoryImpl) htsRepo)
+        .getHtsRetryTemplate(
+            Arrays.asList(
+                HouseTableRepositoryStateUnknownException.class, IllegalStateException.class))
+        .registerListener(probe);
+
+    Throwable thrown =
+        Assertions.assertThrows(
+            Throwable.class,
+            () -> htsRepo.findAllViewsByDatabaseId(VIEW_DB, PageRequest.of(0, 2, Sort.unsorted())));
+
+    Assertions.assertEquals(
+        0,
+        probe.errorsSeenInsideContext.get(),
+        "a page validated inside the retry callback would surface as an errored retry context,"
+            + " and it reported: "
+            + thrown);
+    Assertions.assertEquals(Boolean.TRUE, probe.closedWithoutError.get());
+    Assertions.assertTrue(
+        thrown instanceof IllegalStateException,
+        "and the corruption must still escape as itself, undisguised by the persistence exception"
+            + " translator: "
+            + thrown);
+    nextRequest();
+    Assertions.assertNull(mockHtsServer.takeRequest(1, TimeUnit.SECONDS));
+  }
+
+  /**
+   * Records what the retry context saw rather than how many attempts it made, so the assertion
+   * holds whatever the exception type and retry policy happen to be.
+   */
+  private static final class RetryContextProbe implements RetryListener {
+    private final AtomicInteger errorsSeenInsideContext = new AtomicInteger();
+    private final AtomicReference<Boolean> closedWithoutError = new AtomicReference<>();
+
+    @Override
+    public <T, E extends Throwable> boolean open(
+        RetryContext context, RetryCallback<T, E> callback) {
+      return true;
+    }
+
+    @Override
+    public <T, E extends Throwable> void close(
+        RetryContext context, RetryCallback<T, E> callback, Throwable throwable) {
+      closedWithoutError.compareAndSet(null, throwable == null);
+    }
+
+    @Override
+    public <T, E extends Throwable> void onError(
+        RetryContext context, RetryCallback<T, E> callback, Throwable throwable) {
+      errorsSeenInsideContext.incrementAndGet();
+    }
   }
 
   /** The untyped route has no expected type to violate, so it classifies nothing. */
