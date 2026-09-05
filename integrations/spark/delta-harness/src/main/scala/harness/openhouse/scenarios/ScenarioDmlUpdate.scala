@@ -4,7 +4,7 @@ package harness
  * Update operations over the core table. Each case verifies the rewritten column values and the snapshot committed by
  * its SQL form.
  */
-trait ScenarioDmlUpdate extends ScenarioKit {
+trait ScenarioDmlUpdate extends TableTestFixtures {
   import Rows._
 
   /**
