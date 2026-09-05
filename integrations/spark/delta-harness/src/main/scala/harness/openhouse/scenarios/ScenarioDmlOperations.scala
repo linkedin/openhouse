@@ -13,17 +13,18 @@ package harness
  *
  * This contribution adds 96 cases beyond the 12 representative DML cases in the foundation catalog.
  */
-trait ScenarioStandardDml
+trait ScenarioDmlOperations
     extends ScenarioDmlRead
     with ScenarioDmlDelete
     with ScenarioDmlUpdate
     with ScenarioDmlMerge
-    with ScenarioDmlWrite {
-  self: ScenarioDml =>
+    with ScenarioDmlWrite
+    with DmlTableFixtures {
+  self: ScenarioCoreDml =>
 
   /** Every additional DML operation on its canonical preparation in each file format. */
-  lazy val standardDmlCases: List[TestCase] = {
-    val foundationDmlCaseIds = coreDmlTestCases.map(_.id).toSet
+  lazy val dmlOperationCases: List[TestCase] = {
+    val foundationDmlCaseIds = coreDmlOperations.map(_.id).toSet
     preparedCoreFormats
       .zip(preparedPartitionedCoreTables)
       .flatMap { case (standardPreparation, partitionedPreparation) =>
