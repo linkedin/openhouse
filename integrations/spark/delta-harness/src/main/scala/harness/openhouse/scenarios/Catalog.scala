@@ -1,14 +1,14 @@
 package harness
 
 /**
- * Mixes every registered scenario with one shared kit instance. A scenario becomes runnable when this object mixes in
- * its trait and `Catalog` registers its case list.
+ * Mixes every registered scenario with one shared fixture instance. A scenario becomes runnable when this object
+ * mixes in its trait and `Catalog` registers its case list.
  */
 object Scenarios
-    extends ScenarioDml
+    extends ScenarioCoreDml
     with ScenarioDataType
-    with ScenarioDmlValidation
-    with ScenarioStandardDml
+    with ScenarioDmlRejection
+    with ScenarioDmlOperations
     with ScenarioRtas
     with ScenarioMergeOnRead
     with ChangelogSupport
@@ -22,14 +22,14 @@ object Catalog {
   /** The three scenario contributions that exercise the framework's core composition paths. */
   def foundationContributions: List[(String, List[TestCase])] =
     List(
-      "dataTypeCases"      -> Scenarios.dataTypeCases,
-      "dmlCases"           -> Scenarios.dmlCases,
-      "dmlValidationCases" -> Scenarios.dmlValidationCases)
+      "dataTypeCases"     -> Scenarios.dataTypeCases,
+      "dmlCoreCases"      -> Scenarios.dmlCoreCases,
+      "dmlRejectionCases" -> Scenarios.dmlRejectionCases)
 
   /** Additional named scenario contributions supplied by a composed catalog. */
   def extensionContributions: List[(String, List[TestCase])] =
     List(
-      "standardDmlCases" -> Scenarios.standardDmlCases,
+      "dmlOperationCases" -> Scenarios.dmlOperationCases,
       "rtasCases"        -> Scenarios.rtasCases,
       "mergeOnReadCases" -> Scenarios.mergeOnReadCases)
 
