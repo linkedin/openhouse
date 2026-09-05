@@ -666,14 +666,15 @@ public class IcebergViewBeanBoundaryTest {
   @SuppressWarnings("unused")
   private interface MiddleFace extends GenericFace<java.util.concurrent.Future<String>> {}
 
-  /** The same hole through interfaces: the binding sits on an inherited interface, not on this. */
+  /**
+   * The same hole through interfaces. Deliberately abstract with no {@code get} override: were it
+   * declared here, its return type would name Future directly and the assertion below would pass
+   * without the ancestor walk ever running. Left unimplemented, {@code getMethods()} sees only
+   * {@code GenericFace<T>.get()} as {@code T}, so Future is reachable solely through MiddleFace's
+   * own generic interface, two levels up.
+   */
   @SuppressWarnings("unused")
-  private static final class InheritedInterfaceBindingProbe implements MiddleFace {
-    @Override
-    public java.util.concurrent.Future<String> get() {
-      return null;
-    }
-  }
+  private abstract static class InheritedInterfaceBindingProbe implements MiddleFace {}
 
   @SuppressWarnings("unused")
   private static final class UnusedBoundProbe {
