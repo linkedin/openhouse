@@ -140,7 +140,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     }
   }
 
-  /** Runs before no-op detection, so a duplicate cannot short-circuit into a no-op. */
+  /** Rejects an intent that lists the same dialect twice, before no-op detection can mask it. */
   private void rejectDuplicateDialects(ViewCommitIntent intent) {
     if (intent.getRepresentations() == null) {
       return;
@@ -204,7 +204,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         true);
   }
 
-  /** The engine allocates nothing, so a missing create-side value is a caller error. */
+  /** Throws BadRequestException if a required create input is null or blank. */
   private static void requireCreateInput(ViewCommitIntent intent, String value, String field) {
     if (value == null || value.trim().isEmpty()) {
       throw new BadRequestException(
@@ -213,7 +213,10 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     }
   }
 
-  /** No null to normalize: House Table coerces a legacy null to TABLE at its parse boundary. */
+  /**
+   * Throws when the name is already taken: AlreadyExists for a view, else
+   * ViewNameOccupiedException.
+   */
   private void rejectOccupiedName(ViewCommitIntent intent, HouseTable occupant) {
     if (isView(occupant.getEntityType())) {
       throw new AlreadyExistsException(
@@ -223,7 +226,10 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         intent.getDatabaseId(), intent.getViewId(), occupant.getEntityType());
   }
 
-  /** Exact spelling only: a differently-cased value is a corrupted row, not a view. */
+  /**
+   * True only if entityType is exactly "VIEW" (a differently-cased value is a corrupt row, not a
+   * view).
+   */
   private static boolean isView(String entityType) {
     return ENTITY_TYPE_VIEW.equals(entityType);
   }
@@ -299,7 +305,10 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         false);
   }
 
-  /** Engine-owned: Iceberg's {@code sameViewVersion} sees every submission as new. */
+  /**
+   * True when the intent matches the current version (schema, representations, summary, and user
+   * properties).
+   */
   private boolean isUnchanged(
       ViewCommitIntent intent,
       ViewMetadata current,
@@ -318,7 +327,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         && mergedUserProperties.equals(currentUserProperties);
   }
 
-  /** Write before publish, so a swap loser leaves an unreachable file, not a dangling pointer. */
+  /** Writes the metadata file, then swaps the House Table pointer and returns the commit result. */
   private ViewCommitResult writeThenPublish(
       ViewCommitIntent intent,
       ViewMetadata metadata,
@@ -360,7 +369,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         .build();
   }
 
-  /** Carries the storage type it was given; the {@code FileIO} reverse lookup is ambiguous. */
+  /** Builds the House Table pointer row from the metadata, tagged with the given storage type. */
   private static HouseTable pointerRowOf(ViewMetadata metadata, String storageTypeValue) {
     Map<String, String> properties = metadata.properties();
     return HouseTable.builder()
@@ -375,7 +384,10 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         .build();
   }
 
-  /** The submitted version id is a placeholder; Iceberg reassigns it. */
+  /**
+   * Builds a candidate ViewVersion from the intent; its version id is a placeholder Iceberg
+   * reassigns.
+   */
   private static ViewVersion candidateVersion(
       ViewCommitIntent intent,
       int candidateVersionId,
@@ -409,13 +421,19 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return builder.build();
   }
 
-  /** The embedded UUID lets concurrent writers each write a candidate without colliding. */
+  /**
+   * Builds the metadata file path for a version, embedding a random UUID so concurrent writers
+   * don't collide.
+   */
   private static String metadataFileLocation(String viewLocation, int version) {
     return String.format(
         "%s/%05d-%s%s", viewLocation, version, UUID.randomUUID(), METADATA_FILE_EXTENSION);
   }
 
-  /** Absent and non-view are one answer; calling a table absent would free the name. */
+  /**
+   * Fetches the view's House Table row, throwing NoSuchViewException if absent (a table reads as
+   * absent).
+   */
   private HouseTable requireViewRow(String databaseId, String viewId) {
     return houseTableRepository
         .findViewById(keyOf(databaseId, viewId))
@@ -434,12 +452,15 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         .build();
   }
 
-  /** The caller-supplied properties as-is: the intent side of the structural comparison. */
+  /** Returns the intent's caller-supplied view properties, or an empty map when none are set. */
   private static Map<String, String> userPropertiesOf(ViewCommitIntent intent) {
     return intent.getViewProperties() == null ? Collections.emptyMap() : intent.getViewProperties();
   }
 
-  /** Everything the server did not stamp: exactly what structural equality compares. */
+  /**
+   * Returns the metadata's user properties, dropping every server-stamped (oh-prefixed / dialect)
+   * key.
+   */
   private static Map<String, String> userPropertiesOf(ViewMetadata metadata) {
     Map<String, String> userProperties = new LinkedHashMap<>();
     metadata
@@ -454,7 +475,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return userProperties;
   }
 
-  /** Sorted pairs, not a map: a map would hide a repeated dialect. */
+  /** Returns the version's SQL representations as a sorted list of dialect+SQL keys. */
   private static List<String> representationsOf(ViewVersion version) {
     List<String> pairs = new ArrayList<>();
     for (ViewRepresentation representation : version.representations()) {
@@ -467,7 +488,10 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return pairs;
   }
 
-  /** Same sorted-pair form for the intent side, so it compares equal to the stored version's. */
+  /**
+   * Returns the intent's representations as the same sorted dialect+SQL keys, to compare with a
+   * stored version.
+   */
   private static List<String> representationsOf(List<SqlViewRepresentationIntent> representations) {
     List<String> pairs = new ArrayList<>();
     if (representations != null) {
@@ -508,17 +532,23 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return HouseTablePrimaryKey.builder().databaseId(databaseId).tableId(viewId).build();
   }
 
-  /** One definition of the empty namespace, used to build metadata and to compare it. */
+  /**
+   * Returns the namespace, or Namespace.empty() when null (one canonical form to build and
+   * compare).
+   */
   private static Namespace normalizedNamespace(Namespace defaultNamespace) {
     return defaultNamespace == null ? Namespace.empty() : defaultNamespace;
   }
 
-  /** Overridable so a test can pin it. */
+  /** Returns the current time in epoch millis (overridable so a test can pin it). */
   protected long nowMillis() {
     return Instant.now(Clock.systemUTC()).toEpochMilli();
   }
 
-  /** Keeps a changed commit observably newer despite a coarse or backward clock. */
+  /**
+   * Returns a last-modified timestamp strictly newer than the previous, even under a coarse or
+   * backward clock.
+   */
   private long advanceLastModified(long previousLastModified) {
     long now = nowMillis();
     if (previousLastModified == Long.MAX_VALUE) {
