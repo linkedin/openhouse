@@ -74,7 +74,7 @@ public class RepositoryTest {
 
   @Autowired StorageManager storageManager;
 
-  @Autowired Catalog catalog;
+  @SpyBean @Autowired Catalog catalog;
 
   @Autowired SchemaValidator validator;
 
@@ -1850,7 +1850,7 @@ public class RepositoryTest {
   void tableCreateOverAViewFailsCleanlyWithoutAllocatingOrWriting() {
     String tableId = "occupied_by_a_view";
     seedViewRow(tableId);
-    Mockito.clearInvocations(storageSelector, tablePolicyManager);
+    Mockito.clearInvocations(storageSelector, tablePolicyManager, catalog);
     try {
       HouseTable before = houseTablesRepository.findEntityById(occupationKey(tableId)).get();
 
@@ -1866,6 +1866,10 @@ public class RepositoryTest {
       Mockito.verify(tablePolicyManager, Mockito.never())
           .managePoliciesOnCreateIfNeeded(Mockito.any());
       Mockito.verify(storageSelector, Mockito.never()).selectStorage(OCCUPATION_DB, tableId);
+      // An unchanged row would also survive a no-op rewrite, so pin that no branch that could
+      // write ever ran: a create or replace builds a table, an update loads one.
+      Mockito.verify(catalog, Mockito.never()).buildTable(Mockito.any(), Mockito.any());
+      Mockito.verify(catalog, Mockito.never()).loadTable(Mockito.any());
 
       HouseTable after = houseTablesRepository.findEntityById(occupationKey(tableId)).get();
       Assertions.assertEquals("VIEW", after.getEntityType());

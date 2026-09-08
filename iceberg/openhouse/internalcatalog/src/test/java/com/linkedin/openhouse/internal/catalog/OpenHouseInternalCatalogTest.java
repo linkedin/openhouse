@@ -202,6 +202,9 @@ public class OpenHouseInternalCatalogTest {
     verify(catalog.storageSelector, never()).selectStorage(any(), any());
     verifyNoInteractions(catalog.fileIOManager);
     verifyNoInteractions(fileIO);
+    // The probe answers a question; it may not write while answering it.
+    verify(repo, never()).save(any(HouseTable.class));
+    verify(repo, never()).saveView(any(HouseTable.class));
   }
 
   /**
