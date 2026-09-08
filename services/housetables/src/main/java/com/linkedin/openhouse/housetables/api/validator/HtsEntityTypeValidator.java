@@ -6,12 +6,12 @@ import com.linkedin.openhouse.housetables.model.EntityType;
 import org.springframework.stereotype.Component;
 
 /**
- * Resolves the entity type of a PUT payload at ingress, ahead of every other validation. The wire
- * field stays nullable for rolling compatibility: a payload may agree with its route or stay
- * silent, never override it.
+ * Resolves the entity type of a PUT payload as the first check the HTS controller runs, ahead of
+ * every other validation. The wire field stays nullable for rolling compatibility: a payload may
+ * agree with its route or stay silent, never override it.
  */
 @Component
-public class EntityTypeIngressValidator {
+public class HtsEntityTypeValidator {
 
   public static final String EMPTY_ENTITY_MESSAGE = "entity cannot be empty";
 

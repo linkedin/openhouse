@@ -8,7 +8,7 @@ import com.linkedin.openhouse.housetables.api.spec.model.UserTableKey;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateUpdateEntityRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.response.EntityResponseBody;
 import com.linkedin.openhouse.housetables.api.spec.response.GetAllEntityResponseBody;
-import com.linkedin.openhouse.housetables.api.validator.EntityTypeIngressValidator;
+import com.linkedin.openhouse.housetables.api.validator.HtsEntityTypeValidator;
 import com.linkedin.openhouse.housetables.dto.mapper.UserTablesMapper;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import io.swagger.v3.oas.annotations.Operation;
@@ -53,7 +53,7 @@ public class UserHouseTablesController {
 
   @Autowired private UserTablesMapper userTablesMapper;
 
-  @Autowired private EntityTypeIngressValidator entityTypeIngressValidator;
+  @Autowired private HtsEntityTypeValidator htsEntityTypeValidator;
 
   @Operation(
       summary = "Get User Table identified by databaseID and tableId.",
@@ -228,7 +228,7 @@ public class UserHouseTablesController {
           CreateUpdateEntityRequestBody<UserTable> createUpdateTableRequestBody) {
     com.linkedin.openhouse.common.api.spec.ApiResponse<EntityResponseBody<UserTable>> apiResponse =
         tableHtsApiHandler.putEntity(
-            entityTypeIngressValidator.normalize(
+            htsEntityTypeValidator.normalize(
                 createUpdateTableRequestBody.getEntity(), EntityType.TABLE));
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
@@ -370,7 +370,7 @@ public class UserHouseTablesController {
           CreateUpdateEntityRequestBody<UserTable> createUpdateViewRequestBody) {
     com.linkedin.openhouse.common.api.spec.ApiResponse<EntityResponseBody<UserTable>> apiResponse =
         tableHtsApiHandler.putView(
-            entityTypeIngressValidator.normalize(
+            htsEntityTypeValidator.normalize(
                 createUpdateViewRequestBody.getEntity(), EntityType.VIEW));
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());

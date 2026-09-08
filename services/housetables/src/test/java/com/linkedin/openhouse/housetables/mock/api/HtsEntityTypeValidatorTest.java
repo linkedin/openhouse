@@ -2,7 +2,7 @@ package com.linkedin.openhouse.housetables.mock.api;
 
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
-import com.linkedin.openhouse.housetables.api.validator.EntityTypeIngressValidator;
+import com.linkedin.openhouse.housetables.api.validator.HtsEntityTypeValidator;
 import com.linkedin.openhouse.housetables.model.EntityType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -12,9 +12,9 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
-public class EntityTypeIngressValidatorTest {
+public class HtsEntityTypeValidatorTest {
 
-  private final EntityTypeIngressValidator validator = new EntityTypeIngressValidator();
+  private final HtsEntityTypeValidator validator = new HtsEntityTypeValidator();
 
   private static UserTable entity(String entityType) {
     return UserTable.builder()
@@ -70,7 +70,7 @@ public class EntityTypeIngressValidatorTest {
 
     Assertions.assertEquals(
         String.format(
-            EntityTypeIngressValidator.TYPE_MISMATCH_MESSAGE_FORMAT,
+            HtsEntityTypeValidator.TYPE_MISMATCH_MESSAGE_FORMAT,
             declared,
             routeEntityType.name()),
         thrown.getMessage());
@@ -87,7 +87,7 @@ public class EntityTypeIngressValidatorTest {
         () -> validator.normalize(entity(declared), EntityType.TABLE));
   }
 
-  /** Ingress runs ahead of the validator, so it is the first code to see an absent entity. */
+  /** The validator is the first code to see an absent entity, so it rejects it here. */
   @ParameterizedTest
   @EnumSource(EntityType.class)
   public void testAbsentEntityIsRejectedOnEveryRoute(EntityType routeEntityType) {
@@ -96,6 +96,6 @@ public class EntityTypeIngressValidatorTest {
             RequestValidationFailureException.class,
             () -> validator.normalize(null, routeEntityType));
 
-    Assertions.assertEquals(EntityTypeIngressValidator.EMPTY_ENTITY_MESSAGE, thrown.getMessage());
+    Assertions.assertEquals(HtsEntityTypeValidator.EMPTY_ENTITY_MESSAGE, thrown.getMessage());
   }
 }
