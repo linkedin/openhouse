@@ -159,9 +159,9 @@ public class UserTablesServiceImpl implements UserTablesService {
     }
 
     // Overwritten before mapping, so no transport spelling reaches the enum boundary.
-    UserTable ownedEntity = userTable.toBuilder().entityType(entityType.name()).build();
+    UserTable stampedEntity = userTable.toBuilder().entityType(entityType.name()).build();
     UserTableRow targetUserTableRow =
-        userTablesMapper.toUserTableRow(ownedEntity, existingUserTableRow);
+        userTablesMapper.toUserTableRow(stampedEntity, existingUserTableRow);
     UserTableDto returnedDto;
 
     try {
