@@ -12,6 +12,7 @@ import com.linkedin.openhouse.common.exception.RequestValidationFailureException
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
+import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
@@ -554,13 +555,18 @@ public class RepositoryTest {
     TableDtoPrimaryKey key = getPrimaryKey(creationDTO);
     openHouseInternalRepository.save(creationDTO);
 
-    // Simulating a scenario of table-already-existed exception and verified exception it throws.
+    // Advisory occupancy is stubbed free, yet the create still fails with AlreadyExists because
+    // Iceberg's create sees the existing same-name table (not the server-side cross-type guard).
     TableDto existedDto = creationDTO.toBuilder().tableVersion(INITIAL_TABLE_VERSION).build();
-    OpenHouseInternalRepository spyRepo = Mockito.spy(openHouseInternalRepository);
-    Mockito.doReturn(false).when(spyRepo).existsById(key);
+    TableIdentifier tableIdentifier =
+        TableIdentifier.of(creationDTO.getDatabaseId(), creationDTO.getTableId());
+    Mockito.doReturn(Optional.empty())
+        .when((OpenHouseInternalCatalog) catalog)
+        .findEntityById(tableIdentifier);
 
     Assertions.assertThrows(
-        org.apache.iceberg.exceptions.AlreadyExistsException.class, () -> spyRepo.save(existedDto));
+        org.apache.iceberg.exceptions.AlreadyExistsException.class,
+        () -> openHouseInternalRepository.save(existedDto));
 
     openHouseInternalRepository.deleteById(key);
     Assertions.assertFalse(openHouseInternalRepository.existsById(key));
@@ -1870,6 +1876,12 @@ public class RepositoryTest {
       // write ever ran: a create or replace builds a table, an update loads one.
       Mockito.verify(catalog, Mockito.never()).buildTable(Mockito.any(), Mockito.any());
       Mockito.verify(catalog, Mockito.never()).loadTable(Mockito.any());
+      // Decision boundary: exactly one neutral read, no tableExists probe, no TABLE-typed lookup.
+      Mockito.verify((OpenHouseInternalCatalog) catalog, Mockito.times(1))
+          .findEntityById(TableIdentifier.of(OCCUPATION_DB, tableId));
+      Mockito.verify(catalog, Mockito.never()).tableExists(Mockito.any());
+      Mockito.verify((OpenHouseInternalCatalog) catalog, Mockito.never())
+          .findHouseTable(Mockito.any());
 
       HouseTable after = houseTablesRepository.findEntityById(occupationKey(tableId)).get();
       Assertions.assertEquals("VIEW", after.getEntityType());
@@ -1907,7 +1919,14 @@ public class RepositoryTest {
     TableDto created = openHouseInternalRepository.save(createDtoFor(tableId));
     try {
       TableDto update = created.toBuilder().tableVersion(created.getTableLocation()).build();
+      Mockito.clearInvocations(catalog);
       Assertions.assertDoesNotThrow(() -> openHouseInternalRepository.save(update));
+      // Decision boundary: one neutral read routes to the update path; no tableExists/typed probe.
+      Mockito.verify((OpenHouseInternalCatalog) catalog, Mockito.times(1))
+          .findEntityById(TableIdentifier.of(OCCUPATION_DB, tableId));
+      Mockito.verify(catalog, Mockito.never()).tableExists(Mockito.any());
+      Mockito.verify((OpenHouseInternalCatalog) catalog, Mockito.never())
+          .findHouseTable(Mockito.any());
       Assertions.assertEquals(
           "TABLE",
           houseTablesRepository.findEntityById(occupationKey(tableId)).get().getEntityType());
@@ -1920,18 +1939,47 @@ public class RepositoryTest {
   @Test
   void tableCreateOnAFreeNameStillAllocatesAndCreates() {
     String tableId = "free_name_for_a_table";
-    Mockito.clearInvocations(storageSelector);
+    Mockito.clearInvocations(storageSelector, catalog);
     try {
       TableDto created = openHouseInternalRepository.save(createDtoFor(tableId));
 
       Assertions.assertNotNull(created.getTableLocation());
       Mockito.verify(storageSelector, Mockito.atLeastOnce()).selectStorage(OCCUPATION_DB, tableId);
+      // Decision boundary: one neutral read routes to create; no tableExists/typed probe.
+      Mockito.verify((OpenHouseInternalCatalog) catalog, Mockito.times(1))
+          .findEntityById(TableIdentifier.of(OCCUPATION_DB, tableId));
+      Mockito.verify(catalog, Mockito.never()).tableExists(Mockito.any());
+      Mockito.verify((OpenHouseInternalCatalog) catalog, Mockito.never())
+          .findHouseTable(Mockito.any());
       Assertions.assertEquals(
           "TABLE",
           houseTablesRepository.findEntityById(occupationKey(tableId)).get().getEntityType());
     } finally {
       openHouseInternalRepository.deleteById(
           TableDtoPrimaryKey.builder().databaseId(OCCUPATION_DB).tableId(tableId).build());
+    }
+  }
+
+  @Test
+  void viewOccupantIsInvisibleToTheTableTypedExistenceChecks() {
+    // Central redesign proof: with the override gone, tableExists/existsById use the TABLE-typed
+    // read, so a view at the name reads as absent (no conflict thrown) and via no neutral read.
+    String tableId = "view_for_existence_probe";
+    seedViewRow(tableId);
+    TableIdentifier viewId = TableIdentifier.of(OCCUPATION_DB, tableId);
+    TableDtoPrimaryKey viewKey =
+        TableDtoPrimaryKey.builder().databaseId(OCCUPATION_DB).tableId(tableId).build();
+    Mockito.clearInvocations(catalog);
+    try {
+      Assertions.assertFalse(catalog.tableExists(viewId));
+      Assertions.assertFalse(openHouseInternalRepository.existsById(viewKey));
+      Mockito.verify((OpenHouseInternalCatalog) catalog, Mockito.never())
+          .findEntityById(Mockito.any(TableIdentifier.class));
+      Assertions.assertEquals(
+          "VIEW",
+          houseTablesRepository.findEntityById(occupationKey(tableId)).get().getEntityType());
+    } finally {
+      houseTablesRepository.deleteById(occupationKey(tableId));
     }
   }
 }

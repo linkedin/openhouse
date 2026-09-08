@@ -13,6 +13,7 @@ import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
 import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
+import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
@@ -22,6 +23,7 @@ import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.SnapshotsUtil;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
+import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
@@ -61,7 +63,6 @@ import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.UpdateProperties;
-import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitFailedException;
@@ -83,8 +84,9 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   private static final String TABLE_TYPE_KEY = "tableType";
   private static final String CLUSTER_ID = "clusterId";
   private static final long DEFAULT_MAX_REFERENCE_AGE_MILLIS = TimeUnit.DAYS.toMillis(7);
+  private static final String ENTITY_TYPE_VIEW = "VIEW";
 
-  @Autowired Catalog catalog;
+  @Autowired OpenHouseInternalCatalog catalog;
 
   @Autowired TablesMapper mapper;
 
@@ -119,12 +121,14 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         TableIdentifier.of(tableDto.getDatabaseId(), tableDto.getTableId());
     Table table;
     Schema writeSchema = IcebergSchemaHelper.getSchemaFromSchemaJson(tableDto.getSchema());
-    boolean existed =
-        existsById(
-            TableDtoPrimaryKey.builder()
-                .tableId(tableDto.getTableId())
-                .databaseId(tableDto.getDatabaseId())
-                .build());
+    // One neutral occupancy read classifies before any allocation; the House Table write
+    // arbitrates.
+    Optional<HouseTable> occupant = catalog.findEntityById(tableIdentifier);
+    if (occupant.isPresent() && ENTITY_TYPE_VIEW.equals(occupant.get().getEntityType())) {
+      throw new AlreadyExistsException(
+          ENTITY_TYPE_VIEW, tableDto.getDatabaseId() + "." + tableDto.getTableId());
+    }
+    boolean existed = occupant.isPresent();
     if (!existed) {
       creationEligibilityCheck(tableDto);
       PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);

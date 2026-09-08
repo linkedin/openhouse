@@ -52,8 +52,6 @@ import org.springframework.stereotype.Component;
 @Component
 public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
-  private static final String ENTITY_TYPE_VIEW = "VIEW";
-
   @Autowired HouseTableRepository houseTableRepository;
 
   @Autowired FileIOManager fileIOManager;
@@ -88,28 +86,6 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   @Override
   protected boolean isValidIdentifier(TableIdentifier tableIdentifier) {
     return tableIdentifier != null && NamespaceUtil.isTableNamespace(tableIdentifier.namespace());
-  }
-
-  /**
-   * Reads the type-agnostic endpoint so a view at the name is seen, and reports the conflict before
-   * the caller allocates anything. Advisory: the House Table write remains the race arbiter.
-   */
-  @Override
-  public boolean tableExists(TableIdentifier tableIdentifier) {
-    if (!isValidIdentifier(tableIdentifier)) {
-      return super.tableExists(tableIdentifier);
-    }
-    String databaseId = tableIdentifier.namespace().toString();
-    Optional<HouseTable> occupant =
-        houseTableRepository.findEntityById(
-            HouseTablePrimaryKey.builder()
-                .databaseId(databaseId)
-                .tableId(tableIdentifier.name())
-                .build());
-    if (occupant.isPresent() && ENTITY_TYPE_VIEW.equals(occupant.get().getEntityType())) {
-      throw new AlreadyExistsException(ENTITY_TYPE_VIEW, databaseId + "." + tableIdentifier.name());
-    }
-    return occupant.isPresent();
   }
 
   @Override
@@ -156,6 +132,22 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   public Page<HouseTable> listHouseTables(Namespace namespace, Pageable pageable) {
     NamespaceUtil.validateOperationNamespace(namespace);
     return houseTableRepository.findAllByDatabaseId(namespace.toString(), pageable);
+  }
+
+  /**
+   * Type-agnostic occupancy read — the neutral sibling of the TABLE-typed {@link #findHouseTable}.
+   * Returns whatever row holds this name (any entity type), or empty when the name is free or the
+   * identifier is not this catalog's to own. Advisory only: the House Table write is the arbiter.
+   */
+  public Optional<HouseTable> findEntityById(TableIdentifier identifier) {
+    if (!isValidIdentifier(identifier)) {
+      return Optional.empty();
+    }
+    return houseTableRepository.findEntityById(
+        HouseTablePrimaryKey.builder()
+            .databaseId(identifier.namespace().toString())
+            .tableId(identifier.name())
+            .build());
   }
 
   /**
