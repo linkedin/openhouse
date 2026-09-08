@@ -52,6 +52,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
+  private static final String ENTITY_TYPE_VIEW = "VIEW";
+
   @Autowired HouseTableRepository houseTableRepository;
 
   @Autowired FileIOManager fileIOManager;
@@ -86,6 +88,28 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   @Override
   protected boolean isValidIdentifier(TableIdentifier tableIdentifier) {
     return tableIdentifier != null && NamespaceUtil.isTableNamespace(tableIdentifier.namespace());
+  }
+
+  /**
+   * Reads the type-agnostic endpoint so a view at the name is seen, and reports the conflict before
+   * the caller allocates anything. Advisory: the House Table write remains the race arbiter.
+   */
+  @Override
+  public boolean tableExists(TableIdentifier tableIdentifier) {
+    if (!isValidIdentifier(tableIdentifier)) {
+      return super.tableExists(tableIdentifier);
+    }
+    String databaseId = tableIdentifier.namespace().toString();
+    Optional<HouseTable> occupant =
+        houseTableRepository.findEntityById(
+            HouseTablePrimaryKey.builder()
+                .databaseId(databaseId)
+                .tableId(tableIdentifier.name())
+                .build());
+    if (occupant.isPresent() && ENTITY_TYPE_VIEW.equals(occupant.get().getEntityType())) {
+      throw new AlreadyExistsException(ENTITY_TYPE_VIEW, databaseId + "." + tableIdentifier.name());
+    }
+    return occupant.isPresent();
   }
 
   @Override

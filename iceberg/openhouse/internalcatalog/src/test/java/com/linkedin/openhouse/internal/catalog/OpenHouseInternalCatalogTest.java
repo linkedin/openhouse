@@ -204,16 +204,16 @@ public class OpenHouseInternalCatalogTest {
     verifyNoInteractions(fileIO);
   }
 
+  /**
+   * The safety property behind the clean-409 refinement: whatever holds the name, the name is not
+   * free, so no create can reach allocation. Only a view earns the tailored conflict.
+   */
   @Test
-  void tableExistsFailsClosedOnANonCanonicalOccupantRatherThanCallingItATable() {
-    HouseTableRepository repo = repoHolding(occupantOfType("Table"));
-    OpenHouseInternalCatalog catalog = catalogOver(repo, recordingFileIO());
+  void tableExistsNeverReportsAnOccupiedNameAsFree() {
+    OpenHouseInternalCatalog catalog =
+        catalogOver(repoHolding(occupantOfType("Table")), recordingFileIO());
 
-    AlreadyExistsException thrown =
-        Assertions.assertThrows(
-            AlreadyExistsException.class, () -> catalog.tableExists(IDENTIFIER));
-
-    Assertions.assertTrue(thrown.getMessage().contains("Table"), thrown.getMessage());
+    Assertions.assertTrue(catalog.tableExists(IDENTIFIER));
   }
 
   /** Answered from the pointer row alone: an unreadable metadata.json is not this question. */
