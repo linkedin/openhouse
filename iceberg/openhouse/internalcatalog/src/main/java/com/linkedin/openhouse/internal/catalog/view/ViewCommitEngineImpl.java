@@ -86,6 +86,73 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return intent.getBaseViewVersion() == null ? create(intent) : replace(intent);
   }
 
+  @Override
+  public LoadedView loadView(String databaseId, String viewId) {
+    HouseTable row = requireViewRow(databaseId, viewId);
+    FileIO fileIO = fileIOManager.getFileIO(storageType.fromString(row.getStorageType()));
+    ViewMetadata metadata = viewMetadataCodec.read(fileIO.newInputFile(row.getTableLocation()));
+    ViewVersion version = metadata.currentVersion();
+
+    return LoadedView.builder()
+        .pointer(pointerOf(row))
+        .viewUuid(metadata.uuid())
+        .schema(metadata.schema())
+        .representations(representationIntentsOf(version))
+        .sourceDialect(version.summary().get(SOURCE_DIALECT_SUMMARY_KEY))
+        .defaultCatalog(version.defaultCatalog())
+        .defaultNamespace(version.defaultNamespace())
+        .properties(metadata.properties())
+        .lastModifiedTime(longProperty(metadata, "lastModifiedTime"))
+        .currentVersionId(metadata.currentVersionId())
+        .build();
+  }
+
+  @Override
+  public Page<ViewPointer> listViews(String databaseId, Pageable pageable) {
+    return houseTableRepository
+        .findAllViewsByDatabaseId(databaseId, pageable)
+        .map(ViewCommitEngineImpl::pointerOf);
+  }
+
+  @Override
+  public boolean dropView(String databaseId, String viewId) {
+    try {
+      return houseTableRepository.deleteViewById(keyOf(databaseId, viewId));
+    } catch (HouseTableRepositoryStateUnknownException e) {
+      throw new CommitStateUnknownException(e);
+    }
+  }
+
+  @Override
+  public void renameView(String databaseId, String fromViewId, String toViewId) {
+    throw new UnsupportedOperationException(
+        "Renaming a view is not supported: " + databaseId + "." + fromViewId);
+  }
+
+  private void rejectServerOwnedProperties(ViewCommitIntent intent) {
+    for (String key : userPropertiesOf(intent).keySet()) {
+      if (HouseTableSerdeUtils.IS_OH_PREFIXED.test(key)
+          || ViewProperties.REPLACE_DROP_DIALECT_ALLOWED.equals(key)) {
+        throw new BadRequestException(
+            "Property %s is owned by OpenHouse and cannot be set by a caller", key);
+      }
+    }
+  }
+
+  /** Runs before no-op detection, so a duplicate cannot short-circuit into a no-op. */
+  private void rejectDuplicateDialects(ViewCommitIntent intent) {
+    if (intent.getRepresentations() == null) {
+      return;
+    }
+    Set<String> dialects = new HashSet<>();
+    for (SqlViewRepresentationIntent representation : intent.getRepresentations()) {
+      String dialect = representation.getDialect();
+      if (dialect != null && !dialects.add(dialect.toLowerCase(Locale.ROOT))) {
+        throw new BadRequestException("Cannot add multiple queries for dialect %s", dialect);
+      }
+    }
+  }
+
   private ViewCommitResult create(ViewCommitIntent intent) {
     requireCreateInput(intent, intent.getViewUuid(), "viewUuid");
     requireCreateInput(intent, intent.getViewLocation(), "viewLocation");
@@ -290,104 +357,6 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         .build();
   }
 
-  @Override
-  public LoadedView loadView(String databaseId, String viewId) {
-    HouseTable row = requireViewRow(databaseId, viewId);
-    FileIO fileIO = fileIOManager.getFileIO(storageType.fromString(row.getStorageType()));
-    ViewMetadata metadata = viewMetadataCodec.read(fileIO.newInputFile(row.getTableLocation()));
-    ViewVersion version = metadata.currentVersion();
-
-    return LoadedView.builder()
-        .pointer(pointerOf(row))
-        .viewUuid(metadata.uuid())
-        .schema(metadata.schema())
-        .representations(representationIntentsOf(version))
-        .sourceDialect(version.summary().get(SOURCE_DIALECT_SUMMARY_KEY))
-        .defaultCatalog(version.defaultCatalog())
-        .defaultNamespace(version.defaultNamespace())
-        .properties(metadata.properties())
-        .lastModifiedTime(longProperty(metadata, "lastModifiedTime"))
-        .currentVersionId(metadata.currentVersionId())
-        .build();
-  }
-
-  @Override
-  public Page<ViewPointer> listViews(String databaseId, Pageable pageable) {
-    return houseTableRepository
-        .findAllViewsByDatabaseId(databaseId, pageable)
-        .map(ViewCommitEngineImpl::pointerOf);
-  }
-
-  @Override
-  public boolean dropView(String databaseId, String viewId) {
-    try {
-      return houseTableRepository.deleteViewById(keyOf(databaseId, viewId));
-    } catch (HouseTableRepositoryStateUnknownException e) {
-      throw new CommitStateUnknownException(e);
-    }
-  }
-
-  @Override
-  public void renameView(String databaseId, String fromViewId, String toViewId) {
-    throw new UnsupportedOperationException(
-        "Renaming a view is not supported: " + databaseId + "." + fromViewId);
-  }
-
-  /** Absent and non-view are one answer; calling a table absent would free the name. */
-  private HouseTable requireViewRow(String databaseId, String viewId) {
-    return houseTableRepository
-        .findViewById(keyOf(databaseId, viewId))
-        .orElseThrow(
-            () -> new NoSuchViewException("View does not exist: %s.%s", databaseId, viewId));
-  }
-
-  /** Runs before no-op detection, so a duplicate cannot short-circuit into a no-op. */
-  private void rejectDuplicateDialects(ViewCommitIntent intent) {
-    if (intent.getRepresentations() == null) {
-      return;
-    }
-    Set<String> dialects = new HashSet<>();
-    for (SqlViewRepresentationIntent representation : intent.getRepresentations()) {
-      String dialect = representation.getDialect();
-      if (dialect != null && !dialects.add(dialect.toLowerCase(Locale.ROOT))) {
-        throw new BadRequestException("Cannot add multiple queries for dialect %s", dialect);
-      }
-    }
-  }
-
-  /** Overridable so a test can pin it. */
-  protected long nowMillis() {
-    return Instant.now(Clock.systemUTC()).toEpochMilli();
-  }
-
-  /** Keeps a changed commit observably newer despite a coarse or backward clock. */
-  private long advanceLastModified(long previousLastModified) {
-    long now = nowMillis();
-    if (previousLastModified == Long.MAX_VALUE) {
-      return Long.MAX_VALUE;
-    }
-    return Math.max(now, previousLastModified + 1);
-  }
-
-  private void rejectServerOwnedProperties(ViewCommitIntent intent) {
-    for (String key : userPropertiesOf(intent).keySet()) {
-      if (HouseTableSerdeUtils.IS_OH_PREFIXED.test(key)
-          || ViewProperties.REPLACE_DROP_DIALECT_ALLOWED.equals(key)) {
-        throw new BadRequestException(
-            "Property %s is owned by OpenHouse and cannot be set by a caller", key);
-      }
-    }
-  }
-
-  /** One definition of the empty namespace, used to build metadata and to compare it. */
-  private static Namespace normalizedNamespace(Namespace defaultNamespace) {
-    return defaultNamespace == null ? Namespace.empty() : defaultNamespace;
-  }
-
-  private static HouseTablePrimaryKey keyOf(String databaseId, String viewId) {
-    return HouseTablePrimaryKey.builder().databaseId(databaseId).tableId(viewId).build();
-  }
-
   /** Carries the storage type it was given; the {@code FileIO} reverse lookup is ambiguous. */
   private static HouseTable pointerRowOf(ViewMetadata metadata, String storageTypeValue) {
     Map<String, String> properties = metadata.properties();
@@ -401,40 +370,6 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         .creationTime(longProperty(metadata, "creationTime"))
         .storageType(storageTypeValue)
         .build();
-  }
-
-  private static ViewPointer pointerOf(HouseTable row) {
-    return ViewPointer.builder()
-        .databaseId(row.getDatabaseId())
-        .viewId(row.getTableId())
-        .metadataLocation(row.getTableLocation())
-        .storageType(row.getStorageType())
-        .creationTime(row.getCreationTime())
-        .build();
-  }
-
-  private static Map<String, String> userPropertiesOf(ViewCommitIntent intent) {
-    return intent.getViewProperties() == null ? Collections.emptyMap() : intent.getViewProperties();
-  }
-
-  /** Everything the server did not stamp: exactly what structural equality compares. */
-  private static Map<String, String> userPropertiesOf(ViewMetadata metadata) {
-    Map<String, String> userProperties = new LinkedHashMap<>();
-    metadata
-        .properties()
-        .forEach(
-            (key, value) -> {
-              if (!HouseTableSerdeUtils.IS_OH_PREFIXED.test(key)
-                  && !ViewProperties.REPLACE_DROP_DIALECT_ALLOWED.equals(key)) {
-                userProperties.put(key, value);
-              }
-            });
-    return userProperties;
-  }
-
-  private static long longProperty(ViewMetadata metadata, String htsField) {
-    String value = metadata.properties().get(getCanonicalFieldName(htsField));
-    return value == null ? 0L : Long.parseLong(value);
   }
 
   /** The submitted version id is a placeholder; Iceberg reassigns it. */
@@ -469,6 +404,49 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
       builder.putSummary(SOURCE_DIALECT_SUMMARY_KEY, intent.getSourceDialect());
     }
     return builder.build();
+  }
+
+  /** The embedded UUID lets concurrent writers each write a candidate without colliding. */
+  private static String metadataFileLocation(String viewLocation, int version) {
+    return String.format(
+        "%s/%05d-%s%s", viewLocation, version, UUID.randomUUID(), METADATA_FILE_EXTENSION);
+  }
+
+  /** Absent and non-view are one answer; calling a table absent would free the name. */
+  private HouseTable requireViewRow(String databaseId, String viewId) {
+    return houseTableRepository
+        .findViewById(keyOf(databaseId, viewId))
+        .orElseThrow(
+            () -> new NoSuchViewException("View does not exist: %s.%s", databaseId, viewId));
+  }
+
+  private static ViewPointer pointerOf(HouseTable row) {
+    return ViewPointer.builder()
+        .databaseId(row.getDatabaseId())
+        .viewId(row.getTableId())
+        .metadataLocation(row.getTableLocation())
+        .storageType(row.getStorageType())
+        .creationTime(row.getCreationTime())
+        .build();
+  }
+
+  private static Map<String, String> userPropertiesOf(ViewCommitIntent intent) {
+    return intent.getViewProperties() == null ? Collections.emptyMap() : intent.getViewProperties();
+  }
+
+  /** Everything the server did not stamp: exactly what structural equality compares. */
+  private static Map<String, String> userPropertiesOf(ViewMetadata metadata) {
+    Map<String, String> userProperties = new LinkedHashMap<>();
+    metadata
+        .properties()
+        .forEach(
+            (key, value) -> {
+              if (!HouseTableSerdeUtils.IS_OH_PREFIXED.test(key)
+                  && !ViewProperties.REPLACE_DROP_DIALECT_ALLOWED.equals(key)) {
+                userProperties.put(key, value);
+              }
+            });
+    return userProperties;
   }
 
   /** Sorted pairs, not a map: a map would hide a repeated dialect. */
@@ -511,9 +489,31 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return representations;
   }
 
-  /** The embedded UUID lets concurrent writers each write a candidate without colliding. */
-  private static String metadataFileLocation(String viewLocation, int version) {
-    return String.format(
-        "%s/%05d-%s%s", viewLocation, version, UUID.randomUUID(), METADATA_FILE_EXTENSION);
+  private static long longProperty(ViewMetadata metadata, String htsField) {
+    String value = metadata.properties().get(getCanonicalFieldName(htsField));
+    return value == null ? 0L : Long.parseLong(value);
+  }
+
+  private static HouseTablePrimaryKey keyOf(String databaseId, String viewId) {
+    return HouseTablePrimaryKey.builder().databaseId(databaseId).tableId(viewId).build();
+  }
+
+  /** One definition of the empty namespace, used to build metadata and to compare it. */
+  private static Namespace normalizedNamespace(Namespace defaultNamespace) {
+    return defaultNamespace == null ? Namespace.empty() : defaultNamespace;
+  }
+
+  /** Overridable so a test can pin it. */
+  protected long nowMillis() {
+    return Instant.now(Clock.systemUTC()).toEpochMilli();
+  }
+
+  /** Keeps a changed commit observably newer despite a coarse or backward clock. */
+  private long advanceLastModified(long previousLastModified) {
+    long now = nowMillis();
+    if (previousLastModified == Long.MAX_VALUE) {
+      return Long.MAX_VALUE;
+    }
+    return Math.max(now, previousLastModified + 1);
   }
 }
