@@ -84,7 +84,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   private static final String TABLE_TYPE_KEY = "tableType";
   private static final String CLUSTER_ID = "clusterId";
   private static final long DEFAULT_MAX_REFERENCE_AGE_MILLIS = TimeUnit.DAYS.toMillis(7);
-  private static final String ENTITY_TYPE_VIEW = "VIEW";
+  private static final String ENTITY_TYPE_TABLE = "TABLE";
 
   @Autowired OpenHouseInternalCatalog catalog;
 
@@ -121,12 +121,12 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         TableIdentifier.of(tableDto.getDatabaseId(), tableDto.getTableId());
     Table table;
     Schema writeSchema = IcebergSchemaHelper.getSchemaFromSchemaJson(tableDto.getSchema());
-    // One neutral occupancy read classifies before any allocation; the House Table write
-    // arbitrates.
+    // One neutral occupancy read before any allocation: reject a foreign (non-TABLE) occupant
+    // such as a view here; the House Table write arbitrates a same-name table.
     Optional<HouseTable> occupant = catalog.findEntityById(tableIdentifier);
-    if (occupant.isPresent() && ENTITY_TYPE_VIEW.equals(occupant.get().getEntityType())) {
+    if (occupant.isPresent() && !ENTITY_TYPE_TABLE.equals(occupant.get().getEntityType())) {
       throw new AlreadyExistsException(
-          ENTITY_TYPE_VIEW, tableDto.getDatabaseId() + "." + tableDto.getTableId());
+          occupant.get().getEntityType(), tableDto.getDatabaseId() + "." + tableDto.getTableId());
     }
     boolean existed = occupant.isPresent();
     if (!existed) {
