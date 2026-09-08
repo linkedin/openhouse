@@ -15,7 +15,12 @@ import org.springframework.dao.DataAccessException;
  */
 public final class CorruptEntityTypeTranslation {
 
-  /** Bounds the cause walk, so a cyclic chain terminates instead of spinning. */
+  /**
+   * Caps the {@code getCause()} walk in {@link #findCorruptEntityTypeCause} — the nested-exception
+   * chain, not stack-trace frames, so it has no bearing on how much of a trace is captured. The
+   * identity visited-set already guarantees termination; this only bounds a pathologically long
+   * acyclic chain. The corruption cause sits ~2-3 causes deep in practice, so 20 is generous.
+   */
   private static final int CAUSE_CHAIN_MAX_DEPTH = 20;
 
   private CorruptEntityTypeTranslation() {}
