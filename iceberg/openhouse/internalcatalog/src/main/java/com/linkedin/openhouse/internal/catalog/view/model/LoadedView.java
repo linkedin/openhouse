@@ -34,6 +34,6 @@ public class LoadedView {
 
   private final long lastModifiedTime;
 
-  /** The resulting current version id, as assigned by Iceberg, never computed by OpenHouse. */
+  /** Assigned by Iceberg, never computed by OpenHouse. */
   private final int currentVersionId;
 }

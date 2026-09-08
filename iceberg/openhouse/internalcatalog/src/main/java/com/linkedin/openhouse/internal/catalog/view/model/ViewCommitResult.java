@@ -5,12 +5,7 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.ToString;
 
-/**
- * Outcome of one view commit.
- *
- * <p>{@code metadataChanged} lets the later service layer distinguish a real commit from an
- * identical-definition replace, which writes no metadata file and performs no compare-and-swap.
- */
+/** Outcome of one view commit. */
 @Builder(toBuilder = true)
 @Getter
 @EqualsAndHashCode
@@ -19,7 +14,6 @@ public class ViewCommitResult {
 
   private final ViewPointer pointer;
 
-  /** Iceberg {@code view-uuid}, which is always equal to {@code openhouse.tableUUID}. */
   private final String viewUuid;
 
   private final long lastModifiedTime;

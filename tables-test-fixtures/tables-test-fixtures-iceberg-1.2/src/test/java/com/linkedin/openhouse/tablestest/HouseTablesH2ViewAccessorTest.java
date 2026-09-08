@@ -17,11 +17,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 
 /**
- * Point, list, and typed accessors over the H2-backed House Table stand-in. A view, a table, and a
- * row written before the discriminator existed all share one key space here exactly as they do in
- * House Table, so an accessor behaving untyped would be visible.
- *
- * <p>Lives in the 1.2 fixture's test sources, which the 1.5 fixture also compiles and runs.
+ * Point, list, and typed accessors over the H2-backed House Table stand-in, where a view, a table,
+ * and a legacy row share one key space so an untyped accessor would be visible.
  */
 public class HouseTablesH2ViewAccessorTest {
 
@@ -79,7 +76,7 @@ public class HouseTablesH2ViewAccessorTest {
     Assertions.assertFalse(repository.findEntityById(key("absent")).isPresent());
   }
 
-  /** A stored null is read back as a table, exactly as House Table's column converter does. */
+  /** A stored null reads back as a table, as the column converter does. */
   @Test
   public void neutralLookupResolvesALegacyRowToTable() {
     Assertions.assertEquals(
@@ -96,7 +93,6 @@ public class HouseTablesH2ViewAccessorTest {
     Assertions.assertFalse(repository.findViewById(key("absent")).isPresent());
   }
 
-  /** The table point read admits its own rows and the legacy ones, and no view. */
   @Test
   public void tablePointReadAdmitsTablesAndLegacyRowsButNeverAView() {
     Assertions.assertEquals("TABLE", repository.findById(key("table_a")).get().getEntityType());
@@ -109,9 +105,6 @@ public class HouseTablesH2ViewAccessorTest {
         "a view at a shared key must be absent from every table read");
   }
 
-  /**
-   * Both database-scoped table lists filter before they count, so a view never inflates a total.
-   */
   @Test
   public void tableListsExcludeViewsAndFilterBeforePaginating() {
     List<HouseTable> unpaged = repository.findAllByDatabaseId(DB);
@@ -151,11 +144,7 @@ public class HouseTablesH2ViewAccessorTest {
         "no view may appear on a table page, and every row reports its resolved type");
   }
 
-  /**
-   * The derived query this replaced applied the sort in SQL. Filtering in Java must not drop it, or
-   * page two becomes an arbitrary set of rows and a caller paging through a database silently
-   * misses some.
-   */
+  /** The sort was applied in SQL; dropping it makes page two an arbitrary set of rows. */
   @Test
   public void tableAndViewListsHonourTheRequestedSortAcrossPages() {
     repository.save(row("table_b", "TABLE"));
@@ -192,11 +181,7 @@ public class HouseTablesH2ViewAccessorTest {
             .collect(Collectors.toList()));
   }
 
-  /**
-   * Case-insensitive ordering lives in the generated SQL, so a hand-written comparator silently
-   * drops it: binary order puts {@code B_upper} before {@code a_lower}, the requested order does
-   * not. Keeping the sort delegated to the derived query is what makes this hold.
-   */
+  /** Case-insensitive ordering lives in the SQL, so a hand-written comparator would drop it. */
   @Test
   public void tableListsHonourCaseInsensitiveOrdering() {
     repository.deleteAll();
@@ -260,7 +245,7 @@ public class HouseTablesH2ViewAccessorTest {
 
   @Test
   public void typedDeleteRemovesTheViewAndLeavesEveryOtherRowIntact() {
-    // Snapshots, so the comparison is against detached values, not the persistence context.
+    // Snapshots, so the comparison is against detached values.
     HouseTable tableBefore = repository.findEntityById(key("table_a")).get().toBuilder().build();
     HouseTable legacyBefore = repository.findEntityById(key("legacy_a")).get().toBuilder().build();
     HouseTable otherViewBefore = repository.findEntityById(key("view_b")).get().toBuilder().build();

@@ -56,7 +56,6 @@ public abstract class HouseTableMapper {
   })
   public abstract UserTable toUserTable(HouseTable houseTable);
 
-  /** Same pointer shape as a table write; only the discriminator differs. */
   @Mappings({
     @Mapping(target = "metadataLocation", source = "houseTable.tableLocation"),
     @Mapping(target = "entityType", constant = ENTITY_TYPE_VIEW)

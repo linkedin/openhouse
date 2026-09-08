@@ -62,10 +62,7 @@ public class HouseTableMapperTest {
 
   @Autowired FileIOManager fileIOManager;
 
-  /**
-   * The shared outgoing mapping is the table write path, so it declares TABLE; the view write path
-   * gets its own mapping so neither caller can inherit the wrong discriminator by omission.
-   */
+  /** Each write path has its own mapping, so neither can inherit the wrong discriminator. */
   @Test
   public void outgoingMappingsDeclareTheirOwnEntityType() {
     HouseTable pointer =
@@ -81,11 +78,7 @@ public class HouseTableMapperTest {
     Assertions.assertEquals("VIEW", houseTableMapper.toUserView(pointer).getEntityType());
   }
 
-  /**
-   * The stamp is authoritative, not a default: a pointer that already carries the wrong type must
-   * still leave through its route's own discriminator, or a mis-typed caller could reach the wrong
-   * table.
-   */
+  /** The stamp is authoritative, not a default, so a mis-typed pointer cannot pick its route. */
   @Test
   public void outgoingStampsOverrideAConflictingIncomingEntityType() {
     HouseTable mislabelledAsView =
@@ -110,7 +103,6 @@ public class HouseTableMapperTest {
     Assertions.assertEquals("VIEW", houseTableMapper.toUserView(nonsense).getEntityType());
   }
 
-  /** The two write mappings differ in the discriminator and in nothing else. */
   @Test
   public void theViewWriteMappingCarriesTheSamePointerShapeAsTheTableOne() {
     HouseTable pointer =
@@ -138,7 +130,6 @@ public class HouseTableMapperTest {
         asTable, asView, "the view write body must differ from the table body only by its type");
   }
 
-  /** A hydrated row states its type, and the client keeps that value verbatim. */
   @Test
   public void incomingMappingCarriesTheServerResolvedDiscriminator() {
     for (String entityType : new String[] {"TABLE", "VIEW"}) {
@@ -155,10 +146,7 @@ public class HouseTableMapperTest {
     }
   }
 
-  /**
-   * A wire value is carried through unaltered rather than normalized: classifying it belongs to the
-   * layer that knows which endpoint answered, and silently repairing it would hide corruption.
-   */
+  /** Carried through unaltered: classifying it belongs to the layer that knows the endpoint. */
   @Test
   public void incomingMappingDoesNotInventOrNormalizeADiscriminator() {
     UserTable missing = new UserTable();
@@ -181,10 +169,7 @@ public class HouseTableMapperTest {
     return fileIO;
   }
 
-  /**
-   * This overload takes fields already stripped to their bare names, so it copies values verbatim.
-   * The namespace belongs to the key, and a value that merely looks like one is still just a value.
-   */
+  /** This overload takes already-stripped names, so it copies values verbatim. */
   @Test
   public void simpleMapperTest() {
     HadoopFileIO fileIO = localFileIO();
@@ -198,10 +183,7 @@ public class HouseTableMapperTest {
     Assertions.assertEquals("local", houseTable.getStorageType());
   }
 
-  /**
-   * Stripping happens on the way in from table metadata, where the server-owned fields are
-   * namespaced keys among the caller's own properties, and everything unrecognized is left behind.
-   */
+  /** Stripping happens inbound from table metadata; unrecognized keys are left behind. */
   @Test
   public void toHouseTableStripsTheNamespaceFromMetadataKeysAndIgnoresForeignOnes() {
     HadoopFileIO fileIO = localFileIO();

@@ -32,33 +32,29 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
   Optional<HouseTable> findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
       String databaseId, String tableId);
 
-  /* ---- Entity-type discrimination, reproducing what House Table does in SQL and in its
-   * column converter. Default bodies throughout, because Spring Data derives a query from every
-   * abstract method name it sees and none of these predicates is derivable. ---- */
+  /* Default bodies throughout: Spring Data would derive a query from any abstract method name,
+   * and none of these predicates is derivable. */
 
   String ENTITY_TYPE_TABLE = "TABLE";
 
   String ENTITY_TYPE_VIEW = "VIEW";
 
-  /** Untyped access to a database's rows, so a typed list can filter before it paginates. */
+  /** Untyped, so a typed list can filter before it paginates. */
   List<HouseTable> findByDatabaseId(String databaseId);
 
   /**
-   * Sorting stays delegated to the derived query, so the ordering keeps the SQL semantics the
-   * paginated table list had before it was filtered in Java. Re-implementing it as a comparator
-   * would quietly drop the parts of {@link Sort} that live in the generated SQL, starting with
-   * case-insensitive ordering.
+   * Sorting stays in the derived query; a comparator would drop the SQL-side {@link Sort} parts.
    */
   List<HouseTable> findByDatabaseId(String databaseId, Sort sort);
 
-  /** Mirrors the column converter: a row stored before the discriminator existed is a table. */
+  /** Mirrors the column converter: a pre-discriminator row is a table. */
   static HouseTable hydrateEntityType(HouseTable houseTable) {
     return houseTable.getEntityType() == null
         ? houseTable.toBuilder().entityType(ENTITY_TYPE_TABLE).build()
         : houseTable;
   }
 
-  /** The table predicate keeps its null arm: legacy rows are tables, not untyped strangers. */
+  /** The null arm is load-bearing: legacy rows are tables. */
   static boolean isTableOrLegacy(HouseTable houseTable) {
     return houseTable.getEntityType() == null
         || ENTITY_TYPE_TABLE.equalsIgnoreCase(houseTable.getEntityType());
@@ -68,11 +64,7 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
     return ENTITY_TYPE_VIEW.equalsIgnoreCase(houseTable.getEntityType());
   }
 
-  /**
-   * Slices rows the database already ordered, and hands the pageable straight back so the page
-   * reports the sort it was asked for. Filtering in Java must not turn page two into an arbitrary
-   * set of rows, and must not re-implement the ordering either.
-   */
+  /** Slices already-ordered rows, so filtering in Java cannot make page two arbitrary. */
   static Page<HouseTable> pageOf(List<HouseTable> sortedRows, Pageable pageable) {
     int page = pageable.getPageNumber();
     int size = pageable.getPageSize();
@@ -83,7 +75,7 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
     return new PageImpl<>(pageContent, pageable, sortedRows.size());
   }
 
-  /** A view at a shared key is absent here, which is what keeps it out of every table path. */
+  /** A view at a shared key is absent here, keeping it out of every table path. */
   @Override
   default Optional<HouseTable> findById(HouseTablePrimaryKey houseTablePrimaryKey) {
     return this.findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
@@ -111,7 +103,6 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
         pageable);
   }
 
-  /** Any occupant, so a writer can classify a collision at the shared key. */
   @Override
   default Optional<HouseTable> findEntityById(HouseTablePrimaryKey houseTablePrimaryKey) {
     return this.findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
@@ -119,7 +110,7 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
         .map(HouseTablesH2Repository::hydrateEntityType);
   }
 
-  /** Queries the shared key space directly: delegating to the table read would find nothing. */
+  /** Queries the shared key space directly; the table read would find nothing. */
   @Override
   default Optional<HouseTable> findViewById(HouseTablePrimaryKey houseTablePrimaryKey) {
     return this.findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(

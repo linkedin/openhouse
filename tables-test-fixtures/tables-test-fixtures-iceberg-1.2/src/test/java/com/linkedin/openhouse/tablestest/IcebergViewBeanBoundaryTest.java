@@ -36,13 +36,11 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 
 /**
- * Guards the Iceberg 1.2 / 1.5 boundary. Lives in the 1.2 fixture's test sources, which the 1.5
- * fixture also compiles and runs, so the expectation is chosen at runtime from the classpath.
+ * Guards the Iceberg 1.2 / 1.5 boundary. Both fixtures compile and run this, so the expectation is
+ * chosen at runtime from the classpath.
  *
- * <p>The fixture component-scans {@code com.linkedin.openhouse.internal.catalog}, and under 1.2 a
- * view type anywhere on a shared bean signature fails during Spring introspection rather than at
- * the call site. Hence a reflective check over every bean, not just the view ones, plus a direct
- * audit of the commit contract and its DTOs, which must stay loadable even where no bean exists.
+ * <p>Under 1.2 a view type anywhere on a scanned bean signature fails during Spring introspection,
+ * hence a reflective walk over every bean plus a direct audit of the contract and its DTOs.
  */
 public class IcebergViewBeanBoundaryTest {
 
@@ -53,7 +51,6 @@ public class IcebergViewBeanBoundaryTest {
   private static final String VIEW_COMMIT_ENGINE_IMPL_CLASS =
       "com.linkedin.openhouse.internal.catalog.view.ViewCommitEngineImpl";
 
-  /** The contract and every value it exchanges must load under either Iceberg. */
   private static final List<Class<?>> VERSION_NEUTRAL_TYPES =
       Arrays.asList(
           ViewCommitEngine.class,
@@ -83,7 +80,6 @@ public class IcebergViewBeanBoundaryTest {
     return application.run();
   }
 
-  /** Under 1.2 the conditional configuration is skipped; under 1.5 there is one of each. */
   @Test
   public void viewCommitBeansExistOnlyWhereTheIcebergViewApiDoes() {
     try (ConfigurableApplicationContext context = boot()) {
@@ -117,11 +113,7 @@ public class IcebergViewBeanBoundaryTest {
     }
   }
 
-  /**
-   * A bean-registry walk cannot see the contract under Iceberg 1.2, because no bean is registered
-   * there; this audits the types directly, so a view type on the interface or on any DTO is caught
-   * on the version where it would actually break.
-   */
+  /** No bean is registered under 1.2, so the types are audited directly. */
   @Test
   public void theVersionNeutralContractAndItsValuesNameNoIcebergViewType() {
     List<String> offenders = new ArrayList<>();
@@ -133,7 +125,7 @@ public class IcebergViewBeanBoundaryTest {
         "the view commit contract must stay loadable under Iceberg 1.2: " + offenders);
   }
 
-  /** The conditional family is the only place an Iceberg view type may legitimately appear. */
+  /** The conditional family is the only place an Iceberg view type may appear. */
   @Test
   public void onlyTheConditionalFamilyIsExemptFromTheVersionNeutralAudit() {
     Assertions.assertTrue(
@@ -150,9 +142,7 @@ public class IcebergViewBeanBoundaryTest {
   }
 
   /**
-   * The walk is over {@link Type}, not erased {@link Class}, because {@code List<ViewMetadata>}
-   * erases to {@code List}; it includes inherited methods; and a resolution failure counts as an
-   * offender, since that is the Spring-introspection failure this test exists to prevent.
+   * Over {@link Type}, not erased {@link Class}: {@code List<ViewMetadata>} erases to {@code List}.
    */
   @Test
   public void noSharedBeanSignatureNamesAnIcebergViewType() {
@@ -175,11 +165,7 @@ public class IcebergViewBeanBoundaryTest {
     inspect(offenders, beanName, type, VIEW_PACKAGE_PREFIX);
   }
 
-  /**
-   * Every place a type can be named: declared and inherited members, the generic supertypes that
-   * bind a parent's type variables to a concrete argument, method and constructor type bounds that
-   * no parameter mentions, and the throws clause.
-   */
+  /** Every place a type can be named, including generic supertypes, bounds, and throws clauses. */
   private static void inspect(
       List<String> offenders, String beanName, Class<?> type, String prefix) {
     safely(
@@ -192,7 +178,6 @@ public class IcebergViewBeanBoundaryTest {
             recordMethod(offenders, beanName, type, method, prefix);
           }
         });
-    // Inherited public API is just as visible to Spring as declared API.
     safely(
         offenders,
         beanName,
@@ -216,7 +201,7 @@ public class IcebergViewBeanBoundaryTest {
             for (Type thrown : constructor.getGenericExceptionTypes()) {
               record(offenders, beanName, type, thrown, prefix, new HashSet<Type>());
             }
-            // A bound no parameter mentions is still part of the declared signature.
+            // A bound no parameter mentions is still part of the signature.
             for (TypeVariable<?> variable : constructor.getTypeParameters()) {
               for (Type bound : variable.getBounds()) {
                 record(offenders, beanName, type, bound, prefix, new HashSet<Type>());
@@ -250,13 +235,7 @@ public class IcebergViewBeanBoundaryTest {
         offenders, beanName, type, prefix, () -> recordAncestry(offenders, beanName, type, prefix));
   }
 
-  /**
-   * `class Middle extends Parent<Forbidden>` names Forbidden nowhere a member walk can see:
-   * Parent's method still returns its own type variable, bounded by Object. Inspecting a Grandchild
-   * of Middle sees only a raw `Class<Middle>` as its immediate supertype, so the binding has to be
-   * read at every level of the ancestry rather than one. The walk covers supertypes only; member
-   * class graphs are out of scope.
-   */
+  /** Read at every level: a grandchild's immediate supertype is raw, so one hop sees nothing. */
   private static void recordAncestry(
       List<String> offenders, String beanName, Class<?> beanType, String prefix) {
     Set<Class<?>> visited = new HashSet<>();
@@ -301,10 +280,7 @@ public class IcebergViewBeanBoundaryTest {
   }
 
   /**
-   * Reflection resolves a whole member category at once, so one unresolvable member would otherwise
-   * blind the scan for its siblings. A failure is never ignored: an Iceberg view type is the leak;
-   * anything else falls back to a class-file scan, and only the narrow allowlist is tolerated,
-   * because "could not check" is not "clean".
+   * One unresolvable member must not blind the scan for its siblings, nor be silently tolerated.
    */
   private static void safely(
       List<String> offenders, String beanName, Class<?> type, String prefix, Runnable inspection) {
@@ -363,10 +339,9 @@ public class IcebergViewBeanBoundaryTest {
   }
 
   /**
-   * Descriptors and generic signatures live in the constant pool as plain text, so this sees every
-   * declared signature without asking the class loader to resolve anything.
+   * Reads signatures straight from the constant pool, resolving nothing.
    *
-   * @return true when found, false when definitely absent, null when the class file is unreadable
+   * @return true when found, false when absent, null when the class file is unreadable
    */
   static Boolean classFileReferences(Class<?> type, String prefix) {
     String resource = type.getName().replace('.', '/') + ".class";
@@ -389,9 +364,7 @@ public class IcebergViewBeanBoundaryTest {
     }
   }
 
-  /**
-   * Keyed on both the exact bean and the exact missing dependency; anything broader masks leaks.
-   */
+  /** Keyed on both the exact bean and the exact missing dependency; broader masks leaks. */
   static boolean isKnownOptionalDependencyGap(Class<?> type, String detail) {
     String missing = detail.toLowerCase(java.util.Locale.ROOT);
     for (Map.Entry<String, String> allowed : OPTIONAL_DEPENDENCY_GAPS.entrySet()) {
@@ -402,12 +375,11 @@ public class IcebergViewBeanBoundaryTest {
     return false;
   }
 
-  /** Bean class name to the lowercase fragment of the dependency it may be missing. */
   private static final Map<String, String> OPTIONAL_DEPENDENCY_GAPS = optionalDependencyGaps();
 
   private static Map<String, String> optionalDependencyGaps() {
     Map<String, String> gaps = new HashMap<>();
-    // Registered unconditionally by springdoc, but Querydsl is not a dependency of this fixture.
+    // Registered unconditionally by springdoc; Querydsl is not a dependency here.
     gaps.put(
         "org.springdoc.data.rest.customisers.QuerydslPredicateOperationCustomizer", "querydsl");
     return gaps;
@@ -437,7 +409,7 @@ public class IcebergViewBeanBoundaryTest {
     if (candidate instanceof ParameterizedType) {
       ParameterizedType parameterized = (ParameterizedType) candidate;
       record(offenders, beanName, beanType, parameterized.getRawType(), prefix, seen);
-      // An inner class carries its enclosing type's arguments on the owner, not on itself.
+      // An inner class carries its enclosing type's arguments on the owner.
       record(offenders, beanName, beanType, parameterized.getOwnerType(), prefix, seen);
       for (Type argument : parameterized.getActualTypeArguments()) {
         record(offenders, beanName, beanType, argument, prefix, seen);
@@ -471,7 +443,6 @@ public class IcebergViewBeanBoundaryTest {
     }
   }
 
-  /** The table catalog stays the one unqualified Iceberg catalog on both versions. */
   @Test
   public void unqualifiedCatalogStillResolvesToTheTableCatalog() {
     try (ConfigurableApplicationContext context = boot()) {
@@ -481,7 +452,7 @@ public class IcebergViewBeanBoundaryTest {
     }
   }
 
-  /** Proves the walker descends at all: an erased walk would silently pass everything. */
+  /** An erased walk would silently pass everything. */
   @Test
   public void theSignatureWalkerDescendsIntoGenericsArraysAndBounds() {
     String probedPrefix = "java.util.concurrent.";
@@ -541,13 +512,13 @@ public class IcebergViewBeanBoundaryTest {
     Assertions.assertTrue(clean.isEmpty(), "a clean signature must not be flagged: " + clean);
   }
 
-  /** Reflection fails on one member while another leaks; the fallback must still report it. */
+  /** Reflection fails on one member while another leaks; the fallback must report it. */
   @Test
   public void anUnrelatedResolutionFailureCannotHideALeakOnAnotherMember() {
     String probedPrefix = "java.util.concurrent.";
     NoClassDefFoundError unrelated = new NoClassDefFoundError("com/querydsl/core/types/Predicate");
 
-    // NestedTypeProbe's class file references java.util.concurrent types on several members.
+    // NestedTypeProbe's class file references java.util.concurrent on several members.
     Assertions.assertEquals(
         Boolean.TRUE,
         classFileReferences(NestedTypeProbe.class, probedPrefix),
@@ -561,15 +532,13 @@ public class IcebergViewBeanBoundaryTest {
         "an unrelated linkage failure must not suppress a leak on another member: " + offenders);
     Assertions.assertTrue(offenders.get(0).contains("class-file fallback"), offenders.get(0));
 
-    // A bean that genuinely does not reference the package, and is not allowlisted, is still
-    // reported: "could not check" is not "clean".
+    // "Could not check" is not "clean", so it is still reported.
     List<String> unverifiable = new ArrayList<>();
     handleInspectionFailure(unverifiable, "unknownBean", CleanProbe.class, unrelated, probedPrefix);
     Assertions.assertEquals(1, unverifiable.size(), String.valueOf(unverifiable));
     Assertions.assertTrue(unverifiable.get(0).contains("not an allowlisted"), unverifiable.get(0));
 
-    // The failure that names the searched package directly is reported without needing the
-    // fallback.
+    // A failure naming the package directly needs no fallback.
     List<String> direct = new ArrayList<>();
     handleInspectionFailure(
         direct,
@@ -588,11 +557,7 @@ public class IcebergViewBeanBoundaryTest {
         "an arbitrary bean may not ride the allowlist");
   }
 
-  /**
-   * The two shapes a member-only walk cannot see. Both probes are inspected through {@code
-   * inspect()}, the same entry point the real audits use, so passing here means the real audits
-   * would catch them too.
-   */
+  /** The two shapes a member-only walk cannot see, driven through the real entry point. */
   @Test
   public void inspectFindsAnInheritedConcreteBindingAndAnUnusedBound() {
     String probedPrefix = "java.util.concurrent.";
@@ -649,12 +614,12 @@ public class IcebergViewBeanBoundaryTest {
     }
   }
 
-  /** Names Callable only through its generic supertype; every member of it erases to Object. */
+  /** Names Callable only through its generic supertype. */
   @SuppressWarnings("unused")
   private static class InheritedBindingProbe
       extends GenericParent<java.util.concurrent.Callable<String>> {}
 
-  /** Two levels up: this class's immediate supertype is a raw Class, so one hop sees nothing. */
+  /** Two levels up: the immediate supertype is raw, so one hop sees nothing. */
   @SuppressWarnings("unused")
   private static final class TwoLevelBindingProbe extends InheritedBindingProbe {}
 
@@ -666,13 +631,7 @@ public class IcebergViewBeanBoundaryTest {
   @SuppressWarnings("unused")
   private interface MiddleFace extends GenericFace<java.util.concurrent.Future<String>> {}
 
-  /**
-   * The same hole through interfaces. Deliberately abstract with no {@code get} override: were it
-   * declared here, its return type would name Future directly and the assertion below would pass
-   * without the ancestor walk ever running. Left unimplemented, {@code getMethods()} sees only
-   * {@code GenericFace<T>.get()} as {@code T}, so Future is reachable solely through MiddleFace's
-   * own generic interface, two levels up.
-   */
+  /** Abstract on purpose: a declared {@code get} would name Future directly and pass trivially. */
   @SuppressWarnings("unused")
   private abstract static class InheritedInterfaceBindingProbe implements MiddleFace {}
 

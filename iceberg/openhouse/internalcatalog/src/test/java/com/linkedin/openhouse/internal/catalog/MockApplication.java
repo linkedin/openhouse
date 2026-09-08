@@ -33,12 +33,7 @@ public class MockApplication {
 
   @MockBean FileIOConfig fileIOConfig;
 
-  /**
-   * Required by {@link com.linkedin.openhouse.internal.catalog.view.ViewCommitEngineConfiguration},
-   * which is component-scanned here under Iceberg 1.5 and needs the seam that turns a persisted
-   * storage-type string into the type its {@code FileIO} is resolved from. It lives in the cluster
-   * package, which this application does not scan.
-   */
+  /** Required by {@code ViewCommitEngineConfiguration}, and in a package this app does not scan. */
   @MockBean StorageType storageType;
 
   static final FsPermission FS_PERMISSION =

@@ -9,11 +9,7 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * Registers the view commit engine and codec only when the Iceberg view API is present. The string
- * form of {@link ConditionalOnClass} is required so Spring can evaluate it without resolving a type
- * that is absent under Iceberg 1.2.
- *
- * <p>No {@code StorageSelector}: storage selection belongs to the service layer that will call this
- * engine, so the engine only converts an already selected storage type into a {@code FileIO}.
+ * form of {@link ConditionalOnClass} lets Spring evaluate it without resolving a 1.2-absent type.
  */
 @Configuration
 @ConditionalOnClass(name = "org.apache.iceberg.view.ViewMetadata")

@@ -64,10 +64,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
   /** Exact spelling House Table stores and exchanges for a view row. */
   private static final String ENTITY_TYPE_VIEW = "VIEW";
 
-  /**
-   * A seam, like {@link #getHtsRetryTemplate(List)}: a test can shorten the budget so an actual
-   * elapsed timeout is observable without spending a minute of wall time proving it.
-   */
+  /** A seam, like {@link #getHtsRetryTemplate(List)}, so a test can shorten the budget. */
   @VisibleForTesting
   protected Duration writeRequestTimeout() {
     return Duration.ofSeconds(WRITE_REQUEST_TIMEOUT_SECONDS);
@@ -413,8 +410,8 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
         pointReadWithRetry(
             apiInstance.getUserView(
                 houseTablePrimaryKey.getDatabaseId(), houseTablePrimaryKey.getTableId()));
-    // Applied after the retry template has finished, never inside the reactive callback: the
-    // template retries IllegalStateException, and a contract violation is not a transport failure.
+    // After the retry template finishes, never inside the callback: it retries
+    // IllegalStateException, and a contract violation is not a transport failure.
     found.ifPresent(
         row ->
             requireCanonicalView(
@@ -422,11 +419,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
     return found;
   }
 
-  /**
-   * A missing row is an answer here, unlike {@link #findById}, whose callers expect a table. A
-   * valid non-view occupant is filtered out by the server's typed predicate and arrives as a 404,
-   * so absence already covers it; only a present row with the wrong discriminator is a violation.
-   */
+  /** A non-view occupant already arrives as a 404, so only a present bad row is a violation. */
   private Optional<HouseTable> pointReadWithRetry(Mono<EntityResponseBodyUserTable> call) {
     return getHtsRetryTemplate(
             Arrays.asList(
@@ -444,14 +437,11 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
   }
 
   /**
-   * House Table cannot answer a view route with anything but a view, so a row that says otherwise
-   * is corruption rather than a miss. Reporting it as absent would tell a later create the name is
-   * free.
+   * A non-view row on a view route is corruption, not a miss; calling it absent would free the
+   * name.
    *
-   * <p>Deliberately an {@link IllegalStateException}, which the read retry template treats as
-   * retryable: the subscription-count tests rely on that to prove this runs after the retry has
-   * finished rather than inside it. A bespoke non-retryable type would make those tests pass either
-   * way and quietly lose the guarantee.
+   * <p>{@link IllegalStateException} specifically, because the read retry template retries it: that
+   * is what lets the subscription-count tests prove this runs after the retry, not inside it.
    */
   private static void requireCanonicalView(HouseTable row, String databaseId, String tableId) {
     if (!ENTITY_TYPE_VIEW.equals(row.getEntityType())) {
@@ -484,14 +474,13 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                             pageable.getPageNumber(),
                             pageable.getPageSize(),
                             getSortByStr(pageable))
-                        // Classify before blocking, or the raw failure is not retryable and the
-                        // bounded read retry never engages.
+                        // Classify before blocking, or the retry never engages.
                         .onErrorResume(this::mapHtsReadError)
                         .block(Duration.ofSeconds(READ_REQUEST_TIMEOUT_SECONDS)));
 
     Page<UserTable> userTablePage = getUserTablePageFromPageUserTable(result.getPageResults());
     Page<HouseTable> views = userTablePage.map(houseTableMapper::toHouseTable);
-    // One bad row fails the page: dropping it would hide corruption and invalidate the totals.
+    // One bad row fails the page; dropping it would hide corruption and skew the totals.
     views.getContent().forEach(row -> requireCanonicalView(row, databaseId, row.getTableId()));
     return views;
   }
@@ -510,15 +499,13 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
         .map(EntityResponseBodyUserTable::getEntity)
         .map(houseTableMapper::toHouseTable)
         .onErrorResume(this::handleViewMutationError)
-        // An empty completion is a success signal that never reaches the error handler, so the
-        // ambiguity is caught here rather than dereferenced into a plain null.
+        // An empty completion never reaches the error handler, so catch it here.
         .switchIfEmpty(
             Mono.error(
                 new HouseTableRepositoryStateUnknownException(
                     "HTS accepted the view write but returned no entity",
                     new IllegalStateException("empty response"))))
-        // Narrow, and placed so a never-completing publisher reaches it: a broad catch around block
-        // would also swallow the typed-view contract failure raised on the read path.
+        // Narrow on purpose: a broad catch around block would also swallow the contract failure.
         .timeout(writeRequestTimeout(), Mono.error(writeTimedOut("PUT /hts/views")))
         .block();
   }
@@ -544,11 +531,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
         new TimeoutException(route + " exceeded " + writeRequestTimeout()));
   }
 
-  /**
-   * Differs from {@link #handleHtsHttpError} in its default: on a single-attempt write an
-   * unclassified failure leaves the outcome unknown, and "failed" would invite a double-applying
-   * retry.
-   */
+  /** Unlike {@link #handleHtsHttpError}, an unclassified single-attempt write is unknown. */
   private <T> Mono<T> handleViewMutationError(Throwable e) {
     if (e instanceof WebClientResponseException.NotFound) {
       return Mono.error(new HouseTableNotFoundException("", e));

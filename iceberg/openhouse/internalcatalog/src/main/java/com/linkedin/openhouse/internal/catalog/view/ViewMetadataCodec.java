@@ -6,8 +6,7 @@ import org.apache.iceberg.view.ViewMetadata;
 
 /**
  * Injectable seam over the static {@code ViewMetadataParser}, so a test can assert that a failed
- * probe never touches a metadata file. Names Iceberg 1.5 types, so it is conditionally registered
- * and is deliberately exempt from the version-neutral signature audit.
+ * probe never reads a metadata file. Names Iceberg 1.5 types, so it is registered conditionally.
  */
 public interface ViewMetadataCodec {
 

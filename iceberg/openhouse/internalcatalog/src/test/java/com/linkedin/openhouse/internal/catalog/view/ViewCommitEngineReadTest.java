@@ -40,12 +40,8 @@ import org.springframework.data.domain.Pageable;
 
 /**
  * Read-side behaviour: load probes, storage resolution, listing, dropping, unsupported rename.
- * Every collaborator that could touch storage is a mock, so "this cost nothing" is asserted, not
- * inferred.
  *
- * <p>The House Table mock keeps the adapter's contract: {@code findViewById} answers with a view or
- * with nothing. A non-view occupant is filtered out by the server's typed predicate long before the
- * engine, which is why the engine has no discriminator check of its own to test here.
+ * <p>Every storage collaborator is a mock, so "this cost nothing" is asserted rather than inferred.
  */
 public class ViewCommitEngineReadTest {
 
@@ -69,7 +65,6 @@ public class ViewCommitEngineReadTest {
             houseTableRepository, fileIOManager, viewMetadataCodec, storageType);
   }
 
-  /** The common case, so it must not cost a FileIO or a parse. */
   @Test
   void loadViewOnAbsentPointerCostsOneTypedLookupAndNothingElse() {
     when(houseTableRepository.findViewById(any(HouseTablePrimaryKey.class)))
@@ -84,10 +79,7 @@ public class ViewCommitEngineReadTest {
     verifyNoInteractions(viewMetadataCodec);
   }
 
-  /**
-   * A table at a view key is absent through the typed route, so it is the same answer as a missing
-   * key. Reporting anything else would tell a later create the name was free.
-   */
+  /** Absent and non-view are one answer; anything else would tell a create the name is free. */
   @Test
   void loadViewOfAKeyHeldByANonViewIsTheSameAnswerAsAbsent() {
     when(houseTableRepository.findViewById(any(HouseTablePrimaryKey.class)))
@@ -100,7 +92,7 @@ public class ViewCommitEngineReadTest {
     verifyNoInteractions(viewMetadataCodec);
   }
 
-  /** FileIO comes from the row's own storage, never from a cluster-wide selection. */
+  /** FileIO comes from the row's own storage, never a cluster-wide selection. */
   @Test
   void loadViewSelectsFileIoFromPointerRowStorageAndParsesExactlyThatPath() {
     HouseTable row = ViewTestFixtures.viewRow(METADATA_PATH);
@@ -130,8 +122,7 @@ public class ViewCommitEngineReadTest {
     Assertions.assertEquals(DB, loaded.getPointer().getDatabaseId());
     Assertions.assertEquals(VIEW, loaded.getPointer().getViewId());
 
-    // The whole conversion, not a sample of it: these fields are what the later layer answers reads
-    // with, and they are also what structural equality is computed over on a replace.
+    // The whole conversion: these fields also feed structural equality on a replace.
     Assertions.assertEquals(metadata.uuid(), loaded.getViewUuid());
     Assertions.assertEquals(metadata.currentVersionId(), loaded.getCurrentVersionId());
     Assertions.assertEquals(metadata.schema().asStruct(), loaded.getSchema().asStruct());
@@ -150,7 +141,7 @@ public class ViewCommitEngineReadTest {
         "last-modified must come from the parsed metadata, not from the clock");
   }
 
-  /** Broken, not absent: collapsing this would let a later create overwrite a live pointer. */
+  /** Broken, not absent: collapsing it would let a create overwrite a live pointer. */
   @Test
   void loadViewPropagatesCorruptMetadataInsteadOfReportingAbsence() {
     HouseTable row = ViewTestFixtures.viewRow(METADATA_PATH);
@@ -167,10 +158,7 @@ public class ViewCommitEngineReadTest {
     Assertions.assertThrows(NotFoundException.class, () -> viewCommitEngine.loadView(DB, VIEW));
   }
 
-  /**
-   * A contract violation reported by the adapter is neither absence nor a commit outcome, so it
-   * propagates untouched rather than being swallowed into a miss.
-   */
+  /** A contract violation is neither absence nor a commit outcome, so it propagates untouched. */
   @Test
   void loadViewPropagatesAnAdapterContractViolationUntouched() {
     IllegalStateException reportedByTheAdapter =
@@ -184,8 +172,7 @@ public class ViewCommitEngineReadTest {
         Assertions.assertThrows(
             IllegalStateException.class, () -> viewCommitEngine.loadView(DB, VIEW));
 
-    // The same instance, not merely one of the same type: wrapping or rebuilding it here would lose
-    // the adapter's report of which key and which value were corrupt.
+    // The same instance: rebuilding it would lose which key and value were corrupt.
     Assertions.assertSame(
         reportedByTheAdapter,
         thrown,
@@ -197,7 +184,7 @@ public class ViewCommitEngineReadTest {
     verifyNoInteractions(viewMetadataCodec);
   }
 
-  /** Listing is a pointer-row operation: no metadata file is opened for any row on the page. */
+  /** Listing is a pointer-row operation: no metadata file is opened. */
   @Test
   void listViewsReturnsPointersWithoutParsingAnyMetadata() {
     Pageable pageable = PageRequest.of(0, 2);
@@ -220,7 +207,6 @@ public class ViewCommitEngineReadTest {
     verifyNoInteractions(fileIOManager);
   }
 
-  /** Never falls back to the table delete path, which would purge storage. */
   @Test
   void dropViewIsATypedHardPointerDeleteWithNoStorageOrParserWork() {
     when(houseTableRepository.deleteViewById(any(HouseTablePrimaryKey.class))).thenReturn(true);
@@ -236,7 +222,6 @@ public class ViewCommitEngineReadTest {
     verifyNoInteractions(viewMetadataCodec);
   }
 
-  /** A key that is absent, or occupied by a table, is not a view this engine can drop. */
   @Test
   void dropViewReturnsFalseWhenTheKeyIsNotAView() {
     when(houseTableRepository.deleteViewById(any(HouseTablePrimaryKey.class))).thenReturn(false);
@@ -247,7 +232,7 @@ public class ViewCommitEngineReadTest {
     verifyNoInteractions(viewMetadataCodec);
   }
 
-  /** An ambiguous delete may or may not have landed, so it is unknown state, not failure. */
+  /** An ambiguous delete may have landed, so it is unknown state, not failure. */
   @Test
   void dropViewReportsAnAmbiguousDeleteAsCommitStateUnknown() {
     when(houseTableRepository.deleteViewById(any(HouseTablePrimaryKey.class)))
@@ -259,7 +244,6 @@ public class ViewCommitEngineReadTest {
     verify(houseTableRepository, times(1)).deleteViewById(any(HouseTablePrimaryKey.class));
   }
 
-  /** Rename is rejected before it can touch House Table or storage at all. */
   @Test
   void renameViewIsUnsupportedAndTouchesNothing() {
     Assertions.assertThrows(

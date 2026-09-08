@@ -66,78 +66,27 @@ public interface HouseTableRepository
   void restoreTable(String databaseId, String tableId, long deletedAtMs);
 
   /**
-   * Returns whichever entity occupies the key, of any type, so a caller can classify a collision.
-   * Advisory only: never a write precondition, because the single House Table compare-and-swap is
-   * the sole race arbiter.
-   *
-   * <p>Deliberately untyped: it has no expected entity type, so it never applies the typed-view
-   * contract check. A legacy row arrives already resolved to {@code TABLE}.
-   *
-   * @throws com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException
-   *     the request was rejected as invalid or unauthorized
-   * @throws com.linkedin.openhouse.internal.catalog.repository.exception
-   *     .HouseTableRepositoryStateUnknownException the read could not be completed
+   * Any occupant of the key, so a create can classify a collision; advisory, never a precondition.
    */
   Optional<HouseTable> findEntityById(HouseTablePrimaryKey houseTablePrimaryKey);
 
   /*
-   * The two typed view reads declare `throws IllegalStateException` even though it is unchecked, and
-   * that is load-bearing rather than documentation. This repository is a Spring `@Repository`, so
-   * under JPA the persistence exception translator would otherwise rewrite the contract violation
-   * below into `InvalidDataAccessApiUsageException` and disguise corruption as data-access misuse;
-   * `PersistenceExceptionTranslationInterceptor` rethrows an exception the method declares, and a
-   * Javadoc `@throws` alone does not qualify. Declared on both the interface and the implementation
-   * so either proxy strategy selects a declaring method. It imposes nothing on callers.
+   * The unchecked `throws IllegalStateException` on the two typed reads must stay: Spring re-throws
+   * an exception the method declares before JPA-translating it, and a Javadoc @throws does not
+   * qualify. Declared on the implementation too, so either proxy strategy sees it.
    */
 
-  /**
-   * Resolves only VIEW rows; a table at the same key reads as absent.
-   *
-   * @throws IllegalStateException the typed view endpoint returned a present row whose
-   *     discriminator is absent or not canonical VIEW, which is a server contract violation and is
-   *     never retried
-   * @throws com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException
-   *     the request was rejected as invalid or unauthorized
-   * @throws com.linkedin.openhouse.internal.catalog.repository.exception
-   *     .HouseTableRepositoryStateUnknownException the read could not be completed
-   */
+  /** Resolves only VIEW rows; a table at the same key reads as absent. */
   Optional<HouseTable> findViewById(HouseTablePrimaryKey houseTablePrimaryKey)
       throws IllegalStateException;
 
-  /**
-   * House Table filters VIEW before paginating, so no row is read to be discarded.
-   *
-   * @throws IllegalStateException any row on the page carries an absent or non-canonical VIEW
-   *     discriminator; one bad row fails the page, because dropping it would hide corruption and
-   *     invalidate the totals
-   * @throws com.linkedin.openhouse.internal.catalog.repository.exception
-   *     .HouseTableRepositoryStateUnknownException the read could not be completed
-   */
+  /** Lists VIEW rows only; one non-view row fails the page rather than being dropped from it. */
   Page<HouseTable> findAllViewsByDatabaseId(String databaseId, Pageable pageable)
       throws IllegalStateException;
 
-  /**
-   * Exactly one attempt, un-retried: an ambiguous 5xx, 504, or block timeout surfaces as unknown
-   * state rather than a blind second write that could double-apply.
-   *
-   * @throws com.linkedin.openhouse.internal.catalog.repository.exception
-   *     .HouseTableConcurrentUpdateException the compare-and-swap lost
-   * @throws com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException
-   *     the request was rejected as invalid or unauthorized
-   * @throws com.linkedin.openhouse.internal.catalog.repository.exception
-   *     .HouseTableRepositoryStateUnknownException the outcome of the single attempt is unknown
-   */
+  /** One attempt, never retried: an ambiguous outcome must not become a double write. */
   HouseTable saveView(HouseTable houseTable);
 
-  /**
-   * Hard delete; views have no soft-delete store. One attempt, un-retried, for the same reason as
-   * {@link #saveView(HouseTable)}.
-   *
-   * @return false when the key is absent or holds a non-view
-   * @throws com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException
-   *     the request was rejected as invalid or unauthorized
-   * @throws com.linkedin.openhouse.internal.catalog.repository.exception
-   *     .HouseTableRepositoryStateUnknownException the outcome of the single attempt is unknown
-   */
+  /** Hard delete, one attempt; false when the key is absent or holds a non-view. */
   boolean deleteViewById(HouseTablePrimaryKey houseTablePrimaryKey);
 }

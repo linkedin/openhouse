@@ -20,11 +20,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-/**
- * How adapter failures become caller-meaningful outcomes. Separate from the race tests: these
- * inject the failure directly and prove no failure triggers a second write, a re-read, or a
- * rebuild.
- */
+/** How adapter failures become caller outcomes, and that none triggers a second write. */
 public class ViewCommitEngineFailureTranslationTest {
 
   private ViewCommitEngineHarness harness;
@@ -100,10 +96,7 @@ public class ViewCommitEngineFailureTranslationTest {
         "the pointer row must be untouched after an ambiguous publish");
   }
 
-  /**
-   * A cleanup after an ambiguous publish is invisible to the House Table event log, so it is
-   * asserted against the file system: exactly one candidate was written, and it is still there.
-   */
+  /** Cleanup is invisible to the event log, so it is asserted against the file system. */
   private void assertTheCandidateWasWrittenOnceAndLeftAlone() {
     Assertions.assertEquals(
         1,
@@ -115,7 +108,6 @@ public class ViewCommitEngineFailureTranslationTest {
         "an ambiguous outcome is not a cleanable failure, so the candidate must remain on storage");
   }
 
-  /** A create that loses the swap is a name collision from the caller's point of view. */
   @Test
   void conflictOnCreateBecomesAlreadyExists() {
     harness.getHouseTableRepository().failNextSaveViewWith(conflict());
@@ -128,7 +120,6 @@ public class ViewCommitEngineFailureTranslationTest {
     assertNothingHappenedAfterThePublishAttempt();
   }
 
-  /** The same 409 in a replace means someone else committed, which is a commit failure. */
   @Test
   void conflictOnReplaceBecomesCommitFailed() {
     ViewCommitResult created =
@@ -145,9 +136,6 @@ public class ViewCommitEngineFailureTranslationTest {
     Assertions.assertEquals(pointerBefore, harness.getHouseTableRepository().peek(DB, VIEW).get());
   }
 
-  /**
-   * A classified caller failure keeps its classification so the later layer can preserve status.
-   */
   @Test
   void callerFailureOnPublishIsNotReclassifiedAsUnknownState() {
     harness
@@ -163,7 +151,6 @@ public class ViewCommitEngineFailureTranslationTest {
     Assertions.assertEquals(1, harness.getHouseTableRepository().getSaveViewCalls());
   }
 
-  /** An ambiguous delete is unknown state too; a view may or may not still be there. */
   @Test
   void ambiguousDropBecomesCommitStateUnknown() {
     harness.getHouseTableRepository().seed(ViewTestFixtures.viewRow("/loc/00001-a.metadata.json"));
@@ -183,8 +170,7 @@ public class ViewCommitEngineFailureTranslationTest {
   void transportFailureOnTheOccupancyReadNeverReadsAsAFreeName() {
     harness.getHouseTableRepository().failNextFindEntityWith(unknownState());
 
-    // The classified transport failure must propagate; anything else would either invent an answer
-    // or hide the fact that occupancy is unknown.
+    // It must propagate; anything else invents an answer about occupancy.
     Assertions.assertThrows(
         HouseTableRepositoryStateUnknownException.class,
         () -> harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root)));
@@ -195,7 +181,7 @@ public class ViewCommitEngineFailureTranslationTest {
     Assertions.assertFalse(harness.getHouseTableRepository().peek(DB, VIEW).isPresent());
   }
 
-  /** Everything after the single publish must be silence: a re-read would guess at the outcome. */
+  /** Silence after the single publish: a re-read would guess at the outcome. */
   private void assertNothingHappenedAfterThePublishAttempt() {
     List<String> events = harness.getHouseTableRepository().getEvents();
     int lastSave = -1;

@@ -1598,9 +1598,7 @@ public class RepositoryTest {
     Assertions.assertTrue(table.getTableLocation().startsWith(path.toString()));
   }
 
-  /* ---- Entity-type isolation in this module's own House Table stand-in. Views and tables share
-   * one key space, so the stand-in has to discriminate exactly as the server does or every test
-   * that leans on it is testing the wrong thing. ---- */
+  /* The stand-in shares one key space, so it must discriminate exactly as the server does. */
 
   private static final String ISOLATION_DB = "entity_type_isolation_db";
 
@@ -1727,10 +1725,7 @@ public class RepositoryTest {
     }
   }
 
-  /**
-   * The derived query this replaced applied the sort in SQL, so filtering in Java must not drop it:
-   * otherwise page two is an arbitrary set of rows and a caller paging a database misses some.
-   */
+  /** The sort was applied in SQL; dropping it makes page two an arbitrary set of rows. */
   @Test
   void houseTableStandInHonoursTheRequestedSortAcrossPages() {
     seedIsolationRows();
@@ -1762,11 +1757,7 @@ public class RepositoryTest {
     }
   }
 
-  /**
-   * Case-insensitive ordering lives in the generated SQL, so a hand-written comparator silently
-   * drops it: binary order puts {@code B_upper} before {@code a_lower}, the requested order does
-   * not. Keeping the sort delegated to the derived query is what makes this hold.
-   */
+  /** Case-insensitive ordering lives in the SQL, so a hand-written comparator would drop it. */
   @Test
   void houseTableStandInHonoursCaseInsensitiveOrdering() {
     houseTablesRepository.save(isolationRow("B_upper", "TABLE"));

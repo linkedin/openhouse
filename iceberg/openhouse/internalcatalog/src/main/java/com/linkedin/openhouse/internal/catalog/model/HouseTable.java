@@ -55,10 +55,8 @@ public class HouseTable {
   /**
    * Entity-type discriminator ({@code TABLE}/{@code VIEW}) for the row at this key.
    *
-   * <p>Non-null on every fully hydrated House Table row: the server resolves a legacy null to
-   * {@code TABLE} at its own parse boundary, and every test double reproduces that. Consumers
-   * therefore never null-check it. A locally built, pre-mapping pointer may still omit it until a
-   * write mapper stamps the route's canonical type.
+   * <p>Non-null on every hydrated row — House Table coerces a legacy null to {@code TABLE} at its
+   * parse boundary — so consumers never null-check it. Only a pre-mapping pointer may omit it.
    */
   private String entityType;
 }

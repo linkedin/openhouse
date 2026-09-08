@@ -27,15 +27,9 @@ import org.apache.iceberg.view.ViewMetadataParser;
  * Real files, real Iceberg parsing, and a faithful House Table double, so a commit is asserted end
  * to end rather than through stubs.
  *
- * <p>There is deliberately no {@code Storage} and no {@code StorageSelector} here. The engine has
- * no seam left to select storage or allocate a root, and it must not recover the storage type by
- * asking which storage a {@code FileIO} belongs to, so a harness that still offered either could
- * hide a regression that reintroduced one.
- *
- * <p>Two storage types are wired, each to its own real local {@code HadoopFileIO}, so a test can
- * supply a non-default type and prove the engine used the type it was handed rather than defaulting
- * to LOCAL. {@code StorageType} is real rather than mocked, so {@code fromString} performs exactly
- * the conversion production performs.
+ * <p>No {@code Storage} or {@code StorageSelector} is wired, so a harness cannot hide a regression
+ * that reintroduced one. Two storage types are wired to their own real {@code HadoopFileIO}, so a
+ * test can prove the engine used the type it was handed rather than defaulting to LOCAL.
  */
 @Getter
 public class ViewCommitEngineHarness {
@@ -69,13 +63,13 @@ public class ViewCommitEngineHarness {
     this.viewCommitEngine = newEngineInstance();
   }
 
-  /** A new instance over the same rows and storage, so a load cannot come from process state. */
+  /** A new instance over the same rows, so a load cannot come from process state. */
   public ViewCommitEngine newEngineInstance() {
     return new ViewCommitEngineImpl(
         houseTableRepository, fileIOManager, recordingCodec, new StorageType());
   }
 
-  /** The single ordered log of codec and House Table interactions, in the order they happened. */
+  /** The single ordered log of codec and House Table interactions. */
   public List<String> events() {
     synchronized (events) {
       return new ArrayList<>(events);
@@ -86,7 +80,7 @@ public class ViewCommitEngineHarness {
     events.clear();
   }
 
-  /** How many metadata files the codec was asked to write, candidates that lost included. */
+  /** Metadata files the codec was asked to write, losing candidates included. */
   public int codecWrites() {
     return (int)
         events().stream()
@@ -94,12 +88,11 @@ public class ViewCommitEngineHarness {
             .count();
   }
 
-  /** Reads a metadata file back through the real Iceberg parser. */
   public ViewMetadata readMetadata(String metadataLocation) {
     return ViewMetadataParser.read(fileIO.newInputFile(metadataLocation));
   }
 
-  /** Every metadata file that physically exists under the storage root, candidates included. */
+  /** Every metadata file physically under the storage root, candidates included. */
   public List<Path> metadataFiles() {
     try (Stream<Path> paths = Files.walk(root)) {
       return paths

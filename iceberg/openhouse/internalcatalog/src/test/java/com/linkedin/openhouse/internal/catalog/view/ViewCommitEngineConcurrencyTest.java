@@ -30,8 +30,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Races arbitrated by the single House Table compare-and-swap. A barrier inside the swap guarantees
- * both threads are in the window before either can win, so no outcome depends on scheduling.
+ * Races arbitrated by the single compare-and-swap. A barrier inside the swap puts both threads in
+ * the window before either can win, so no outcome depends on scheduling.
  */
 public class ViewCommitEngineConcurrencyTest {
 
@@ -51,10 +51,7 @@ public class ViewCommitEngineConcurrencyTest {
     executor.shutdownNow();
   }
 
-  /**
-   * Two independent service requests, each with the identity and root its own caller allocated. The
-   * advisory occupancy read cannot prevent this race, so the swap has to.
-   */
+  /** The advisory occupancy read cannot prevent this race, so the swap has to. */
   @Test
   void concurrentCreatesProduceExactlyOneWinnerAndOnePointer() throws Exception {
     CyclicBarrier bothInsideSwapWindow = new CyclicBarrier(2);
@@ -98,7 +95,7 @@ public class ViewCommitEngineConcurrencyTest {
         outcome.success().getPointer().getMetadataLocation(), pointer.getTableLocation());
     Assertions.assertTrue(outcome.success().isCreated());
 
-    // The published metadata carries the winner's supplied identity, not the loser's.
+    // The published metadata carries the winner's supplied identity.
     Assertions.assertEquals(
         outcome.success().getViewUuid(),
         harness.readMetadata(pointer.getTableLocation()).uuid(),
@@ -112,7 +109,6 @@ public class ViewCommitEngineConcurrencyTest {
             + pointer.getTableLocation());
   }
 
-  /** The path is the token, so the second to reach the swap is stale by definition. */
   @Test
   void concurrentReplacesFromTheSameBaseLeaveExactlyOneWinner() throws Exception {
     ViewCommitResult created =
@@ -157,10 +153,7 @@ public class ViewCommitEngineConcurrencyTest {
         reloaded.getPointer().getMetadataLocation());
   }
 
-  /**
-   * A genuine post-write failure: the loser passes the base check and writes, then finds the
-   * pointer moved. Staling the base up front would reject it before the write and assert nothing.
-   */
+  /** Staling the base up front would reject before the write and assert nothing. */
   @Test
   void aFailedSwapAfterTheCandidateWriteLeavesThatFileUnreachable() {
     ViewCommitResult created =
@@ -208,7 +201,7 @@ public class ViewCommitEngineConcurrencyTest {
     Assertions.assertNotNull(interloper.get(), "the competing commit must have landed");
     String winnerPath = interloper.get().getPointer().getMetadataLocation();
 
-    // Reaching the swap at all means the loser had already written its candidate file.
+    // Reaching the swap means the loser had already written its candidate.
     Assertions.assertEquals(
         savesBeforeLosingAttempt + 2,
         harness.getHouseTableRepository().getSaveViewCalls(),
@@ -230,7 +223,7 @@ public class ViewCommitEngineConcurrencyTest {
         pointerNow,
         "the losing attempt must not have altered the pointer row in any way");
 
-    // An engine that has never seen this process resolves the winner's version.
+    // A fresh engine resolves the winner's version.
     LoadedView reloaded = harness.newEngineInstance().loadView(DB, VIEW);
     Assertions.assertEquals(winnerPath, reloaded.getPointer().getMetadataLocation());
   }

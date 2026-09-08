@@ -5,10 +5,7 @@ import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.view.ViewMetadata;
 
-/**
- * Appends each parse and write to the shared event log so "write the file, then publish" can be
- * asserted as a sequence. Delegates to a Mockito spy, so interaction verification still works.
- */
+/** Logs each parse and write so "write then publish" is assertable as a sequence. */
 public class RecordingViewMetadataCodec implements ViewMetadataCodec {
 
   public static final String READ = "codec.read";

@@ -14,14 +14,12 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
- * The layer split, asserted structurally rather than only through behaviour. Identity generation,
- * storage selection, and root allocation belong to the service above this engine, exactly as they
- * belong above the internal table catalog, and a behavioural test alone would keep passing if
- * someone reintroduced a fallback that happened to agree with the fixtures.
+ * The layer split asserted structurally: a behavioural test alone would keep passing if a fallback
+ * were reintroduced that happened to agree with the fixtures.
  */
 public class ViewCommitEngineLayerBoundaryTest {
 
-  /** Names that only appear if the engine has taken a service responsibility back. */
+  /** Names that appear only if the engine took a service responsibility back. */
   private static final List<String> FORBIDDEN_REFERENCES =
       Arrays.asList("selectStorage", "allocateTableLocation", "StorageSelector");
 
@@ -50,10 +48,7 @@ public class ViewCommitEngineLayerBoundaryTest {
         "the commit engine must not depend on storage selection or allocation: " + offenders);
   }
 
-  /**
-   * The constant pool carries every method the class calls, so this catches a static or inlined
-   * call that no injected collaborator would reveal.
-   */
+  /** The constant pool catches a static call that no injected collaborator would reveal. */
   @Test
   void theEngineNeverCallsStorageSelectionOrRootAllocation() {
     String constantPool = constantPoolOf(ViewCommitEngineImpl.class);
@@ -64,10 +59,7 @@ public class ViewCommitEngineLayerBoundaryTest {
     }
   }
 
-  /**
-   * Guards the guard: a probe that genuinely does allocate must be caught, or the scan above could
-   * be silently looking at the wrong bytes.
-   */
+  /** Guards the guard: otherwise the scan could be looking at the wrong bytes. */
   @Test
   void theConstantPoolScanFindsAReferenceThatIsActuallyThere() {
     Assertions.assertTrue(

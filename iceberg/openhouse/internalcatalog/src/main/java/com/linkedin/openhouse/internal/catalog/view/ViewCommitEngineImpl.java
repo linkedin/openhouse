@@ -50,23 +50,17 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 /**
- * Iceberg-1.5 implementation of {@link ViewCommitEngine}. Registered only from {@link
- * ViewCommitEngineConfiguration}, so an Iceberg-1.2 runtime never introspects it. Every commit
- * captures the base, builds the metadata, writes the immutable file, then performs exactly one
- * House Table compare-and-swap on the captured token; the swap is the sole arbiter of a race and is
- * never retried, since a second attempt could double-apply.
+ * Iceberg-1.5 implementation of {@link ViewCommitEngine}: build metadata, write the file, then one
+ * House Table compare-and-swap, never retried.
  *
- * <p>The pointer row is built here rather than through {@code HouseTableMapper}, because that
- * mapper recovers the storage type by asking {@link FileIOManager#getStorage} which storage a
- * {@code FileIO} belongs to. That reverse lookup is lossy — HDFS and LOCAL can be configured with
- * equal {@code HadoopFileIO} instances — so it would silently replace the storage fact the caller
- * supplied, or the one the published row already carries, with whichever storage matches first.
+ * <p>The pointer row is built here rather than via {@code HouseTableMapper}, whose {@link
+ * FileIOManager#getStorage} reverse lookup is lossy — HDFS and LOCAL can share a {@code
+ * HadoopFileIO} — and would overwrite the supplied or published storage fact.
  */
 @AllArgsConstructor
 @Slf4j
 public class ViewCommitEngineImpl implements ViewCommitEngine {
 
-  /** The dialect the caller authored in, recorded with the version rather than as a property. */
   private static final String SOURCE_DIALECT_SUMMARY_KEY = "sourceDialect";
 
   private static final String OPERATION_SUMMARY_KEY = "operation";
@@ -97,7 +91,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     requireCreateInput(intent, intent.getViewLocation(), "viewLocation");
     requireCreateInput(intent, intent.getStorageType(), "storageType");
 
-    // Advisory only: it picks the collision message. The swap below is what prevents two creates.
+    // Advisory only: the swap below is what prevents two creates.
     houseTableRepository
         .findEntityById(keyOf(intent.getDatabaseId(), intent.getViewId()))
         .ifPresent(occupant -> rejectOccupiedName(intent, occupant));
@@ -141,11 +135,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         true);
   }
 
-  /**
-   * The engine allocates nothing, so a missing create-side value is a caller error rather than
-   * something to substitute for. This mirrors {@code
-   * OpenHouseInternalCatalog.defaultWarehouseLocation}, which throws instead of choosing a root.
-   */
+  /** The engine allocates nothing, so a missing create-side value is a caller error. */
   private static void requireCreateInput(ViewCommitIntent intent, String value, String field) {
     if (value == null || value.trim().isEmpty()) {
       throw new BadRequestException(
@@ -154,11 +144,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     }
   }
 
-  /**
-   * The occupant's type arrives already resolved: House Table converts a legacy null to TABLE at
-   * its own parse boundary, and every test double reproduces that, so there is no null to
-   * normalize.
-   */
+  /** No null to normalize: House Table coerces a legacy null to TABLE at its parse boundary. */
   private void rejectOccupiedName(ViewCommitIntent intent, HouseTable occupant) {
     if (isView(occupant.getEntityType())) {
       throw new AlreadyExistsException(
@@ -175,7 +161,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
 
   private ViewCommitResult replace(ViewCommitIntent intent) {
     HouseTable row = requireViewRow(intent.getDatabaseId(), intent.getViewId());
-    // The row's own storage, never the incoming one: a replace does not re-place anything.
+    // The row's own storage, never the incoming one.
     FileIO fileIO = fileIOManager.getFileIO(storageType.fromString(row.getStorageType()));
     ViewMetadata current = viewMetadataCodec.read(fileIO.newInputFile(row.getTableLocation()));
 
@@ -191,7 +177,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     userProperties.putAll(userPropertiesOf(intent));
 
     if (isUnchanged(intent, current, userProperties, currentUserProperties)) {
-      // Nothing observable changes, so do not manufacture a version or a last-modified time.
+      // Nothing observable changed, so do not manufacture a version or timestamp.
       return ViewCommitResult.builder()
           .pointer(pointerOf(row))
           .viewUuid(current.uuid())
@@ -222,7 +208,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         current.properties().getOrDefault(getCanonicalFieldName("creationTime"), now));
     properties.put(getCanonicalFieldName("lastModifiedTime"), now);
 
-    // buildFrom preserves identity and history; Iceberg assigns the resulting version id.
+    // buildFrom preserves identity and history; Iceberg assigns the version id.
     ViewMetadata metadata =
         ViewMetadata.buildFrom(current)
             .setCurrentVersion(
@@ -243,10 +229,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         false);
   }
 
-  /**
-   * Engine-owned: Iceberg's {@code sameViewVersion} compares the whole summary map, and every
-   * submission carries a fresh timestamp and operation, so it treats each one as new.
-   */
+  /** Engine-owned: Iceberg's {@code sameViewVersion} sees every submission as new. */
   private boolean isUnchanged(
       ViewCommitIntent intent,
       ViewMetadata current,
@@ -259,18 +242,13 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         && Objects.equals(
             version.summary().get(SOURCE_DIALECT_SUMMARY_KEY), intent.getSourceDialect())
         && Objects.equals(version.defaultCatalog(), intent.getDefaultCatalog())
-        // The same normalization the metadata was built with: comparing a persisted empty namespace
-        // against a raw null would make every namespace-less replace look like a change.
+        // Same normalization used to build it, or every namespace-less replace looks changed.
         && Objects.equals(
             version.defaultNamespace(), normalizedNamespace(intent.getDefaultNamespace()))
         && mergedUserProperties.equals(currentUserProperties);
   }
 
-  /**
-   * Writes the file before publishing, so a swap loser leaves an unreachable file rather than a
-   * pointer to nothing. The expected version travels inside the metadata as {@code
-   * openhouse.tableVersion}; re-deriving it here would turn a conditional write into a blind one.
-   */
+  /** Write before publish, so a swap loser leaves an unreachable file, not a dangling pointer. */
   private ViewCommitResult writeThenPublish(
       ViewCommitIntent intent,
       ViewMetadata metadata,
@@ -288,7 +266,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     try {
       saved = houseTableRepository.saveView(pointer);
     } catch (HouseTableConcurrentUpdateException e) {
-      // A create lost a name; a replace lost a commit. The caller acts on each differently.
+      // A create lost a name; a replace lost a commit.
       if (created) {
         throw new AlreadyExistsException(
             e, "View already exists: %s.%s", intent.getDatabaseId(), intent.getViewId());
@@ -299,7 +277,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
           intent.getDatabaseId(),
           intent.getViewId());
     } catch (HouseTableRepositoryStateUnknownException e) {
-      // Not retried, not re-read, and the candidate is not deleted: the write may well have landed.
+      // Not retried, re-read or cleaned up: the write may have landed.
       throw new CommitStateUnknownException(e);
     }
 
@@ -355,10 +333,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         "Renaming a view is not supported: " + databaseId + "." + fromViewId);
   }
 
-  /**
-   * Absent and non-view are the same answer, because the typed finder already filters a non-view
-   * out as absent. Reporting a table as absent would tell a later create the name is free.
-   */
+  /** Absent and non-view are one answer; calling a table absent would free the name. */
   private HouseTable requireViewRow(String databaseId, String viewId) {
     return houseTableRepository
         .findViewById(keyOf(databaseId, viewId))
@@ -366,11 +341,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
             () -> new NoSuchViewException("View does not exist: %s.%s", databaseId, viewId));
   }
 
-  /**
-   * Reject duplicate dialects (compared case-insensitively) before no-op detection, so a duplicate
-   * is always a caller error instead of short-circuiting into a no-op that never reaches Iceberg's
-   * check.
-   */
+  /** Runs before no-op detection, so a duplicate cannot short-circuit into a no-op. */
   private void rejectDuplicateDialects(ViewCommitIntent intent) {
     if (intent.getRepresentations() == null) {
       return;
@@ -389,10 +360,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return Instant.now(Clock.systemUTC()).toEpochMilli();
   }
 
-  /**
-   * Keep a changed commit observably newer than the version it replaced: two commits in the same
-   * millisecond, or a backward clock, would otherwise leave last-modified equal or lower.
-   */
+  /** Keeps a changed commit observably newer despite a coarse or backward clock. */
   private long advanceLastModified(long previousLastModified) {
     long now = nowMillis();
     if (previousLastModified == Long.MAX_VALUE) {
@@ -420,10 +388,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return HouseTablePrimaryKey.builder().databaseId(databaseId).tableId(viewId).build();
   }
 
-  /**
-   * Carries the storage type it was given rather than one recovered from the {@code FileIO}: that
-   * reverse lookup cannot distinguish two storages sharing a file-IO implementation.
-   */
+  /** Carries the storage type it was given; the {@code FileIO} reverse lookup is ambiguous. */
   private static HouseTable pointerRowOf(ViewMetadata metadata, String storageTypeValue) {
     Map<String, String> properties = metadata.properties();
     return HouseTable.builder()
@@ -452,7 +417,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return intent.getViewProperties() == null ? Collections.emptyMap() : intent.getViewProperties();
   }
 
-  /** Everything the server did not stamp, which is exactly what structural equality compares. */
+  /** Everything the server did not stamp: exactly what structural equality compares. */
   private static Map<String, String> userPropertiesOf(ViewMetadata metadata) {
     Map<String, String> userProperties = new LinkedHashMap<>();
     metadata
@@ -506,10 +471,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return builder.build();
   }
 
-  /**
-   * Sorted pairs, not a map: a map drops all but the last entry for a repeated dialect, letting an
-   * invalid submission compare equal to a valid stored definition. Order carries no meaning.
-   */
+  /** Sorted pairs, not a map: a map would hide a repeated dialect. */
   private static List<String> representationsOf(ViewVersion version) {
     List<String> pairs = new ArrayList<>();
     for (ViewRepresentation representation : version.representations()) {

@@ -127,9 +127,7 @@ public class HouseTableRepositoryImplTest {
     mockHtsServer.shutdown();
   }
 
-  /**
-   * The server outlives a method, so a leftover response or request would leak to the next test.
-   */
+  /** The server outlives a method, so a leftover response would leak to the next test. */
   @AfterEach
   void resetMockServerState() throws InterruptedException {
     mockHtsServer.setDispatcher(new QueueDispatcher());
@@ -139,7 +137,6 @@ public class HouseTableRepositoryImplTest {
     }
   }
 
-  /** Entity type is required by the contract, so the table write states TABLE rather than omit. */
   @Test
   public void testRepoSaveDeclaresTheTableEntityTypeOnTheOutgoingBody()
       throws InterruptedException {
@@ -173,7 +170,6 @@ public class HouseTableRepositoryImplTest {
     Assertions.assertEquals(HOUSE_TABLE.getTableId(), entity.get("tableId").getAsString());
   }
 
-  /** A table point read still resolves through the table route, and keeps the row's own type. */
   @Test
   public void testRepoFindByIdCarriesTheServerResolvedDiscriminator() throws InterruptedException {
     EntityResponseBodyUserTable response = new EntityResponseBodyUserTable();

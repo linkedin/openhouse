@@ -21,14 +21,9 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 
 /**
- * Faithful in-memory stand-in for the House Table client, reproducing both production mechanisms
- * the engine depends on: the three typed finders (table = TABLE or legacy null, view = VIEW only,
- * neutral = any occupant) and the converter's legacy-null-to-TABLE hydration. A double that skipped
- * either one would let a view leak into a table read, or make a legitimate legacy row look like a
- * contract violation.
- *
- * <p>{@link #peek(String, String)} is deliberately raw, so a test can assert what is actually
- * stored rather than what a read would report.
+ * Faithful in-memory stand-in for the House Table client: the three typed finders (table = TABLE or
+ * legacy null, view = VIEW only, neutral = any) plus legacy-null-to-TABLE hydration. Skipping
+ * either would let a view leak into a table read, or make a legacy row look corrupt.
  */
 public class InMemoryViewHouseTableRepository implements HouseTableRepository {
 
@@ -69,7 +64,7 @@ public class InMemoryViewHouseTableRepository implements HouseTableRepository {
     this(Collections.synchronizedList(new ArrayList<>()));
   }
 
-  /** Shared with the codec so write-before-publish is one ordered sequence, not two facts. */
+  /** Shared with the codec, so write-before-publish is one ordered sequence. */
   public InMemoryViewHouseTableRepository(List<String> events) {
     this.events = events;
   }
@@ -78,12 +73,12 @@ public class InMemoryViewHouseTableRepository implements HouseTableRepository {
     this.beforeCas = beforeCas;
   }
 
-  /** Runs once inside the next swap, after the caller has written its candidate file. */
+  /** Runs once inside the next swap, after the candidate file is written. */
   public void runOnceBeforeNextCas(Runnable action) {
     beforeNextCas.set(action);
   }
 
-  /** Makes the next publish fail without touching stored state, to test error translation. */
+  /** Fails the next publish without touching stored state. */
   public void failNextSaveViewWith(RuntimeException failure) {
     nextSaveViewFailure.set(failure);
   }
@@ -92,12 +87,11 @@ public class InMemoryViewHouseTableRepository implements HouseTableRepository {
     nextDeleteViewFailure.set(failure);
   }
 
-  /** Makes the next neutral occupancy read fail, so a transport error cannot read as "free". */
+  /** Fails the next occupancy read, so a transport error cannot read as "free". */
   public void failNextFindEntityWith(RuntimeException failure) {
     nextFindEntityFailure.set(failure);
   }
 
-  /** Ordered log of every repository call this fake received. */
   public List<String> getEvents() {
     synchronized (events) {
       return new ArrayList<>(events);
@@ -124,12 +118,11 @@ public class InMemoryViewHouseTableRepository implements HouseTableRepository {
     return deleteViewByIdCalls.get();
   }
 
-  /** Seeds a row without going through the swap, for arranging a starting state. */
   public void seed(HouseTable row) {
     rows.put(id(row.getDatabaseId(), row.getTableId()), row);
   }
 
-  /** Raw stored state, unhydrated, so a fixture assertion sees the legacy null it seeded. */
+  /** Raw, unhydrated state, so a fixture sees the legacy null it seeded. */
   public Optional<HouseTable> peek(String databaseId, String tableId) {
     return Optional.ofNullable(rows.get(id(databaseId, tableId)));
   }
@@ -138,7 +131,7 @@ public class InMemoryViewHouseTableRepository implements HouseTableRepository {
     return databaseId + "." + tableId;
   }
 
-  /** Mirrors {@code EntityTypeConverter}: a stored null is read back as canonical TABLE. */
+  /** Mirrors {@code EntityTypeConverter}: a stored null reads back as TABLE. */
   private static HouseTable hydrate(HouseTable row) {
     return row.getEntityType() == null
         ? row.toBuilder().entityType(ENTITY_TYPE_TABLE).build()
@@ -176,7 +169,7 @@ public class InMemoryViewHouseTableRepository implements HouseTableRepository {
   @Override
   public Page<HouseTable> findAllViewsByDatabaseId(String databaseId, Pageable pageable) {
     events.add(LIST_VIEWS + "(" + databaseId + ")");
-    // Filtered before the page is cut, exactly as the server's VIEW predicate is applied in SQL.
+    // Filtered before the page is cut, as the server's VIEW predicate is in SQL.
     List<HouseTable> views =
         rows.values().stream()
             .filter(row -> databaseId.equals(row.getDatabaseId()))
@@ -251,7 +244,7 @@ public class InMemoryViewHouseTableRepository implements HouseTableRepository {
     return true;
   }
 
-  /** The table point read: TABLE or legacy null only, and a legacy row hydrates to TABLE. */
+  /** TABLE or legacy null only; a legacy row hydrates to TABLE. */
   @Override
   public Optional<HouseTable> findById(HouseTablePrimaryKey key) {
     return Optional.ofNullable(rows.get(id(key.getDatabaseId(), key.getTableId())))
@@ -266,7 +259,7 @@ public class InMemoryViewHouseTableRepository implements HouseTableRepository {
         .collect(Collectors.toList());
   }
 
-  /* ---- Unused by the view commit path; fail loudly if a change starts relying on them. ---- */
+  /* Unused by the view commit path; fail loudly if a change starts relying on them. */
 
   @Override
   public List<HouseTable> findAllByDatabaseId(String databaseId) {

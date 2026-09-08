@@ -5,12 +5,7 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.ToString;
 
-/**
- * A single SQL definition of a view, in one dialect, as supplied by a caller.
- *
- * <p>Version-neutral by construction: it names no {@code org.apache.iceberg.view.*} type so it
- * remains loadable when the runtime supplies Iceberg 1.2.
- */
+/** A single SQL definition of a view, in one dialect, as supplied by a caller. */
 @Builder(toBuilder = true)
 @Getter
 @EqualsAndHashCode

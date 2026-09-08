@@ -46,11 +46,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mockito;
 
-/**
- * Create and replace: collision classification, caller-supplied identity and location,
- * Iceberg-owned version identity, no-op detection, dialect safety, stamping. Every metadata
- * assertion is a golden round trip.
- */
+/** Create and replace: collision classification, identity, no-op detection, dialect safety. */
 public class ViewCommitEngineCommitTest {
 
   private ViewCommitEngineHarness harness;
@@ -61,8 +57,6 @@ public class ViewCommitEngineCommitTest {
     root = tempDir;
     harness = new ViewCommitEngineHarness(tempDir);
   }
-
-  /* ---- Create collision classification: every occupant shape, no side effects. ---- */
 
   @Test
   void createCollidingWithAnExistingViewReportsViewAlreadyExists() {
@@ -94,11 +88,7 @@ public class ViewCommitEngineCommitTest {
     assertCreateCollisionLeftNoTrace();
   }
 
-  /**
-   * A row predating the discriminator means TABLE, not a free name. House Table resolves the legacy
-   * null before the engine ever sees it, so this stays a clean collision rather than an integrity
-   * failure.
-   */
+  /** A legacy null already reads as TABLE, so this is a clean collision, not corruption. */
   @Test
   void createCollidingWithALegacyRowReportsNameOccupiedAsTable() {
     harness
@@ -114,7 +104,6 @@ public class ViewCommitEngineCommitTest {
     assertCreateCollisionLeftNoTrace();
   }
 
-  /** An unknown type must fail closed, preserving the raw value. */
   @Test
   void createCollidingWithAnUnknownEntityTypeFailsClosed() {
     harness
@@ -132,7 +121,6 @@ public class ViewCommitEngineCommitTest {
     assertCreateCollisionLeftNoTrace();
   }
 
-  /** A non-canonical spelling is not a recognized type, so something occupies the name. */
   @Test
   void createCollidingWithANonCanonicalDiscriminatorFailsClosed() {
     harness
@@ -172,9 +160,6 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertTrue(harness.metadataFiles().isEmpty());
   }
 
-  /* ---- Identity, location, and storage are the caller's, never the engine's. ---- */
-
-  /** The engine records the identity it was handed; it does not mint one. */
   @Test
   void createUsesTheCallerSuppliedIdentityLocationAndStorage() {
     ViewCommitResult created =
@@ -198,14 +183,13 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertEquals(
         ViewTestFixtures.LOCAL_STORAGE_TYPE, created.getPointer().getStorageType());
 
-    // Resolved from the supplied storage type; there is no selector seam left to consult.
+    // Resolved from the supplied storage type; no selector seam is left to consult.
     verify(harness.getFileIOManager(), times(1)).getFileIO(StorageType.LOCAL);
     verify(harness.getFileIOManager(), never()).getStorage(any(FileIO.class));
   }
 
   /**
-   * LOCAL is the fixture default, so a create that only ever ran against it could not tell a
-   * supplied storage type from a hardcoded one. This supplies a different type end to end.
+   * LOCAL is the fixture default, so only a different type distinguishes supplied from hardcoded.
    */
   @Test
   void createResolvesFileIoFromTheSuppliedStorageTypeRatherThanTheDefault() {
@@ -219,7 +203,7 @@ public class ViewCommitEngineCommitTest {
 
     verify(harness.getFileIOManager(), times(1)).getFileIO(StorageType.HDFS);
     verify(harness.getFileIOManager(), never()).getFileIO(StorageType.LOCAL);
-    // Recovering the type from the FileIO would be lossy: two storages may share one FileIO.
+    // Recovering the type from the FileIO would be lossy: two storages may share one.
     verify(harness.getFileIOManager(), never()).getStorage(any(FileIO.class));
 
     Assertions.assertEquals(
@@ -231,9 +215,7 @@ public class ViewCommitEngineCommitTest {
   }
 
   /**
-   * The whole point of ignoring the incoming physical fields on a replace: the published row's own
-   * storage decides both which FileIO is used and what the new pointer reports, so an unusable
-   * incoming value cannot redirect the write and the fixture default cannot mask the failure.
+   * An unusable incoming storage type must not redirect the write, nor be masked by the default.
    */
   @Test
   void replaceResolvesFileIoFromThePublishedRowStorageNotTheIncomingValue() {
@@ -272,7 +254,6 @@ public class ViewCommitEngineCommitTest {
         "a replace must not rewrite the published storage fact");
   }
 
-  /** One immutable file per commit, each with its own collision-avoidance UUID. */
   @Test
   void eachMetadataFileIsVersionPrefixedAndCarriesItsOwnRandomUuid() {
     ViewCommitResult created =
@@ -289,8 +270,7 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertTrue(firstFile.endsWith(".metadata.json"), firstFile);
     Assertions.assertTrue(secondFile.endsWith(".metadata.json"), secondFile);
 
-    // Parsed, not merely compared as text: two distinct arbitrary strings would satisfy a plain
-    // inequality while telling us nothing about collision avoidance.
+    // Parsed, not compared as text: any two distinct strings would satisfy plain inequality.
     UUID firstFileUuid = fileUuidOf(firstFile, "00001-");
     UUID secondFileUuid = fileUuidOf(secondFile, "00002-");
     Assertions.assertNotEquals(
@@ -313,11 +293,7 @@ public class ViewCommitEngineCommitTest {
     }
   }
 
-  /**
-   * A replace takes its physical identity from what is published, so a caller that supplies a
-   * different UUID, a different root, and an unusable storage type still replaces in place. Without
-   * this, a future cleanup could quietly turn a replace into a reallocation.
-   */
+  /** A replace takes physical identity from the published row, so it can never reallocate. */
   @Test
   void replaceIgnoresConflictingCreateOnlyPhysicalFieldsAndPreservesThePublishedOnes() {
     ViewCommitResult created =
@@ -363,7 +339,6 @@ public class ViewCommitEngineCommitTest {
         replacedMetadata.properties().get(CatalogConstants.OPENHOUSE_UUID_KEY));
   }
 
-  /** Server-owned properties are authoritative. */
   @Test
   void callerSuppliedReservedPropertyIsRejectedBeforeAnythingIsWritten() {
     Map<String, String> hostile = new LinkedHashMap<>();
@@ -380,8 +355,6 @@ public class ViewCommitEngineCommitTest {
     verify(harness.getCodec(), never()).write(any(ViewMetadata.class), any(OutputFile.class));
     Assertions.assertTrue(harness.metadataFiles().isEmpty());
   }
-
-  /* ---- Missing create-side inputs fail rather than fall back to allocation. ---- */
 
   @Test
   void createWithoutTheSuppliedIdentityFailsInsteadOfMintingOne() {
@@ -414,9 +387,7 @@ public class ViewCommitEngineCommitTest {
         harness.metadataFiles().isEmpty(), "a rejected create writes nothing for " + field);
   }
 
-  /* ---- Version identity is Iceberg's, not OpenHouse's. ---- */
-
-  /** Materially different steps, asserting only resulting metadata: no candidate id, no max+1. */
+  /** Asserts only resulting metadata: no candidate id, no max+1. */
   @Test
   void versionIdsAndHistoryAreAssignedByIcebergAcrossMateriallyDifferentDefinitions() {
     ViewCommitResult created =
@@ -459,9 +430,6 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertTrue(historyIds.contains(afterSecond.currentVersionId()));
   }
 
-  /* ---- No-op detection. ---- */
-
-  /** Only the candidate timestamp and summary differ, so nothing observable changes. */
   @Test
   void identicalDefinitionReplaceIsANoOpThatWritesNothing() {
     ViewCommitResult created =
@@ -504,11 +472,7 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertEquals(afterCreate.history().size(), unchanged.history().size());
   }
 
-  /**
-   * Null and the empty namespace are the same value, so they must be the same value on both sides
-   * of the comparison. Building with one and comparing against the other would make every replace
-   * of a namespace-less view look like a change and publish a new file for nothing.
-   */
+  /** Build and comparison must normalize alike, or every namespace-less replace looks changed. */
   @Test
   void aNullDefaultNamespaceRoundTripsAsEmptyAndReplayingItIsANoOp() {
     ViewCommitResult created =
@@ -554,10 +518,7 @@ public class ViewCommitEngineCommitTest {
         writesAfterCreate, harness.codecWrites(), "neither replay may ask the codec to write");
   }
 
-  /**
-   * Null properties and empty properties are the same submission, and neither may be read as an
-   * instruction to clear what is already stored.
-   */
+  /** Neither null nor empty properties may be read as an instruction to clear stored ones. */
   @Test
   void nullAndEmptyViewPropertiesAreTheSameSubmissionAndPreserveStoredOnes() {
     Map<String, String> initial = new LinkedHashMap<>();
@@ -605,7 +566,6 @@ public class ViewCommitEngineCommitTest {
         "yes", stillStored.get("keep"), "omitted properties must survive an omitting replace");
   }
 
-  /** Equivalence is not blindness: moving off the empty namespace is still a change. */
   @Test
   void movingFromAnEmptyNamespaceToANonEmptyOneCommits() {
     ViewCommitResult created =
@@ -664,7 +624,6 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertEquals("2", metadata.properties().get("a"));
   }
 
-  /** Omitted properties survive; supplied ones win. */
   @Test
   void replacePreservesOmittedUserPropertiesAndMergesSuppliedOnes() {
     Map<String, String> initial = new LinkedHashMap<>();
@@ -690,8 +649,7 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertEquals("yes", properties.get("keep"));
   }
 
-  /* ---- Bounding the engine-owned structural comparison: one field changes per test, so an
-   * under-comparing implementation cannot hide behind another field. ---- */
+  /* One field changes per test, so an under-comparing implementation cannot hide behind another. */
 
   private static final List<SqlViewRepresentationIntent> BOTH_DIALECTS_V1 =
       ViewTestFixtures.sparkAndTrino(ViewTestFixtures.SQL_V1);
@@ -712,11 +670,7 @@ public class ViewCommitEngineCommitTest {
         .commit(ViewTestFixtures.baseIntent(root).representations(BOTH_DIALECTS_V1).build());
   }
 
-  /**
-   * A replace differing in exactly one structural field must be a real change, and must persist the
-   * NEW value. Asserting only that a file appeared would pass an implementation that detects the
-   * change and then writes the field it already had.
-   */
+  /** Asserts the NEW value persisted: a file appearing would also pass a stale write. */
   private void assertStructuralChangeIsNotANoOp(
       UnaryOperator<ViewCommitIntent.ViewCommitIntentBuilder> mutation, String changedField) {
     ViewCommitResult created = createWithBothDialects();
@@ -752,10 +706,7 @@ public class ViewCommitEngineCommitTest {
     assertPersistedDefinitionMatches(intent, result, changedField);
   }
 
-  /**
-   * Reads the submitted definition back out of the file that was actually written, and out of a
-   * fresh load, so persisting a stale value cannot pass as a detected change.
-   */
+  /** Reads back from the written file and a fresh load, so a stale value cannot pass. */
   private void assertPersistedDefinitionMatches(
       ViewCommitIntent intent, ViewCommitResult result, String changedField) {
     ViewMetadata persisted = harness.readMetadata(result.getPointer().getMetadataLocation());
@@ -861,7 +812,6 @@ public class ViewCommitEngineCommitTest {
         "SQL of one representation");
   }
 
-  /** Adding a dialect is allowed; only dropping one is rejected. */
   @Test
   void anAddedRepresentationDialectIsNotANoOp() {
     List<SqlViewRepresentationIntent> withPresto = new ArrayList<>(BOTH_DIALECTS_V1);
@@ -944,7 +894,7 @@ public class ViewCommitEngineCommitTest {
     int savesAfterCreate = harness.getHouseTableRepository().getSaveViewCalls();
     int filesAfterCreate = harness.metadataFiles().size();
 
-    // The last entry alone equals the stored definition, so a lossy comparison would see no change.
+    // The last entry alone equals the stored definition, so a lossy compare sees no change.
     ViewCommitIntent duplicated =
         ViewTestFixtures.baseIntent(root)
             .representations(
@@ -964,7 +914,6 @@ public class ViewCommitEngineCommitTest {
         harness.getHouseTableRepository().peek(DB, VIEW).get().getTableLocation());
   }
 
-  /** Iceberg compares dialects case-insensitively, so this check must too. */
   @Test
   void aDuplicateDialectDifferingOnlyInCaseIsAlsoRejected() {
     Assertions.assertThrows(
@@ -1031,8 +980,6 @@ public class ViewCommitEngineCommitTest {
         "creation time still belongs to the create");
   }
 
-  /* ---- Dialect safety. ---- */
-
   /** The server stamps {@code replace.drop-dialect.allowed=false}; Iceberg enforces it. */
   @Test
   void replaceDroppingAPreviouslyStoredDialectIsRejected() {
@@ -1058,7 +1005,7 @@ public class ViewCommitEngineCommitTest {
                                         ViewTestFixtures.SQL_V2, ViewTestFixtures.SPARK_DIALECT)))
                             .baseViewVersion(created.getPointer().getMetadataLocation())
                             .build()));
-    // Pin the dialect-specific failure, so an unrelated engine ISE cannot satisfy this test.
+    // Pinned, so an unrelated engine ISE cannot satisfy this test.
     Assertions.assertTrue(
         thrown.getMessage() != null && thrown.getMessage().contains("view dialects"),
         "expected the dropped-dialect failure, got: " + thrown.getMessage());
@@ -1073,7 +1020,6 @@ public class ViewCommitEngineCommitTest {
         harness.getHouseTableRepository().peek(DB, VIEW).get().getTableLocation());
   }
 
-  /** A caller cannot re-enable dialect dropping. */
   @Test
   void callerCannotOverrideTheDropDialectGuard() {
     Map<String, String> hostile = new HashMap<>();
@@ -1090,11 +1036,9 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertTrue(harness.metadataFiles().isEmpty());
   }
 
-  /* ---- Stamping golden round-trip. ---- */
-
   /**
-   * The {@code openhouse.table*} namespace is reused for views on purpose: House Table stores an
-   * entity-neutral pointer. Entity type is never stamped into metadata; it belongs to the row.
+   * The {@code openhouse.table*} namespace is entity-neutral; type belongs to the row, not
+   * metadata.
    */
   @Test
   void createStampsInitialVersionAndReplaceStampsThePriorExactPath() {
@@ -1130,9 +1074,8 @@ public class ViewCommitEngineCommitTest {
             .summary()
             .get(ViewTestFixtures.SOURCE_DIALECT_SUMMARY_KEY));
 
-    // The resolution context and schema the caller supplied must survive verbatim: they are part of
-    // what makes two submissions structurally equal, so a lossy round trip would corrupt no-op
-    // detection as well as the view itself.
+    // Must survive verbatim: they feed structural equality, so a lossy round trip breaks no-op
+    // detection too.
     Assertions.assertEquals("openhouse", createdMetadata.currentVersion().defaultCatalog());
     Assertions.assertEquals(
         Collections.singletonList(DB),
@@ -1175,7 +1118,7 @@ public class ViewCommitEngineCommitTest {
         replacedProperties.get(getCanonicalFieldName("lastModifiedTime")));
   }
 
-  /** A re-read, a default, or a re-derived token turns a conditional write into a blind one. */
+  /** A re-read or re-derived token would turn a conditional write into a blind one. */
   @Test
   void publishedPointerRowCarriesTheNewPathAndTheCapturedBaseAsExpectedVersion() {
     ViewCommitResult created =
@@ -1256,7 +1199,6 @@ public class ViewCommitEngineCommitTest {
     return -1;
   }
 
-  /** The create publish carries INITIAL_VERSION, and writes first. */
   @Test
   void createPublishesInitialVersionAfterWritingItsFile() {
     harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root));
@@ -1277,7 +1219,6 @@ public class ViewCommitEngineCommitTest {
         1, countStartingWith(events, InMemoryViewHouseTableRepository.FIND_ENTITY));
   }
 
-  /** A partial write would break engines reading the missing dialect. */
   @Test
   void everySuppliedRepresentationAndUserPropertyIsPersisted() {
     Map<String, String> userProperties = new LinkedHashMap<>();
@@ -1311,7 +1252,6 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertEquals("a view", metadata.properties().get("comment"));
   }
 
-  /** What was committed is exactly what a load reports. */
   @Test
   void aCommittedViewLoadsBackWithTheSameDefinition() {
     ViewCommitResult created = createWithBothDialects();
@@ -1328,9 +1268,7 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertEquals(Namespace.of(DB), loaded.getDefaultNamespace());
     Assertions.assertEquals(ViewTestFixtures.SPARK_DIALECT, loaded.getSourceDialect());
 
-    // The complete dialect-to-SQL mapping, not just its size: returning one dialect twice and
-    // dropping the other would otherwise pass, and would silently break every engine reading the
-    // dropped dialect.
+    // The whole mapping, not its size: one dialect returned twice would otherwise pass.
     Map<String, String> submitted = new LinkedHashMap<>();
     ViewTestFixtures.sparkAndTrino(ViewTestFixtures.SQL_V1)
         .forEach(
@@ -1356,9 +1294,6 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertEquals(created.getLastModifiedTime(), loaded.getLastModifiedTime());
   }
 
-  /* ---- Base-token handling on replace. ---- */
-
-  /** A stale base is rejected before any write. */
   @Test
   void replaceWithAStaleBaseTokenFailsBeforeWritingAnything() {
     ViewCommitResult created =
@@ -1386,7 +1321,6 @@ public class ViewCommitEngineCommitTest {
         harness.getHouseTableRepository().peek(DB, VIEW).get().getTableLocation());
   }
 
-  /** A load failure, not an implicit create. */
   @Test
   void replaceOfAnAbsentViewNeverBecomesACreate() {
     Assertions.assertThrows(

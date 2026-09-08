@@ -18,9 +18,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 
 /**
- * Typed list, load, drop, and create-collision over a key space holding both kinds of entity. Views
- * and tables share one key space, so a filtered page or a views-only fixture cannot tell a typed
- * route from an untyped one.
+ * Typed list, load, drop, and create-collision over a key space holding both kinds of entity: a
+ * views-only fixture could not tell a typed route from an untyped one.
  */
 public class ViewCommitEngineMixedEntityTest {
 
@@ -92,7 +91,6 @@ public class ViewCommitEngineMixedEntityTest {
         row("legacy_a", null), harness.getHouseTableRepository().peek(DB, "legacy_a").get());
   }
 
-  /** The typed drop must decline rather than delete the wrong entity. */
   @Test
   void droppingATableThroughTheViewPathReportsFalseAndDeletesNothing() {
     Assertions.assertFalse(harness.getViewCommitEngine().dropView(DB, "table_a"));
@@ -101,7 +99,6 @@ public class ViewCommitEngineMixedEntityTest {
         row("table_a", "TABLE"), harness.getHouseTableRepository().peek(DB, "table_a").get());
   }
 
-  /** A legacy row means TABLE, so it is equally out of reach. */
   @Test
   void droppingALegacyRowThroughTheViewPathReportsFalseAndDeletesNothing() {
     Assertions.assertFalse(harness.getViewCommitEngine().dropView(DB, "legacy_a"));
@@ -110,7 +107,6 @@ public class ViewCommitEngineMixedEntityTest {
         row("legacy_a", null), harness.getHouseTableRepository().peek(DB, "legacy_a").get());
   }
 
-  /** A miss, not a mis-typed success. */
   @Test
   void loadingATableThroughTheViewPathIsNoSuchView() {
     Assertions.assertThrows(
@@ -119,11 +115,7 @@ public class ViewCommitEngineMixedEntityTest {
         NoSuchViewException.class, () -> harness.getViewCommitEngine().loadView(DB, "legacy_a"));
   }
 
-  /**
-   * A create colliding with a row written before the discriminator existed must be a clean 409
-   * naming TABLE. House Table resolves the legacy null on hydration, so the engine classifies a
-   * real value rather than guessing at a missing one.
-   */
+  /** A legacy row hydrates to TABLE, so the collision is a clean 409 rather than a guess. */
   @Test
   void createCollidingWithALegacyRowIsACleanTableCollisionAndNotAnIntegrityFailure() {
     ViewNameOccupiedException thrown =
@@ -146,11 +138,7 @@ public class ViewCommitEngineMixedEntityTest {
     Assertions.assertTrue(harness.metadataFiles().isEmpty());
   }
 
-  /**
-   * The double is only useful if it is faithful, so assert its finder split directly: a view is
-   * invisible to the table read, a table and a legacy row are invisible to the view read, and the
-   * neutral read reports a legacy row as TABLE exactly as the server's converter does.
-   */
+  /** The double is only useful if faithful, so its finder split is asserted directly. */
   @Test
   void theDoubleReproducesTheServerFinderSplitAndItsLegacyHydration() {
     Assertions.assertFalse(

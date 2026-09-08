@@ -19,11 +19,8 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.types.Types;
 
 /**
- * Shared constants and builders for the view commit engine tests.
- *
- * <p>Every intent carries the three create-side physical fields, because a service that omitted one
- * would be rejected rather than silently allocated for. The location is derived from a per-test
- * root, so no two tests share a directory and a concurrent create can be given its own identity.
+ * Shared constants and builders for the view commit engine tests. Every intent carries the three
+ * create-side physical fields, and locations derive from a per-test root so no two tests collide.
  */
 public final class ViewTestFixtures {
 
@@ -34,13 +31,11 @@ public final class ViewTestFixtures {
   public static final String TRINO_DIALECT = "trino";
   public static final String LOCAL_STORAGE_TYPE = "local";
 
-  /** Deterministic, so an assertion can name the exact identity the caller supplied. */
   public static final String VIEW_UUID = "11111111-1111-1111-1111-111111111111";
 
-  /** A second service request generates its own identity; it never reuses the first. */
+  /** A second request generates its own identity; it never reuses the first. */
   public static final String SECOND_VIEW_UUID = "22222222-2222-2222-2222-222222222222";
 
-  /** Exact text House Table stores and exchanges on the wire. */
   public static final String ENTITY_TYPE_VIEW = "VIEW";
 
   public static final String ENTITY_TYPE_TABLE = "TABLE";
@@ -48,7 +43,6 @@ public final class ViewTestFixtures {
   /** Unrecognized: a create colliding with one must fail closed. */
   public static final String ENTITY_TYPE_UNKNOWN = "MATERIALIZED_VIEW";
 
-  /** Recorded inside the current version summary. */
   public static final String SOURCE_DIALECT_SUMMARY_KEY = "sourceDialect";
 
   public static final String SQL_V1 = "SELECT id, name FROM viewdb.base_table";
@@ -75,10 +69,7 @@ public final class ViewTestFixtures {
     return SqlViewRepresentationIntent.builder().sql(sqlText).dialect(dialect).build();
   }
 
-  /**
-   * The shape a storage implementation allocates: the identity is embedded in the directory name.
-   * The engine is never asked to prove that; it only has to use what it was handed.
-   */
+  /** The shape a storage implementation allocates, with identity embedded in the directory. */
   public static String viewLocation(Path root, String databaseId, String viewId, String viewUuid) {
     return root.resolve(databaseId).resolve(viewId + "-" + viewUuid).toString();
   }
@@ -87,7 +78,6 @@ public final class ViewTestFixtures {
     return viewLocation(root, DB, VIEW, VIEW_UUID);
   }
 
-  /** Simulates the service layer having completed allocation before it called the engine. */
   public static String allocatedViewLocation(
       Path root, String databaseId, String viewId, String viewUuid) {
     String location = viewLocation(root, databaseId, viewId, viewUuid);
@@ -99,12 +89,10 @@ public final class ViewTestFixtures {
     return location;
   }
 
-  /** CREATE intent: null base version. */
   public static ViewCommitIntent createIntent(Path root) {
     return baseIntent(root).build();
   }
 
-  /** REPLACE intent against the exact current metadata path. */
   public static ViewCommitIntent replaceIntent(Path root, String baseViewVersion) {
     return baseIntent(root).baseViewVersion(baseViewVersion).build();
   }
@@ -158,7 +146,7 @@ public final class ViewTestFixtures {
     return row(ENTITY_TYPE_TABLE, metadataLocation);
   }
 
-  /** Written before the discriminator existed: House Table resolves it to TABLE on hydration. */
+  /** Pre-discriminator row: House Table resolves it to TABLE on hydration. */
   public static HouseTable legacyRow(String metadataLocation) {
     return row(null, metadataLocation);
   }

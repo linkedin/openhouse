@@ -6,12 +6,10 @@ import lombok.Getter;
 import lombok.ToString;
 
 /**
- * The House Table resident pointer row for a view: identifiers, the current metadata path that
- * doubles as the public version token, the storage the row lives on, and creation time.
+ * The House Table resident pointer row for a view.
  *
- * <p>A pointer never carries UUID: House Table has no dedicated UUID column for it, so supplying
- * one would require parsing every metadata file. UUID appears on {@link ViewCommitResult} and
- * {@link LoadedView} only.
+ * <p>No UUID: House Table has no column for it, so supplying one would mean parsing every metadata
+ * file. It appears on {@link ViewCommitResult} and {@link LoadedView} instead.
  */
 @Builder(toBuilder = true)
 @Getter
