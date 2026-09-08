@@ -129,6 +129,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         "Renaming a view is not supported: " + databaseId + "." + fromViewId);
   }
 
+  /** Rejects caller attempts to set OpenHouse-owned (oh-prefixed or dialect-policy) properties. */
   private void rejectServerOwnedProperties(ViewCommitIntent intent) {
     for (String key : userPropertiesOf(intent).keySet()) {
       if (HouseTableSerdeUtils.IS_OH_PREFIXED.test(key)
@@ -153,6 +154,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     }
   }
 
+  /** First-version commit: validates create inputs, builds v1 metadata, then write-then-publish. */
   private ViewCommitResult create(ViewCommitIntent intent) {
     requireCreateInput(intent, intent.getViewUuid(), "viewUuid");
     requireCreateInput(intent, intent.getViewLocation(), "viewLocation");
@@ -226,6 +228,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return ENTITY_TYPE_VIEW.equals(entityType);
   }
 
+  /** Next-version commit: re-reads the current view, skips a no-op, then write-then-publish. */
   private ViewCommitResult replace(ViewCommitIntent intent) {
     HouseTable row = requireViewRow(intent.getDatabaseId(), intent.getViewId());
     // The row's own storage, never the incoming one.
@@ -420,6 +423,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
             () -> new NoSuchViewException("View does not exist: %s.%s", databaseId, viewId));
   }
 
+  /** Projects a saved House Table row into the returned view pointer (inverse of pointerRowOf). */
   private static ViewPointer pointerOf(HouseTable row) {
     return ViewPointer.builder()
         .databaseId(row.getDatabaseId())
@@ -430,6 +434,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         .build();
   }
 
+  /** The caller-supplied properties as-is: the intent side of the structural comparison. */
   private static Map<String, String> userPropertiesOf(ViewCommitIntent intent) {
     return intent.getViewProperties() == null ? Collections.emptyMap() : intent.getViewProperties();
   }
@@ -462,6 +467,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return pairs;
   }
 
+  /** Same sorted-pair form for the intent side, so it compares equal to the stored version's. */
   private static List<String> representationsOf(List<SqlViewRepresentationIntent> representations) {
     List<String> pairs = new ArrayList<>();
     if (representations != null) {
@@ -473,10 +479,12 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return pairs;
   }
 
+  /** One comparable key per representation: dialect and SQL joined on NUL so pairs cannot alias. */
   private static String representationKey(String dialect, String sql) {
     return dialect + '\u0000' + sql;
   }
 
+  /** Converts a stored version's SQL representations back into intents (the read-back path). */
   private static List<SqlViewRepresentationIntent> representationIntentsOf(ViewVersion version) {
     List<SqlViewRepresentationIntent> representations = new ArrayList<>();
     for (ViewRepresentation representation : version.representations()) {
@@ -489,11 +497,13 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return representations;
   }
 
+  /** Reads an oh-prefixed numeric metadata property, treating an absent value as 0. */
   private static long longProperty(ViewMetadata metadata, String htsField) {
     String value = metadata.properties().get(getCanonicalFieldName(htsField));
     return value == null ? 0L : Long.parseLong(value);
   }
 
+  /** The House Table primary key for a (database, view) name pair. */
   private static HouseTablePrimaryKey keyOf(String databaseId, String viewId) {
     return HouseTablePrimaryKey.builder().databaseId(databaseId).tableId(viewId).build();
   }
