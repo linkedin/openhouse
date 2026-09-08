@@ -44,6 +44,7 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.actions.DeleteOrphanFiles;
@@ -70,6 +71,8 @@ public final class Operations implements AutoCloseable {
   private static final String CATALOG = "openhouse";
 
   private static final String METRICS_SCOPE = Operations.class.getName();
+
+  private static final long DEFAULT_MAX_REFERENCE_AGE_MILLIS = TimeUnit.DAYS.toMillis(7);
 
   private final SparkSession spark;
 
@@ -352,6 +355,16 @@ public final class Operations implements AutoCloseable {
       boolean deleteFiles,
       boolean backupEnabled,
       String backupDir) {
+    if (!table.properties().containsKey(TableProperties.MAX_REF_AGE_MS)) {
+      log.info(
+          "Backfilling maximum reference age for table {} to {}ms",
+          table,
+          DEFAULT_MAX_REFERENCE_AGE_MILLIS);
+      table
+          .updateProperties()
+          .set(TableProperties.MAX_REF_AGE_MS, String.valueOf(DEFAULT_MAX_REFERENCE_AGE_MILLIS))
+          .commit();
+    }
 
     ChronoUnit timeUnitGranularity =
         ChronoUnit.valueOf(
