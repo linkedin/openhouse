@@ -5,6 +5,8 @@ import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 import static org.apache.iceberg.types.Types.NestedField.*;
 
 import com.linkedin.openhouse.cluster.storage.StorageManager;
+import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
+import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
@@ -74,6 +76,8 @@ public class RepositoryTest {
   @Autowired SchemaValidator validator;
 
   @SpyBean @Autowired PreservedKeyChecker preservedKeyChecker;
+
+  @SpyBean @Autowired StorageSelector storageSelector;
 
   @Test
   void extractReservedProps() {
@@ -1813,6 +1817,107 @@ public class RepositoryTest {
           houseTablesRepository.findEntityById(isolationKey("legacy_a")).isPresent());
     } finally {
       deleteIsolationRows();
+    }
+  }
+
+  private static final String OCCUPATION_DB = TABLE_DTO.getDatabaseId();
+
+  private HouseTablePrimaryKey occupationKey(String tableId) {
+    return HouseTablePrimaryKey.builder().databaseId(OCCUPATION_DB).tableId(tableId).build();
+  }
+
+  private TableDto createDtoFor(String tableId) {
+    return TABLE_DTO.toBuilder().tableId(tableId).tableVersion(INITIAL_TABLE_VERSION).build();
+  }
+
+  private void seedViewRow(String tableId) {
+    houseTablesRepository.saveView(
+        HouseTable.builder()
+            .databaseId(OCCUPATION_DB)
+            .tableId(tableId)
+            .tableLocation("/loc/" + tableId + "/00001-a.metadata.json")
+            .tableVersion("INITIAL_VERSION")
+            .storageType("local")
+            .build());
+  }
+
+  @Test
+  void tableCreateOverAViewFailsCleanlyWithoutAllocatingOrWriting() {
+    String tableId = "occupied_by_a_view";
+    seedViewRow(tableId);
+    Mockito.clearInvocations(storageSelector);
+    try {
+      HouseTable before = houseTablesRepository.findEntityById(occupationKey(tableId)).get();
+
+      AlreadyExistsException thrown =
+          Assertions.assertThrows(
+              AlreadyExistsException.class,
+              () -> openHouseInternalRepository.save(createDtoFor(tableId)));
+      Assertions.assertTrue(thrown.getMessage().contains("VIEW"), thrown.getMessage());
+      Assertions.assertTrue(
+          thrown.getMessage().contains(OCCUPATION_DB + "." + tableId), thrown.getMessage());
+
+      // The whole point: it fails before the create branch does any work.
+      Mockito.verify(storageSelector, Mockito.never()).selectStorage(OCCUPATION_DB, tableId);
+
+      HouseTable after = houseTablesRepository.findEntityById(occupationKey(tableId)).get();
+      Assertions.assertEquals("VIEW", after.getEntityType());
+      Assertions.assertEquals(before.getTableLocation(), after.getTableLocation());
+    } finally {
+      // Type-agnostic: without the fix the create overwrites the view, leaving a table row behind.
+      if (houseTablesRepository.findEntityById(occupationKey(tableId)).isPresent()) {
+        houseTablesRepository.deleteById(occupationKey(tableId));
+      }
+    }
+  }
+
+  @Test
+  void tableCreateOverALegacyRowIsStillTreatedAsAnExistingTable() {
+    String tableId = "occupied_by_a_legacy_row";
+    TableDto created = openHouseInternalRepository.save(createDtoFor(tableId));
+    try {
+      HouseTable stored = houseTablesRepository.findEntityById(occupationKey(tableId)).get();
+      houseTablesRepository.save(stored.toBuilder().entityType(null).build());
+
+      TableDto update = created.toBuilder().tableVersion(created.getTableLocation()).build();
+      Assertions.assertDoesNotThrow(() -> openHouseInternalRepository.save(update));
+    } finally {
+      openHouseInternalRepository.deleteById(
+          TableDtoPrimaryKey.builder().databaseId(OCCUPATION_DB).tableId(tableId).build());
+    }
+  }
+
+  @Test
+  void tableCreateOverAnExistingTableStillRoutesToTheUpdatePath() {
+    String tableId = "occupied_by_a_table";
+    TableDto created = openHouseInternalRepository.save(createDtoFor(tableId));
+    try {
+      TableDto update = created.toBuilder().tableVersion(created.getTableLocation()).build();
+      Assertions.assertDoesNotThrow(() -> openHouseInternalRepository.save(update));
+      Assertions.assertEquals(
+          "TABLE",
+          houseTablesRepository.findEntityById(occupationKey(tableId)).get().getEntityType());
+    } finally {
+      openHouseInternalRepository.deleteById(
+          TableDtoPrimaryKey.builder().databaseId(OCCUPATION_DB).tableId(tableId).build());
+    }
+  }
+
+  @Test
+  void tableCreateOnAFreeNameStillAllocatesAndCreates() {
+    String tableId = "free_name_for_a_table";
+    Mockito.clearInvocations(storageSelector);
+    try {
+      TableDto created = openHouseInternalRepository.save(createDtoFor(tableId));
+
+      Assertions.assertNotNull(created.getTableLocation());
+      Mockito.verify(storageSelector, Mockito.atLeastOnce()).selectStorage(OCCUPATION_DB, tableId);
+      Assertions.assertEquals(
+          "TABLE",
+          houseTablesRepository.findEntityById(occupationKey(tableId)).get().getEntityType());
+    } finally {
+      openHouseInternalRepository.deleteById(
+          TableDtoPrimaryKey.builder().databaseId(OCCUPATION_DB).tableId(tableId).build());
     }
   }
 }

@@ -5,14 +5,20 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
 
+import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
+import com.linkedin.openhouse.common.exception.AlreadyExistsException;
+import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Optional;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NoSuchTableException;
@@ -140,6 +146,111 @@ public class OpenHouseInternalCatalogTest {
 
     verify(repo).deleteById(any(HouseTablePrimaryKey.class), eq(false));
     verify((SupportsPrefixOperations) fileIO, never()).deletePrefix(any());
+  }
+
+  /**
+   * Wired so the pre-fix path can actually run: without a working {@code newTableOps} the inherited
+   * {@code tableExists} would fail on its own wiring rather than on the answer it gives.
+   */
+  private static OpenHouseInternalCatalog catalogOver(HouseTableRepository repo, FileIO fileIO) {
+    OpenHouseInternalCatalog catalog = new FixedFileIOCatalog(fileIO);
+    catalog.houseTableRepository = repo;
+    catalog.fileIOManager = mock(FileIOManager.class);
+    catalog.storageSelector = mock(StorageSelector.class);
+    catalog.meterRegistry = new SimpleMeterRegistry();
+    return catalog;
+  }
+
+  private static FileIO recordingFileIO() {
+    return mock(FileIO.class, withSettings().extraInterfaces(SupportsPrefixOperations.class));
+  }
+
+  /**
+   * The typed table read filters out anything that is not a canonical table, as House Table does.
+   */
+  private static HouseTableRepository repoHolding(HouseTable occupant) {
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    Optional<HouseTable> row = Optional.ofNullable(occupant);
+    when(repo.findEntityById(any(HouseTablePrimaryKey.class))).thenReturn(row);
+    when(repo.findById(any(HouseTablePrimaryKey.class)))
+        .thenReturn(row.filter(o -> "TABLE".equals(o.getEntityType())));
+    return repo;
+  }
+
+  private static HouseTable occupantOfType(String entityType) {
+    return HouseTable.builder()
+        .databaseId(DB)
+        .tableId(TABLE)
+        .tableLocation(METADATA_LOCATION)
+        .entityType(entityType)
+        .build();
+  }
+
+  @Test
+  void tableExistsRejectsAViewOccupantBeforeAnyAllocation() {
+    HouseTableRepository repo = repoHolding(occupantOfType("VIEW"));
+    FileIO fileIO = recordingFileIO();
+    OpenHouseInternalCatalog catalog = catalogOver(repo, fileIO);
+
+    AlreadyExistsException thrown =
+        Assertions.assertThrows(
+            AlreadyExistsException.class, () -> catalog.tableExists(IDENTIFIER));
+
+    // Names the occupant, as the server's own guard does.
+    Assertions.assertTrue(thrown.getMessage().contains("VIEW"), thrown.getMessage());
+    Assertions.assertTrue(thrown.getMessage().contains(DB + "." + TABLE), thrown.getMessage());
+    verify(catalog.storageSelector, never()).selectStorage(any(), any());
+    verifyNoInteractions(catalog.fileIOManager);
+    verifyNoInteractions(fileIO);
+  }
+
+  @Test
+  void tableExistsFailsClosedOnANonCanonicalOccupantRatherThanCallingItATable() {
+    HouseTableRepository repo = repoHolding(occupantOfType("Table"));
+    OpenHouseInternalCatalog catalog = catalogOver(repo, recordingFileIO());
+
+    AlreadyExistsException thrown =
+        Assertions.assertThrows(
+            AlreadyExistsException.class, () -> catalog.tableExists(IDENTIFIER));
+
+    Assertions.assertTrue(thrown.getMessage().contains("Table"), thrown.getMessage());
+  }
+
+  /** Answered from the pointer row alone: an unreadable metadata.json is not this question. */
+  @Test
+  void tableExistsReportsACanonicalTableOccupantWithoutReadingItsMetadata() {
+    HouseTableRepository repo = repoHolding(occupantOfType("TABLE"));
+    FileIO fileIO = recordingFileIO();
+    OpenHouseInternalCatalog catalog = catalogOver(repo, fileIO);
+
+    Assertions.assertTrue(catalog.tableExists(IDENTIFIER));
+
+    verifyNoInteractions(fileIO);
+  }
+
+  /** The parse boundary resolves a legacy null to TABLE, so the catalog never sees a null. */
+  @Test
+  void tableExistsReportsAFreeNameAsAbsentAndLeavesTheRaceToTheServerGuard() {
+    OpenHouseInternalCatalog catalog = catalogOver(repoHolding(null), recordingFileIO());
+
+    Assertions.assertFalse(catalog.tableExists(IDENTIFIER));
+  }
+
+  @Test
+  void tableExistsReadsTheNeutralEndpointAndNotTheTableTypedOne() {
+    HouseTableRepository repo = repoHolding(occupantOfType("TABLE"));
+    OpenHouseInternalCatalog catalog = catalogOver(repo, recordingFileIO());
+
+    try {
+      catalog.tableExists(IDENTIFIER);
+    } catch (RuntimeException tolerated) {
+      // Which endpoint was read is the subject here, not what the read answered.
+    }
+
+    verify(repo, times(1))
+        .findEntityById(HouseTablePrimaryKey.builder().databaseId(DB).tableId(TABLE).build());
+    verify(repo, never()).findById(any(HouseTablePrimaryKey.class));
+    verify(repo, never()).findViewById(any(HouseTablePrimaryKey.class));
   }
 
   /** Test subclass that bypasses the real {@link OpenHouseInternalCatalog#resolveFileIO} wiring. */
