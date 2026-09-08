@@ -236,6 +236,20 @@ public class OpenHouseInternalCatalogTest {
     Assertions.assertFalse(catalog.tableExists(IDENTIFIER));
   }
 
+  /**
+   * An identifier this catalog does not own keeps the inherited answer, so metadata-table and
+   * invalid-identifier handling are untouched by the create-decision change.
+   */
+  @Test
+  void tableExistsKeepsTheInheritedAnswerForAnIdentifierThisCatalogDoesNotOwn() {
+    HouseTableRepository repo = repoHolding(occupantOfType("VIEW"));
+    OpenHouseInternalCatalog catalog = catalogOver(repo, recordingFileIO());
+
+    Assertions.assertFalse(catalog.tableExists(TableIdentifier.of(TABLE)));
+
+    verify(repo, never()).findEntityById(any(HouseTablePrimaryKey.class));
+  }
+
   @Test
   void tableExistsReadsTheNeutralEndpointAndNotTheTableTypedOne() {
     HouseTableRepository repo = repoHolding(occupantOfType("TABLE"));

@@ -29,6 +29,7 @@ import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import com.linkedin.openhouse.tables.repository.SchemaValidator;
 import com.linkedin.openhouse.tables.repository.impl.InternalRepositoryUtils;
+import com.linkedin.openhouse.tables.repository.impl.TablePolicyManager;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
@@ -67,6 +68,8 @@ public class RepositoryTest {
 
   @Autowired HouseTableRepository houseTablesRepository;
 
+  @Autowired HouseTablesH2Repository h2Repository;
+
   @SpyBean @Autowired OpenHouseInternalRepository openHouseInternalRepository;
 
   @Autowired StorageManager storageManager;
@@ -78,6 +81,8 @@ public class RepositoryTest {
   @SpyBean @Autowired PreservedKeyChecker preservedKeyChecker;
 
   @SpyBean @Autowired StorageSelector storageSelector;
+
+  @SpyBean @Autowired TablePolicyManager tablePolicyManager;
 
   @Test
   void extractReservedProps() {
@@ -1845,7 +1850,7 @@ public class RepositoryTest {
   void tableCreateOverAViewFailsCleanlyWithoutAllocatingOrWriting() {
     String tableId = "occupied_by_a_view";
     seedViewRow(tableId);
-    Mockito.clearInvocations(storageSelector);
+    Mockito.clearInvocations(storageSelector, tablePolicyManager);
     try {
       HouseTable before = houseTablesRepository.findEntityById(occupationKey(tableId)).get();
 
@@ -1858,6 +1863,8 @@ public class RepositoryTest {
           thrown.getMessage().contains(OCCUPATION_DB + "." + tableId), thrown.getMessage());
 
       // The whole point: it fails before the create branch does any work.
+      Mockito.verify(tablePolicyManager, Mockito.never())
+          .managePoliciesOnCreateIfNeeded(Mockito.any());
       Mockito.verify(storageSelector, Mockito.never()).selectStorage(OCCUPATION_DB, tableId);
 
       HouseTable after = houseTablesRepository.findEntityById(occupationKey(tableId)).get();
@@ -1878,6 +1885,9 @@ public class RepositoryTest {
     try {
       HouseTable stored = houseTablesRepository.findEntityById(occupationKey(tableId)).get();
       houseTablesRepository.save(stored.toBuilder().entityType(null).build());
+      Assertions.assertNull(
+          h2Repository.findByDatabaseIdAndTableId(OCCUPATION_DB, tableId).get().getEntityType(),
+          "the row must really be stored with no discriminator, not merely read back as one");
 
       TableDto update = created.toBuilder().tableVersion(created.getTableLocation()).build();
       Assertions.assertDoesNotThrow(() -> openHouseInternalRepository.save(update));
