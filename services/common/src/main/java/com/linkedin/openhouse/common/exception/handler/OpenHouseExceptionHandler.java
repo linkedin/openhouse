@@ -3,6 +3,7 @@ package com.linkedin.openhouse.common.exception.handler;
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.linkedin.openhouse.common.api.spec.ErrorResponseBody;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
+import com.linkedin.openhouse.common.exception.CodedApiException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
@@ -96,6 +97,30 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
             .message(resourceGatedByToggledOnFeatureException.getMessage())
             .stacktrace(getAbbreviatedStackTrace(resourceGatedByToggledOnFeatureException))
             .cause(getExceptionCause(resourceGatedByToggledOnFeatureException))
+            .build();
+    return buildResponseEntity(errorResponseBody);
+  }
+
+  /**
+   * Generic mapping for any exception that already knows its own HTTP status. The status comes from
+   * {@link CodedApiException#getHttpStatus()}; the body is the existing unchanged {@link
+   * ErrorResponseBody}, so no service-specific error taxonomy reaches the wire.
+   *
+   * <p>Spring selects the most specific handler, so declaring this does not change the mapping of
+   * any exception already handled above.
+   */
+  @Hidden
+  @ExceptionHandler(CodedApiException.class)
+  protected ResponseEntity<ErrorResponseBody> handleCodedApiException(
+      CodedApiException codedApiException) {
+    HttpStatus httpStatus = codedApiException.getHttpStatus();
+    ErrorResponseBody errorResponseBody =
+        ErrorResponseBody.builder()
+            .status(httpStatus)
+            .error(httpStatus.getReasonPhrase())
+            .message(codedApiException.getMessage())
+            .stacktrace(getAbbreviatedStackTrace(codedApiException))
+            .cause(getExceptionCause(codedApiException))
             .build();
     return buildResponseEntity(errorResponseBody);
   }
