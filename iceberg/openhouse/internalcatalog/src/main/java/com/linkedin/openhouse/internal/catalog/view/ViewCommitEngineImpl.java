@@ -191,15 +191,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
             .setProperties(properties)
             .build();
 
-    return writeThenPublish(
-        intent,
-        metadata,
-        fileIO,
-        intent.getStorageType(),
-        newMetadataLocation,
-        viewUuid,
-        Long.parseLong(now),
-        true);
+    return writeThenPublish(metadata, fileIO, intent.getStorageType(), newMetadataLocation, true);
   }
 
   /** Throws BadRequestException if a required create input is null or blank. */
@@ -291,15 +283,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
             .setProperties(properties)
             .build();
 
-    return writeThenPublish(
-        intent,
-        metadata,
-        fileIO,
-        row.getStorageType(),
-        newMetadataLocation,
-        current.uuid(),
-        Long.parseLong(now),
-        false);
+    return writeThenPublish(metadata, fileIO, row.getStorageType(), newMetadataLocation, false);
   }
 
   private boolean isUnchanged(
@@ -322,14 +306,12 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
   }
 
   private ViewCommitResult writeThenPublish(
-      ViewCommitIntent intent,
       ViewMetadata metadata,
       FileIO fileIO,
       String storageTypeValue,
       String newMetadataLocation,
-      String viewUuid,
-      long lastModifiedTime,
       boolean created) {
+    long lastModifiedTime = readLongProperty(metadata, "lastModifiedTime");
     viewMetadataCodec.write(metadata, fileIO.newOutputFile(newMetadataLocation));
 
     HouseTable pointer = buildPointerRow(metadata, storageTypeValue);
@@ -341,13 +323,13 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
       // A create lost a name; a replace lost a commit.
       if (created) {
         throw new AlreadyExistsException(
-            e, "View already exists: %s.%s", intent.getDatabaseId(), intent.getViewId());
+            e, "View already exists: %s.%s", pointer.getDatabaseId(), pointer.getTableId());
       }
       throw new CommitFailedException(
           e,
           "Cannot replace view %s.%s: it was modified concurrently",
-          intent.getDatabaseId(),
-          intent.getViewId());
+          pointer.getDatabaseId(),
+          pointer.getTableId());
     } catch (HouseTableRepositoryStateUnknownException e) {
       // Not retried, re-read or cleaned up: the write may have landed.
       throw new CommitStateUnknownException(e);
@@ -355,7 +337,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
 
     return ViewCommitResult.builder()
         .pointer(toViewPointer(saved))
-        .viewUuid(viewUuid)
+        .viewUuid(metadata.uuid())
         .lastModifiedTime(lastModifiedTime)
         .created(created)
         .metadataChanged(true)
