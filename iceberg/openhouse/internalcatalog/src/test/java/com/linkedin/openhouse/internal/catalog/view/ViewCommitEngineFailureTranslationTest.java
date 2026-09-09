@@ -8,7 +8,7 @@ import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCa
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
-import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
+import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitOperation;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
@@ -48,7 +48,7 @@ public class ViewCommitEngineFailureTranslationTest {
 
     Assertions.assertThrows(
         CommitStateUnknownException.class,
-        () -> harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root)));
+        () -> harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null)));
 
     Assertions.assertEquals(1, harness.getHouseTableRepository().getSaveViewCalls());
     assertNothingHappenedAfterThePublishAttempt();
@@ -60,9 +60,9 @@ public class ViewCommitEngineFailureTranslationTest {
 
   @Test
   void ambiguousPublishOnReplaceBecomesCommitStateUnknownAndLeavesThePointerAlone() {
-    ViewCommitResult created =
-        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root));
+    harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
     HouseTable pointerBefore = harness.getHouseTableRepository().peek(DB, VIEW).get();
+    HouseTable base = captureBase();
     int savesBefore = harness.getHouseTableRepository().getSaveViewCalls();
     int filesBefore = harness.metadataFiles().size();
     harness.getHouseTableRepository().clearEvents();
@@ -70,7 +70,7 @@ public class ViewCommitEngineFailureTranslationTest {
 
     Assertions.assertThrows(
         CommitStateUnknownException.class,
-        () -> harness.getViewCommitEngine().commit(changedReplaceOf(created)));
+        () -> harness.getViewCommitEngine().commit(changedReplaceOf(base)));
 
     Assertions.assertEquals(
         savesBefore + 1,
@@ -116,7 +116,7 @@ public class ViewCommitEngineFailureTranslationTest {
     AlreadyExistsException thrown =
         Assertions.assertThrows(
             AlreadyExistsException.class,
-            () -> harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root)));
+            () -> harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null)));
 
     Assertions.assertEquals("View already exists: " + DB + "." + VIEW, thrown.getMessage());
     Assertions.assertSame(injectedConflict, thrown.getCause());
@@ -126,9 +126,9 @@ public class ViewCommitEngineFailureTranslationTest {
 
   @Test
   void conflictOnReplaceBecomesCommitFailed() {
-    ViewCommitResult created =
-        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root));
+    harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
     HouseTable pointerBefore = harness.getHouseTableRepository().peek(DB, VIEW).get();
+    HouseTable base = captureBase();
     harness.getHouseTableRepository().clearEvents();
     HouseTableConcurrentUpdateException injectedConflict = conflict();
     harness.getHouseTableRepository().failNextSaveViewWith(injectedConflict);
@@ -136,7 +136,7 @@ public class ViewCommitEngineFailureTranslationTest {
     CommitFailedException thrown =
         Assertions.assertThrows(
             CommitFailedException.class,
-            () -> harness.getViewCommitEngine().commit(changedReplaceOf(created)));
+            () -> harness.getViewCommitEngine().commit(changedReplaceOf(base)));
 
     Assertions.assertEquals(
         "Cannot replace view " + DB + "." + VIEW + ": it was modified concurrently",
@@ -156,7 +156,7 @@ public class ViewCommitEngineFailureTranslationTest {
 
     Assertions.assertThrows(
         HouseTableCallerException.class,
-        () -> harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root)));
+        () -> harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null)));
 
     Assertions.assertEquals(1, harness.getHouseTableRepository().getSaveViewCalls());
   }
@@ -175,20 +175,31 @@ public class ViewCommitEngineFailureTranslationTest {
         "an ambiguous delete must not be retried");
   }
 
-  /** A transport failure is not evidence the name is free. */
+  /**
+   * A commit works from the captured snapshot, so it never reaches the neutral reader: an armed
+   * read failure is left un-consumed. Upstream, a failed lookup propagates to the caller instead.
+   */
   @Test
-  void transportFailureOnTheOccupancyReadNeverReadsAsAFreeName() {
+  void aCommitNeverConsumesTheNeutralReaderBecauseItWorksFromTheCapturedSnapshot() {
+    harness
+        .getHouseTableRepository()
+        .seed(ViewTestFixtures.viewRow("/existing/00001-a.metadata.json"));
+    HouseTable occupant = captureBase();
+    // Armed AFTER the capture: if the commit made a neutral read, it would trip this.
     harness.getHouseTableRepository().failNextFindEntityWith(unknownState());
 
-    // It must propagate; anything else invents an answer about occupancy.
     Assertions.assertThrows(
-        HouseTableRepositoryStateUnknownException.class,
-        () -> harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root)));
+        AlreadyExistsException.class,
+        () -> harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, occupant)));
 
     Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
     Assertions.assertTrue(
-        harness.metadataFiles().isEmpty(), "no candidate file may be written after a failed probe");
-    Assertions.assertFalse(harness.getHouseTableRepository().peek(DB, VIEW).isPresent());
+        harness.metadataFiles().isEmpty(), "a classified occupant writes no candidate");
+
+    // The armed failure is still pending, proving the commit made no neutral read of its own.
+    Assertions.assertThrows(
+        HouseTableRepositoryStateUnknownException.class,
+        () -> harness.getHouseTableRepository().findEntityById(ViewTestFixtures.key(DB, VIEW)));
   }
 
   /** Silence after the single publish: a re-read would guess at the outcome. */
@@ -207,13 +218,20 @@ public class ViewCommitEngineFailureTranslationTest {
         "no House Table interaction may follow the single publish attempt: " + events);
   }
 
-  private ViewCommitIntent changedReplaceOf(ViewCommitResult created) {
-    return ViewTestFixtures.baseIntent(root)
+  private ViewCommitIntent changedReplaceOf(HouseTable base) {
+    return ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
         .schema(ViewTestFixtures.schemaV2())
         .representations(
             Collections.singletonList(
                 ViewTestFixtures.sql(ViewTestFixtures.SQL_V2, ViewTestFixtures.SPARK_DIALECT)))
-        .baseViewVersion(created.getPointer().getMetadataLocation())
         .build();
+  }
+
+  /** The upstream neutral lookup a caller performs once, before invoking the engine. */
+  private HouseTable captureBase() {
+    return harness
+        .getHouseTableRepository()
+        .findEntityById(ViewTestFixtures.key(DB, VIEW))
+        .orElse(null);
   }
 }

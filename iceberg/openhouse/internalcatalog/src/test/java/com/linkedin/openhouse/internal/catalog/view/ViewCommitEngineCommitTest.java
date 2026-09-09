@@ -14,6 +14,7 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.view.model.LoadedView;
 import com.linkedin.openhouse.internal.catalog.view.model.SqlViewRepresentationIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
+import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitOperation;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -34,6 +35,7 @@ import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.NoSuchViewException;
+import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.types.Types;
@@ -63,12 +65,14 @@ public class ViewCommitEngineCommitTest {
     harness
         .getHouseTableRepository()
         .seed(ViewTestFixtures.viewRow("/existing/00001-a.metadata.json"));
+    HouseTable occupant = captureNeutral();
+    int readsBeforeCommit = harness.readCalls();
 
     Assertions.assertThrows(
         AlreadyExistsException.class,
-        () -> harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root)));
+        () -> harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, occupant)));
 
-    assertCreateCollisionLeftNoTrace();
+    assertCreateCollisionLeftNoTrace(readsBeforeCommit);
   }
 
   @Test
@@ -76,16 +80,19 @@ public class ViewCommitEngineCommitTest {
     harness
         .getHouseTableRepository()
         .seed(ViewTestFixtures.tableRow("/existing/00001-a.metadata.json"));
+    HouseTable occupant = captureNeutral();
+    int readsBeforeCommit = harness.readCalls();
 
     ViewNameOccupiedException thrown =
         Assertions.assertThrows(
             ViewNameOccupiedException.class,
-            () -> harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root)));
+            () ->
+                harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, occupant)));
 
     Assertions.assertEquals(ViewTestFixtures.ENTITY_TYPE_TABLE, thrown.getOccupantEntityType());
     Assertions.assertEquals(DB, thrown.getDatabaseId());
     Assertions.assertEquals(VIEW, thrown.getViewId());
-    assertCreateCollisionLeftNoTrace();
+    assertCreateCollisionLeftNoTrace(readsBeforeCommit);
   }
 
   /** A legacy null already reads as TABLE, so this is a clean collision, not corruption. */
@@ -94,14 +101,22 @@ public class ViewCommitEngineCommitTest {
     harness
         .getHouseTableRepository()
         .seed(ViewTestFixtures.legacyRow("/existing/00001-a.metadata.json"));
+    // The hydrated neutral read, not the raw legacy null the caller must never pass.
+    HouseTable occupant = captureNeutral();
+    Assertions.assertEquals(
+        ViewTestFixtures.ENTITY_TYPE_TABLE,
+        occupant.getEntityType(),
+        "the caller captures the hydrated TABLE, so the engine never sees a null discriminator");
+    int readsBeforeCommit = harness.readCalls();
 
     ViewNameOccupiedException thrown =
         Assertions.assertThrows(
             ViewNameOccupiedException.class,
-            () -> harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root)));
+            () ->
+                harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, occupant)));
 
     Assertions.assertEquals(ViewTestFixtures.ENTITY_TYPE_TABLE, thrown.getOccupantEntityType());
-    assertCreateCollisionLeftNoTrace();
+    assertCreateCollisionLeftNoTrace(readsBeforeCommit);
   }
 
   @Test
@@ -111,14 +126,17 @@ public class ViewCommitEngineCommitTest {
         .seed(
             ViewTestFixtures.row(
                 ViewTestFixtures.ENTITY_TYPE_UNKNOWN, "/existing/00001-a.metadata.json"));
+    HouseTable occupant = captureNeutral();
+    int readsBeforeCommit = harness.readCalls();
 
     ViewNameOccupiedException thrown =
         Assertions.assertThrows(
             ViewNameOccupiedException.class,
-            () -> harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root)));
+            () ->
+                harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, occupant)));
 
     Assertions.assertEquals(ViewTestFixtures.ENTITY_TYPE_UNKNOWN, thrown.getOccupantEntityType());
-    assertCreateCollisionLeftNoTrace();
+    assertCreateCollisionLeftNoTrace(readsBeforeCommit);
   }
 
   @Test
@@ -126,25 +144,31 @@ public class ViewCommitEngineCommitTest {
     harness
         .getHouseTableRepository()
         .seed(ViewTestFixtures.row("view", "/existing/00001-a.metadata.json"));
+    HouseTable occupant = captureNeutral();
+    int readsBeforeCommit = harness.readCalls();
 
     ViewNameOccupiedException thrown =
         Assertions.assertThrows(
             ViewNameOccupiedException.class,
-            () -> harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root)));
+            () ->
+                harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, occupant)));
 
     Assertions.assertEquals("view", thrown.getOccupantEntityType());
-    assertCreateCollisionLeftNoTrace();
+    assertCreateCollisionLeftNoTrace(readsBeforeCommit);
   }
 
   @Test
   void createOnAFreeNameProceedsAndPublishesExactlyOnce() {
     ViewCommitResult result =
-        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root));
+        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
 
     Assertions.assertTrue(result.isCreated());
     Assertions.assertTrue(result.isMetadataChanged());
     Assertions.assertEquals(1, harness.getHouseTableRepository().getSaveViewCalls());
-    Assertions.assertEquals(1, harness.getHouseTableRepository().getFindEntityByIdCalls());
+    Assertions.assertEquals(
+        0,
+        harness.readCalls(),
+        "a create classifies the supplied absence and never reads House Table");
     Assertions.assertEquals(1, harness.metadataFiles().size());
     Optional<HouseTable> pointer = harness.getHouseTableRepository().peek(DB, VIEW);
     Assertions.assertTrue(pointer.isPresent());
@@ -152,9 +176,21 @@ public class ViewCommitEngineCommitTest {
         result.getPointer().getMetadataLocation(), pointer.get().getTableLocation());
   }
 
-  /** An occupied name costs one neutral read: no FileIO, no file, no publish. */
-  private void assertCreateCollisionLeftNoTrace() {
+  /** The upstream lookup the future caller performs once, before the engine is invoked. */
+  private HouseTable captureNeutral() {
+    return harness
+        .getHouseTableRepository()
+        .findEntityById(ViewTestFixtures.key(DB, VIEW))
+        .orElse(null);
+  }
+
+  /** A supplied occupant is classified in memory: no engine read, FileIO, file, or publish. */
+  private void assertCreateCollisionLeftNoTrace(int readsBeforeCommit) {
     Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
+    Assertions.assertEquals(
+        readsBeforeCommit,
+        harness.readCalls(),
+        "classifying a supplied occupant must not read House Table again");
     verify(harness.getCodec(), never()).write(any(ViewMetadata.class), any(OutputFile.class));
     verify(harness.getFileIOManager(), never()).getFileIO(any(StorageType.Type.class));
     Assertions.assertTrue(harness.metadataFiles().isEmpty());
@@ -163,7 +199,7 @@ public class ViewCommitEngineCommitTest {
   @Test
   void createUsesTheCallerSuppliedIdentityLocationAndStorage() {
     ViewCommitResult created =
-        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root));
+        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
     ViewMetadata metadata = harness.readMetadata(created.getPointer().getMetadataLocation());
 
     Assertions.assertEquals(ViewTestFixtures.VIEW_UUID, created.getViewUuid());
@@ -197,7 +233,7 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root)
+                ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
                     .storageType(ViewCommitEngineHarness.ALTERNATE_STORAGE_TYPE)
                     .build());
 
@@ -223,23 +259,23 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root)
+                ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
                     .storageType(ViewCommitEngineHarness.ALTERNATE_STORAGE_TYPE)
                     .build());
+    HouseTable base = captureNeutral();
     Mockito.clearInvocations(harness.getFileIOManager());
 
     ViewCommitResult replaced =
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root)
+                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
                     .schema(ViewTestFixtures.schemaV2())
                     .representations(
                         Collections.singletonList(
                             ViewTestFixtures.sql(
                                 ViewTestFixtures.SQL_V2, ViewTestFixtures.SPARK_DIALECT)))
                     .storageType("no-such-storage")
-                    .baseViewVersion(created.getPointer().getMetadataLocation())
                     .build());
 
     verify(harness.getFileIOManager(), times(1)).getFileIO(StorageType.HDFS);
@@ -257,8 +293,8 @@ public class ViewCommitEngineCommitTest {
   @Test
   void eachMetadataFileIsVersionPrefixedAndCarriesItsOwnRandomUuid() {
     ViewCommitResult created =
-        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root));
-    ViewCommitResult replaced = harness.getViewCommitEngine().commit(changedReplaceOf(created));
+        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
+    ViewCommitResult replaced = harness.getViewCommitEngine().commit(changedReplaceOf(captureNeutral()));
 
     String firstFile =
         Paths.get(created.getPointer().getMetadataLocation()).getFileName().toString();
@@ -297,8 +333,9 @@ public class ViewCommitEngineCommitTest {
   @Test
   void replaceIgnoresConflictingCreateOnlyPhysicalFieldsAndPreservesThePublishedOnes() {
     ViewCommitResult created =
-        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root));
+        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
     ViewMetadata createdMetadata = harness.readMetadata(created.getPointer().getMetadataLocation());
+    HouseTable base = captureNeutral();
 
     String hostileLocation =
         ViewTestFixtures.allocatedViewLocation(root, DB, VIEW, ViewTestFixtures.SECOND_VIEW_UUID);
@@ -306,7 +343,7 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root)
+                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
                     .schema(ViewTestFixtures.schemaV2())
                     .representations(
                         Collections.singletonList(
@@ -315,7 +352,6 @@ public class ViewCommitEngineCommitTest {
                     .viewUuid(ViewTestFixtures.SECOND_VIEW_UUID)
                     .viewLocation(hostileLocation)
                     .storageType("no-such-storage")
-                    .baseViewVersion(created.getPointer().getMetadataLocation())
                     .build());
     ViewMetadata replacedMetadata =
         harness.readMetadata(replaced.getPointer().getMetadataLocation());
@@ -349,7 +385,7 @@ public class ViewCommitEngineCommitTest {
         () ->
             harness
                 .getViewCommitEngine()
-                .commit(ViewTestFixtures.baseIntent(root).viewProperties(hostile).build()));
+                .commit(ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null).viewProperties(hostile).build()));
 
     Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
     verify(harness.getCodec(), never()).write(any(ViewMetadata.class), any(OutputFile.class));
@@ -373,7 +409,8 @@ public class ViewCommitEngineCommitTest {
 
   private void assertCreateRejectsMissing(
       UnaryOperator<ViewCommitIntent.ViewCommitIntentBuilder> mutation, String field) {
-    ViewCommitIntent intent = mutation.apply(ViewTestFixtures.baseIntent(root)).build();
+    ViewCommitIntent intent =
+        mutation.apply(ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)).build();
 
     BadRequestException thrown =
         Assertions.assertThrows(
@@ -391,30 +428,31 @@ public class ViewCommitEngineCommitTest {
   @Test
   void versionIdsAndHistoryAreAssignedByIcebergAcrossMateriallyDifferentDefinitions() {
     ViewCommitResult created =
-        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root));
+        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
     ViewMetadata afterCreate = harness.readMetadata(created.getPointer().getMetadataLocation());
     Assertions.assertEquals(1, afterCreate.versions().size());
     Assertions.assertEquals(1, afterCreate.history().size());
     Assertions.assertEquals(
         afterCreate.currentVersionId(), afterCreate.history().get(0).versionId());
 
-    ViewCommitResult second = harness.getViewCommitEngine().commit(changedReplaceOf(created));
+    ViewCommitResult second =
+        harness.getViewCommitEngine().commit(changedReplaceOf(captureNeutral()));
     ViewMetadata afterSecond = harness.readMetadata(second.getPointer().getMetadataLocation());
     Assertions.assertEquals(2, afterSecond.versions().size());
     Assertions.assertEquals(2, afterSecond.history().size());
     Assertions.assertNotEquals(afterCreate.currentVersionId(), afterSecond.currentVersionId());
 
+    HouseTable secondBase = captureNeutral();
     ViewCommitResult third =
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root)
+                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, secondBase)
                     .schema(ViewTestFixtures.schemaV2())
                     .representations(
                         Collections.singletonList(
                             ViewTestFixtures.sql(
                                 ViewTestFixtures.SQL_V3, ViewTestFixtures.SPARK_DIALECT)))
-                    .baseViewVersion(second.getPointer().getMetadataLocation())
                     .build());
     ViewMetadata afterThird = harness.readMetadata(third.getPointer().getMetadataLocation());
     Assertions.assertEquals(3, afterThird.versions().size());
@@ -433,18 +471,20 @@ public class ViewCommitEngineCommitTest {
   @Test
   void identicalDefinitionReplaceIsANoOpThatWritesNothing() {
     ViewCommitResult created =
-        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root));
+        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
     ViewMetadata afterCreate = harness.readMetadata(created.getPointer().getMetadataLocation());
     int filesAfterCreate = harness.metadataFiles().size();
     int savesAfterCreate = harness.getHouseTableRepository().getSaveViewCalls();
     int writesAfterCreate = harness.codecWrites();
     HouseTable pointerAfterCreate = harness.getHouseTableRepository().peek(DB, VIEW).get();
 
+    HouseTable base = captureNeutral();
+    int readsAfterCapture = harness.readCalls();
+    List<String> before = harness.events();
+    int eventBaseline = before.size();
+
     ViewCommitResult replayed =
-        harness
-            .getViewCommitEngine()
-            .commit(
-                ViewTestFixtures.replaceIntent(root, created.getPointer().getMetadataLocation()));
+        harness.getViewCommitEngine().commit(ViewTestFixtures.replaceIntent(root, base));
 
     Assertions.assertFalse(replayed.isCreated());
     Assertions.assertFalse(replayed.isMetadataChanged());
@@ -459,6 +499,26 @@ public class ViewCommitEngineCommitTest {
         harness.codecWrites(),
         "a no-op must not ask the codec to write at all; an unchanged file count would also pass"
             + " if the candidate simply overwrote its predecessor");
+
+    // The captured file is read once to compare; nothing else is touched.
+    List<String> all = harness.events();
+    List<String> noOpEvents = all.subList(eventBaseline, all.size());
+    Assertions.assertEquals(
+        readsAfterCapture,
+        harness.readCalls(),
+        "a no-op classifies the supplied snapshot and never reads House Table: " + noOpEvents);
+    Assertions.assertEquals(
+        1,
+        countStartingWith(noOpEvents, RecordingViewMetadataCodec.READ),
+        "a no-op reads the captured metadata file exactly once: " + noOpEvents);
+    Assertions.assertEquals(
+        0,
+        countStartingWith(noOpEvents, RecordingViewMetadataCodec.WRITE),
+        "a no-op writes no candidate: " + noOpEvents);
+    Assertions.assertEquals(
+        0,
+        countStartingWith(noOpEvents, InMemoryViewHouseTableRepository.SAVE_VIEW),
+        "a no-op publishes nothing: " + noOpEvents);
 
     HouseTable pointerAfterReplay = harness.getHouseTableRepository().peek(DB, VIEW).get();
     Assertions.assertEquals(
@@ -478,13 +538,17 @@ public class ViewCommitEngineCommitTest {
     ViewCommitResult created =
         harness
             .getViewCommitEngine()
-            .commit(ViewTestFixtures.baseIntent(root).defaultNamespace(null).build());
+            .commit(
+                ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
+                    .defaultNamespace(null)
+                    .build());
     ViewMetadata createdMetadata = harness.readMetadata(created.getPointer().getMetadataLocation());
     Assertions.assertEquals(
         Namespace.empty(),
         createdMetadata.currentVersion().defaultNamespace(),
         "a null namespace is persisted as the empty namespace");
 
+    HouseTable base = captureNeutral();
     int filesAfterCreate = harness.metadataFiles().size();
     int savesAfterCreate = harness.getHouseTableRepository().getSaveViewCalls();
     int writesAfterCreate = harness.codecWrites();
@@ -493,9 +557,8 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root)
+                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
                     .defaultNamespace(null)
-                    .baseViewVersion(created.getPointer().getMetadataLocation())
                     .build());
     Assertions.assertFalse(
         replayedWithNull.isMetadataChanged(), "replaying a null namespace is a no-op");
@@ -504,9 +567,8 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root)
+                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
                     .defaultNamespace(Namespace.empty())
-                    .baseViewVersion(created.getPointer().getMetadataLocation())
                     .build());
     Assertions.assertFalse(
         replayedWithEmpty.isMetadataChanged(),
@@ -527,7 +589,11 @@ public class ViewCommitEngineCommitTest {
     ViewCommitResult created =
         harness
             .getViewCommitEngine()
-            .commit(ViewTestFixtures.baseIntent(root).viewProperties(initial).build());
+            .commit(
+                ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
+                    .viewProperties(initial)
+                    .build());
+    HouseTable base = captureNeutral();
     int filesAfterCreate = harness.metadataFiles().size();
     int savesAfterCreate = harness.getHouseTableRepository().getSaveViewCalls();
     int writesAfterCreate = harness.codecWrites();
@@ -536,9 +602,8 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root)
+                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
                     .viewProperties(null)
-                    .baseViewVersion(created.getPointer().getMetadataLocation())
                     .build());
     Assertions.assertFalse(
         replayedWithNull.isMetadataChanged(),
@@ -548,9 +613,8 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root)
+                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
                     .viewProperties(Collections.emptyMap())
-                    .baseViewVersion(created.getPointer().getMetadataLocation())
                     .build());
     Assertions.assertFalse(
         replayedWithEmpty.isMetadataChanged(), "an empty map means exactly what null meant");
@@ -568,10 +632,13 @@ public class ViewCommitEngineCommitTest {
 
   @Test
   void movingFromAnEmptyNamespaceToANonEmptyOneCommits() {
-    ViewCommitResult created =
-        harness
-            .getViewCommitEngine()
-            .commit(ViewTestFixtures.baseIntent(root).defaultNamespace(null).build());
+    harness
+        .getViewCommitEngine()
+        .commit(
+            ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
+                .defaultNamespace(null)
+                .build());
+    HouseTable base = captureNeutral();
     int filesAfterCreate = harness.metadataFiles().size();
     int savesAfterCreate = harness.getHouseTableRepository().getSaveViewCalls();
 
@@ -579,9 +646,8 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root)
+                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
                     .defaultNamespace(Namespace.of(DB))
-                    .baseViewVersion(created.getPointer().getMetadataLocation())
                     .build());
 
     Assertions.assertTrue(updated.isMetadataChanged());
@@ -600,16 +666,16 @@ public class ViewCommitEngineCommitTest {
   @Test
   void propertyOnlyReplaceStillWritesAndPublishes() {
     ViewCommitResult created =
-        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root));
+        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
+    HouseTable base = captureNeutral();
     int savesAfterCreate = harness.getHouseTableRepository().getSaveViewCalls();
 
     ViewCommitResult updated =
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root)
+                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
                     .viewProperties(ViewTestFixtures.userProperties("a", "2"))
-                    .baseViewVersion(created.getPointer().getMetadataLocation())
                     .build());
 
     Assertions.assertFalse(updated.isCreated());
@@ -629,18 +695,20 @@ public class ViewCommitEngineCommitTest {
     Map<String, String> initial = new LinkedHashMap<>();
     initial.put("a", "1");
     initial.put("keep", "yes");
-    ViewCommitResult created =
-        harness
-            .getViewCommitEngine()
-            .commit(ViewTestFixtures.baseIntent(root).viewProperties(initial).build());
+    harness
+        .getViewCommitEngine()
+        .commit(
+            ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
+                .viewProperties(initial)
+                .build());
+    HouseTable base = captureNeutral();
 
     ViewCommitResult updated =
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root)
+                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
                     .viewProperties(ViewTestFixtures.userProperties("a", "2"))
-                    .baseViewVersion(created.getPointer().getMetadataLocation())
                     .build());
 
     Map<String, String> properties =
@@ -654,35 +722,38 @@ public class ViewCommitEngineCommitTest {
   private static final List<SqlViewRepresentationIntent> BOTH_DIALECTS_V1 =
       ViewTestFixtures.sparkAndTrino(ViewTestFixtures.SQL_V1);
 
-  private ViewCommitIntent changedReplaceOf(ViewCommitResult created) {
-    return ViewTestFixtures.baseIntent(root)
+  /** A materially changed replacement built on an already-captured base snapshot. */
+  private ViewCommitIntent changedReplaceOf(HouseTable base) {
+    return ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
         .schema(ViewTestFixtures.schemaV2())
         .representations(
             Collections.singletonList(
                 ViewTestFixtures.sql(ViewTestFixtures.SQL_V2, ViewTestFixtures.SPARK_DIALECT)))
-        .baseViewVersion(created.getPointer().getMetadataLocation())
         .build();
   }
 
   private ViewCommitResult createWithBothDialects() {
     return harness
         .getViewCommitEngine()
-        .commit(ViewTestFixtures.baseIntent(root).representations(BOTH_DIALECTS_V1).build());
+        .commit(
+            ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
+                .representations(BOTH_DIALECTS_V1)
+                .build());
   }
 
   /** Asserts the NEW value persisted: a file appearing would also pass a stale write. */
   private void assertStructuralChangeIsNotANoOp(
       UnaryOperator<ViewCommitIntent.ViewCommitIntentBuilder> mutation, String changedField) {
     ViewCommitResult created = createWithBothDialects();
+    HouseTable base = captureNeutral();
     int savesAfterCreate = harness.getHouseTableRepository().getSaveViewCalls();
     int filesAfterCreate = harness.metadataFiles().size();
 
     ViewCommitIntent intent =
         mutation
             .apply(
-                ViewTestFixtures.baseIntent(root)
-                    .representations(BOTH_DIALECTS_V1)
-                    .baseViewVersion(created.getPointer().getMetadataLocation()))
+                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+                    .representations(BOTH_DIALECTS_V1))
             .build();
 
     ViewCommitResult result = harness.getViewCommitEngine().commit(intent);
@@ -858,10 +929,13 @@ public class ViewCommitEngineCommitTest {
         withIdentifier.asStruct(),
         "the two schemas must differ only in identifier fields, or this test proves nothing");
 
-    ViewCommitResult created =
-        harness
-            .getViewCommitEngine()
-            .commit(ViewTestFixtures.baseIntent(root).schema(withoutIdentifier).build());
+    harness
+        .getViewCommitEngine()
+        .commit(
+            ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
+                .schema(withoutIdentifier)
+                .build());
+    HouseTable base = captureNeutral();
     int savesAfterCreate = harness.getHouseTableRepository().getSaveViewCalls();
     int filesAfterCreate = harness.metadataFiles().size();
 
@@ -869,9 +943,8 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root)
+                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
                     .schema(withIdentifier)
-                    .baseViewVersion(created.getPointer().getMetadataLocation())
                     .build());
 
     Assertions.assertTrue(updated.isMetadataChanged(), "an identifier-field change is a change");
@@ -890,18 +963,18 @@ public class ViewCommitEngineCommitTest {
   @Test
   void aDuplicateDialectSubmissionIsRejectedRatherThanTreatedAsANoOp() {
     ViewCommitResult created =
-        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root));
+        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
+    HouseTable base = captureNeutral();
     int savesAfterCreate = harness.getHouseTableRepository().getSaveViewCalls();
     int filesAfterCreate = harness.metadataFiles().size();
 
     // The last entry alone equals the stored definition, so a lossy compare sees no change.
     ViewCommitIntent duplicated =
-        ViewTestFixtures.baseIntent(root)
+        ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
             .representations(
                 Arrays.asList(
                     ViewTestFixtures.sql(ViewTestFixtures.SQL_V2, ViewTestFixtures.SPARK_DIALECT),
                     ViewTestFixtures.sql(ViewTestFixtures.SQL_V1, ViewTestFixtures.SPARK_DIALECT)))
-            .baseViewVersion(created.getPointer().getMetadataLocation())
             .build();
 
     Assertions.assertThrows(
@@ -922,7 +995,7 @@ public class ViewCommitEngineCommitTest {
             harness
                 .getViewCommitEngine()
                 .commit(
-                    ViewTestFixtures.baseIntent(root)
+                    ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
                         .representations(
                             Arrays.asList(
                                 ViewTestFixtures.sql(
@@ -950,10 +1023,10 @@ public class ViewCommitEngineCommitTest {
           }
         };
 
-    ViewCommitResult created = pinnedClock.commit(ViewTestFixtures.createIntent(root));
+    ViewCommitResult created = pinnedClock.commit(ViewTestFixtures.createIntent(root, null));
     Assertions.assertEquals(fixedNow, created.getLastModifiedTime());
 
-    ViewCommitResult updated = pinnedClock.commit(changedReplaceOf(created));
+    ViewCommitResult updated = pinnedClock.commit(changedReplaceOf(captureNeutral()));
 
     Assertions.assertTrue(updated.isMetadataChanged());
     Assertions.assertTrue(
@@ -984,6 +1057,7 @@ public class ViewCommitEngineCommitTest {
   @Test
   void replaceDroppingAPreviouslyStoredDialectIsRejected() {
     ViewCommitResult created = createWithBothDialects();
+    HouseTable base = captureNeutral();
 
     ViewMetadata createdMetadata = harness.readMetadata(created.getPointer().getMetadataLocation());
     Assertions.assertEquals(
@@ -998,12 +1072,11 @@ public class ViewCommitEngineCommitTest {
                 harness
                     .getViewCommitEngine()
                     .commit(
-                        ViewTestFixtures.baseIntent(root)
+                        ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
                             .representations(
                                 Collections.singletonList(
                                     ViewTestFixtures.sql(
                                         ViewTestFixtures.SQL_V2, ViewTestFixtures.SPARK_DIALECT)))
-                            .baseViewVersion(created.getPointer().getMetadataLocation())
                             .build()));
     // Pinned, so an unrelated engine ISE cannot satisfy this test.
     Assertions.assertTrue(
@@ -1030,7 +1103,7 @@ public class ViewCommitEngineCommitTest {
         () ->
             harness
                 .getViewCommitEngine()
-                .commit(ViewTestFixtures.baseIntent(root).viewProperties(hostile).build()));
+                .commit(ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null).viewProperties(hostile).build()));
 
     Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
     Assertions.assertTrue(harness.metadataFiles().isEmpty());
@@ -1043,7 +1116,7 @@ public class ViewCommitEngineCommitTest {
   @Test
   void createStampsInitialVersionAndReplaceStampsThePriorExactPath() {
     ViewCommitResult created =
-        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root));
+        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
     ViewMetadata createdMetadata = harness.readMetadata(created.getPointer().getMetadataLocation());
     Map<String, String> createdProperties = createdMetadata.properties();
 
@@ -1100,7 +1173,7 @@ public class ViewCommitEngineCommitTest {
         created.getLastModifiedTime(),
         "the returned last-modified time must be the one persisted in metadata");
 
-    ViewCommitResult replaced = harness.getViewCommitEngine().commit(changedReplaceOf(created));
+    ViewCommitResult replaced = harness.getViewCommitEngine().commit(changedReplaceOf(captureNeutral()));
     Map<String, String> replacedProperties =
         harness.readMetadata(replaced.getPointer().getMetadataLocation()).properties();
 
@@ -1122,7 +1195,7 @@ public class ViewCommitEngineCommitTest {
   @Test
   void publishedPointerRowCarriesTheNewPathAndTheCapturedBaseAsExpectedVersion() {
     ViewCommitResult created =
-        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root));
+        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
 
     HouseTable afterCreate = harness.getHouseTableRepository().peek(DB, VIEW).get();
     Assertions.assertEquals(
@@ -1135,10 +1208,12 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertEquals(DB, afterCreate.getDatabaseId());
     Assertions.assertEquals(VIEW, afterCreate.getTableId());
 
-    String capturedBase = created.getPointer().getMetadataLocation();
+    HouseTable base = captureNeutral();
+    String capturedBase = base.getTableLocation();
+    int readsBeforeCommit = harness.readCalls();
     harness.clearEvents();
 
-    ViewCommitResult replaced = harness.getViewCommitEngine().commit(changedReplaceOf(created));
+    ViewCommitResult replaced = harness.getViewCommitEngine().commit(changedReplaceOf(base));
 
     HouseTable afterReplace = harness.getHouseTableRepository().peek(DB, VIEW).get();
     Assertions.assertEquals(
@@ -1146,30 +1221,48 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertEquals(
         capturedBase,
         afterReplace.getTableVersion(),
-        "a replace must send back exactly the path the caller captured");
+        "a replace must send back exactly the captured tableLocation, not the row's own"
+            + " tableVersion ("
+            + afterCreate.getTableVersion()
+            + ")");
+
+    Assertions.assertEquals(
+        readsBeforeCommit,
+        harness.readCalls(),
+        "a replace works from the captured snapshot and never reads House Table");
 
     List<String> events = harness.events();
     Assertions.assertEquals(
+        0,
+        countStartingWith(events, InMemoryViewHouseTableRepository.FIND_VIEW)
+            + countStartingWith(events, InMemoryViewHouseTableRepository.FIND_ENTITY)
+            + countStartingWith(events, InMemoryViewHouseTableRepository.FIND_BY_ID)
+            + countStartingWith(events, InMemoryViewHouseTableRepository.FIND_ALL),
+        "a changed replace makes no House Table read: " + events);
+    Assertions.assertEquals(
         1,
-        countStartingWith(events, InMemoryViewHouseTableRepository.FIND_VIEW),
-        "a changed replace reads the pointer exactly once: " + events);
+        countStartingWith(events, RecordingViewMetadataCodec.READ),
+        "a changed replace reads the captured metadata file exactly once: " + events);
+    Assertions.assertEquals(
+        1,
+        countStartingWith(events, RecordingViewMetadataCodec.WRITE),
+        "a changed replace writes exactly one candidate: " + events);
     Assertions.assertEquals(
         1,
         countStartingWith(events, InMemoryViewHouseTableRepository.SAVE_VIEW),
         "a changed replace publishes exactly once: " + events);
 
+    int readAt = indexOfStartingWith(events, RecordingViewMetadataCodec.READ);
     int writeAt = indexOfStartingWith(events, RecordingViewMetadataCodec.WRITE);
     int saveAt = indexOfStartingWith(events, InMemoryViewHouseTableRepository.SAVE_VIEW);
-    int readAt = indexOfStartingWith(events, InMemoryViewHouseTableRepository.FIND_VIEW);
-    Assertions.assertTrue(writeAt >= 0 && saveAt >= 0 && readAt >= 0, "events: " + events);
+    Assertions.assertTrue(readAt >= 0 && writeAt >= 0 && saveAt >= 0, "events: " + events);
+    Assertions.assertTrue(
+        readAt < writeAt, "the captured file is read before the new one is built: " + events);
     Assertions.assertTrue(
         writeAt < saveAt, "the immutable file must be written before publishing: " + events);
     Assertions.assertTrue(
-        readAt < writeAt, "the base is captured before the file is built: " + events);
-    Assertions.assertEquals(
-        readAt,
-        lastIndexOfStartingWith(events, InMemoryViewHouseTableRepository.FIND_VIEW),
-        "nothing may be re-read between capturing the base and swapping: " + events);
+        events.get(readAt).contains(capturedBase),
+        "the one read is of the captured path, not a re-derived one: " + events.get(readAt));
     Assertions.assertTrue(
         events.get(saveAt).contains("expected=" + capturedBase),
         "the swap must carry the captured base as its token: " + events.get(saveAt));
@@ -1190,25 +1283,14 @@ public class ViewCommitEngineCommitTest {
     return -1;
   }
 
-  private static int lastIndexOfStartingWith(List<String> events, String prefix) {
-    for (int i = events.size() - 1; i >= 0; i--) {
-      if (events.get(i).startsWith(prefix)) {
-        return i;
-      }
-    }
-    return -1;
-  }
-
   @Test
   void createPublishesInitialVersionAfterWritingItsFile() {
-    harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root));
+    harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
 
     List<String> events = harness.events();
-    int probeAt = indexOfStartingWith(events, InMemoryViewHouseTableRepository.FIND_ENTITY);
     int writeAt = indexOfStartingWith(events, RecordingViewMetadataCodec.WRITE);
     int saveAt = indexOfStartingWith(events, InMemoryViewHouseTableRepository.SAVE_VIEW);
-    Assertions.assertTrue(probeAt >= 0 && writeAt >= 0 && saveAt >= 0, "events: " + events);
-    Assertions.assertTrue(probeAt < writeAt, "occupancy is checked first: " + events);
+    Assertions.assertTrue(writeAt >= 0 && saveAt >= 0, "events: " + events);
     Assertions.assertTrue(writeAt < saveAt, "write before publish: " + events);
     Assertions.assertTrue(
         events.get(saveAt).contains("expected=" + CatalogConstants.INITIAL_VERSION),
@@ -1216,7 +1298,13 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertEquals(
         1, countStartingWith(events, InMemoryViewHouseTableRepository.SAVE_VIEW));
     Assertions.assertEquals(
-        1, countStartingWith(events, InMemoryViewHouseTableRepository.FIND_ENTITY));
+        0,
+        harness.readCalls(),
+        "a create classifies the supplied snapshot and never reads House Table: " + events);
+    Assertions.assertEquals(
+        0,
+        countStartingWith(events, RecordingViewMetadataCodec.READ),
+        "a create has no prior metadata to read: " + events);
   }
 
   @Test
@@ -1229,7 +1317,7 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root)
+                ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
                     .representations(ViewTestFixtures.sparkAndTrino(ViewTestFixtures.SQL_V1))
                     .viewProperties(userProperties)
                     .build());
@@ -1294,61 +1382,533 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertEquals(created.getLastModifiedTime(), loaded.getLastModifiedTime());
   }
 
+  /**
+   * There is no pre-write compare any more: a changed replace built on a real but superseded base
+   * reads that base's file, writes its candidate, then loses the swap. The candidate is retained.
+   */
   @Test
-  void replaceWithAStaleBaseTokenFailsBeforeWritingAnything() {
+  void changedReplaceOnAStaleButReadableBaseFailsAtTheSwapAfterWritingItsCandidate() {
     ViewCommitResult created =
-        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root));
-    int filesAfterCreate = harness.metadataFiles().size();
-    int savesAfterCreate = harness.getHouseTableRepository().getSaveViewCalls();
+        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
+    HouseTable staleBase = captureNeutral();
 
-    ViewCommitIntent stale =
-        ViewTestFixtures.baseIntent(root)
-            .schema(ViewTestFixtures.schemaV2())
+    // B lands first and moves the pointer off A, entirely outside the measured attempt.
+    ViewCommitResult b = harness.getViewCommitEngine().commit(changedReplaceOf(staleBase));
+    Assertions.assertTrue(b.isMetadataChanged());
+
+    int filesBeforeStale = harness.metadataFiles().size();
+    int savesBeforeStale = harness.getHouseTableRepository().getSaveViewCalls();
+    int readsBeforeStale = harness.readCalls();
+    harness.clearEvents();
+
+    // A materially changed replace still built on the now-stale A.
+    ViewCommitIntent staleButReadable =
+        ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, staleBase)
             .representations(
                 Collections.singletonList(
-                    ViewTestFixtures.sql(ViewTestFixtures.SQL_V2, ViewTestFixtures.SPARK_DIALECT)))
-            .baseViewVersion(created.getPointer().getMetadataLocation() + ".stale")
+                    ViewTestFixtures.sql(ViewTestFixtures.SQL_V3, ViewTestFixtures.SPARK_DIALECT)))
             .build();
 
     Assertions.assertThrows(
-        CommitFailedException.class, () -> harness.getViewCommitEngine().commit(stale));
+        CommitFailedException.class,
+        () -> harness.getViewCommitEngine().commit(staleButReadable));
 
-    Assertions.assertEquals(filesAfterCreate, harness.metadataFiles().size());
-    Assertions.assertEquals(savesAfterCreate, harness.getHouseTableRepository().getSaveViewCalls());
-    verify(harness.getCodec(), times(1)).write(any(ViewMetadata.class), any(OutputFile.class));
+    List<String> events = harness.events();
+    int readAt = indexOfStartingWith(events, RecordingViewMetadataCodec.READ);
+    int saveAt = indexOfStartingWith(events, InMemoryViewHouseTableRepository.SAVE_VIEW);
+    Assertions.assertTrue(readAt >= 0 && saveAt >= 0, "events: " + events);
     Assertions.assertEquals(
-        created.getPointer().getMetadataLocation(),
-        harness.getHouseTableRepository().peek(DB, VIEW).get().getTableLocation());
+        1,
+        countStartingWith(events, RecordingViewMetadataCodec.READ),
+        "the stale base's own file is read exactly once: " + events);
+    Assertions.assertTrue(
+        events.get(readAt).contains(staleBase.getTableLocation()),
+        "the read is of the captured stale path, not a re-derived current one: " + events);
+    Assertions.assertEquals(
+        1,
+        countStartingWith(events, RecordingViewMetadataCodec.WRITE),
+        "a candidate is built before the losing swap: " + events);
+    Assertions.assertEquals(
+        readsBeforeStale, harness.readCalls(), "a losing replace still reads no House Table row");
+    Assertions.assertEquals(
+        filesBeforeStale + 1,
+        harness.metadataFiles().size(),
+        "the losing candidate is written and left in place, never cleaned up");
+    Assertions.assertEquals(
+        savesBeforeStale + 1,
+        harness.getHouseTableRepository().getSaveViewCalls(),
+        "exactly one swap is attempted");
+    Assertions.assertTrue(
+        events.get(saveAt).contains("expected=" + staleBase.getTableLocation()),
+        "the swap carries A's exact captured path, never B's: " + events.get(saveAt));
+    Assertions.assertEquals(
+        b.getPointer().getMetadataLocation(),
+        harness.getHouseTableRepository().peek(DB, VIEW).get().getTableLocation(),
+        "the stale attempt must never promote A over the current B pointer");
   }
 
   @Test
   void replaceOfAnAbsentViewNeverBecomesACreate() {
     Assertions.assertThrows(
         NoSuchViewException.class,
-        () ->
-            harness
-                .getViewCommitEngine()
-                .commit(ViewTestFixtures.replaceIntent(root, "/nowhere/00001-a.metadata.json")));
+        () -> harness.getViewCommitEngine().commit(ViewTestFixtures.replaceIntent(root, null)));
 
     Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
+    Assertions.assertEquals(
+        0, harness.readCalls(), "a completed lookup that found absence needs no engine read");
     Assertions.assertTrue(harness.metadataFiles().isEmpty());
   }
 
-  /** A key occupied by a table reads as absent through the view route, so it is not a view. */
+  /** A key occupied by a table is a non-view snapshot, so a replace of it is NoSuchView. */
   @Test
   void replaceOfATablePointerIsRejectedAsNoSuchView() {
     harness
         .getHouseTableRepository()
         .seed(ViewTestFixtures.tableRow("/existing/00001-a.metadata.json"));
+    HouseTable occupant = captureNeutral();
+    int readsBeforeCommit = harness.readCalls();
 
     Assertions.assertThrows(
         NoSuchViewException.class,
+        () -> harness.getViewCommitEngine().commit(ViewTestFixtures.replaceIntent(root, occupant)));
+
+    Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
+    Assertions.assertEquals(
+        readsBeforeCommit,
+        harness.readCalls(),
+        "a supplied non-view is rejected in memory, before any FileIO or read");
+    Assertions.assertTrue(harness.metadataFiles().isEmpty());
+  }
+
+  // ---- Missing operation ----
+
+  @Test
+  void missingOperationIsRejectedWithAnAbsentSnapshot() {
+    ViewCommitIntent noMode = ViewTestFixtures.baseIntent(root, null, null).build();
+
+    BadRequestException thrown =
+        Assertions.assertThrows(
+            BadRequestException.class, () -> harness.getViewCommitEngine().commit(noMode));
+
+    Assertions.assertTrue(
+        thrown.getMessage() != null && thrown.getMessage().contains("operation"),
+        "the failure must name the missing operation: " + thrown.getMessage());
+    Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
+    Assertions.assertEquals(0, harness.readCalls());
+    Assertions.assertTrue(harness.metadataFiles().isEmpty());
+    verify(harness.getCodec(), never()).write(any(ViewMetadata.class), any(OutputFile.class));
+    verify(harness.getFileIOManager(), never()).getFileIO(any(StorageType.Type.class));
+  }
+
+  @Test
+  void missingOperationIsRejectedEvenWithAPresentSnapshot() {
+    harness
+        .getHouseTableRepository()
+        .seed(ViewTestFixtures.viewRow("/existing/00001-a.metadata.json"));
+    HouseTable present = captureNeutral();
+    int readsBeforeCommit = harness.readCalls();
+    ViewCommitIntent noMode = ViewTestFixtures.baseIntent(root, null, present).build();
+
+    BadRequestException thrown =
+        Assertions.assertThrows(
+            BadRequestException.class, () -> harness.getViewCommitEngine().commit(noMode));
+
+    Assertions.assertTrue(
+        thrown.getMessage() != null && thrown.getMessage().contains("operation"),
+        "a present snapshot does not excuse a missing operation: " + thrown.getMessage());
+    Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
+    Assertions.assertEquals(readsBeforeCommit, harness.readCalls());
+    Assertions.assertTrue(harness.metadataFiles().isEmpty());
+  }
+
+  /** The missing-operation guard runs before the reserved-property guard, which also throws. */
+  @Test
+  void missingOperationIsReportedAheadOfOtherMalformedFields() {
+    Map<String, String> reserved = new LinkedHashMap<>();
+    reserved.put(CatalogConstants.OPENHOUSE_UUID_KEY, "00000000-0000-0000-0000-000000000000");
+    ViewCommitIntent noModeAndReserved =
+        ViewTestFixtures.baseIntent(root, null, null).viewProperties(reserved).build();
+
+    BadRequestException thrown =
+        Assertions.assertThrows(
+            BadRequestException.class,
+            () -> harness.getViewCommitEngine().commit(noModeAndReserved));
+
+    Assertions.assertTrue(
+        thrown.getMessage() != null && thrown.getMessage().contains("operation"),
+        "a missing operation must be reported before the reserved-property failure: "
+            + thrown.getMessage());
+    Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
+  }
+
+  // ---- REPLACE of a non-view snapshot: NoSuchView before FileIO ----
+
+  @Test
+  void replaceOfALegacyCapturedRowIsNoSuchViewBeforeFileIo() {
+    harness
+        .getHouseTableRepository()
+        .seed(ViewTestFixtures.legacyRow("/existing/00001-a.metadata.json"));
+    assertReplaceOfNonViewIsNoSuchView(captureNeutral());
+  }
+
+  @Test
+  void replaceOfAnUnknownEntityTypeCapturedRowIsNoSuchView() {
+    harness
+        .getHouseTableRepository()
+        .seed(
+            ViewTestFixtures.row(
+                ViewTestFixtures.ENTITY_TYPE_UNKNOWN, "/existing/00001-a.metadata.json"));
+    assertReplaceOfNonViewIsNoSuchView(captureNeutral());
+  }
+
+  @Test
+  void replaceOfANonCanonicalDiscriminatorCapturedRowIsNoSuchView() {
+    harness
+        .getHouseTableRepository()
+        .seed(ViewTestFixtures.row("view", "/existing/00001-a.metadata.json"));
+    assertReplaceOfNonViewIsNoSuchView(captureNeutral());
+  }
+
+  /** A non-view is rejected before its pointer or storage is even looked at. */
+  @Test
+  void replaceOfANonViewIgnoresItsMissingPointerAndStorageAndIsStillNoSuchView() {
+    HouseTable tableWithNoPointer =
+        ViewTestFixtures.tableRow("/existing/00001-a.metadata.json").toBuilder()
+            .tableLocation(null)
+            .storageType(null)
+            .build();
+    assertReplaceOfNonViewIsNoSuchView(tableWithNoPointer);
+  }
+
+  private void assertReplaceOfNonViewIsNoSuchView(HouseTable occupant) {
+    int readsBeforeCommit = harness.readCalls();
+
+    Assertions.assertThrows(
+        NoSuchViewException.class,
+        () -> harness.getViewCommitEngine().commit(ViewTestFixtures.replaceIntent(root, occupant)));
+
+    Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
+    Assertions.assertEquals(
+        readsBeforeCommit,
+        harness.readCalls(),
+        "a non-view snapshot is rejected in memory, before any read");
+    verify(harness.getFileIOManager(), never()).getFileIO(any(StorageType.Type.class));
+    Assertions.assertTrue(harness.metadataFiles().isEmpty());
+  }
+
+  // ---- Row-target contract ----
+
+  @Test
+  void aCapturedRowNamingAnotherDatabaseIsAMalformedInvocation() {
+    HouseTable wrongDb =
+        ViewTestFixtures.viewRow("/existing/00001-a.metadata.json").toBuilder()
+            .databaseId("other_db")
+            .build();
+    assertRowKeyMismatchIsRejected(wrongDb);
+  }
+
+  @Test
+  void aCapturedRowNamingAnotherViewIsAMalformedInvocation() {
+    HouseTable wrongView =
+        ViewTestFixtures.viewRow("/existing/00001-a.metadata.json").toBuilder()
+            .tableId("other_view")
+            .build();
+    assertRowKeyMismatchIsRejected(wrongView);
+  }
+
+  @Test
+  void aCapturedRowWithABlankKeyIsAMalformedInvocation() {
+    HouseTable blankKey =
+        ViewTestFixtures.viewRow("/existing/00001-a.metadata.json").toBuilder()
+            .databaseId("")
+            .build();
+    assertRowKeyMismatchIsRejected(blankKey);
+  }
+
+  private void assertRowKeyMismatchIsRejected(HouseTable mismatchedRow) {
+    int readsBeforeCommit = harness.readCalls();
+
+    Assertions.assertThrows(
+        BadRequestException.class,
+        () ->
+            harness.getViewCommitEngine().commit(ViewTestFixtures.replaceIntent(root, mismatchedRow)));
+
+    Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
+    Assertions.assertEquals(readsBeforeCommit, harness.readCalls());
+    verify(harness.getFileIOManager(), never()).getFileIO(any(StorageType.Type.class));
+    Assertions.assertTrue(harness.metadataFiles().isEmpty());
+  }
+
+  @Test
+  void aCreateOccupantNamingAnotherKeyIsAMalformedInvocation() {
+    HouseTable wrongKeyOccupant =
+        ViewTestFixtures.viewRow("/existing/00001-a.metadata.json").toBuilder()
+            .tableId("other_view")
+            .build();
+
+    Assertions.assertThrows(
+        BadRequestException.class,
         () ->
             harness
                 .getViewCommitEngine()
-                .commit(ViewTestFixtures.replaceIntent(root, "/existing/00001-a.metadata.json")));
+                .commit(ViewTestFixtures.createIntent(root, wrongKeyOccupant)));
 
     Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
     Assertions.assertTrue(harness.metadataFiles().isEmpty());
+  }
+
+  /** Case-only differences identify the same view, without the fake pretending case-insensitivity. */
+  @Test
+  void aCaseOnlyDifferentOccupantKeyIsAcceptedOnACreateCollision() {
+    HouseTable caseShifted =
+        ViewTestFixtures.viewRow("/existing/00001-a.metadata.json").toBuilder()
+            .databaseId("VIEWDB")
+            .tableId("V1")
+            .build();
+    int readsBeforeCommit = harness.readCalls();
+
+    Assertions.assertThrows(
+        AlreadyExistsException.class,
+        () -> harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, caseShifted)));
+
+    Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
+    Assertions.assertEquals(readsBeforeCommit, harness.readCalls());
+    Assertions.assertTrue(harness.metadataFiles().isEmpty());
+  }
+
+  @Test
+  void aCaseOnlyDifferentSnapshotKeyIsAcceptedOnAReplaceNoOp() {
+    harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
+    HouseTable base = captureNeutral();
+    HouseTable caseShifted = base.toBuilder().databaseId("VIEWDB").tableId("V1").build();
+    int savesAfterCreate = harness.getHouseTableRepository().getSaveViewCalls();
+    int readsAfterCapture = harness.readCalls();
+
+    ViewCommitResult replayed =
+        harness.getViewCommitEngine().commit(ViewTestFixtures.replaceIntent(root, caseShifted));
+
+    Assertions.assertFalse(
+        replayed.isMetadataChanged(), "a case-only key still identifies the same view");
+    Assertions.assertFalse(replayed.isCreated());
+    Assertions.assertEquals(
+        savesAfterCreate,
+        harness.getHouseTableRepository().getSaveViewCalls(),
+        "a no-op publishes nothing, and never under a differently spelled key");
+    Assertions.assertEquals(readsAfterCapture, harness.readCalls());
+    Assertions.assertTrue(
+        harness.getHouseTableRepository().peek(DB, VIEW).isPresent(),
+        "the real lower-cased row is untouched");
+    Assertions.assertFalse(
+        harness.getHouseTableRepository().peek("VIEWDB", "V1").isPresent(),
+        "no row was published under the upper-cased key");
+  }
+
+  // ---- Malformed canonical-view snapshot ----
+
+  @Test
+  void aCanonicalViewSnapshotWithABlankPointerIsMalformedState() {
+    harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
+    HouseTable base = captureNeutral();
+    HouseTable noPointer = base.toBuilder().tableLocation(null).build();
+    int savesAfterCreate = harness.getHouseTableRepository().getSaveViewCalls();
+    int readsAfterCapture = harness.readCalls();
+
+    IllegalStateException thrown =
+        Assertions.assertThrows(
+            IllegalStateException.class,
+            () -> harness.getViewCommitEngine().commit(changedReplaceOf(noPointer)));
+
+    Assertions.assertTrue(
+        thrown.getMessage() != null && thrown.getMessage().contains("tableLocation"),
+        "the failure must name the missing pointer field: " + thrown.getMessage());
+    Assertions.assertEquals(
+        savesAfterCreate, harness.getHouseTableRepository().getSaveViewCalls());
+    Assertions.assertEquals(readsAfterCapture, harness.readCalls());
+    verify(harness.getFileIOManager(), never()).getFileIO(any(StorageType.Type.class));
+  }
+
+  @Test
+  void aCanonicalViewSnapshotWithABlankStorageIsMalformedState() {
+    harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
+    HouseTable base = captureNeutral();
+    HouseTable noStorage = base.toBuilder().storageType(null).build();
+
+    IllegalStateException thrown =
+        Assertions.assertThrows(
+            IllegalStateException.class,
+            () -> harness.getViewCommitEngine().commit(changedReplaceOf(noStorage)));
+
+    Assertions.assertTrue(
+        thrown.getMessage() != null && thrown.getMessage().contains("storageType"),
+        "the failure must name the missing storage field: " + thrown.getMessage());
+    verify(harness.getFileIOManager(), never()).getFileIO(any(StorageType.Type.class));
+  }
+
+  @Test
+  void aCanonicalViewSnapshotWithUnknownStorageKeepsItsRealError() {
+    harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
+    HouseTable base = captureNeutral();
+    HouseTable badStorage = base.toBuilder().storageType("no-such-storage").build();
+
+    IllegalArgumentException thrown =
+        Assertions.assertThrows(
+            IllegalArgumentException.class,
+            () -> harness.getViewCommitEngine().commit(changedReplaceOf(badStorage)));
+
+    Assertions.assertTrue(
+        thrown.getMessage() != null && thrown.getMessage().contains("no-such-storage"),
+        "an unknown storage type keeps its own error rather than a fallback: "
+            + thrown.getMessage());
+  }
+
+  // ---- Exact compare-and-swap token ----
+
+  @Test
+  void aChangedReplaceUsesTheCapturedTableLocationNotTheRowTableVersionAsTheSwapToken() {
+    ViewCommitResult created =
+        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
+    HouseTable base = captureNeutral();
+    Assertions.assertNotEquals(
+        base.getTableVersion(),
+        base.getTableLocation(),
+        "the captured tableVersion must differ from its tableLocation, or this proves nothing");
+    HouseTable tokenTrap = base.toBuilder().tableVersion("NOT_A_PATH_TOKEN").build();
+    harness.clearEvents();
+
+    ViewCommitResult replaced = harness.getViewCommitEngine().commit(changedReplaceOf(tokenTrap));
+
+    HouseTable afterReplace = harness.getHouseTableRepository().peek(DB, VIEW).get();
+    Assertions.assertEquals(
+        base.getTableLocation(),
+        afterReplace.getTableVersion(),
+        "the published expected-version token is the captured tableLocation");
+    Assertions.assertNotEquals("NOT_A_PATH_TOKEN", afterReplace.getTableVersion());
+
+    ViewMetadata replacedMetadata =
+        harness.readMetadata(replaced.getPointer().getMetadataLocation());
+    Assertions.assertEquals(
+        base.getTableLocation(),
+        replacedMetadata.properties().get(getCanonicalFieldName("tableVersion")),
+        "the written metadata stamps the captured tableLocation, not the row's tableVersion");
+
+    List<String> events = harness.events();
+    int readAt = indexOfStartingWith(events, RecordingViewMetadataCodec.READ);
+    int saveAt = indexOfStartingWith(events, InMemoryViewHouseTableRepository.SAVE_VIEW);
+    Assertions.assertTrue(readAt >= 0 && saveAt >= 0, "events: " + events);
+    Assertions.assertTrue(
+        events.get(readAt).contains(base.getTableLocation()),
+        "the captured file is read at its tableLocation, not the tableVersion token: " + events);
+    Assertions.assertTrue(
+        events.get(saveAt).contains("expected=" + base.getTableLocation()),
+        "the swap token is the captured tableLocation: " + events.get(saveAt));
+  }
+
+  // ---- Captured file: no fallback ----
+
+  @Test
+  void aReplaceWhoseCapturedFileIsMissingPropagatesTheReadFailureWithNoFallback() {
+    HouseTable ghost =
+        ViewTestFixtures.viewRow(
+            root.resolve("ghost").resolve("00001-missing.metadata.json").toString());
+    int readsBeforeCommit = harness.readCalls();
+
+    Assertions.assertThrows(
+        NotFoundException.class,
+        () -> harness.getViewCommitEngine().commit(changedReplaceOf(ghost)));
+
+    Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
+    Assertions.assertEquals(
+        readsBeforeCommit,
+        harness.readCalls(),
+        "the engine must not fall back to a House Table read when the captured file is unreadable");
+    Assertions.assertTrue(harness.metadataFiles().isEmpty());
+  }
+
+  // ---- Snapshot no-op against moved / deleted / recreated state ----
+
+  @Test
+  void aNoOpAgainstAChangedSnapshotReturnsTheCapturedPointerAndLeavesTheStoreUntouched() {
+    ViewCommitResult a =
+        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
+    HouseTable base = captureNeutral();
+
+    harness.getViewCommitEngine().commit(changedReplaceOf(base));
+    HouseTable pointerAtB = harness.getHouseTableRepository().peek(DB, VIEW).get();
+    int savesAtB = harness.getHouseTableRepository().getSaveViewCalls();
+    int readsAtB = harness.readCalls();
+
+    ViewCommitResult replayed =
+        harness.getViewCommitEngine().commit(ViewTestFixtures.replaceIntent(root, base));
+
+    Assertions.assertFalse(replayed.isMetadataChanged());
+    Assertions.assertFalse(replayed.isCreated());
+    Assertions.assertEquals(
+        a.getPointer().getMetadataLocation(),
+        replayed.getPointer().getMetadataLocation(),
+        "a snapshot no-op returns the captured pointer, even though the store moved on");
+    Assertions.assertEquals(a.getViewUuid(), replayed.getViewUuid());
+    Assertions.assertEquals(a.getLastModifiedTime(), replayed.getLastModifiedTime());
+    Assertions.assertEquals(
+        savesAtB, harness.getHouseTableRepository().getSaveViewCalls(), "a no-op publishes nothing");
+    Assertions.assertEquals(readsAtB, harness.readCalls(), "a no-op reads no House Table row");
+    Assertions.assertEquals(
+        pointerAtB,
+        harness.getHouseTableRepository().peek(DB, VIEW).get(),
+        "the current pointer must be left exactly as it was");
+  }
+
+  @Test
+  void aNoOpAgainstADeletedSnapshotDoesNotResurrectIt() {
+    ViewCommitResult a =
+        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
+    HouseTable base = captureNeutral();
+    Assertions.assertTrue(harness.getViewCommitEngine().dropView(DB, VIEW));
+    int savesAfterDrop = harness.getHouseTableRepository().getSaveViewCalls();
+    int readsAfterDrop = harness.readCalls();
+
+    ViewCommitResult replayed =
+        harness.getViewCommitEngine().commit(ViewTestFixtures.replaceIntent(root, base));
+
+    Assertions.assertFalse(replayed.isMetadataChanged());
+    Assertions.assertEquals(
+        a.getPointer().getMetadataLocation(), replayed.getPointer().getMetadataLocation());
+    Assertions.assertEquals(
+        savesAfterDrop,
+        harness.getHouseTableRepository().getSaveViewCalls(),
+        "a no-op must not re-publish a deleted view");
+    Assertions.assertEquals(readsAfterDrop, harness.readCalls());
+    Assertions.assertFalse(
+        harness.getHouseTableRepository().peek(DB, VIEW).isPresent(),
+        "the deleted row stays deleted; a snapshot no-op cannot resurrect it");
+  }
+
+  @Test
+  void aNoOpAgainstARecreatedSnapshotDoesNotRepublishTheCapturedOne() {
+    ViewCommitResult a =
+        harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
+    HouseTable base = captureNeutral();
+    Assertions.assertTrue(harness.getViewCommitEngine().dropView(DB, VIEW));
+    harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
+    HouseTable pointerAtC = harness.getHouseTableRepository().peek(DB, VIEW).get();
+    int savesAtC = harness.getHouseTableRepository().getSaveViewCalls();
+    int readsAtC = harness.readCalls();
+
+    ViewCommitResult replayed =
+        harness.getViewCommitEngine().commit(ViewTestFixtures.replaceIntent(root, base));
+
+    Assertions.assertFalse(replayed.isMetadataChanged());
+    Assertions.assertEquals(
+        a.getPointer().getMetadataLocation(),
+        replayed.getPointer().getMetadataLocation(),
+        "the no-op still reports the captured pointer");
+    Assertions.assertEquals(
+        savesAtC,
+        harness.getHouseTableRepository().getSaveViewCalls(),
+        "a no-op cannot republish the captured snapshot over the live recreated row");
+    Assertions.assertEquals(readsAtC, harness.readCalls());
+    Assertions.assertEquals(
+        pointerAtC,
+        harness.getHouseTableRepository().peek(DB, VIEW).get(),
+        "the recreated row is left exactly as it was");
   }
 }

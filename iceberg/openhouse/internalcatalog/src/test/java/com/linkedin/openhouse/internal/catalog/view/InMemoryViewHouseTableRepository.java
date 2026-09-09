@@ -29,6 +29,8 @@ public class InMemoryViewHouseTableRepository implements HouseTableRepository {
 
   public static final String FIND_ENTITY = "findEntityById";
   public static final String FIND_VIEW = "findViewById";
+  public static final String FIND_BY_ID = "findById";
+  public static final String FIND_ALL = "findAll";
   public static final String LIST_VIEWS = "findAllViewsByDatabaseId";
   public static final String SAVE_VIEW = "saveView";
   public static final String DELETE_VIEW = "deleteViewById";
@@ -45,6 +47,10 @@ public class InMemoryViewHouseTableRepository implements HouseTableRepository {
   private final AtomicInteger findEntityByIdCalls = new AtomicInteger();
 
   private final AtomicInteger findViewByIdCalls = new AtomicInteger();
+
+  private final AtomicInteger findByIdCalls = new AtomicInteger();
+
+  private final AtomicInteger findAllCalls = new AtomicInteger();
 
   private final AtomicInteger deleteViewByIdCalls = new AtomicInteger();
 
@@ -112,6 +118,25 @@ public class InMemoryViewHouseTableRepository implements HouseTableRepository {
 
   public int getFindViewByIdCalls() {
     return findViewByIdCalls.get();
+  }
+
+  public int getFindByIdCalls() {
+    return findByIdCalls.get();
+  }
+
+  public int getFindAllCalls() {
+    return findAllCalls.get();
+  }
+
+  /**
+   * Every point-read and scan a commit could accidentally make. A commit holds this at zero: it
+   * classifies and swaps against the caller-supplied snapshot, never a fresh read.
+   */
+  public int getTotalReadCalls() {
+    return findEntityByIdCalls.get()
+        + findViewByIdCalls.get()
+        + findByIdCalls.get()
+        + findAllCalls.get();
   }
 
   public int getDeleteViewByIdCalls() {
@@ -247,6 +272,8 @@ public class InMemoryViewHouseTableRepository implements HouseTableRepository {
   /** TABLE or legacy null only; a legacy row hydrates to TABLE. */
   @Override
   public Optional<HouseTable> findById(HouseTablePrimaryKey key) {
+    findByIdCalls.incrementAndGet();
+    events.add(FIND_BY_ID + "(" + id(key.getDatabaseId(), key.getTableId()) + ")");
     return Optional.ofNullable(rows.get(id(key.getDatabaseId(), key.getTableId())))
         .filter(InMemoryViewHouseTableRepository::isTableOrLegacy)
         .map(InMemoryViewHouseTableRepository::hydrate);
@@ -254,6 +281,8 @@ public class InMemoryViewHouseTableRepository implements HouseTableRepository {
 
   @Override
   public Iterable<HouseTable> findAll() {
+    findAllCalls.incrementAndGet();
+    events.add(FIND_ALL + "()");
     return rows.values().stream()
         .map(InMemoryViewHouseTableRepository::hydrate)
         .collect(Collectors.toList());
@@ -359,6 +388,8 @@ public class InMemoryViewHouseTableRepository implements HouseTableRepository {
 
   @Override
   public Page<HouseTable> findAll(Pageable pageable) {
+    findAllCalls.incrementAndGet();
+    events.add(FIND_ALL + "(" + pageable.getPageNumber() + "," + pageable.getPageSize() + ")");
     List<HouseTable> all =
         rows.values().stream()
             .map(InMemoryViewHouseTableRepository::hydrate)

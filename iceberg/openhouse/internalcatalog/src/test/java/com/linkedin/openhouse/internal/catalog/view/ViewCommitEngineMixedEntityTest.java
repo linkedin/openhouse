@@ -4,6 +4,7 @@ import static com.linkedin.openhouse.internal.catalog.view.ViewTestFixtures.DB;
 
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
+import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitOperation;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewPointer;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -118,6 +119,15 @@ public class ViewCommitEngineMixedEntityTest {
   /** A legacy row hydrates to TABLE, so the collision is a clean 409 rather than a guess. */
   @Test
   void createCollidingWithALegacyRowIsACleanTableCollisionAndNotAnIntegrityFailure() {
+    // The caller passes the hydrated neutral read (TABLE), never the raw legacy null.
+    HouseTable occupant =
+        harness.getHouseTableRepository().findEntityById(key("legacy_a")).orElse(null);
+    Assertions.assertEquals(
+        ViewTestFixtures.ENTITY_TYPE_TABLE,
+        occupant.getEntityType(),
+        "the neutral read hydrates the legacy null to TABLE before the engine ever sees it");
+    int readsBeforeCommit = harness.readCalls();
+
     ViewNameOccupiedException thrown =
         Assertions.assertThrows(
             ViewNameOccupiedException.class,
@@ -125,7 +135,7 @@ public class ViewCommitEngineMixedEntityTest {
                 harness
                     .getViewCommitEngine()
                     .commit(
-                        ViewTestFixtures.baseIntent(root)
+                        ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, occupant)
                             .viewId("legacy_a")
                             .viewLocation(
                                 ViewTestFixtures.allocatedViewLocation(
@@ -135,6 +145,10 @@ public class ViewCommitEngineMixedEntityTest {
     Assertions.assertEquals(ViewTestFixtures.ENTITY_TYPE_TABLE, thrown.getOccupantEntityType());
     Assertions.assertEquals("legacy_a", thrown.getViewId());
     Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
+    Assertions.assertEquals(
+        readsBeforeCommit,
+        harness.readCalls(),
+        "the occupant is classified from the supplied snapshot, without a further read");
     Assertions.assertTrue(harness.metadataFiles().isEmpty());
   }
 
@@ -174,6 +188,36 @@ public class ViewCommitEngineMixedEntityTest {
     Assertions.assertNull(
         harness.getHouseTableRepository().peek(DB, "legacy_a").get().getEntityType(),
         "the raw stored value is still null: hydration happens on read, not on write");
+
+    // Positive controls: every instrumented reader increments its counter, so the zero-read
+    // assertions elsewhere are not vacuously true. findById and findAll are the newly added ones.
+    int entityBefore = harness.getHouseTableRepository().getFindEntityByIdCalls();
+    harness.getHouseTableRepository().findEntityById(key("view_a"));
+    Assertions.assertEquals(
+        entityBefore + 1,
+        harness.getHouseTableRepository().getFindEntityByIdCalls(),
+        "a neutral read must be counted");
+
+    int viewBefore = harness.getHouseTableRepository().getFindViewByIdCalls();
+    harness.getHouseTableRepository().findViewById(key("view_a"));
+    Assertions.assertEquals(
+        viewBefore + 1,
+        harness.getHouseTableRepository().getFindViewByIdCalls(),
+        "a typed view read must be counted");
+
+    int byIdBefore = harness.getHouseTableRepository().getFindByIdCalls();
+    harness.getHouseTableRepository().findById(key("table_a"));
+    Assertions.assertEquals(
+        byIdBefore + 1,
+        harness.getHouseTableRepository().getFindByIdCalls(),
+        "a raw table point read must be counted");
+
+    int allBefore = harness.getHouseTableRepository().getFindAllCalls();
+    harness.getHouseTableRepository().findAll();
+    Assertions.assertEquals(
+        allBefore + 1,
+        harness.getHouseTableRepository().getFindAllCalls(),
+        "a raw scan must be counted, so an accidental one can never hide");
   }
 
   private static HouseTablePrimaryKey key(String tableId) {

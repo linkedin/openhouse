@@ -1,10 +1,12 @@
 package com.linkedin.openhouse.tablestest;
 
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
+import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.view.ViewCommitEngine;
 import com.linkedin.openhouse.internal.catalog.view.model.LoadedView;
 import com.linkedin.openhouse.internal.catalog.view.model.SqlViewRepresentationIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
+import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitOperation;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewPointer;
 import java.io.ByteArrayOutputStream;
@@ -55,10 +57,14 @@ public class IcebergViewBeanBoundaryTest {
       Arrays.asList(
           ViewCommitEngine.class,
           ViewCommitIntent.class,
+          ViewCommitIntent.ViewCommitIntentBuilder.class,
+          ViewCommitOperation.class,
           ViewCommitResult.class,
           ViewPointer.class,
           LoadedView.class,
-          SqlViewRepresentationIntent.class);
+          SqlViewRepresentationIntent.class,
+          HouseTable.class,
+          HouseTable.HouseTableBuilder.class);
 
   private static boolean icebergViewApiPresent() {
     try {
@@ -123,6 +129,55 @@ public class IcebergViewBeanBoundaryTest {
     Assertions.assertTrue(
         offenders.isEmpty(),
         "the view commit contract must stay loadable under Iceberg 1.2: " + offenders);
+  }
+
+  /**
+   * Directly exercises the new operation/base-row builder contract. It runs under both runtimes (the
+   * 1.5 fixture pulls in these 1.2 test sources), so it also proves the neutral types build and read
+   * back under Iceberg 1.2 and that the retired null-token API is gone on both.
+   */
+  @Test
+  public void theVersionNeutralIntentExposesOperationAndBaseRowAndDropsTheOldTokenApi() {
+    HouseTable base =
+        HouseTable.builder()
+            .databaseId("db")
+            .tableId("v")
+            .tableLocation("/loc/00001-a.metadata.json")
+            .storageType("local")
+            .entityType("VIEW")
+            .build();
+    Assertions.assertEquals("/loc/00001-a.metadata.json", base.getTableLocation());
+
+    ViewCommitIntent replace =
+        ViewCommitIntent.builder()
+            .databaseId("db")
+            .viewId("v")
+            .operation(ViewCommitOperation.REPLACE)
+            .baseRow(base)
+            .build();
+    Assertions.assertEquals(ViewCommitOperation.REPLACE, replace.getOperation());
+    Assertions.assertSame(base, replace.getBaseRow());
+
+    // toBuilder round-trips the new fields and can flip the operation and clear the row.
+    ViewCommitIntent create =
+        replace.toBuilder().operation(ViewCommitOperation.CREATE).baseRow(null).build();
+    Assertions.assertEquals(ViewCommitOperation.CREATE, create.getOperation());
+    Assertions.assertNull(create.getBaseRow());
+
+    // Exactly the two-value operation contract, and nothing more.
+    Assertions.assertArrayEquals(
+        new ViewCommitOperation[] {ViewCommitOperation.CREATE, ViewCommitOperation.REPLACE},
+        ViewCommitOperation.values());
+
+    // The retired null-token API is gone: no getter on the value, no method on the builder.
+    Assertions.assertTrue(
+        Arrays.stream(ViewCommitIntent.class.getMethods())
+            .noneMatch(method -> method.getName().equals("getBaseViewVersion")),
+        "the retired baseViewVersion getter must not exist on the intent");
+    Assertions.assertTrue(
+        Arrays.stream(ViewCommitIntent.ViewCommitIntentBuilder.class.getMethods())
+            .noneMatch(method -> method.getName().equals("baseViewVersion")),
+        "the retired baseViewVersion builder method must not exist");
   }
 
   /** The conditional family is the only place an Iceberg view type may appear. */

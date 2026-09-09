@@ -76,6 +76,14 @@ public class ViewCommitEngineHarness {
     }
   }
 
+  /**
+   * Every point-read and scan the House Table double has served. A commit must leave this
+   * unchanged: it works from the caller-supplied snapshot and never reads House Table.
+   */
+  public int readCalls() {
+    return houseTableRepository.getTotalReadCalls();
+  }
+
   public void clearEvents() {
     events.clear();
   }

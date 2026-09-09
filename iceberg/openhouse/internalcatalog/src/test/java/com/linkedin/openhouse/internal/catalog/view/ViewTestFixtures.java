@@ -4,6 +4,7 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.view.model.SqlViewRepresentationIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
+import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitOperation;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -89,15 +90,20 @@ public final class ViewTestFixtures {
     return location;
   }
 
-  public static ViewCommitIntent createIntent(Path root) {
-    return baseIntent(root).build();
+  /**
+   * Operation and captured row are explicit: the caller decides CREATE vs REPLACE, and supplies the
+   * server-read snapshot (or null for a completed lookup that found absence). Neither is inferred.
+   */
+  public static ViewCommitIntent createIntent(Path root, HouseTable baseRow) {
+    return baseIntent(root, ViewCommitOperation.CREATE, baseRow).build();
   }
 
-  public static ViewCommitIntent replaceIntent(Path root, String baseViewVersion) {
-    return baseIntent(root).baseViewVersion(baseViewVersion).build();
+  public static ViewCommitIntent replaceIntent(Path root, HouseTable baseRow) {
+    return baseIntent(root, ViewCommitOperation.REPLACE, baseRow).build();
   }
 
-  public static ViewCommitIntent.ViewCommitIntentBuilder baseIntent(Path root) {
+  public static ViewCommitIntent.ViewCommitIntentBuilder baseIntent(
+      Path root, ViewCommitOperation operation, HouseTable baseRow) {
     return ViewCommitIntent.builder()
         .databaseId(DB)
         .viewId(VIEW)
@@ -110,7 +116,9 @@ public final class ViewTestFixtures {
         .creator(CREATOR)
         .viewUuid(VIEW_UUID)
         .viewLocation(allocatedViewLocation(root, DB, VIEW, VIEW_UUID))
-        .storageType(LOCAL_STORAGE_TYPE);
+        .storageType(LOCAL_STORAGE_TYPE)
+        .operation(operation)
+        .baseRow(baseRow);
   }
 
   public static Map<String, String> userProperties(String key, String value) {
