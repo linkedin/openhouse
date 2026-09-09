@@ -88,21 +88,21 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
 
   @Override
   public LoadedView loadView(String databaseId, String viewId) {
-    HouseTable row = requireViewRow(databaseId, viewId);
+    HouseTable row = loadRequiredViewRow(databaseId, viewId);
     FileIO fileIO = fileIOManager.getFileIO(storageType.fromString(row.getStorageType()));
     ViewMetadata metadata = viewMetadataCodec.read(fileIO.newInputFile(row.getTableLocation()));
     ViewVersion version = metadata.currentVersion();
 
     return LoadedView.builder()
-        .pointer(pointerOf(row))
+        .pointer(toViewPointer(row))
         .viewUuid(metadata.uuid())
         .schema(metadata.schema())
-        .representations(representationIntentsOf(version))
+        .representations(toRepresentationIntents(version))
         .sourceDialect(version.summary().get(SOURCE_DIALECT_SUMMARY_KEY))
         .defaultCatalog(version.defaultCatalog())
         .defaultNamespace(version.defaultNamespace())
         .properties(metadata.properties())
-        .lastModifiedTime(longProperty(metadata, "lastModifiedTime"))
+        .lastModifiedTime(readLongProperty(metadata, "lastModifiedTime"))
         .currentVersionId(metadata.currentVersionId())
         .build();
   }
@@ -111,13 +111,13 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
   public Page<ViewPointer> listViews(String databaseId, Pageable pageable) {
     return houseTableRepository
         .findAllViewsByDatabaseId(databaseId, pageable)
-        .map(ViewCommitEngineImpl::pointerOf);
+        .map(ViewCommitEngineImpl::toViewPointer);
   }
 
   @Override
   public boolean dropView(String databaseId, String viewId) {
     try {
-      return houseTableRepository.deleteViewById(keyOf(databaseId, viewId));
+      return houseTableRepository.deleteViewById(buildPrimaryKey(databaseId, viewId));
     } catch (HouseTableRepositoryStateUnknownException e) {
       throw new CommitStateUnknownException(e);
     }
@@ -129,9 +129,8 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         "Renaming a view is not supported: " + databaseId + "." + fromViewId);
   }
 
-  /** Rejects caller attempts to set OpenHouse-owned (oh-prefixed or dialect-policy) properties. */
   private void rejectServerOwnedProperties(ViewCommitIntent intent) {
-    for (String key : userPropertiesOf(intent).keySet()) {
+    for (String key : getUserPropertiesOrEmpty(intent).keySet()) {
       if (HouseTableSerdeUtils.IS_OH_PREFIXED.test(key)
           || ViewProperties.REPLACE_DROP_DIALECT_ALLOWED.equals(key)) {
         throw new BadRequestException(
@@ -154,7 +153,6 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     }
   }
 
-  /** First-version commit: validates create inputs, builds v1 metadata, then write-then-publish. */
   private ViewCommitResult create(ViewCommitIntent intent) {
     requireCreateInput(intent, intent.getViewUuid(), "viewUuid");
     requireCreateInput(intent, intent.getViewLocation(), "viewLocation");
@@ -162,17 +160,17 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
 
     // Advisory only: the swap below is what prevents two creates.
     houseTableRepository
-        .findEntityById(keyOf(intent.getDatabaseId(), intent.getViewId()))
+        .findEntityById(buildPrimaryKey(intent.getDatabaseId(), intent.getViewId()))
         .ifPresent(occupant -> rejectOccupiedName(intent, occupant));
 
     String viewUuid = intent.getViewUuid();
     String viewLocation = intent.getViewLocation();
     FileIO fileIO = fileIOManager.getFileIO(storageType.fromString(intent.getStorageType()));
 
-    String newMetadataLocation = metadataFileLocation(viewLocation, 1);
+    String newMetadataLocation = generateMetadataFileLocation(viewLocation, 1);
     String now = String.valueOf(nowMillis());
 
-    Map<String, String> properties = new LinkedHashMap<>(userPropertiesOf(intent));
+    Map<String, String> properties = new LinkedHashMap<>(getUserPropertiesOrEmpty(intent));
     properties.put(ViewProperties.REPLACE_DROP_DIALECT_ALLOWED, "false");
     properties.put(getCanonicalFieldName("tableUUID"), viewUuid);
     properties.put(getCanonicalFieldName("tableId"), intent.getViewId());
@@ -188,7 +186,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
             .assignUUID(viewUuid)
             .setLocation(viewLocation)
             .setCurrentVersion(
-                candidateVersion(intent, 1, CREATE_OPERATION, Long.parseLong(now)),
+                buildCandidateVersion(intent, 1, CREATE_OPERATION, Long.parseLong(now)),
                 intent.getSchema())
             .setProperties(properties)
             .build();
@@ -234,9 +232,8 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return ENTITY_TYPE_VIEW.equals(entityType);
   }
 
-  /** Next-version commit: re-reads the current view, skips a no-op, then write-then-publish. */
   private ViewCommitResult replace(ViewCommitIntent intent) {
-    HouseTable row = requireViewRow(intent.getDatabaseId(), intent.getViewId());
+    HouseTable row = loadRequiredViewRow(intent.getDatabaseId(), intent.getViewId());
     // The row's own storage, never the incoming one.
     FileIO fileIO = fileIOManager.getFileIO(storageType.fromString(row.getStorageType()));
     ViewMetadata current = viewMetadataCodec.read(fileIO.newInputFile(row.getTableLocation()));
@@ -248,24 +245,24 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
           intent.getDatabaseId(), intent.getViewId(), capturedBase, row.getTableLocation());
     }
 
-    Map<String, String> currentUserProperties = userPropertiesOf(current);
+    Map<String, String> currentUserProperties = extractUserPropertiesFromMetadata(current);
     Map<String, String> userProperties = new LinkedHashMap<>(currentUserProperties);
-    userProperties.putAll(userPropertiesOf(intent));
+    userProperties.putAll(getUserPropertiesOrEmpty(intent));
 
     if (isUnchanged(intent, current, userProperties, currentUserProperties)) {
       // Nothing observable changed, so do not manufacture a version or timestamp.
       return ViewCommitResult.builder()
-          .pointer(pointerOf(row))
+          .pointer(toViewPointer(row))
           .viewUuid(current.uuid())
-          .lastModifiedTime(longProperty(current, "lastModifiedTime"))
+          .lastModifiedTime(readLongProperty(current, "lastModifiedTime"))
           .created(false)
           .metadataChanged(false)
           .build();
     }
 
     String newMetadataLocation =
-        metadataFileLocation(current.location(), current.history().size() + 1);
-    String now = String.valueOf(advanceLastModified(longProperty(current, "lastModifiedTime")));
+        generateMetadataFileLocation(current.location(), current.history().size() + 1);
+    String now = String.valueOf(advanceLastModified(readLongProperty(current, "lastModifiedTime")));
 
     Map<String, String> properties = new LinkedHashMap<>(userProperties);
     properties.put(ViewProperties.REPLACE_DROP_DIALECT_ALLOWED, "false");
@@ -288,7 +285,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     ViewMetadata metadata =
         ViewMetadata.buildFrom(current)
             .setCurrentVersion(
-                candidateVersion(
+                buildCandidateVersion(
                     intent, current.currentVersionId() + 1, REPLACE_OPERATION, Long.parseLong(now)),
                 intent.getSchema())
             .setProperties(properties)
@@ -305,10 +302,6 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         false);
   }
 
-  /**
-   * True when the intent matches the current version (schema, representations, summary, and user
-   * properties).
-   */
   private boolean isUnchanged(
       ViewCommitIntent intent,
       ViewMetadata current,
@@ -317,17 +310,17 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     ViewVersion version = current.currentVersion();
     // sameSchema, not asStruct: the struct ignores identifier-field ids.
     return current.schema().sameSchema(intent.getSchema())
-        && representationsOf(version).equals(representationsOf(intent.getRepresentations()))
+        && buildSortedRepresentationKeys(version)
+            .equals(buildSortedRepresentationKeys(intent.getRepresentations()))
         && Objects.equals(
             version.summary().get(SOURCE_DIALECT_SUMMARY_KEY), intent.getSourceDialect())
         && Objects.equals(version.defaultCatalog(), intent.getDefaultCatalog())
         // Same normalization used to build it, or every namespace-less replace looks changed.
         && Objects.equals(
-            version.defaultNamespace(), normalizedNamespace(intent.getDefaultNamespace()))
+            version.defaultNamespace(), normalizeNamespace(intent.getDefaultNamespace()))
         && mergedUserProperties.equals(currentUserProperties);
   }
 
-  /** Writes the metadata file, then swaps the House Table pointer and returns the commit result. */
   private ViewCommitResult writeThenPublish(
       ViewCommitIntent intent,
       ViewMetadata metadata,
@@ -339,7 +332,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
       boolean created) {
     viewMetadataCodec.write(metadata, fileIO.newOutputFile(newMetadataLocation));
 
-    HouseTable pointer = pointerRowOf(metadata, storageTypeValue);
+    HouseTable pointer = buildPointerRow(metadata, storageTypeValue);
 
     HouseTable saved;
     try {
@@ -361,7 +354,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     }
 
     return ViewCommitResult.builder()
-        .pointer(pointerOf(saved))
+        .pointer(toViewPointer(saved))
         .viewUuid(viewUuid)
         .lastModifiedTime(lastModifiedTime)
         .created(created)
@@ -369,8 +362,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         .build();
   }
 
-  /** Builds the House Table pointer row from the metadata, tagged with the given storage type. */
-  private static HouseTable pointerRowOf(ViewMetadata metadata, String storageTypeValue) {
+  private static HouseTable buildPointerRow(ViewMetadata metadata, String storageTypeValue) {
     Map<String, String> properties = metadata.properties();
     return HouseTable.builder()
         .databaseId(properties.get(getCanonicalFieldName("databaseId")))
@@ -379,16 +371,13 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         .tableVersion(properties.get(getCanonicalFieldName("tableVersion")))
         .tableLocation(properties.get(getCanonicalFieldName("tableLocation")))
         .tableCreator(properties.get(getCanonicalFieldName("tableCreator")))
-        .creationTime(longProperty(metadata, "creationTime"))
+        .creationTime(readLongProperty(metadata, "creationTime"))
         .storageType(storageTypeValue)
         .build();
   }
 
-  /**
-   * Builds a candidate ViewVersion from the intent; its version id is a placeholder Iceberg
-   * reassigns.
-   */
-  private static ViewVersion candidateVersion(
+  /** The version id is a placeholder that Iceberg reassigns. */
+  private static ViewVersion buildCandidateVersion(
       ViewCommitIntent intent,
       int candidateVersionId,
       String operation,
@@ -409,7 +398,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
             .versionId(candidateVersionId)
             .timestampMillis(candidateTimestampMillis)
             .schemaId(Optional.ofNullable(intent.getSchema()).map(Schema::schemaId).orElse(0))
-            .defaultNamespace(normalizedNamespace(intent.getDefaultNamespace()))
+            .defaultNamespace(normalizeNamespace(intent.getDefaultNamespace()))
             .putSummary(OPERATION_SUMMARY_KEY, operation)
             .addAllRepresentations(representations);
     if (intent.getDefaultCatalog() != null) {
@@ -421,28 +410,21 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return builder.build();
   }
 
-  /**
-   * Builds the metadata file path for a version, embedding a random UUID so concurrent writers
-   * don't collide.
-   */
-  private static String metadataFileLocation(String viewLocation, int version) {
+  /** Embeds a random UUID so concurrent writers don't collide. */
+  private static String generateMetadataFileLocation(String viewLocation, int version) {
     return String.format(
         "%s/%05d-%s%s", viewLocation, version, UUID.randomUUID(), METADATA_FILE_EXTENSION);
   }
 
-  /**
-   * Fetches the view's House Table row, throwing NoSuchViewException if absent (a table reads as
-   * absent).
-   */
-  private HouseTable requireViewRow(String databaseId, String viewId) {
+  /** Throws NoSuchViewException when absent; a non-view (table) row reads as absent here. */
+  private HouseTable loadRequiredViewRow(String databaseId, String viewId) {
     return houseTableRepository
-        .findViewById(keyOf(databaseId, viewId))
+        .findViewById(buildPrimaryKey(databaseId, viewId))
         .orElseThrow(
             () -> new NoSuchViewException("View does not exist: %s.%s", databaseId, viewId));
   }
 
-  /** Projects a saved House Table row into the returned view pointer (inverse of pointerRowOf). */
-  private static ViewPointer pointerOf(HouseTable row) {
+  private static ViewPointer toViewPointer(HouseTable row) {
     return ViewPointer.builder()
         .databaseId(row.getDatabaseId())
         .viewId(row.getTableId())
@@ -452,16 +434,12 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         .build();
   }
 
-  /** Returns the intent's caller-supplied view properties, or an empty map when none are set. */
-  private static Map<String, String> userPropertiesOf(ViewCommitIntent intent) {
+  private static Map<String, String> getUserPropertiesOrEmpty(ViewCommitIntent intent) {
     return intent.getViewProperties() == null ? Collections.emptyMap() : intent.getViewProperties();
   }
 
-  /**
-   * Returns the metadata's user properties, dropping every server-stamped (oh-prefixed / dialect)
-   * key.
-   */
-  private static Map<String, String> userPropertiesOf(ViewMetadata metadata) {
+  /** Drops every server-stamped (openhouse-prefixed or dialect-policy) key. */
+  private static Map<String, String> extractUserPropertiesFromMetadata(ViewMetadata metadata) {
     Map<String, String> userProperties = new LinkedHashMap<>();
     metadata
         .properties()
@@ -475,41 +453,36 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return userProperties;
   }
 
-  /** Returns the version's SQL representations as a sorted list of dialect+SQL keys. */
-  private static List<String> representationsOf(ViewVersion version) {
+  private static List<String> buildSortedRepresentationKeys(ViewVersion version) {
     List<String> pairs = new ArrayList<>();
     for (ViewRepresentation representation : version.representations()) {
       if (representation instanceof SQLViewRepresentation) {
         SQLViewRepresentation sql = (SQLViewRepresentation) representation;
-        pairs.add(representationKey(sql.dialect(), sql.sql()));
+        pairs.add(buildRepresentationKey(sql.dialect(), sql.sql()));
       }
     }
     Collections.sort(pairs);
     return pairs;
   }
 
-  /**
-   * Returns the intent's representations as the same sorted dialect+SQL keys, to compare with a
-   * stored version.
-   */
-  private static List<String> representationsOf(List<SqlViewRepresentationIntent> representations) {
+  private static List<String> buildSortedRepresentationKeys(
+      List<SqlViewRepresentationIntent> representations) {
     List<String> pairs = new ArrayList<>();
     if (representations != null) {
       for (SqlViewRepresentationIntent representation : representations) {
-        pairs.add(representationKey(representation.getDialect(), representation.getSql()));
+        pairs.add(buildRepresentationKey(representation.getDialect(), representation.getSql()));
       }
     }
     Collections.sort(pairs);
     return pairs;
   }
 
-  /** One comparable key per representation: dialect and SQL joined on NUL so pairs cannot alias. */
-  private static String representationKey(String dialect, String sql) {
+  /** One comparable key per representation: dialect and SQL joined on a NUL delimiter. */
+  private static String buildRepresentationKey(String dialect, String sql) {
     return dialect + '\u0000' + sql;
   }
 
-  /** Converts a stored version's SQL representations back into intents (the read-back path). */
-  private static List<SqlViewRepresentationIntent> representationIntentsOf(ViewVersion version) {
+  private static List<SqlViewRepresentationIntent> toRepresentationIntents(ViewVersion version) {
     List<SqlViewRepresentationIntent> representations = new ArrayList<>();
     for (ViewRepresentation representation : version.representations()) {
       if (representation instanceof SQLViewRepresentation) {
@@ -521,22 +494,18 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return representations;
   }
 
-  /** Reads an oh-prefixed numeric metadata property, treating an absent value as 0. */
-  private static long longProperty(ViewMetadata metadata, String htsField) {
+  /** Reads a numeric metadata property, treating an absent value as 0. */
+  private static long readLongProperty(ViewMetadata metadata, String htsField) {
     String value = metadata.properties().get(getCanonicalFieldName(htsField));
     return value == null ? 0L : Long.parseLong(value);
   }
 
-  /** The House Table primary key for a (database, view) name pair. */
-  private static HouseTablePrimaryKey keyOf(String databaseId, String viewId) {
+  private static HouseTablePrimaryKey buildPrimaryKey(String databaseId, String viewId) {
     return HouseTablePrimaryKey.builder().databaseId(databaseId).tableId(viewId).build();
   }
 
-  /**
-   * Returns the namespace, or Namespace.empty() when null (one canonical form to build and
-   * compare).
-   */
-  private static Namespace normalizedNamespace(Namespace defaultNamespace) {
+  /** One canonical form (Namespace.empty() for null) so build and comparison agree. */
+  private static Namespace normalizeNamespace(Namespace defaultNamespace) {
     return defaultNamespace == null ? Namespace.empty() : defaultNamespace;
   }
 
@@ -545,10 +514,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return Instant.now(Clock.systemUTC()).toEpochMilli();
   }
 
-  /**
-   * Returns a last-modified timestamp strictly newer than the previous, even under a coarse or
-   * backward clock.
-   */
+  /** Advances against the clock when possible, saturating at Long.MAX_VALUE. */
   private long advanceLastModified(long previousLastModified) {
     long now = nowMillis();
     if (previousLastModified == Long.MAX_VALUE) {
