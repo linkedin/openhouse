@@ -20,9 +20,6 @@ public class ViewCommitResult {
 
   private final boolean created;
 
-  /**
-   * False when this attempt wrote and published nothing — an identical-definition replace against
-   * the captured snapshot. It does not assert anything about concurrent House Table state.
-   */
+  /** False for a snapshot no-op; concurrent HTS state may still change. */
   private final boolean metadataChanged;
 }

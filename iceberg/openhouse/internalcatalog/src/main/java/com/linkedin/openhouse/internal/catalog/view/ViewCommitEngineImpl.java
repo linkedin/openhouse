@@ -53,9 +53,7 @@ import org.springframework.data.domain.Pageable;
  * Iceberg-1.5 implementation of {@link ViewCommitEngine}: build metadata, write the file, then one
  * House Table compare-and-swap, never retried.
  *
- * <p>The pointer row is built here rather than via {@code HouseTableMapper}, whose {@link
- * FileIOManager#getStorage} reverse lookup is lossy — HDFS and LOCAL can share a {@code
- * HadoopFileIO} — and would overwrite the supplied or published storage fact.
+ * <p>Build pointer rows directly: FileIO-to-storage lookup is ambiguous for HDFS and LOCAL.
  */
 @AllArgsConstructor
 @Slf4j
@@ -140,7 +138,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     }
   }
 
-  /** Rejects an intent that lists the same dialect twice, before no-op detection can mask it. */
+  /** Validate before no-op detection so duplicate dialects cannot be accepted unchanged. */
   private void rejectDuplicateDialects(ViewCommitIntent intent) {
     if (intent.getRepresentations() == null) {
       return;
@@ -159,8 +157,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     requireCreateInput(intent, intent.getViewLocation(), "viewLocation");
     requireCreateInput(intent, intent.getStorageType(), "storageType");
 
-    // Classify the caller-supplied snapshot: null is a completed lookup that found the name free.
-    // The swap below, not this check, is what ultimately prevents two creates.
+    // The snapshot is advisory; only the conditional write prevents concurrent creates.
     HouseTable occupant = intent.getBaseRow();
     if (occupant != null) {
       requireRowTargetsIntent(intent, occupant);
@@ -198,7 +195,6 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return writeThenPublish(metadata, fileIO, intent.getStorageType(), newMetadataLocation, true);
   }
 
-  /** Throws BadRequestException if a required create input is null or blank. */
   private static void requireCreateInput(ViewCommitIntent intent, String value, String field) {
     if (value == null || value.trim().isEmpty()) {
       throw new BadRequestException(
@@ -207,7 +203,6 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     }
   }
 
-  /** A missing create flag is a bad invocation; it must fail at commit, before any effect. */
   private static void requireCreateFlag(ViewCommitIntent intent) {
     if (intent.getIsCreate() == null) {
       throw new BadRequestException(
@@ -216,11 +211,6 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     }
   }
 
-  /**
-   * A supplied row must name the same logical target as the intent (case-insensitively, per the
-   * table-operations identifier convention). A wrong or blank key is a bad invocation, not a
-   * concurrency conflict.
-   */
   private static void requireRowTargetsIntent(ViewCommitIntent intent, HouseTable row) {
     if (isBlank(row.getDatabaseId())
         || isBlank(row.getTableId())
@@ -232,10 +222,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     }
   }
 
-  /**
-   * A canonical VIEW snapshot must carry a usable pointer and storage; a blank one is corrupt
-   * server state, not absence or a concurrency conflict. Location is checked before storage.
-   */
+  /** Missing pointer or storage indicates corrupt HTS state, not an absent view. */
   private static void requireViewPointerAndStorage(ViewCommitIntent intent, HouseTable row) {
     if (isBlank(row.getTableLocation())) {
       throw new IllegalStateException(
@@ -255,10 +242,6 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return value == null || value.trim().isEmpty();
   }
 
-  /**
-   * Throws when the name is already taken: AlreadyExists for a view, else
-   * ViewNameOccupiedException.
-   */
   private void rejectOccupiedName(ViewCommitIntent intent, HouseTable occupant) {
     if (isView(occupant.getEntityType())) {
       throw new AlreadyExistsException(
@@ -268,10 +251,6 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         intent.getDatabaseId(), intent.getViewId(), occupant.getEntityType());
   }
 
-  /**
-   * True only if entityType is exactly "VIEW" (a differently-cased value is a corrupt row, not a
-   * view).
-   */
   private static boolean isView(String entityType) {
     return ENTITY_TYPE_VIEW.equals(entityType);
   }
@@ -279,14 +258,13 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
   private ViewCommitResult replace(ViewCommitIntent intent) {
     HouseTable row = intent.getBaseRow();
     if (row == null || !isView(row.getEntityType())) {
-      // A completed lookup that found absence, or a non-view: never turned into a create.
       throw new NoSuchViewException(
           "View does not exist: %s.%s", intent.getDatabaseId(), intent.getViewId());
     }
     requireRowTargetsIntent(intent, row);
     requireViewPointerAndStorage(intent, row);
 
-    // The captured row's own storage and its exact metadata path, never re-read from House Table.
+    // Use the captured storage and path; never refresh to a newer base.
     String capturedBase = row.getTableLocation();
     FileIO fileIO = fileIOManager.getFileIO(storageType.fromString(row.getStorageType()));
     ViewMetadata current = viewMetadataCodec.read(fileIO.newInputFile(capturedBase));
@@ -296,7 +274,6 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     userProperties.putAll(getUserPropertiesOrEmpty(intent));
 
     if (isUnchanged(intent, current, userProperties, currentUserProperties)) {
-      // Nothing observable changed, so do not manufacture a version or timestamp.
       return ViewCommitResult.builder()
           .pointer(toViewPointer(row))
           .viewUuid(current.uuid())
@@ -353,7 +330,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         && Objects.equals(
             version.summary().get(SOURCE_DIALECT_SUMMARY_KEY), intent.getSourceDialect())
         && Objects.equals(version.defaultCatalog(), intent.getDefaultCatalog())
-        // Same normalization used to build it, or every namespace-less replace looks changed.
+        // Match the normalization used when building metadata.
         && Objects.equals(
             version.defaultNamespace(), normalizeNamespace(intent.getDefaultNamespace()))
         && mergedUserProperties.equals(currentUserProperties);
@@ -374,7 +351,6 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     try {
       saved = houseTableRepository.saveView(pointer);
     } catch (HouseTableConcurrentUpdateException e) {
-      // A create lost a name; a replace lost a commit.
       if (isCreate) {
         throw new AlreadyExistsException(
             e, "View already exists: %s.%s", pointer.getDatabaseId(), pointer.getTableId());
@@ -453,7 +429,6 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         "%s/%05d-%s%s", viewLocation, version, UUID.randomUUID(), METADATA_FILE_EXTENSION);
   }
 
-  /** Throws NoSuchViewException when absent; a non-view (table) row reads as absent here. */
   private HouseTable loadRequiredViewRow(String databaseId, String viewId) {
     return houseTableRepository
         .findViewById(buildPrimaryKey(databaseId, viewId))
@@ -475,7 +450,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return intent.getViewProperties() == null ? Collections.emptyMap() : intent.getViewProperties();
   }
 
-  /** Drops every server-stamped (openhouse-prefixed or dialect-policy) key. */
+  /** Excludes OpenHouse fields and the server-owned dialect policy. */
   private static Map<String, String> extractUserPropertiesFromMetadata(ViewMetadata metadata) {
     Map<String, String> userProperties = new LinkedHashMap<>();
     metadata
@@ -514,7 +489,6 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return pairs;
   }
 
-  /** One comparable key per representation: dialect and SQL joined on a NUL delimiter. */
   private static String buildRepresentationKey(String dialect, String sql) {
     return dialect + '\u0000' + sql;
   }
@@ -531,7 +505,6 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return representations;
   }
 
-  /** Reads a numeric metadata property, treating an absent value as 0. */
   private static long readLongProperty(ViewMetadata metadata, String htsField) {
     String value = metadata.properties().get(getCanonicalFieldName(htsField));
     return value == null ? 0L : Long.parseLong(value);
@@ -541,17 +514,16 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return HouseTablePrimaryKey.builder().databaseId(databaseId).tableId(viewId).build();
   }
 
-  /** One canonical form (Namespace.empty() for null) so build and comparison agree. */
   private static Namespace normalizeNamespace(Namespace defaultNamespace) {
     return defaultNamespace == null ? Namespace.empty() : defaultNamespace;
   }
 
-  /** Returns the current time in epoch millis (overridable so a test can pin it). */
+  /** Overridable for deterministic tests. */
   protected long nowMillis() {
     return Instant.now(Clock.systemUTC()).toEpochMilli();
   }
 
-  /** Advances against the clock when possible, saturating at Long.MAX_VALUE. */
+  /** Keep timestamps monotonic, saturating at Long.MAX_VALUE. */
   private long advanceLastModified(long previousLastModified) {
     long now = nowMillis();
     if (previousLastModified == Long.MAX_VALUE) {

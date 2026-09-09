@@ -5,12 +5,7 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.ToString;
 
-/**
- * The House Table resident pointer row for a view.
- *
- * <p>No UUID: House Table has no column for it, so supplying one would mean parsing every metadata
- * file. It appears on {@link ViewCommitResult} and {@link LoadedView} instead.
- */
+/** View-facing HTS projection; UUID requires a metadata read and is returned separately. */
 @Builder(toBuilder = true)
 @Getter
 @EqualsAndHashCode
@@ -21,7 +16,6 @@ public class ViewPointer {
 
   private final String viewId;
 
-  /** The metadata path this snapshot points to; a later commit swaps to a new path atomically. */
   private final String metadataLocation;
 
   private final String storageType;

@@ -10,24 +10,7 @@ import lombok.ToString;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Namespace;
 
-/**
- * Caller-supplied description of one view commit.
- *
- * <p>{@code isCreate} is a required, explicitly chosen create flag ({@code true} CREATE, {@code
- * false} REPLACE); the engine never infers it. It is boxed so an omitted flag reads as {@code null}
- * and is rejected at commit rather than silently defaulting. {@code baseRow} is the trusted House
- * Table snapshot the future views repository read for this logical target with a single neutral
- * lookup: a non-null row is that hydrated snapshot, and {@code null} means the lookup completed and
- * found absence — never "not loaded". The engine classifies and swaps against this snapshot and
- * performs no House Table read of its own.
- *
- * <p>{@code viewUuid}, {@code viewLocation}, and {@code storageType} are required for CREATE and
- * ignored for REPLACE, which takes identity, root, and storage from the captured row and its
- * metadata. There is no fallback: a missing create-side value fails rather than being allocated
- * here.
- *
- * <p>Version-neutral by construction, so it loads under Iceberg 1.2.
- */
+/** Version-neutral inputs. UUID, root, and storage are required on CREATE, ignored on REPLACE. */
 @Builder(toBuilder = true)
 @Getter
 @EqualsAndHashCode
@@ -46,31 +29,22 @@ public class ViewCommitIntent {
 
   private final String defaultCatalog;
 
-  /** Null and {@link Namespace#empty()} are the same value on both build and comparison. */
+  /** Null is normalized to {@link Namespace#empty()}. */
   private final Namespace defaultNamespace;
 
   private final Map<String, String> viewProperties;
 
-  /**
-   * Required create flag: {@code true} CREATE, {@code false} REPLACE. Boxed so an omitted flag is
-   * {@code null} — rejected at commit before any effect — rather than defaulting to REPLACE.
-   */
+  /** Required: true for CREATE, false for REPLACE; null is rejected at commit. */
   private final Boolean isCreate;
 
-  /**
-   * The server-read House Table snapshot for this target: a hydrated row, or {@code null} when the
-   * lookup completed and found absence. Never re-read by the engine.
-   */
+  /** Trusted HTS snapshot; null means observed absence. Its tableLocation is the REPLACE token. */
   private final HouseTable baseRow;
 
   private final String creator;
 
-  /** Required for CREATE; a REPLACE preserves the published {@code ViewMetadata.uuid()}. */
   private final String viewUuid;
 
-  /** Required for CREATE; a REPLACE writes under the published {@code ViewMetadata.location()}. */
   private final String viewLocation;
 
-  /** Required for CREATE; a REPLACE resolves storage from the captured row. */
   private final String storageType;
 }

@@ -8,22 +8,14 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 /**
- * The view analogue of {@code OpenHouseInternalCatalog} plus {@code
- * OpenHouseInternalTableOperations}. It never generates identity, selects storage, or allocates a
- * root; those arrive on {@link ViewCommitIntent}.
- *
- * <p>Every signature is version-neutral, so the interface stays loadable under Iceberg 1.2.
+ * View counterpart to {@code OpenHouseInternalCatalog} and {@code
+ * OpenHouseInternalTableOperations}, with signatures usable under Iceberg 1.2.
  */
 public interface ViewCommitEngine {
 
   /**
-   * Commits one view under the caller's explicit {@link ViewCommitIntent#getIsCreate()} flag,
-   * against the trusted snapshot in {@link ViewCommitIntent#getBaseRow()} (a hydrated row, or
-   * {@code null} for a completed lookup that found absence). It classifies and swaps against that
-   * snapshot and performs no House Table read of its own. A CREATE against a taken name and a
-   * REPLACE of an absent or non-view target are rejected; an identical-definition REPLACE is a
-   * snapshot no-op that publishes nothing and may return the captured (possibly stale) pointer. A
-   * missing create flag fails before any effect.
+   * Commits against the supplied snapshot without reloading HTS. CREATE requires absence; REPLACE
+   * requires a view. No-op REPLACE returns the captured snapshot without publishing.
    */
   ViewCommitResult commit(ViewCommitIntent intent);
 
