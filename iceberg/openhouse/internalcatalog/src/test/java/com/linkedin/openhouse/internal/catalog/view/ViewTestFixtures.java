@@ -104,6 +104,14 @@ public final class ViewTestFixtures {
 
   public static ViewCommitIntent.ViewCommitIntentBuilder baseIntent(
       Path root, ViewCommitOperation operation, HouseTable baseRow) {
+    return intentBuilderWithoutOperation(root).operation(operation).baseRow(baseRow);
+  }
+
+  /**
+   * Every field except {@code operation} and {@code baseRow}, so a test can prove the builder
+   * applies no default operation. Used by {@link #baseIntent} for the ordinary explicit path.
+   */
+  public static ViewCommitIntent.ViewCommitIntentBuilder intentBuilderWithoutOperation(Path root) {
     return ViewCommitIntent.builder()
         .databaseId(DB)
         .viewId(VIEW)
@@ -116,9 +124,7 @@ public final class ViewTestFixtures {
         .creator(CREATOR)
         .viewUuid(VIEW_UUID)
         .viewLocation(allocatedViewLocation(root, DB, VIEW, VIEW_UUID))
-        .storageType(LOCAL_STORAGE_TYPE)
-        .operation(operation)
-        .baseRow(baseRow);
+        .storageType(LOCAL_STORAGE_TYPE);
   }
 
   public static Map<String, String> userProperties(String key, String value) {

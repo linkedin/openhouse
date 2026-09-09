@@ -52,6 +52,8 @@ public class InMemoryViewHouseTableRepository implements HouseTableRepository {
 
   private final AtomicInteger findAllCalls = new AtomicInteger();
 
+  private final AtomicInteger findAllViewsCalls = new AtomicInteger();
+
   private final AtomicInteger deleteViewByIdCalls = new AtomicInteger();
 
   private volatile Runnable beforeCas = () -> {};
@@ -128,15 +130,21 @@ public class InMemoryViewHouseTableRepository implements HouseTableRepository {
     return findAllCalls.get();
   }
 
+  public int getFindAllViewsByDatabaseIdCalls() {
+    return findAllViewsCalls.get();
+  }
+
   /**
-   * Every point-read and scan a commit could accidentally make. A commit holds this at zero: it
-   * classifies and swaps against the caller-supplied snapshot, never a fresh read.
+   * Every point-read and scan a commit could accidentally make, including the typed list scan. A
+   * commit holds this at zero: it classifies and swaps against the caller-supplied snapshot, never
+   * a fresh read.
    */
   public int getTotalReadCalls() {
     return findEntityByIdCalls.get()
         + findViewByIdCalls.get()
         + findByIdCalls.get()
-        + findAllCalls.get();
+        + findAllCalls.get()
+        + findAllViewsCalls.get();
   }
 
   public int getDeleteViewByIdCalls() {
@@ -193,6 +201,7 @@ public class InMemoryViewHouseTableRepository implements HouseTableRepository {
 
   @Override
   public Page<HouseTable> findAllViewsByDatabaseId(String databaseId, Pageable pageable) {
+    findAllViewsCalls.incrementAndGet();
     events.add(LIST_VIEWS + "(" + databaseId + ")");
     // Filtered before the page is cut, as the server's VIEW predicate is in SQL.
     List<HouseTable> views =

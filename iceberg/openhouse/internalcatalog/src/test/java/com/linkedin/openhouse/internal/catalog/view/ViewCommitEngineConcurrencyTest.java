@@ -3,7 +3,9 @@ package com.linkedin.openhouse.internal.catalog.view;
 import static com.linkedin.openhouse.internal.catalog.view.ViewTestFixtures.DB;
 import static com.linkedin.openhouse.internal.catalog.view.ViewTestFixtures.VIEW;
 
+import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
 import com.linkedin.openhouse.internal.catalog.view.model.LoadedView;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitOperation;
@@ -63,13 +65,18 @@ public class ViewCommitEngineConcurrencyTest {
   /** The swap is the only arbiter, so two creates that both captured absence still leave one. */
   @Test
   void concurrentCreatesProduceExactlyOneWinnerAndOnePointer() throws Exception {
+    // Both callers looked up the name and found absence before racing.
+    HouseTable capturedAbsence = captureBase();
+    Assertions.assertNull(capturedAbsence, "both creates captured absence before racing");
+    int readsAfterCapture = harness.readCalls();
+
     CyclicBarrier bothInsideSwapWindow = new CyclicBarrier(2);
     harness.getHouseTableRepository().setBeforeCas(() -> await(bothInsideSwapWindow));
 
-    // Both requests captured absence and kept distinct prepared identities and roots.
-    ViewCommitIntent first = ViewTestFixtures.createIntent(root, null);
+    // They keep distinct prepared identities and roots.
+    ViewCommitIntent first = ViewTestFixtures.createIntent(root, capturedAbsence);
     ViewCommitIntent second =
-        ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
+        ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, capturedAbsence)
             .schema(ViewTestFixtures.schemaV2())
             .representations(
                 Collections.singletonList(
@@ -91,6 +98,14 @@ public class ViewCommitEngineConcurrencyTest {
     Assertions.assertTrue(
         outcome.failure() instanceof AlreadyExistsException,
         "a losing create is a name collision, not a failed commit: " + outcome.failure());
+
+    // Neither racing commit read House Table; both wrote a candidate before the swap.
+    Assertions.assertEquals(
+        readsAfterCapture,
+        harness.readCalls(),
+        "the racing creates classify their captured absence and read nothing");
+    Assertions.assertEquals(
+        2, harness.codecWrites(), "both writers built one candidate: " + harness.events());
 
     List<Path> files = harness.metadataFiles();
     Assertions.assertEquals(
@@ -124,6 +139,10 @@ public class ViewCommitEngineConcurrencyTest {
     harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
     // Both replacements share one intentionally captured VIEW snapshot.
     HouseTable base = captureBase();
+    int savesAfterCreate = harness.getHouseTableRepository().getSaveViewCalls();
+    int filesAfterCreate = harness.metadataFiles().size();
+    int writesAfterCreate = harness.codecWrites();
+    int readsAfterCapture = harness.readCalls();
 
     CyclicBarrier bothInsideSwapWindow = new CyclicBarrier(2);
     harness.getHouseTableRepository().setBeforeCas(() -> await(bothInsideSwapWindow));
@@ -150,6 +169,32 @@ public class ViewCommitEngineConcurrencyTest {
         outcome.failure() instanceof CommitFailedException,
         "a losing replace is a concurrent-modification failure: " + outcome.failure());
 
+    // One save attempt each, one candidate each, both retained; neither read House Table.
+    Assertions.assertEquals(
+        savesAfterCreate + 2,
+        harness.getHouseTableRepository().getSaveViewCalls(),
+        "each replacement attempted exactly one swap");
+    Assertions.assertEquals(
+        writesAfterCreate + 2,
+        harness.codecWrites(),
+        "each replacement wrote exactly one candidate: " + harness.events());
+    Assertions.assertEquals(
+        readsAfterCapture,
+        harness.readCalls(),
+        "both replacements work from the shared captured snapshot and read nothing");
+    List<Path> newCandidates =
+        harness.metadataFiles().stream()
+            .filter(path -> !path.toString().equals(base.getTableLocation()))
+            .collect(Collectors.toList());
+    Assertions.assertEquals(
+        filesAfterCreate + 2,
+        harness.metadataFiles().size(),
+        "the winner and loser candidates are both retained on storage");
+    Assertions.assertEquals(
+        2,
+        newCandidates.stream().map(path -> path.getFileName().toString()).distinct().count(),
+        "the two candidate files are distinct: " + newCandidates);
+
     harness.getHouseTableRepository().setBeforeCas(() -> {});
     HouseTable pointer = harness.getHouseTableRepository().peek(DB, VIEW).get();
     Assertions.assertEquals(
@@ -168,6 +213,7 @@ public class ViewCommitEngineConcurrencyTest {
     HouseTable base = captureBase();
     Set<Path> filesBeforeLosingAttempt = new HashSet<>(harness.metadataFiles());
     int savesBeforeLosingAttempt = harness.getHouseTableRepository().getSaveViewCalls();
+    int readsBeforeLosingAttempt = harness.readCalls();
 
     // Both are prebuilt from the shared base, so the callback captures nothing mid-swap.
     ViewCommitIntent interloperIntent =
@@ -206,6 +252,10 @@ public class ViewCommitEngineConcurrencyTest {
         savesBeforeLosingAttempt + 2,
         harness.getHouseTableRepository().getSaveViewCalls(),
         "the competing commit and the losing attempt each published exactly once");
+    Assertions.assertEquals(
+        readsBeforeLosingAttempt,
+        harness.readCalls(),
+        "neither the interloper nor the loser read House Table; both used the shared base");
 
     List<Path> orphaned =
         harness.metadataFiles().stream()
@@ -228,97 +278,199 @@ public class ViewCommitEngineConcurrencyTest {
     Assertions.assertEquals(winnerPath, reloaded.getPointer().getMetadataLocation());
   }
 
-  /** A create that captured absence still loses at the swap when the name is taken before the PUT. */
+  /** A create that captured absence loses at the swap when a VIEW takes the name before entry. */
   @Test
-  void aCreateThatCapturedAbsenceLosesAtTheSwapWhenTheNameIsTaken() {
-    HouseTable rival = ViewTestFixtures.viewRow("/rival/00001-rival.metadata.json");
-    harness
-        .getHouseTableRepository()
-        .runOnceBeforeNextCas(() -> harness.getHouseTableRepository().seed(rival));
+  void aStaleCapturedAbsenceCreateLosesToAViewInstalledBeforeEntry() {
+    assertStaleCreateAbsenceLosesTo(ViewTestFixtures.viewRow("/rival/00001-rival.metadata.json"));
+  }
+
+  /** The same, when a TABLE takes the name: still the generic write-time AlreadyExists. */
+  @Test
+  void aStaleCapturedAbsenceCreateLosesToATableInstalledBeforeEntry() {
+    assertStaleCreateAbsenceLosesTo(ViewTestFixtures.tableRow("/rival/00001-rival.metadata.json"));
+  }
+
+  private void assertStaleCreateAbsenceLosesTo(HouseTable occupantInstalledBeforeEntry) {
+    HouseTable capturedAbsence = captureBase();
+    Assertions.assertNull(capturedAbsence, "the caller captured absence before the state changed");
+
+    // The name is taken before the measured commit even begins.
+    harness.getHouseTableRepository().seed(occupantInstalledBeforeEntry);
+    int readsBeforeCommit = harness.readCalls();
+    harness.clearEvents();
 
     AlreadyExistsException thrown =
         Assertions.assertThrows(
             AlreadyExistsException.class,
-            () -> harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null)));
+            () ->
+                harness
+                    .getViewCommitEngine()
+                    .commit(ViewTestFixtures.createIntent(root, capturedAbsence)));
 
     Assertions.assertEquals("View already exists: " + DB + "." + VIEW, thrown.getMessage());
+    Assertions.assertTrue(
+        thrown.getCause() instanceof HouseTableConcurrentUpdateException,
+        "the generic write-time conflict carries the direct repository cause: "
+            + thrown.getCause());
+    Assertions.assertEquals(
+        readsBeforeCommit,
+        harness.readCalls(),
+        "the create trusted its captured absence and read nothing");
+    List<String> events = harness.events();
+    Assertions.assertEquals(0, htsReadEvents(events), "no House Table read: " + events);
+    Assertions.assertEquals(
+        1, countEvents(events, RecordingViewMetadataCodec.WRITE), "one candidate: " + events);
+    int saveAt = indexOfEvent(events, InMemoryViewHouseTableRepository.SAVE_VIEW);
     Assertions.assertEquals(
         1,
-        harness.getHouseTableRepository().getSaveViewCalls(),
-        "exactly one swap is attempted, and it is not retried");
+        countEvents(events, InMemoryViewHouseTableRepository.SAVE_VIEW),
+        "one save attempt: " + events);
+    Assertions.assertTrue(
+        events.get(saveAt).contains("expected=" + CatalogConstants.INITIAL_VERSION),
+        "the create's single save is an INITIAL claim: " + events);
     Assertions.assertEquals(
-        1, harness.metadataFiles().size(), "the losing candidate is written and left in place");
+        1, harness.metadataFiles().size(), "the losing candidate is written and retained");
     Assertions.assertEquals(
-        "/rival/00001-rival.metadata.json",
+        occupantInstalledBeforeEntry.getTableLocation(),
         harness.getHouseTableRepository().peek(DB, VIEW).get().getTableLocation(),
-        "the rival that won the name is left untouched");
+        "the occupant that won the name is left untouched");
   }
 
-  /** The base is deleted before the swap: the changed replace loses and never recreates it. */
+  /** A stale captured base whose row was deleted before entry loses at the swap. */
   @Test
-  void aChangedReplaceLosesTheSwapWhenItsBaseIsDeletedBeforeThePut() {
+  void aStaleCapturedReplaceLosesWhenItsBaseWasDeletedBeforeEntry() {
     harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
     HouseTable base = captureBase();
-    int filesBefore = harness.metadataFiles().size();
-    ViewCommitIntent loser =
-        ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
-            .schema(ViewTestFixtures.schemaV2())
-            .representations(
-                Collections.singletonList(
-                    ViewTestFixtures.sql(ViewTestFixtures.SQL_V2, ViewTestFixtures.SPARK_DIALECT)))
-            .build();
-    harness
-        .getHouseTableRepository()
-        .runOnceBeforeNextCas(() -> harness.getViewCommitEngine().dropView(DB, VIEW));
+    ViewCommitIntent loser = changedReplaceIntentOf(base);
+
+    // The base is deleted before the measured commit even begins.
+    Assertions.assertTrue(harness.getViewCommitEngine().dropView(DB, VIEW));
+    int filesBeforeCommit = harness.metadataFiles().size();
+    int readsBeforeCommit = harness.readCalls();
+    harness.clearEvents();
 
     CommitFailedException thrown =
         Assertions.assertThrows(
             CommitFailedException.class, () -> harness.getViewCommitEngine().commit(loser));
-    Assertions.assertEquals(
-        "Cannot replace view " + DB + "." + VIEW + ": it was modified concurrently",
-        thrown.getMessage());
 
-    Assertions.assertEquals(
-        filesBefore + 1,
-        harness.metadataFiles().size(),
-        "the losing candidate is written and retained, never cleaned up");
+    assertLosingReplaceReadAWroteOneCarryingItsToken(
+        base, readsBeforeCommit, filesBeforeCommit, thrown);
     Assertions.assertFalse(
         harness.getHouseTableRepository().peek(DB, VIEW).isPresent(),
         "the delete stands; a losing replace never resurrects the row");
   }
 
-  /** Deleted and recreated before the swap: the loser must not promote its stale base. */
+  /** A stale captured base deleted and recreated as a distinct C before entry loses at the swap. */
   @Test
-  void aChangedReplaceLosesTheSwapWhenItsBaseIsDeletedAndRecreatedBeforeThePut() {
+  void aStaleCapturedReplaceLosesWhenItsBaseWasDeletedAndRecreatedBeforeEntry() {
     harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
     HouseTable base = captureBase();
-    ViewCommitIntent loser =
-        ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
-            .schema(ViewTestFixtures.schemaV2())
-            .representations(
-                Collections.singletonList(
-                    ViewTestFixtures.sql(ViewTestFixtures.SQL_V2, ViewTestFixtures.SPARK_DIALECT)))
-            .build();
-    AtomicReference<HouseTable> recreated = new AtomicReference<>();
+    ViewCommitIntent loser = changedReplaceIntentOf(base);
+
+    // Deleted and a distinct C recreated before the measured commit even begins.
+    Assertions.assertTrue(harness.getViewCommitEngine().dropView(DB, VIEW));
     harness
-        .getHouseTableRepository()
-        .runOnceBeforeNextCas(
-            () -> {
-              harness.getViewCommitEngine().dropView(DB, VIEW);
-              harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
-              recreated.set(harness.getHouseTableRepository().peek(DB, VIEW).orElse(null));
-            });
+        .getViewCommitEngine()
+        .commit(
+            ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
+                .viewUuid(ViewTestFixtures.SECOND_VIEW_UUID)
+                .viewLocation(
+                    ViewTestFixtures.allocatedViewLocation(
+                        root, DB, VIEW, ViewTestFixtures.SECOND_VIEW_UUID))
+                .build());
+    HouseTable pointerAtC = harness.getHouseTableRepository().peek(DB, VIEW).get();
+    int filesBeforeCommit = harness.metadataFiles().size();
+    int readsBeforeCommit = harness.readCalls();
+    harness.clearEvents();
 
-    Assertions.assertThrows(
-        CommitFailedException.class, () -> harness.getViewCommitEngine().commit(loser));
+    CommitFailedException thrown =
+        Assertions.assertThrows(
+            CommitFailedException.class, () -> harness.getViewCommitEngine().commit(loser));
 
-    Assertions.assertNotNull(recreated.get(), "a fresh row must have been recreated at the key");
-    HouseTable now = harness.getHouseTableRepository().peek(DB, VIEW).get();
-    Assertions.assertEquals(recreated.get(), now, "the recreated row must be left exactly as it was");
+    assertLosingReplaceReadAWroteOneCarryingItsToken(
+        base, readsBeforeCommit, filesBeforeCommit, thrown);
+    Assertions.assertEquals(
+        pointerAtC,
+        harness.getHouseTableRepository().peek(DB, VIEW).get(),
+        "the recreated C row is left exactly as it was");
     Assertions.assertNotEquals(
         base.getTableLocation(),
-        now.getTableLocation(),
-        "the loser must never promote its stale base over the recreated row");
+        harness.getHouseTableRepository().peek(DB, VIEW).get().getTableLocation(),
+        "the loser never promotes its stale A over the recreated C");
+  }
+
+  private ViewCommitIntent changedReplaceIntentOf(HouseTable base) {
+    return ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+        .schema(ViewTestFixtures.schemaV2())
+        .representations(
+            Collections.singletonList(
+                ViewTestFixtures.sql(ViewTestFixtures.SQL_V2, ViewTestFixtures.SPARK_DIALECT)))
+        .build();
+  }
+
+  private void assertLosingReplaceReadAWroteOneCarryingItsToken(
+      HouseTable base, int readsBeforeCommit, int filesBeforeCommit, CommitFailedException thrown) {
+    Assertions.assertEquals(
+        "Cannot replace view " + DB + "." + VIEW + ": it was modified concurrently",
+        thrown.getMessage());
+    Assertions.assertTrue(
+        thrown.getCause() instanceof HouseTableConcurrentUpdateException,
+        "the generic conflict carries the direct repository cause: " + thrown.getCause());
+    Assertions.assertEquals(
+        readsBeforeCommit, harness.readCalls(), "a losing replace reads no House Table row");
+    List<String> events = harness.events();
+    Assertions.assertEquals(0, htsReadEvents(events), "no House Table read: " + events);
+    int readAt = indexOfEvent(events, RecordingViewMetadataCodec.READ);
+    Assertions.assertEquals(
+        1,
+        countEvents(events, RecordingViewMetadataCodec.READ),
+        "the captured file is read exactly once: " + events);
+    Assertions.assertTrue(
+        readAt >= 0 && events.get(readAt).contains(base.getTableLocation()),
+        "the read is of A's captured path: " + events);
+    Assertions.assertEquals(
+        1, countEvents(events, RecordingViewMetadataCodec.WRITE), "one candidate: " + events);
+    int saveAt = indexOfEvent(events, InMemoryViewHouseTableRepository.SAVE_VIEW);
+    Assertions.assertEquals(
+        1,
+        countEvents(events, InMemoryViewHouseTableRepository.SAVE_VIEW),
+        "one save attempt: " + events);
+    Assertions.assertTrue(
+        events.get(saveAt).contains("expected=" + base.getTableLocation()),
+        "the swap carries A's exact captured token: " + events);
+    Assertions.assertEquals(
+        filesBeforeCommit + 1,
+        harness.metadataFiles().size(),
+        "the losing candidate is written and retained");
+  }
+
+  private static int countEvents(List<String> events, String prefix) {
+    return (int) events.stream().filter(event -> event.startsWith(prefix)).count();
+  }
+
+  private static int indexOfEvent(List<String> events, String prefix) {
+    for (int i = 0; i < events.size(); i++) {
+      if (events.get(i).startsWith(prefix)) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * Every House Table read/scan event; {@code findAll} covers both the raw and typed-list scans.
+   */
+  private static int htsReadEvents(List<String> events) {
+    int reads = 0;
+    for (String event : events) {
+      if (event.startsWith(InMemoryViewHouseTableRepository.FIND_ENTITY)
+          || event.startsWith(InMemoryViewHouseTableRepository.FIND_VIEW)
+          || event.startsWith(InMemoryViewHouseTableRepository.FIND_BY_ID)
+          || event.startsWith(InMemoryViewHouseTableRepository.FIND_ALL)) {
+        reads++;
+      }
+    }
+    return reads;
   }
 
   private Outcome runBoth(ViewCommitIntent first, ViewCommitIntent second) throws Exception {

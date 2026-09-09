@@ -189,35 +189,60 @@ public class ViewCommitEngineMixedEntityTest {
         harness.getHouseTableRepository().peek(DB, "legacy_a").get().getEntityType(),
         "the raw stored value is still null: hydration happens on read, not on write");
 
-    // Positive controls: every instrumented reader increments its counter, so the zero-read
-    // assertions elsewhere are not vacuously true. findById and findAll are the newly added ones.
-    int entityBefore = harness.getHouseTableRepository().getFindEntityByIdCalls();
-    harness.getHouseTableRepository().findEntityById(key("view_a"));
-    Assertions.assertEquals(
-        entityBefore + 1,
-        harness.getHouseTableRepository().getFindEntityByIdCalls(),
-        "a neutral read must be counted");
+    // Positive controls: every instrumented reader increments its counter, the aggregate, and emits
+    // its event, so the zero-read assertions elsewhere (counter and event based) are not vacuous.
+    InMemoryViewHouseTableRepository repo = harness.getHouseTableRepository();
 
-    int viewBefore = harness.getHouseTableRepository().getFindViewByIdCalls();
-    harness.getHouseTableRepository().findViewById(key("view_a"));
-    Assertions.assertEquals(
-        viewBefore + 1,
-        harness.getHouseTableRepository().getFindViewByIdCalls(),
-        "a typed view read must be counted");
+    int entityBefore = repo.getFindEntityByIdCalls();
+    int aggBefore = repo.getTotalReadCalls();
+    harness.clearEvents();
+    repo.findEntityById(key("view_a"));
+    Assertions.assertEquals(entityBefore + 1, repo.getFindEntityByIdCalls(), "neutral counter");
+    Assertions.assertEquals(aggBefore + 1, repo.getTotalReadCalls(), "neutral aggregate");
+    assertEmitted(InMemoryViewHouseTableRepository.FIND_ENTITY);
 
-    int byIdBefore = harness.getHouseTableRepository().getFindByIdCalls();
-    harness.getHouseTableRepository().findById(key("table_a"));
-    Assertions.assertEquals(
-        byIdBefore + 1,
-        harness.getHouseTableRepository().getFindByIdCalls(),
-        "a raw table point read must be counted");
+    int viewBefore = repo.getFindViewByIdCalls();
+    harness.clearEvents();
+    repo.findViewById(key("view_a"));
+    Assertions.assertEquals(viewBefore + 1, repo.getFindViewByIdCalls(), "typed view counter");
+    assertEmitted(InMemoryViewHouseTableRepository.FIND_VIEW);
 
-    int allBefore = harness.getHouseTableRepository().getFindAllCalls();
-    harness.getHouseTableRepository().findAll();
+    int byIdBefore = repo.getFindByIdCalls();
+    harness.clearEvents();
+    repo.findById(key("table_a"));
     Assertions.assertEquals(
-        allBefore + 1,
-        harness.getHouseTableRepository().getFindAllCalls(),
-        "a raw scan must be counted, so an accidental one can never hide");
+        byIdBefore + 1, repo.getFindByIdCalls(), "raw table point-read counter");
+    assertEmitted(InMemoryViewHouseTableRepository.FIND_BY_ID);
+
+    int allBefore = repo.getFindAllCalls();
+    harness.clearEvents();
+    repo.findAll();
+    Assertions.assertEquals(allBefore + 1, repo.getFindAllCalls(), "no-arg scan counter");
+    assertEmitted(InMemoryViewHouseTableRepository.FIND_ALL);
+
+    // The separately instrumented paged overload must also be a positive control.
+    int allPagedBefore = repo.getFindAllCalls();
+    harness.clearEvents();
+    repo.findAll(PageRequest.of(0, 10));
+    Assertions.assertEquals(allPagedBefore + 1, repo.getFindAllCalls(), "paged scan counter");
+    assertEmitted(InMemoryViewHouseTableRepository.FIND_ALL);
+
+    // The typed list scan is now in the aggregate too, so an accidental list during commit is
+    // caught.
+    int listBefore = repo.getFindAllViewsByDatabaseIdCalls();
+    int aggBeforeList = repo.getTotalReadCalls();
+    harness.clearEvents();
+    repo.findAllViewsByDatabaseId(DB, PageRequest.of(0, 10));
+    Assertions.assertEquals(
+        listBefore + 1, repo.getFindAllViewsByDatabaseIdCalls(), "typed list-scan counter");
+    Assertions.assertEquals(aggBeforeList + 1, repo.getTotalReadCalls(), "list-scan aggregate");
+    assertEmitted(InMemoryViewHouseTableRepository.LIST_VIEWS);
+  }
+
+  private void assertEmitted(String eventPrefix) {
+    Assertions.assertTrue(
+        harness.events().stream().anyMatch(event -> event.startsWith(eventPrefix)),
+        "an instrumented read must emit its event " + eventPrefix + ": " + harness.events());
   }
 
   private static HouseTablePrimaryKey key(String tableId) {

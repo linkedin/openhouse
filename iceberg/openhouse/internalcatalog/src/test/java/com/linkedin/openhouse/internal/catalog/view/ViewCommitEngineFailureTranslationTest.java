@@ -44,6 +44,8 @@ public class ViewCommitEngineFailureTranslationTest {
   /** It may have landed, so reporting failure would invite a double-applying retry. */
   @Test
   void ambiguousPublishOnCreateBecomesCommitStateUnknown() {
+    int readsBefore = harness.getHouseTableRepository().getTotalReadCalls();
+    harness.getHouseTableRepository().clearEvents();
     harness.getHouseTableRepository().failNextSaveViewWith(unknownState());
 
     Assertions.assertThrows(
@@ -51,6 +53,7 @@ public class ViewCommitEngineFailureTranslationTest {
         () -> harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null)));
 
     Assertions.assertEquals(1, harness.getHouseTableRepository().getSaveViewCalls());
+    assertOneCreateAttemptWithNoReads(readsBefore);
     assertNothingHappenedAfterThePublishAttempt();
     assertTheCandidateWasWrittenOnceAndLeftAlone();
     Assertions.assertFalse(
@@ -65,6 +68,7 @@ public class ViewCommitEngineFailureTranslationTest {
     HouseTable base = captureBase();
     int savesBefore = harness.getHouseTableRepository().getSaveViewCalls();
     int filesBefore = harness.metadataFiles().size();
+    int readsBefore = harness.getHouseTableRepository().getTotalReadCalls();
     harness.getHouseTableRepository().clearEvents();
     harness.getHouseTableRepository().failNextSaveViewWith(unknownState());
 
@@ -76,6 +80,7 @@ public class ViewCommitEngineFailureTranslationTest {
         savesBefore + 1,
         harness.getHouseTableRepository().getSaveViewCalls(),
         "an ambiguous publish must never be followed by a second write");
+    assertOneReplaceAttemptWithNoReads(readsBefore, base.getTableLocation());
     assertNothingHappenedAfterThePublishAttempt();
     Assertions.assertEquals(
         filesBefore + 1,
@@ -111,6 +116,8 @@ public class ViewCommitEngineFailureTranslationTest {
   @Test
   void conflictOnCreateBecomesAlreadyExists() {
     HouseTableConcurrentUpdateException injectedConflict = conflict();
+    int readsBefore = harness.getHouseTableRepository().getTotalReadCalls();
+    harness.getHouseTableRepository().clearEvents();
     harness.getHouseTableRepository().failNextSaveViewWith(injectedConflict);
 
     AlreadyExistsException thrown =
@@ -121,6 +128,7 @@ public class ViewCommitEngineFailureTranslationTest {
     Assertions.assertEquals("View already exists: " + DB + "." + VIEW, thrown.getMessage());
     Assertions.assertSame(injectedConflict, thrown.getCause());
     Assertions.assertEquals(1, harness.getHouseTableRepository().getSaveViewCalls());
+    assertOneCreateAttemptWithNoReads(readsBefore);
     assertNothingHappenedAfterThePublishAttempt();
   }
 
@@ -129,6 +137,8 @@ public class ViewCommitEngineFailureTranslationTest {
     harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
     HouseTable pointerBefore = harness.getHouseTableRepository().peek(DB, VIEW).get();
     HouseTable base = captureBase();
+    int savesBefore = harness.getHouseTableRepository().getSaveViewCalls();
+    int readsBefore = harness.getHouseTableRepository().getTotalReadCalls();
     harness.getHouseTableRepository().clearEvents();
     HouseTableConcurrentUpdateException injectedConflict = conflict();
     harness.getHouseTableRepository().failNextSaveViewWith(injectedConflict);
@@ -142,12 +152,19 @@ public class ViewCommitEngineFailureTranslationTest {
         "Cannot replace view " + DB + "." + VIEW + ": it was modified concurrently",
         thrown.getMessage());
     Assertions.assertSame(injectedConflict, thrown.getCause());
+    Assertions.assertEquals(
+        savesBefore + 1,
+        harness.getHouseTableRepository().getSaveViewCalls(),
+        "a conflicting publish is one attempt, never retried");
+    assertOneReplaceAttemptWithNoReads(readsBefore, base.getTableLocation());
     assertNothingHappenedAfterThePublishAttempt();
     Assertions.assertEquals(pointerBefore, harness.getHouseTableRepository().peek(DB, VIEW).get());
   }
 
   @Test
   void callerFailureOnPublishIsNotReclassifiedAsUnknownState() {
+    int readsBefore = harness.getHouseTableRepository().getTotalReadCalls();
+    harness.getHouseTableRepository().clearEvents();
     harness
         .getHouseTableRepository()
         .failNextSaveViewWith(
@@ -159,6 +176,8 @@ public class ViewCommitEngineFailureTranslationTest {
         () -> harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null)));
 
     Assertions.assertEquals(1, harness.getHouseTableRepository().getSaveViewCalls());
+    assertOneCreateAttemptWithNoReads(readsBefore);
+    assertNothingHappenedAfterThePublishAttempt();
   }
 
   @Test
@@ -233,5 +252,93 @@ public class ViewCommitEngineFailureTranslationTest {
         .getHouseTableRepository()
         .findEntityById(ViewTestFixtures.key(DB, VIEW))
         .orElse(null);
+  }
+
+  /** A failed CREATE publish still wrote exactly one candidate after zero reads, then one PUT. */
+  private void assertOneCreateAttemptWithNoReads(int readsBefore) {
+    Assertions.assertEquals(
+        readsBefore,
+        harness.getHouseTableRepository().getTotalReadCalls(),
+        "a create attempt makes no House Table read");
+    List<String> events = harness.getHouseTableRepository().getEvents();
+    Assertions.assertEquals(0, htsReadEvents(events), "no House Table read event: " + events);
+    Assertions.assertEquals(
+        0,
+        countEvents(events, RecordingViewMetadataCodec.READ),
+        "a create has no prior file to read: " + events);
+    Assertions.assertEquals(
+        1,
+        countEvents(events, RecordingViewMetadataCodec.WRITE),
+        "exactly one candidate is written: " + events);
+    Assertions.assertEquals(
+        1,
+        countEvents(events, InMemoryViewHouseTableRepository.SAVE_VIEW),
+        "exactly one PUT is attempted: " + events);
+    Assertions.assertTrue(
+        indexOfEvent(events, RecordingViewMetadataCodec.WRITE)
+            < indexOfEvent(events, InMemoryViewHouseTableRepository.SAVE_VIEW),
+        "the candidate is written before the single PUT: " + events);
+  }
+
+  /** A failed REPLACE publish read the captured file once, wrote one candidate, then one PUT. */
+  private void assertOneReplaceAttemptWithNoReads(int readsBefore, String capturedPath) {
+    Assertions.assertEquals(
+        readsBefore,
+        harness.getHouseTableRepository().getTotalReadCalls(),
+        "a replace attempt makes no House Table read");
+    List<String> events = harness.getHouseTableRepository().getEvents();
+    Assertions.assertEquals(0, htsReadEvents(events), "no House Table read event: " + events);
+    Assertions.assertEquals(
+        1,
+        countEvents(events, RecordingViewMetadataCodec.READ),
+        "the captured file is read exactly once: " + events);
+    int readAt = indexOfEvent(events, RecordingViewMetadataCodec.READ);
+    Assertions.assertTrue(
+        readAt >= 0 && events.get(readAt).contains(capturedPath),
+        "the one read is of the captured path: " + events);
+    Assertions.assertEquals(
+        1,
+        countEvents(events, RecordingViewMetadataCodec.WRITE),
+        "exactly one candidate is written: " + events);
+    Assertions.assertEquals(
+        1,
+        countEvents(events, InMemoryViewHouseTableRepository.SAVE_VIEW),
+        "exactly one PUT is attempted: " + events);
+    Assertions.assertTrue(
+        readAt < indexOfEvent(events, RecordingViewMetadataCodec.WRITE),
+        "the captured file is read before the candidate is written: " + events);
+    Assertions.assertTrue(
+        indexOfEvent(events, RecordingViewMetadataCodec.WRITE)
+            < indexOfEvent(events, InMemoryViewHouseTableRepository.SAVE_VIEW),
+        "the candidate is written before the single PUT: " + events);
+  }
+
+  private static int countEvents(List<String> events, String prefix) {
+    return (int) events.stream().filter(event -> event.startsWith(prefix)).count();
+  }
+
+  private static int indexOfEvent(List<String> events, String prefix) {
+    for (int i = 0; i < events.size(); i++) {
+      if (events.get(i).startsWith(prefix)) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * Every House Table read/scan event; {@code findAll} covers both the raw and typed-list scans.
+   */
+  private static int htsReadEvents(List<String> events) {
+    int reads = 0;
+    for (String event : events) {
+      if (event.startsWith(InMemoryViewHouseTableRepository.FIND_ENTITY)
+          || event.startsWith(InMemoryViewHouseTableRepository.FIND_VIEW)
+          || event.startsWith(InMemoryViewHouseTableRepository.FIND_BY_ID)
+          || event.startsWith(InMemoryViewHouseTableRepository.FIND_ALL)) {
+        reads++;
+      }
+    }
+    return reads;
   }
 }

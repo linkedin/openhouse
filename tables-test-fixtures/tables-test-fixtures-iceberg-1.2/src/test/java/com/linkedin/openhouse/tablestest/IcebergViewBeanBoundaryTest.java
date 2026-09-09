@@ -132,9 +132,9 @@ public class IcebergViewBeanBoundaryTest {
   }
 
   /**
-   * Directly exercises the new operation/base-row builder contract. It runs under both runtimes (the
-   * 1.5 fixture pulls in these 1.2 test sources), so it also proves the neutral types build and read
-   * back under Iceberg 1.2 and that the retired null-token API is gone on both.
+   * Directly exercises the new operation/base-row builder contract. It runs under both runtimes
+   * (the 1.5 fixture pulls in these 1.2 test sources), so it also proves the neutral types build
+   * and read back under Iceberg 1.2 and that the retired null-token API is gone on both.
    */
   @Test
   public void theVersionNeutralIntentExposesOperationAndBaseRowAndDropsTheOldTokenApi() {
@@ -157,6 +157,13 @@ public class IcebergViewBeanBoundaryTest {
             .build();
     Assertions.assertEquals(ViewCommitOperation.REPLACE, replace.getOperation());
     Assertions.assertSame(base, replace.getBaseRow());
+
+    // An unchanged toBuilder round-trip retains both new fields (the two-runtime retention
+    // guarantee).
+    ViewCommitIntent retained = replace.toBuilder().build();
+    Assertions.assertEquals(
+        ViewCommitOperation.REPLACE, retained.getOperation(), "toBuilder retains the operation");
+    Assertions.assertSame(base, retained.getBaseRow(), "toBuilder retains the captured row");
 
     // toBuilder round-trips the new fields and can flip the operation and clear the row.
     ViewCommitIntent create =
