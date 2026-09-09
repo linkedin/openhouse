@@ -310,7 +310,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
       FileIO fileIO,
       String storageTypeValue,
       String newMetadataLocation,
-      boolean created) {
+      boolean isCreate) {
     long lastModifiedTime = readLongProperty(metadata, "lastModifiedTime");
     viewMetadataCodec.write(metadata, fileIO.newOutputFile(newMetadataLocation));
 
@@ -321,15 +321,16 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
       saved = houseTableRepository.saveView(pointer);
     } catch (HouseTableConcurrentUpdateException e) {
       // A create lost a name; a replace lost a commit.
-      if (created) {
+      if (isCreate) {
         throw new AlreadyExistsException(
             e, "View already exists: %s.%s", pointer.getDatabaseId(), pointer.getTableId());
+      } else {
+        throw new CommitFailedException(
+            e,
+            "Cannot replace view %s.%s: it was modified concurrently",
+            pointer.getDatabaseId(),
+            pointer.getTableId());
       }
-      throw new CommitFailedException(
-          e,
-          "Cannot replace view %s.%s: it was modified concurrently",
-          pointer.getDatabaseId(),
-          pointer.getTableId());
     } catch (HouseTableRepositoryStateUnknownException e) {
       // Not retried, re-read or cleaned up: the write may have landed.
       throw new CommitStateUnknownException(e);
@@ -339,7 +340,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         .pointer(toViewPointer(saved))
         .viewUuid(metadata.uuid())
         .lastModifiedTime(lastModifiedTime)
-        .created(created)
+        .created(isCreate)
         .metadataChanged(true)
         .build();
   }
