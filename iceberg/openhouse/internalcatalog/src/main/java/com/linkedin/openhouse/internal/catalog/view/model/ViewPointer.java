@@ -21,7 +21,7 @@ public class ViewPointer {
 
   private final String viewId;
 
-  /** Current metadata path; also the public compare-and-swap token. */
+  /** The metadata path this snapshot points to; a later commit swaps to a new path atomically. */
   private final String metadataLocation;
 
   private final String storageType;

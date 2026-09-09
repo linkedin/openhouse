@@ -14,6 +14,7 @@ import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRe
 import com.linkedin.openhouse.internal.catalog.view.model.LoadedView;
 import com.linkedin.openhouse.internal.catalog.view.model.SqlViewRepresentationIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
+import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitOperation;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewPointer;
 import java.time.Clock;
@@ -81,9 +82,10 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
 
   @Override
   public ViewCommitResult commit(ViewCommitIntent intent) {
+    requireOperation(intent);
     rejectServerOwnedProperties(intent);
     rejectDuplicateDialects(intent);
-    return intent.getBaseViewVersion() == null ? create(intent) : replace(intent);
+    return intent.getOperation() == ViewCommitOperation.CREATE ? create(intent) : replace(intent);
   }
 
   @Override
@@ -158,10 +160,13 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     requireCreateInput(intent, intent.getViewLocation(), "viewLocation");
     requireCreateInput(intent, intent.getStorageType(), "storageType");
 
-    // Advisory only: the swap below is what prevents two creates.
-    houseTableRepository
-        .findEntityById(buildPrimaryKey(intent.getDatabaseId(), intent.getViewId()))
-        .ifPresent(occupant -> rejectOccupiedName(intent, occupant));
+    // Classify the caller-supplied snapshot: null is a completed lookup that found the name free.
+    // The swap below, not this check, is what ultimately prevents two creates.
+    HouseTable occupant = intent.getBaseRow();
+    if (occupant != null) {
+      requireRowTargetsIntent(intent, occupant);
+      rejectOccupiedName(intent, occupant);
+    }
 
     String viewUuid = intent.getViewUuid();
     String viewLocation = intent.getViewLocation();
@@ -203,6 +208,54 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     }
   }
 
+  /** A missing operation is a bad invocation; it must fail at commit, before any effect. */
+  private static void requireOperation(ViewCommitIntent intent) {
+    if (intent.getOperation() == null) {
+      throw new BadRequestException(
+          "Cannot commit view %s.%s: operation is required",
+          intent.getDatabaseId(), intent.getViewId());
+    }
+  }
+
+  /**
+   * A supplied row must name the same logical target as the intent (case-insensitively, per the
+   * table-operations identifier convention). A wrong or blank key is a bad invocation, not a
+   * concurrency conflict.
+   */
+  private static void requireRowTargetsIntent(ViewCommitIntent intent, HouseTable row) {
+    if (isBlank(row.getDatabaseId())
+        || isBlank(row.getTableId())
+        || !row.getDatabaseId().equalsIgnoreCase(intent.getDatabaseId())
+        || !row.getTableId().equalsIgnoreCase(intent.getViewId())) {
+      throw new BadRequestException(
+          "Captured row %s.%s does not name the requested view %s.%s",
+          row.getDatabaseId(), row.getTableId(), intent.getDatabaseId(), intent.getViewId());
+    }
+  }
+
+  /**
+   * A canonical VIEW snapshot must carry a usable pointer and storage; a blank one is corrupt
+   * server state, not absence or a concurrency conflict. Location is checked before storage.
+   */
+  private static void requireViewPointerAndStorage(ViewCommitIntent intent, HouseTable row) {
+    if (isBlank(row.getTableLocation())) {
+      throw new IllegalStateException(
+          String.format(
+              "Corrupt view row %s.%s: tableLocation is missing",
+              intent.getDatabaseId(), intent.getViewId()));
+    }
+    if (isBlank(row.getStorageType())) {
+      throw new IllegalStateException(
+          String.format(
+              "Corrupt view row %s.%s: storageType is missing",
+              intent.getDatabaseId(), intent.getViewId()));
+    }
+  }
+
+  private static boolean isBlank(String value) {
+    return value == null || value.trim().isEmpty();
+  }
+
   /**
    * Throws when the name is already taken: AlreadyExists for a view, else
    * ViewNameOccupiedException.
@@ -225,17 +278,19 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
   }
 
   private ViewCommitResult replace(ViewCommitIntent intent) {
-    HouseTable row = loadRequiredViewRow(intent.getDatabaseId(), intent.getViewId());
-    // The row's own storage, never the incoming one.
-    FileIO fileIO = fileIOManager.getFileIO(storageType.fromString(row.getStorageType()));
-    ViewMetadata current = viewMetadataCodec.read(fileIO.newInputFile(row.getTableLocation()));
-
-    String capturedBase = intent.getBaseViewVersion();
-    if (!capturedBase.equals(row.getTableLocation())) {
-      throw new CommitFailedException(
-          "Cannot replace view %s.%s: base version %s is not the current version %s",
-          intent.getDatabaseId(), intent.getViewId(), capturedBase, row.getTableLocation());
+    HouseTable row = intent.getBaseRow();
+    if (row == null || !isView(row.getEntityType())) {
+      // A completed lookup that found absence, or a non-view: never turned into a create.
+      throw new NoSuchViewException(
+          "View does not exist: %s.%s", intent.getDatabaseId(), intent.getViewId());
     }
+    requireRowTargetsIntent(intent, row);
+    requireViewPointerAndStorage(intent, row);
+
+    // The captured row's own storage and its exact metadata path, never re-read from House Table.
+    String capturedBase = row.getTableLocation();
+    FileIO fileIO = fileIOManager.getFileIO(storageType.fromString(row.getStorageType()));
+    ViewMetadata current = viewMetadataCodec.read(fileIO.newInputFile(capturedBase));
 
     Map<String, String> currentUserProperties = extractUserPropertiesFromMetadata(current);
     Map<String, String> userProperties = new LinkedHashMap<>(currentUserProperties);

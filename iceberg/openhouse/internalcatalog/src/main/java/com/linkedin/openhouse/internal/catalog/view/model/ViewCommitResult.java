@@ -20,6 +20,9 @@ public class ViewCommitResult {
 
   private final boolean created;
 
-  /** False for an identical-definition replace: no file written and no pointer movement. */
+  /**
+   * False when this attempt wrote and published nothing — an identical-definition replace against
+   * the captured snapshot. It does not assert anything about concurrent House Table state.
+   */
   private final boolean metadataChanged;
 }
