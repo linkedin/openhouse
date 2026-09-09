@@ -110,12 +110,16 @@ public class ViewCommitEngineFailureTranslationTest {
 
   @Test
   void conflictOnCreateBecomesAlreadyExists() {
-    harness.getHouseTableRepository().failNextSaveViewWith(conflict());
+    HouseTableConcurrentUpdateException injectedConflict = conflict();
+    harness.getHouseTableRepository().failNextSaveViewWith(injectedConflict);
 
-    Assertions.assertThrows(
-        AlreadyExistsException.class,
-        () -> harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root)));
+    AlreadyExistsException thrown =
+        Assertions.assertThrows(
+            AlreadyExistsException.class,
+            () -> harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root)));
 
+    Assertions.assertEquals("View already exists: " + DB + "." + VIEW, thrown.getMessage());
+    Assertions.assertSame(injectedConflict, thrown.getCause());
     Assertions.assertEquals(1, harness.getHouseTableRepository().getSaveViewCalls());
     assertNothingHappenedAfterThePublishAttempt();
   }
@@ -126,12 +130,18 @@ public class ViewCommitEngineFailureTranslationTest {
         harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root));
     HouseTable pointerBefore = harness.getHouseTableRepository().peek(DB, VIEW).get();
     harness.getHouseTableRepository().clearEvents();
-    harness.getHouseTableRepository().failNextSaveViewWith(conflict());
+    HouseTableConcurrentUpdateException injectedConflict = conflict();
+    harness.getHouseTableRepository().failNextSaveViewWith(injectedConflict);
 
-    Assertions.assertThrows(
-        CommitFailedException.class,
-        () -> harness.getViewCommitEngine().commit(changedReplaceOf(created)));
+    CommitFailedException thrown =
+        Assertions.assertThrows(
+            CommitFailedException.class,
+            () -> harness.getViewCommitEngine().commit(changedReplaceOf(created)));
 
+    Assertions.assertEquals(
+        "Cannot replace view " + DB + "." + VIEW + ": it was modified concurrently",
+        thrown.getMessage());
+    Assertions.assertSame(injectedConflict, thrown.getCause());
     assertNothingHappenedAfterThePublishAttempt();
     Assertions.assertEquals(pointerBefore, harness.getHouseTableRepository().peek(DB, VIEW).get());
   }
