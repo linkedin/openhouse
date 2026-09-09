@@ -6,7 +6,6 @@ import com.linkedin.openhouse.internal.catalog.view.ViewCommitEngine;
 import com.linkedin.openhouse.internal.catalog.view.model.LoadedView;
 import com.linkedin.openhouse.internal.catalog.view.model.SqlViewRepresentationIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
-import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitOperation;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewPointer;
 import java.io.ByteArrayOutputStream;
@@ -58,7 +57,6 @@ public class IcebergViewBeanBoundaryTest {
           ViewCommitEngine.class,
           ViewCommitIntent.class,
           ViewCommitIntent.ViewCommitIntentBuilder.class,
-          ViewCommitOperation.class,
           ViewCommitResult.class,
           ViewPointer.class,
           LoadedView.class,
@@ -132,12 +130,13 @@ public class IcebergViewBeanBoundaryTest {
   }
 
   /**
-   * Directly exercises the new operation/base-row builder contract. It runs under both runtimes
-   * (the 1.5 fixture pulls in these 1.2 test sources), so it also proves the neutral types build
-   * and read back under Iceberg 1.2 and that the retired null-token API is gone on both.
+   * Directly exercises the nullable create-flag / base-row builder contract. It runs under both
+   * runtimes (the 1.5 fixture pulls in these 1.2 test sources), so it also proves the neutral types
+   * build and read back under Iceberg 1.2 and that the retired operation and null-token APIs are
+   * gone on both.
    */
   @Test
-  public void theVersionNeutralIntentExposesOperationAndBaseRowAndDropsTheOldTokenApi() {
+  public void theVersionNeutralIntentExposesTheCreateFlagAndBaseRowAndDropsTheOldApis() {
     HouseTable base =
         HouseTable.builder()
             .databaseId("db")
@@ -152,31 +151,46 @@ public class IcebergViewBeanBoundaryTest {
         ViewCommitIntent.builder()
             .databaseId("db")
             .viewId("v")
-            .operation(ViewCommitOperation.REPLACE)
+            .isCreate(false)
             .baseRow(base)
             .build();
-    Assertions.assertEquals(ViewCommitOperation.REPLACE, replace.getOperation());
+    Assertions.assertEquals(Boolean.FALSE, replace.getIsCreate());
     Assertions.assertSame(base, replace.getBaseRow());
 
     // An unchanged toBuilder round-trip retains both new fields (the two-runtime retention
     // guarantee).
     ViewCommitIntent retained = replace.toBuilder().build();
     Assertions.assertEquals(
-        ViewCommitOperation.REPLACE, retained.getOperation(), "toBuilder retains the operation");
+        Boolean.FALSE, retained.getIsCreate(), "toBuilder retains the create flag");
     Assertions.assertSame(base, retained.getBaseRow(), "toBuilder retains the captured row");
 
-    // toBuilder round-trips the new fields and can flip the operation and clear the row.
-    ViewCommitIntent create =
-        replace.toBuilder().operation(ViewCommitOperation.CREATE).baseRow(null).build();
-    Assertions.assertEquals(ViewCommitOperation.CREATE, create.getOperation());
+    // toBuilder round-trips the new fields and can flip the flag and clear the row.
+    ViewCommitIntent create = replace.toBuilder().isCreate(true).baseRow(null).build();
+    Assertions.assertEquals(Boolean.TRUE, create.getIsCreate());
     Assertions.assertNull(create.getBaseRow());
 
-    // Exactly the two-value operation contract, and nothing more.
-    Assertions.assertArrayEquals(
-        new ViewCommitOperation[] {ViewCommitOperation.CREATE, ViewCommitOperation.REPLACE},
-        ViewCommitOperation.values());
+    // The boxed flag round-trips true, false, and null (an omitted flag is null, never a default).
+    Assertions.assertEquals(
+        Boolean.TRUE, ViewCommitIntent.builder().isCreate(true).build().getIsCreate());
+    Assertions.assertEquals(
+        Boolean.FALSE, ViewCommitIntent.builder().isCreate(false).build().getIsCreate());
+    Assertions.assertNull(
+        ViewCommitIntent.builder().isCreate(null).build().getIsCreate(),
+        "a null create flag stays null");
+    Assertions.assertNull(
+        ViewCommitIntent.builder().build().getIsCreate(), "an omitted create flag is null");
 
-    // The retired null-token API is gone: no getter on the value, no method on the builder.
+    // The retired operation enum API is gone: no getOperation getter, no operation builder method.
+    Assertions.assertTrue(
+        Arrays.stream(ViewCommitIntent.class.getMethods())
+            .noneMatch(method -> method.getName().equals("getOperation")),
+        "the retired getOperation getter must not exist on the intent");
+    Assertions.assertTrue(
+        Arrays.stream(ViewCommitIntent.ViewCommitIntentBuilder.class.getMethods())
+            .noneMatch(method -> method.getName().equals("operation")),
+        "the retired operation builder method must not exist");
+
+    // The retired null-token API is also gone: no getter on the value, no method on the builder.
     Assertions.assertTrue(
         Arrays.stream(ViewCommitIntent.class.getMethods())
             .noneMatch(method -> method.getName().equals("getBaseViewVersion")),

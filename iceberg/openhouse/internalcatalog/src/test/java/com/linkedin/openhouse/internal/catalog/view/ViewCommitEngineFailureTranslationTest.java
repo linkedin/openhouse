@@ -8,7 +8,6 @@ import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCa
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
-import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitOperation;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
@@ -238,7 +237,7 @@ public class ViewCommitEngineFailureTranslationTest {
   }
 
   private ViewCommitIntent changedReplaceOf(HouseTable base) {
-    return ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+    return ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
         .schema(ViewTestFixtures.schemaV2())
         .representations(
             Collections.singletonList(

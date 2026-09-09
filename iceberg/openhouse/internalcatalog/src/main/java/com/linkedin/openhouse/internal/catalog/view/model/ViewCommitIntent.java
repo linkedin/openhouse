@@ -13,11 +13,13 @@ import org.apache.iceberg.catalog.Namespace;
 /**
  * Caller-supplied description of one view commit.
  *
- * <p>{@code operation} is required and chosen explicitly; the engine never infers it. {@code
- * baseRow} is the trusted House Table snapshot the future views repository read for this logical
- * target with a single neutral lookup: a non-null row is that hydrated snapshot, and {@code null}
- * means the lookup completed and found absence — never "not loaded". The engine classifies and
- * swaps against this snapshot and performs no House Table read of its own.
+ * <p>{@code isCreate} is a required, explicitly chosen create flag ({@code true} CREATE, {@code
+ * false} REPLACE); the engine never infers it. It is boxed so an omitted flag reads as {@code null}
+ * and is rejected at commit rather than silently defaulting. {@code baseRow} is the trusted House
+ * Table snapshot the future views repository read for this logical target with a single neutral
+ * lookup: a non-null row is that hydrated snapshot, and {@code null} means the lookup completed and
+ * found absence — never "not loaded". The engine classifies and swaps against this snapshot and
+ * performs no House Table read of its own.
  *
  * <p>{@code viewUuid}, {@code viewLocation}, and {@code storageType} are required for CREATE and
  * ignored for REPLACE, which takes identity, root, and storage from the captured row and its
@@ -49,8 +51,11 @@ public class ViewCommitIntent {
 
   private final Map<String, String> viewProperties;
 
-  /** Required CREATE or REPLACE; the engine rejects a null value at commit, before any effect. */
-  private final ViewCommitOperation operation;
+  /**
+   * Required create flag: {@code true} CREATE, {@code false} REPLACE. Boxed so an omitted flag is
+   * {@code null} — rejected at commit before any effect — rather than defaulting to REPLACE.
+   */
+  private final Boolean isCreate;
 
   /**
    * The server-read House Table snapshot for this target: a hydrated row, or {@code null} when the

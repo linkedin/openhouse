@@ -4,7 +4,6 @@ import static com.linkedin.openhouse.internal.catalog.view.ViewTestFixtures.DB;
 
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
-import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitOperation;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewPointer;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -135,7 +134,7 @@ public class ViewCommitEngineMixedEntityTest {
                 harness
                     .getViewCommitEngine()
                     .commit(
-                        ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, occupant)
+                        ViewTestFixtures.baseIntent(root, Boolean.TRUE, occupant)
                             .viewId("legacy_a")
                             .viewLocation(
                                 ViewTestFixtures.allocatedViewLocation(

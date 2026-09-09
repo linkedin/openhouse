@@ -15,7 +15,6 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.view.model.LoadedView;
 import com.linkedin.openhouse.internal.catalog.view.model.SqlViewRepresentationIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
-import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitOperation;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -247,7 +246,7 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
+                ViewTestFixtures.baseIntent(root, Boolean.TRUE, null)
                     .storageType(ViewCommitEngineHarness.ALTERNATE_STORAGE_TYPE)
                     .build());
 
@@ -273,7 +272,7 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
+                ViewTestFixtures.baseIntent(root, Boolean.TRUE, null)
                     .storageType(ViewCommitEngineHarness.ALTERNATE_STORAGE_TYPE)
                     .build());
     HouseTable base = captureNeutral();
@@ -283,7 +282,7 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+                ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
                     .schema(ViewTestFixtures.schemaV2())
                     .representations(
                         Collections.singletonList(
@@ -358,7 +357,7 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+                ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
                     .schema(ViewTestFixtures.schemaV2())
                     .representations(
                         Collections.singletonList(
@@ -401,7 +400,7 @@ public class ViewCommitEngineCommitTest {
             harness
                 .getViewCommitEngine()
                 .commit(
-                    ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
+                    ViewTestFixtures.baseIntent(root, Boolean.TRUE, null)
                         .viewProperties(hostile)
                         .build()));
 
@@ -428,7 +427,7 @@ public class ViewCommitEngineCommitTest {
   private void assertCreateRejectsMissing(
       UnaryOperator<ViewCommitIntent.ViewCommitIntentBuilder> mutation, String field) {
     ViewCommitIntent intent =
-        mutation.apply(ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)).build();
+        mutation.apply(ViewTestFixtures.baseIntent(root, Boolean.TRUE, null)).build();
 
     BadRequestException thrown =
         Assertions.assertThrows(
@@ -465,7 +464,7 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, secondBase)
+                ViewTestFixtures.baseIntent(root, Boolean.FALSE, secondBase)
                     .schema(ViewTestFixtures.schemaV2())
                     .representations(
                         Collections.singletonList(
@@ -557,7 +556,7 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
+                ViewTestFixtures.baseIntent(root, Boolean.TRUE, null)
                     .defaultNamespace(null)
                     .build());
     ViewMetadata createdMetadata = harness.readMetadata(created.getPointer().getMetadataLocation());
@@ -575,7 +574,7 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+                ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
                     .defaultNamespace(null)
                     .build());
     Assertions.assertFalse(
@@ -585,7 +584,7 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+                ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
                     .defaultNamespace(Namespace.empty())
                     .build());
     Assertions.assertFalse(
@@ -608,7 +607,7 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
+                ViewTestFixtures.baseIntent(root, Boolean.TRUE, null)
                     .viewProperties(initial)
                     .build());
     HouseTable base = captureNeutral();
@@ -620,7 +619,7 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+                ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
                     .viewProperties(null)
                     .build());
     Assertions.assertFalse(
@@ -631,7 +630,7 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+                ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
                     .viewProperties(Collections.emptyMap())
                     .build());
     Assertions.assertFalse(
@@ -653,9 +652,7 @@ public class ViewCommitEngineCommitTest {
     harness
         .getViewCommitEngine()
         .commit(
-            ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
-                .defaultNamespace(null)
-                .build());
+            ViewTestFixtures.baseIntent(root, Boolean.TRUE, null).defaultNamespace(null).build());
     HouseTable base = captureNeutral();
     int filesAfterCreate = harness.metadataFiles().size();
     int savesAfterCreate = harness.getHouseTableRepository().getSaveViewCalls();
@@ -664,7 +661,7 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+                ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
                     .defaultNamespace(Namespace.of(DB))
                     .build());
 
@@ -692,7 +689,7 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+                ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
                     .viewProperties(ViewTestFixtures.userProperties("a", "2"))
                     .build());
 
@@ -716,16 +713,14 @@ public class ViewCommitEngineCommitTest {
     harness
         .getViewCommitEngine()
         .commit(
-            ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
-                .viewProperties(initial)
-                .build());
+            ViewTestFixtures.baseIntent(root, Boolean.TRUE, null).viewProperties(initial).build());
     HouseTable base = captureNeutral();
 
     ViewCommitResult updated =
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+                ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
                     .viewProperties(ViewTestFixtures.userProperties("a", "2"))
                     .build());
 
@@ -742,7 +737,7 @@ public class ViewCommitEngineCommitTest {
 
   /** A materially changed replacement built on an already-captured base snapshot. */
   private ViewCommitIntent changedReplaceOf(HouseTable base) {
-    return ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+    return ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
         .schema(ViewTestFixtures.schemaV2())
         .representations(
             Collections.singletonList(
@@ -754,7 +749,7 @@ public class ViewCommitEngineCommitTest {
     return harness
         .getViewCommitEngine()
         .commit(
-            ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
+            ViewTestFixtures.baseIntent(root, Boolean.TRUE, null)
                 .representations(BOTH_DIALECTS_V1)
                 .build());
   }
@@ -770,7 +765,7 @@ public class ViewCommitEngineCommitTest {
     ViewCommitIntent intent =
         mutation
             .apply(
-                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+                ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
                     .representations(BOTH_DIALECTS_V1))
             .build();
 
@@ -950,7 +945,7 @@ public class ViewCommitEngineCommitTest {
     harness
         .getViewCommitEngine()
         .commit(
-            ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
+            ViewTestFixtures.baseIntent(root, Boolean.TRUE, null)
                 .schema(withoutIdentifier)
                 .build());
     HouseTable base = captureNeutral();
@@ -961,7 +956,7 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+                ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
                     .schema(withIdentifier)
                     .build());
 
@@ -988,7 +983,7 @@ public class ViewCommitEngineCommitTest {
 
     // The last entry alone equals the stored definition, so a lossy compare sees no change.
     ViewCommitIntent duplicated =
-        ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+        ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
             .representations(
                 Arrays.asList(
                     ViewTestFixtures.sql(ViewTestFixtures.SQL_V2, ViewTestFixtures.SPARK_DIALECT),
@@ -1013,7 +1008,7 @@ public class ViewCommitEngineCommitTest {
             harness
                 .getViewCommitEngine()
                 .commit(
-                    ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
+                    ViewTestFixtures.baseIntent(root, Boolean.TRUE, null)
                         .representations(
                             Arrays.asList(
                                 ViewTestFixtures.sql(
@@ -1090,7 +1085,7 @@ public class ViewCommitEngineCommitTest {
                 harness
                     .getViewCommitEngine()
                     .commit(
-                        ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+                        ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
                             .representations(
                                 Collections.singletonList(
                                     ViewTestFixtures.sql(
@@ -1122,7 +1117,7 @@ public class ViewCommitEngineCommitTest {
             harness
                 .getViewCommitEngine()
                 .commit(
-                    ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
+                    ViewTestFixtures.baseIntent(root, Boolean.TRUE, null)
                         .viewProperties(hostile)
                         .build()));
 
@@ -1339,7 +1334,7 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
+                ViewTestFixtures.baseIntent(root, Boolean.TRUE, null)
                     .representations(ViewTestFixtures.sparkAndTrino(ViewTestFixtures.SQL_V1))
                     .viewProperties(userProperties)
                     .build());
@@ -1425,7 +1420,7 @@ public class ViewCommitEngineCommitTest {
 
     // A materially changed replace still built on the now-stale A.
     ViewCommitIntent staleButReadable =
-        ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, staleBase)
+        ViewTestFixtures.baseIntent(root, Boolean.FALSE, staleBase)
             .representations(
                 Collections.singletonList(
                     ViewTestFixtures.sql(ViewTestFixtures.SQL_V3, ViewTestFixtures.SPARK_DIALECT)))
@@ -1501,10 +1496,10 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertTrue(harness.metadataFiles().isEmpty());
   }
 
-  // ---- Missing operation ----
+  // ---- Missing create flag ----
 
   @Test
-  void missingOperationIsRejectedWithAnAbsentSnapshot() {
+  void missingCreateFlagIsRejectedWithAnAbsentSnapshot() {
     ViewCommitIntent noMode = ViewTestFixtures.baseIntent(root, null, null).build();
 
     BadRequestException thrown =
@@ -1512,8 +1507,8 @@ public class ViewCommitEngineCommitTest {
             BadRequestException.class, () -> harness.getViewCommitEngine().commit(noMode));
 
     Assertions.assertTrue(
-        thrown.getMessage() != null && thrown.getMessage().contains("operation"),
-        "the failure must name the missing operation: " + thrown.getMessage());
+        thrown.getMessage() != null && thrown.getMessage().contains("isCreate"),
+        "the failure must name the missing create flag: " + thrown.getMessage());
     Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
     Assertions.assertEquals(0, harness.readCalls());
     Assertions.assertTrue(harness.metadataFiles().isEmpty());
@@ -1522,7 +1517,7 @@ public class ViewCommitEngineCommitTest {
   }
 
   @Test
-  void missingOperationIsRejectedEvenWithAPresentSnapshot() {
+  void missingCreateFlagIsRejectedEvenWithAPresentSnapshot() {
     harness
         .getHouseTableRepository()
         .seed(ViewTestFixtures.viewRow("/existing/00001-a.metadata.json"));
@@ -1535,16 +1530,16 @@ public class ViewCommitEngineCommitTest {
             BadRequestException.class, () -> harness.getViewCommitEngine().commit(noMode));
 
     Assertions.assertTrue(
-        thrown.getMessage() != null && thrown.getMessage().contains("operation"),
-        "a present snapshot does not excuse a missing operation: " + thrown.getMessage());
+        thrown.getMessage() != null && thrown.getMessage().contains("isCreate"),
+        "a present snapshot does not excuse a missing create flag: " + thrown.getMessage());
     Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
     Assertions.assertEquals(readsBeforeCommit, harness.readCalls());
     Assertions.assertTrue(harness.metadataFiles().isEmpty());
   }
 
-  /** The missing-operation guard runs before the reserved-property guard, which also throws. */
+  /** the missing-create-flag guard runs before the reserved-property guard, which also throws. */
   @Test
-  void missingOperationIsReportedAheadOfOtherMalformedFields() {
+  void missingCreateFlagIsReportedAheadOfOtherMalformedFields() {
     Map<String, String> reserved = new LinkedHashMap<>();
     reserved.put(CatalogConstants.OPENHOUSE_UUID_KEY, "00000000-0000-0000-0000-000000000000");
     ViewCommitIntent noModeAndReserved =
@@ -1556,17 +1551,17 @@ public class ViewCommitEngineCommitTest {
             () -> harness.getViewCommitEngine().commit(noModeAndReserved));
 
     Assertions.assertTrue(
-        thrown.getMessage() != null && thrown.getMessage().contains("operation"),
-        "a missing operation must be reported before the reserved-property failure: "
+        thrown.getMessage() != null && thrown.getMessage().contains("isCreate"),
+        "a missing create flag must be reported before the reserved-property failure: "
             + thrown.getMessage());
     Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
   }
 
-  /** A genuinely omitted operation (the builder is never told one) must not default to CREATE. */
+  /** A genuinely omitted create flag stays null (a boxed Boolean never defaults to REPLACE). */
   @Test
-  void aGenuinelyOmittedOperationIsRejectedWithAnAbsentSnapshot() {
-    ViewCommitIntent omitted = ViewTestFixtures.intentBuilderWithoutOperation(root).build();
-    Assertions.assertNull(omitted.getOperation(), "the builder must apply no default operation");
+  void aGenuinelyOmittedCreateFlagIsRejectedWithAnAbsentSnapshot() {
+    ViewCommitIntent omitted = ViewTestFixtures.intentBuilderWithoutCreateFlag(root).build();
+    Assertions.assertNull(omitted.getIsCreate(), "the builder must apply no default create flag");
     Assertions.assertNull(omitted.getBaseRow());
 
     BadRequestException thrown =
@@ -1574,23 +1569,23 @@ public class ViewCommitEngineCommitTest {
             BadRequestException.class, () -> harness.getViewCommitEngine().commit(omitted));
 
     Assertions.assertTrue(
-        thrown.getMessage() != null && thrown.getMessage().contains("operation"),
-        "an omitted operation must be rejected by name: " + thrown.getMessage());
+        thrown.getMessage() != null && thrown.getMessage().contains("isCreate"),
+        "an omitted create flag must be rejected by name: " + thrown.getMessage());
     Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
     Assertions.assertEquals(0, harness.readCalls());
     Assertions.assertTrue(harness.metadataFiles().isEmpty());
   }
 
   @Test
-  void aGenuinelyOmittedOperationIsRejectedEvenWithAPresentSnapshot() {
+  void aGenuinelyOmittedCreateFlagIsRejectedEvenWithAPresentSnapshot() {
     harness
         .getHouseTableRepository()
         .seed(ViewTestFixtures.viewRow("/existing/00001-a.metadata.json"));
     HouseTable present = captureNeutral();
     int readsBeforeCommit = harness.readCalls();
     ViewCommitIntent omitted =
-        ViewTestFixtures.intentBuilderWithoutOperation(root).baseRow(present).build();
-    Assertions.assertNull(omitted.getOperation());
+        ViewTestFixtures.intentBuilderWithoutCreateFlag(root).baseRow(present).build();
+    Assertions.assertNull(omitted.getIsCreate());
     Assertions.assertSame(present, omitted.getBaseRow());
 
     BadRequestException thrown =
@@ -1598,8 +1593,8 @@ public class ViewCommitEngineCommitTest {
             BadRequestException.class, () -> harness.getViewCommitEngine().commit(omitted));
 
     Assertions.assertTrue(
-        thrown.getMessage() != null && thrown.getMessage().contains("operation"),
-        "a present snapshot does not excuse an omitted operation: " + thrown.getMessage());
+        thrown.getMessage() != null && thrown.getMessage().contains("isCreate"),
+        "a present snapshot does not excuse an omitted create flag: " + thrown.getMessage());
     Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
     Assertions.assertEquals(readsBeforeCommit, harness.readCalls());
     Assertions.assertTrue(harness.metadataFiles().isEmpty());
@@ -1621,7 +1616,7 @@ public class ViewCommitEngineCommitTest {
                 harness
                     .getViewCommitEngine()
                     .commit(
-                        ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, occupant)
+                        ViewTestFixtures.baseIntent(root, Boolean.TRUE, occupant)
                             .viewUuid(null)
                             .build()));
 
@@ -1643,7 +1638,7 @@ public class ViewCommitEngineCommitTest {
                 harness
                     .getViewCommitEngine()
                     .commit(
-                        ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
+                        ViewTestFixtures.baseIntent(root, Boolean.TRUE, null)
                             .viewUuid(null)
                             .viewLocation(null)
                             .storageType(null)
@@ -1662,7 +1657,7 @@ public class ViewCommitEngineCommitTest {
                 harness
                     .getViewCommitEngine()
                     .commit(
-                        ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
+                        ViewTestFixtures.baseIntent(root, Boolean.TRUE, null)
                             .viewLocation(null)
                             .storageType(null)
                             .build()));
@@ -2155,7 +2150,7 @@ public class ViewCommitEngineCommitTest {
         harness
             .getViewCommitEngine()
             .commit(
-                ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+                ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
                     .schema(ViewTestFixtures.schemaV2())
                     .representations(
                         Collections.singletonList(
@@ -2266,7 +2261,7 @@ public class ViewCommitEngineCommitTest {
     harness
         .getViewCommitEngine()
         .commit(
-            ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
+            ViewTestFixtures.baseIntent(root, Boolean.TRUE, null)
                 .viewUuid(ViewTestFixtures.SECOND_VIEW_UUID)
                 .viewLocation(
                     ViewTestFixtures.allocatedViewLocation(

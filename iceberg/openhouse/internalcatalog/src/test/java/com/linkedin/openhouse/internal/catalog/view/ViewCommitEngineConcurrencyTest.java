@@ -8,7 +8,6 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
 import com.linkedin.openhouse.internal.catalog.view.model.LoadedView;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
-import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitOperation;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -76,7 +75,7 @@ public class ViewCommitEngineConcurrencyTest {
     // They keep distinct prepared identities and roots.
     ViewCommitIntent first = ViewTestFixtures.createIntent(root, capturedAbsence);
     ViewCommitIntent second =
-        ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, capturedAbsence)
+        ViewTestFixtures.baseIntent(root, Boolean.TRUE, capturedAbsence)
             .schema(ViewTestFixtures.schemaV2())
             .representations(
                 Collections.singletonList(
@@ -175,14 +174,14 @@ public class ViewCommitEngineConcurrencyTest {
     harness.getHouseTableRepository().setBeforeCas(() -> await(bothInsideSwapWindow));
 
     ViewCommitIntent left =
-        ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+        ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
             .schema(ViewTestFixtures.schemaV2())
             .representations(
                 Collections.singletonList(
                     ViewTestFixtures.sql(ViewTestFixtures.SQL_V2, ViewTestFixtures.SPARK_DIALECT)))
             .build();
     ViewCommitIntent right =
-        ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+        ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
             .representations(
                 Collections.singletonList(
                     ViewTestFixtures.sql(ViewTestFixtures.SQL_V3, ViewTestFixtures.SPARK_DIALECT)))
@@ -270,14 +269,14 @@ public class ViewCommitEngineConcurrencyTest {
 
     // Both are prebuilt from the shared base, so the callback captures nothing mid-swap.
     ViewCommitIntent interloperIntent =
-        ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+        ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
             .schema(ViewTestFixtures.schemaV2())
             .representations(
                 Collections.singletonList(
                     ViewTestFixtures.sql(ViewTestFixtures.SQL_V2, ViewTestFixtures.SPARK_DIALECT)))
             .build();
     ViewCommitIntent loserIntent =
-        ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+        ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
             .representations(
                 Collections.singletonList(
                     ViewTestFixtures.sql(ViewTestFixtures.SQL_V3, ViewTestFixtures.SPARK_DIALECT)))
@@ -431,7 +430,7 @@ public class ViewCommitEngineConcurrencyTest {
     harness
         .getViewCommitEngine()
         .commit(
-            ViewTestFixtures.baseIntent(root, ViewCommitOperation.CREATE, null)
+            ViewTestFixtures.baseIntent(root, Boolean.TRUE, null)
                 .viewUuid(ViewTestFixtures.SECOND_VIEW_UUID)
                 .viewLocation(
                     ViewTestFixtures.allocatedViewLocation(
@@ -459,7 +458,7 @@ public class ViewCommitEngineConcurrencyTest {
   }
 
   private ViewCommitIntent changedReplaceIntentOf(HouseTable base) {
-    return ViewTestFixtures.baseIntent(root, ViewCommitOperation.REPLACE, base)
+    return ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
         .schema(ViewTestFixtures.schemaV2())
         .representations(
             Collections.singletonList(

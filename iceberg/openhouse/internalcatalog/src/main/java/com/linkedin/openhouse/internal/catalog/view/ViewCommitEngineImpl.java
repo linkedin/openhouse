@@ -14,7 +14,6 @@ import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRe
 import com.linkedin.openhouse.internal.catalog.view.model.LoadedView;
 import com.linkedin.openhouse.internal.catalog.view.model.SqlViewRepresentationIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
-import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitOperation;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewPointer;
 import java.time.Clock;
@@ -82,10 +81,10 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
 
   @Override
   public ViewCommitResult commit(ViewCommitIntent intent) {
-    requireOperation(intent);
+    requireCreateFlag(intent);
     rejectServerOwnedProperties(intent);
     rejectDuplicateDialects(intent);
-    return intent.getOperation() == ViewCommitOperation.CREATE ? create(intent) : replace(intent);
+    return intent.getIsCreate() ? create(intent) : replace(intent);
   }
 
   @Override
@@ -208,11 +207,11 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     }
   }
 
-  /** A missing operation is a bad invocation; it must fail at commit, before any effect. */
-  private static void requireOperation(ViewCommitIntent intent) {
-    if (intent.getOperation() == null) {
+  /** A missing create flag is a bad invocation; it must fail at commit, before any effect. */
+  private static void requireCreateFlag(ViewCommitIntent intent) {
+    if (intent.getIsCreate() == null) {
       throw new BadRequestException(
-          "Cannot commit view %s.%s: operation is required",
+          "Cannot commit view %s.%s: isCreate is required",
           intent.getDatabaseId(), intent.getViewId());
     }
   }

@@ -4,7 +4,6 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.view.model.SqlViewRepresentationIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
-import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitOperation;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -91,27 +90,28 @@ public final class ViewTestFixtures {
   }
 
   /**
-   * Operation and captured row are explicit: the caller decides CREATE vs REPLACE, and supplies the
-   * server-read snapshot (or null for a completed lookup that found absence). Neither is inferred.
+   * Create flag and captured row are explicit: the caller decides CREATE ({@code true}) vs REPLACE
+   * ({@code false}), and supplies the server-read snapshot (or null for a completed lookup that
+   * found absence). Neither is inferred.
    */
   public static ViewCommitIntent createIntent(Path root, HouseTable baseRow) {
-    return baseIntent(root, ViewCommitOperation.CREATE, baseRow).build();
+    return baseIntent(root, Boolean.TRUE, baseRow).build();
   }
 
   public static ViewCommitIntent replaceIntent(Path root, HouseTable baseRow) {
-    return baseIntent(root, ViewCommitOperation.REPLACE, baseRow).build();
+    return baseIntent(root, Boolean.FALSE, baseRow).build();
   }
 
   public static ViewCommitIntent.ViewCommitIntentBuilder baseIntent(
-      Path root, ViewCommitOperation operation, HouseTable baseRow) {
-    return intentBuilderWithoutOperation(root).operation(operation).baseRow(baseRow);
+      Path root, Boolean isCreate, HouseTable baseRow) {
+    return intentBuilderWithoutCreateFlag(root).isCreate(isCreate).baseRow(baseRow);
   }
 
   /**
-   * Every field except {@code operation} and {@code baseRow}, so a test can prove the builder
-   * applies no default operation. Used by {@link #baseIntent} for the ordinary explicit path.
+   * Every field except {@code isCreate} and {@code baseRow}, so a test can prove the builder
+   * applies no default create flag. Used by {@link #baseIntent} for the ordinary explicit path.
    */
-  public static ViewCommitIntent.ViewCommitIntentBuilder intentBuilderWithoutOperation(Path root) {
+  public static ViewCommitIntent.ViewCommitIntentBuilder intentBuilderWithoutCreateFlag(Path root) {
     return ViewCommitIntent.builder()
         .databaseId(DB)
         .viewId(VIEW)

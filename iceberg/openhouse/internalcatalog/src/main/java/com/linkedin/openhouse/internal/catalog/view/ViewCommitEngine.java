@@ -17,13 +17,13 @@ import org.springframework.data.domain.Pageable;
 public interface ViewCommitEngine {
 
   /**
-   * Commits one view under the caller's explicit {@link ViewCommitIntent#getOperation()}, against
-   * the trusted snapshot in {@link ViewCommitIntent#getBaseRow()} (a hydrated row, or {@code null}
-   * for a completed lookup that found absence). It classifies and swaps against that snapshot and
-   * performs no House Table read of its own. A CREATE against a taken name and a REPLACE of an
-   * absent or non-view target are rejected; an identical-definition REPLACE is a snapshot no-op
-   * that publishes nothing and may return the captured (possibly stale) pointer. A missing
-   * operation fails before any effect.
+   * Commits one view under the caller's explicit {@link ViewCommitIntent#getIsCreate()} flag,
+   * against the trusted snapshot in {@link ViewCommitIntent#getBaseRow()} (a hydrated row, or
+   * {@code null} for a completed lookup that found absence). It classifies and swaps against that
+   * snapshot and performs no House Table read of its own. A CREATE against a taken name and a
+   * REPLACE of an absent or non-view target are rejected; an identical-definition REPLACE is a
+   * snapshot no-op that publishes nothing and may return the captured (possibly stale) pointer. A
+   * missing create flag fails before any effect.
    */
   ViewCommitResult commit(ViewCommitIntent intent);
 
