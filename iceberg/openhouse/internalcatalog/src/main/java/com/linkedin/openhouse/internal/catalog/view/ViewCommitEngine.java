@@ -7,10 +7,7 @@ import com.linkedin.openhouse.internal.catalog.view.model.ViewPointer;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
-/**
- * View counterpart to {@code OpenHouseInternalCatalog} and {@code
- * OpenHouseInternalTableOperations}, with signatures usable under Iceberg 1.2.
- */
+/** Replaces Iceberg's view catalog commit path with a native HTS commit strategy. */
 public interface ViewCommitEngine {
 
   /**
