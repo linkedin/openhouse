@@ -8,6 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -17,6 +18,7 @@ import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitOperation;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -1985,10 +1987,16 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertEquals(readsAfterCapture, harness.readCalls());
     verify(harness.getFileIOManager(), never()).getFileIO(any(StorageType.Type.class));
     List<String> events = harness.events();
-    Assertions.assertEquals(0, countStartingWith(events, RecordingViewMetadataCodec.READ), events);
-    Assertions.assertEquals(0, countStartingWith(events, RecordingViewMetadataCodec.WRITE), events);
     Assertions.assertEquals(
-        0, countStartingWith(events, InMemoryViewHouseTableRepository.SAVE_VIEW), events);
+        0, countStartingWith(events, RecordingViewMetadataCodec.READ), "no codec read: " + events);
+    Assertions.assertEquals(
+        0,
+        countStartingWith(events, RecordingViewMetadataCodec.WRITE),
+        "no candidate write: " + events);
+    Assertions.assertEquals(
+        0,
+        countStartingWith(events, InMemoryViewHouseTableRepository.SAVE_VIEW),
+        "no PUT: " + events);
   }
 
   // ---- Exact compare-and-swap token ----
@@ -2080,16 +2088,20 @@ public class ViewCommitEngineCommitTest {
     int savesBeforeCommit = harness.getHouseTableRepository().getSaveViewCalls();
     harness.clearEvents();
 
-    RuntimeException thrown =
+    // Iceberg's ViewMetadataParser wraps a read/parse IOException as UncheckedIOException; invalid
+    // JSON surfaces a Jackson JsonProcessingException cause. Pinning both excludes a masked
+    // CommitStateUnknownException, NPE, or any other reclassification.
+    UncheckedIOException thrown =
         Assertions.assertThrows(
-            RuntimeException.class,
+            UncheckedIOException.class,
             () -> harness.getViewCommitEngine().commit(changedReplaceOf(corruptRow)));
-    // The real parse failure propagates; it is never reclassified as absence or a commit outcome.
-    Assertions.assertFalse(
-        thrown instanceof NoSuchViewException
-            || thrown instanceof CommitFailedException
-            || thrown instanceof AlreadyExistsException,
-        "a corrupt captured file must not be masked as absence or a commit outcome: " + thrown);
+    Assertions.assertTrue(
+        thrown.getMessage() != null && thrown.getMessage().contains("Failed to read json file"),
+        "the failure is the real json read error: " + thrown.getMessage());
+    Assertions.assertTrue(
+        thrown.getCause() instanceof JsonProcessingException,
+        "the direct cause is the Jackson parse failure, not a reclassification: "
+            + thrown.getCause());
 
     Assertions.assertEquals(
         savesBeforeCommit, harness.getHouseTableRepository().getSaveViewCalls());

@@ -91,6 +91,8 @@ public class ViewCommitEngineConcurrencyTest {
         second.getViewLocation(),
         "two service requests allocate two roots, or this test proves nothing about identity");
 
+    int savesBefore = harness.getHouseTableRepository().getSaveViewCalls();
+    int eventBaseline = harness.events().size();
     Outcome outcome = runBoth(first, second);
 
     Assertions.assertEquals(1, outcome.successes(), "exactly one create may win");
@@ -106,6 +108,31 @@ public class ViewCommitEngineConcurrencyTest {
         "the racing creates classify their captured absence and read nothing");
     Assertions.assertEquals(
         2, harness.codecWrites(), "both writers built one candidate: " + harness.events());
+
+    // The commit-window suffix: no reads, two candidates, two INITIAL saves.
+    List<String> raceSuffix = suffixSince(eventBaseline);
+    Assertions.assertEquals(
+        0, htsReadEvents(raceSuffix), "no HTS read during the race: " + raceSuffix);
+    Assertions.assertEquals(
+        0,
+        countEvents(raceSuffix, RecordingViewMetadataCodec.READ),
+        "creates read no prior file: " + raceSuffix);
+    Assertions.assertEquals(
+        2,
+        countEvents(raceSuffix, RecordingViewMetadataCodec.WRITE),
+        "both wrote one candidate: " + raceSuffix);
+    Assertions.assertEquals(
+        2,
+        countEvents(raceSuffix, InMemoryViewHouseTableRepository.SAVE_VIEW),
+        "two save attempts: " + raceSuffix);
+    Assertions.assertEquals(
+        2,
+        saveCountCarryingToken(raceSuffix, CatalogConstants.INITIAL_VERSION),
+        "both saves are INITIAL claims: " + raceSuffix);
+    Assertions.assertEquals(
+        savesBefore + 2,
+        harness.getHouseTableRepository().getSaveViewCalls(),
+        "each racing create attempted exactly one swap");
 
     List<Path> files = harness.metadataFiles();
     Assertions.assertEquals(
@@ -161,6 +188,7 @@ public class ViewCommitEngineConcurrencyTest {
                     ViewTestFixtures.sql(ViewTestFixtures.SQL_V3, ViewTestFixtures.SPARK_DIALECT)))
             .build();
 
+    int eventBaseline = harness.events().size();
     Outcome outcome = runBoth(left, right);
 
     Assertions.assertEquals(1, outcome.successes());
@@ -182,6 +210,31 @@ public class ViewCommitEngineConcurrencyTest {
         readsAfterCapture,
         harness.readCalls(),
         "both replacements work from the shared captured snapshot and read nothing");
+
+    // The commit-window suffix: no HTS read, both read A once, two candidates, both saves token A.
+    List<String> raceSuffix = suffixSince(eventBaseline);
+    Assertions.assertEquals(
+        0, htsReadEvents(raceSuffix), "no HTS read during the race: " + raceSuffix);
+    Assertions.assertEquals(
+        2,
+        countEvents(raceSuffix, RecordingViewMetadataCodec.READ),
+        "both replacements read the captured file once: " + raceSuffix);
+    Assertions.assertEquals(
+        2,
+        readCountOfPath(raceSuffix, base.getTableLocation()),
+        "both codec reads are of the captured A path: " + raceSuffix);
+    Assertions.assertEquals(
+        2,
+        countEvents(raceSuffix, RecordingViewMetadataCodec.WRITE),
+        "both wrote one candidate: " + raceSuffix);
+    Assertions.assertEquals(
+        2,
+        countEvents(raceSuffix, InMemoryViewHouseTableRepository.SAVE_VIEW),
+        "two save attempts: " + raceSuffix);
+    Assertions.assertEquals(
+        2,
+        saveCountCarryingToken(raceSuffix, base.getTableLocation()),
+        "both saves carry A's captured token: " + raceSuffix);
     List<Path> newCandidates =
         harness.metadataFiles().stream()
             .filter(path -> !path.toString().equals(base.getTableLocation()))
@@ -319,12 +372,18 @@ public class ViewCommitEngineConcurrencyTest {
     List<String> events = harness.events();
     Assertions.assertEquals(0, htsReadEvents(events), "no House Table read: " + events);
     Assertions.assertEquals(
+        0,
+        countEvents(events, RecordingViewMetadataCodec.READ),
+        "a create reads no prior file: " + events);
+    Assertions.assertEquals(
         1, countEvents(events, RecordingViewMetadataCodec.WRITE), "one candidate: " + events);
+    int writeAt = indexOfEvent(events, RecordingViewMetadataCodec.WRITE);
     int saveAt = indexOfEvent(events, InMemoryViewHouseTableRepository.SAVE_VIEW);
     Assertions.assertEquals(
         1,
         countEvents(events, InMemoryViewHouseTableRepository.SAVE_VIEW),
         "one save attempt: " + events);
+    Assertions.assertTrue(writeAt < saveAt, "the candidate is written before the swap: " + events);
     Assertions.assertTrue(
         events.get(saveAt).contains("expected=" + CatalogConstants.INITIAL_VERSION),
         "the create's single save is an INITIAL claim: " + events);
@@ -430,11 +489,15 @@ public class ViewCommitEngineConcurrencyTest {
         "the read is of A's captured path: " + events);
     Assertions.assertEquals(
         1, countEvents(events, RecordingViewMetadataCodec.WRITE), "one candidate: " + events);
+    int writeAt = indexOfEvent(events, RecordingViewMetadataCodec.WRITE);
     int saveAt = indexOfEvent(events, InMemoryViewHouseTableRepository.SAVE_VIEW);
     Assertions.assertEquals(
         1,
         countEvents(events, InMemoryViewHouseTableRepository.SAVE_VIEW),
         "one save attempt: " + events);
+    Assertions.assertTrue(
+        readAt < writeAt && writeAt < saveAt,
+        "the captured file is read, then a candidate written, then the swap: " + events);
     Assertions.assertTrue(
         events.get(saveAt).contains("expected=" + base.getTableLocation()),
         "the swap carries A's exact captured token: " + events);
@@ -446,6 +509,30 @@ public class ViewCommitEngineConcurrencyTest {
 
   private static int countEvents(List<String> events, String prefix) {
     return (int) events.stream().filter(event -> event.startsWith(prefix)).count();
+  }
+
+  /** The commit-window event suffix from an index recorded before the measured call. */
+  private List<String> suffixSince(int eventBaseline) {
+    List<String> all = harness.events();
+    return all.subList(eventBaseline, all.size());
+  }
+
+  /** How many save events carry the given expected-version token. */
+  private static int saveCountCarryingToken(List<String> events, String token) {
+    return (int)
+        events.stream()
+            .filter(event -> event.startsWith(InMemoryViewHouseTableRepository.SAVE_VIEW))
+            .filter(event -> event.contains("expected=" + token))
+            .count();
+  }
+
+  /** How many codec read events are of the given path. */
+  private static int readCountOfPath(List<String> events, String path) {
+    return (int)
+        events.stream()
+            .filter(event -> event.startsWith(RecordingViewMetadataCodec.READ))
+            .filter(event -> event.contains(path))
+            .count();
   }
 
   private static int indexOfEvent(List<String> events, String prefix) {
