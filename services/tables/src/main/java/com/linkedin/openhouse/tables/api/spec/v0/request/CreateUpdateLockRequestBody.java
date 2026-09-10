@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.tables.api.spec.v0.request;
 
 import com.google.gson.GsonBuilder;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import io.swagger.v3.oas.annotations.media.Schema;
 import javax.validation.constraints.NotEmpty;
 import javax.validation.constraints.NotNull;
@@ -24,6 +25,12 @@ public class CreateUpdateLockRequestBody {
 
   @Schema(description = "reason for creating/updating the lock on table")
   String message;
+
+  @Schema(description = "Structured lock reason. Omit to preserve legacy lock behavior.")
+  LockReason reason;
+
+  @Schema(description = "Expected table UUID (generation). Required for a reasoned lock.")
+  String expectedTableUUID;
 
   @Schema(
       description = "lock creation epoch time measured in UTC milliseconds for a table",

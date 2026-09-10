@@ -22,6 +22,15 @@ public class LockState {
   @Builder.Default
   String message = "Default";
 
+  @Schema(description = "Structured lock reason. Null denotes a legacy lock.")
+  LockReason reason;
+
+  @Schema(description = "Authenticated principal that created the reasoned lock.")
+  String lockOwner;
+
+  @Schema(description = "Table UUID (generation) on which the reasoned lock was created.")
+  String tableUUID;
+
   @Schema(
       description = "lock creation epoch time measured in UTC milliseconds for a table",
       example = "1651002318265")

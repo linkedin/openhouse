@@ -4,6 +4,7 @@ import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.List;
@@ -161,6 +162,23 @@ public interface TablesService {
    * @param actingPrincipal
    */
   void deleteLock(String databaseId, String tableId, String actingPrincipal);
+
+  /**
+   * Remove only the lock matching the supplied reason, owner and table generation. Implementations
+   * without reasoned-lock support must not fall back to an unguarded unlock.
+   */
+  default void deleteLock(
+      String databaseId,
+      String tableId,
+      String actingPrincipal,
+      LockReason reason,
+      String expectedTableUUID,
+      String lockOwner) {
+    if (reason != null || expectedTableUUID != null || lockOwner != null) {
+      throw new UnsupportedOperationException("Guarded unlock is not supported");
+    }
+    deleteLock(databaseId, tableId, actingPrincipal);
+  }
 
   /**
    * Given a databaseId, return a paginated list of soft deleted {@link TableDto}s.

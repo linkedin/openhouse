@@ -46,6 +46,9 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
         openHouseInternalRepository.findById(
             TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build());
 
+    LockPolicyValidator.validateUnchanged(
+        tableDto.orElse(null), icebergSnapshotRequestBody.getCreateUpdateTableRequestBody());
+
     String clusterId = icebergSnapshotRequestBody.getCreateUpdateTableRequestBody().getClusterId();
 
     TableDto tableDtoToSave =
