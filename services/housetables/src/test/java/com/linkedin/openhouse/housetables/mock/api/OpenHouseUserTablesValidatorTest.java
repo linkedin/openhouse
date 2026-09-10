@@ -8,6 +8,9 @@ import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTableKey;
 import com.linkedin.openhouse.housetables.api.validator.HouseTablesApiValidator;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -148,48 +151,87 @@ public class OpenHouseUserTablesValidatorTest {
         () -> userTablesHtsApiValidator.validateRenameEntity(fromKey, toKey));
   }
 
+  private static UserTable putPayload(String entityType) {
+    return UserTable.builder()
+        .tableId("tb1")
+        .databaseId("db1")
+        .tableVersion("/tmp/test/opt/metadata.json")
+        .metadataLocation("INITIAL_VERSION")
+        .entityType(entityType)
+        .build();
+  }
+
   /**
    * Load-bearing: the PUT path relies on Bean Validation on the transport model, so the pattern on
-   * {@code UserTable#entityType} must accept every TABLE/VIEW spelling and reject anything else.
+   * {@code UserTable#entityType} must accept every TABLE/VIEW spelling. Omitting the field entirely
+   * stays valid too, for legacy table writers.
+   */
+  @ParameterizedTest
+  @NullSource
+  @ValueSource(strings = {"VIEW", "view", "ViEw", "TABLE", "table", "TaBlE"})
+  public void validatePutEntityAcceptsEverySpellingOfBothTypes(String entityType) {
+    assertDoesNotThrow(
+        () -> userTablesHtsApiValidator.validatePutEntity(putPayload(entityType)),
+        "PUT with entityType=" + entityType + " should validate");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"UNKNOWN", "TABLES", "VIEWS", "TABLE VIEW"})
+  public void validatePutEntityRejectsAnUnrecognizedSpelling(String entityType) {
+    assertThrows(
+        RequestValidationFailureException.class,
+        () -> userTablesHtsApiValidator.validatePutEntity(putPayload(entityType)));
+  }
+
+  /**
+   * Regression guard: the wire field must stay nullable for rolling deploys. Validation must not be
+   * what rejects an un-upgraded client; the controller has already resolved it by then.
    */
   @Test
-  public void validatePutEntityTypeCaseInsensitivelyAndRejectsGarbage() {
-    for (String entityType : new String[] {"VIEW", "view", "ViEw", "TABLE", "table", "TaBlE"}) {
-      UserTable userTable =
-          UserTable.builder()
-              .tableId("tb1")
-              .databaseId("db1")
-              .tableVersion("/tmp/test/opt/metadata.json")
-              .metadataLocation("INITIAL_VERSION")
-              .entityType(entityType)
-              .build();
-
-      assertDoesNotThrow(
-          () -> userTablesHtsApiValidator.validatePutEntity(userTable),
-          "PUT with entityType=" + entityType + " should validate");
-    }
-
-    // Omitting the field entirely stays valid (legacy table writers).
-    assertDoesNotThrow(
-        () ->
-            userTablesHtsApiValidator.validatePutEntity(
-                UserTable.builder()
-                    .tableId("tb1")
-                    .databaseId("db1")
-                    .tableVersion("/tmp/test/opt/metadata.json")
-                    .metadataLocation("INITIAL_VERSION")
-                    .build()));
-
-    UserTable garbage =
+  public void validatePutEntityAcceptsATransportNullBeforeNormalization() {
+    UserTable untyped =
         UserTable.builder()
             .tableId("tb1")
             .databaseId("db1")
             .tableVersion("/tmp/test/opt/metadata.json")
             .metadataLocation("INITIAL_VERSION")
-            .entityType("UNKNOWN")
+            .entityType(null)
             .build();
-    assertThrows(
-        RequestValidationFailureException.class,
-        () -> userTablesHtsApiValidator.validatePutEntity(garbage));
+
+    assertDoesNotThrow(() -> userTablesHtsApiValidator.validatePutEntity(untyped));
+
+    // And the normalized form the controller hands on is equally valid, for both routes.
+    assertDoesNotThrow(
+        () ->
+            userTablesHtsApiValidator.validatePutEntity(
+                untyped.toBuilder().entityType("TABLE").build()));
+    assertDoesNotThrow(
+        () ->
+            userTablesHtsApiValidator.validatePutEntity(
+                untyped.toBuilder().entityType("VIEW").build()));
+  }
+
+  /**
+   * Regression guard: the validator deliberately has no opinion on {@code entityType}. Rejecting it
+   * would be a separate, deliberate choice.
+   */
+  @ParameterizedTest
+  @NullSource
+  @ValueSource(strings = {"VIEW", "view", "TABLE", "TaBlE"})
+  public void validateGetEntitiesToleratesAndIgnoresEntityType(String entityType) {
+    UserTable byDatabase = UserTable.builder().databaseId("db1").entityType(entityType).build();
+    assertDoesNotThrow(
+        () -> userTablesHtsApiValidator.validateGetEntities(byDatabase),
+        "query with entityType=" + entityType + " should validate");
+    assertDoesNotThrow(
+        () -> userTablesHtsApiValidator.validateGetEntities(byDatabase, 0, 50, "tableId"));
+  }
+
+  /** Even an unrecognized value is inert here: it is never a filter, so it is never validated. */
+  @Test
+  public void validateGetEntitiesToleratesAnUnrecognizedEntityType() {
+    UserTable garbageFilter =
+        UserTable.builder().databaseId("db1").tableId("tb%").entityType("UNKNOWN").build();
+    assertDoesNotThrow(() -> userTablesHtsApiValidator.validateGetEntities(garbageFilter));
   }
 }

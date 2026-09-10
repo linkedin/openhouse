@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.housetables.model;
 
+import com.linkedin.openhouse.common.exception.CorruptEntityTypeException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -34,25 +35,49 @@ public class EntityTypeConverterTest {
     Assertions.assertEquals(expected, converter.convertToEntityAttribute(columnValue));
   }
 
-  /** Only a null carries the legacy meaning; anything else outside the vocabulary is corrupt. */
+  /**
+   * Only a null carries the legacy meaning. The escape is deliberately not an {@link
+   * IllegalArgumentException}: that lands on the shared advice's 400 branch, reporting server-state
+   * corruption as a bad request.
+   */
   @ParameterizedTest
-  @ValueSource(strings = {"FOO", "", " ", "TABLES", "TABLE "})
+  @ValueSource(strings = {"FOO", "", " ", "TABLES", "TABLE ", "TÁBLE"})
   void unrecognizedColumnValueFailsLoudly(String columnValue) {
-    IllegalArgumentException thrown =
+    CorruptEntityTypeException thrown =
         Assertions.assertThrows(
-            IllegalArgumentException.class, () -> converter.convertToEntityAttribute(columnValue));
+            CorruptEntityTypeException.class,
+            () -> converter.convertToEntityAttribute(columnValue));
+    Assertions.assertFalse(
+        IllegalArgumentException.class.isAssignableFrom(CorruptEntityTypeException.class),
+        "corruption must not be catchable as a client-error IllegalArgumentException");
     Assertions.assertTrue(thrown.getMessage().contains("user_table_row.entity_type"));
     Assertions.assertTrue(thrown.getMessage().contains(columnValue));
   }
 
+  /** Write stores the constant name verbatim, so the enum changes no byte in the column. */
+  @ParameterizedTest
+  @CsvSource({"TABLE, TABLE", "VIEW, VIEW"})
+  void everyConstantWritesAsItsName(EntityType entityType, String expectedColumnValue) {
+    Assertions.assertEquals(expectedColumnValue, converter.convertToDatabaseColumn(entityType));
+  }
+
   /**
-   * Write is faithful, not total. Stamping a type belongs to the endpoint that knows which one it
-   * is, so storage passes a null through rather than inventing TABLE.
+   * The write is strict where the read defaults: the {@code IS NULL} predicate arm carries rows
+   * that predate the discriminator, and nothing may add another. An {@link
+   * IllegalArgumentException} because an unstamped write is a caller bug, unlike a corrupt column,
+   * which is server state.
    */
   @Test
-  void writeIsPassThrough() {
-    Assertions.assertEquals("TABLE", converter.convertToDatabaseColumn(EntityType.TABLE));
-    Assertions.assertEquals("VIEW", converter.convertToDatabaseColumn(EntityType.VIEW));
-    Assertions.assertNull(converter.convertToDatabaseColumn(null));
+  void nullWriteIsRejectedRatherThanStoringAnotherLegacyRow() {
+    IllegalArgumentException thrown =
+        Assertions.assertThrows(
+            IllegalArgumentException.class, () -> converter.convertToDatabaseColumn(null));
+
+    Assertions.assertEquals(
+        "Column user_table_row.entity_type cannot be written as null; "
+            + "the endpoint serving the request is responsible for stamping the type",
+        thrown.getMessage());
+    // The two escapes stay disjoint: a caller bug is not stored corruption.
+    Assertions.assertFalse(CorruptEntityTypeException.class.isAssignableFrom(thrown.getClass()));
   }
 }

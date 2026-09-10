@@ -154,10 +154,10 @@ public class UserTablesMapperTest {
   }
 
   /**
-   * Backward compatibility: legacy writers omit the field entirely, and the mapping chain must
-   * carry that null through untouched so the write stores a null column. Defaulting a null to
-   * "TABLE" belongs to the storage read, not here, otherwise every legacy table write would start
-   * stamping a value the writer never asked for.
+   * Backward compatibility: legacy writers omit the field entirely, and the mapping chain carries
+   * that null through untouched. The mapper never consults the JPA converter, so these stay null in
+   * memory even though the converter now rejects a null write; the service stamps the type before
+   * the row is ever handed to storage.
    */
   @Test
   void nullEntityTypeRemainsNullAcrossLegacyMappings() {
