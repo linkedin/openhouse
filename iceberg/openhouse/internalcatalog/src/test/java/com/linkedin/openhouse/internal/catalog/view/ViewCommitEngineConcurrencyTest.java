@@ -173,13 +173,7 @@ public class ViewCommitEngineConcurrencyTest {
     CyclicBarrier bothInsideSwapWindow = new CyclicBarrier(2);
     harness.getHouseTableRepository().setBeforeCas(() -> await(bothInsideSwapWindow));
 
-    ViewCommitIntent left =
-        ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
-            .schema(ViewTestFixtures.schemaV2())
-            .representations(
-                Collections.singletonList(
-                    ViewTestFixtures.sql(ViewTestFixtures.SQL_V2, ViewTestFixtures.SPARK_DIALECT)))
-            .build();
+    ViewCommitIntent left = ViewTestFixtures.changedReplaceIntent(root, base).build();
     ViewCommitIntent right =
         ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
             .representations(
@@ -268,13 +262,7 @@ public class ViewCommitEngineConcurrencyTest {
     int readsBeforeLosingAttempt = harness.readCalls();
 
     // Both are prebuilt from the shared base, so the callback captures nothing mid-swap.
-    ViewCommitIntent interloperIntent =
-        ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
-            .schema(ViewTestFixtures.schemaV2())
-            .representations(
-                Collections.singletonList(
-                    ViewTestFixtures.sql(ViewTestFixtures.SQL_V2, ViewTestFixtures.SPARK_DIALECT)))
-            .build();
+    ViewCommitIntent interloperIntent = ViewTestFixtures.changedReplaceIntent(root, base).build();
     ViewCommitIntent loserIntent =
         ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
             .representations(
@@ -458,12 +446,7 @@ public class ViewCommitEngineConcurrencyTest {
   }
 
   private ViewCommitIntent changedReplaceIntentOf(HouseTable base) {
-    return ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
-        .schema(ViewTestFixtures.schemaV2())
-        .representations(
-            Collections.singletonList(
-                ViewTestFixtures.sql(ViewTestFixtures.SQL_V2, ViewTestFixtures.SPARK_DIALECT)))
-        .build();
+    return ViewTestFixtures.changedReplaceIntent(root, base).build();
   }
 
   private void assertLosingReplaceReadAWroteOneCarryingItsToken(

@@ -9,7 +9,6 @@ import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCo
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.List;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.CommitFailedException;
@@ -237,12 +236,7 @@ public class ViewCommitEngineFailureTranslationTest {
   }
 
   private ViewCommitIntent changedReplaceOf(HouseTable base) {
-    return ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
-        .schema(ViewTestFixtures.schemaV2())
-        .representations(
-            Collections.singletonList(
-                ViewTestFixtures.sql(ViewTestFixtures.SQL_V2, ViewTestFixtures.SPARK_DIALECT)))
-        .build();
+    return ViewTestFixtures.changedReplaceIntent(root, base).build();
   }
 
   /** The upstream neutral lookup a caller performs once, before invoking the engine. */

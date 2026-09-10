@@ -102,6 +102,18 @@ public final class ViewTestFixtures {
     return baseIntent(root, Boolean.FALSE, baseRow).build();
   }
 
+  /**
+   * A materially changed REPLACE builder (schema V2, single SQL_V2 representation) on an
+   * already-captured row. Returns a builder so callers can override fields; it captures nothing,
+   * commits nothing, and performs no I/O.
+   */
+  public static ViewCommitIntent.ViewCommitIntentBuilder changedReplaceIntent(
+      Path root, HouseTable baseRow) {
+    return baseIntent(root, Boolean.FALSE, baseRow)
+        .schema(schemaV2())
+        .representations(Collections.singletonList(sql(SQL_V2, SPARK_DIALECT)));
+  }
+
   public static ViewCommitIntent.ViewCommitIntentBuilder baseIntent(
       Path root, Boolean isCreate, HouseTable baseRow) {
     return intentBuilderWithoutCreateFlag(root).isCreate(isCreate).baseRow(baseRow);

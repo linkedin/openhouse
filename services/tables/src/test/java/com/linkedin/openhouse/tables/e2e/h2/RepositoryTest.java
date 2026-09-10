@@ -36,6 +36,7 @@ import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -58,6 +59,9 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.util.AopTestUtils;
@@ -1685,7 +1689,7 @@ public class RepositoryTest {
   void houseTableStandInFiltersEntityTypeBeforeItPaginates() {
     seedIsolationRows();
     try {
-      java.util.List<HouseTable> unpaged = houseTablesRepository.findAllByDatabaseId(ISOLATION_DB);
+      List<HouseTable> unpaged = houseTablesRepository.findAllByDatabaseId(ISOLATION_DB);
       Assertions.assertEquals(
           Arrays.asList("legacy_a", "table_a"),
           unpaged.stream().map(HouseTable::getTableId).sorted().collect(Collectors.toList()));
@@ -1696,16 +1700,12 @@ public class RepositoryTest {
                   .map(row -> row.getTableId() + "=" + row.getEntityType())
                   .collect(Collectors.toList()));
 
-      org.springframework.data.domain.Page<HouseTable> firstTablePage =
+      Page<HouseTable> firstTablePage =
           houseTablesRepository.findAllByDatabaseId(
-              ISOLATION_DB,
-              org.springframework.data.domain.PageRequest.of(
-                  0, 1, org.springframework.data.domain.Sort.by("tableId").ascending()));
-      org.springframework.data.domain.Page<HouseTable> secondTablePage =
+              ISOLATION_DB, PageRequest.of(0, 1, Sort.by("tableId").ascending()));
+      Page<HouseTable> secondTablePage =
           houseTablesRepository.findAllByDatabaseId(
-              ISOLATION_DB,
-              org.springframework.data.domain.PageRequest.of(
-                  1, 1, org.springframework.data.domain.Sort.by("tableId").ascending()));
+              ISOLATION_DB, PageRequest.of(1, 1, Sort.by("tableId").ascending()));
       Assertions.assertEquals(
           2L, firstTablePage.getTotalElements(), "views must not inflate a table page total");
       Assertions.assertEquals(2, firstTablePage.getTotalPages());
@@ -1717,16 +1717,12 @@ public class RepositoryTest {
           "the legacy row is hydrated on the paginated overload too");
       Assertions.assertEquals("TABLE", secondTablePage.getContent().get(0).getEntityType());
 
-      org.springframework.data.domain.Page<HouseTable> firstViewPage =
+      Page<HouseTable> firstViewPage =
           houseTablesRepository.findAllViewsByDatabaseId(
-              ISOLATION_DB,
-              org.springframework.data.domain.PageRequest.of(
-                  0, 1, org.springframework.data.domain.Sort.by("tableId").ascending()));
-      org.springframework.data.domain.Page<HouseTable> secondViewPage =
+              ISOLATION_DB, PageRequest.of(0, 1, Sort.by("tableId").ascending()));
+      Page<HouseTable> secondViewPage =
           houseTablesRepository.findAllViewsByDatabaseId(
-              ISOLATION_DB,
-              org.springframework.data.domain.PageRequest.of(
-                  1, 1, org.springframework.data.domain.Sort.by("tableId").ascending()));
+              ISOLATION_DB, PageRequest.of(1, 1, Sort.by("tableId").ascending()));
       Assertions.assertEquals(2L, firstViewPage.getTotalElements());
       Assertions.assertEquals(2, firstViewPage.getTotalPages());
       Assertions.assertEquals("view_a", firstViewPage.getContent().get(0).getTableId());
@@ -1746,14 +1742,11 @@ public class RepositoryTest {
     seedIsolationRows();
     houseTablesRepository.save(isolationRow("table_b", "TABLE"));
     try {
-      org.springframework.data.domain.Sort descending =
-          org.springframework.data.domain.Sort.by("tableId").descending();
-      org.springframework.data.domain.Page<HouseTable> first =
-          houseTablesRepository.findAllByDatabaseId(
-              ISOLATION_DB, org.springframework.data.domain.PageRequest.of(0, 2, descending));
-      org.springframework.data.domain.Page<HouseTable> second =
-          houseTablesRepository.findAllByDatabaseId(
-              ISOLATION_DB, org.springframework.data.domain.PageRequest.of(1, 2, descending));
+      Sort descending = Sort.by("tableId").descending();
+      Page<HouseTable> first =
+          houseTablesRepository.findAllByDatabaseId(ISOLATION_DB, PageRequest.of(0, 2, descending));
+      Page<HouseTable> second =
+          houseTablesRepository.findAllByDatabaseId(ISOLATION_DB, PageRequest.of(1, 2, descending));
 
       Assertions.assertEquals(3L, first.getTotalElements());
       Assertions.assertEquals(
@@ -1778,14 +1771,9 @@ public class RepositoryTest {
     houseTablesRepository.save(isolationRow("B_upper", "TABLE"));
     houseTablesRepository.save(isolationRow("a_lower", "TABLE"));
     try {
-      org.springframework.data.domain.Page<HouseTable> ignoringCase =
+      Page<HouseTable> ignoringCase =
           houseTablesRepository.findAllByDatabaseId(
-              ISOLATION_DB,
-              org.springframework.data.domain.PageRequest.of(
-                  0,
-                  10,
-                  org.springframework.data.domain.Sort.by(
-                      org.springframework.data.domain.Sort.Order.asc("tableId").ignoreCase())));
+              ISOLATION_DB, PageRequest.of(0, 10, Sort.by(Sort.Order.asc("tableId").ignoreCase())));
 
       Assertions.assertEquals(
           Arrays.asList("a_lower", "B_upper"),
@@ -1852,6 +1840,19 @@ public class RepositoryTest {
             .build());
   }
 
+  /**
+   * The create/update decision is made by exactly one neutral occupancy read at the table's key,
+   * never the TABLE-typed existence probe or the raw House Table lookup. Assert-only: it verifies
+   * already-recorded interactions and neither reads, captures, resets, nor invokes production.
+   */
+  private void verifySingleNeutralLookup(String tableId) {
+    Mockito.verify((OpenHouseInternalCatalog) catalog, Mockito.times(1))
+        .findEntityById(TableIdentifier.of(OCCUPATION_DB, tableId));
+    Mockito.verify(catalog, Mockito.never()).tableExists(Mockito.any());
+    Mockito.verify((OpenHouseInternalCatalog) catalog, Mockito.never())
+        .findHouseTable(Mockito.any());
+  }
+
   @Test
   void tableCreateOverAViewFailsCleanlyWithoutAllocatingOrWriting() {
     String tableId = "occupied_by_a_view";
@@ -1876,12 +1877,8 @@ public class RepositoryTest {
       // write ever ran: a create or replace builds a table, an update loads one.
       Mockito.verify(catalog, Mockito.never()).buildTable(Mockito.any(), Mockito.any());
       Mockito.verify(catalog, Mockito.never()).loadTable(Mockito.any());
-      // Decision boundary: exactly one neutral read, no tableExists probe, no TABLE-typed lookup.
-      Mockito.verify((OpenHouseInternalCatalog) catalog, Mockito.times(1))
-          .findEntityById(TableIdentifier.of(OCCUPATION_DB, tableId));
-      Mockito.verify(catalog, Mockito.never()).tableExists(Mockito.any());
-      Mockito.verify((OpenHouseInternalCatalog) catalog, Mockito.never())
-          .findHouseTable(Mockito.any());
+      // Decision boundary: exactly one neutral read; no tableExists probe, no TABLE-typed lookup.
+      verifySingleNeutralLookup(tableId);
 
       HouseTable after = houseTablesRepository.findEntityById(occupationKey(tableId)).get();
       Assertions.assertEquals("VIEW", after.getEntityType());
@@ -1922,11 +1919,7 @@ public class RepositoryTest {
       Mockito.clearInvocations(catalog);
       Assertions.assertDoesNotThrow(() -> openHouseInternalRepository.save(update));
       // Decision boundary: one neutral read routes to the update path; no tableExists/typed probe.
-      Mockito.verify((OpenHouseInternalCatalog) catalog, Mockito.times(1))
-          .findEntityById(TableIdentifier.of(OCCUPATION_DB, tableId));
-      Mockito.verify(catalog, Mockito.never()).tableExists(Mockito.any());
-      Mockito.verify((OpenHouseInternalCatalog) catalog, Mockito.never())
-          .findHouseTable(Mockito.any());
+      verifySingleNeutralLookup(tableId);
       Assertions.assertEquals(
           "TABLE",
           houseTablesRepository.findEntityById(occupationKey(tableId)).get().getEntityType());
@@ -1946,11 +1939,7 @@ public class RepositoryTest {
       Assertions.assertNotNull(created.getTableLocation());
       Mockito.verify(storageSelector, Mockito.atLeastOnce()).selectStorage(OCCUPATION_DB, tableId);
       // Decision boundary: one neutral read routes to create; no tableExists/typed probe.
-      Mockito.verify((OpenHouseInternalCatalog) catalog, Mockito.times(1))
-          .findEntityById(TableIdentifier.of(OCCUPATION_DB, tableId));
-      Mockito.verify(catalog, Mockito.never()).tableExists(Mockito.any());
-      Mockito.verify((OpenHouseInternalCatalog) catalog, Mockito.never())
-          .findHouseTable(Mockito.any());
+      verifySingleNeutralLookup(tableId);
       Assertions.assertEquals(
           "TABLE",
           houseTablesRepository.findEntityById(occupationKey(tableId)).get().getEntityType());

@@ -345,7 +345,8 @@ public class HouseTableViewRepositoryImplTest {
   }
 
   @Test
-  public void deleteViewByIdCallsTheTypedViewDeleteEndpoint() throws InterruptedException {
+  public void deleteViewByIdCallsTheTypedViewDeleteEndpointAndNeverTheTableRoutes()
+      throws InterruptedException {
     enqueueStatus(204);
 
     Assertions.assertTrue(htsRepo.deleteViewById(viewKey()));
@@ -355,6 +356,10 @@ public class HouseTableViewRepositoryImplTest {
     assertThat(request.getPath()).startsWith("/hts/views?");
     assertThat(request.getPath()).contains("databaseId=" + VIEW_DB);
     assertThat(request.getPath()).contains("tableId=" + VIEW_ID);
+    assertThat(request.getPath()).doesNotContain("isSoftDelete");
+    Mockito.verify(userTableApi, Mockito.never())
+        .deleteTable(Mockito.any(), Mockito.any(), Mockito.any());
+    Mockito.verify(userTableApi, Mockito.never()).deleteTable1(Mockito.any(), Mockito.any());
   }
 
   @Test
@@ -878,20 +883,6 @@ public class HouseTableViewRepositoryImplTest {
           "a caller failure must not be retried, code " + code);
       Assertions.assertEquals(0, retryListener.getRetryCount(), "code " + code);
     }
-  }
-
-  @Test
-  public void deleteViewByIdNeverTouchesTheTableDeleteRoutes() throws InterruptedException {
-    enqueueStatus(204);
-
-    Assertions.assertTrue(htsRepo.deleteViewById(viewKey()));
-
-    RecordedRequest request = nextRequest();
-    assertThat(request.getPath()).startsWith("/hts/views?");
-    assertThat(request.getPath()).doesNotContain("isSoftDelete");
-    Mockito.verify(userTableApi, Mockito.never())
-        .deleteTable(Mockito.any(), Mockito.any(), Mockito.any());
-    Mockito.verify(userTableApi, Mockito.never()).deleteTable1(Mockito.any(), Mockito.any());
   }
 
   /** Reads are safe to repeat, so the typed read keeps the shared bounded retry. */

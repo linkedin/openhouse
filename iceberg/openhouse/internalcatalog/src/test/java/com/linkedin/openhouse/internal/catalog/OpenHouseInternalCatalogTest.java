@@ -19,12 +19,16 @@ import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Optional;
+import java.util.stream.Stream;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.SupportsPrefixOperations;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 public class OpenHouseInternalCatalogTest {
 
@@ -186,18 +190,32 @@ public class OpenHouseInternalCatalogTest {
         .build();
   }
 
-  @Test
-  void findEntityByIdReturnsAViewOccupantSoTheCallerCanReject() {
-    HouseTableRepository repo = repoHolding(occupantOfType("VIEW"));
+  /**
+   * Whatever holds the name — a view, a table, or a non-canonical 'Table' — the neutral occupancy
+   * read reports it with its own type from the pointer row alone, so no occupied name looks free
+   * and no create can reach allocation. Classification of a canonical view is the caller's. The
+   * read allocates nothing, reads no metadata.json, writes nothing, and never falls back to the raw
+   * table- or view-typed lookups.
+   */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("populatedOccupants")
+  void findEntityByIdReportsAnyOccupantByItsTypeWithoutAllocatingOrReading(
+      String caseName, String entityType) {
+    HouseTableRepository repo = repoHolding(occupantOfType(entityType));
     FileIO fileIO = recordingFileIO();
     OpenHouseInternalCatalog catalog = catalogOver(repo, fileIO);
 
     Optional<HouseTable> occupant = catalog.findEntityById(IDENTIFIER);
 
-    // The neutral read sees the view and hands it back with its type; a TABLE-typed read would not.
+    // Present, carrying its own type back to the caller who classifies it.
     Assertions.assertTrue(occupant.isPresent());
-    Assertions.assertEquals("VIEW", occupant.get().getEntityType());
-    // A pure read allocates and writes nothing while answering.
+    Assertions.assertEquals(entityType, occupant.get().getEntityType());
+    // Exactly one neutral occupancy read at the key, and never the raw table- or view-typed reads.
+    verify(repo, times(1))
+        .findEntityById(HouseTablePrimaryKey.builder().databaseId(DB).tableId(TABLE).build());
+    verify(repo, never()).findById(any(HouseTablePrimaryKey.class));
+    verify(repo, never()).findViewById(any(HouseTablePrimaryKey.class));
+    // A pure read allocates nothing, reads no metadata.json, and writes nothing while answering.
     verify(catalog.storageSelector, never()).selectStorage(any(), any());
     verifyNoInteractions(catalog.fileIOManager);
     verifyNoInteractions(fileIO);
@@ -205,28 +223,11 @@ public class OpenHouseInternalCatalogTest {
     verify(repo, never()).saveView(any(HouseTable.class));
   }
 
-  /**
-   * The safety property behind the clean-409 refinement: whatever holds the name, the name is not
-   * free, so no create can reach allocation. Classification of a canonical view is the caller's.
-   */
-  @Test
-  void findEntityByIdReportsAnyOccupantSoNoOccupiedNameLooksFree() {
-    OpenHouseInternalCatalog catalog =
-        catalogOver(repoHolding(occupantOfType("Table")), recordingFileIO());
-
-    Assertions.assertTrue(catalog.findEntityById(IDENTIFIER).isPresent());
-  }
-
-  /** Answered from the pointer row alone: an unreadable metadata.json is not this question. */
-  @Test
-  void findEntityByIdReportsAnOccupantWithoutReadingItsMetadata() {
-    HouseTableRepository repo = repoHolding(occupantOfType("TABLE"));
-    FileIO fileIO = recordingFileIO();
-    OpenHouseInternalCatalog catalog = catalogOver(repo, fileIO);
-
-    Assertions.assertTrue(catalog.findEntityById(IDENTIFIER).isPresent());
-
-    verifyNoInteractions(fileIO);
+  private static Stream<Arguments> populatedOccupants() {
+    return Stream.of(
+        Arguments.of("a view occupant is reported with its VIEW type", "VIEW"),
+        Arguments.of("a table occupant is reported with its TABLE type", "TABLE"),
+        Arguments.of("a non-canonical 'Table' occupant still holds the name", "Table"));
   }
 
   /** The parse boundary resolves a legacy null to TABLE, so the catalog never sees a null. */
@@ -249,19 +250,6 @@ public class OpenHouseInternalCatalogTest {
     Assertions.assertFalse(catalog.findEntityById(TableIdentifier.of(TABLE)).isPresent());
 
     verify(repo, never()).findEntityById(any(HouseTablePrimaryKey.class));
-  }
-
-  @Test
-  void findEntityByIdReadsTheNeutralEndpointAndNotTheTableTypedOne() {
-    HouseTableRepository repo = repoHolding(occupantOfType("TABLE"));
-    OpenHouseInternalCatalog catalog = catalogOver(repo, recordingFileIO());
-
-    catalog.findEntityById(IDENTIFIER);
-
-    verify(repo, times(1))
-        .findEntityById(HouseTablePrimaryKey.builder().databaseId(DB).tableId(TABLE).build());
-    verify(repo, never()).findById(any(HouseTablePrimaryKey.class));
-    verify(repo, never()).findViewById(any(HouseTablePrimaryKey.class));
   }
 
   /** Test subclass that bypasses the real {@link OpenHouseInternalCatalog#resolveFileIO} wiring. */

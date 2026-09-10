@@ -79,19 +79,6 @@ public class ViewCommitEngineReadTest {
     verifyNoInteractions(viewMetadataCodec);
   }
 
-  /** Absent and non-view are one answer; anything else would tell a create the name is free. */
-  @Test
-  void loadViewOfAKeyHeldByANonViewIsTheSameAnswerAsAbsent() {
-    when(houseTableRepository.findViewById(any(HouseTablePrimaryKey.class)))
-        .thenReturn(Optional.empty());
-
-    Assertions.assertThrows(NoSuchViewException.class, () -> viewCommitEngine.loadView(DB, VIEW));
-
-    verify(houseTableRepository, times(1)).findViewById(any(HouseTablePrimaryKey.class));
-    verifyNoInteractions(fileIOManager);
-    verifyNoInteractions(viewMetadataCodec);
-  }
-
   /** FileIO comes from the row's own storage, never a cluster-wide selection. */
   @Test
   void loadViewSelectsFileIoFromPointerRowStorageAndParsesExactlyThatPath() {
