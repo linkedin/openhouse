@@ -162,10 +162,15 @@ allprojects {
 }
 
 // Local Git Hooks cannot be shared, as .git directory is gitignore'd.
+def gitHooksPath = new ByteArrayOutputStream()
+exec {
+  commandLine 'git', 'rev-parse', '--git-path', 'hooks'
+  standardOutput = gitHooksPath
+}
 tasks.register('CopyGitHooksTask', Copy) {
   println 'Make the git hook available in .git/hooks directory.'
   from file('scripts/git-hooks')
-  into file('.git/hooks/')
+  into file(gitHooksPath.toString().trim())
 }
 
 // =============================================================================
@@ -319,5 +324,57 @@ tasks.register('dockerDown', Exec) {
     println ''
     println "Stopping containers for recipe: ${recipe}"
     println ''
+  }
+}
+
+def classInventoryDigest = { File jarFile ->
+  def digest = java.security.MessageDigest.getInstance('SHA-256')
+  def archive = new java.util.zip.ZipFile(jarFile)
+  try {
+    archive.entries()
+        .findAll { !it.directory && it.name.endsWith('.class') }
+        .sort { left, right -> left.name <=> right.name }
+        .each { entry ->
+          digest.update(entry.name.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+          digest.update((byte) 0)
+          archive.getInputStream(entry).withCloseable { input ->
+            byte[] buffer = new byte[8192]
+            int read
+            while ((read = input.read(buffer)) != -1) {
+              digest.update(buffer, 0, read)
+            }
+          }
+        }
+  } finally {
+    archive.close()
+  }
+  digest.digest().encodeHex().toString()
+}
+
+gradle.projectsEvaluated {
+  tasks.register('verifyLegacyRuntimeClassInventories') {
+    def javaRuntime = project(
+        ':integrations:java:iceberg-1.5:openhouse-java-iceberg-1.5-runtime').tasks.named('shadowJar')
+    def sparkRuntime = project(
+        ':integrations:spark:spark-3.5:openhouse-spark-3.5-runtime_2.12').tasks.named('shadowJar')
+    dependsOn javaRuntime, sparkRuntime
+
+    doLast {
+      def expectedDigests = [
+          javaRuntime: 'ba4b130c31dbceca224f6cefaef80d792d9f843c8b62e531c8d090e8038ff883',
+          sparkRuntime: '2d598b2b8318ba0671980fda7074c9ab79328334b2e6a850ac85347ffe0b4d92'
+      ]
+      def actualDigests = [
+          javaRuntime: classInventoryDigest(javaRuntime.get().archiveFile.get().asFile),
+          sparkRuntime: classInventoryDigest(sparkRuntime.get().archiveFile.get().asFile)
+      ]
+      def changedArtifacts = expectedDigests.findAll { name, expected ->
+        actualDigests[name] != expected
+      }
+      if (!changedArtifacts.isEmpty()) {
+        throw new GradleException(
+            "Legacy runtime class inventories changed. Expected ${expectedDigests}, actual ${actualDigests}")
+      }
+    }
   }
 }
