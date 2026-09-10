@@ -4,6 +4,7 @@ import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
@@ -173,6 +174,20 @@ public interface TablesApiHandler {
    * @return empty body on successful delete
    */
   ApiResponse<Void> deleteLock(String databaseId, String tableId, String tableCreatorUpdator);
+
+  /** Delete only the lock identified by the supplied reason, owner and table generation. */
+  default ApiResponse<Void> deleteLock(
+      String databaseId,
+      String tableId,
+      String actingPrincipal,
+      LockReason reason,
+      String expectedTableUUID,
+      String lockOwner) {
+    if (reason != null || expectedTableUUID != null || lockOwner != null) {
+      throw new UnsupportedOperationException("Guarded unlock is not supported");
+    }
+    return deleteLock(databaseId, tableId, actingPrincipal);
+  }
 
   /**
    * Function to perform a paginated search on soft deleted tables in a given database ID, with
