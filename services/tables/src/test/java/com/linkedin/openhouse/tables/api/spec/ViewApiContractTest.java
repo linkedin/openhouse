@@ -28,12 +28,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 
 /**
- * Freezes the M1 wire surface of {@code /v1/databases/{databaseId}/views}.
- *
- * <p>This test exists to satisfy the BDP-108397 acceptance criterion: "A contract test pins the M1
- * wire surface, so adding the admission service, the polymorphic lookup or /versions later changes
- * no field this ships." Every assertion is an exact set equality, so the test fails when a field is
- * added as well as when one is removed.
+ * Pins the wire surface of {@code /v1/databases/{databaseId}/views}. Exact field-set assertions
+ * detect additions as well as removals.
  *
  * <p>It deliberately runs as a plain JUnit 5 test with reflection and a bare Jackson {@link
  * ObjectMapper}: no Spring context is loaded, so the contract stays pinned even if application
@@ -42,14 +38,8 @@ import org.springframework.http.HttpStatus;
 public class ViewApiContractTest {
 
   /**
-   * Bare mapper with default configuration. Assertions run on the Jackson path because Jackson is
-   * what actually serializes responses over the wire; Gson {@code toJson()} on these models is a
-   * convenience helper only.
-   *
-   * <p>TODO: this is a bare mapper, not the Spring MVC message converter. {@code
-   * TablesMvcConfigurer} customizes no converters today, so the two are equivalent, but a
-   * MockMvc-path serialization assertion belongs in the views controller-test slice to keep that
-   * equivalence honest.
+   * Default Jackson mapper for wire-shape assertions. Controller tests cover binding through the
+   * application's MVC converter separately.
    */
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -126,8 +116,7 @@ public class ViewApiContractTest {
     Assertions.assertEquals(
         setOf("pageResults"),
         contractFieldNames(GetAllViewsResponseBody.class),
-        "GetAllViewsResponseBody is paginated from the first release; there is deliberately no"
-            + " unpaginated legacy 'results' field.");
+        "GetAllViewsResponseBody contains only the paginated pageResults field.");
   }
 
   @Test
@@ -391,10 +380,7 @@ public class ViewApiContractTest {
 
     JsonNode page = json.get("pageResults");
 
-    // Exact key-set equality, not has(): GetAllTablesResponseBody already ships a Spring Data Page
-    // on the wire today, so this documents the real shipped shape. A Spring Data upgrade that adds,
-    // removes or renames a page-level key is a client-visible wire change and must be reviewed
-    // here rather than silently absorbed.
+    // Spring Data upgrades must not silently add, remove or rename fields in the wire contract.
     Assertions.assertEquals(
         setOf(
             "content",

@@ -13,16 +13,10 @@ import lombok.NoArgsConstructor;
 /**
  * Internal representation of a view as it moves between the API handler and the view service.
  *
- * <p>Deliberately <b>not</b> a JPA entity: it carries no {@code @Entity}, no {@code @IdClass} and
- * no primary-key companion class, because view persistence does not exist yet and M2 must not
- * retrofit this DTO as a separate persisted namespace. It likewise carries no UUID and no {@code
- * TableType} — views are not a table variant.
+ * <p>This DTO is not a persistence entity. Views are not a {@code TableType} variant.
  *
- * <p>Fields split into two groups. The pointer group ({@code viewUri}, {@code metadataLocation},
- * {@code viewVersion}, {@code creationTime}, {@code lastModifiedTime}, {@code viewCreator}) is what
- * a read returns. The definition group ({@code schema}, {@code representations}, {@code
- * sourceDialect}, {@code defaultCatalog}, {@code defaultNamespace}, {@code viewProperties}) is
- * write-only input today and is not carried into any response this milestone returns.
+ * <p>Pointer fields populate the read response. Definition fields are write inputs and are omitted
+ * from the pointer-only response.
  */
 @Builder(toBuilder = true)
 @Getter
@@ -43,7 +37,7 @@ public class ViewDto {
 
   /**
    * On a read this is the view's current version pointer. On a write it carries the caller's
-   * supplied {@code baseMetadataLocation} so the service can compare it later.
+   * supplied {@code baseMetadataLocation} for the service's concurrency check.
    */
   private String viewVersion;
 

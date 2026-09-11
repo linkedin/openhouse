@@ -9,16 +9,8 @@ import org.springframework.data.util.Pair;
 import org.springframework.stereotype.Component;
 
 /**
- * The only {@link ViewsService} bean today. View business logic is intentionally out of scope for
- * this API-only increment, so every operation reports that views are disabled.
- *
- * <p>It throws a {@link ViewApiException} carrying {@link ViewErrorCode#VIEWS_DISABLED} rather than
- * an {@code UnsupportedOperationException}: the finalized design specifies 404 {@code
- * VIEWS_DISABLED} for a database without views enabled, and an unchecked non-coded exception would
- * instead surface as a generic 500 with a stack trace. A structurally valid view request therefore
- * gets the designed disabled response, not an error probe.
- *
- * <p>The later real service replaces this bean and implements the per-database gate.
+ * Disabled {@link ViewsService} implementation. Every operation reports {@link
+ * ViewErrorCode#VIEWS_DISABLED}, producing HTTP 404 without reading or writing view state.
  */
 @Component
 public class ViewsDisabledService implements ViewsService {

@@ -20,8 +20,7 @@ import org.springframework.stereotype.Component;
 /**
  * {@code @Primary} stand-in for {@link ViewsApiHandler} used by the views controller tests,
  * mirroring {@link MockTablesApiHandler}. It exists so the controller tests exercise routing,
- * status codes and response serialization without depending on a view service that does not exist
- * yet.
+ * status codes and response serialization independently of the view service.
  *
  * <p><b>Error signal:</b> every route first runs the request's {@code databaseId} through a
  * deterministic switch, mirroring {@link MockTablesApiHandler}'s {@code "d200"}/{@code "d404"}
@@ -33,9 +32,8 @@ import org.springframework.stereotype.Component;
  * <p><b>PUT signal:</b> PUT has two success statuses and the handler picks between them from the
  * service's created flag, which does not exist here. The mock therefore uses a deterministic,
  * documented identifier signal instead: a PUT for {@link #PUT_CREATES_VIEW_ID} reports 201 CREATED
- * and every other view id reports 200 OK. Keep this signal on the view id rather than the database
- * id so a later negative-path slice is free to use the database id for error selection, matching
- * how {@link MockTablesApiHandler} switches on {@code databaseId}.
+ * and every other view id reports 200 OK. Database ids select errors independently of this
+ * success-status signal.
  */
 @Component
 @Primary

@@ -8,8 +8,7 @@ import org.springframework.http.HttpStatus;
  * Internal taxonomy of view failure modes. This enum is never serialized to the wire: it exists
  * only to select the HTTP status of the response, and the error body shape stays unchanged.
  *
- * <p>The full set is declared up front, including codes M1 never emits, so later milestones (view
- * admission, dependency analysis) add behavior without a breaking change to this enum.
+ * <p>Admission and dependency-analysis codes are reserved for those capabilities.
  */
 @AllArgsConstructor
 @Getter

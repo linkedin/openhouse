@@ -42,10 +42,8 @@ public class ViewRequestPayloadRedactorTest {
   }
 
   /**
-   * The scoping that protects the existing resources. A table create carries a {@code schema} too,
-   * so the redactor must decline every route but views. The {@code /v2} entries pin that the scope
-   * moved off the prefix views were briefly drafted against, and that the live {@code /v2} table
-   * search route is untouched.
+   * A table create carries a {@code schema} too, so the redactor must match only the declared
+   * {@code /v1} view routes and leave other resources and prefixes untouched.
    */
   @ParameterizedTest
   @ValueSource(

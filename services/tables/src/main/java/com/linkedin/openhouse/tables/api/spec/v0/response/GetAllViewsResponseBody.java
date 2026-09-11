@@ -7,10 +7,7 @@ import lombok.Builder;
 import lombok.Value;
 import org.springframework.data.domain.Page;
 
-/**
- * List contract for views. Paginated from the first release, so there is no unpaginated legacy
- * {@code results} field to deprecate later.
- */
+/** Paginated view identifiers and page metadata. */
 @Builder
 @Value
 public class GetAllViewsResponseBody {

@@ -7,9 +7,8 @@ import lombok.Builder;
 import lombok.Value;
 
 /**
- * Read contract for a view. Pointer-only today: this response omits the definition fields. The SQL,
- * schema, representations, version history, UUID, properties and resolution context live in the
- * view metadata file and are not returned by the item or list response in this milestone.
+ * Pointer-only read contract for a view. SQL, schema, representations, version history, UUID,
+ * properties and resolution context are read from the metadata file, not this response.
  */
 @Builder(toBuilder = true)
 @Value

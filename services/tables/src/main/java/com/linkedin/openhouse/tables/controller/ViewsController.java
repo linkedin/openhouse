@@ -25,14 +25,14 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Controller for the Views API. Views are a new resource under {@code /v1}, alongside every other
- * OpenHouse resource, and break no existing client: they occupy their own {@code views} path
- * segment, and {@code /v1/databases/{databaseId}/tables/{tableId}} stays table-only.
+ * Controller for {@code /v1/databases/{databaseId}/views}. Table routes are separate.
  *
  * <p>The controller is registered regardless of whether views are enabled, and holds no business
- * logic. Request bodies are deliberately not annotated with {@code @Valid}: the view validator
- * accumulates every structural failure and reports them together, which Spring's fail-fast binding
- * cannot do.
+ * logic. Request bodies are validated by the view validator, which accumulates structural failures
+ * before reporting them.
+ *
+ * <p>The endpoint contract includes gateway-generated 502 and 504 responses. These are distinct
+ * from service-generated failures and may not carry the service's error body.
  */
 @RestController
 public class ViewsController {
@@ -51,7 +51,16 @@ public class ViewsController {
         @ApiResponse(responseCode = "401", description = "View GET: UNAUTHORIZED"),
         @ApiResponse(responseCode = "403", description = "View GET: FORBIDDEN"),
         @ApiResponse(responseCode = "404", description = "View GET: NOT_FOUND"),
-        @ApiResponse(responseCode = "503", description = "View GET: SERVICE_UNAVAILABLE")
+        @ApiResponse(responseCode = "500", description = "View GET: Unexpected service failure"),
+        @ApiResponse(
+            responseCode = "502",
+            description = "View GET: Gateway received an invalid upstream response"),
+        @ApiResponse(
+            responseCode = "503",
+            description = "View GET: Service or dependency unavailable"),
+        @ApiResponse(
+            responseCode = "504",
+            description = "View GET: Gateway timed out waiting for upstream")
       })
   @GetMapping(
       value = {"/v1/databases/{databaseId}/views/{viewId}"},
@@ -79,7 +88,16 @@ public class ViewsController {
         @ApiResponse(responseCode = "401", description = "View SEARCH: UNAUTHORIZED"),
         @ApiResponse(responseCode = "403", description = "View SEARCH: FORBIDDEN"),
         @ApiResponse(responseCode = "404", description = "View SEARCH: NOT_FOUND"),
-        @ApiResponse(responseCode = "503", description = "View SEARCH: SERVICE_UNAVAILABLE")
+        @ApiResponse(responseCode = "500", description = "View SEARCH: Unexpected service failure"),
+        @ApiResponse(
+            responseCode = "502",
+            description = "View SEARCH: Gateway received an invalid upstream response"),
+        @ApiResponse(
+            responseCode = "503",
+            description = "View SEARCH: Service or dependency unavailable"),
+        @ApiResponse(
+            responseCode = "504",
+            description = "View SEARCH: Gateway timed out waiting for upstream")
       })
   @GetMapping(
       value = {"/v1/databases/{databaseId}/views"},
@@ -101,7 +119,9 @@ public class ViewsController {
 
   @Operation(
       summary = "Create a View",
-      description = "Creates and returns a View resource in a database identified by databaseId",
+      description =
+          "Creates and returns a View resource in a database identified by databaseId. A 5xx "
+              + "response may leave the commit outcome unknown and must not be retried blindly.",
       tags = {"View"})
   @ApiResponses(
       value = {
@@ -112,7 +132,16 @@ public class ViewsController {
         @ApiResponse(responseCode = "404", description = "View POST: DB_NOT_FOUND"),
         @ApiResponse(responseCode = "409", description = "View POST: VIEW_EXISTS"),
         @ApiResponse(responseCode = "422", description = "View POST: UNPROCESSABLE_ENTITY"),
-        @ApiResponse(responseCode = "503", description = "View POST: SERVICE_UNAVAILABLE")
+        @ApiResponse(responseCode = "500", description = "View POST: Unexpected service failure"),
+        @ApiResponse(
+            responseCode = "502",
+            description = "View POST: Gateway received an invalid upstream response"),
+        @ApiResponse(
+            responseCode = "503",
+            description = "View POST: Service unavailable or commit outcome unknown"),
+        @ApiResponse(
+            responseCode = "504",
+            description = "View POST: Gateway timed out waiting for upstream")
       })
   @PostMapping(
       value = {"/v1/databases/{databaseId}/views"},
@@ -140,7 +169,8 @@ public class ViewsController {
       summary = "Update a View",
       description =
           "Updates or creates a View and returns the View resource. If the view does not exist, it "
-              + "will be created. If the view exists, it will be replaced.",
+              + "will be created. If the view exists, it will be replaced. A 5xx response may leave "
+              + "the commit outcome unknown and must not be retried blindly.",
       tags = {"View"})
   @ApiResponses(
       value = {
@@ -152,7 +182,16 @@ public class ViewsController {
         @ApiResponse(responseCode = "404", description = "View PUT: DB_NOT_FOUND"),
         @ApiResponse(responseCode = "409", description = "View PUT: CONFLICT"),
         @ApiResponse(responseCode = "422", description = "View PUT: UNPROCESSABLE_ENTITY"),
-        @ApiResponse(responseCode = "503", description = "View PUT: SERVICE_UNAVAILABLE")
+        @ApiResponse(responseCode = "500", description = "View PUT: Unexpected service failure"),
+        @ApiResponse(
+            responseCode = "502",
+            description = "View PUT: Gateway received an invalid upstream response"),
+        @ApiResponse(
+            responseCode = "503",
+            description = "View PUT: Service unavailable or commit outcome unknown"),
+        @ApiResponse(
+            responseCode = "504",
+            description = "View PUT: Gateway timed out waiting for upstream")
       })
   @PutMapping(
       value = {"/v1/databases/{databaseId}/views/{viewId}"},
@@ -189,7 +228,16 @@ public class ViewsController {
         @ApiResponse(responseCode = "401", description = "View DELETE: UNAUTHORIZED"),
         @ApiResponse(responseCode = "403", description = "View DELETE: FORBIDDEN"),
         @ApiResponse(responseCode = "404", description = "View DELETE: VIEW_NOT_FOUND"),
-        @ApiResponse(responseCode = "503", description = "View DELETE: SERVICE_UNAVAILABLE")
+        @ApiResponse(responseCode = "500", description = "View DELETE: Unexpected service failure"),
+        @ApiResponse(
+            responseCode = "502",
+            description = "View DELETE: Gateway received an invalid upstream response"),
+        @ApiResponse(
+            responseCode = "503",
+            description = "View DELETE: Service or dependency unavailable"),
+        @ApiResponse(
+            responseCode = "504",
+            description = "View DELETE: Gateway timed out waiting for upstream")
       })
   @DeleteMapping(
       value = {"/v1/databases/{databaseId}/views/{viewId}"},

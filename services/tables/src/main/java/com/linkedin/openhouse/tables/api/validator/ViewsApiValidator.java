@@ -4,7 +4,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequest
 
 /**
  * Structural validation for the /v1 views API. No SQL is parsed, translated or validated against an
- * engine here: view SQL stays opaque and semantic rejection belongs to a later admission step.
+ * engine here: view SQL stays opaque and semantic rejection belongs to admission.
  *
  * <p>Every method throws {@link
  * com.linkedin.openhouse.tables.exception.ViewRequestValidationFailureException} carrying all

@@ -55,8 +55,8 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 /**
- * MockMvc coverage of the five /v1 view routes: success statuses plus every failure status the
- * routes can report.
+ * MockMvc coverage of the five /v1 view routes and their service-generated responses, plus
+ * annotation checks for the endpoint's published status codes.
  *
  * <p>Error statuses are driven through {@link MockViewsApiHandler}'s database-id switch, so this
  * class exercises controller wiring and the shared exception handler rather than validation. The
@@ -517,10 +517,8 @@ public class ViewsControllerTest {
   }
 
   /**
-   * Exercises exception mapping only. {@code AuthorizationInterceptor.check()} unconditionally
-   * returns an allow decision today, so nothing in this PR can deny a request on privilege grounds;
-   * what this pins is that when the handler layer eventually does deny one, the shared handler
-   * turns it into a 403 rather than a 500.
+   * Exercises exception mapping: an access denial from the handler becomes HTTP 403 independently
+   * of the authorization policy used by the request interceptors.
    */
   @Test
   public void accessDeniedFromTheHandlerIsMappedTo403WithoutPrivilegeEnforcement()
@@ -565,10 +563,8 @@ public class ViewsControllerTest {
   }
 
   /**
-   * Views mount under {@code /v1} alongside every other OpenHouse resource; the {@code /v2} prefix
-   * they were briefly drafted against must not resolve. {@link ViewsController} is the only class
-   * that could ever map a {@code /v2} view path, so this fails exactly when a stale mapping is left
-   * behind or reintroduced.
+   * View routes are mounted under {@code /v1}; the same resource path under {@code /v2} must not
+   * reach the view handler.
    */
   @Test
   public void theSamePathUnderV2DoesNotResolve() throws Exception {
@@ -588,18 +584,24 @@ public class ViewsControllerTest {
   // ---------------------------------------------------------------------------------------------
 
   /**
-   * The status set each operation publishes, taken from the status matrix. {@code
-   * client/tableclient} is generated from the OpenAPI document these annotations produce, so a
-   * status the routes can return but do not declare is invisible to every generated client.
+   * The published status set includes service failures and gateway-originated 502/504 responses.
    */
   private static Stream<Arguments> declaredResponseCodes() {
     return Stream.of(
-        Arguments.of("getView", codes("200", "400", "401", "403", "404", "503")),
-        Arguments.of("getAllViews", codes("200", "400", "401", "403", "404", "503")),
-        Arguments.of("createView", codes("201", "400", "401", "403", "404", "409", "422", "503")),
         Arguments.of(
-            "updateView", codes("200", "201", "400", "401", "403", "404", "409", "422", "503")),
-        Arguments.of("deleteView", codes("204", "400", "401", "403", "404", "503")));
+            "getView", codes("200", "400", "401", "403", "404", "500", "502", "503", "504")),
+        Arguments.of(
+            "getAllViews", codes("200", "400", "401", "403", "404", "500", "502", "503", "504")),
+        Arguments.of(
+            "createView",
+            codes("201", "400", "401", "403", "404", "409", "422", "500", "502", "503", "504")),
+        Arguments.of(
+            "updateView",
+            codes(
+                "200", "201", "400", "401", "403", "404", "409", "422", "500", "502", "503",
+                "504")),
+        Arguments.of(
+            "deleteView", codes("204", "400", "401", "403", "404", "500", "502", "503", "504")));
   }
 
   private static Set<String> codes(String... responseCodes) {
@@ -626,13 +628,7 @@ public class ViewsControllerTest {
   }
 
   /**
-   * Pins the exact published status set per operation.
-   *
-   * <p>Asserted off the annotations rather than off a generated document on purpose: booting the
-   * app to produce the spec needs a free port, and the default spec-generation port is occupied by
-   * an unrelated stale service in some environments, which silently yields a views-free document.
-   * The annotations are the sole input to that document, so pinning them pins the contract without
-   * that failure mode.
+   * Pins the status annotations used to generate the OpenAPI document without starting a server.
    */
   @ParameterizedTest(name = "{0}")
   @MethodSource("declaredResponseCodes")
@@ -643,9 +639,7 @@ public class ViewsControllerTest {
         declaredResponseCodesOf(methodName),
         "The published status set for "
             + methodName
-            + " drifted from the statuses the route can actually return. Every status asserted by"
-            + " the error-code, 401, 403 and 503 tests in this class must also be declared here,"
-            + " because the generated client is built from these annotations.");
+            + " must include the documented service and gateway outcomes.");
   }
 
   /**
