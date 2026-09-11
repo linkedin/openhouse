@@ -15,10 +15,10 @@ public interface ViewsMapper {
   /**
    * Transform a create/update request into a {@link ViewDto} for the service layer.
    *
-   * <p>The caller-supplied {@code baseViewVersion} is stored as {@code viewVersion} so the service
-   * can compare it against the current pointer later, mirroring how {@code TablesMapper} stores
-   * {@code baseTableVersion} as {@code tableVersion}. Server-owned pointer fields are left unset:
-   * only the service can populate them.
+   * <p>The caller-supplied {@code baseMetadataLocation} is stored as {@code viewVersion} so the
+   * service can compare it against the current pointer later, mirroring how {@code TablesMapper}
+   * stores {@code baseTableVersion} as {@code tableVersion}. Server-owned pointer fields are left
+   * unset: only the service can populate them.
    *
    * @param requestBody source request
    * @return a new immutable {@link ViewDto}
@@ -34,7 +34,7 @@ public interface ViewsMapper {
     @Mapping(source = "defaultNamespace", target = "defaultNamespace"),
     @Mapping(source = "viewProperties", target = "viewProperties"),
     @Mapping(
-        source = "baseViewVersion",
+        source = "baseMetadataLocation",
         target = "viewVersion"), /* store base version to check later */
     @Mapping(target = "viewUri", ignore = true),
     @Mapping(target = "metadataLocation", ignore = true),

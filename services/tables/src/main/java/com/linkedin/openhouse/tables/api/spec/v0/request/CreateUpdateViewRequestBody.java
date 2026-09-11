@@ -22,7 +22,7 @@ import lombok.NoArgsConstructor;
 /**
  * Request body for POST and PUT on /v1/databases/{databaseId}/views. Nullable fields are omitted
  * from the serialized payload rather than emitted as JSON null, so an omitted {@code
- * baseViewVersion} on create stays absent on the wire.
+ * baseMetadataLocation} on create stays absent on the wire.
  */
 @Builder(toBuilder = true)
 @EqualsAndHashCode
@@ -93,14 +93,22 @@ public class CreateUpdateViewRequestBody {
   private Map<String, String> viewProperties;
 
   /**
-   * Route-sensitive: absent or {@code INITIAL_VERSION} on create, and the current metadata pointer
-   * on replace. Intentionally carries no bean constraint because the rule differs per HTTP verb and
-   * is owned by the verb-aware view validator.
+   * Verb-sensitive: POST accepts it omitted or set to the {@code INITIAL_VERSION} sentinel, while
+   * PUT — including a PUT that creates the view — always requires a nonblank value. Intentionally
+   * carries no bean constraint because the rule differs per HTTP verb and is owned by the
+   * verb-aware view validator.
    */
   @Schema(
       nullable = true,
-      description = "The version of the view that the current update is based upon")
-  private String baseViewVersion;
+      description =
+          "Location of the metadata file this update is expected to be based upon: the"
+              + " metadataLocation a GET on the view returned. This is a file location, not a"
+              + " numeric Iceberg or JPA version. POST accepts it omitted, null or set to exactly"
+              + " the INITIAL_VERSION sentinel and rejects any other value. PUT, including a PUT"
+              + " that creates the view, requires a nonblank value and treats it as an opaque"
+              + " string.",
+      example = "file:/tmp/openhouse/my_database/my_view/metadata/00000-abc.metadata.json")
+  private String baseMetadataLocation;
 
   /**
    * Uses default Gson null handling rather than {@code serializeNulls()} so this stays consistent

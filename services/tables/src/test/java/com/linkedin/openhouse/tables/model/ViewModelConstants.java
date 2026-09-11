@@ -81,7 +81,7 @@ public final class ViewModelConstants {
 
   /** Every field populated, including both nullable optional fields and a replace token. */
   public static CreateUpdateViewRequestBody fullyPopulatedRequest() {
-    return baseRequestBuilder().baseViewVersion(METADATA_LOCATION).build();
+    return baseRequestBuilder().baseMetadataLocation(METADATA_LOCATION).build();
   }
 
   /** POST create shape where the caller omits the base version entirely. */
@@ -91,7 +91,7 @@ public final class ViewModelConstants {
 
   /** POST create shape where the caller sends the table-style initial version token. */
   public static CreateUpdateViewRequestBody createRequestWithInitialBaseVersion() {
-    return baseRequestBuilder().baseViewVersion(INITIAL_TABLE_VERSION).build();
+    return baseRequestBuilder().baseMetadataLocation(INITIAL_TABLE_VERSION).build();
   }
 
   /** Fully populated pointer response for an item GET. */

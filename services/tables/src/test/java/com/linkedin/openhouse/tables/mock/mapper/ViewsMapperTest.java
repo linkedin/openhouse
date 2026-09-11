@@ -37,7 +37,7 @@ public class ViewsMapperTest {
     Assertions.assertEquals(requestBody.getDefaultNamespace(), viewDto.getDefaultNamespace());
     Assertions.assertEquals(requestBody.getViewProperties(), viewDto.getViewProperties());
     Assertions.assertEquals(
-        requestBody.getBaseViewVersion(),
+        requestBody.getBaseMetadataLocation(),
         viewDto.getViewVersion(),
         "The caller's base version is stored as viewVersion so the service can compare it against"
             + " the current pointer, mirroring how baseTableVersion maps to tableVersion.");

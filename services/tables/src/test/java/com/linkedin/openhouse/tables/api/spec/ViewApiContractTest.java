@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.api.spec;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
 
 import com.fasterxml.jackson.databind.BeanDescription;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.introspect.BeanPropertyDefinition;
@@ -65,7 +66,7 @@ public class ViewApiContractTest {
             "defaultCatalog",
             "defaultNamespace",
             "viewProperties",
-            "baseViewVersion");
+            "baseMetadataLocation");
 
     Assertions.assertEquals(
         expected,
@@ -144,7 +145,7 @@ public class ViewApiContractTest {
             "defaultCatalog",
             "defaultNamespace",
             "viewProperties",
-            "baseViewVersion"),
+            "baseMetadataLocation"),
         keysOf(json));
 
     Assertions.assertEquals(ViewModelConstants.VIEW_ID, json.get("viewId").asText());
@@ -152,7 +153,7 @@ public class ViewApiContractTest {
     Assertions.assertEquals(ViewModelConstants.CLUSTER_ID, json.get("clusterId").asText());
     Assertions.assertEquals(ViewModelConstants.SOURCE_DIALECT, json.get("sourceDialect").asText());
     Assertions.assertEquals(
-        ViewModelConstants.METADATA_LOCATION, json.get("baseViewVersion").asText());
+        ViewModelConstants.METADATA_LOCATION, json.get("baseMetadataLocation").asText());
 
     Assertions.assertTrue(json.get("representations").isArray());
     Assertions.assertEquals(1, json.get("representations").size());
@@ -172,15 +173,15 @@ public class ViewApiContractTest {
   }
 
   @Test
-  public void testCreateRequestOmitsNullBaseViewVersion() {
+  public void testCreateRequestOmitsNullBaseMetadataLocation() {
     CreateUpdateViewRequestBody request = ViewModelConstants.createRequestWithoutBaseVersion();
-    Assertions.assertNull(request.getBaseViewVersion());
+    Assertions.assertNull(request.getBaseMetadataLocation());
 
     JsonNode json = MAPPER.valueToTree(request);
 
     Assertions.assertFalse(
-        json.has("baseViewVersion"),
-        "An omitted baseViewVersion must be absent from the payload, not present as JSON null,"
+        json.has("baseMetadataLocation"),
+        "An omitted baseMetadataLocation must be absent from the payload, not present as JSON null,"
             + " so the server can distinguish 'not supplied' on create.");
     Assertions.assertEquals(
         setOf(
@@ -198,23 +199,131 @@ public class ViewApiContractTest {
     // The Gson helper on the model is configured to agree with @JsonInclude(NON_NULL): unlike
     // CreateUpdateTableRequestBody, it does not call serializeNulls().
     Assertions.assertFalse(
-        request.toJson().contains("baseViewVersion"),
+        request.toJson().contains("baseMetadataLocation"),
         "toJson() must not disagree with the Jackson wire representation.");
   }
 
   @Test
-  public void testCreateRequestSerializesInitialBaseViewVersion() {
+  public void testCreateRequestSerializesInitialBaseMetadataLocation() {
     CreateUpdateViewRequestBody request = ViewModelConstants.createRequestWithInitialBaseVersion();
 
     JsonNode json = MAPPER.valueToTree(request);
 
-    Assertions.assertTrue(json.has("baseViewVersion"));
-    Assertions.assertEquals("INITIAL_VERSION", json.get("baseViewVersion").asText());
+    Assertions.assertTrue(json.has("baseMetadataLocation"));
+    Assertions.assertEquals("INITIAL_VERSION", json.get("baseMetadataLocation").asText());
     Assertions.assertEquals(
         INITIAL_TABLE_VERSION,
-        json.get("baseViewVersion").asText(),
+        json.get("baseMetadataLocation").asText(),
         "The create token reuses the existing INITIAL_VERSION literal rather than minting a"
             + " view-specific value.");
+  }
+
+  /**
+   * Gson serializes declared fields rather than Jackson properties, so this pins that the Java
+   * field itself carries the wire name. A rename applied only as a Jackson annotation would leave
+   * the Gson helper — and with it the audited request payload — on the old key.
+   */
+  @Test
+  public void testGsonPayloadCarriesTheSameBaseMetadataLocationKey() {
+    CreateUpdateViewRequestBody request = ViewModelConstants.fullyPopulatedRequest();
+
+    JsonNode gsonPayload = Assertions.assertDoesNotThrow(() -> MAPPER.readTree(request.toJson()));
+
+    Assertions.assertTrue(
+        gsonPayload.has("baseMetadataLocation"),
+        "The Gson helper must emit the renamed field, which it only can once the declared field is"
+            + " renamed rather than annotated.");
+    Assertions.assertEquals(
+        ViewModelConstants.METADATA_LOCATION, gsonPayload.get("baseMetadataLocation").asText());
+    Assertions.assertFalse(
+        gsonPayload.has("baseViewVersion"),
+        "The field is renamed, not aliased, so the pre-rename key must not survive on the wire.");
+    Assertions.assertEquals(
+        keysOf(MAPPER.valueToTree(request)),
+        keysOf(gsonPayload),
+        "toJson() must not disagree with the Jackson wire representation.");
+  }
+
+  /**
+   * Deserialization is the direction a caller actually exercises, and it is the direction the
+   * serialization assertions above cannot cover. The bare mapper keeps its default {@code
+   * FAIL_ON_UNKNOWN_PROPERTIES}, so a key that does not bind fails loudly here rather than becoming
+   * a silent null.
+   */
+  @Test
+  public void testRequestBindsBaseMetadataLocationFromTheWireKey() {
+    String payload =
+        "{\"viewId\": \""
+            + ViewModelConstants.VIEW_ID
+            + "\", \"databaseId\": \""
+            + ViewModelConstants.DATABASE_ID
+            + "\", \"baseMetadataLocation\": \""
+            + ViewModelConstants.METADATA_LOCATION
+            + "\"}";
+
+    CreateUpdateViewRequestBody request =
+        Assertions.assertDoesNotThrow(
+            () -> MAPPER.readValue(payload, CreateUpdateViewRequestBody.class),
+            "baseMetadataLocation is the key a caller sends, so it must bind onto the request"
+                + " model.");
+
+    Assertions.assertEquals(
+        ViewModelConstants.VIEW_ID,
+        request.getViewId(),
+        "Precondition: the model binds from JSON at all.");
+    Assertions.assertEquals(
+        ViewModelConstants.METADATA_LOCATION, request.getBaseMetadataLocation());
+  }
+
+  /**
+   * The value is an opaque metadata pointer rather than a number, so the whole populated shape has
+   * to survive a round trip unchanged: no normalization, no coercion and no field dropped.
+   */
+  @Test
+  public void testFullyPopulatedRequestRoundTripsThroughJackson() {
+    CreateUpdateViewRequestBody request = ViewModelConstants.fullyPopulatedRequest();
+
+    JsonNode json = MAPPER.valueToTree(request);
+    Assertions.assertTrue(
+        json.has("baseMetadataLocation"),
+        "Precondition: the serialized form carries the wire key.");
+
+    CreateUpdateViewRequestBody roundTripped =
+        Assertions.assertDoesNotThrow(
+            () -> MAPPER.treeToValue(json, CreateUpdateViewRequestBody.class));
+
+    Assertions.assertEquals(
+        request, roundTripped, "Serializing and reading back must preserve every field.");
+  }
+
+  /**
+   * The rename ships without a compatibility alias, so the pre-rename key must leave the property
+   * unset rather than silently populating it. Read with unknown properties ignored, which is how
+   * the application's converter is configured; the shared bare mapper deliberately keeps its strict
+   * default and is left alone.
+   */
+  @Test
+  public void testLegacyBaseViewVersionKeyDoesNotPopulateBaseMetadataLocation() {
+    ObjectMapper lenientMapper =
+        new ObjectMapper().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+    String payload =
+        "{\"viewId\": \""
+            + ViewModelConstants.VIEW_ID
+            + "\", \"baseViewVersion\": \""
+            + ViewModelConstants.METADATA_LOCATION
+            + "\"}";
+
+    CreateUpdateViewRequestBody request =
+        Assertions.assertDoesNotThrow(
+            () -> lenientMapper.readValue(payload, CreateUpdateViewRequestBody.class));
+
+    Assertions.assertEquals(
+        ViewModelConstants.VIEW_ID,
+        request.getViewId(),
+        "Precondition: the rest of a legacy payload still binds; only the renamed key is unknown.");
+    Assertions.assertNull(
+        request.getBaseMetadataLocation(),
+        "The old key is not an alias: a caller that has not migrated leaves the field unset.");
   }
 
   @Test

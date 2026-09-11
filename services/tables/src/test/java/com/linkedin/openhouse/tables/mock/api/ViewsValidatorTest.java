@@ -61,7 +61,8 @@ public class ViewsValidatorTest {
                 clusterProperties.getClusterName(),
                 ViewModelConstants.DATABASE_ID,
                 servingCluster(ViewModelConstants.createRequestWithoutBaseVersion())),
-        "A POST that omits baseViewVersion entirely is the plain create shape and must be accepted.");
+        "A POST that omits baseMetadataLocation entirely is the plain create shape and must be"
+            + " accepted.");
 
     assertDoesNotThrow(
         () ->
@@ -80,7 +81,7 @@ public class ViewsValidatorTest {
         servingCluster(ViewModelConstants.fullyPopulatedRequest())
             .toBuilder()
             // Deliberately not a metadata path: PUT treats the token as fully opaque.
-            .baseViewVersion("an-entirely-opaque-token")
+            .baseMetadataLocation("an-entirely-opaque-token")
             .build();
 
     assertDoesNotThrow(
@@ -90,6 +91,28 @@ public class ViewsValidatorTest {
                 ViewModelConstants.DATABASE_ID,
                 ViewModelConstants.VIEW_ID,
                 request));
+  }
+
+  /**
+   * The token is the metadata pointer the replace is based upon, not a number and not a path the
+   * server parses: PUT applies no scheme, suffix, numeric or trimming rule, so every nonblank form
+   * is accepted. That is the semantic the field name describes, so it is pinned here rather than
+   * left implied by a single opaque example.
+   */
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        INITIAL_TABLE_VERSION,
+        "42",
+        "  file:/tmp/openhouse/my_database/my_view/metadata/00000-fixed.metadata.json  ",
+        "s3://bucket/openhouse/my_database/my_view/metadata/00001-abc.metadata.json",
+        "not a path at all"
+      })
+  public void validateUpdateViewAcceptsEveryNonBlankBaseVersionForm(String token) {
+    assertDoesNotThrow(
+        updateOf(validUpdateRequest().toBuilder().baseMetadataLocation(token).build()),
+        "PUT treats the token as opaque, so a padded, numeric or non-path form must be accepted"
+            + " exactly as a metadata path is.");
   }
 
   @Test
@@ -391,7 +414,7 @@ public class ViewsValidatorTest {
         createRequestWith(sparkRepresentationWithSql(secretSql))
             .toBuilder()
             .schema(ViewModelConstants.SPARK_STRUCT_TYPE_SCHEMA_LITERAL)
-            .baseViewVersion(secretToken)
+            .baseMetadataLocation(secretToken)
             .build();
 
     ViewRequestValidationFailureException exception =
@@ -635,19 +658,36 @@ public class ViewsValidatorTest {
   @Test
   public void validateRejectsIllegalBaseVersionTokensPerVerb() {
     assertRejected(
-        createOf(validCreateRequest().toBuilder().baseViewVersion("some-other-token").build()),
+        createOf(validCreateRequest().toBuilder().baseMetadataLocation("some-other-token").build()),
         ViewErrorCode.INVALID_VIEW_DEFINITION,
-        "baseViewVersion : must be omitted or " + INITIAL_TABLE_VERSION + " on POST create");
+        "baseMetadataLocation : must be omitted or " + INITIAL_TABLE_VERSION + " on POST create");
+
+    // Supplied-but-empty and supplied-but-blank are values, not absences: POST distinguishes only
+    // "supplied" from "omitted", so neither collapses to the accepted omitted form.
+    assertRejected(
+        createOf(validCreateRequest().toBuilder().baseMetadataLocation("").build()),
+        ViewErrorCode.INVALID_VIEW_DEFINITION,
+        "baseMetadataLocation : must be omitted or " + INITIAL_TABLE_VERSION + " on POST create");
 
     assertRejected(
-        updateOf(validUpdateRequest().toBuilder().baseViewVersion(null).build()),
+        createOf(validCreateRequest().toBuilder().baseMetadataLocation("   ").build()),
         ViewErrorCode.INVALID_VIEW_DEFINITION,
-        "baseViewVersion : is required and cannot be blank on PUT");
+        "baseMetadataLocation : must be omitted or " + INITIAL_TABLE_VERSION + " on POST create");
 
     assertRejected(
-        updateOf(validUpdateRequest().toBuilder().baseViewVersion("   ").build()),
+        updateOf(validUpdateRequest().toBuilder().baseMetadataLocation(null).build()),
         ViewErrorCode.INVALID_VIEW_DEFINITION,
-        "baseViewVersion : is required and cannot be blank on PUT");
+        "baseMetadataLocation : is required and cannot be blank on PUT");
+
+    assertRejected(
+        updateOf(validUpdateRequest().toBuilder().baseMetadataLocation("").build()),
+        ViewErrorCode.INVALID_VIEW_DEFINITION,
+        "baseMetadataLocation : is required and cannot be blank on PUT");
+
+    assertRejected(
+        updateOf(validUpdateRequest().toBuilder().baseMetadataLocation("   ").build()),
+        ViewErrorCode.INVALID_VIEW_DEFINITION,
+        "baseMetadataLocation : is required and cannot be blank on PUT");
   }
 
   @Test
@@ -678,7 +718,7 @@ public class ViewsValidatorTest {
             .toBuilder()
             .databaseId("another_database")
             .defaultCatalog("   ")
-            .baseViewVersion("not-the-initial-token")
+            .baseMetadataLocation("not-the-initial-token")
             .build();
 
     ViewRequestValidationFailureException exception =
@@ -687,7 +727,12 @@ public class ViewsValidatorTest {
     Assertions.assertTrue(exception.getMessage().contains("databaseId : provided"));
     Assertions.assertTrue(
         exception.getMessage().contains("defaultCatalog : cannot be blank when provided"));
-    Assertions.assertTrue(exception.getMessage().contains("baseViewVersion : must be omitted"));
+    Assertions.assertTrue(
+        exception.getMessage().contains("baseMetadataLocation : must be omitted"));
+    Assertions.assertFalse(
+        exception.getMessage().contains("not-the-initial-token"),
+        "The rejected token is caller-supplied and the message is copied verbatim into the error"
+            + " body, so the POST rule must not echo it back either.");
     Assertions.assertTrue(
         exception.getMessage().contains("; "),
         "Reasons are joined with \"; \", matching how the table API reports multiple failures.");

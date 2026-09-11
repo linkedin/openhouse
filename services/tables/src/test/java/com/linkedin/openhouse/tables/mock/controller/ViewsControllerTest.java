@@ -46,6 +46,7 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
@@ -96,6 +97,13 @@ public class ViewsControllerTest {
 
   @MockBean private AuditHandler<ServiceAuditEvent> serviceAuditHandler;
 
+  /**
+   * Spy rather than mock: every other test in this class depends on the real {@link
+   * MockViewsApiHandler} behaviour, and a spy leaves it intact while making the arguments the
+   * controller passed on observable.
+   */
+  @SpyBean private MockViewsApiHandler viewsApiHandler;
+
   @Captor private ArgumentCaptor<ServiceAuditEvent> argCaptor;
 
   @BeforeEach
@@ -143,6 +151,51 @@ public class ViewsControllerTest {
         .andExpect(status().isCreated())
         .andExpect(content().contentType(MediaType.APPLICATION_JSON))
         .andExpect(content().json(ViewModelConstants.pointerResponse().toJson()));
+  }
+
+  /**
+   * Binding proof, not routing proof: {@link MockViewsApiHandler} answers 201 whatever the body
+   * held, so a green status says nothing about whether the wire key reached the model. The request
+   * the controller actually passed on is captured and asserted instead.
+   *
+   * <p>The body is a literal rather than a serialized fixture so it pins the key a caller sends
+   * rather than whatever the fixture happens to emit. Message conversion is per type, not per
+   * route, so POST covers the replace route too.
+   */
+  @Test
+  public void createViewBindsTheBaseMetadataLocationKeyOntoTheRequestBody() throws Exception {
+    String requestBody =
+        "{\"viewId\": \""
+            + ViewModelConstants.VIEW_ID
+            + "\", \"databaseId\": \""
+            + ViewModelConstants.DATABASE_ID
+            + "\", \"baseMetadataLocation\": \""
+            + ViewModelConstants.METADATA_LOCATION
+            + "\"}";
+
+    mvc.perform(
+            MockMvcRequestBuilders.post(VIEWS_PATH)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(requestBody)
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isCreated());
+
+    ArgumentCaptor<CreateUpdateViewRequestBody> boundRequest =
+        ArgumentCaptor.forClass(CreateUpdateViewRequestBody.class);
+    Mockito.verify(viewsApiHandler)
+        .createView(Mockito.anyString(), boundRequest.capture(), Mockito.any());
+
+    CreateUpdateViewRequestBody captured = boundRequest.getValue();
+    Assertions.assertEquals(
+        ViewModelConstants.VIEW_ID,
+        captured.getViewId(),
+        "Precondition: the body binds onto the request model at all.");
+    Assertions.assertEquals(
+        ViewModelConstants.METADATA_LOCATION,
+        captured.getBaseMetadataLocation(),
+        "The wire key must populate the request property. The application's converter ignores an"
+            + " unknown property, so a stale key binds to null rather than failing the request.");
   }
 
   @Test
@@ -360,8 +413,12 @@ public class ViewsControllerTest {
         ViewModelConstants.SOURCE_DIALECT, payloadObject.get("sourceDialect").getAsString());
     Assertions.assertEquals(
         ViewModelConstants.DEFAULT_CATALOG, payloadObject.get("defaultCatalog").getAsString());
+    Assertions.assertTrue(
+        payloadObject.has("baseMetadataLocation"),
+        "The audited payload is the raw body the caller sent, so it carries the wire key.");
     Assertions.assertEquals(
-        ViewModelConstants.METADATA_LOCATION, payloadObject.get("baseViewVersion").getAsString());
+        ViewModelConstants.METADATA_LOCATION,
+        payloadObject.get("baseMetadataLocation").getAsString());
     Assertions.assertEquals(
         ViewModelConstants.DATABASE_ID,
         payloadObject.getAsJsonArray("defaultNamespace").get(0).getAsString());

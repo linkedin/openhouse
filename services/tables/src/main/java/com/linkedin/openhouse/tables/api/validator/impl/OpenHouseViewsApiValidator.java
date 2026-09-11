@@ -42,8 +42,8 @@ import org.springframework.stereotype.Component;
  * Structural validation of /v1 views requests.
  *
  * <p><b>Security invariant:</b> no message built here interpolates SQL text, schema text or a
- * {@code baseViewVersion} token. Messages are copied verbatim into the error response body and into
- * service audit events, so every payload-derived failure uses a fixed redacted message.
+ * {@code baseMetadataLocation} token. Messages are copied verbatim into the error response body and
+ * into service audit events, so every payload-derived failure uses a fixed redacted message.
  *
  * <p>SQL is opaque: nothing here parses, translates or engine-validates a view definition.
  */
@@ -112,7 +112,8 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
     validateBody(clusterId, databaseId, requestBody, failures);
     // POST distinguishes only "supplied" from "omitted": a supplied-but-blank token is a value the
     // rule below has to reject, not an absence.
-    validateCreateBaseViewVersion(suppliedField(requestBody.getBaseViewVersion()), failures);
+    validateCreateBaseMetadataLocation(
+        suppliedField(requestBody.getBaseMetadataLocation()), failures);
     failures.throwIfPresent();
   }
 
@@ -127,7 +128,8 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
               "viewId : provided %s, doesn't match with the RequestBody %s",
               viewId, requestBody.getViewId()));
     }
-    validateUpdateBaseViewVersion(nonBlankField(requestBody.getBaseViewVersion()), failures);
+    validateUpdateBaseMetadataLocation(
+        nonBlankField(requestBody.getBaseMetadataLocation()), failures);
     failures.throwIfPresent();
   }
 
@@ -467,29 +469,30 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
   }
 
   /**
-   * POST accepts an omitted base version or the table-style {@code INITIAL_VERSION} token, matching
-   * both the Iceberg client, which sends the initial token on create, and callers that omit the
-   * field entirely.
+   * POST accepts an omitted base metadata location or the table-style {@code INITIAL_VERSION}
+   * token, matching both the Iceberg client, which sends the initial token on create, and callers
+   * that omit the field entirely.
    */
-  private void validateCreateBaseViewVersion(
-      Optional<String> baseViewVersion, ViewValidationFailures failures) {
-    if (baseViewVersion.isPresent() && !INITIAL_TABLE_VERSION.equals(baseViewVersion.get())) {
+  private void validateCreateBaseMetadataLocation(
+      Optional<String> baseMetadataLocation, ViewValidationFailures failures) {
+    if (baseMetadataLocation.isPresent()
+        && !INITIAL_TABLE_VERSION.equals(baseMetadataLocation.get())) {
       failures.addGeneric(
-          "baseViewVersion : must be omitted or " + INITIAL_TABLE_VERSION + " on POST create");
+          "baseMetadataLocation : must be omitted or " + INITIAL_TABLE_VERSION + " on POST create");
     }
   }
 
   /**
-   * PUT requires a base version but treats it as fully opaque: no path, scheme, suffix or length
-   * rule is applied, so the service alone decides whether the token is current.
+   * PUT requires a base metadata location but treats it as fully opaque: no path, scheme, suffix or
+   * length rule is applied, so the service alone decides whether the location is current.
    *
-   * <p>The caller normalizes a blank token to absent, because a token of whitespace is
+   * <p>The caller normalizes a blank location to absent, because a location of whitespace is
    * indistinguishable from an omitted one to every rule here.
    */
-  private void validateUpdateBaseViewVersion(
-      Optional<String> baseViewVersion, ViewValidationFailures failures) {
-    if (!baseViewVersion.isPresent()) {
-      failures.addGeneric("baseViewVersion : is required and cannot be blank on PUT");
+  private void validateUpdateBaseMetadataLocation(
+      Optional<String> baseMetadataLocation, ViewValidationFailures failures) {
+    if (!baseMetadataLocation.isPresent()) {
+      failures.addGeneric("baseMetadataLocation : is required and cannot be blank on PUT");
     }
   }
 

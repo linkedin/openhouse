@@ -43,7 +43,7 @@ public class ViewDto {
 
   /**
    * On a read this is the view's current version pointer. On a write it carries the caller's
-   * supplied {@code baseViewVersion} so the service can compare it later.
+   * supplied {@code baseMetadataLocation} so the service can compare it later.
    */
   private String viewVersion;
 
