@@ -61,9 +61,9 @@ public final class ApiValidatorUtil {
    */
   public static <T> void collectViolations(
       Validator validator, T object, List<String> validationFailures) {
-    for (ConstraintViolation<T> violation : validator.validate(object)) {
-      validationFailures.add(String.format("%s : %s", getField(violation), violation.getMessage()));
-    }
+    validator.validate(object).stream()
+        .map(violation -> String.format("%s : %s", getField(violation), violation.getMessage()))
+        .forEachOrdered(message -> validationFailures.add(message));
   }
 
   /**

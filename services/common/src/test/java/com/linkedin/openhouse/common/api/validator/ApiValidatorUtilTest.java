@@ -98,6 +98,17 @@ public class ApiValidatorUtilTest {
     Assertions.assertEquals(Collections.emptyList(), validationFailures);
   }
 
+  /** A null destination is tolerated as long as the bean is valid and nothing is appended. */
+  @Test
+  public void testCollectViolationsToleratesNullDestinationWhenBeanIsValid() {
+    SampleRequestBody requestBody = new SampleRequestBody();
+    Validator validator = Mockito.mock(Validator.class);
+    Mockito.when(validator.validate(requestBody)).thenReturn(Collections.emptySet());
+
+    Assertions.assertDoesNotThrow(
+        () -> ApiValidatorUtil.collectViolations(validator, requestBody, null));
+  }
+
   @SuppressWarnings("unchecked")
   private static ConstraintViolation<SampleRequestBody> violation(
       SampleRequestBody rootBean, String propertyPath, String message) {
