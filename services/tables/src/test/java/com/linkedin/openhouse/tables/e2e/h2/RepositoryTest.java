@@ -5,11 +5,14 @@ import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 import static org.apache.iceberg.types.Types.NestedField.*;
 
 import com.linkedin.openhouse.cluster.storage.StorageManager;
+import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
+import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
+import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
@@ -27,11 +30,13 @@ import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import com.linkedin.openhouse.tables.repository.SchemaValidator;
 import com.linkedin.openhouse.tables.repository.impl.InternalRepositoryUtils;
+import com.linkedin.openhouse.tables.repository.impl.TablePolicyManager;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -54,6 +59,9 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.util.AopTestUtils;
@@ -65,15 +73,21 @@ public class RepositoryTest {
 
   @Autowired HouseTableRepository houseTablesRepository;
 
+  @Autowired HouseTablesH2Repository h2Repository;
+
   @SpyBean @Autowired OpenHouseInternalRepository openHouseInternalRepository;
 
   @Autowired StorageManager storageManager;
 
-  @Autowired Catalog catalog;
+  @SpyBean @Autowired Catalog catalog;
 
   @Autowired SchemaValidator validator;
 
   @SpyBean @Autowired PreservedKeyChecker preservedKeyChecker;
+
+  @SpyBean @Autowired StorageSelector storageSelector;
+
+  @SpyBean @Autowired TablePolicyManager tablePolicyManager;
 
   @Test
   void extractReservedProps() {
@@ -545,13 +559,18 @@ public class RepositoryTest {
     TableDtoPrimaryKey key = getPrimaryKey(creationDTO);
     openHouseInternalRepository.save(creationDTO);
 
-    // Simulating a scenario of table-already-existed exception and verified exception it throws.
+    // Advisory occupancy is stubbed free, yet the create still fails with AlreadyExists because
+    // Iceberg's create sees the existing same-name table (not the server-side cross-type guard).
     TableDto existedDto = creationDTO.toBuilder().tableVersion(INITIAL_TABLE_VERSION).build();
-    OpenHouseInternalRepository spyRepo = Mockito.spy(openHouseInternalRepository);
-    Mockito.doReturn(false).when(spyRepo).existsById(key);
+    TableIdentifier tableIdentifier =
+        TableIdentifier.of(creationDTO.getDatabaseId(), creationDTO.getTableId());
+    Mockito.doReturn(Optional.empty())
+        .when((OpenHouseInternalCatalog) catalog)
+        .findEntityById(tableIdentifier);
 
     Assertions.assertThrows(
-        org.apache.iceberg.exceptions.AlreadyExistsException.class, () -> spyRepo.save(existedDto));
+        org.apache.iceberg.exceptions.AlreadyExistsException.class,
+        () -> openHouseInternalRepository.save(existedDto));
 
     openHouseInternalRepository.deleteById(key);
     Assertions.assertFalse(openHouseInternalRepository.existsById(key));
@@ -1596,5 +1615,360 @@ public class RepositoryTest {
             table.getDatabaseId(),
             table.getTableId() + "-" + table.getTableUUID());
     Assertions.assertTrue(table.getTableLocation().startsWith(path.toString()));
+  }
+
+  /* The stand-in shares one key space, so it must discriminate exactly as the server does. */
+
+  private static final String ISOLATION_DB = "entity_type_isolation_db";
+
+  private static HouseTable isolationRow(String tableId, String entityType) {
+    return HouseTable.builder()
+        .databaseId(ISOLATION_DB)
+        .tableId(tableId)
+        .tableLocation("/loc/" + tableId + "/00001-a.metadata.json")
+        .tableVersion("INITIAL_VERSION")
+        .storageType("local")
+        .entityType(entityType)
+        .build();
+  }
+
+  private static HouseTablePrimaryKey isolationKey(String tableId) {
+    return HouseTablePrimaryKey.builder().databaseId(ISOLATION_DB).tableId(tableId).build();
+  }
+
+  private void seedIsolationRows() {
+    houseTablesRepository.save(isolationRow("view_a", "VIEW"));
+    houseTablesRepository.save(isolationRow("view_b", "VIEW"));
+    houseTablesRepository.save(isolationRow("table_a", "TABLE"));
+    houseTablesRepository.save(isolationRow("legacy_a", null));
+  }
+
+  private void deleteIsolationRows() {
+    for (String tableId : Arrays.asList("view_a", "view_b", "view_c", "table_a", "legacy_a")) {
+      if (houseTablesRepository.findEntityById(isolationKey(tableId)).isPresent()) {
+        houseTablesRepository.deleteById(isolationKey(tableId));
+      }
+    }
+  }
+
+  @Test
+  void houseTableStandInKeepsTableAndViewReadsApart() {
+    seedIsolationRows();
+    try {
+      Assertions.assertFalse(
+          houseTablesRepository.findById(isolationKey("view_a")).isPresent(),
+          "a view at a shared key must be absent from the table point read");
+      Assertions.assertEquals(
+          "TABLE", houseTablesRepository.findById(isolationKey("table_a")).get().getEntityType());
+      Assertions.assertEquals(
+          "TABLE",
+          houseTablesRepository.findById(isolationKey("legacy_a")).get().getEntityType(),
+          "a row written before the discriminator existed is a table");
+
+      Assertions.assertTrue(houseTablesRepository.findViewById(isolationKey("view_a")).isPresent());
+      Assertions.assertFalse(
+          houseTablesRepository.findViewById(isolationKey("table_a")).isPresent());
+      Assertions.assertFalse(
+          houseTablesRepository.findViewById(isolationKey("legacy_a")).isPresent());
+
+      Assertions.assertEquals(
+          "VIEW",
+          houseTablesRepository.findEntityById(isolationKey("view_a")).get().getEntityType());
+      Assertions.assertEquals(
+          "TABLE",
+          houseTablesRepository.findEntityById(isolationKey("legacy_a")).get().getEntityType(),
+          "the neutral read resolves a legacy null the way the server's converter does");
+      Assertions.assertFalse(
+          houseTablesRepository.findEntityById(isolationKey("absent")).isPresent());
+    } finally {
+      deleteIsolationRows();
+    }
+  }
+
+  @Test
+  void houseTableStandInFiltersEntityTypeBeforeItPaginates() {
+    seedIsolationRows();
+    try {
+      List<HouseTable> unpaged = houseTablesRepository.findAllByDatabaseId(ISOLATION_DB);
+      Assertions.assertEquals(
+          Arrays.asList("legacy_a", "table_a"),
+          unpaged.stream().map(HouseTable::getTableId).sorted().collect(Collectors.toList()));
+      Assertions.assertTrue(
+          unpaged.stream().allMatch(row -> "TABLE".equals(row.getEntityType())),
+          "every row the unpaged list returns must report its resolved type, legacy included: "
+              + unpaged.stream()
+                  .map(row -> row.getTableId() + "=" + row.getEntityType())
+                  .collect(Collectors.toList()));
+
+      Page<HouseTable> firstTablePage =
+          houseTablesRepository.findAllByDatabaseId(
+              ISOLATION_DB, PageRequest.of(0, 1, Sort.by("tableId").ascending()));
+      Page<HouseTable> secondTablePage =
+          houseTablesRepository.findAllByDatabaseId(
+              ISOLATION_DB, PageRequest.of(1, 1, Sort.by("tableId").ascending()));
+      Assertions.assertEquals(
+          2L, firstTablePage.getTotalElements(), "views must not inflate a table page total");
+      Assertions.assertEquals(2, firstTablePage.getTotalPages());
+      Assertions.assertEquals("legacy_a", firstTablePage.getContent().get(0).getTableId());
+      Assertions.assertEquals("table_a", secondTablePage.getContent().get(0).getTableId());
+      Assertions.assertEquals(
+          "TABLE",
+          firstTablePage.getContent().get(0).getEntityType(),
+          "the legacy row is hydrated on the paginated overload too");
+      Assertions.assertEquals("TABLE", secondTablePage.getContent().get(0).getEntityType());
+
+      Page<HouseTable> firstViewPage =
+          houseTablesRepository.findAllViewsByDatabaseId(
+              ISOLATION_DB, PageRequest.of(0, 1, Sort.by("tableId").ascending()));
+      Page<HouseTable> secondViewPage =
+          houseTablesRepository.findAllViewsByDatabaseId(
+              ISOLATION_DB, PageRequest.of(1, 1, Sort.by("tableId").ascending()));
+      Assertions.assertEquals(2L, firstViewPage.getTotalElements());
+      Assertions.assertEquals(2, firstViewPage.getTotalPages());
+      Assertions.assertEquals("view_a", firstViewPage.getContent().get(0).getTableId());
+      Assertions.assertEquals(
+          "view_b",
+          secondViewPage.getContent().get(0).getTableId(),
+          "view pagination must be isolated from the table rows sharing the key space");
+      Assertions.assertEquals("VIEW", firstViewPage.getContent().get(0).getEntityType());
+    } finally {
+      deleteIsolationRows();
+    }
+  }
+
+  /** The sort was applied in SQL; dropping it makes page two an arbitrary set of rows. */
+  @Test
+  void houseTableStandInHonoursTheRequestedSortAcrossPages() {
+    seedIsolationRows();
+    houseTablesRepository.save(isolationRow("table_b", "TABLE"));
+    try {
+      Sort descending = Sort.by("tableId").descending();
+      Page<HouseTable> first =
+          houseTablesRepository.findAllByDatabaseId(ISOLATION_DB, PageRequest.of(0, 2, descending));
+      Page<HouseTable> second =
+          houseTablesRepository.findAllByDatabaseId(ISOLATION_DB, PageRequest.of(1, 2, descending));
+
+      Assertions.assertEquals(3L, first.getTotalElements());
+      Assertions.assertEquals(
+          Arrays.asList("table_b", "table_a"),
+          first.getContent().stream().map(HouseTable::getTableId).collect(Collectors.toList()));
+      Assertions.assertEquals(
+          Collections.singletonList("legacy_a"),
+          second.getContent().stream().map(HouseTable::getTableId).collect(Collectors.toList()));
+      Assertions.assertEquals(
+          descending, first.getSort(), "the returned page must report the sort it was asked for");
+    } finally {
+      if (houseTablesRepository.findEntityById(isolationKey("table_b")).isPresent()) {
+        houseTablesRepository.deleteById(isolationKey("table_b"));
+      }
+      deleteIsolationRows();
+    }
+  }
+
+  /** Case-insensitive ordering lives in the SQL, so a hand-written comparator would drop it. */
+  @Test
+  void houseTableStandInHonoursCaseInsensitiveOrdering() {
+    houseTablesRepository.save(isolationRow("B_upper", "TABLE"));
+    houseTablesRepository.save(isolationRow("a_lower", "TABLE"));
+    try {
+      Page<HouseTable> ignoringCase =
+          houseTablesRepository.findAllByDatabaseId(
+              ISOLATION_DB, PageRequest.of(0, 10, Sort.by(Sort.Order.asc("tableId").ignoreCase())));
+
+      Assertions.assertEquals(
+          Arrays.asList("a_lower", "B_upper"),
+          ignoringCase.getContent().stream()
+              .map(HouseTable::getTableId)
+              .collect(Collectors.toList()),
+          "an ignore-case ascending sort must order the rows as the database would");
+    } finally {
+      for (String tableId : Arrays.asList("B_upper", "a_lower")) {
+        if (houseTablesRepository.findEntityById(isolationKey(tableId)).isPresent()) {
+          houseTablesRepository.deleteById(isolationKey(tableId));
+        }
+      }
+    }
+  }
+
+  @Test
+  void houseTableStandInStampsAndDeletesViewsWithoutTouchingTables() {
+    seedIsolationRows();
+    try {
+      HouseTable saved = houseTablesRepository.saveView(isolationRow("view_c", null));
+      Assertions.assertEquals("VIEW", saved.getEntityType(), "the view route stamps the type");
+      Assertions.assertFalse(
+          houseTablesRepository.findById(isolationKey("view_c")).isPresent(),
+          "a stamped view stays out of the table path");
+
+      Assertions.assertTrue(houseTablesRepository.deleteViewById(isolationKey("view_c")));
+      Assertions.assertFalse(
+          houseTablesRepository.findEntityById(isolationKey("view_c")).isPresent());
+
+      Assertions.assertFalse(
+          houseTablesRepository.deleteViewById(isolationKey("table_a")),
+          "a typed delete must decline a table rather than remove it");
+      Assertions.assertFalse(
+          houseTablesRepository.deleteViewById(isolationKey("legacy_a")),
+          "a typed delete must decline a legacy row rather than remove it");
+      Assertions.assertTrue(
+          houseTablesRepository.findEntityById(isolationKey("table_a")).isPresent());
+      Assertions.assertTrue(
+          houseTablesRepository.findEntityById(isolationKey("legacy_a")).isPresent());
+    } finally {
+      deleteIsolationRows();
+    }
+  }
+
+  private static final String OCCUPATION_DB = TABLE_DTO.getDatabaseId();
+
+  private HouseTablePrimaryKey occupationKey(String tableId) {
+    return HouseTablePrimaryKey.builder().databaseId(OCCUPATION_DB).tableId(tableId).build();
+  }
+
+  private TableDto createDtoFor(String tableId) {
+    return TABLE_DTO.toBuilder().tableId(tableId).tableVersion(INITIAL_TABLE_VERSION).build();
+  }
+
+  private void seedViewRow(String tableId) {
+    houseTablesRepository.saveView(
+        HouseTable.builder()
+            .databaseId(OCCUPATION_DB)
+            .tableId(tableId)
+            .tableLocation("/loc/" + tableId + "/00001-a.metadata.json")
+            .tableVersion("INITIAL_VERSION")
+            .storageType("local")
+            .build());
+  }
+
+  /**
+   * The create/update decision is made by exactly one neutral occupancy read at the table's key,
+   * never the TABLE-typed existence probe or the raw House Table lookup. Assert-only: it verifies
+   * already-recorded interactions and neither reads, captures, resets, nor invokes production.
+   */
+  private void verifySingleNeutralLookup(String tableId) {
+    Mockito.verify((OpenHouseInternalCatalog) catalog, Mockito.times(1))
+        .findEntityById(TableIdentifier.of(OCCUPATION_DB, tableId));
+    Mockito.verify(catalog, Mockito.never()).tableExists(Mockito.any());
+    Mockito.verify((OpenHouseInternalCatalog) catalog, Mockito.never())
+        .findHouseTable(Mockito.any());
+  }
+
+  @Test
+  void tableCreateOverAViewFailsCleanlyWithoutAllocatingOrWriting() {
+    String tableId = "occupied_by_a_view";
+    seedViewRow(tableId);
+    Mockito.clearInvocations(storageSelector, tablePolicyManager, catalog);
+    try {
+      HouseTable before = houseTablesRepository.findEntityById(occupationKey(tableId)).get();
+
+      AlreadyExistsException thrown =
+          Assertions.assertThrows(
+              AlreadyExistsException.class,
+              () -> openHouseInternalRepository.save(createDtoFor(tableId)));
+      Assertions.assertTrue(thrown.getMessage().contains("VIEW"), thrown.getMessage());
+      Assertions.assertTrue(
+          thrown.getMessage().contains(OCCUPATION_DB + "." + tableId), thrown.getMessage());
+
+      // The whole point: it fails before the create branch does any work.
+      Mockito.verify(tablePolicyManager, Mockito.never())
+          .managePoliciesOnCreateIfNeeded(Mockito.any());
+      Mockito.verify(storageSelector, Mockito.never()).selectStorage(OCCUPATION_DB, tableId);
+      // An unchanged row would also survive a no-op rewrite, so pin that no branch that could
+      // write ever ran: a create or replace builds a table, an update loads one.
+      Mockito.verify(catalog, Mockito.never()).buildTable(Mockito.any(), Mockito.any());
+      Mockito.verify(catalog, Mockito.never()).loadTable(Mockito.any());
+      // Decision boundary: exactly one neutral read; no tableExists probe, no TABLE-typed lookup.
+      verifySingleNeutralLookup(tableId);
+
+      HouseTable after = houseTablesRepository.findEntityById(occupationKey(tableId)).get();
+      Assertions.assertEquals("VIEW", after.getEntityType());
+      Assertions.assertEquals(before.getTableLocation(), after.getTableLocation());
+    } finally {
+      // Type-agnostic: without the fix the create overwrites the view, leaving a table row behind.
+      if (houseTablesRepository.findEntityById(occupationKey(tableId)).isPresent()) {
+        houseTablesRepository.deleteById(occupationKey(tableId));
+      }
+    }
+  }
+
+  @Test
+  void tableCreateOverALegacyRowIsStillTreatedAsAnExistingTable() {
+    String tableId = "occupied_by_a_legacy_row";
+    TableDto created = openHouseInternalRepository.save(createDtoFor(tableId));
+    try {
+      HouseTable stored = houseTablesRepository.findEntityById(occupationKey(tableId)).get();
+      houseTablesRepository.save(stored.toBuilder().entityType(null).build());
+      Assertions.assertNull(
+          h2Repository.findByDatabaseIdAndTableId(OCCUPATION_DB, tableId).get().getEntityType(),
+          "the row must really be stored with no discriminator, not merely read back as one");
+
+      TableDto update = created.toBuilder().tableVersion(created.getTableLocation()).build();
+      Assertions.assertDoesNotThrow(() -> openHouseInternalRepository.save(update));
+    } finally {
+      openHouseInternalRepository.deleteById(
+          TableDtoPrimaryKey.builder().databaseId(OCCUPATION_DB).tableId(tableId).build());
+    }
+  }
+
+  @Test
+  void tableCreateOverAnExistingTableStillRoutesToTheUpdatePath() {
+    String tableId = "occupied_by_a_table";
+    TableDto created = openHouseInternalRepository.save(createDtoFor(tableId));
+    try {
+      TableDto update = created.toBuilder().tableVersion(created.getTableLocation()).build();
+      Mockito.clearInvocations(catalog);
+      Assertions.assertDoesNotThrow(() -> openHouseInternalRepository.save(update));
+      // Decision boundary: one neutral read routes to the update path; no tableExists/typed probe.
+      verifySingleNeutralLookup(tableId);
+      Assertions.assertEquals(
+          "TABLE",
+          houseTablesRepository.findEntityById(occupationKey(tableId)).get().getEntityType());
+    } finally {
+      openHouseInternalRepository.deleteById(
+          TableDtoPrimaryKey.builder().databaseId(OCCUPATION_DB).tableId(tableId).build());
+    }
+  }
+
+  @Test
+  void tableCreateOnAFreeNameStillAllocatesAndCreates() {
+    String tableId = "free_name_for_a_table";
+    Mockito.clearInvocations(storageSelector, catalog);
+    try {
+      TableDto created = openHouseInternalRepository.save(createDtoFor(tableId));
+
+      Assertions.assertNotNull(created.getTableLocation());
+      Mockito.verify(storageSelector, Mockito.atLeastOnce()).selectStorage(OCCUPATION_DB, tableId);
+      // Decision boundary: one neutral read routes to create; no tableExists/typed probe.
+      verifySingleNeutralLookup(tableId);
+      Assertions.assertEquals(
+          "TABLE",
+          houseTablesRepository.findEntityById(occupationKey(tableId)).get().getEntityType());
+    } finally {
+      openHouseInternalRepository.deleteById(
+          TableDtoPrimaryKey.builder().databaseId(OCCUPATION_DB).tableId(tableId).build());
+    }
+  }
+
+  @Test
+  void viewOccupantIsInvisibleToTheTableTypedExistenceChecks() {
+    // Central redesign proof: with the override gone, tableExists/existsById use the TABLE-typed
+    // read, so a view at the name reads as absent (no conflict thrown) and via no neutral read.
+    String tableId = "view_for_existence_probe";
+    seedViewRow(tableId);
+    TableIdentifier viewId = TableIdentifier.of(OCCUPATION_DB, tableId);
+    TableDtoPrimaryKey viewKey =
+        TableDtoPrimaryKey.builder().databaseId(OCCUPATION_DB).tableId(tableId).build();
+    Mockito.clearInvocations(catalog);
+    try {
+      Assertions.assertFalse(catalog.tableExists(viewId));
+      Assertions.assertFalse(openHouseInternalRepository.existsById(viewKey));
+      Mockito.verify((OpenHouseInternalCatalog) catalog, Mockito.never())
+          .findEntityById(Mockito.any(TableIdentifier.class));
+      Assertions.assertEquals(
+          "VIEW",
+          houseTablesRepository.findEntityById(occupationKey(tableId)).get().getEntityType());
+    } finally {
+      houseTablesRepository.deleteById(occupationKey(tableId));
+    }
   }
 }

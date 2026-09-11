@@ -135,6 +135,22 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   }
 
   /**
+   * Type-agnostic occupancy read — the neutral sibling of the TABLE-typed {@link #findHouseTable}.
+   * Returns whatever row holds this name (any entity type), or empty when the name is free or the
+   * identifier is not this catalog's to own. Advisory only: the House Table write is the arbiter.
+   */
+  public Optional<HouseTable> findEntityById(TableIdentifier identifier) {
+    if (!isValidIdentifier(identifier)) {
+      return Optional.empty();
+    }
+    return houseTableRepository.findEntityById(
+        HouseTablePrimaryKey.builder()
+            .databaseId(identifier.namespace().toString())
+            .tableId(identifier.name())
+            .build());
+  }
+
+  /**
    * Direct HTS lookup that returns the {@link HouseTable} row without parsing metadata.json. Use
    * this when only HTS-resident columns (e.g. tableUUID, tableLocation) are needed — for example,
    * to authorize a drop without loading the full Iceberg table, which is important when the
