@@ -19,4 +19,10 @@ public final class ValidatorConstants {
       "Only alphanumerics, hyphen and underscore supported";
   public static final int MAX_ALLOWED_CLUSTERING_COLUMNS = 4;
   public static final String INITIAL_TABLE_VERSION = "INITIAL_VERSION";
+
+  /** A null/absent value is allowed and means a legacy table row. */
+  public static final String ENTITY_TYPE_REGEX = "(?i)^(TABLE|VIEW)$";
+
+  public static final String ENTITY_TYPE_ERROR_MSG =
+      "Only TABLE and VIEW are supported entity types (case-insensitive)";
 }
