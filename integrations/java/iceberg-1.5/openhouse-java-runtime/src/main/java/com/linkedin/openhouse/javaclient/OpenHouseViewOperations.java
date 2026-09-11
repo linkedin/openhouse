@@ -18,11 +18,11 @@ import org.apache.iceberg.view.ViewMetadata;
  * catalog-specific {@link #doCommit} / {@link #doRefresh} are left to implement, similar to how
  * tables implement them in {@link OpenHouseTableOperations}.
  *
- * <p>Backend today is an in-memory MOCK ({@code mockViewStore}): {@link #doCommit} stores {@link
- * ViewMetadata} and reads are served by the {@link #current()}/{@link #refresh()} overrides -- no
- * server call, no {@code metadata.json} written. A Views-service-backed implementation is expected
- * to be merged in future: fill {@link #doCommit}/{@link #doRefresh} with a {@code ViewApi}
- * create/update + get (the service assigns the real location, replacing the {@code mock://}
+ * <p>Backend today is an in-memory (placeholder) store ({@code inMemoryViewStore}): {@link
+ * #doCommit} stores {@link ViewMetadata} and reads are served by the {@link #current()}/{@link
+ * #refresh()} overrides -- no server call, no {@code metadata.json} written. A Views-service-backed
+ * implementation is expected to be merged in future: fill {@link #doCommit}/{@link #doRefresh} with
+ * a {@code ViewApi} create/update + get (the service assigns the real location, replacing the
  * placeholder set in {@code OpenHouseCatalog.buildView}), after which the {@code current()}/{@code
  * refresh()} overrides below are removed.
  */
@@ -38,11 +38,11 @@ public class OpenHouseViewOperations extends BaseViewOperations {
   private FileIO fileIO;
 
   @Getter(AccessLevel.PROTECTED)
-  private Map<TableIdentifier, ViewMetadata> mockViewStore;
+  private Map<TableIdentifier, ViewMetadata> inMemoryViewStore;
 
   /**
-   * MOCK-only override: serve reads straight from the in-memory store, bypassing the file-backed
-   * refresh machinery (there is no {@code metadata.json} until the server writes one).
+   * In-memory-only override: serve reads straight from the in-memory store, bypassing the
+   * file-backed refresh machinery (there is no {@code metadata.json} until the server writes one).
    *
    * <p>TODO(views): delete this override once {@link #doRefresh} loads server-written metadata via
    * {@code refreshFromMetadataLocation(...)}; the inherited {@link BaseViewOperations#current()}
@@ -50,16 +50,16 @@ public class OpenHouseViewOperations extends BaseViewOperations {
    */
   @Override
   public ViewMetadata current() {
-    return mockViewStore.get(viewIdentifier);
+    return inMemoryViewStore.get(viewIdentifier);
   }
 
   /**
-   * MOCK-only override; see {@link #current()}. TODO(views): delete once {@link #doRefresh} is
+   * In-memory-only override; see {@link #current()}. TODO(views): delete once {@link #doRefresh} is
    * service-backed.
    */
   @Override
   public ViewMetadata refresh() {
-    return mockViewStore.get(viewIdentifier);
+    return inMemoryViewStore.get(viewIdentifier);
   }
 
   @Override
@@ -67,15 +67,14 @@ public class OpenHouseViewOperations extends BaseViewOperations {
     // TODO(views): POST to the ViewApi (create/update); the service writes metadata.json and
     // assigns the real location. Until then, persist in-memory only.
     log.warn(
-        "OpenHouse MOCK view commit for {} (in-memory only, not persisted to any service)",
-        viewIdentifier);
-    mockViewStore.put(viewIdentifier, metadata);
+        "OpenHouse in-memory view commit for {} (not persisted to any service)", viewIdentifier);
+    inMemoryViewStore.put(viewIdentifier, metadata);
   }
 
   @Override
   protected void doRefresh() {
     // TODO(views): GET the view from ViewApi, then refreshFromMetadataLocation(serverLocation) to
-    // load the server-written metadata.json. No-op today: the in-memory mock serves reads via the
+    // load the server-written metadata.json. No-op today: the in-memory store serves reads via the
     // current()/refresh() overrides above.
   }
 

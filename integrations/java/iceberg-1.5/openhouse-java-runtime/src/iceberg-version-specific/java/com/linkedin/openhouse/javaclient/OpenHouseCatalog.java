@@ -79,8 +79,8 @@ import reactor.core.publisher.Mono;
  * BaseMetastoreViewCatalog} (instead of {@link BaseMetastoreCatalog}) so a single catalog object
  * serves both tables (inherited, unchanged) and views. View operations are gated: active only when
  * {@code spark.sql.catalog.<name>.iceberg-views-enabled=true}, and currently backed by an in-memory
- * MOCK store ({@code mockViewStore}) via {@link OpenHouseViewOperations}, so {@code buildView} ->
- * {@code loadView} round-trips without a persistence service.
+ * (placeholder) store ({@code inMemoryViewStore}) via {@link OpenHouseViewOperations}, so {@code
+ * buildView} -> {@code loadView} round-trips without a persistence service.
  *
  * <p>Because extending {@link BaseMetastoreViewCatalog} makes this an Iceberg {@code ViewCatalog},
  * Spark's {@code SparkCatalog} routes view probes to this instance instead of short-circuiting them
@@ -137,10 +137,10 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
   private boolean viewsEnabled = false;
 
   /**
-   * In-memory MOCK view store standing in for the OpenHouse Views service until its API and client
+   * In-memory view store standing in for the OpenHouse Views service until its API and client
    * exist. Holds committed {@link ViewMetadata} by identifier so create/load round-trips work.
    */
-  private final ConcurrentHashMap<TableIdentifier, ViewMetadata> mockViewStore =
+  private final ConcurrentHashMap<TableIdentifier, ViewMetadata> inMemoryViewStore =
       new ConcurrentHashMap<>();
 
   @Override
@@ -179,7 +179,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
         Boolean.parseBoolean(properties.getOrDefault(VIEWS_ENABLED_PROPERTY, "false"));
     if (viewsEnabled) {
       log.warn(
-          "OpenHouse view support is ENABLED (in-memory MOCK backend). Views are not "
+          "OpenHouse view support is ENABLED (in-memory backend). Views are not "
               + "persisted to any service and are visible only within this catalog instance.");
     }
   }
@@ -588,8 +588,8 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
 
   // ============================= OpenHouse Views (gated, off by default)
   // =============================
-  // Gated by VIEWS_ENABLED_PROPERTY: view operations delegate to an in-memory MOCK
-  // backend (mockViewStore). loadView/buildView reuse the BaseMetastoreViewCatalog machinery via
+  // Gated by VIEWS_ENABLED_PROPERTY: view operations delegate to an in-memory backend
+  // (inMemoryViewStore). loadView/buildView reuse the BaseMetastoreViewCatalog machinery via
   // newViewOps; listViews/dropView/renameView are backed directly by the store.
 
   /**
@@ -613,7 +613,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     return OpenHouseViewOperations.builder()
         .viewIdentifier(identifier)
         .fileIO(fileIO)
-        .mockViewStore(mockViewStore)
+        .inMemoryViewStore(inMemoryViewStore)
         .build();
   }
 
@@ -679,7 +679,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
       return Collections.emptyList();
     }
     log.info("Calling listViews with namespace: {}", namespace.toString());
-    return mockViewStore.keySet().stream()
+    return inMemoryViewStore.keySet().stream()
         .filter(identifier -> identifier.namespace().equals(namespace))
         .collect(Collectors.toList());
   }
@@ -697,7 +697,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
       return false;
     }
     log.info("Calling dropView with identifier: {}", identifier);
-    return mockViewStore.remove(identifier) != null;
+    return inMemoryViewStore.remove(identifier) != null;
   }
 
   /**
@@ -711,11 +711,11 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
   public void renameView(TableIdentifier from, TableIdentifier to) {
     requireViewsEnabled();
     log.info("Calling renameView from view identifier: {}, to view identifier: {}", from, to);
-    ViewMetadata metadata = mockViewStore.remove(from);
+    ViewMetadata metadata = inMemoryViewStore.remove(from);
     if (metadata == null) {
       throw new NoSuchViewException("View does not exist: %s", from);
     }
-    mockViewStore.put(to, metadata);
+    inMemoryViewStore.put(to, metadata);
   }
 
   /**
