@@ -146,7 +146,8 @@ public class AppsTest extends OpenHouseSparkITest {
             "DAY",
             7,
             otelEmitter,
-            ".backup");
+            ".backup",
+            "");
 
     app.runInner(ops);
 
@@ -160,7 +161,8 @@ public class AppsTest extends OpenHouseSparkITest {
             Mockito.eq(7),
             Mockito.eq(true),
             Mockito.eq(".backup"),
-            nowCaptor.capture());
+            nowCaptor.capture(),
+            Mockito.eq(""));
     Assertions.assertEquals(ZoneOffset.UTC, nowCaptor.getValue().getZone());
   }
 }

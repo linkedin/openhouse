@@ -518,17 +518,19 @@ public final class Operations implements AutoCloseable {
       int count,
       boolean backupEnabled,
       String backupDir,
-      ZonedDateTime now) {
+      ZonedDateTime now,
+      String timeZone) {
     if (backupEnabled) {
       // Cache of manifests: partitionPath -> list of data file path
       Map<String, List<String>> manifestCache =
-          prepareBackupDataManifests(fqtn, columnName, columnPattern, granularity, count, now);
+          prepareBackupDataManifests(
+              fqtn, columnName, columnPattern, granularity, count, now, timeZone);
       writeBackupDataManifests(manifestCache, getTable(fqtn), backupDir, now);
       exposeBackupLocation(getTable(fqtn), backupDir);
     }
     final String statement =
         SparkJobUtil.createDeleteStatement(
-            fqtn, columnName, columnPattern, granularity, count, now);
+            fqtn, columnName, columnPattern, granularity, count, now, timeZone);
     log.info("deleting records from table: {}", fqtn);
     spark.sql(statement);
   }
@@ -539,10 +541,12 @@ public final class Operations implements AutoCloseable {
       String columnPattern,
       String granularity,
       int count,
-      ZonedDateTime now) {
+      ZonedDateTime now,
+      String timeZone) {
     Table table = getTable(fqtn);
     Expression filter =
-        SparkJobUtil.createDeleteFilter(columnName, columnPattern, granularity, count, now);
+        SparkJobUtil.createDeleteFilter(
+            columnName, columnPattern, granularity, count, now, timeZone);
     TableScan scan = table.newScan().filter(filter);
     try (CloseableIterable<FileScanTask> filesIterable = scan.planFiles()) {
       List<FileScanTask> filesList = Lists.newArrayList(filesIterable);

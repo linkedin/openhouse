@@ -31,6 +31,7 @@ public class RetentionSparkApp extends BaseTableSparkApp {
   private final String granularity;
   private final int count;
   private final String backupDir;
+  private final String timeZone;
 
   public RetentionSparkApp(
       String jobId,
@@ -41,13 +42,15 @@ public class RetentionSparkApp extends BaseTableSparkApp {
       String granularity,
       int count,
       OtelEmitter otelEmitter,
-      String backupDir) {
+      String backupDir,
+      String timeZone) {
     super(jobId, stateManager, fqtn, otelEmitter);
     this.columnName = columnName;
     this.columnPattern = columnPattern;
     this.granularity = granularity;
     this.count = count;
     this.backupDir = backupDir;
+    this.timeZone = timeZone;
   }
 
   @Override
@@ -58,7 +61,7 @@ public class RetentionSparkApp extends BaseTableSparkApp {
             table.properties().getOrDefault(AppConstants.BACKUP_ENABLED_KEY, "false"));
     ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
     log.info(
-        "Retention app start for table {}, column {}, {}, ttl={} {}s, backupEnabled={}, backupDir={}, ts={}",
+        "Retention app start for table {}, column {}, {}, ttl={} {}s, backupEnabled={}, backupDir={}, timeZone={}, ts={}",
         fqtn,
         columnName,
         columnPattern,
@@ -66,9 +69,18 @@ public class RetentionSparkApp extends BaseTableSparkApp {
         granularity,
         backupEnabled,
         backupDir,
+        timeZone,
         now);
     ops.runRetention(
-        fqtn, columnName, columnPattern, granularity, count, backupEnabled, backupDir, now);
+        fqtn,
+        columnName,
+        columnPattern,
+        granularity,
+        count,
+        backupEnabled,
+        backupDir,
+        now,
+        timeZone);
   }
 
   public static void main(String[] args) {
@@ -85,6 +97,12 @@ public class RetentionSparkApp extends BaseTableSparkApp {
     extraOptions.add(new Option("g", "granularity", true, "Granularity: day, week"));
     extraOptions.add(new Option("c", "count", true, "Retain last <count> <granularity>s"));
     extraOptions.add(new Option("b", "backupDir", true, "Backup directory for deleted data"));
+    extraOptions.add(
+        new Option(
+            "tz",
+            "timeZone",
+            true,
+            "Optional IANA zone id or fixed offset in which the retention boundary is evaluated; defaults to UTC"));
     CommandLine cmdLine = createCommandLine(args, extraOptions);
     return new RetentionSparkApp(
         getJobId(cmdLine),
@@ -95,6 +113,7 @@ public class RetentionSparkApp extends BaseTableSparkApp {
         cmdLine.getOptionValue("granularity"),
         Integer.parseInt(cmdLine.getOptionValue("count")),
         otelEmitter,
-        cmdLine.getOptionValue("backupDir", ".backup"));
+        cmdLine.getOptionValue("backupDir", ".backup"),
+        cmdLine.getOptionValue("timeZone", ""));
   }
 }

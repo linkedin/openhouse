@@ -2,6 +2,9 @@ package com.linkedin.openhouse.jobs.util;
 
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
@@ -62,8 +65,14 @@ public final class SparkJobUtil {
       String columnPattern,
       String granularity,
       int count,
-      ZonedDateTime now) {
+      ZonedDateTime now,
+      String timeZone) {
+    boolean zoned = !StringUtils.isBlank(timeZone);
     if (!StringUtils.isBlank(columnPattern)) {
+      // String-partitioned column: the boundary is a formatted wall-clock string. When a zone is
+      // set, anchor "now" to that zone before formatting. The comparison stays a string compare and
+      // the pattern granularity keeps the boundary aligned to a partition.
+      ZonedDateTime effectiveNow = zoned ? now.withZoneSameInstant(ZoneId.of(timeZone)) : now;
       String query =
           String.format(
               "DELETE FROM %s WHERE %s",
@@ -71,17 +80,31 @@ public final class SparkJobUtil {
               String.format(
                   RETENTION_CONDITION_WITH_PATTERN_TEMPLATE,
                   columnName,
-                  now.toLocalDateTime(),
+                  effectiveNow.toLocalDateTime(),
                   count,
                   granularity,
                   columnPattern));
       log.info(
-          "Table: {}. Column pattern: {}, columnName {}, granularity {}s, " + "retention query: {}",
+          "Table: {}. Column pattern: {}, columnName {}, granularity {}s, timeZone {}, retention query: {}",
           fqtn,
           columnPattern,
           columnName,
           granularity,
+          timeZone,
           query);
+      return query;
+    } else if (zoned) {
+      // Native timestamp column: evaluate the boundary in the zone, then snap it down to the UTC
+      // partition edge so the delete stays a metadata-only partition drop.
+      LocalDateTime boundary =
+          snappedNativeBoundaryUtc(
+              now.withZoneSameInstant(ZoneId.of(timeZone)), granularity, count);
+      String query =
+          String.format(
+              "DELETE FROM %s WHERE %s < timestamp '%s'",
+              getQuotedFqtn(fqtn), columnName, boundary);
+      log.info(
+          "Table: {}. No column pattern, timeZone {}, retention query: {}", fqtn, timeZone, query);
       return query;
     } else {
       String query =
@@ -101,17 +124,66 @@ public final class SparkJobUtil {
   }
 
   public static Expression createDeleteFilter(
-      String columnName, String columnPattern, String granularity, int count, ZonedDateTime now) {
-    ChronoUnit timeUnitGranularity =
-        ChronoUnit.valueOf(convertGranularityToChrono(granularity.toUpperCase()).name());
-    ZonedDateTime cutoffDate = now.minus(timeUnitGranularity.getDuration().multipliedBy(count));
+      String columnName,
+      String columnPattern,
+      String granularity,
+      int count,
+      ZonedDateTime now,
+      String timeZone) {
+    ChronoUnit timeUnitGranularity = convertGranularityToChrono(granularity.toUpperCase());
+    if (StringUtils.isBlank(timeZone)) {
+      ZonedDateTime cutoffDate = now.minus(timeUnitGranularity.getDuration().multipliedBy(count));
+      if (!StringUtils.isBlank(columnPattern)) {
+        String formattedCutoffDate = DateTimeFormatter.ofPattern(columnPattern).format(cutoffDate);
+        return Expressions.lessThan(columnName, formattedCutoffDate);
+      } else {
+        long formattedCutoffDate =
+            cutoffDate.truncatedTo(timeUnitGranularity).toEpochSecond()
+                * 1000
+                * 1000; // microsecond
+        return Expressions.lessThan(columnName, formattedCutoffDate);
+      }
+    }
+    ZonedDateTime effectiveNow = now.withZoneSameInstant(ZoneId.of(timeZone));
     if (!StringUtils.isBlank(columnPattern)) {
-      String formattedCutoffDate = DateTimeFormatter.ofPattern(columnPattern).format(cutoffDate);
-      return Expressions.lessThan(columnName, formattedCutoffDate);
+      ZonedDateTime cutoffDate = effectiveNow.minus(count, timeUnitGranularity);
+      return Expressions.lessThan(
+          columnName, DateTimeFormatter.ofPattern(columnPattern).format(cutoffDate));
     } else {
-      long formattedCutoffDate =
-          cutoffDate.truncatedTo(timeUnitGranularity).toEpochSecond() * 1000 * 1000; // microsecond
-      return Expressions.lessThan(columnName, formattedCutoffDate);
+      LocalDateTime boundary = snappedNativeBoundaryUtc(effectiveNow, granularity, count);
+      long micros =
+          boundary.toInstant(ZoneOffset.UTC).getEpochSecond() * 1000 * 1000; // microsecond
+      return Expressions.lessThan(columnName, micros);
+    }
+  }
+
+  /**
+   * Compute the retention boundary for a native timestamp column: the start of the current period
+   * in the given zone, moved back by {@code count} periods, then snapped down to the UTC partition
+   * edge so the resulting delete covers whole partitions (a metadata-only partition drop). The
+   * returned value is the boundary as a UTC wall-clock timestamp; retention deletes rows strictly
+   * before it and keeps rows at or after it.
+   */
+  private static LocalDateTime snappedNativeBoundaryUtc(
+      ZonedDateTime nowInZone, String granularity, int count) {
+    ChronoUnit unit = convertGranularityToChrono(granularity.toUpperCase());
+    ZonedDateTime periodStart = truncateToGranularity(nowInZone, unit);
+    ZonedDateTime boundaryInZone = periodStart.minus(count, unit);
+    ZonedDateTime boundaryUtc = boundaryInZone.withZoneSameInstant(ZoneOffset.UTC);
+    return truncateToGranularity(boundaryUtc, unit).toLocalDateTime();
+  }
+
+  private static ZonedDateTime truncateToGranularity(ZonedDateTime dateTime, ChronoUnit unit) {
+    switch (unit) {
+      case HOURS:
+        return dateTime.truncatedTo(ChronoUnit.HOURS);
+      case MONTHS:
+        return dateTime.toLocalDate().withDayOfMonth(1).atStartOfDay(dateTime.getZone());
+      case YEARS:
+        return dateTime.toLocalDate().withDayOfYear(1).atStartOfDay(dateTime.getZone());
+      case DAYS:
+      default:
+        return dateTime.truncatedTo(ChronoUnit.DAYS);
     }
   }
 

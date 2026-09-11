@@ -67,7 +67,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       prepareTableWithRetentionAndSharingPolicies(ops, tableName, "1d", true);
       populateTable(ops, tableName, 3);
       populateTable(ops, tableName, 2, 2);
-      ops.runRetention(tableName, "ts", "", "day", 1, false, "", ZonedDateTime.now());
+      ops.runRetention(tableName, "ts", "", "day", 1, false, "", ZonedDateTime.now(), "");
       verifyRowCount(ops, tableName, 3);
       verifyPolicies(ops, tableName, 1, Retention.GranularityEnum.DAY, true);
     }
@@ -168,7 +168,8 @@ public class OperationsTest extends OpenHouseSparkITest {
       String granularity) {
     prepareTableWithStringColumn(ops, tableName);
     populateTableWithStringColumn(ops, tableName, 3, dataFormats);
-    ops.runRetention(tableName, column, pattern, granularity, 2, false, "", ZonedDateTime.now());
+    ops.runRetention(
+        tableName, column, pattern, granularity, 2, false, "", ZonedDateTime.now(), "");
   }
 
   @Test
@@ -180,7 +181,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       List<Long> snapshots = getSnapshotIds(ops, tableName);
       // check if there are existing snapshots
       Assertions.assertTrue(snapshots.size() > 0);
-      ops.runRetention(tableName, "ts", "", "day", 2, false, "", ZonedDateTime.now());
+      ops.runRetention(tableName, "ts", "", "day", 2, false, "", ZonedDateTime.now(), "");
       verifyRowCount(ops, tableName, 4);
       List<Long> snapshotsAfter = getSnapshotIds(ops, tableName);
       Assertions.assertEquals(snapshots.size() + 1, snapshotsAfter.size());
@@ -226,7 +227,7 @@ public class OperationsTest extends OpenHouseSparkITest {
                   tableName, twoDayAgoDate, twoDayAgoHour, threeDayAgoDate, threeDayAgoHour));
       ZonedDateTime now = ZonedDateTime.now();
       ops.runRetention(
-          tableName, columnName, columnPattern, granularity, count, true, ".backup", now);
+          tableName, columnName, columnPattern, granularity, count, true, ".backup", now, "");
       // verify data_manifest.json
       Table table = ops.getTable(tableName);
       String manifestName = String.format("data_manifest_%d.json", now.toInstant().toEpochMilli());
@@ -295,7 +296,7 @@ public class OperationsTest extends OpenHouseSparkITest {
                   tableName, today, twoDayAgo));
       ZonedDateTime now = ZonedDateTime.now();
       ops.runRetention(
-          tableName, columnName, columnPattern, granularity, count, true, ".backup", now);
+          tableName, columnName, columnPattern, granularity, count, true, ".backup", now, "");
       // verify data_manifest.json
       Table table = ops.getTable(tableName);
       String manifestName = String.format("data_manifest_%d.json", now.toInstant().toEpochMilli());
@@ -358,7 +359,7 @@ public class OperationsTest extends OpenHouseSparkITest {
               IllegalStateException.class,
               () ->
                   ops.runRetention(
-                      tableName, "time_col", "yyyy-MM-dd-HH", "day", 1, true, ".backup", now));
+                      tableName, "time_col", "yyyy-MM-dd-HH", "day", 1, true, ".backup", now, ""));
       Assertions.assertTrue(
           ex.getMessage().contains("metadata-only delete"),
           "Expected metadata-only delete error, got: " + ex.getMessage());
