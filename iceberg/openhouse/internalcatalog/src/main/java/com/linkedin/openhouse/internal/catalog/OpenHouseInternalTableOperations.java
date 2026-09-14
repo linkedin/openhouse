@@ -42,7 +42,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.iceberg.BaseMetastoreTableOperations;
@@ -70,7 +69,6 @@ import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.base.Objects;
 
-@AllArgsConstructor
 @Slf4j
 public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperations {
 
@@ -87,6 +85,50 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   FileIOManager fileIOManager;
 
   TableMetadataCache tableMetadataCache;
+
+  PostCommitOperationRunner postCommitOperationRunner;
+
+  /**
+   * Backward-compatible constructor without a {@link PostCommitOperationRunner}. Post-commit
+   * operations are disabled (no runner wired).
+   */
+  public OpenHouseInternalTableOperations(
+      HouseTableRepository houseTableRepository,
+      FileIO fileIO,
+      HouseTableMapper houseTableMapper,
+      TableIdentifier tableIdentifier,
+      MetricsReporter metricsReporter,
+      FileIOManager fileIOManager,
+      TableMetadataCache tableMetadataCache) {
+    this(
+        houseTableRepository,
+        fileIO,
+        houseTableMapper,
+        tableIdentifier,
+        metricsReporter,
+        fileIOManager,
+        tableMetadataCache,
+        null);
+  }
+
+  public OpenHouseInternalTableOperations(
+      HouseTableRepository houseTableRepository,
+      FileIO fileIO,
+      HouseTableMapper houseTableMapper,
+      TableIdentifier tableIdentifier,
+      MetricsReporter metricsReporter,
+      FileIOManager fileIOManager,
+      TableMetadataCache tableMetadataCache,
+      PostCommitOperationRunner postCommitOperationRunner) {
+    this.houseTableRepository = houseTableRepository;
+    this.fileIO = fileIO;
+    this.houseTableMapper = houseTableMapper;
+    this.tableIdentifier = tableIdentifier;
+    this.metricsReporter = metricsReporter;
+    this.fileIOManager = fileIOManager;
+    this.tableMetadataCache = tableMetadataCache;
+    this.postCommitOperationRunner = postCommitOperationRunner;
+  }
 
   private static final Gson GSON = new Gson();
 
@@ -257,6 +299,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
     int version = currentVersion() + 1;
     CommitStatus commitStatus = CommitStatus.FAILURE;
+    TableMetadata committedMetadata = null;
 
     /* This method adds no fs scheme, and it persists in HTS that way. */
     final String newMetadataLocation = rootMetadataFileLocation(metadata, version);
@@ -420,6 +463,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       if (isReplicatedTableCreate(properties)) {
         updateMetadataFieldForTable(metadata, newMetadataLocation);
       }
+      committedMetadata = updatedMtDataRef;
       commitStatus = CommitStatus.SUCCESS;
     } catch (IOException ioe) {
       commitStatus = checkCommitStatus(newMetadataLocation, metadata);
@@ -482,9 +526,27 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         case UNKNOWN:
           metricsReporter.count(InternalCatalogMetricsConstant.COMMIT_STATE_UNKNOWN);
           break;
+        case SUCCESS:
+          runPostCommitOperations(committedMetadata);
+          break;
         default:
           break; /*should never happen, kept to silence SpotBugs*/
       }
+    }
+  }
+
+  /**
+   * Fires best-effort post-commit operations for a successful commit. Never throws: the commit has
+   * already durably succeeded and post-commit work must not affect its outcome.
+   */
+  private void runPostCommitOperations(TableMetadata committedMetadata) {
+    if (postCommitOperationRunner == null || committedMetadata == null) {
+      return;
+    }
+    try {
+      postCommitOperationRunner.runAll(new PostCommitContext(tableIdentifier, committedMetadata));
+    } catch (Throwable t) {
+      log.warn("Failed to dispatch post-commit operations for table {}", tableIdentifier, t);
     }
   }
 

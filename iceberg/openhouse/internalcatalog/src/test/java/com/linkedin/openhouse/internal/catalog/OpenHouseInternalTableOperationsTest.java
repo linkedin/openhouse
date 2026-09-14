@@ -101,10 +101,12 @@ public class OpenHouseInternalTableOperationsTest {
   @Mock private LocalStorageClient mockLocalStorageClient;
   @Mock private FSDataInputStream mockFSDataInputStream;
   @Mock private FSDataOutputStream mockFSDataOutputStream;
+  @Mock private PostCommitOperationRunner mockPostCommitOperationRunner;
 
   private TableMetadataCache tableMetadataCache;
   private OpenHouseInternalTableOperations openHouseInternalTableOperations;
   private OpenHouseInternalTableOperations openHouseInternalTableOperationsWithMockMetrics;
+  private OpenHouseInternalTableOperations openHouseInternalTableOperationsWithPostCommit;
 
   @SneakyThrows
   private static String getTempLocation() {
@@ -140,6 +142,18 @@ public class OpenHouseInternalTableOperationsTest {
             mockMetricsReporter,
             fileIOManager,
             tableMetadataCache);
+
+    // Instance wired with a post-commit operation runner for testing the post-commit seam.
+    openHouseInternalTableOperationsWithPostCommit =
+        new OpenHouseInternalTableOperations(
+            mockHouseTableRepository,
+            fileIO,
+            mockHouseTableMapper,
+            TEST_TABLE_IDENTIFIER,
+            metricsReporter,
+            fileIOManager,
+            tableMetadataCache,
+            mockPostCommitOperationRunner);
 
     LocalStorage localStorage = mock(LocalStorage.class);
     when(fileIOManager.getStorage(fileIO)).thenReturn(localStorage);
@@ -177,6 +191,74 @@ public class OpenHouseInternalTableOperationsTest {
           "INITIAL_VERSION", updatedProperties.get(getCanonicalFieldName("tableVersion")));
       Assertions.assertTrue(updatedProperties.containsKey(getCanonicalFieldName("tableLocation")));
       Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+    }
+  }
+
+  /**
+   * A successful commit must dispatch registered post-commit operations exactly once, handing them
+   * a context that carries the table identity and the committed metadata.
+   */
+  @Test
+  void testPostCommitOperationsRunOnSuccessfulCommit() throws IOException {
+    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      properties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(testSnapshots));
+      properties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.createMainBranchRefPointingTo(
+                  testSnapshots.get(testSnapshots.size() - 1))));
+
+      TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+      openHouseInternalTableOperationsWithPostCommit.doCommit(BASE_TABLE_METADATA, metadata);
+
+      ArgumentCaptor<PostCommitContext> contextCaptor =
+          ArgumentCaptor.forClass(PostCommitContext.class);
+      Mockito.verify(mockPostCommitOperationRunner, Mockito.times(1))
+          .runAll(contextCaptor.capture());
+      PostCommitContext context = contextCaptor.getValue();
+      Assertions.assertEquals(TEST_TABLE_IDENTIFIER, context.getTableIdentifier());
+      Assertions.assertNotNull(context.getCommittedMetadata());
+      Assertions.assertTrue(
+          context
+              .getCommittedMetadata()
+              .properties()
+              .containsKey(getCanonicalFieldName("tableLocation")));
+    }
+  }
+
+  /**
+   * A failed commit must NOT dispatch post-commit operations: they run only in the finally SUCCESS
+   * path, so risk is never bundled onto an unsuccessful commit.
+   */
+  @Test
+  void testPostCommitOperationsNotRunOnFailedCommit() throws IOException {
+    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      properties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(testSnapshots));
+      properties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.createMainBranchRefPointingTo(
+                  testSnapshots.get(testSnapshots.size() - 1))));
+      TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+
+      Mockito.doThrow(HouseTableCallerException.class)
+          .when(mockHouseTableRepository)
+          .save(Mockito.any());
+
+      Assertions.assertThrows(
+          CommitFailedException.class,
+          () ->
+              openHouseInternalTableOperationsWithPostCommit.doCommit(
+                  BASE_TABLE_METADATA, metadata));
+      Mockito.verify(mockPostCommitOperationRunner, Mockito.never()).runAll(Mockito.any());
     }
   }
 
