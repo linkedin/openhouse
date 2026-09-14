@@ -77,19 +77,14 @@ import reactor.core.publisher.Mono;
  *
  * <p>This is the iceberg-1.5 / Spark-3.5 copy of {@code OpenHouseCatalog}. It extends {@link
  * BaseMetastoreViewCatalog} (instead of {@link BaseMetastoreCatalog}) so a single catalog object
- * serves both tables (inherited, unchanged) and views. This is the first increment of OpenHouse
- * view support: production code, gated and off by default. View operations are active only when
- * {@code spark.sql.catalog.<name>.iceberg-views-enabled=true}, and are backed by an in-memory MOCK
- * store ({@code mockViewStore}) so {@code buildView} -> {@code loadView} round-trips without a
- * persistence service. Evolution: replace {@code mockViewStore} and the inline {@link
- * ViewOperations} in {@link #newViewOps} with a Views-service-backed {@code
- * OpenHouseViewOperations} calling a generated {@code ViewApi}, mirroring how {@link #newTableOps}
- * returns {@code OpenHouseTableOperations} calling {@code TableApi}. The iceberg-1.2 / Spark-3.1
- * copy stays table-only ({@code extends BaseMetastoreCatalog}).
+ * serves both tables (inherited, unchanged) and views. View operations are gated: active only when
+ * {@code spark.sql.catalog.<name>.iceberg-views-enabled=true}, and currently backed by an in-memory
+ * (placeholder) store ({@code inMemoryViewStore}) via {@link OpenHouseViewOperations}, so {@code
+ * buildView} -> {@code loadView} round-trips without a persistence service.
  *
  * <p>Because extending {@link BaseMetastoreViewCatalog} makes this an Iceberg {@code ViewCatalog},
- * Spark's {@code SparkCatalog} routes view probes to this instance instead of short-circuiting
- * them (it only calls a catalog's view methods when the catalog is {@code instanceof ViewCatalog};
+ * Spark's {@code SparkCatalog} routes view probes to this instance instead of short-circuiting them
+ * (it only calls a catalog's view methods when the catalog is {@code instanceof ViewCatalog};
  * otherwise it answers view ops itself). Notably {@code SparkCatalog.loadView} is invoked while
  * resolving every unqualified identifier. So when views are disabled we mirror, method-for-method,
  * how {@code SparkCatalog} behaves for a non-{@code ViewCatalog} (table-only) catalog, making the
@@ -142,10 +137,10 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
   private boolean viewsEnabled = false;
 
   /**
-   * In-memory MOCK view store standing in for the OpenHouse Views service until its API and client
+   * In-memory view store standing in for the OpenHouse Views service until its API and client
    * exist. Holds committed {@link ViewMetadata} by identifier so create/load round-trips work.
    */
-  private final ConcurrentHashMap<TableIdentifier, ViewMetadata> mockViewStore =
+  private final ConcurrentHashMap<TableIdentifier, ViewMetadata> inMemoryViewStore =
       new ConcurrentHashMap<>();
 
   @Override
@@ -184,7 +179,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
         Boolean.parseBoolean(properties.getOrDefault(VIEWS_ENABLED_PROPERTY, "false"));
     if (viewsEnabled) {
       log.warn(
-          "OpenHouse view support is ENABLED (in-memory MOCK backend). Views are not "
+          "OpenHouse view support is ENABLED (in-memory backend). Views are not "
               + "persisted to any service and are visible only within this catalog instance.");
     }
   }
@@ -330,7 +325,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
   }
 
   @Override
-  public TableOperations newTableOps(TableIdentifier tableIdentifier) {
+  public OpenHouseTableOperations newTableOps(TableIdentifier tableIdentifier) {
     return OpenHouseTableOperations.builder()
         .tableIdentifier(tableIdentifier)
         .fileIO(fileIO)
@@ -591,9 +586,10 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     return new OpenHouseTableBuilder(identifier, schema);
   }
 
-  // ============================= OpenHouse Views (gated, off by default) =============================
-  // Gated by VIEWS_ENABLED_PROPERTY: view operations delegate to an in-memory MOCK
-  // backend (mockViewStore). loadView/buildView reuse the BaseMetastoreViewCatalog machinery via
+  // ============================= OpenHouse Views (gated, off by default)
+  // =============================
+  // Gated by VIEWS_ENABLED_PROPERTY: view operations delegate to an in-memory backend
+  // (inMemoryViewStore). loadView/buildView reuse the BaseMetastoreViewCatalog machinery via
   // newViewOps; listViews/dropView/renameView are backed directly by the store.
 
   /**
@@ -614,25 +610,11 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
 
   @Override
   protected ViewOperations newViewOps(TableIdentifier identifier) {
-    return new ViewOperations() {
-      @Override
-      public ViewMetadata current() {
-        return mockViewStore.get(identifier);
-      }
-
-      @Override
-      public ViewMetadata refresh() {
-        return mockViewStore.get(identifier);
-      }
-
-      @Override
-      public void commit(ViewMetadata base, ViewMetadata metadata) {
-        log.warn(
-            "OpenHouse MOCK view commit for {} (in-memory only, not persisted to any service)",
-            identifier);
-        mockViewStore.put(identifier, metadata);
-      }
-    };
+    return OpenHouseViewOperations.builder()
+        .viewIdentifier(identifier)
+        .fileIO(fileIO)
+        .inMemoryViewStore(inMemoryViewStore)
+        .build();
   }
 
   /**
@@ -640,9 +622,10 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
    *
    * <p>When views are disabled, throws {@link NoSuchViewException} rather than {@link
    * UnsupportedOperationException}. Spark's {@code SparkCatalog.loadView} probes this method while
-   * resolving every unqualified identifier and catches only {@code NoSuchViewException} to fall back
-   * to table resolution; any other exception propagates and breaks table reads. Throwing {@code
-   * NoSuchViewException} here therefore reproduces the table-only (non-{@code ViewCatalog}) behavior.
+   * resolving every unqualified identifier and catches only {@code NoSuchViewException} to fall
+   * back to table resolution; any other exception propagates and breaks table reads. Throwing
+   * {@code NoSuchViewException} here therefore reproduces the table-only (non-{@code ViewCatalog})
+   * behavior.
    */
   @Override
   public View loadView(TableIdentifier identifier) {
@@ -661,10 +644,10 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
    * SparkCatalog.createView}, which calls {@code buildView(...).create()} and catches only {@code
    * NoSuchNamespaceException} / {@code AlreadyExistsException} (rethrowing them as Spark {@code
    * AnalysisException}s); any other exception — e.g. {@link UnsupportedOperationException} — would
-   * leak as a raw runtime error and break callers that expect an {@code AnalysisException}. Throwing
-   * {@code NoSuchNamespaceException} is therefore the signal that normalizes {@code CREATE VIEW}
-   * rejection to a Spark {@code AnalysisException}, matching how a table-only catalog (Iceberg 1.2 /
-   * Spark 3.1) rejects it. See {@code OpenHouseViewSparkITest}.
+   * leak as a raw runtime error and break callers that expect an {@code AnalysisException}.
+   * Throwing {@code NoSuchNamespaceException} is therefore the signal that normalizes {@code CREATE
+   * VIEW} rejection to a Spark {@code AnalysisException}, matching how a table-only catalog
+   * (Iceberg 1.2 / Spark 3.1) rejects it. See {@code OpenHouseViewSparkITest}.
    */
   @Override
   public ViewBuilder buildView(TableIdentifier identifier) {
@@ -673,9 +656,13 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
           "OpenHouse views are not enabled; cannot create view: %s", identifier);
     }
     log.info("Calling buildView with identifier: {}", identifier);
-    // OpenHouse tables have no client-side warehouse location (defaultWarehouseLocation returns
-    // null), but Iceberg's ViewMetadata requires a non-null location. Supply a mock default so a
-    // bare buildView().create() works; an explicit non-null withLocation(...) overrides it.
+    // ViewMetadata requires a non-null location at build time (BaseViewBuilder builds it before
+    // ops.commit()); OpenHouse is server-owns-location so defaultWarehouseLocation() returns null.
+    // Unlike TableMetadata, Iceberg ViewMetadata Builder forbids null.
+    // So a placeholder is required here. The server always assigns the
+    // authoritative location at commit and the client reloads it on refresh,
+    // so only the value below is temporary. (Deferred) Alternative (overkill for now):
+    // override buildView / subclass ViewBuilder to handle the absent location instead.
     return super.buildView(identifier)
         .withLocation("mock://openhouse/views/" + identifier.toString().replace('.', '/'));
   }
@@ -692,7 +679,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
       return Collections.emptyList();
     }
     log.info("Calling listViews with namespace: {}", namespace.toString());
-    return mockViewStore.keySet().stream()
+    return inMemoryViewStore.keySet().stream()
         .filter(identifier -> identifier.namespace().equals(namespace))
         .collect(Collectors.toList());
   }
@@ -701,8 +688,8 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
    * {@inheritDoc}
    *
    * <p>When views are disabled, returns {@code false} (nothing to drop), matching how {@code
-   * SparkCatalog} answers {@code DROP VIEW} for a non-{@code ViewCatalog} catalog; this keeps {@code
-   * DROP VIEW ... IF EXISTS} a no-op rather than an error.
+   * SparkCatalog} answers {@code DROP VIEW} for a non-{@code ViewCatalog} catalog; this keeps
+   * {@code DROP VIEW ... IF EXISTS} a no-op rather than an error.
    */
   @Override
   public boolean dropView(TableIdentifier identifier) {
@@ -710,25 +697,25 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
       return false;
     }
     log.info("Calling dropView with identifier: {}", identifier);
-    return mockViewStore.remove(identifier) != null;
+    return inMemoryViewStore.remove(identifier) != null;
   }
 
   /**
    * {@inheritDoc}
    *
-   * <p>A modify operation: when views are disabled this throws {@link UnsupportedOperationException}
-   * via {@link #requireViewsEnabled()}, matching how {@code SparkCatalog} fails {@code ALTER VIEW
-   * ... RENAME} for a non-{@code ViewCatalog} catalog.
+   * <p>A modify operation: when views are disabled this throws {@link
+   * UnsupportedOperationException} via {@link #requireViewsEnabled()}, matching how {@code
+   * SparkCatalog} fails {@code ALTER VIEW ... RENAME} for a non-{@code ViewCatalog} catalog.
    */
   @Override
   public void renameView(TableIdentifier from, TableIdentifier to) {
     requireViewsEnabled();
     log.info("Calling renameView from view identifier: {}, to view identifier: {}", from, to);
-    ViewMetadata metadata = mockViewStore.remove(from);
+    ViewMetadata metadata = inMemoryViewStore.remove(from);
     if (metadata == null) {
       throw new NoSuchViewException("View does not exist: %s", from);
     }
-    mockViewStore.put(to, metadata);
+    inMemoryViewStore.put(to, metadata);
   }
 
   /**
@@ -791,7 +778,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
      */
     @Override
     public Transaction createOrReplaceTransaction() {
-      TableOperations ops = newTableOps(this.identifier);
+      OpenHouseTableOperations ops = newTableOps(this.identifier);
       if (ops.current() == null) {
         return createTransaction();
       } else {
@@ -806,11 +793,16 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
      */
     @Override
     public Transaction replaceTransaction() {
-      TableOperations ops = newTableOps(this.identifier);
+      OpenHouseTableOperations ops = newTableOps(this.identifier);
       if (ops.current() == null) {
         throw new NoSuchTableException("Table does not exist: %s", new Object[] {this.identifier});
       }
       TableMetadata metadata = replaceStagedMetadata(ops);
+      // Record the replace intent on the very instance that will receive the commit. This is the
+      // only place where RTAS is unambiguously known: by the time doCommit runs, a replace and an
+      // ordinary metadata-plus-snapshot transaction look identical. Every Catalog replace entry
+      // point (including Catalog#newReplaceTableTransaction) funnels through this builder.
+      ops.markReplaceTransaction();
       return Transactions.replaceTableTransaction(this.identifier.toString(), ops, metadata);
     }
 
@@ -821,7 +813,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
      */
     @Override
     public Transaction createTransaction() {
-      TableOperations ops = newTableOps(this.identifier);
+      OpenHouseTableOperations ops = newTableOps(this.identifier);
       if (ops.current() != null) {
         throw new AlreadyExistsException(
             "Table already exists: %s", new Object[] {this.identifier});

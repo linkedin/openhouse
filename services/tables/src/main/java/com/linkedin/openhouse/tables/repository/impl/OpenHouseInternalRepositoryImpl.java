@@ -43,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
@@ -81,6 +82,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   private static final String TABLE_TYPE_KEY = "tableType";
   private static final String CLUSTER_ID = "clusterId";
+  private static final long DEFAULT_MAX_REFERENCE_AGE_MILLIS = TimeUnit.DAYS.toMillis(7);
 
   @Autowired Catalog catalog;
 
@@ -537,12 +539,24 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
                         || preservedKeyChecker.allowKeyInCreation(entry.getKey(), tableDto))
             .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 
+    propertiesMap.putIfAbsent(
+        TableProperties.MAX_REF_AGE_MS, String.valueOf(DEFAULT_MAX_REFERENCE_AGE_MILLIS));
+
     // Only set cluster default for DEFAULT_FILE_FORMAT if user hasn't provided a value
     // (which means either they didn't specify it, or the feature toggle filtered it out)
     if (!propertiesMap.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
       propertiesMap.put(
           TableProperties.DEFAULT_FILE_FORMAT,
           clusterProperties.getClusterIcebergWriteFormatDefault());
+    }
+
+    // Only set cluster default for ORC_COMPRESSION if it is configured at the cluster level and the
+    // user hasn't provided a value.
+    String clusterOrcCompressionCodec =
+        clusterProperties.getClusterIcebergWriteOrcCompressionCodec();
+    if (clusterOrcCompressionCodec != null
+        && !propertiesMap.containsKey(TableProperties.ORC_COMPRESSION)) {
+      propertiesMap.put(TableProperties.ORC_COMPRESSION, clusterOrcCompressionCodec);
     }
 
     // Populate server reserved properties

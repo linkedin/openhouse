@@ -23,6 +23,10 @@ public final class AppConstants {
   public static final String RETENTION_POLICY_MISCONFIGURED_TABLE_COUNT =
       "retention_policy_misconfigured_table_count";
 
+  // Snapshot Expiration metrics
+  public static final String SNAPSHOTS_EXPIRATION_DURATION = "snapshots_expiration_duration";
+  public static final String DELETE_FILES_ENABLED = "delete_files_enabled";
+
   // Openhouse jobs status tags
   public static final String STATUS = "status";
   public static final String STATUS_CODE = "status_code";

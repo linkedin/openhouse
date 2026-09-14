@@ -1,0 +1,11 @@
+{
+  "type": "struct",
+  "fields": [
+    {
+      "id": 1,
+      "required": false,
+      "name": "id",
+      "type": "int"
+    }
+  ]
+}

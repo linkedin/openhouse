@@ -4,6 +4,7 @@ import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.handler.impl.OpenHouseTablesApiHandler;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultsSource;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
+import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
 import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
@@ -26,5 +27,11 @@ public class ApiConfig {
       ObjectProvider<ColumnDefaultsSource> columnDefaultsSource, TableFeatureToggle featureToggle) {
     return new ReadBridgeConfigResolver(
         columnDefaultsSource.getIfAvailable(() -> ColumnDefaultsSource.NONE), featureToggle);
+  }
+
+  @Bean
+  public ReadBridgeStripProtection readBridgeStripProtection(
+      ReadBridgeConfigResolver readBridgeConfigResolver) {
+    return new ReadBridgeStripProtection(readBridgeConfigResolver);
   }
 }

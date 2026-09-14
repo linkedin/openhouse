@@ -61,9 +61,9 @@ public class OpenHouseViewSparkITest extends OpenHouseSparkITest {
   }
 
   /**
-   * Reading a non-existent relation must surface Spark's {@link AnalysisException} in both runtimes.
-   * This is the case the loadView gate fix guards: the Iceberg 1.5 catalog must NOT leak {@code
-   * UnsupportedOperationException} while Spark probes loadView during identifier resolution.
+   * Reading a non-existent relation must surface Spark's {@link AnalysisException} in both
+   * runtimes. This is the case the loadView gate fix guards: the Iceberg 1.5 catalog must NOT leak
+   * {@code UnsupportedOperationException} while Spark probes loadView during identifier resolution.
    */
   @Test
   public void testReadMissingRelationThrowsAnalysisException() throws Exception {
@@ -107,8 +107,7 @@ public class OpenHouseViewSparkITest extends OpenHouseSparkITest {
   public void testDropMissingViewRejectedIdentically() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       assertThrows(
-          AnalysisException.class,
-          () -> spark.sql("DROP VIEW openhouse." + DB + ".v_missing"));
+          AnalysisException.class, () -> spark.sql("DROP VIEW openhouse." + DB + ".v_missing"));
     }
   }
 

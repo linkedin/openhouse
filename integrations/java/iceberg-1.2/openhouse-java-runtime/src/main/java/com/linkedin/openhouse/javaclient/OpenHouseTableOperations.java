@@ -65,6 +65,19 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   private String cluster;
 
   /**
+   * Whether this instance backs a replace-table (RTAS) transaction, set by {@link OpenHouseCatalog}
+   * at the only point where that intent is unambiguous.
+   *
+   * <p>{@code doCommit} cannot infer it from the {@code base}/{@code metadata} diff: Iceberg's
+   * {@code BaseTransaction} routes a replace transaction and an ordinary multi-update transaction
+   * (say, a schema evolution plus an append) through the very same {@code ops.commit(base,
+   * metadata)} call, so both arrive with metadata and snapshots updated and a non-null base.
+   * Misreading the latter as a replace would have the server rebuild the table wholesale instead of
+   * updating it. A final holder keeps Lombok's all-args constructor unchanged.
+   */
+  private final AtomicBoolean replaceTransaction = new AtomicBoolean(false);
+
+  /**
    * Config last applied to {@code current()}, or {@code null}. Bound after Iceberg accepts a reload
    * so skip-reload and a failed UUID check cannot desync stamps from overlays.
    */
@@ -73,6 +86,21 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   /** Stamps last applied to {@code current()}, or {@code null}. */
   protected Map<String, String> currentConfig() {
     return config.get();
+  }
+
+  /**
+   * Marks this instance as backing a replace-table (RTAS) transaction, so the commit it receives is
+   * sent as a replace commit. Each transaction gets a fresh instance from {@link
+   * OpenHouseCatalog#newTableOps}, so the intent never leaks across transactions.
+   */
+  void markReplaceTransaction() {
+    replaceTransaction.set(true);
+  }
+
+  /** Whether the pending commit belongs to a replace-table (RTAS) transaction. */
+  @VisibleForTesting
+  boolean isReplaceTransaction() {
+    return replaceTransaction.get();
   }
 
   @Override
@@ -138,7 +166,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   /**
    * Decode {@code fetched}, then read the metadata file, then overlay.
    *
-   * <p>Decode first so a bad config never hits storage. {@link IllegalStateException} is wrapped as
+   * <p>Decode first so a bad config never hits storage. {@link ReadBridgeException} is wrapped as
    * {@link Tasks.UnrecoverableException} so Iceberg's retry loop does not re-read the file. The
    * wrap includes {@link #tableName()} so a Spark job over many tables can tell which one failed.
    */
@@ -146,18 +174,18 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     final ReadBridge bridge;
     try {
       bridge = ReadBridge.from(fetched);
-    } catch (IllegalStateException e) {
+    } catch (ReadBridgeException e) {
       throw unrecoverableBridge(e);
     }
     TableMetadata raw = TableMetadataParser.read(io(), metadataLocation);
     try {
       return bridge.apply(raw);
-    } catch (IllegalStateException e) {
+    } catch (ReadBridgeException e) {
       throw unrecoverableBridge(e);
     }
   }
 
-  private Tasks.UnrecoverableException unrecoverableBridge(IllegalStateException e) {
+  private Tasks.UnrecoverableException unrecoverableBridge(ReadBridgeException e) {
     return new Tasks.UnrecoverableException(
         "read-bridge: unusable config for table " + tableName(), e);
   }
@@ -167,10 +195,13 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     log.info("Calling doCommit for table: {}", tableName());
     boolean metadataUpdated = isMetadataUpdated(base, metadata);
     boolean snapshotsUpdated = areSnapshotsUpdated(base, metadata);
+    // The replace intent is plumbed down from OpenHouseCatalog, never inferred from the diff: an
+    // ordinary transaction that evolves metadata and appends a snapshot is indistinguishable from
+    // an RTAS at this point. A replace always replaces the table wholesale, even when only part of
+    // the metadata changed, so the flag alone decides the route.
+    boolean replaceCommit = isReplaceTransaction() && base != null;
     try {
-      if (metadataUpdated && snapshotsUpdated && base != null) {
-        // Only CTAS and RTAS can update both metadata and snapshots at the same time.
-        // When the table exists, it will be a replace commit operation.
+      if (replaceCommit) {
         putSnapshotsForReplace(base, metadata);
       } else if (snapshotsUpdated) {
         putSnapshots(base, metadata);
@@ -188,6 +219,11 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
       } else {
         throw e;
       }
+    }
+    // Cleared only once the commit lands: BaseTransaction retries doCommit on this same instance
+    // after a CommitFailedException, and every retry must still be sent as a replace.
+    if (replaceCommit) {
+      replaceTransaction.set(false);
     }
     log.debug("Calling doCommit succeeded");
   }
@@ -270,6 +306,11 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
       createUpdateTableRequestBody.setTableProperties(newTblProperties);
     }
     return createUpdateTableRequestBody;
+  }
+
+  @VisibleForTesting
+  void setCurrentConfig(Map<String, String> value) {
+    config.set(value);
   }
 
   /**

@@ -40,6 +40,9 @@ public class ClusterProperties {
   @Value("${cluster.iceberg.write.format.default:orc}")
   private String clusterIcebergWriteFormatDefault;
 
+  @Value("${cluster.iceberg.write.orc.compression-codec:#{null}}")
+  private String clusterIcebergWriteOrcCompressionCodec;
+
   @Value("${cluster.iceberg.format-version:2}")
   private int clusterIcebergFormatVersion;
 

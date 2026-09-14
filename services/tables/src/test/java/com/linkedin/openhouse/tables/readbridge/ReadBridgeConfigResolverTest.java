@@ -117,6 +117,45 @@ public class ReadBridgeConfigResolverTest {
     Assertions.assertTrue(config.isEmpty());
   }
 
+  /** Write path must not commit when the source cannot answer. */
+  @Test
+  public void testWritePathSourceFailureFailsClosed() {
+    ColumnDefaultsSource exploding =
+        tableDto -> {
+          throw new IllegalStateException("encoder exploded");
+        };
+
+    ColumnDefaultException thrown =
+        Assertions.assertThrows(
+            ColumnDefaultException.class,
+            () ->
+                resolverFor(exploding)
+                    .stampedColumnDefaults(
+                        TableDto.builder().databaseId("db").tableId("tbl").build()));
+    Assertions.assertEquals(ColumnDefaultException.Operation.UNUSABLE, thrown.getOperation());
+    Assertions.assertTrue(
+        thrown.toUnsupportedClient().getMessage().contains("COLUMN_DEFAULT_UNUSABLE"));
+    Assertions.assertTrue(thrown.getMessage().contains("db.tbl"));
+  }
+
+  /** Write path must not commit when the ramp lookup cannot answer. */
+  @Test
+  public void testWritePathToggleFailureFailsClosed() {
+    TableFeatureToggle exploding =
+        new TableFeatureToggle() {
+          @Override
+          public boolean isFeatureActivated(String databaseId, String tableId, String featureId) {
+            throw new IllegalStateException("housetables is down");
+          }
+        };
+
+    Assertions.assertThrows(
+        ColumnDefaultException.class,
+        () ->
+            new ReadBridgeConfigResolver(oneDefault(), exploding)
+                .stampedColumnDefaults(TableDto.builder().databaseId("db").tableId("tbl").build()));
+  }
+
   /** Gate 3: a table the ramp has not activated is not bridged, and its source is never asked. */
   @Test
   public void testUnrampedTableIsNotBridgedAndSourceNotConsulted() {

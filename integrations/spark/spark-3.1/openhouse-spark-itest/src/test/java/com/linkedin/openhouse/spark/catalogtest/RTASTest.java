@@ -5,9 +5,11 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.List;
+import org.apache.iceberg.DataFile;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.BadRequestException;
@@ -310,6 +312,53 @@ public class RTASTest extends OpenHouseSparkITest {
       assertEquals(
           2, Iterables.size(rtasTable.snapshots()), "Table should have expected snapshots");
       assertNull(rtasTable.currentSnapshot().parentId(), "Current snapshot should have no parent");
+    }
+  }
+
+  /**
+   * An ordinary transaction is free to change metadata and append data in a single commit, and that
+   * must stay an update. It reaches the catalog client looking exactly like an RTAS — non-null
+   * base, metadata changed, snapshots changed — so the client has to take the replace intent from
+   * the transaction that produced the commit rather than from the diff.
+   *
+   * <p>Without that, the commit is sent as a replace and the server rejects it outright, since the
+   * table never opted into RTAS.
+   */
+  @Test
+  public void testMetadataAndAppendInOneTransactionIsNotAReplace() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      Catalog catalog = getOpenHouseCatalog(spark);
+      spark.sql(
+          String.format(
+              "CREATE TABLE %s USING iceberg AS SELECT * FROM %s", tableName, sourceName));
+
+      Table table = catalog.loadTable(tableIdent);
+      long baseSnapshotId = table.currentSnapshot().snapshotId();
+      DataFile existingFile =
+          Iterables.getOnlyElement(table.currentSnapshot().addedDataFiles(table.io()));
+
+      Transaction transaction = table.newTransaction();
+      transaction.updateProperties().set("prop1", "val1").commit();
+      transaction.newAppend().appendFile(existingFile).commit();
+      transaction.commitTransaction();
+
+      Table updated = catalog.loadTable(tableIdent);
+      assertEquals("val1", updated.properties().get("prop1"), "Property should have been set");
+      // A replace resets the main branch, so a misrouted commit would leave the current snapshot
+      // parentless and the previous data unreferenced.
+      assertEquals(
+          baseSnapshotId,
+          updated.currentSnapshot().parentId(),
+          "Commit should extend history, not replace the table");
+      assertEquals(2, Iterables.size(updated.snapshots()), "Append should have added a snapshot");
+      assertEquals(
+          1,
+          Iterables.size(updated.currentSnapshot().addedDataFiles(updated.io())),
+          "Append should have added the data file");
+
+      // The commit landed outside Spark, so drop its cached plan before reading the doubled data.
+      spark.sql(String.format("REFRESH TABLE %s", tableName));
+      assertEquals(6, spark.sql(String.format("SELECT * FROM %s", tableName)).count());
     }
   }
 }
