@@ -7,11 +7,14 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequest
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllViewsResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetViewResponseBody;
 import com.linkedin.openhouse.tables.authorization.Privileges;
+import com.linkedin.openhouse.tables.exception.ViewRequestValidationFailureException;
+import com.linkedin.openhouse.tables.exception.ViewValidationErrorCode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import javax.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.annotation.Secured;
@@ -36,6 +39,15 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 public class ViewsController {
+
+  /**
+   * Query key of the removed numeric pagination parameter, and the fixed reason given for it. The
+   * message echoes nothing the caller sent, because it reaches the error body and audit events.
+   */
+  private static final String LEGACY_PAGE_PARAMETER = "page";
+
+  private static final String LEGACY_PAGE_REJECTION_MESSAGE =
+      "page : is no longer supported; use pageToken for continuation";
 
   @Autowired private ViewsApiHandler viewsApiHandler;
 
@@ -79,7 +91,10 @@ public class ViewsController {
 
   @Operation(
       summary = "Search Views in a Database",
-      description = "Returns a Page of View resources present in a database.",
+      description =
+          "Returns one page of View resources present in a database, plus the token that continues"
+              + " the listing. Send pageToken back to fetch the next page; its absence from a"
+              + " response means the listing is complete.",
       tags = {"View"})
   @ApiResponses(
       value = {
@@ -105,16 +120,45 @@ public class ViewsController {
   @Secured(value = Privileges.Privilege.LIST_VIEW)
   public ResponseEntity<GetAllViewsResponseBody> getAllViews(
       @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
-      @RequestParam(required = false, defaultValue = "0") int page,
-      @RequestParam(required = false, defaultValue = "50") int size,
-      @RequestParam(required = false) String sortBy) {
+      @Parameter(
+              description =
+                  "Opaque continuation token taken from a previous response's nextPageToken."
+                      + " Omit it to start a new listing.")
+          @RequestParam(name = "pageToken", required = false)
+          String pageToken,
+      @Parameter(description = "Maximum number of views to return")
+          @RequestParam(name = "size", required = false, defaultValue = "50")
+          int size,
+      @Parameter(description = "Optional single field to sort the results by")
+          @RequestParam(name = "sortBy", required = false)
+          String sortBy,
+      HttpServletRequest request) {
+
+    rejectLegacyPageParameter(request);
 
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetAllViewsResponseBody> apiResponse =
         viewsApiHandler.getAllViews(
-            databaseId, page, size, sortBy, extractAuthenticatedUserPrincipal());
+            databaseId, pageToken, size, sortBy, extractAuthenticatedUserPrincipal());
 
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  /**
+   * Numeric pagination was replaced by continuation tokens. Spring ignores an unknown query key, so
+   * an unmigrated client sending {@code page} would otherwise keep receiving the first page; its
+   * presence is rejected instead, before the request reaches the handler.
+   *
+   * <p>Only presence is read. The value is never interpreted or echoed, and a key sent without a
+   * value counts as present, which is why this inspects the request rather than binding another
+   * parameter: a bound {@code page} would both miss the valueless form and publish a parameter the
+   * API does not support.
+   */
+  private static void rejectLegacyPageParameter(HttpServletRequest request) {
+    if (request.getParameterMap().containsKey(LEGACY_PAGE_PARAMETER)) {
+      throw new ViewRequestValidationFailureException(
+          ViewValidationErrorCode.INVALID_VIEW_DEFINITION, LEGACY_PAGE_REJECTION_MESSAGE);
+    }
   }
 
   @Operation(

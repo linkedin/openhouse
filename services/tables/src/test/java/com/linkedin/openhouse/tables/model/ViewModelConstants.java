@@ -14,9 +14,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
+import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * Deterministic fixtures for the /v1 views wire surface. Everything here is a fixed literal: no
@@ -112,6 +110,11 @@ public final class ViewModelConstants {
     return GetViewResponseBody.builder().viewId(viewId).databaseId(DATABASE_ID).build();
   }
 
+  /** The service-side counterpart of {@link #sparseListElement(String)}. */
+  public static ViewDto sparseListDto(String viewId) {
+    return ViewDto.builder().viewId(viewId).databaseId(DATABASE_ID).build();
+  }
+
   /**
    * Pointer response whose {@code metadataLocation} and {@code viewVersion} carry distinct
    * sentinels rather than the production-equal value, so a serialization freeze can pin the two
@@ -125,20 +128,98 @@ public final class ViewModelConstants {
         .build();
   }
 
-  /** Deterministic single page of sparse identifier-only elements. */
-  public static Page<GetViewResponseBody> sparseListPage() {
-    List<GetViewResponseBody> content =
-        Arrays.asList(sparseListElement("my_view"), sparseListElement("my_other_view"));
-    return new PageImpl<>(content, PageRequest.of(0, 50), content.size());
+  // -----------------------------------------------------------------------------------------
+  // Continuation-token list fixtures
+  //
+  // The two token literals are deliberately different strings. A test that sends the first and
+  // expects the second on the way back therefore fails if the API ever echoes the request token
+  // instead of forwarding the service's. Neither literal encodes anything: tokens are opaque to
+  // this API and no encoder or decoder exists.
+  // -----------------------------------------------------------------------------------------
+
+  /** Opaque continuation token a client replays on a follow-up request. */
+  public static final String REQUEST_PAGE_TOKEN = "client-supplied-token";
+
+  /** Opaque continuation token the service hands back; never the request token echoed. */
+  public static final String NEXT_PAGE_TOKEN = "service-supplied-token";
+
+  /** Deterministic, ordered pair of sparse identifier-only elements. */
+  public static List<GetViewResponseBody> sparseListElements() {
+    return Arrays.asList(sparseListElement("my_view"), sparseListElement("my_other_view"));
   }
 
+  /** The same pair on the service side of the seam. */
+  public static List<ViewDto> sparseListDtos() {
+    return Arrays.asList(sparseListDto("my_view"), sparseListDto("my_other_view"));
+  }
+
+  /** Terminal list response: results present, continuation token absent. */
   public static GetAllViewsResponseBody listResponse() {
-    return GetAllViewsResponseBody.builder().pageResults(sparseListPage()).build();
+    return GetAllViewsResponseBody.builder().results(sparseListElements()).build();
+  }
+
+  /** Non-terminal list response: the client must continue with the returned token. */
+  public static GetAllViewsResponseBody listResponseWithNextPageToken() {
+    return GetAllViewsResponseBody.builder()
+        .results(sparseListElements())
+        .nextPageToken(NEXT_PAGE_TOKEN)
+        .build();
+  }
+
+  /** Terminal service result. */
+  public static ViewListResult viewListResult() {
+    return ViewListResult.builder().results(sparseListDtos()).build();
+  }
+
+  /** Non-terminal service result carrying the service's own token. */
+  public static ViewListResult viewListResultWithNextPageToken() {
+    return ViewListResult.builder()
+        .results(sparseListDtos())
+        .nextPageToken(NEXT_PAGE_TOKEN)
+        .build();
+  }
+
+  /** Empty result that is still non-terminal: an empty page is not an exhaustion signal. */
+  public static ViewListResult emptyViewListResultWithNextPageToken() {
+    return ViewListResult.builder()
+        .results(Collections.emptyList())
+        .nextPageToken(NEXT_PAGE_TOKEN)
+        .build();
   }
 
   // -----------------------------------------------------------------------------------------
   // Negative-path fixtures
   // -----------------------------------------------------------------------------------------
+
+  /**
+   * A {@link ViewListResult} whose results list is null. {@code @NonNull} makes that unbuildable,
+   * which is the point: a future service can only produce it by bypassing the builder, and the API
+   * must still refuse to turn it into a successful empty page. Forged by reflection rather than by
+   * relaxing the production constraint or mocking the final {@code @Value} type.
+   */
+  public static ViewListResult invalidResultWithNullResults() {
+    ViewListResult result = ViewListResult.builder().results(Collections.emptyList()).build();
+    ReflectionTestUtils.setField(result, "results", null);
+    return result;
+  }
+
+  /** Invalid server output: a null element inside an otherwise well-formed list. */
+  public static ViewListResult invalidResultWithNullElement() {
+    return ViewListResult.builder().results(Arrays.asList(sparseListDto("my_view"), null)).build();
+  }
+
+  /** Invalid server output: a whitespace-only continuation token. */
+  public static ViewListResult invalidResultWithBlankNextPageToken() {
+    return ViewListResult.builder().results(sparseListDtos()).nextPageToken("   ").build();
+  }
+
+  /**
+   * Invalid server output: an empty continuation token. Absence is expressed by null alone, so ""
+   * is neither a terminal signal nor a usable token.
+   */
+  public static ViewListResult invalidResultWithEmptyNextPageToken() {
+    return ViewListResult.builder().results(sparseListDtos()).nextPageToken("").build();
+  }
 
   /**
    * Truncated JSON: Jackson cannot parse it at all, so Iceberg fails inside {@code JsonUtil.parse}

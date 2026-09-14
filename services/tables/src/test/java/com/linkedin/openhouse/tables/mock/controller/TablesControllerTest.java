@@ -14,12 +14,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.CachingRequestBodyFilter;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.common.exception.handler.OpenHouseExceptionHandler;
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
+import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.controller.TablesController;
 import com.linkedin.openhouse.tables.controller.ViewsController;
@@ -44,11 +47,15 @@ import org.mockito.internal.matchers.apachecommons.ReflectionEquals;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -141,6 +148,72 @@ public class TablesControllerTest {
   }
 
   /**
+   * Views moving to continuation tokens must leave the tables' numeric pagination alone: the
+   * request still binds {@code page}/{@code size}/{@code sortBy}, the defaults are still 0 and 50,
+   * and the response still carries the Spring {@code Page} envelope under {@code pageResults}.
+   *
+   * <p>The application's {@link com.linkedin.openhouse.tables.mock.MockTablesApiHandler} returns
+   * null from the paginated overload, so it cannot demonstrate a paginated body. A test-local
+   * Mockito handler is used rather than teaching that shared mock to paginate, which would make
+   * every other table test depend on a fake pagination engine.
+   */
+  @Test
+  public void v2TablePaginationStillBindsNumericPageAndSerializesPageMetadata() throws Exception {
+    TablesApiHandler localHandler = Mockito.mock(TablesApiHandler.class);
+    Page<GetTableResponseBody> page =
+        new PageImpl<>(Collections.singletonList(GET_TABLE_RESPONSE_BODY), PageRequest.of(1, 2), 7);
+    Mockito.when(
+            localHandler.searchTables(
+                Mockito.anyString(),
+                Mockito.anyInt(),
+                Mockito.anyInt(),
+                Mockito.any(),
+                Mockito.any(),
+                Mockito.any()))
+        .thenReturn(
+            ApiResponse.<GetAllTablesResponseBody>builder()
+                .httpStatus(HttpStatus.OK)
+                .responseBody(GetAllTablesResponseBody.builder().pageResults(page).build())
+                .build());
+
+    TablesController localController = new TablesController();
+    ReflectionTestUtils.setField(localController, "tablesApiHandler", localHandler);
+    MockMvc localMvc =
+        MockMvcBuilders.standaloneSetup(localController)
+            .setControllerAdvice(openHouseExceptionHandler)
+            .addInterceptors(new DummyTokenInterceptor())
+            .build();
+
+    localMvc
+        .perform(
+            MockMvcRequestBuilders.post("/v2/databases/d200/tables/search")
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath(
+                "$.pageResults.content[0].tableId",
+                Matchers.is(GET_TABLE_RESPONSE_BODY.getTableId())))
+        .andExpect(jsonPath("$.pageResults.number", Matchers.is(1)))
+        .andExpect(jsonPath("$.pageResults.size", Matchers.is(2)))
+        .andExpect(jsonPath("$.pageResults.totalElements", Matchers.is(7)))
+        .andExpect(jsonPath("$.pageResults.pageable.offset", Matchers.is(2)));
+    Mockito.verify(localHandler).searchTables("d200", 0, 50, null, null, "DUMMY_ANONYMOUS_USER");
+
+    localMvc
+        .perform(
+            MockMvcRequestBuilders.post("/v2/databases/d200/tables/search")
+                .param("page", "2")
+                .param("size", "10")
+                .param("sortBy", "tableId")
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isOk());
+    Mockito.verify(localHandler)
+        .searchTables("d200", 2, 10, "tableId", null, "DUMMY_ANONYMOUS_USER");
+  }
+
+  /**
    * Adding {@link ViewsController} must not change how a v1 table request is routed. Views now
    * mount under the same {@code /v1/databases/{databaseId}/} prefix as tables and are told apart
    * only by the {@code tables} vs {@code views} path segment, so this is the assertion that pins
@@ -196,14 +269,15 @@ public class TablesControllerTest {
         .andExpect(status().isOk())
         .andExpect(content().json(ViewModelConstants.pointerResponse().toJson()));
 
-    // The views collection route is likewise the views handler's, not the tables handler's.
+    // The views collection route is likewise the views handler's, not the tables handler's. It now
+    // answers with the token envelope while the table routes keep their Page metadata.
     mvcWithBothControllers
         .perform(
             MockMvcRequestBuilders.get(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/views")
                 .accept(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + jwtAccessToken))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.pageResults.content[0].viewId", Matchers.is("my_view")));
+        .andExpect(jsonPath("$.results[0].viewId", Matchers.is("my_view")));
 
     // The v1 table route is otherwise unchanged, including its not-found behaviour.
     mvcWithBothControllers

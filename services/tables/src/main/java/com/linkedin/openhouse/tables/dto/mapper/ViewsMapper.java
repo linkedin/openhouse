@@ -1,12 +1,17 @@
 package com.linkedin.openhouse.tables.dto.mapper;
 
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllViewsResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetViewResponseBody;
 import com.linkedin.openhouse.tables.model.ViewDto;
+import com.linkedin.openhouse.tables.model.ViewListResult;
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
+import org.apache.commons.lang3.StringUtils;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.Mappings;
-import org.springframework.data.domain.Page;
 
 /** Mapper between the /v1 views wire models and {@link ViewDto}. */
 @Mapper(componentModel = "spring")
@@ -51,14 +56,35 @@ public interface ViewsMapper {
   GetViewResponseBody toGetViewResponseBody(ViewDto viewDto);
 
   /**
-   * Transform a page of {@link ViewDto} into a page of response bodies, preserving the page
-   * metadata. List DTOs carry identifiers only, so the resulting response bodies are intentionally
-   * sparse.
+   * Transform a service list result into the client response.
    *
-   * @param viewDtoPage source page
-   * @return a page of sparse response bodies
+   * <p>Order, element count and the continuation token are the service's, and this copies them. It
+   * does not sort, filter, truncate, refill a short page, derive a token from the number of results
+   * or decode one.
+   *
+   * <p>Output the service is not allowed to produce is rejected rather than mapped: a missing
+   * result, a missing or partly null list, or a blank token would otherwise reach the client as a
+   * successful last page and end a traversal early. The messages are fixed and carry no returned
+   * value, because they reach the error body and service audit events.
+   *
+   * @param result the service's page of identifier-only dtos and its optional continuation token
+   * @return the response body forwarded to the client
    */
-  default Page<GetViewResponseBody> toGetViewResponseBodyPage(Page<ViewDto> viewDtoPage) {
-    return viewDtoPage.map(this::toGetViewResponseBody);
+  default GetAllViewsResponseBody toGetAllViewsResponseBody(ViewListResult result) {
+    if (result == null) {
+      throw new IllegalStateException("viewsService returned no result");
+    }
+    List<ViewDto> results = result.getResults();
+    if (results == null || results.stream().anyMatch(Objects::isNull)) {
+      throw new IllegalStateException("viewsService returned an invalid results list");
+    }
+    String nextPageToken = result.getNextPageToken();
+    if (nextPageToken != null && StringUtils.isBlank(nextPageToken)) {
+      throw new IllegalStateException("viewsService returned a blank continuation token");
+    }
+    return GetAllViewsResponseBody.builder()
+        .results(results.stream().map(this::toGetViewResponseBody).collect(Collectors.toList()))
+        .nextPageToken(nextPageToken)
+        .build();
   }
 }

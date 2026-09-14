@@ -2,7 +2,7 @@ package com.linkedin.openhouse.tables.services;
 
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
 import com.linkedin.openhouse.tables.model.ViewDto;
-import org.springframework.data.domain.Page;
+import com.linkedin.openhouse.tables.model.ViewListResult;
 import org.springframework.data.util.Pair;
 
 /** Service interface backing the /v1 views endpoints. */
@@ -20,17 +20,25 @@ public interface ViewsService {
   ViewDto getView(String databaseId, String viewId, String actingPrincipal);
 
   /**
-   * Given a databaseId, prepare a page of identifier-only {@link ViewDto}s.
+   * Given a databaseId, prepare one page of identifier-only {@link ViewDto}s.
+   *
+   * <p>An implementation returns at most {@code size} results, plus a token that continues this
+   * listing or null once it is complete. It must return a non-null list of non-null dtos and either
+   * a null or a non-blank token; anything else is a server defect, which the API reports as such
+   * rather than as a successful last page.
+   *
+   * <p>Token generation and interpretation, ordering, expiry, and any consistency guarantee across
+   * requests belong to the implementation. No implementation lists views today.
    *
    * @param databaseId database identifier
-   * @param page zero-based page index
-   * @param size page size
+   * @param pageToken opaque continuation token from a previous result, or null for the first page
+   * @param size maximum number of results to return
    * @param sortBy optional single sort field
    * @param actingPrincipal authenticated user
-   * @return a page of identifier-only dtos
+   * @return one page of identifier-only dtos and its optional continuation token
    */
-  Page<ViewDto> getAllViews(
-      String databaseId, int page, int size, String sortBy, String actingPrincipal);
+  ViewListResult getAllViews(
+      String databaseId, String pageToken, int size, String sortBy, String actingPrincipal);
 
   /**
    * Create or replace a view.

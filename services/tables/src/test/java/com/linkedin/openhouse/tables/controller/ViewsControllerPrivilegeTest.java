@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.access.annotation.Secured;
@@ -33,7 +34,12 @@ public class ViewsControllerPrivilegeTest {
         Privileges.Privilege.SELECT);
     expected.put(
         ViewsController.class.getMethod(
-            "getAllViews", String.class, int.class, int.class, String.class),
+            "getAllViews",
+            String.class,
+            String.class,
+            int.class,
+            String.class,
+            HttpServletRequest.class),
         Privileges.Privilege.LIST_VIEW);
     expected.put(
         ViewsController.class.getMethod(

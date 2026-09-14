@@ -16,6 +16,7 @@ import com.linkedin.openhouse.tables.model.ViewModelConstants;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
@@ -113,10 +114,19 @@ public class ViewApiContractTest {
 
   @Test
   public void testGetAllViewsResponseBodyFieldsAreFrozen() {
+    Set<String> expected = setOf("results", "nextPageToken");
+
     Assertions.assertEquals(
-        setOf("pageResults"),
+        expected,
         contractFieldNames(GetAllViewsResponseBody.class),
-        "GetAllViewsResponseBody contains only the paginated pageResults field.");
+        "The list envelope carries the result array and the optional continuation token only."
+            + " Numeric page metadata is not part of the contract.");
+
+    Assertions.assertEquals(
+        expected,
+        jacksonPropertyNames(GetAllViewsResponseBody.class),
+        "The Jackson-visible property set is the true wire surface, so a computed page counter"
+            + " would be caught here as well.");
   }
 
   @Test
@@ -365,70 +375,49 @@ public class ViewApiContractTest {
     Assertions.assertEquals(ViewModelConstants.CREATION_TIME, json.get("creationTime").asLong());
   }
 
+  /**
+   * The list envelope is a plain array plus an optional continuation token. This fixture is a
+   * terminal response, so the token must be absent from the document rather than present as JSON
+   * null: a client stops because the key is missing, never because the array looks short.
+   */
   @Test
-  public void testSparseListResponseUsesGetViewResponseBodyElementsAndPageMetadata() {
+  public void testSparseListResponseSerializesResultsArrayAndOmitsAbsentToken() {
     GetAllViewsResponseBody listResponse = ViewModelConstants.listResponse();
 
+    Assertions.assertNull(
+        listResponse.getNextPageToken(),
+        "Only null represents exhaustion internally: no empty string, no \"null\" literal and no"
+            + " synthetic terminal token.");
     Assertions.assertTrue(
-        listResponse.getPageResults().getContent().stream()
+        listResponse.getResults().stream()
             .allMatch(element -> element instanceof GetViewResponseBody),
         "List elements are the full response type populated sparsely, not a separate identifier"
             + " response type.");
 
     JsonNode json = MAPPER.valueToTree(listResponse);
-    Assertions.assertEquals(setOf("pageResults"), keysOf(json));
-
-    JsonNode page = json.get("pageResults");
-
-    // Spring Data upgrades must not silently add, remove or rename fields in the wire contract.
-    Assertions.assertEquals(
-        setOf(
-            "content",
-            "pageable",
-            "totalPages",
-            "totalElements",
-            "last",
-            "sort",
-            "number",
-            "size",
-            "numberOfElements",
-            "first",
-            "empty"),
-        keysOf(page),
-        "The serialized Page shape is part of the view list contract.");
-
-    Assertions.assertEquals(1, page.get("totalPages").asInt());
-    Assertions.assertEquals(2L, page.get("totalElements").asLong());
-    Assertions.assertEquals(2, page.get("numberOfElements").asInt());
-    Assertions.assertEquals(0, page.get("number").asInt());
-    Assertions.assertEquals(50, page.get("size").asInt());
-    Assertions.assertTrue(page.get("first").asBoolean());
-    Assertions.assertTrue(page.get("last").asBoolean());
-    Assertions.assertFalse(page.get("empty").asBoolean());
 
     Assertions.assertEquals(
-        setOf("empty", "sorted", "unsorted"),
-        keysOf(page.get("sort")),
-        "The nested sort descriptor is client-visible too.");
-    Assertions.assertTrue(page.get("sort").get("empty").asBoolean());
-    Assertions.assertFalse(page.get("sort").get("sorted").asBoolean());
-    Assertions.assertTrue(page.get("sort").get("unsorted").asBoolean());
+        setOf("results"),
+        keysOf(json),
+        "A terminal list response carries results only: no nextPageToken key, and none of the"
+            + " Spring Page metadata (pageResults, pageable, number, size, totalElements, last)"
+            + " that numeric pagination published.");
+    Assertions.assertFalse(
+        json.has("nextPageToken"),
+        "Absence is the terminal signal, so the key must not survive as an explicit JSON null.");
 
-    JsonNode pageable = page.get("pageable");
+    JsonNode results = json.get("results");
+    Assertions.assertTrue(results.isArray(), "results is always a JSON array.");
     Assertions.assertEquals(
-        setOf("sort", "offset", "pageNumber", "pageSize", "paged", "unpaged"),
-        keysOf(pageable),
-        "The nested pageable descriptor is client-visible too.");
-    Assertions.assertEquals(0L, pageable.get("offset").asLong());
-    Assertions.assertEquals(0, pageable.get("pageNumber").asInt());
-    Assertions.assertEquals(50, pageable.get("pageSize").asInt());
-    Assertions.assertTrue(pageable.get("paged").asBoolean());
-    Assertions.assertFalse(pageable.get("unpaged").asBoolean());
-    Assertions.assertEquals(setOf("empty", "sorted", "unsorted"), keysOf(pageable.get("sort")));
+        2,
+        results.size(),
+        "The fixture is deliberately non-empty, so the per-element assertions below cannot pass"
+            + " vacuously on an empty array.");
+    Assertions.assertEquals(
+        "my_view", results.get(0).get("viewId").asText(), "Service order is preserved.");
+    Assertions.assertEquals("my_other_view", results.get(1).get("viewId").asText());
 
-    JsonNode content = page.get("content");
-    Assertions.assertEquals(2, content.size());
-    for (JsonNode element : content) {
+    for (JsonNode element : results) {
       Assertions.assertEquals(
           setOf(
               "viewId",
@@ -451,6 +440,106 @@ public class ViewApiContractTest {
       }
       Assertions.assertEquals(0L, element.get("creationTime").asLong());
     }
+
+    // Gson omits nulls by default, which is what the field-level Jackson omission is chosen to
+    // agree with, so both serializers must publish the same envelope. The nested item difference
+    // (Gson drops the null pointer keys inside an element) is pre-existing and is not asserted.
+    JsonNode gsonPayload = parse(listResponse.toJson());
+    Assertions.assertEquals(
+        setOf("results"),
+        keysOf(gsonPayload),
+        "toJson() must not disagree with the Jackson envelope, which it would if the declared"
+            + " field still carried page metadata.");
+    Assertions.assertEquals(
+        2, gsonPayload.get("results").size(), "Both serializers preserve every element.");
+    Assertions.assertEquals("my_view", gsonPayload.get("results").get(0).get("viewId").asText());
+    Assertions.assertEquals(
+        "my_other_view", gsonPayload.get("results").get(1).get("viewId").asText());
+  }
+
+  /**
+   * The non-terminal shape. The token is the service's own value carried verbatim, and it is the
+   * only signal a client may use to decide whether to make another request.
+   */
+  @Test
+  public void testNonTerminalListResponseCarriesTheServiceTokenVerbatim() {
+    GetAllViewsResponseBody listResponse = ViewModelConstants.listResponseWithNextPageToken();
+
+    Assertions.assertEquals(ViewModelConstants.NEXT_PAGE_TOKEN, listResponse.getNextPageToken());
+
+    JsonNode json = MAPPER.valueToTree(listResponse);
+    Assertions.assertEquals(
+        setOf("results", "nextPageToken"),
+        keysOf(json),
+        "A continuing response adds exactly one key. No count, offset, hasMore or page number"
+            + " accompanies it.");
+    Assertions.assertEquals(
+        ViewModelConstants.NEXT_PAGE_TOKEN,
+        json.get("nextPageToken").asText(),
+        "The token is opaque: it is serialized as the string the service produced, unencoded and"
+            + " untrimmed.");
+    Assertions.assertEquals(2, json.get("results").size());
+
+    JsonNode gsonPayload = parse(listResponse.toJson());
+    Assertions.assertEquals(setOf("results", "nextPageToken"), keysOf(gsonPayload));
+    Assertions.assertEquals(
+        ViewModelConstants.NEXT_PAGE_TOKEN, gsonPayload.get("nextPageToken").asText());
+  }
+
+  /**
+   * An empty page is a legitimate response, and it is not by itself terminal. Both serializers must
+   * emit the empty array rather than dropping the key or writing null, so a client can always read
+   * {@code results} without a null check.
+   */
+  @Test
+  public void testEmptyResultsStaySerializedAsAnArrayInBothSerializers() {
+    GetAllViewsResponseBody emptyNonTerminal =
+        GetAllViewsResponseBody.builder()
+            .results(Collections.emptyList())
+            .nextPageToken(ViewModelConstants.NEXT_PAGE_TOKEN)
+            .build();
+
+    JsonNode json = MAPPER.valueToTree(emptyNonTerminal);
+    Assertions.assertEquals(setOf("results", "nextPageToken"), keysOf(json));
+    Assertions.assertTrue(json.get("results").isArray());
+    Assertions.assertEquals(
+        0,
+        json.get("results").size(),
+        "An empty page must serialize as [], never as an omitted key or a JSON null.");
+    Assertions.assertEquals(
+        ViewModelConstants.NEXT_PAGE_TOKEN,
+        json.get("nextPageToken").asText(),
+        "Emptiness is not exhaustion: the token still tells the client to continue.");
+
+    JsonNode gsonPayload = parse(emptyNonTerminal.toJson());
+    Assertions.assertEquals(setOf("results", "nextPageToken"), keysOf(gsonPayload));
+    Assertions.assertTrue(gsonPayload.get("results").isArray());
+    Assertions.assertEquals(0, gsonPayload.get("results").size());
+  }
+
+  /**
+   * {@code results} is required, so a missing list is a construction error rather than a response
+   * that serializes as null and forces every client into a null check.
+   */
+  @Test
+  public void testListResponseCannotBeBuiltWithoutResults() {
+    Assertions.assertThrows(
+        NullPointerException.class,
+        () -> GetAllViewsResponseBody.builder().build(),
+        "Omitting results entirely must fail loudly at construction.");
+    Assertions.assertThrows(
+        NullPointerException.class,
+        () ->
+            GetAllViewsResponseBody.builder()
+                .results(null)
+                .nextPageToken(ViewModelConstants.NEXT_PAGE_TOKEN)
+                .build(),
+        "An explicitly null results list is the same defect and must not build either.");
+  }
+
+  /** Reads a Gson payload back through Jackson so both serializers can be compared as trees. */
+  private static JsonNode parse(String payload) {
+    return Assertions.assertDoesNotThrow(() -> MAPPER.readTree(payload));
   }
 
   @Test

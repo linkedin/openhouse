@@ -128,14 +128,18 @@ public class ViewsValidatorTest {
                 ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID));
 
     assertDoesNotThrow(
-        () -> viewsApiValidator.validateGetAllViews(ViewModelConstants.DATABASE_ID, 0, 50, null),
-        "The controller's default paging values must pass unchanged.");
+        () -> viewsApiValidator.validateGetAllViews(ViewModelConstants.DATABASE_ID, null, 50, null),
+        "The controller's defaults, an absent continuation token and a count of 50, must pass"
+            + " unchanged.");
 
     assertDoesNotThrow(
         () ->
             viewsApiValidator.validateGetAllViews(
-                ViewModelConstants.DATABASE_ID, 3, 10000, "viewId"),
-        "A single sort field and a large page size are both legal: view paging deliberately has no"
+                ViewModelConstants.DATABASE_ID,
+                ViewModelConstants.REQUEST_PAGE_TOKEN,
+                10000,
+                "viewId"),
+        "A single sort field and a large count are both legal: view listing deliberately has no"
             + " upper size cap, matching the shared table paging rules.");
   }
 
@@ -690,24 +694,89 @@ public class ViewsValidatorTest {
         "baseMetadataLocation : is required and cannot be blank on PUT");
   }
 
-  @Test
-  public void validateGetAllViewsRejectsInvalidPagingAndCompositeSort() {
+  /**
+   * The token is opaque. The API has no charset, length, grammar, origin or expiry rule for it, and
+   * commas and colons are only meaningful in {@code sortBy}, so every non-blank form is accepted
+   * and forwarded unchanged.
+   */
+  @ParameterizedTest
+  @ValueSource(strings = {"null", "42", "  padded  ", "a,b", "a:b", INITIAL_TABLE_VERSION})
+  public void validateGetAllViewsAcceptsEveryNonBlankContinuationToken(String token) {
+    assertDoesNotThrow(
+        () ->
+            viewsApiValidator.validateGetAllViews(ViewModelConstants.DATABASE_ID, token, 50, null));
+  }
+
+  /**
+   * A blank token is a client defect rather than an implicit request for the first page: silently
+   * restarting the traversal would loop such a client forever.
+   */
+  @ParameterizedTest
+  @ValueSource(strings = {"", " ", "\t"})
+  public void validateGetAllViewsRejectsABlankContinuationToken(String blankToken) {
     assertRejected(
-        () -> viewsApiValidator.validateGetAllViews(ViewModelConstants.DATABASE_ID, -1, 50, null),
+        () ->
+            viewsApiValidator.validateGetAllViews(
+                ViewModelConstants.DATABASE_ID, blankToken, 50, null),
         ViewErrorCode.INVALID_VIEW_DEFINITION,
-        "page : provided -1, cannot be negative");
+        "pageToken : cannot be blank when provided");
+  }
+
+  @Test
+  public void validateGetAllViewsRejectsNonPositiveCountsAndCompositeSort() {
+    assertRejected(
+        () -> viewsApiValidator.validateGetAllViews(ViewModelConstants.DATABASE_ID, null, 0, null),
+        ViewErrorCode.INVALID_VIEW_DEFINITION,
+        "size : must be greater than 0");
 
     assertRejected(
-        () -> viewsApiValidator.validateGetAllViews(ViewModelConstants.DATABASE_ID, 0, 0, null),
+        () -> viewsApiValidator.validateGetAllViews(ViewModelConstants.DATABASE_ID, null, -1, null),
         ViewErrorCode.INVALID_VIEW_DEFINITION,
-        "size : provided 0, must be greater than 0");
+        "size : must be greater than 0");
 
     assertRejected(
         () ->
             viewsApiValidator.validateGetAllViews(
-                ViewModelConstants.DATABASE_ID, 0, 50, "viewId,databaseId"),
+                ViewModelConstants.DATABASE_ID, null, 50, "viewId,databaseId"),
         ViewErrorCode.INVALID_VIEW_DEFINITION,
-        "sortBy : provided viewId,databaseId, does not support multiple sort fields or directions");
+        "sortBy : does not support multiple sort fields or directions");
+
+    assertRejected(
+        () ->
+            viewsApiValidator.validateGetAllViews(
+                ViewModelConstants.DATABASE_ID, null, 50, "viewId:asc"),
+        ViewErrorCode.INVALID_VIEW_DEFINITION,
+        "sortBy : does not support multiple sort fields or directions");
+  }
+
+  /**
+   * The list messages are fixed. Unlike the shared pageable helper they never echo the count, the
+   * sort field or the token, because the text is copied into the error body and the service audit
+   * event.
+   */
+  @Test
+  public void validateGetAllViewsReportsEveryStructuralFailureTogether() {
+    ViewRequestValidationFailureException exception =
+        Assertions.assertThrows(
+            ViewRequestValidationFailureException.class,
+            () ->
+                viewsApiValidator.validateGetAllViews(
+                    ViewModelConstants.DATABASE_ID, "  ", 0, "viewId:asc"));
+
+    Assertions.assertEquals(
+        "pageToken : cannot be blank when provided; size : must be greater than 0; sortBy : does"
+            + " not support multiple sort fields or directions",
+        exception.getMessage());
+
+    ViewRequestValidationFailureException withBadDatabase =
+        Assertions.assertThrows(
+            ViewRequestValidationFailureException.class,
+            () -> viewsApiValidator.validateGetAllViews("%%", null, 0, null));
+    Assertions.assertTrue(
+        withBadDatabase.getMessage().contains("databaseId"),
+        "Identifier validation on this route is unchanged and still accumulates with the list"
+            + " rules.");
+    Assertions.assertTrue(withBadDatabase.getMessage().contains("size : must be greater than 0"));
   }
 
   /** Failures accumulate, so a client sees every structural problem in one response. */

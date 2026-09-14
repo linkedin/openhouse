@@ -1,19 +1,24 @@
 package com.linkedin.openhouse.tables.mock.mapper;
 
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllViewsResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetViewResponseBody;
 import com.linkedin.openhouse.tables.dto.mapper.ViewsMapper;
 import com.linkedin.openhouse.tables.model.ViewDto;
+import com.linkedin.openhouse.tables.model.ViewListResult;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
 
 /** Golden-path mapping coverage for {@link ViewsMapper}. */
 @SpringBootTest
@@ -79,27 +84,127 @@ public class ViewsMapperTest {
         ViewModelConstants.DISTINCT_VIEW_VERSION, responseBody.getViewVersion());
   }
 
+  /**
+   * The list mapping preserves the service's order and its token. The token is opaque, so the
+   * mapper must copy it rather than inspect, trim or regenerate it.
+   */
   @Test
-  public void testViewDtoPageMapsToSparseResponsePagePreservingMetadata() {
-    List<ViewDto> content =
+  public void testViewListResultMapsToTheResponseEnvelopePreservingOrderAndToken() {
+    List<ViewDto> results =
         Arrays.asList(
-            ViewDto.builder().viewId("my_view").databaseId(ViewModelConstants.DATABASE_ID).build(),
-            ViewDto.builder()
-                .viewId("my_other_view")
-                .databaseId(ViewModelConstants.DATABASE_ID)
-                .build());
-    Page<ViewDto> dtoPage = new PageImpl<>(content, PageRequest.of(1, 2), 7);
+            ViewModelConstants.sparseListDto("my_view"),
+            ViewModelConstants.sparseListDto("my_other_view"));
+    ViewListResult serviceResult =
+        ViewListResult.builder()
+            .results(results)
+            .nextPageToken(ViewModelConstants.NEXT_PAGE_TOKEN)
+            .build();
 
-    Page<GetViewResponseBody> responsePage = viewsMapper.toGetViewResponseBodyPage(dtoPage);
+    GetAllViewsResponseBody responseBody = viewsMapper.toGetAllViewsResponseBody(serviceResult);
+
+    Assertions.assertEquals(ViewModelConstants.sparseListElements(), responseBody.getResults());
+    Assertions.assertEquals("my_view", responseBody.getResults().get(0).getViewId());
+    Assertions.assertEquals(
+        "my_other_view",
+        responseBody.getResults().get(1).getViewId(),
+        "Order is the service's; the mapper does not sort.");
+    Assertions.assertEquals(ViewModelConstants.NEXT_PAGE_TOKEN, responseBody.getNextPageToken());
+    Assertions.assertNull(
+        responseBody.getResults().get(0).getMetadataLocation(),
+        "List elements stay sparse: only identifiers are populated.");
+  }
+
+  /** Neither exhaustion nor continuation may be inferred from the number of elements. */
+  @Test
+  public void testTokenPresenceFollowsTheServiceRatherThanTheResultCount() {
+    Assertions.assertNull(
+        viewsMapper
+            .toGetAllViewsResponseBody(ViewModelConstants.viewListResult())
+            .getNextPageToken(),
+        "A full terminal page has no token.");
+
+    GetAllViewsResponseBody emptyTerminal =
+        viewsMapper.toGetAllViewsResponseBody(
+            ViewListResult.builder().results(Collections.emptyList()).build());
+    Assertions.assertEquals(Collections.emptyList(), emptyTerminal.getResults());
+    Assertions.assertNull(emptyTerminal.getNextPageToken());
+
+    GetAllViewsResponseBody emptyContinuing =
+        viewsMapper.toGetAllViewsResponseBody(
+            ViewModelConstants.emptyViewListResultWithNextPageToken());
+    Assertions.assertEquals(Collections.emptyList(), emptyContinuing.getResults());
+    Assertions.assertEquals(
+        ViewModelConstants.NEXT_PAGE_TOKEN,
+        emptyContinuing.getNextPageToken(),
+        "An empty page keeps the service's token: emptiness is not exhaustion.");
+  }
+
+  @Test
+  public void testServiceResultCannotOmitItsResults() {
+    Assertions.assertThrows(
+        NullPointerException.class,
+        () -> ViewListResult.builder().nextPageToken(ViewModelConstants.NEXT_PAGE_TOKEN).build(),
+        "A missing list is a construction error, not an accidental successful empty page.");
+  }
+
+  /**
+   * Outgoing tokens the service is allowed to produce. Each is copied byte for byte: padding is not
+   * trimmed, reserved characters are not re-encoded, and the literal text {@code "null"} is a
+   * perfectly good token rather than a way of saying the traversal finished.
+   */
+  @ParameterizedTest(name = "nextPageToken={0}")
+  @ValueSource(strings = {"  padded  ", "a+b/c=%", "null", "\tleading-tab"})
+  public void testOutgoingTokenIsPreservedVerbatim(String token) {
+    GetAllViewsResponseBody responseBody =
+        viewsMapper.toGetAllViewsResponseBody(
+            ViewListResult.builder()
+                .results(ViewModelConstants.sparseListDtos())
+                .nextPageToken(token)
+                .build());
+
+    Assertions.assertEquals(token, responseBody.getNextPageToken());
+    Assertions.assertEquals(
+        2, responseBody.getResults().size(), "The results are unaffected by the token's form.");
+  }
+
+  private static Stream<Arguments> invalidServiceResults() {
+    return Stream.of(
+        Arguments.of("no result at all", null, "viewsService returned no result"),
+        Arguments.of(
+            "null results list",
+            ViewModelConstants.invalidResultWithNullResults(),
+            "viewsService returned an invalid results list"),
+        Arguments.of(
+            "null element",
+            ViewModelConstants.invalidResultWithNullElement(),
+            "viewsService returned an invalid results list"),
+        Arguments.of(
+            "whitespace-only continuation token",
+            ViewModelConstants.invalidResultWithBlankNextPageToken(),
+            "viewsService returned a blank continuation token"),
+        Arguments.of(
+            "empty continuation token",
+            ViewModelConstants.invalidResultWithEmptyNextPageToken(),
+            "viewsService returned a blank continuation token"));
+  }
+
+  /**
+   * Output the service is not allowed to produce. The mapper refuses it with a fixed message rather
+   * than mapping it into a response that would tell a client the traversal had finished.
+   */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("invalidServiceResults")
+  public void testInvalidServiceOutputIsRejectedRatherThanMapped(
+      String name, ViewListResult invalidResult, String expectedMessage) {
+    IllegalStateException exception =
+        Assertions.assertThrows(
+            IllegalStateException.class,
+            () -> viewsMapper.toGetAllViewsResponseBody(invalidResult));
 
     Assertions.assertEquals(
-        ViewModelConstants.sparseListPage().getContent(), responsePage.getContent());
-    Assertions.assertEquals(1, responsePage.getNumber());
-    Assertions.assertEquals(2, responsePage.getSize());
-    Assertions.assertEquals(7, responsePage.getTotalElements());
-    Assertions.assertEquals(4, responsePage.getTotalPages());
-    Assertions.assertNull(
-        responsePage.getContent().get(0).getMetadataLocation(),
-        "List elements stay sparse: only identifiers are populated.");
+        expectedMessage,
+        exception.getMessage(),
+        "The message is fixed and carries no returned identifier or token, because it reaches the"
+            + " error body and the service audit event.");
   }
 }

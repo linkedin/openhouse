@@ -9,6 +9,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetViewResponseBody;
 import com.linkedin.openhouse.tables.api.validator.ViewsApiValidator;
 import com.linkedin.openhouse.tables.dto.mapper.ViewsMapper;
 import com.linkedin.openhouse.tables.model.ViewDto;
+import com.linkedin.openhouse.tables.model.ViewListResult;
 import com.linkedin.openhouse.tables.services.ViewsService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.util.Pair;
@@ -44,16 +45,13 @@ public class OpenHouseViewsApiHandler implements ViewsApiHandler {
 
   @Override
   public ApiResponse<GetAllViewsResponseBody> getAllViews(
-      String databaseId, int page, int size, String sortBy, String actingPrincipal) {
-    viewsApiValidator.validateGetAllViews(databaseId, page, size, sortBy);
+      String databaseId, String pageToken, int size, String sortBy, String actingPrincipal) {
+    viewsApiValidator.validateGetAllViews(databaseId, pageToken, size, sortBy);
+    ViewListResult listResult =
+        viewsService.getAllViews(databaseId, pageToken, size, sortBy, actingPrincipal);
     return ApiResponse.<GetAllViewsResponseBody>builder()
         .httpStatus(HttpStatus.OK)
-        .responseBody(
-            GetAllViewsResponseBody.builder()
-                .pageResults(
-                    viewsMapper.toGetViewResponseBodyPage(
-                        viewsService.getAllViews(databaseId, page, size, sortBy, actingPrincipal)))
-                .build())
+        .responseBody(viewsMapper.toGetAllViewsResponseBody(listResult))
         .build();
   }
 

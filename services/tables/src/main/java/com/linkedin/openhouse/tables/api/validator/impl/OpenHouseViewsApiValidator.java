@@ -97,11 +97,35 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
     failures.throwIfPresent();
   }
 
+  /**
+   * Structural rules for the list route. The shared pageable helper is deliberately not reused: it
+   * requires a page index this route no longer has, and its messages echo caller-supplied values.
+   * These three are fixed and value-free.
+   */
+  private static final String BLANK_PAGE_TOKEN_MESSAGE =
+      "pageToken : cannot be blank when provided";
+
+  private static final String NON_POSITIVE_SIZE_MESSAGE = "size : must be greater than 0";
+
+  private static final String COMPOSITE_SORT_MESSAGE =
+      "sortBy : does not support multiple sort fields or directions";
+
   @Override
-  public void validateGetAllViews(String databaseId, int page, int size, String sortBy) {
+  public void validateGetAllViews(String databaseId, String pageToken, int size, String sortBy) {
     ViewValidationFailures failures = new ViewValidationFailures();
     validateDatabaseId(databaseId, failures);
-    ApiValidatorUtil.validatePageable(page, size, sortBy, failures.getMessages());
+    // A blank token is a client defect, not a request for the first page: restarting the traversal
+    // silently would loop such a client forever.
+    if (pageToken != null && StringUtils.isBlank(pageToken)) {
+      failures.addGeneric(BLANK_PAGE_TOKEN_MESSAGE);
+    }
+    if (size <= 0) {
+      failures.addGeneric(NON_POSITIVE_SIZE_MESSAGE);
+    }
+    // Field names are not allowlisted here: which fields can be sorted on is a listing concern.
+    if (sortBy != null && (sortBy.contains(",") || sortBy.contains(":"))) {
+      failures.addGeneric(COMPOSITE_SORT_MESSAGE);
+    }
     failures.throwIfPresent();
   }
 
@@ -537,10 +561,6 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
     private final List<String> messages = new ArrayList<>();
     private boolean schemaFailure;
     private boolean dialectFailure;
-
-    private List<String> getMessages() {
-      return messages;
-    }
 
     private void addGeneric(String message) {
       messages.add(message);

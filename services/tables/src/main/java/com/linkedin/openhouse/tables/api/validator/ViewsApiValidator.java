@@ -23,12 +23,16 @@ public interface ViewsApiValidator {
   /**
    * Validate a request to list views in a database.
    *
+   * <p>The token is opaque: it is checked only for being non-blank when supplied. Its origin,
+   * grammar, age and compatibility with this database and sort cannot be checked without the
+   * listing implementation that produces it.
+   *
    * @param databaseId path database identifier
-   * @param page zero-based page index
-   * @param size page size
+   * @param pageToken opaque continuation token, or null for the first page
+   * @param size maximum number of results requested
    * @param sortBy optional single sort field
    */
-  void validateGetAllViews(String databaseId, int page, int size, String sortBy);
+  void validateGetAllViews(String databaseId, String pageToken, int size, String sortBy);
 
   /**
    * Validate a POST request to create a view.

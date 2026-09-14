@@ -34,6 +34,11 @@ import org.springframework.stereotype.Component;
  * documented identifier signal instead: a PUT for {@link #PUT_CREATES_VIEW_ID} reports 201 CREATED
  * and every other view id reports 200 OK. Database ids select errors independently of this
  * success-status signal.
+ *
+ * <p><b>Fixture:</b> the list route always answers with the same terminal fixture. It runs no
+ * pagination of its own: it does not read the token, the count or the sort, and never invents a
+ * continuation. Token-walk behaviour is covered against a mocked service in {@code
+ * ViewsPaginationControllerTest}.
  */
 @Component
 @Primary
@@ -108,7 +113,7 @@ public class MockViewsApiHandler implements ViewsApiHandler {
 
   @Override
   public ApiResponse<GetAllViewsResponseBody> getAllViews(
-      String databaseId, int page, int size, String sortBy, String actingPrincipal) {
+      String databaseId, String pageToken, int size, String sortBy, String actingPrincipal) {
     throwIfErrorDatabaseId(databaseId);
     return ApiResponse.<GetAllViewsResponseBody>builder()
         .httpStatus(HttpStatus.OK)

@@ -33,18 +33,22 @@ public interface ViewsApiHandler {
   /**
    * List views in a database.
    *
-   * <p>Failure outcomes: 400 for invalid identifiers or pagination parameters; 404 for a missing
-   * database or disabled views.
+   * <p>Failure outcomes: 400 for invalid identifiers, a blank token, a non-positive count or a
+   * composite sort; 404 for a missing database or disabled views.
+   *
+   * <p>The response carries at most {@code size} results plus the service's continuation token. A
+   * client continues while that token is present, even when a page is short or empty, and stops
+   * when it is absent. Nothing here interprets, derives or validates a token.
    *
    * @param databaseId database identifier
-   * @param page zero-based page index
-   * @param size page size
+   * @param pageToken opaque continuation token from a previous response, or null for the first page
+   * @param size maximum number of results requested
    * @param sortBy optional single sort field
    * @param actingPrincipal authenticated user
-   * @return 200 with a page of sparse identifier-only view bodies
+   * @return 200 with sparse identifier-only view bodies and an optional continuation token
    */
   ApiResponse<GetAllViewsResponseBody> getAllViews(
-      String databaseId, int page, int size, String sortBy, String actingPrincipal);
+      String databaseId, String pageToken, int size, String sortBy, String actingPrincipal);
 
   /**
    * Create a view.

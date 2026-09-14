@@ -10,10 +10,14 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllViewsResponseBod
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetViewResponseBody;
 import com.linkedin.openhouse.tables.api.validator.ViewsApiValidator;
 import com.linkedin.openhouse.tables.dto.mapper.ViewsMapper;
+import com.linkedin.openhouse.tables.exception.ViewApiException;
+import com.linkedin.openhouse.tables.exception.ViewErrorCode;
+import com.linkedin.openhouse.tables.exception.ViewRequestValidationFailureException;
+import com.linkedin.openhouse.tables.exception.ViewValidationErrorCode;
 import com.linkedin.openhouse.tables.model.ViewDto;
+import com.linkedin.openhouse.tables.model.ViewListResult;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
 import com.linkedin.openhouse.tables.services.ViewsService;
-import java.util.Collections;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,9 +27,6 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.util.Pair;
 import org.springframework.http.HttpStatus;
 
@@ -94,28 +95,94 @@ public class OpenHouseViewsApiHandlerTest {
   }
 
   @Test
-  public void getAllViewsPassesThroughTheMappedPageAndReturns200() {
-    Page<ViewDto> servicePage =
-        new PageImpl<>(Collections.singletonList(viewDto), PageRequest.of(0, 50), 1);
-    Page<GetViewResponseBody> mappedPage = ViewModelConstants.sparseListPage();
+  public void getAllViewsForwardsTheServiceResultToTheMapperAndReturns200() {
+    ViewListResult serviceResult = ViewModelConstants.viewListResultWithNextPageToken();
+    GetAllViewsResponseBody mappedResponse = ViewModelConstants.listResponseWithNextPageToken();
 
-    when(viewsService.getAllViews(ViewModelConstants.DATABASE_ID, 0, 50, null, ACTING_PRINCIPAL))
-        .thenReturn(servicePage);
-    when(viewsMapper.toGetViewResponseBodyPage(servicePage)).thenReturn(mappedPage);
+    when(viewsService.getAllViews(
+            ViewModelConstants.DATABASE_ID,
+            ViewModelConstants.REQUEST_PAGE_TOKEN,
+            2,
+            "viewId",
+            ACTING_PRINCIPAL))
+        .thenReturn(serviceResult);
+    when(viewsMapper.toGetAllViewsResponseBody(serviceResult)).thenReturn(mappedResponse);
 
     ApiResponse<GetAllViewsResponseBody> apiResponse =
-        handler.getAllViews(ViewModelConstants.DATABASE_ID, 0, 50, null, ACTING_PRINCIPAL);
+        handler.getAllViews(
+            ViewModelConstants.DATABASE_ID,
+            ViewModelConstants.REQUEST_PAGE_TOKEN,
+            2,
+            "viewId",
+            ACTING_PRINCIPAL);
 
-    InOrder inOrder = Mockito.inOrder(viewsApiValidator, viewsService);
+    InOrder inOrder = Mockito.inOrder(viewsApiValidator, viewsService, viewsMapper);
     inOrder
         .verify(viewsApiValidator)
-        .validateGetAllViews(ViewModelConstants.DATABASE_ID, 0, 50, null);
+        .validateGetAllViews(
+            ViewModelConstants.DATABASE_ID, ViewModelConstants.REQUEST_PAGE_TOKEN, 2, "viewId");
     inOrder
         .verify(viewsService)
-        .getAllViews(ViewModelConstants.DATABASE_ID, 0, 50, null, ACTING_PRINCIPAL);
+        .getAllViews(
+            ViewModelConstants.DATABASE_ID,
+            ViewModelConstants.REQUEST_PAGE_TOKEN,
+            2,
+            "viewId",
+            ACTING_PRINCIPAL);
+    inOrder.verify(viewsMapper).toGetAllViewsResponseBody(serviceResult);
+    inOrder.verifyNoMoreInteractions();
 
     Assertions.assertEquals(HttpStatus.OK, apiResponse.getHttpStatus());
-    Assertions.assertSame(mappedPage, apiResponse.getResponseBody().getPageResults());
+    Assertions.assertSame(
+        mappedResponse,
+        apiResponse.getResponseBody(),
+        "The handler forwards the mapper's response object as it is: it does not rebuild the"
+            + " envelope, re-fetch to fill a short page, or derive a token of its own.");
+  }
+
+  @Test
+  public void getAllViewsForwardsAnAbsentTokenAsNull() {
+    when(viewsService.getAllViews(ViewModelConstants.DATABASE_ID, null, 50, null, ACTING_PRINCIPAL))
+        .thenReturn(ViewModelConstants.viewListResult());
+    when(viewsMapper.toGetAllViewsResponseBody(Mockito.any()))
+        .thenReturn(ViewModelConstants.listResponse());
+
+    handler.getAllViews(ViewModelConstants.DATABASE_ID, null, 50, null, ACTING_PRINCIPAL);
+
+    Mockito.verify(viewsApiValidator)
+        .validateGetAllViews(ViewModelConstants.DATABASE_ID, null, 50, null);
+    Mockito.verify(viewsService)
+        .getAllViews(ViewModelConstants.DATABASE_ID, null, 50, null, ACTING_PRINCIPAL);
+  }
+
+  @Test
+  public void getAllViewsStopsAtAValidationFailure() {
+    Mockito.doThrow(
+            new ViewRequestValidationFailureException(
+                ViewValidationErrorCode.INVALID_VIEW_DEFINITION,
+                "pageToken : cannot be blank when provided"))
+        .when(viewsApiValidator)
+        .validateGetAllViews(ViewModelConstants.DATABASE_ID, "   ", 50, null);
+
+    Assertions.assertThrows(
+        ViewRequestValidationFailureException.class,
+        () ->
+            handler.getAllViews(ViewModelConstants.DATABASE_ID, "   ", 50, null, ACTING_PRINCIPAL));
+
+    Mockito.verifyNoInteractions(viewsService, viewsMapper);
+  }
+
+  @Test
+  public void getAllViewsDoesNotMapWhenTheServiceFails() {
+    when(viewsService.getAllViews(ViewModelConstants.DATABASE_ID, null, 50, null, ACTING_PRINCIPAL))
+        .thenThrow(new ViewApiException(ViewErrorCode.VIEWS_DISABLED, "Views are disabled"));
+
+    Assertions.assertThrows(
+        ViewApiException.class,
+        () -> handler.getAllViews(ViewModelConstants.DATABASE_ID, null, 50, null, ACTING_PRINCIPAL),
+        "A failing service propagates; the handler must not fall back to a successful empty page.");
+
+    Mockito.verifyNoInteractions(viewsMapper);
   }
 
   @Test

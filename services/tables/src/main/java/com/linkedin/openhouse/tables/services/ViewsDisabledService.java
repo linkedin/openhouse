@@ -4,7 +4,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequest
 import com.linkedin.openhouse.tables.exception.ViewApiException;
 import com.linkedin.openhouse.tables.exception.ViewErrorCode;
 import com.linkedin.openhouse.tables.model.ViewDto;
-import org.springframework.data.domain.Page;
+import com.linkedin.openhouse.tables.model.ViewListResult;
 import org.springframework.data.util.Pair;
 import org.springframework.stereotype.Component;
 
@@ -27,8 +27,8 @@ public class ViewsDisabledService implements ViewsService {
   }
 
   @Override
-  public Page<ViewDto> getAllViews(
-      String databaseId, int page, int size, String sortBy, String actingPrincipal) {
+  public ViewListResult getAllViews(
+      String databaseId, String pageToken, int size, String sortBy, String actingPrincipal) {
     throw viewsDisabled();
   }
 

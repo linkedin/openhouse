@@ -29,7 +29,11 @@ public class ViewsDisabledServiceTest {
 
   private static final String ACTING_PRINCIPAL = "DUMMY_ANONYMOUS_USER";
 
-  /** One entry per {@link ViewsService} method, so a new method cannot silently skip the gate. */
+  /**
+   * One entry per {@link ViewsService} method, so a new method cannot silently skip the gate. The
+   * list route appears twice because a continuation request must be refused exactly like a first
+   * one: an opaque token is not a way past the disabled gate.
+   */
   private static Stream<Arguments> allServiceOperations() {
     return Stream.of(
         Arguments.of(
@@ -41,11 +45,21 @@ public class ViewsDisabledServiceTest {
                         ViewModelConstants.VIEW_ID,
                         ACTING_PRINCIPAL)),
         Arguments.of(
-            "getAllViews",
+            "getAllViews (first request)",
             (ServiceOperation)
                 service ->
                     service.getAllViews(
-                        ViewModelConstants.DATABASE_ID, 0, 50, null, ACTING_PRINCIPAL)),
+                        ViewModelConstants.DATABASE_ID, null, 50, null, ACTING_PRINCIPAL)),
+        Arguments.of(
+            "getAllViews (continuation)",
+            (ServiceOperation)
+                service ->
+                    service.getAllViews(
+                        ViewModelConstants.DATABASE_ID,
+                        ViewModelConstants.REQUEST_PAGE_TOKEN,
+                        2,
+                        "viewId",
+                        ACTING_PRINCIPAL)),
         Arguments.of(
             "putView",
             (ServiceOperation)
