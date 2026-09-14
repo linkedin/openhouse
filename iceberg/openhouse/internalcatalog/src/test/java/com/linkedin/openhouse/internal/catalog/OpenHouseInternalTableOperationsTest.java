@@ -180,10 +180,85 @@ public class OpenHouseInternalTableOperationsTest {
     }
   }
 
-  /**
-   * Tests committing additional snapshots to a table that already has existing snapshots. Verifies
-   * that only new snapshots are appended to the table metadata.
-   */
+  /** The commit-time stats hook fires once on a successful commit, with the committed metadata. */
+  @Test
+  void testDoCommitInvokesTableStatsPublisherOnSuccess() throws IOException {
+    TableStatsPublisher mockPublisher = Mockito.mock(TableStatsPublisher.class);
+    OpenHouseInternalTableOperations opsWithPublisher =
+        new OpenHouseInternalTableOperations(
+            mockHouseTableRepository,
+            new HadoopFileIO(new Configuration()),
+            mockHouseTableMapper,
+            TEST_TABLE_IDENTIFIER,
+            new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList()),
+            fileIOManager,
+            tableMetadataCache,
+            mockPublisher);
+
+    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      properties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(testSnapshots));
+      properties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.createMainBranchRefPointingTo(
+                  testSnapshots.get(testSnapshots.size() - 1))));
+
+      TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+      opsWithPublisher.doCommit(BASE_TABLE_METADATA, metadata);
+
+      Mockito.verify(mockPublisher, Mockito.times(1))
+          .publishOnCommit(Mockito.eq(TEST_TABLE_IDENTIFIER), tblMetadataCaptor.capture());
+      Assertions.assertTrue(
+          tblMetadataCaptor
+              .getValue()
+              .properties()
+              .containsKey(getCanonicalFieldName("tableLocation")));
+    }
+  }
+
+  /** A throwing stats publisher must never fail an otherwise-successful commit. */
+  @Test
+  void testDoCommitSucceedsWhenTableStatsPublisherThrows() throws IOException {
+    TableStatsPublisher throwingPublisher = Mockito.mock(TableStatsPublisher.class);
+    Mockito.doThrow(new RuntimeException("boom"))
+        .when(throwingPublisher)
+        .publishOnCommit(Mockito.any(), Mockito.any());
+    OpenHouseInternalTableOperations opsWithPublisher =
+        new OpenHouseInternalTableOperations(
+            mockHouseTableRepository,
+            new HadoopFileIO(new Configuration()),
+            mockHouseTableMapper,
+            TEST_TABLE_IDENTIFIER,
+            new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList()),
+            fileIOManager,
+            tableMetadataCache,
+            throwingPublisher);
+
+    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      properties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(testSnapshots));
+      properties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.createMainBranchRefPointingTo(
+                  testSnapshots.get(testSnapshots.size() - 1))));
+
+      TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+      // Commit must not throw despite the publisher failing, and HTS save must still happen.
+      Assertions.assertDoesNotThrow(() -> opsWithPublisher.doCommit(BASE_TABLE_METADATA, metadata));
+      Mockito.verify(throwingPublisher, Mockito.times(1))
+          .publishOnCommit(Mockito.eq(TEST_TABLE_IDENTIFIER), Mockito.any());
+      Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+    }
+  }
+
   @Test
   void testDoCommitAppendSnapshotsExistingVersion() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
