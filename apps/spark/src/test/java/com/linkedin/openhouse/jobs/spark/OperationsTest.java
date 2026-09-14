@@ -1275,8 +1275,72 @@ public class OperationsTest extends OpenHouseSparkITest {
           snapshotIds.size() > 1, "Should have multiple snapshots after inserts and RTAS");
       FileSystem fs = ops.fs();
 
-      // A data manifest is present, but backup is disabled: the shared delete handler must still
-      // delete the expired data files directly rather than moving them to the backup directory.
+      // No data manifest earmarks the partition and backup is disabled, so the shared delete
+      // handler deletes the expired data files directly rather than moving them to the backup dir.
+      ops.expireSnapshots(table, maxAge, timeGranularity, 0, true, false, BACKUP_DIR);
+
+      checkSnapshots(table, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+
+      FileStatus[] backedUpDataFiles =
+          fs.globStatus(new Path(table.location(), BACKUP_DIR + "/data/*.orc"));
+      Assertions.assertTrue(
+          backedUpDataFiles == null || backedUpDataFiles.length == 0,
+          "No data files should be backed up when backupEnabled=false and no manifest exists");
+    }
+
+    // restart the app to reload catalog cache
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      checkSnapshots(
+          ops, tableName, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+      ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", sourceName));
+    }
+  }
+
+  // Manifest existence takes precedence over the backup flag: even when backup is disabled for the
+  // SE run, a data manifest earmarking the partition (written by a prior backup-enabled retention
+  // run) causes the expired data files to be moved to the backup dir instead of deleted. This keeps
+  // SE consistent with OFD's backup-manifest check.
+  @Test
+  public void testSnapshotsExpirationManifestPresentBacksUpEvenWhenBackupDisabled()
+      throws Exception {
+    final String tableName = "db.test_es_manifest_precedence";
+    final String sourceName = "db.test_es_manifest_precedence_source";
+    final int numInserts = 3;
+    final int maxAge = 0;
+    final String timeGranularity = "DAYS";
+
+    List<Long> snapshotIds;
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      ops.spark()
+          .sql(
+              String.format(
+                  "CREATE TABLE %s (data string, ts timestamp) USING iceberg", sourceName));
+      ops.spark()
+          .sql(
+              String.format(
+                  "INSERT INTO %s VALUES ('a', current_timestamp()), ('b', current_timestamp())",
+                  sourceName));
+
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, numInserts);
+
+      ops.spark()
+          .sql(
+              String.format(
+                  "ALTER TABLE %s SET TBLPROPERTIES ('replace.enabled'='true')", tableName));
+      ops.spark()
+          .sql(
+              String.format(
+                  "REPLACE TABLE %s USING iceberg AS SELECT * FROM %s", tableName, sourceName));
+
+      Table table = ops.getTable(tableName);
+      snapshotIds = getSnapshotIds(ops, tableName);
+      Assertions.assertTrue(
+          snapshotIds.size() > 1, "Should have multiple snapshots after inserts and RTAS");
+      FileSystem fs = ops.fs();
+
+      // A data manifest earmarks the partition; backup is disabled for this SE run, but manifest
+      // existence takes precedence, so expired data files must be moved to the backup dir.
       Path dataManifestPath =
           new Path(table.location(), BACKUP_DIR + "/data/data_manifest_pre.json");
       fs.createNewFile(dataManifestPath);
@@ -1287,9 +1351,73 @@ public class OperationsTest extends OpenHouseSparkITest {
 
       FileStatus[] backedUpDataFiles =
           fs.globStatus(new Path(table.location(), BACKUP_DIR + "/data/*.orc"));
+      Assertions.assertNotNull(backedUpDataFiles);
       Assertions.assertTrue(
-          backedUpDataFiles == null || backedUpDataFiles.length == 0,
-          "No data files should be backed up when backupEnabled=false");
+          backedUpDataFiles.length > 0,
+          "Expired data files should be backed up when a data manifest exists for the partition,"
+              + " even with backupEnabled=false");
+    }
+
+    // restart the app to reload catalog cache
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      checkSnapshots(
+          ops, tableName, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+      ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", sourceName));
+    }
+  }
+
+  // When backup is enabled for the SE run, all expired data files are preserved (moved to the
+  // backup dir) even if no data manifest exists for their partition.
+  @Test
+  public void testSnapshotsExpirationWithBackupBacksUpEvenWithoutManifest() throws Exception {
+    final String tableName = "db.test_es_backup_no_manifest";
+    final String sourceName = "db.test_es_backup_no_manifest_source";
+    final int numInserts = 3;
+    final int maxAge = 0;
+    final String timeGranularity = "DAYS";
+
+    List<Long> snapshotIds;
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      ops.spark()
+          .sql(
+              String.format(
+                  "CREATE TABLE %s (data string, ts timestamp) USING iceberg", sourceName));
+      ops.spark()
+          .sql(
+              String.format(
+                  "INSERT INTO %s VALUES ('a', current_timestamp()), ('b', current_timestamp())",
+                  sourceName));
+
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, numInserts);
+
+      ops.spark()
+          .sql(
+              String.format(
+                  "ALTER TABLE %s SET TBLPROPERTIES ('replace.enabled'='true')", tableName));
+      ops.spark()
+          .sql(
+              String.format(
+                  "REPLACE TABLE %s USING iceberg AS SELECT * FROM %s", tableName, sourceName));
+
+      Table table = ops.getTable(tableName);
+      snapshotIds = getSnapshotIds(ops, tableName);
+      Assertions.assertTrue(
+          snapshotIds.size() > 1, "Should have multiple snapshots after inserts and RTAS");
+      FileSystem fs = ops.fs();
+
+      // No data manifest exists, but backup is enabled, so all expired data files are preserved by
+      // moving them to the backup dir instead of deleting them.
+      ops.expireSnapshots(table, maxAge, timeGranularity, 0, true, true, BACKUP_DIR);
+
+      checkSnapshots(table, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+
+      FileStatus[] backedUpDataFiles =
+          fs.globStatus(new Path(table.location(), BACKUP_DIR + "/data/*.orc"));
+      Assertions.assertNotNull(backedUpDataFiles);
+      Assertions.assertTrue(
+          backedUpDataFiles.length > 0,
+          "Expired data files should be backed up when backupEnabled=true even without a manifest");
     }
 
     // restart the app to reload catalog cache

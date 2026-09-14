@@ -139,10 +139,10 @@ public final class Operations implements AutoCloseable {
     Map<String, Boolean> dataManifestsCache = new ConcurrentHashMap<>();
     operation =
         operation.deleteWith(
-            // OFD always moves orphan data files to the backup dir when a data manifest exists
-            // for the partition, regardless of whether backup is currently enabled for the OFD
-            // job, so backupEnabled is always passed as true here.
-            buildFileDeleteHandler(table, true, backupDir, dataManifestsCache));
+            // OFD moves an orphan data file to the backup dir only when a data manifest exists for
+            // its partition and never force-backs-up every orphan, so backupEnabled is passed as
+            // false; manifest existence alone (via the OR in buildFileDeleteHandler) drives backup.
+            buildFileDeleteHandler(table, false, backupDir, dataManifestsCache));
     return operation.execute();
   }
 
@@ -152,9 +152,10 @@ public final class Operations implements AutoCloseable {
    * across both jobs rather than diverging as separate implementations.
    *
    * <p>Behavior: metadata.json files are skipped (Iceberg commits own their lifecycle), files
-   * already under the backup directory are skipped, data files are moved to the backup directory
-   * when backup is enabled and a data manifest backup already exists for that partition, otherwise
-   * the file is deleted directly.
+   * already under the backup directory are skipped, a data file is moved to the backup directory
+   * when a data manifest backup already exists for its partition (manifest existence takes
+   * precedence over the flag) or when backup is enabled for the job, otherwise the file is deleted
+   * directly.
    */
   private Consumer<String> buildFileDeleteHandler(
       Table table,
@@ -174,9 +175,10 @@ public final class Operations implements AutoCloseable {
         // files present in .backup dir should not be considered orphan/expired
         log.info("Skipped deleting backup file {}", file);
       } else if (file.contains(dataDirRoot.toString())
-          && backupEnabled
-          && isExistBackupDataManifests(table, file, backupDir, dataManifestsCache)) {
-        // move data files to backup dir if backup is enabled
+          && (isExistBackupDataManifests(table, file, backupDir, dataManifestsCache)
+              || backupEnabled)) {
+        // Move a data file to the backup dir when a data manifest earmarks its partition (manifest
+        // existence takes precedence over the flag) or when backup is enabled for the job.
         backupDataFile(file, table, backupDir);
       } else {
         deleteFile(file);
@@ -462,10 +464,11 @@ public final class Operations implements AutoCloseable {
       boolean backupEnabled,
       String backupDir) {
 
+    // Always route SE through the shared backup handler so the metadata.json / .backup-dir skips
+    // apply and manifest-earmarked files are preserved; backupEnabled governs backup-vs-delete
+    // inside the handler rather than whether the handler is used at all.
     ExpireSnapshots expireSnapshotsAction =
-        backupEnabled
-            ? createExpireSnapshotsActionWithBackup(table, backupDir)
-            : SparkActions.get(spark).expireSnapshots(table);
+        createExpireSnapshotsActionWithBackup(table, backupDir, backupEnabled);
 
     expireSnapshotsAction = expireSnapshotsAction.expireOlderThan(expireBeforeTimestampMs);
 
@@ -481,12 +484,13 @@ public final class Operations implements AutoCloseable {
    * callback (backup-or-delete decision) runs driver-side via Iceberg's internal executor pool, not
    * distributed across Spark executors; only manifest/snapshot planning is distributed.
    */
-  private ExpireSnapshots createExpireSnapshotsActionWithBackup(Table table, String backupDir) {
+  private ExpireSnapshots createExpireSnapshotsActionWithBackup(
+      Table table, String backupDir, boolean backupEnabled) {
     Map<String, Boolean> dataManifestsCache = new ConcurrentHashMap<>();
 
     return SparkActions.get(spark)
         .expireSnapshots(table)
-        .deleteWith(buildFileDeleteHandler(table, true, backupDir, dataManifestsCache));
+        .deleteWith(buildFileDeleteHandler(table, backupEnabled, backupDir, dataManifestsCache));
   }
 
   /*
