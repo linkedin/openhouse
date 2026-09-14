@@ -363,8 +363,6 @@ public class TablesServiceImpl implements TablesService {
         tableDto, tableCreatorUpdater, Privileges.LOCK_ADMIN);
     LockReason reason = createUpdateLockRequestBody.getReason();
     if (reason != null) {
-      authorizationUtils.checkTablePrivilege(
-          tableDto, tableCreatorUpdater, Privileges.SYSTEM_ADMIN);
       checkLockTableGeneration(tableDto, createUpdateLockRequestBody.getExpectedTableUUID());
     }
     LockState existing =
@@ -438,7 +436,6 @@ public class TablesServiceImpl implements TablesService {
     checkReplicaTable(tableDto);
     authorizationUtils.checkLockTablePrivilege(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
     if (reason != null) {
-      authorizationUtils.checkTablePrivilege(tableDto, actingPrincipal, Privileges.SYSTEM_ADMIN);
       checkLockTableGeneration(tableDto, expectedTableUUID);
       if (StringUtils.isBlank(lockOwner)) {
         throw new RequestValidationFailureException("lockOwner is required for a reasoned unlock");

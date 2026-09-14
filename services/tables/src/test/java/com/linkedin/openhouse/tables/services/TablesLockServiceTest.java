@@ -69,14 +69,14 @@ class TablesLockServiceTest {
   }
 
   @Test
-  void cleanupCreationRequiresSystemAdminInAdditionToLegacyPrivilege() {
-    doThrow(new AccessDeniedException("not an admin"))
+  void cleanupCreationUsesExistingLockPrivilege() {
+    doThrow(new AccessDeniedException("not a system admin"))
         .when(service.authorizationUtils)
         .checkTablePrivilege(table, "owner", Privileges.SYSTEM_ADMIN);
-    assertThrows(
-        AccessDeniedException.class,
-        () -> service.createLock("db", "table", cleanupRequest(), "owner"));
-    verify(service.openHouseInternalRepository, never()).save(any());
+    assertDoesNotThrow(() -> service.createLock("db", "table", cleanupRequest(), "owner"));
+    verify(service.authorizationUtils)
+        .checkLockTablePrivilege(table, "owner", Privileges.LOCK_ADMIN);
+    verify(service.openHouseInternalRepository).save(any());
   }
 
   @Test
@@ -89,17 +89,33 @@ class TablesLockServiceTest {
   }
 
   @Test
-  void cleanupUnlockRequiresSystemAdmin() {
+  void tableAdminCanUnlockMatchingCleanupLockWithoutSystemAdmin() {
     table =
         table.toBuilder().policies(Policies.builder().lockState(cleanupLock("owner")).build()).build();
-    doThrow(new AccessDeniedException("not an admin"))
+    doThrow(new AccessDeniedException("not a system admin"))
         .when(service.authorizationUtils)
         .checkTablePrivilege(table, "owner", Privileges.SYSTEM_ADMIN);
+    assertDoesNotThrow(
+        () ->
+            service.deleteLock(
+                "db", "table", "owner", LockReason.TIER3_AUTO_CLEANUP, "generation", "owner"));
+    verify(service.authorizationUtils)
+        .checkLockTablePrivilege(table, "owner", Privileges.LOCK_ADMIN);
+    verify(service.openHouseInternalRepository).save(any());
+  }
+
+  @Test
+  void cleanupUnlockStillRequiresExistingLockPrivilege() {
+    table =
+        table.toBuilder().policies(Policies.builder().lockState(cleanupLock("owner")).build()).build();
+    doThrow(new AccessDeniedException("not a lock admin"))
+        .when(service.authorizationUtils)
+        .checkLockTablePrivilege(table, "other", Privileges.LOCK_ADMIN);
     assertThrows(
         AccessDeniedException.class,
         () ->
             service.deleteLock(
-                "db", "table", "owner", LockReason.TIER3_AUTO_CLEANUP, "generation", "owner"));
+                "db", "table", "other", LockReason.TIER3_AUTO_CLEANUP, "generation", "owner"));
     verify(service.openHouseInternalRepository, never()).save(any());
   }
 

@@ -370,9 +370,9 @@ public class TablesController {
   @Operation(
       summary = "Create lock on Table",
       description =
-          "Create a table lock. Omit reason for legacy behavior. Reasoned locks require "
-              + "expectedTableUUID and SYSTEM_ADMIN in addition to LOCK_ADMIN. A matching retry "
-              + "leaves the lock unchanged; a nonmatching lock is never replaced.",
+          "Create a table lock using existing LOCK_ADMIN authorization. Omit reason for legacy "
+              + "behavior. A reasoned lock requires expectedTableUUID. A matching retry leaves the "
+              + "lock unchanged; a nonmatching lock is never replaced.",
       tags = {"Table"})
   @ApiResponses(
       value = {
@@ -433,7 +433,8 @@ public class TablesController {
       summary = "Delete a reasoned lock on Table",
       description =
           "Delete only the lock matching reason, expectedTableUUID and lockOwner from the table's "
-              + "policies.lockState. Requires SYSTEM_ADMIN in addition to LOCK_ADMIN.",
+              + "policies.lockState. Uses existing LOCK_ADMIN authorization; no additional "
+              + "privilege is required.",
       tags = {"Table"})
   @ApiResponses(
       value = {
