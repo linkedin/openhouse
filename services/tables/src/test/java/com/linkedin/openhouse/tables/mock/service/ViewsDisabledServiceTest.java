@@ -29,11 +29,7 @@ public class ViewsDisabledServiceTest {
 
   private static final String ACTING_PRINCIPAL = "DUMMY_ANONYMOUS_USER";
 
-  /**
-   * One entry per {@link ViewsService} method, so a new method cannot silently skip the gate. The
-   * list route appears twice because a continuation request must be refused exactly like a first
-   * one: an opaque token is not a way past the disabled gate.
-   */
+  /** Cover every operation, including first and continuation list requests. */
   private static Stream<Arguments> allServiceOperations() {
     return Stream.of(
         Arguments.of(

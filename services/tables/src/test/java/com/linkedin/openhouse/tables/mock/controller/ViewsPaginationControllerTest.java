@@ -43,22 +43,9 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 /**
- * End-to-end plumbing for the continuation-token list route: the real {@link ViewsController}, the
- * real {@link OpenHouseViewsApiHandler}, the real validator and the real mapper, with only the
- * {@link ViewsService} replaced by a declarative mock.
+ * Tests token pagination through the real API stack with a mocked service.
  *
- * <p>{@code ViewsControllerTest} cannot prove any of this. The application context registers a
- * {@code @Primary} mock handler that bypasses validation entirely, so a green result there says
- * nothing about whether a token reached the service or a blank one was rejected. Rather than
- * replace that global bean, this class autowires the real collaborators out of the same context and
- * wires test-local handler and controller instances by field injection, which keeps every other
- * view test untouched.
- *
- * <p><b>What the mocked service proves and what it does not.</b> The mock returns fixed, stubbed
- * results per argument set. That demonstrates forwarding, envelope shape and continuation
- * behaviour. It is not a cursor engine: no token is generated, parsed, signed or validated
- * anywhere, no listing is performed, and a successful response here is not evidence that views can
- * be listed. The registered production service still answers 404, which the last test pins.
+ * <p>Local wiring avoids the application's primary mock handler; no token engine is exercised.
  */
 @SpringBootTest
 @ContextConfiguration(initializers = AuthorizationPropertiesInitializer.class)
@@ -72,7 +59,7 @@ public class ViewsPaginationControllerTest {
 
   private static final int DEFAULT_SIZE = 50;
 
-  /** Fixed, value-free messages the API reports for a service that broke its output contract. */
+  /** Failure messages must not include service output. */
   private static final String MISSING_RESULT_MESSAGE = "viewsService returned no result";
 
   private static final String INVALID_RESULTS_MESSAGE =
@@ -91,7 +78,6 @@ public class ViewsPaginationControllerTest {
 
   @Autowired private OpenHouseExceptionHandler openHouseExceptionHandler;
 
-  /** The registered production service: still disabled, and exercised as such below. */
   @Autowired private ViewsDisabledService viewsDisabledService;
 
   private ViewsService viewsService;
@@ -107,11 +93,7 @@ public class ViewsPaginationControllerTest {
     jwtAccessToken = new DummyTokenInterceptor.DummySecurityJWT(ACTING_PRINCIPAL).buildNoopJWT();
   }
 
-  /**
-   * Builds the real controller/handler/validator/mapper chain over {@code service}. Field injection
-   * mirrors how Spring wires these beans; constructing them here keeps the application's own beans
-   * and its {@code @Primary} mock handler untouched.
-   */
+  /** Local instances leave the shared Spring test beans untouched. */
   private MockMvc standaloneMvcBackedBy(ViewsService service) {
     OpenHouseViewsApiHandler handler = new OpenHouseViewsApiHandler();
     ReflectionTestUtils.setField(handler, "viewsApiValidator", viewsApiValidator);
@@ -138,7 +120,6 @@ public class ViewsPaginationControllerTest {
         .header("Authorization", "Bearer " + jwtAccessToken);
   }
 
-  /** Performs a request expected to succeed and returns its parsed body. */
   private JsonNode okBody(MockHttpServletRequestBuilder request) throws Exception {
     String body =
         mvc.perform(request)
@@ -153,15 +134,9 @@ public class ViewsPaginationControllerTest {
     return ViewModelConstants.viewListResult();
   }
 
-  // -------------------------------------------------------------------------------------------
   // Continuation
-  // -------------------------------------------------------------------------------------------
 
-  /**
-   * Three requests where each one replays the token from the <b>previous response</b>. The middle
-   * response is empty yet non-terminal and the last is full yet terminal, so a client that stopped
-   * on an empty array, or continued because an array was full, would fail here.
-   */
+  /** Replay response tokens across short, empty, and full pages. */
   @Test
   public void aTokenWalkContinuesUntilTheResponseOmitsTheToken() throws Exception {
     String tokenA = "token-A";
@@ -247,7 +222,7 @@ public class ViewsPaginationControllerTest {
         .andExpect(jsonPath("$.nextPageToken").doesNotExist());
   }
 
-  /** The outgoing token comes from the service. Echoing the request's token would loop forever. */
+  /** The next token comes from the service, not from the request. */
   @Test
   public void theReturnedTokenIsTheServicesRatherThanTheRequestsEcho() throws Exception {
     Mockito.when(
@@ -268,10 +243,7 @@ public class ViewsPaginationControllerTest {
                 Matchers.not(Matchers.is(ViewModelConstants.REQUEST_PAGE_TOKEN))));
   }
 
-  /**
-   * A replayed token arrives percent-encoded. Spring's query decoding is the only decoding step:
-   * the application must not decode again, trim, or otherwise normalise the value.
-   */
+  /** Query decoding must happen only once. */
   @Test
   public void aPercentEncodedTokenIsDecodedExactlyOnce() throws Exception {
     String decodedToken = "opaque+/=%";
@@ -290,11 +262,7 @@ public class ViewsPaginationControllerTest {
         .getAllViews(ViewModelConstants.DATABASE_ID, decodedToken, 50, null, ACTING_PRINCIPAL);
   }
 
-  /**
-   * The API has no token grammar. Anything non-blank is structurally legal and reaches the service
-   * unchanged, including text that looks like a page number, a null literal or a URL. Whether such
-   * a token means anything is the future engine's problem, not a validation rule.
-   */
+  /** Nonblank tokens reach the service without interpretation. */
   @ParameterizedTest(name = "pageToken={0}")
   @ValueSource(strings = {"null", "42", "  padded  ", "a,b", "a:b", "https://example.com/x?y=1"})
   public void arbitraryNonBlankTokensAreForwardedVerbatim(String token) throws Exception {
@@ -309,11 +277,7 @@ public class ViewsPaginationControllerTest {
         .getAllViews(ViewModelConstants.DATABASE_ID, token, 50, null, ACTING_PRINCIPAL);
   }
 
-  /**
-   * The service's token reaches the client unchanged over the wire too, not merely inside the
-   * mapper: padding is kept and reserved characters are not re-encoded, so replaying the value
-   * round-trips.
-   */
+  /** Returned tokens retain padding and reserved characters. */
   @Test
   public void aPaddedReservedCharacterTokenIsReturnedVerbatim() throws Exception {
     String outgoingToken = "  a+b/c=%  ";
@@ -331,12 +295,7 @@ public class ViewsPaginationControllerTest {
         .andExpect(jsonPath("$.nextPageToken", Matchers.is(outgoingToken)));
   }
 
-  /**
-   * Sort acceptance is unchanged by the token migration: anything without a comma or colon is
-   * structurally legal and reaches the service exactly as sent. Field allowlisting and the meaning
-   * of a blank or unknown field stay service concerns, so a new allowlist, a blank-sort rejection
-   * or a trimming step would fail here.
-   */
+  /** Sort values are forwarded unchanged unless they contain a comma or colon. */
   @ParameterizedTest(name = "sortBy={0}")
   @ValueSource(strings = {"", "   ", "unknownField", "  viewId  ", "VIEWID"})
   public void acceptedSortValuesReachTheServiceUnchanged(String sortBy) throws Exception {
@@ -351,9 +310,7 @@ public class ViewsPaginationControllerTest {
         .getAllViews(ViewModelConstants.DATABASE_ID, null, 50, sortBy, ACTING_PRINCIPAL);
   }
 
-  // -------------------------------------------------------------------------------------------
   // Per-request count
-  // -------------------------------------------------------------------------------------------
 
   private static Stream<Arguments> countsReachingTheService() {
     return Stream.of(
@@ -363,11 +320,7 @@ public class ViewsPaginationControllerTest {
         Arguments.of("no upper cap", String.valueOf(Integer.MAX_VALUE), Integer.MAX_VALUE));
   }
 
-  /**
-   * The count is a per-request maximum, not a page index. A very large value is structurally legal
-   * and is forwarded as such; the mocked service returns two elements, so nothing is allocated to
-   * prove it.
-   */
+  /** Large sizes are forwarded without allocating matching result lists. */
   @ParameterizedTest(name = "size {0} reaches the service as {2}")
   @MethodSource("countsReachingTheService")
   public void eachRequestChoosesItsOwnCount(String name, String sizeParam, int expectedSize)
@@ -387,10 +340,7 @@ public class ViewsPaginationControllerTest {
         .getAllViews(ViewModelConstants.DATABASE_ID, null, expectedSize, null, ACTING_PRINCIPAL);
   }
 
-  /**
-   * A continuation is free to ask for a different count, and omitting the count again means the
-   * documented default rather than the previously used value. The token carries no count.
-   */
+  /** Each continuation uses its own size; omission restores the default. */
   @Test
   public void aContinuationChoosesItsOwnCountIndependently() throws Exception {
     Mockito.when(
@@ -426,9 +376,7 @@ public class ViewsPaginationControllerTest {
             ACTING_PRINCIPAL);
   }
 
-  // -------------------------------------------------------------------------------------------
   // Structural rejections, through the real validator
-  // -------------------------------------------------------------------------------------------
 
   private static Stream<Arguments> structurallyInvalidRequests() {
     return Stream.of(
@@ -449,11 +397,7 @@ public class ViewsPaginationControllerTest {
             "sortBy : does not support multiple sort fields or directions"));
   }
 
-  /**
-   * The three view-local structural rules, exercised over HTTP through the real validator. Each
-   * message is fixed and echoes nothing the caller sent, because it is copied into the error body
-   * and into the service audit event.
-   */
+  /** Validation errors must not echo caller input. */
   @ParameterizedTest(name = "{0}")
   @MethodSource("structurallyInvalidRequests")
   public void structurallyInvalidInputsAreRejectedBeforeTheService(
@@ -467,7 +411,6 @@ public class ViewsPaginationControllerTest {
     Mockito.verifyNoInteractions(viewsService);
   }
 
-  /** Structural failures accumulate so a client sees every problem in one response. */
   @Test
   public void everyStructuralFailureIsReportedTogether() throws Exception {
     mvc.perform(
@@ -483,14 +426,9 @@ public class ViewsPaginationControllerTest {
     Mockito.verifyNoInteractions(viewsService);
   }
 
-  /**
-   * The legacy guard runs before the accumulating validator, so a valueless {@code page} key beats
-   * even structurally invalid list inputs and the service is never consulted. This is the same
-   * guard {@code ViewsControllerTest} pins against the mock handler, asserted here against the real
-   * validator so its precedence over validation is unambiguous.
-   */
+  /** The page-parameter guard runs before structural validation. */
   @Test
-  public void aBareLegacyPageKeyIsRejectedBeforeTheValidator() throws Exception {
+  public void aBareUnsupportedPageKeyIsRejectedBeforeTheValidator() throws Exception {
     mvc.perform(
             authorize(
                 MockMvcRequestBuilders.get(
@@ -499,15 +437,12 @@ public class ViewsPaginationControllerTest {
         .andExpect(
             jsonPath(
                 "$.message",
-                Matchers.is("page : is no longer supported; use pageToken for continuation")));
+                Matchers.is("page : is not supported; use pageToken for continuation")));
 
     Mockito.verifyNoInteractions(viewsService);
   }
 
-  /**
-   * A count that cannot bind to an {@code int} fails in Spring's own conversion, before any view
-   * code runs. That path is left exactly as it is rather than reproduced by a handler check.
-   */
+  /** Malformed size values fail during Spring binding. */
   @ParameterizedTest(name = "size={0}")
   @ValueSource(strings = {"abc", "2147483648", "1.5"})
   public void unbindableCountsFailAsBindingErrors(String size) throws Exception {
@@ -516,9 +451,7 @@ public class ViewsPaginationControllerTest {
     Mockito.verifyNoInteractions(viewsService);
   }
 
-  // -------------------------------------------------------------------------------------------
   // Server-side output contract
-  // -------------------------------------------------------------------------------------------
 
   private static Stream<Arguments> invalidServiceResults() {
     return Stream.of(
@@ -541,11 +474,7 @@ public class ViewsPaginationControllerTest {
             BLANK_TOKEN_MESSAGE));
   }
 
-  /**
-   * A service that breaks its output contract is a server defect. It must surface as 500, never as
-   * a 400 blamed on the caller and never as a successful empty or terminal page, which would tell a
-   * client the traversal had finished when it had not.
-   */
+  /** Invalid service output must not look like terminal success. */
   @ParameterizedTest(name = "{0}")
   @MethodSource("invalidServiceResults")
   public void invalidServiceOutputIsAServerErrorRatherThanATerminalPage(
@@ -576,15 +505,9 @@ public class ViewsPaginationControllerTest {
         .andExpect(jsonPath("$.results").doesNotExist());
   }
 
-  // -------------------------------------------------------------------------------------------
   // The registered service is still disabled
-  // -------------------------------------------------------------------------------------------
 
-  /**
-   * The same chain over the real {@link ViewsDisabledService}. Structurally valid first and
-   * continuation requests both reach it and both report 404: nothing in this change makes views
-   * listable. A structurally invalid request still fails earlier, with 400.
-   */
+  /** Valid first and continuation requests both reach the disabled service. */
   @Test
   public void theRegisteredServiceStillReportsViewsDisabled() throws Exception {
     MockMvc disabled = standaloneMvcBackedBy(viewsDisabledService);
@@ -605,7 +528,7 @@ public class ViewsPaginationControllerTest {
         .andExpect(jsonPath("$.message", Matchers.is("pageToken : cannot be blank when provided")));
   }
 
-  /** A token is not a credential: it cannot stand in for an authenticated principal. */
+  /** Tokens do not bypass authentication. */
   @Test
   public void aTokenDoesNotBypassAuthentication() throws Exception {
     mvc.perform(

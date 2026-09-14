@@ -128,27 +128,16 @@ public final class ViewModelConstants {
         .build();
   }
 
-  // -----------------------------------------------------------------------------------------
-  // Continuation-token list fixtures
-  //
-  // The two token literals are deliberately different strings. A test that sends the first and
-  // expects the second on the way back therefore fails if the API ever echoes the request token
-  // instead of forwarding the service's. Neither literal encodes anything: tokens are opaque to
-  // this API and no encoder or decoder exists.
-  // -----------------------------------------------------------------------------------------
+  // Distinct tokens catch accidental echoing of the request token.
 
-  /** Opaque continuation token a client replays on a follow-up request. */
   public static final String REQUEST_PAGE_TOKEN = "client-supplied-token";
 
-  /** Opaque continuation token the service hands back; never the request token echoed. */
   public static final String NEXT_PAGE_TOKEN = "service-supplied-token";
 
-  /** Deterministic, ordered pair of sparse identifier-only elements. */
   public static List<GetViewResponseBody> sparseListElements() {
     return Arrays.asList(sparseListElement("my_view"), sparseListElement("my_other_view"));
   }
 
-  /** The same pair on the service side of the seam. */
   public static List<ViewDto> sparseListDtos() {
     return Arrays.asList(sparseListDto("my_view"), sparseListDto("my_other_view"));
   }
@@ -191,12 +180,7 @@ public final class ViewModelConstants {
   // Negative-path fixtures
   // -----------------------------------------------------------------------------------------
 
-  /**
-   * A {@link ViewListResult} whose results list is null. {@code @NonNull} makes that unbuildable,
-   * which is the point: a future service can only produce it by bypassing the builder, and the API
-   * must still refuse to turn it into a successful empty page. Forged by reflection rather than by
-   * relaxing the production constraint or mocking the final {@code @Value} type.
-   */
+  /** Bypass {@code @NonNull} to exercise validation of corrupt service output. */
   public static ViewListResult invalidResultWithNullResults() {
     ViewListResult result = ViewListResult.builder().results(Collections.emptyList()).build();
     ReflectionTestUtils.setField(result, "results", null);
@@ -213,10 +197,7 @@ public final class ViewModelConstants {
     return ViewListResult.builder().results(sparseListDtos()).nextPageToken("   ").build();
   }
 
-  /**
-   * Invalid server output: an empty continuation token. Absence is expressed by null alone, so ""
-   * is neither a terminal signal nor a usable token.
-   */
+  /** An empty token is invalid; only null denotes completion. */
   public static ViewListResult invalidResultWithEmptyNextPageToken() {
     return ViewListResult.builder().results(sparseListDtos()).nextPageToken("").build();
   }

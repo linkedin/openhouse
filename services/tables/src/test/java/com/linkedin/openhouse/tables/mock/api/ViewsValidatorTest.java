@@ -694,11 +694,7 @@ public class ViewsValidatorTest {
         "baseMetadataLocation : is required and cannot be blank on PUT");
   }
 
-  /**
-   * The token is opaque. The API has no charset, length, grammar, origin or expiry rule for it, and
-   * commas and colons are only meaningful in {@code sortBy}, so every non-blank form is accepted
-   * and forwarded unchanged.
-   */
+  /** Nonblank tokens are opaque to structural validation. */
   @ParameterizedTest
   @ValueSource(strings = {"null", "42", "  padded  ", "a,b", "a:b", INITIAL_TABLE_VERSION})
   public void validateGetAllViewsAcceptsEveryNonBlankContinuationToken(String token) {
@@ -707,10 +703,7 @@ public class ViewsValidatorTest {
             viewsApiValidator.validateGetAllViews(ViewModelConstants.DATABASE_ID, token, 50, null));
   }
 
-  /**
-   * A blank token is a client defect rather than an implicit request for the first page: silently
-   * restarting the traversal would loop such a client forever.
-   */
+  /** Blank tokens must not restart a traversal. */
   @ParameterizedTest
   @ValueSource(strings = {"", " ", "\t"})
   public void validateGetAllViewsRejectsABlankContinuationToken(String blankToken) {
@@ -749,11 +742,7 @@ public class ViewsValidatorTest {
         "sortBy : does not support multiple sort fields or directions");
   }
 
-  /**
-   * The list messages are fixed. Unlike the shared pageable helper they never echo the count, the
-   * sort field or the token, because the text is copied into the error body and the service audit
-   * event.
-   */
+  /** Pagination failures must not echo caller input. */
   @Test
   public void validateGetAllViewsReportsEveryStructuralFailureTogether() {
     ViewRequestValidationFailureException exception =

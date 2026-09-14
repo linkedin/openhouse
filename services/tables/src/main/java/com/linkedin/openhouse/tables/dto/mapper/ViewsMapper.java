@@ -56,16 +56,9 @@ public interface ViewsMapper {
   GetViewResponseBody toGetViewResponseBody(ViewDto viewDto);
 
   /**
-   * Transform a service list result into the client response.
+   * Map results in service order and preserve the continuation token.
    *
-   * <p>Order, element count and the continuation token are the service's, and this copies them. It
-   * does not sort, filter, truncate, refill a short page, derive a token from the number of results
-   * or decode one.
-   *
-   * <p>Output the service is not allowed to produce is rejected rather than mapped: a missing
-   * result, a missing or partly null list, or a blank token would otherwise reach the client as a
-   * successful last page and end a traversal early. The messages are fixed and carry no returned
-   * value, because they reach the error body and service audit events.
+   * <p>Invalid service output is a server error, not an empty or terminal page.
    *
    * @param result the service's page of identifier-only dtos and its optional continuation token
    * @return the response body forwarded to the client

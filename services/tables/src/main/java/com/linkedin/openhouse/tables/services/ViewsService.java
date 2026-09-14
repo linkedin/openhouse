@@ -20,15 +20,10 @@ public interface ViewsService {
   ViewDto getView(String databaseId, String viewId, String actingPrincipal);
 
   /**
-   * Given a databaseId, prepare one page of identifier-only {@link ViewDto}s.
+   * Return at most {@code size} identifier-only views, with non-null results and elements.
    *
-   * <p>An implementation returns at most {@code size} results, plus a token that continues this
-   * listing or null once it is complete. It must return a non-null list of non-null dtos and either
-   * a null or a non-blank token; anything else is a server defect, which the API reports as such
-   * rather than as a successful last page.
-   *
-   * <p>Token generation and interpretation, ordering, expiry, and any consistency guarantee across
-   * requests belong to the implementation. No implementation lists views today.
+   * <p>A null next token marks completion; non-null tokens must be nonblank. The service owns token
+   * validation, ordering, and traversal consistency.
    *
    * @param databaseId database identifier
    * @param pageToken opaque continuation token from a previous result, or null for the first page

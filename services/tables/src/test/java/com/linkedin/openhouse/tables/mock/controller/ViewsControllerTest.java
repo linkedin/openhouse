@@ -238,13 +238,7 @@ public class ViewsControllerTest {
         .andExpect(content().json(ViewModelConstants.pointerResponse().toJson()));
   }
 
-  /**
-   * The list body is asserted with JSON paths rather than a whole-document comparison: the Gson
-   * {@code toJson()} helper on {@link
-   * com.linkedin.openhouse.tables.api.spec.v0.response.GetAllViewsResponseBody} omits the null
-   * pointer keys inside each element, whereas the response goes out through Jackson and keeps them.
-   * Only the Jackson shape is the wire contract, so it is what this asserts.
-   */
+  /** Assert the Jackson wire shape; the Gson helper omits nullable item fields. */
   @Test
   public void getAllViewsReturns200WithSparseResultsArray() throws Exception {
     mvc.perform(
@@ -259,30 +253,22 @@ public class ViewsControllerTest {
         .andExpect(jsonPath("$.results[1].viewId", Matchers.is("my_other_view")))
         // Sparse by design: list elements populate identifiers only.
         .andExpect(jsonPath("$.results[0].metadataLocation").doesNotExist())
-        // The fixture is a terminal page. Asserted on the raw document because a JSON path treats
-        // an explicit null as absent, and absence is exactly what the terminal signal requires.
+        // JsonPath treats explicit null as absent, so check the raw body.
         .andExpect(content().string(Matchers.not(Matchers.containsString("nextPageToken"))))
         .andExpect(content().string(Matchers.not(Matchers.containsString("pageResults"))));
   }
 
-  // ---------------------------------------------------------------------------------------------
-  // Continuation-token list parameters
-  // ---------------------------------------------------------------------------------------------
+  // List parameters
 
-  /** Fixed error the controller reports for the removed numeric page parameter. */
-  private static final String LEGACY_PAGE_REJECTION_MESSAGE =
-      "page : is no longer supported; use pageToken for continuation";
+  private static final String UNSUPPORTED_PAGE_REJECTION_MESSAGE =
+      "page : is not supported; use pageToken for continuation";
 
-  /**
-   * An opaque token a client replays. It deliberately carries reserved characters so a normalising
-   * or re-decoding binding change is visible.
-   */
+  /** Reserved characters expose accidental token decoding or normalization. */
   private static final String CONTINUATION_TOKEN = "opaque+/=%";
 
   /** The principal {@link DummyTokenInterceptor} establishes for these requests. */
   private static final String ACTING_PRINCIPAL = "DUMMY_ANONYMOUS_USER";
 
-  /** Asserts the list route never reached the handler. */
   private void assertListRouteNeverReachedTheHandler() {
     Mockito.verify(viewsApiHandler, Mockito.never())
         .getAllViews(Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.any(), Mockito.any());
@@ -315,39 +301,29 @@ public class ViewsControllerTest {
     Mockito.verify(viewsApiHandler).getAllViews("d200", null, 50, null, ACTING_PRINCIPAL);
   }
 
-  /**
-   * Numeric pagination is removed rather than ignored. Spring would otherwise drop the unknown key
-   * and hand an unmigrated client the same first page forever, so the controller rejects the
-   * parameter's presence before the handler runs and never interprets or echoes its value.
-   */
+  /** Reject unsupported paging instead of silently ignoring it. */
   @ParameterizedTest(name = "page={0}")
   @ValueSource(strings = {"0", "1", "-1", "abc", ""})
-  public void legacyPageParameterIsRejectedWith400BeforeTheHandler(String legacyPage)
+  public void unsupportedPageParameterIsRejectedWith400BeforeTheHandler(String page)
       throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.get(VIEWS_PATH)
-                .param("page", legacyPage)
+                .param("page", page)
                 .accept(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + jwtAccessToken))
         .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.message", Matchers.is(LEGACY_PAGE_REJECTION_MESSAGE)))
+        .andExpect(jsonPath("$.message", Matchers.is(UNSUPPORTED_PAGE_REJECTION_MESSAGE)))
         .andExpect(jsonPath("$.status", Matchers.is("BAD_REQUEST")))
         .andExpect(jsonPath("$.errorCode").doesNotExist())
-        // The rejected value is caller input and the message reaches the error body and the audit
-        // event, so the guard must not echo it.
+        // Rejected values must not be echoed.
         .andExpect(content().string(Matchers.not(Matchers.containsString("provided"))));
 
     assertListRouteNeverReachedTheHandler();
   }
 
-  /**
-   * The guard deliberately short-circuits the accumulating validator, so a request that is also
-   * structurally invalid reports the legacy-page failure alone and a migrating client sees one
-   * unambiguous reason. The blank token and zero count here are rejected by the real validator,
-   * which {@link MockViewsApiHandler} bypasses; this asserts only that the guard wins first.
-   */
+  /** The unsupported-page guard takes precedence over other invalid list inputs. */
   @Test
-  public void legacyPageParameterIsReportedAloneWhenOtherListInputsAreAlsoInvalid()
+  public void unsupportedPageParameterIsReportedAloneWhenOtherListInputsAreAlsoInvalid()
       throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.get(VIEWS_PATH)
@@ -357,13 +333,12 @@ public class ViewsControllerTest {
                 .accept(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + jwtAccessToken))
         .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.message", Matchers.is(LEGACY_PAGE_REJECTION_MESSAGE)))
+        .andExpect(jsonPath("$.message", Matchers.is(UNSUPPORTED_PAGE_REJECTION_MESSAGE)))
         .andExpect(jsonPath("$.errorCode").doesNotExist());
 
     assertListRouteNeverReachedTheHandler();
   }
 
-  /** Any other unknown query key keeps Spring's existing ignore-it behaviour. */
   @Test
   public void anUnrelatedUnknownQueryParameterIsStillIgnored() throws Exception {
     mvc.perform(
@@ -376,20 +351,16 @@ public class ViewsControllerTest {
     Mockito.verify(viewsApiHandler).getAllViews("d200", null, 50, null, ACTING_PRINCIPAL);
   }
 
-  /**
-   * A key with no value at all. Spring binds it to a null <em>value</em>, not to an absent
-   * parameter, so a {@code @RequestParam String} guard would miss it while the caller is still
-   * sending numeric pagination. The guard therefore asks the request whether the key is present.
-   */
+  /** A bare query key can have a null value while remaining present in the parameter map. */
   @Test
-  public void aBareLegacyPageKeyWithNoValueIsStillRejected() throws Exception {
+  public void aBareUnsupportedPageKeyWithNoValueIsRejected() throws Exception {
     MvcResult result =
         mvc.perform(
                 MockMvcRequestBuilders.get(URI.create(VIEWS_PATH + "?page"))
                     .accept(MediaType.APPLICATION_JSON)
                     .header("Authorization", "Bearer " + jwtAccessToken))
             .andExpect(status().isBadRequest())
-            .andExpect(jsonPath("$.message", Matchers.is(LEGACY_PAGE_REJECTION_MESSAGE)))
+            .andExpect(jsonPath("$.message", Matchers.is(UNSUPPORTED_PAGE_REJECTION_MESSAGE)))
             .andReturn();
 
     MockHttpServletRequest performed = result.getRequest();
@@ -407,9 +378,9 @@ public class ViewsControllerTest {
     assertListRouteNeverReachedTheHandler();
   }
 
-  /** The same bare key next to a valid token: the migration error still wins. */
+  /** The same bare key next to a valid token: the unsupported-parameter error takes precedence. */
   @Test
-  public void aBareLegacyPageKeyAlongsideATokenIsStillRejected() throws Exception {
+  public void aBareUnsupportedPageKeyAlongsideATokenIsRejected() throws Exception {
     MvcResult result =
         mvc.perform(
                 MockMvcRequestBuilders.get(
@@ -417,28 +388,24 @@ public class ViewsControllerTest {
                     .accept(MediaType.APPLICATION_JSON)
                     .header("Authorization", "Bearer " + jwtAccessToken))
             .andExpect(status().isBadRequest())
-            .andExpect(jsonPath("$.message", Matchers.is(LEGACY_PAGE_REJECTION_MESSAGE)))
+            .andExpect(jsonPath("$.message", Matchers.is(UNSUPPORTED_PAGE_REJECTION_MESSAGE)))
             .andReturn();
 
     MockHttpServletRequest performed = result.getRequest();
     Assertions.assertTrue(
         performed.getQueryString().startsWith("page&"),
-        "Precondition: the raw query carries the valueless legacy key alongside the token.");
+        "Precondition: the raw query carries the valueless unsupported key alongside the token.");
     Assertions.assertTrue(performed.getParameterMap().containsKey("page"));
     Assertions.assertEquals(
         CONTINUATION_TOKEN,
         performed.getParameter("pageToken"),
-        "Precondition: the token bound too, so this is a mixed request rather than a legacy-only"
+        "Precondition: the token bound too, so this is a mixed request rather than a page-only"
             + " one.");
 
     assertListRouteNeverReachedTheHandler();
   }
 
-  /**
-   * The parameter annotations are what the OpenAPI document is generated from, so they are the
-   * contract surface a client library is built against. Freshly generating the document needs the
-   * build's {@code generateOpenApiDocs} step; this pins the inputs to it without starting a server.
-   */
+  /** Pin supported OpenAPI parameters without starting a server. */
   @Test
   public void theListRoutePublishesOnlyTokenCountAndSort() {
     Map<String, RequestParam> boundParameters = new LinkedHashMap<>();
@@ -463,10 +430,7 @@ public class ViewsControllerTest {
     Assertions.assertEquals(
         new TreeSet<>(Arrays.asList("pageToken", "size", "sortBy")),
         new TreeSet<>(boundParameters.keySet()),
-        "The list route binds exactly the three supported query parameters. The legacy key is read"
-            + " off the request rather than bound, so it adds no parameter to the published"
-            + " contract. Every @RequestParam is named explicitly, so neither the document nor the"
-            + " binding depends on compiled parameter names.");
+        "Only pageToken, size, and sortBy are supported query parameters.");
 
     for (Map.Entry<String, RequestParam> parameter : boundParameters.entrySet()) {
       Assertions.assertFalse(
@@ -486,7 +450,7 @@ public class ViewsControllerTest {
     Assertions.assertEquals(
         HttpServletRequest.class,
         parameterTypes[parameterTypes.length - 1],
-        "The legacy guard reads the servlet request that Spring already injects; it must not"
+        "The parameter guard reads the servlet request that Spring already injects; it must not"
             + " reintroduce a bound page parameter of its own.");
     Assertions.assertEquals(
         0,
@@ -495,7 +459,6 @@ public class ViewsControllerTest {
             + " ignoring it.");
   }
 
-  /** The list route's method, pinned by its exact migrated signature. */
   private static Method listRouteMethod() {
     return Assertions.assertDoesNotThrow(
         () ->
@@ -507,7 +470,7 @@ public class ViewsControllerTest {
                 String.class,
                 HttpServletRequest.class),
         "The list seam takes a database id, an opaque token, a count, a sort field and the servlet"
-            + " request the legacy guard inspects.");
+            + " request the parameter guard inspects.");
   }
 
   @Test

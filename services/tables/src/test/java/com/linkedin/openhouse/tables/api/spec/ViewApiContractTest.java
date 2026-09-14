@@ -375,11 +375,7 @@ public class ViewApiContractTest {
     Assertions.assertEquals(ViewModelConstants.CREATION_TIME, json.get("creationTime").asLong());
   }
 
-  /**
-   * The list envelope is a plain array plus an optional continuation token. This fixture is a
-   * terminal response, so the token must be absent from the document rather than present as JSON
-   * null: a client stops because the key is missing, never because the array looks short.
-   */
+  /** Terminal responses omit the token rather than serialize JSON null. */
   @Test
   public void testSparseListResponseSerializesResultsArrayAndOmitsAbsentToken() {
     GetAllViewsResponseBody listResponse = ViewModelConstants.listResponse();
@@ -399,9 +395,7 @@ public class ViewApiContractTest {
     Assertions.assertEquals(
         setOf("results"),
         keysOf(json),
-        "A terminal list response carries results only: no nextPageToken key, and none of the"
-            + " Spring Page metadata (pageResults, pageable, number, size, totalElements, last)"
-            + " that numeric pagination published.");
+        "A terminal list response contains results only, without a token or numeric page metadata.");
     Assertions.assertFalse(
         json.has("nextPageToken"),
         "Absence is the terminal signal, so the key must not survive as an explicit JSON null.");
@@ -441,9 +435,7 @@ public class ViewApiContractTest {
       Assertions.assertEquals(0L, element.get("creationTime").asLong());
     }
 
-    // Gson omits nulls by default, which is what the field-level Jackson omission is chosen to
-    // agree with, so both serializers must publish the same envelope. The nested item difference
-    // (Gson drops the null pointer keys inside an element) is pre-existing and is not asserted.
+    // Compare envelopes; Gson and Jackson differ on nullable fields inside items.
     JsonNode gsonPayload = parse(listResponse.toJson());
     Assertions.assertEquals(
         setOf("results"),
@@ -457,10 +449,6 @@ public class ViewApiContractTest {
         "my_other_view", gsonPayload.get("results").get(1).get("viewId").asText());
   }
 
-  /**
-   * The non-terminal shape. The token is the service's own value carried verbatim, and it is the
-   * only signal a client may use to decide whether to make another request.
-   */
   @Test
   public void testNonTerminalListResponseCarriesTheServiceTokenVerbatim() {
     GetAllViewsResponseBody listResponse = ViewModelConstants.listResponseWithNextPageToken();
@@ -486,11 +474,7 @@ public class ViewApiContractTest {
         ViewModelConstants.NEXT_PAGE_TOKEN, gsonPayload.get("nextPageToken").asText());
   }
 
-  /**
-   * An empty page is a legitimate response, and it is not by itself terminal. Both serializers must
-   * emit the empty array rather than dropping the key or writing null, so a client can always read
-   * {@code results} without a null check.
-   */
+  /** Empty results remain an array and do not imply completion. */
   @Test
   public void testEmptyResultsStaySerializedAsAnArrayInBothSerializers() {
     GetAllViewsResponseBody emptyNonTerminal =
@@ -517,10 +501,6 @@ public class ViewApiContractTest {
     Assertions.assertEquals(0, gsonPayload.get("results").size());
   }
 
-  /**
-   * {@code results} is required, so a missing list is a construction error rather than a response
-   * that serializes as null and forces every client into a null check.
-   */
   @Test
   public void testListResponseCannotBeBuiltWithoutResults() {
     Assertions.assertThrows(
@@ -537,7 +517,6 @@ public class ViewApiContractTest {
         "An explicitly null results list is the same defect and must not build either.");
   }
 
-  /** Reads a Gson payload back through Jackson so both serializers can be compared as trees. */
   private static JsonNode parse(String payload) {
     return Assertions.assertDoesNotThrow(() -> MAPPER.readTree(payload));
   }

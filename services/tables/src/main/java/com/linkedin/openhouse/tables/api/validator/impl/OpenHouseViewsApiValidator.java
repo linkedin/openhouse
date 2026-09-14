@@ -97,11 +97,7 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
     failures.throwIfPresent();
   }
 
-  /**
-   * Structural rules for the list route. The shared pageable helper is deliberately not reused: it
-   * requires a page index this route no longer has, and its messages echo caller-supplied values.
-   * These three are fixed and value-free.
-   */
+  /** Validates token-based list inputs without echoing caller values in errors. */
   private static final String BLANK_PAGE_TOKEN_MESSAGE =
       "pageToken : cannot be blank when provided";
 
@@ -114,8 +110,7 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
   public void validateGetAllViews(String databaseId, String pageToken, int size, String sortBy) {
     ViewValidationFailures failures = new ViewValidationFailures();
     validateDatabaseId(databaseId, failures);
-    // A blank token is a client defect, not a request for the first page: restarting the traversal
-    // silently would loop such a client forever.
+    // A blank token must not silently restart the listing.
     if (pageToken != null && StringUtils.isBlank(pageToken)) {
       failures.addGeneric(BLANK_PAGE_TOKEN_MESSAGE);
     }

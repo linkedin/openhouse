@@ -147,16 +147,7 @@ public class TablesControllerTest {
         .andExpect(status().isNotFound());
   }
 
-  /**
-   * Views moving to continuation tokens must leave the tables' numeric pagination alone: the
-   * request still binds {@code page}/{@code size}/{@code sortBy}, the defaults are still 0 and 50,
-   * and the response still carries the Spring {@code Page} envelope under {@code pageResults}.
-   *
-   * <p>The application's {@link com.linkedin.openhouse.tables.mock.MockTablesApiHandler} returns
-   * null from the paginated overload, so it cannot demonstrate a paginated body. A test-local
-   * Mockito handler is used rather than teaching that shared mock to paginate, which would make
-   * every other table test depend on a fake pagination engine.
-   */
+  /** Table search keeps numeric paging; a local handler avoids the shared mock's null response. */
   @Test
   public void v2TablePaginationStillBindsNumericPageAndSerializesPageMetadata() throws Exception {
     TablesApiHandler localHandler = Mockito.mock(TablesApiHandler.class);
@@ -269,8 +260,7 @@ public class TablesControllerTest {
         .andExpect(status().isOk())
         .andExpect(content().json(ViewModelConstants.pointerResponse().toJson()));
 
-    // The views collection route is likewise the views handler's, not the tables handler's. It now
-    // answers with the token envelope while the table routes keep their Page metadata.
+    // View and table collection routes remain distinct.
     mvcWithBothControllers
         .perform(
             MockMvcRequestBuilders.get(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/views")

@@ -40,14 +40,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class ViewsController {
 
-  /**
-   * Query key of the removed numeric pagination parameter, and the fixed reason given for it. The
-   * message echoes nothing the caller sent, because it reaches the error body and audit events.
-   */
-  private static final String LEGACY_PAGE_PARAMETER = "page";
+  private static final String UNSUPPORTED_PAGE_PARAMETER = "page";
 
-  private static final String LEGACY_PAGE_REJECTION_MESSAGE =
-      "page : is no longer supported; use pageToken for continuation";
+  private static final String UNSUPPORTED_PAGE_REJECTION_MESSAGE =
+      "page : is not supported; use pageToken for continuation";
 
   @Autowired private ViewsApiHandler viewsApiHandler;
 
@@ -92,9 +88,8 @@ public class ViewsController {
   @Operation(
       summary = "Search Views in a Database",
       description =
-          "Returns one page of View resources present in a database, plus the token that continues"
-              + " the listing. Send pageToken back to fetch the next page; its absence from a"
-              + " response means the listing is complete.",
+          "Returns view identifiers and an optional nextPageToken. Continue while nextPageToken"
+              + " is present.",
       tags = {"View"})
   @ApiResponses(
       value = {
@@ -122,8 +117,7 @@ public class ViewsController {
       @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
       @Parameter(
               description =
-                  "Opaque continuation token taken from a previous response's nextPageToken."
-                      + " Omit it to start a new listing.")
+                  "Opaque token from the previous response's nextPageToken. Omit for the first page.")
           @RequestParam(name = "pageToken", required = false)
           String pageToken,
       @Parameter(description = "Maximum number of views to return")
@@ -134,7 +128,7 @@ public class ViewsController {
           String sortBy,
       HttpServletRequest request) {
 
-    rejectLegacyPageParameter(request);
+    rejectUnsupportedPageParameter(request);
 
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetAllViewsResponseBody> apiResponse =
         viewsApiHandler.getAllViews(
@@ -144,20 +138,12 @@ public class ViewsController {
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }
 
-  /**
-   * Numeric pagination was replaced by continuation tokens. Spring ignores an unknown query key, so
-   * an unmigrated client sending {@code page} would otherwise keep receiving the first page; its
-   * presence is rejected instead, before the request reaches the handler.
-   *
-   * <p>Only presence is read. The value is never interpreted or echoed, and a key sent without a
-   * value counts as present, which is why this inspects the request rather than binding another
-   * parameter: a bound {@code page} would both miss the valueless form and publish a parameter the
-   * API does not support.
-   */
-  private static void rejectLegacyPageParameter(HttpServletRequest request) {
-    if (request.getParameterMap().containsKey(LEGACY_PAGE_PARAMETER)) {
+  /** Reject page explicitly so Spring cannot silently ignore it and return the first page. */
+  private static void rejectUnsupportedPageParameter(HttpServletRequest request) {
+    // A bare ?page can have a null value, so check key presence.
+    if (request.getParameterMap().containsKey(UNSUPPORTED_PAGE_PARAMETER)) {
       throw new ViewRequestValidationFailureException(
-          ViewValidationErrorCode.INVALID_VIEW_DEFINITION, LEGACY_PAGE_REJECTION_MESSAGE);
+          ViewValidationErrorCode.INVALID_VIEW_DEFINITION, UNSUPPORTED_PAGE_REJECTION_MESSAGE);
     }
   }
 

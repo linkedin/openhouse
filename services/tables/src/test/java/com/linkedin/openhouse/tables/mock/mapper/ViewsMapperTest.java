@@ -84,10 +84,6 @@ public class ViewsMapperTest {
         ViewModelConstants.DISTINCT_VIEW_VERSION, responseBody.getViewVersion());
   }
 
-  /**
-   * The list mapping preserves the service's order and its token. The token is opaque, so the
-   * mapper must copy it rather than inspect, trim or regenerate it.
-   */
   @Test
   public void testViewListResultMapsToTheResponseEnvelopePreservingOrderAndToken() {
     List<ViewDto> results =
@@ -147,11 +143,6 @@ public class ViewsMapperTest {
         "A missing list is a construction error, not an accidental successful empty page.");
   }
 
-  /**
-   * Outgoing tokens the service is allowed to produce. Each is copied byte for byte: padding is not
-   * trimmed, reserved characters are not re-encoded, and the literal text {@code "null"} is a
-   * perfectly good token rather than a way of saying the traversal finished.
-   */
   @ParameterizedTest(name = "nextPageToken={0}")
   @ValueSource(strings = {"  padded  ", "a+b/c=%", "null", "\tleading-tab"})
   public void testOutgoingTokenIsPreservedVerbatim(String token) {
@@ -188,10 +179,7 @@ public class ViewsMapperTest {
             "viewsService returned a blank continuation token"));
   }
 
-  /**
-   * Output the service is not allowed to produce. The mapper refuses it with a fixed message rather
-   * than mapping it into a response that would tell a client the traversal had finished.
-   */
+  /** Invalid service output must not become a terminal response. */
   @ParameterizedTest(name = "{0}")
   @MethodSource("invalidServiceResults")
   public void testInvalidServiceOutputIsRejectedRatherThanMapped(

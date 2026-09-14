@@ -1573,11 +1573,7 @@ public class TablesValidatorTest {
                     .build()));
   }
 
-  /**
-   * Regression pin for the views' move to continuation tokens. Table search keeps numeric paging
-   * and the shared {@code ApiValidatorUtil.validatePageable} helper, including its messages that
-   * echo the caller's values; only the views validator stopped using it.
-   */
+  /** Table search retains numeric pagination and its existing validation messages. */
   @Test
   public void validateSearchTablesKeepsNumericPageValidation() {
     assertDoesNotThrow(() -> tablesApiValidator.validateSearchTables("d", 0, 50, null, null));

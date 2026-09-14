@@ -9,13 +9,7 @@ import lombok.Builder;
 import lombok.NonNull;
 import lombok.Value;
 
-/**
- * One page of view identifiers and the token that continues the listing.
- *
- * <p>{@code results} is always present, including as an empty array. {@code nextPageToken} is
- * omitted once the listing is complete: its absence, rather than the number of results, is what
- * tells a client to stop. Jackson and the Gson helper agree on that omission.
- */
+/** A page of view identifiers. Only an absent {@code nextPageToken} marks completion. */
 @Builder
 @Value
 public class GetAllViewsResponseBody {

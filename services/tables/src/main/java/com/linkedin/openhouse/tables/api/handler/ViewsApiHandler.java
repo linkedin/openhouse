@@ -36,9 +36,7 @@ public interface ViewsApiHandler {
    * <p>Failure outcomes: 400 for invalid identifiers, a blank token, a non-positive count or a
    * composite sort; 404 for a missing database or disabled views.
    *
-   * <p>The response carries at most {@code size} results plus the service's continuation token. A
-   * client continues while that token is present, even when a page is short or empty, and stops
-   * when it is absent. Nothing here interprets, derives or validates a token.
+   * <p>Continue while the response has a next token, regardless of result count.
    *
    * @param databaseId database identifier
    * @param pageToken opaque continuation token from a previous response, or null for the first page

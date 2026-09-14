@@ -23,9 +23,7 @@ public interface ViewsApiValidator {
   /**
    * Validate a request to list views in a database.
    *
-   * <p>The token is opaque: it is checked only for being non-blank when supplied. Its origin,
-   * grammar, age and compatibility with this database and sort cannot be checked without the
-   * listing implementation that produces it.
+   * <p>Tokens are opaque; only supplied blank tokens are rejected here.
    *
    * @param databaseId path database identifier
    * @param pageToken opaque continuation token, or null for the first page
