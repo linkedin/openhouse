@@ -146,17 +146,11 @@ public class PostCommitOperationRunnerTest {
           }
         };
 
-    // maxThreads=1, queueCapacity=1, high timeout so cancellation doesn't interfere.
+    // maxThreads=1; note queue-capacity is floored to 100, so saturating the pool requires more
+    // than 1 (running) + 100 (queued) ops. High timeout so cancellation doesn't interfere.
     PostCommitOperationRunner runner =
         new PostCommitOperationRunner(
-            Arrays.asList(blocking, blocking, blocking, blocking),
-            registry,
-            true,
-            1,
-            1,
-            30,
-            true,
-            60000);
+            Collections.nCopies(150, blocking), registry, true, 1, 1, 30, true, 60000);
     runner.runAll(CONTEXT);
     release.countDown();
 

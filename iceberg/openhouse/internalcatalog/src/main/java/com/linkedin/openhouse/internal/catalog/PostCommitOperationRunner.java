@@ -72,9 +72,15 @@ public class PostCommitOperationRunner {
     this.operations = operations == null ? Collections.emptyList() : operations;
     this.meterRegistry = meterRegistry;
     this.enabled = enabled;
-    this.operationTimeoutMs = Math.max(1L, operationTimeoutMs);
+    // Clamp operator-supplied config to safe minimums. Floor the per-op timeout at 1000ms so a
+    // too-small (or <=0) value can't make the timeout scheduler cancel ops before they can run.
+    this.operationTimeoutMs = Math.max(1000L, operationTimeoutMs);
 
+    // ThreadPoolExecutor throws if maximumPoolSize <= 0, and a 0-thread pool could never run
+    // anything, so floor the pool size at 1 thread.
     int poolSize = Math.max(1, maxThreads);
+    // Floor the queue at 100 so the pool has meaningful headroom to absorb bursts.
+    int queueSize = Math.max(100, queueCapacity);
     // ThreadPoolExecutor forbids a zero keepAlive when core threads may time out.
     long keepAliveSeconds =
         reclaimIdleThreads
@@ -86,7 +92,7 @@ public class PostCommitOperationRunner {
             poolSize,
             keepAliveSeconds,
             TimeUnit.SECONDS,
-            new ArrayBlockingQueue<>(Math.max(1, queueCapacity)),
+            new ArrayBlockingQueue<>(queueSize),
             daemonThreadFactory("post-commit-op"),
             new ThreadPoolExecutor.AbortPolicy());
     // When enabled, idle workers (down to zero) are reclaimed after keepAlive so an unused runner
@@ -104,7 +110,7 @@ public class PostCommitOperationRunner {
         this.operations.size(),
         operationNames(),
         poolSize,
-        queueCapacity,
+        queueSize,
         keepAliveSeconds,
         reclaimIdleThreads,
         this.operationTimeoutMs);
