@@ -22,7 +22,7 @@ public class PostCommitOperationRunnerTest {
 
   private static PostCommitOperationRunner newRunner(
       List<PostCommitOperation> ops, SimpleMeterRegistry registry) {
-    return new PostCommitOperationRunner(ops, registry, 4, 1000, 2000);
+    return new PostCommitOperationRunner(ops, registry, true, 4, 1000, 30, true, 2000);
   }
 
   /**
@@ -104,7 +104,7 @@ public class PostCommitOperationRunnerTest {
 
     PostCommitOperationRunner runner =
         new PostCommitOperationRunner(
-            Collections.singletonList(slow), registry, 4, 1000, /*timeoutMs*/ 100);
+            Collections.singletonList(slow), registry, true, 4, 1000, 30, true, /*timeoutMs*/ 100);
     runner.runAll(CONTEXT);
 
     Assertions.assertTrue(done.await(5, TimeUnit.SECONDS), "slow op should have been interrupted");
@@ -149,12 +149,50 @@ public class PostCommitOperationRunnerTest {
     // maxThreads=1, queueCapacity=1, high timeout so cancellation doesn't interfere.
     PostCommitOperationRunner runner =
         new PostCommitOperationRunner(
-            Arrays.asList(blocking, blocking, blocking, blocking), registry, 1, 1, 60000);
+            Arrays.asList(blocking, blocking, blocking, blocking),
+            registry,
+            true,
+            1,
+            1,
+            30,
+            true,
+            60000);
     runner.runAll(CONTEXT);
     release.countDown();
 
     double rejected = awaitCounter(registry, "blocking", "rejected");
     Assertions.assertTrue(rejected >= 1.0, "at least one submission should be rejected");
+  }
+
+  /** When disabled via server config, the runner never dispatches operations. */
+  @Test
+  void testDisabledRunnerIsNoOp() throws InterruptedException {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    AtomicInteger ran = new AtomicInteger();
+    PostCommitOperation op =
+        new PostCommitOperation() {
+          @Override
+          public String getName() {
+            return "disabled-op";
+          }
+
+          @Override
+          public void execute(PostCommitContext context) {
+            ran.incrementAndGet();
+          }
+        };
+
+    PostCommitOperationRunner runner =
+        new PostCommitOperationRunner(
+            Collections.singletonList(op), registry, /*enabled*/ false, 4, 1000, 30, true, 10000);
+    Assertions.assertFalse(runner.isEnabled());
+    runner.runAll(CONTEXT);
+
+    Thread.sleep(200);
+    Assertions.assertEquals(0, ran.get(), "disabled runner must not execute operations");
+    Assertions.assertNull(
+        registry.find(PostCommitOperationRunner.METRIC_PREFIX).counter(),
+        "disabled runner must not emit operation metrics");
   }
 
   private static PostCommitOperation latchOp(String name, RuntimeException toThrow) {

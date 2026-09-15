@@ -299,7 +299,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
     int version = currentVersion() + 1;
     CommitStatus commitStatus = CommitStatus.FAILURE;
-    TableMetadata committedMetadata = null;
+    Optional<TableMetadata> committedMetadata = Optional.empty();
 
     /* This method adds no fs scheme, and it persists in HTS that way. */
     final String newMetadataLocation = rootMetadataFileLocation(metadata, version);
@@ -463,7 +463,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       if (isReplicatedTableCreate(properties)) {
         updateMetadataFieldForTable(metadata, newMetadataLocation);
       }
-      committedMetadata = updatedMtDataRef;
+      committedMetadata = Optional.of(updatedMtDataRef);
       commitStatus = CommitStatus.SUCCESS;
     } catch (IOException ioe) {
       commitStatus = checkCommitStatus(newMetadataLocation, metadata);
@@ -536,17 +536,21 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   }
 
   /**
-   * Fires best-effort post-commit operations for a successful commit. Never throws: the commit has
-   * already durably succeeded and post-commit work must not affect its outcome.
+   * Fires best-effort post-commit operations for a successful commit, gated by a server-side kill
+   * switch. Never throws: the commit has already durably succeeded and post-commit work must not
+   * affect its outcome.
    */
-  private void runPostCommitOperations(TableMetadata committedMetadata) {
-    if (postCommitOperationRunner == null || committedMetadata == null) {
+  private void runPostCommitOperations(Optional<TableMetadata> committedMetadata) {
+    if (postCommitOperationRunner == null || !postCommitOperationRunner.isEnabled()) {
       return;
     }
     try {
-      postCommitOperationRunner.runAll(new PostCommitContext(tableIdentifier, committedMetadata));
+      committedMetadata.ifPresent(
+          metadata ->
+              postCommitOperationRunner.runAll(new PostCommitContext(tableIdentifier, metadata)));
     } catch (Throwable t) {
-      log.warn("Failed to dispatch post-commit operations for table {}", tableIdentifier, t);
+      log.warn(
+          "Failed to dispatch post-commit operations for table {} (nonfatal)", tableIdentifier, t);
     }
   }
 

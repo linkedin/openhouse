@@ -144,6 +144,7 @@ public class OpenHouseInternalTableOperationsTest {
             tableMetadataCache);
 
     // Instance wired with a post-commit operation runner for testing the post-commit seam.
+    Mockito.when(mockPostCommitOperationRunner.isEnabled()).thenReturn(true);
     openHouseInternalTableOperationsWithPostCommit =
         new OpenHouseInternalTableOperations(
             mockHouseTableRepository,
@@ -263,9 +264,31 @@ public class OpenHouseInternalTableOperationsTest {
   }
 
   /**
-   * Tests committing additional snapshots to a table that already has existing snapshots. Verifies
-   * that only new snapshots are appended to the table metadata.
+   * When the runner is disabled via server config, a successful commit must not dispatch any
+   * post-commit operation (the seam is gated at the call site).
    */
+  @Test
+  void testPostCommitOperationsSkippedWhenRunnerDisabled() throws IOException {
+    Mockito.when(mockPostCommitOperationRunner.isEnabled()).thenReturn(false);
+    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      properties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(testSnapshots));
+      properties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.createMainBranchRefPointingTo(
+                  testSnapshots.get(testSnapshots.size() - 1))));
+
+      TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+      openHouseInternalTableOperationsWithPostCommit.doCommit(BASE_TABLE_METADATA, metadata);
+
+      Mockito.verify(mockPostCommitOperationRunner, Mockito.never()).runAll(Mockito.any());
+    }
+  }
+
   @Test
   void testDoCommitAppendSnapshotsExistingVersion() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();

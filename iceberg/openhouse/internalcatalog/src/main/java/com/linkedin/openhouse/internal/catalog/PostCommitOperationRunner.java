@@ -56,56 +56,76 @@ public class PostCommitOperationRunner {
   private final ThreadPoolExecutor executor;
   private final ScheduledExecutorService timeoutScheduler;
   private final long operationTimeoutMs;
+  private final boolean enabled;
 
   @Autowired
   public PostCommitOperationRunner(
       List<PostCommitOperation> operations,
       MeterRegistry meterRegistry,
+      @Value("${cluster.tables.postcommit.enabled:true}") boolean enabled,
       @Value("${cluster.tables.postcommit.max-threads:4}") int maxThreads,
       @Value("${cluster.tables.postcommit.queue-capacity:1000}") int queueCapacity,
+      @Value("${cluster.tables.postcommit.idle-thread-keepalive-seconds:30}")
+          long idleThreadKeepAliveSeconds,
+      @Value("${cluster.tables.postcommit.reclaim-idle-threads:true}") boolean reclaimIdleThreads,
       @Value("${cluster.tables.postcommit.operation-timeout-ms:10000}") long operationTimeoutMs) {
     this.operations = operations == null ? Collections.emptyList() : operations;
     this.meterRegistry = meterRegistry;
+    this.enabled = enabled;
     this.operationTimeoutMs = Math.max(1L, operationTimeoutMs);
 
     int poolSize = Math.max(1, maxThreads);
+    // ThreadPoolExecutor forbids a zero keepAlive when core threads may time out.
+    long keepAliveSeconds =
+        reclaimIdleThreads
+            ? Math.max(1L, idleThreadKeepAliveSeconds)
+            : Math.max(0L, idleThreadKeepAliveSeconds);
     ThreadPoolExecutor tpe =
         new ThreadPoolExecutor(
             poolSize,
             poolSize,
-            30L,
+            keepAliveSeconds,
             TimeUnit.SECONDS,
             new ArrayBlockingQueue<>(Math.max(1, queueCapacity)),
             daemonThreadFactory("post-commit-op"),
             new ThreadPoolExecutor.AbortPolicy());
-    // Let idle workers (and the timeout scheduler) go away so an unused runner holds zero threads.
-    tpe.allowCoreThreadTimeOut(true);
+    // When enabled, idle workers (down to zero) are reclaimed after keepAlive so an unused runner
+    // holds no threads; new load lazily re-creates them on demand up to the pool size. When
+    // disabled, the pool holds a warm set of threads to avoid create/destroy churn under bursty
+    // traffic.
+    tpe.allowCoreThreadTimeOut(reclaimIdleThreads);
     this.executor = tpe;
     this.timeoutScheduler =
         Executors.newSingleThreadScheduledExecutor(daemonThreadFactory("post-commit-timeout"));
 
     log.info(
-        "PostCommitOperationRunner initialized with {} operation(s): {} (maxThreads={}, queueCapacity={}, operationTimeoutMs={})",
+        "PostCommitOperationRunner initialized (enabled={}) with {} operation(s): {} (maxThreads={}, queueCapacity={}, idleThreadKeepAliveSeconds={}, reclaimIdleThreads={}, operationTimeoutMs={})",
+        enabled,
         this.operations.size(),
         operationNames(),
         poolSize,
         queueCapacity,
+        keepAliveSeconds,
+        reclaimIdleThreads,
         this.operationTimeoutMs);
+  }
+
+  /** Whether post-commit dispatch is enabled; a server-side kill switch for the whole seam. */
+  public boolean isEnabled() {
+    return enabled;
   }
 
   /**
    * Submits every registered operation for asynchronous, best-effort execution. Returns
    * immediately; never throws.
    *
-   * @param context committed table context; ignored if {@code null}
+   * @param context committed table context
    */
   public void runAll(PostCommitContext context) {
-    if (context == null || operations.isEmpty()) {
+    if (!enabled || operations.isEmpty()) {
       return;
     }
-    for (PostCommitOperation operation : operations) {
-      submit(operation, context);
-    }
+    operations.forEach(operation -> submit(operation, context));
   }
 
   private void submit(PostCommitOperation operation, PostCommitContext context) {
@@ -129,15 +149,17 @@ public class PostCommitOperationRunner {
           operationTimeoutMs,
           TimeUnit.MILLISECONDS);
     } catch (RejectedExecutionException rejected) {
-      // Queue full: drop rather than block the committer or grow memory unbounded.
+      // Queue full: drop rather than block the committer or grow memory unbounded. This is an
+      // expected best-effort outcome under load and is also tracked by the "rejected" counter.
       count(name, "rejected");
       log.warn(
           "Post-commit operation '{}' rejected (pool saturated) for table {}",
           name,
           context.getTableIdentifier());
     } catch (Throwable submitFailure) {
+      // Unexpected, but nonfatal: the commit has already durably succeeded and is unaffected.
       count(name, "rejected");
-      log.warn("Failed to submit post-commit operation '{}'", name, submitFailure);
+      log.warn("Failed to submit post-commit operation '{}' (nonfatal)", name, submitFailure);
     }
   }
 
