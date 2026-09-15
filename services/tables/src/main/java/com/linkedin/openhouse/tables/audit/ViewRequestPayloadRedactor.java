@@ -23,9 +23,9 @@ import org.springframework.util.AntPathMatcher;
  * every other route's payload exactly as it was.
  *
  * <p>Every field that is not part of the view definition — {@code viewId}, {@code databaseId},
- * {@code clusterId}, {@code sourceDialect}, {@code defaultCatalog}, {@code defaultNamespace},
- * {@code viewProperties} and {@code baseMetadataLocation} — is left intact, so an audit event still
- * identifies what was operated on and by whom.
+ * {@code sourceDialect}, {@code defaultCatalog}, {@code defaultNamespace}, {@code viewProperties}
+ * and {@code baseMetadataLocation} — is left intact, so an audit event still identifies what was
+ * operated on and by whom.
  */
 @Component
 public class ViewRequestPayloadRedactor implements ServiceAuditPayloadRedactor {

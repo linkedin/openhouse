@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.tables.api.handler.impl;
 
-import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.tables.api.handler.ViewsApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
@@ -30,8 +29,6 @@ public class OpenHouseViewsApiHandler implements ViewsApiHandler {
 
   @Autowired private ViewsMapper viewsMapper;
 
-  @Autowired private ClusterProperties clusterProperties;
-
   @Override
   public ApiResponse<GetViewResponseBody> getView(
       String databaseId, String viewId, String actingPrincipal) {
@@ -58,8 +55,7 @@ public class OpenHouseViewsApiHandler implements ViewsApiHandler {
   @Override
   public ApiResponse<GetViewResponseBody> createView(
       String databaseId, CreateUpdateViewRequestBody requestBody, String actingPrincipal) {
-    viewsApiValidator.validateCreateView(
-        clusterProperties.getClusterName(), databaseId, requestBody);
+    viewsApiValidator.validateCreateView(databaseId, requestBody);
     Pair<ViewDto, Boolean> putResult = viewsService.putView(requestBody, actingPrincipal, true);
     return ApiResponse.<GetViewResponseBody>builder()
         .httpStatus(HttpStatus.CREATED)
@@ -73,8 +69,7 @@ public class OpenHouseViewsApiHandler implements ViewsApiHandler {
       String viewId,
       CreateUpdateViewRequestBody requestBody,
       String actingPrincipal) {
-    viewsApiValidator.validateUpdateView(
-        clusterProperties.getClusterName(), databaseId, viewId, requestBody);
+    viewsApiValidator.validateUpdateView(databaseId, viewId, requestBody);
     Pair<ViewDto, Boolean> putResult = viewsService.putView(requestBody, actingPrincipal, false);
     HttpStatus httpStatus = putResult.getSecond() ? HttpStatus.CREATED : HttpStatus.OK;
     return ApiResponse.<GetViewResponseBody>builder()

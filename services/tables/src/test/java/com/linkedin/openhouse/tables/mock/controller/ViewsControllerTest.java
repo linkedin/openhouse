@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.CachingRequestBodyFilter;
 import com.linkedin.openhouse.common.audit.ServiceAuditPayloadRedactor;
@@ -103,6 +104,8 @@ public class ViewsControllerTest {
   @Autowired private ViewsController viewsController;
 
   @Autowired private OpenHouseExceptionHandler openHouseExceptionHandler;
+
+  @Autowired private ClusterProperties clusterProperties;
 
   @MockBean private AuditHandler<ServiceAuditEvent> serviceAuditHandler;
 
@@ -624,7 +627,13 @@ public class ViewsControllerTest {
     Assertions.assertEquals(
         ViewModelConstants.DATABASE_ID, payloadObject.get("databaseId").getAsString());
     Assertions.assertEquals(
-        ViewModelConstants.CLUSTER_ID, payloadObject.get("clusterId").getAsString());
+        clusterProperties.getClusterName(),
+        event.getClusterName(),
+        "The audited cluster identity comes from this server's configuration, never from the"
+            + " request body.");
+    Assertions.assertFalse(
+        payloadObject.has("clusterId"),
+        "A canonical request carries no cluster key, so none reaches the audited payload.");
     Assertions.assertEquals(
         ViewModelConstants.SOURCE_DIALECT, payloadObject.get("sourceDialect").getAsString());
     Assertions.assertEquals(

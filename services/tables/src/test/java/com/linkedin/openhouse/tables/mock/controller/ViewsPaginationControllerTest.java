@@ -5,16 +5,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.linkedin.openhouse.cluster.configs.ClusterProperties;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.linkedin.openhouse.common.exception.handler.OpenHouseExceptionHandler;
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
 import com.linkedin.openhouse.tables.api.handler.impl.OpenHouseViewsApiHandler;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
 import com.linkedin.openhouse.tables.api.validator.ViewsApiValidator;
 import com.linkedin.openhouse.tables.controller.ViewsController;
 import com.linkedin.openhouse.tables.dto.mapper.ViewsMapper;
 import com.linkedin.openhouse.tables.exception.ViewApiException;
 import com.linkedin.openhouse.tables.exception.ViewErrorCode;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
+import com.linkedin.openhouse.tables.model.ViewDto;
 import com.linkedin.openhouse.tables.model.ViewListResult;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
 import com.linkedin.openhouse.tables.services.ViewsDisabledService;
@@ -34,6 +36,7 @@ import org.mockito.InOrder;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.util.Pair;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -74,8 +77,6 @@ public class ViewsPaginationControllerTest {
 
   @Autowired private ViewsMapper viewsMapper;
 
-  @Autowired private ClusterProperties clusterProperties;
-
   @Autowired private OpenHouseExceptionHandler openHouseExceptionHandler;
 
   @Autowired private ViewsDisabledService viewsDisabledService;
@@ -99,7 +100,6 @@ public class ViewsPaginationControllerTest {
     ReflectionTestUtils.setField(handler, "viewsApiValidator", viewsApiValidator);
     ReflectionTestUtils.setField(handler, "viewsService", service);
     ReflectionTestUtils.setField(handler, "viewsMapper", viewsMapper);
-    ReflectionTestUtils.setField(handler, "clusterProperties", clusterProperties);
 
     ViewsController controller = new ViewsController();
     ReflectionTestUtils.setField(controller, "viewsApiHandler", handler);
@@ -507,13 +507,29 @@ public class ViewsPaginationControllerTest {
 
   // The registered service is still disabled
 
-  /** Valid first and continuation requests both reach the disabled service. */
+  /** Valid read and write requests both reach the disabled service rather than failing earlier. */
   @Test
   public void theRegisteredServiceStillReportsViewsDisabled() throws Exception {
     MockMvc disabled = standaloneMvcBackedBy(viewsDisabledService);
 
     disabled
         .perform(listRequest())
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.message", Matchers.is("Views are disabled")));
+
+    disabled
+        .perform(
+            authorize(MockMvcRequestBuilders.post(VIEWS_PATH))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(ViewModelConstants.createRequestWithoutBaseVersion().toJson()))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.message", Matchers.is("Views are disabled")));
+
+    disabled
+        .perform(
+            authorize(MockMvcRequestBuilders.put(VIEWS_PATH + "/" + ViewModelConstants.VIEW_ID))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(ViewModelConstants.fullyPopulatedRequest().toJson()))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.message", Matchers.is("Views are disabled")));
 
@@ -545,5 +561,76 @@ public class ViewsPaginationControllerTest {
         .andExpect(status().isUnauthorized());
 
     Mockito.verifyNoInteractions(viewsService);
+  }
+
+  // Cluster identity on the write routes
+
+  // Exercise omitted/forged clusters through real validation; response identity remains
+  // service-owned.
+  private static Stream<Arguments> requestBodyClusterIds() {
+    return Stream.of(
+        Arguments.of("omitted", null),
+        Arguments.of("forged", "a-cluster-this-server-does-not-serve"));
+  }
+
+  @ParameterizedTest(name = "create accepts a {0} clusterId")
+  @MethodSource("requestBodyClusterIds")
+  public void createIgnoresAnyRequestBodyClusterId(String name, String clusterId) throws Exception {
+    Mockito.when(
+            viewsService.putView(Mockito.any(), Mockito.eq(ACTING_PRINCIPAL), Mockito.eq(true)))
+        .thenReturn(Pair.of(serviceOwnedPointerDto(), true));
+
+    mvc.perform(
+            authorize(MockMvcRequestBuilders.post(VIEWS_PATH))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    bodyWithClusterId(
+                        ViewModelConstants.createRequestWithoutBaseVersion(), clusterId)))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.clusterId", Matchers.is(ViewModelConstants.CLUSTER_ID)));
+
+    Mockito.verify(viewsService)
+        .putView(Mockito.any(), Mockito.eq(ACTING_PRINCIPAL), Mockito.eq(true));
+  }
+
+  @ParameterizedTest(name = "replace accepts a {0} clusterId")
+  @MethodSource("requestBodyClusterIds")
+  public void updateIgnoresAnyRequestBodyClusterId(String name, String clusterId) throws Exception {
+    Mockito.when(
+            viewsService.putView(Mockito.any(), Mockito.eq(ACTING_PRINCIPAL), Mockito.eq(false)))
+        .thenReturn(Pair.of(serviceOwnedPointerDto(), false));
+
+    mvc.perform(
+            authorize(MockMvcRequestBuilders.put(VIEWS_PATH + "/" + ViewModelConstants.VIEW_ID))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(bodyWithClusterId(ViewModelConstants.fullyPopulatedRequest(), clusterId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.clusterId", Matchers.is(ViewModelConstants.CLUSTER_ID)));
+
+    Mockito.verify(viewsService)
+        .putView(Mockito.any(), Mockito.eq(ACTING_PRINCIPAL), Mockito.eq(false));
+  }
+
+  /** Raw JSON, so the cluster key can be dropped or forged independently of the typed model. */
+  private static String bodyWithClusterId(CreateUpdateViewRequestBody request, String clusterId)
+      throws Exception {
+    ObjectNode body = (ObjectNode) MAPPER.readTree(request.toJson());
+    body.remove("clusterId");
+    if (clusterId != null) {
+      body.put("clusterId", clusterId);
+    }
+    return MAPPER.writeValueAsString(body);
+  }
+
+  private static ViewDto serviceOwnedPointerDto() {
+    return ViewDto.builder()
+        .viewId(ViewModelConstants.VIEW_ID)
+        .databaseId(ViewModelConstants.DATABASE_ID)
+        .clusterId(ViewModelConstants.CLUSTER_ID)
+        .viewUri(ViewModelConstants.VIEW_URI)
+        .metadataLocation(ViewModelConstants.METADATA_LOCATION)
+        .viewVersion(ViewModelConstants.VIEW_VERSION)
+        .creationTime(ViewModelConstants.CREATION_TIME)
+        .build();
   }
 }

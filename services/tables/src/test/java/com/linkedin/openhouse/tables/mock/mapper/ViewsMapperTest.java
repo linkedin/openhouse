@@ -34,7 +34,6 @@ public class ViewsMapperTest {
 
     Assertions.assertEquals(requestBody.getViewId(), viewDto.getViewId());
     Assertions.assertEquals(requestBody.getDatabaseId(), viewDto.getDatabaseId());
-    Assertions.assertEquals(requestBody.getClusterId(), viewDto.getClusterId());
     Assertions.assertEquals(requestBody.getSchema(), viewDto.getSchema());
     Assertions.assertEquals(requestBody.getRepresentations(), viewDto.getRepresentations());
     Assertions.assertEquals(requestBody.getSourceDialect(), viewDto.getSourceDialect());
@@ -48,6 +47,10 @@ public class ViewsMapperTest {
             + " the current pointer, mirroring how baseTableVersion maps to tableVersion.");
 
     // Pointer fields are server-owned and must not be populated from a request.
+    Assertions.assertNull(
+        viewDto.getClusterId(),
+        "The serving cluster is the service's own identity, so the mapper never takes it from a"
+            + " request, whatever the caller sent.");
     Assertions.assertNull(viewDto.getViewUri());
     Assertions.assertNull(viewDto.getMetadataLocation());
     Assertions.assertNull(viewDto.getViewCreator());

@@ -288,7 +288,6 @@ public final class ViewModelConstants {
     return CreateUpdateViewRequestBody.builder()
         .viewId(VIEW_ID)
         .databaseId(DATABASE_ID)
-        .clusterId(CLUSTER_ID)
         .schema(VIEW_SCHEMA_LITERAL)
         .representations(Collections.singletonList(SPARK_REPRESENTATION))
         .sourceDialect(SOURCE_DIALECT)

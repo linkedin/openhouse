@@ -6,7 +6,6 @@ import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.MAX
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.MAX_VIEW_SQL_BYTES;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 
-import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ViewRepresentation;
 import com.linkedin.openhouse.tables.api.validator.ViewsApiValidator;
@@ -43,33 +42,21 @@ public class ViewsValidatorTest {
 
   @Autowired private ViewsApiValidator viewsApiValidator;
 
-  @Autowired private ClusterProperties clusterProperties;
-
-  /**
-   * {@link ViewModelConstants} fixes a literal cluster id so the contract test stays byte-stable,
-   * but the validator compares against the cluster this server is actually serving. Rebind it here.
-   */
-  private CreateUpdateViewRequestBody servingCluster(CreateUpdateViewRequestBody requestBody) {
-    return requestBody.toBuilder().clusterId(clusterProperties.getClusterName()).build();
-  }
-
   @Test
   public void validateCreateViewAcceptsBothLegalPostTokenForms() {
     assertDoesNotThrow(
         () ->
             viewsApiValidator.validateCreateView(
-                clusterProperties.getClusterName(),
                 ViewModelConstants.DATABASE_ID,
-                servingCluster(ViewModelConstants.createRequestWithoutBaseVersion())),
+                ViewModelConstants.createRequestWithoutBaseVersion()),
         "A POST that omits baseMetadataLocation entirely is the plain create shape and must be"
             + " accepted.");
 
     assertDoesNotThrow(
         () ->
             viewsApiValidator.validateCreateView(
-                clusterProperties.getClusterName(),
                 ViewModelConstants.DATABASE_ID,
-                servingCluster(ViewModelConstants.createRequestWithInitialBaseVersion())),
+                ViewModelConstants.createRequestWithInitialBaseVersion()),
         "The Iceberg client sends "
             + INITIAL_TABLE_VERSION
             + " on create, so that form must be accepted too.");
@@ -78,7 +65,7 @@ public class ViewsValidatorTest {
   @Test
   public void validateUpdateViewAcceptsAnOpaqueBaseVersionToken() {
     CreateUpdateViewRequestBody request =
-        servingCluster(ViewModelConstants.fullyPopulatedRequest())
+        ViewModelConstants.fullyPopulatedRequest()
             .toBuilder()
             // Deliberately not a metadata path: PUT treats the token as fully opaque.
             .baseMetadataLocation("an-entirely-opaque-token")
@@ -87,10 +74,7 @@ public class ViewsValidatorTest {
     assertDoesNotThrow(
         () ->
             viewsApiValidator.validateUpdateView(
-                clusterProperties.getClusterName(),
-                ViewModelConstants.DATABASE_ID,
-                ViewModelConstants.VIEW_ID,
-                request));
+                ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, request));
   }
 
   /**
@@ -194,14 +178,14 @@ public class ViewsValidatorTest {
     return exception;
   }
 
-  /** A request that a POST would accept unchanged: serving cluster, no base version. */
+  /** A request that a POST would accept unchanged: no base version. */
   private CreateUpdateViewRequestBody validCreateRequest() {
-    return servingCluster(ViewModelConstants.createRequestWithoutBaseVersion());
+    return ViewModelConstants.createRequestWithoutBaseVersion();
   }
 
-  /** A request that a PUT would accept unchanged: serving cluster, replace token present. */
+  /** A request that a PUT would accept unchanged: replace token present. */
   private CreateUpdateViewRequestBody validUpdateRequest() {
-    return servingCluster(ViewModelConstants.fullyPopulatedRequest());
+    return ViewModelConstants.fullyPopulatedRequest();
   }
 
   private CreateUpdateViewRequestBody createRequestWith(List<ViewRepresentation> representations) {
@@ -217,22 +201,17 @@ public class ViewsValidatorTest {
   }
 
   private Executable createOf(CreateUpdateViewRequestBody requestBody) {
-    return () ->
-        viewsApiValidator.validateCreateView(
-            clusterProperties.getClusterName(), ViewModelConstants.DATABASE_ID, requestBody);
+    return () -> viewsApiValidator.validateCreateView(ViewModelConstants.DATABASE_ID, requestBody);
   }
 
   private Executable updateOf(CreateUpdateViewRequestBody requestBody) {
     return () ->
         viewsApiValidator.validateUpdateView(
-            clusterProperties.getClusterName(),
-            ViewModelConstants.DATABASE_ID,
-            ViewModelConstants.VIEW_ID,
-            requestBody);
+            ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, requestBody);
   }
 
   @Test
-  public void validateRejectsIdentifierMismatchesAgainstPathAndCluster() {
+  public void validateRejectsIdentifierMismatchesAgainstPath() {
     assertRejected(
         createOf(validCreateRequest().toBuilder().databaseId("another_database").build()),
         ViewErrorCode.INVALID_VIEW_DEFINITION,
@@ -246,13 +225,6 @@ public class ViewsValidatorTest {
         String.format(
             "viewId : provided %s, doesn't match with the RequestBody another_view",
             ViewModelConstants.VIEW_ID));
-
-    assertRejected(
-        createOf(validCreateRequest().toBuilder().clusterId("not-the-serving-cluster").build()),
-        ViewErrorCode.INVALID_VIEW_DEFINITION,
-        String.format(
-            "clusterId : provided not-the-serving-cluster, doesn't match with the server cluster %s",
-            clusterProperties.getClusterName()));
   }
 
   @Test

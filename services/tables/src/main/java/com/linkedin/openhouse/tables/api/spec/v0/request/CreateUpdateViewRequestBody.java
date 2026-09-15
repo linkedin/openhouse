@@ -49,15 +49,6 @@ public class CreateUpdateViewRequestBody {
   private String databaseId;
 
   @Schema(
-      description = "Unique Resource identifier for the Cluster containing the Database",
-      example = "my_cluster")
-  @NotEmpty(message = "clusterId cannot be empty")
-  @Pattern(
-      regexp = ALPHA_NUM_UNDERSCORE_REGEX_HYPHEN_ALLOW,
-      message = ALPHA_NUM_UNDERSCORE_ERROR_MSG_HYPHEN_ALLOW)
-  private String clusterId;
-
-  @Schema(
       description = "Schema of the view. OpenHouse views use Iceberg schema specification",
       example =
           "{\"type\": \"struct\", "

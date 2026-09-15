@@ -125,10 +125,9 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
   }
 
   @Override
-  public void validateCreateView(
-      String clusterId, String databaseId, CreateUpdateViewRequestBody requestBody) {
+  public void validateCreateView(String databaseId, CreateUpdateViewRequestBody requestBody) {
     ViewValidationFailures failures = new ViewValidationFailures();
-    validateBody(clusterId, databaseId, requestBody, failures);
+    validateBody(databaseId, requestBody, failures);
     // POST distinguishes only "supplied" from "omitted": a supplied-but-blank token is a value the
     // rule below has to reject, not an absence.
     validateCreateBaseMetadataLocation(
@@ -138,9 +137,9 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
 
   @Override
   public void validateUpdateView(
-      String clusterId, String databaseId, String viewId, CreateUpdateViewRequestBody requestBody) {
+      String databaseId, String viewId, CreateUpdateViewRequestBody requestBody) {
     ViewValidationFailures failures = new ViewValidationFailures();
-    validateBody(clusterId, databaseId, requestBody, failures);
+    validateBody(databaseId, requestBody, failures);
     if (requestBody.getViewId() != null && !requestBody.getViewId().equals(viewId)) {
       failures.addGeneric(
           String.format(
@@ -173,21 +172,12 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
    * </ul>
    */
   private void validateBody(
-      String clusterId,
-      String databaseId,
-      CreateUpdateViewRequestBody requestBody,
-      ViewValidationFailures failures) {
+      String databaseId, CreateUpdateViewRequestBody requestBody, ViewValidationFailures failures) {
     // Bean violations stay in the generic category, so they are collected into a plain list first
     // and then forwarded, rather than influencing the error-code precedence.
     List<String> beanViolations = new ArrayList<>();
     ApiValidatorUtil.collectViolations(validator, requestBody, beanViolations);
     beanViolations.forEach(failures::addGeneric);
-    if (requestBody.getClusterId() != null && !requestBody.getClusterId().equals(clusterId)) {
-      failures.addGeneric(
-          String.format(
-              "clusterId : provided %s, doesn't match with the server cluster %s",
-              requestBody.getClusterId(), clusterId));
-    }
     if (requestBody.getDatabaseId() != null && !requestBody.getDatabaseId().equals(databaseId)) {
       failures.addGeneric(
           String.format(

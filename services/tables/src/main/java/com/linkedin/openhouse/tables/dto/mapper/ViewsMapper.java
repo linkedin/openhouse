@@ -22,7 +22,8 @@ public interface ViewsMapper {
    *
    * <p>The caller-supplied {@code baseMetadataLocation} is stored as {@code viewVersion} so the
    * service can compare it against the current pointer. Server-owned pointer fields are left unset:
-   * only the service can populate them.
+   * only the service can populate them, and it reads the serving cluster from server configuration
+   * rather than from the request.
    *
    * @param requestBody source request
    * @return a new immutable {@link ViewDto}
@@ -30,7 +31,6 @@ public interface ViewsMapper {
   @Mappings({
     @Mapping(source = "viewId", target = "viewId"),
     @Mapping(source = "databaseId", target = "databaseId"),
-    @Mapping(source = "clusterId", target = "clusterId"),
     @Mapping(source = "schema", target = "schema"),
     @Mapping(source = "representations", target = "representations"),
     @Mapping(source = "sourceDialect", target = "sourceDialect"),
@@ -38,6 +38,7 @@ public interface ViewsMapper {
     @Mapping(source = "defaultNamespace", target = "defaultNamespace"),
     @Mapping(source = "viewProperties", target = "viewProperties"),
     @Mapping(source = "baseMetadataLocation", target = "viewVersion"),
+    @Mapping(target = "clusterId", ignore = true),
     @Mapping(target = "viewUri", ignore = true),
     @Mapping(target = "metadataLocation", ignore = true),
     @Mapping(target = "viewCreator", ignore = true),

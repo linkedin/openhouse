@@ -2,7 +2,6 @@ package com.linkedin.openhouse.tables.mock.api;
 
 import static org.mockito.Mockito.when;
 
-import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.tables.api.handler.impl.OpenHouseViewsApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
@@ -40,7 +39,6 @@ import org.springframework.http.HttpStatus;
 @ExtendWith(MockitoExtension.class)
 public class OpenHouseViewsApiHandlerTest {
 
-  private static final String SERVING_CLUSTER = "local-cluster";
   private static final String ACTING_PRINCIPAL = "DUMMY_ANONYMOUS_USER";
 
   @Mock private ViewsApiValidator viewsApiValidator;
@@ -48,8 +46,6 @@ public class OpenHouseViewsApiHandlerTest {
   @Mock private ViewsService viewsService;
 
   @Mock private ViewsMapper viewsMapper;
-
-  @Mock private ClusterProperties clusterProperties;
 
   @InjectMocks private OpenHouseViewsApiHandler handler;
 
@@ -186,9 +182,8 @@ public class OpenHouseViewsApiHandlerTest {
   }
 
   @Test
-  public void createViewValidatesAgainstTheServingClusterAndReturns201() {
+  public void createViewValidatesBeforeCallingTheServiceAndReturns201() {
     CreateUpdateViewRequestBody requestBody = ViewModelConstants.createRequestWithoutBaseVersion();
-    when(clusterProperties.getClusterName()).thenReturn(SERVING_CLUSTER);
     when(viewsService.putView(requestBody, ACTING_PRINCIPAL, true))
         .thenReturn(Pair.of(viewDto, true));
     when(viewsMapper.toGetViewResponseBody(viewDto)).thenReturn(responseBody);
@@ -199,7 +194,7 @@ public class OpenHouseViewsApiHandlerTest {
     InOrder inOrder = Mockito.inOrder(viewsApiValidator, viewsService);
     inOrder
         .verify(viewsApiValidator)
-        .validateCreateView(SERVING_CLUSTER, ViewModelConstants.DATABASE_ID, requestBody);
+        .validateCreateView(ViewModelConstants.DATABASE_ID, requestBody);
     // failOnExist is true on POST: a POST must never silently replace an existing view.
     inOrder.verify(viewsService).putView(requestBody, ACTING_PRINCIPAL, true);
 
@@ -210,7 +205,6 @@ public class OpenHouseViewsApiHandlerTest {
   @Test
   public void updateViewSelectsStatusFromTheServiceCreatedFlag() {
     CreateUpdateViewRequestBody requestBody = ViewModelConstants.fullyPopulatedRequest();
-    when(clusterProperties.getClusterName()).thenReturn(SERVING_CLUSTER);
     when(viewsMapper.toGetViewResponseBody(viewDto)).thenReturn(responseBody);
 
     when(viewsService.putView(requestBody, ACTING_PRINCIPAL, false))
@@ -246,10 +240,7 @@ public class OpenHouseViewsApiHandlerTest {
       inOrder
           .verify(viewsApiValidator)
           .validateUpdateView(
-              SERVING_CLUSTER,
-              ViewModelConstants.DATABASE_ID,
-              ViewModelConstants.VIEW_ID,
-              requestBody);
+              ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, requestBody);
       inOrder.verify(viewsService).putView(requestBody, ACTING_PRINCIPAL, false);
     }
     inOrder.verifyNoMoreInteractions();

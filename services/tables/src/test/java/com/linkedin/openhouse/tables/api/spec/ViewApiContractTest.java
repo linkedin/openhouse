@@ -46,11 +46,11 @@ public class ViewApiContractTest {
 
   @Test
   public void testCreateUpdateViewRequestBodyFieldsAreFrozen() {
+    // The serving cluster is server configuration, so the request carries no cluster identity.
     Set<String> expected =
         setOf(
             "viewId",
             "databaseId",
-            "clusterId",
             "schema",
             "representations",
             "sourceDialect",
@@ -137,7 +137,6 @@ public class ViewApiContractTest {
         setOf(
             "viewId",
             "databaseId",
-            "clusterId",
             "schema",
             "representations",
             "sourceDialect",
@@ -149,7 +148,10 @@ public class ViewApiContractTest {
 
     Assertions.assertEquals(ViewModelConstants.VIEW_ID, json.get("viewId").asText());
     Assertions.assertEquals(ViewModelConstants.DATABASE_ID, json.get("databaseId").asText());
-    Assertions.assertEquals(ViewModelConstants.CLUSTER_ID, json.get("clusterId").asText());
+    Assertions.assertFalse(
+        json.has("clusterId"),
+        "Even a fully populated request emits no cluster key: the serving cluster is server"
+            + " configuration, not something a caller declares.");
     Assertions.assertEquals(ViewModelConstants.SOURCE_DIALECT, json.get("sourceDialect").asText());
     Assertions.assertEquals(
         ViewModelConstants.METADATA_LOCATION, json.get("baseMetadataLocation").asText());
@@ -186,7 +188,6 @@ public class ViewApiContractTest {
         setOf(
             "viewId",
             "databaseId",
-            "clusterId",
             "schema",
             "representations",
             "sourceDialect",
@@ -237,6 +238,10 @@ public class ViewApiContractTest {
     Assertions.assertFalse(
         gsonPayload.has("baseViewVersion"),
         "The field is renamed, not aliased, so the pre-rename key must not survive on the wire.");
+    Assertions.assertFalse(
+        gsonPayload.has("clusterId"),
+        "Gson serializes declared fields, so a request cluster field would reach the audited"
+            + " payload even if Jackson were told to drop it.");
     Assertions.assertEquals(
         keysOf(MAPPER.valueToTree(request)),
         keysOf(gsonPayload),
@@ -323,6 +328,28 @@ public class ViewApiContractTest {
     Assertions.assertNull(
         request.getBaseMetadataLocation(),
         "The old key is not an alias: a caller that has not migrated leaves the field unset.");
+  }
+
+  /** A forged cluster key binds nowhere, so it cannot reappear on either serialized form. */
+  @Test
+  public void testForgedClusterIdDoesNotSurviveBinding() {
+    ObjectMapper lenientMapper =
+        new ObjectMapper().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+    String payload =
+        "{\"viewId\": \""
+            + ViewModelConstants.VIEW_ID
+            + "\", \"clusterId\": \"a-cluster-this-server-does-not-serve\"}";
+
+    CreateUpdateViewRequestBody request =
+        Assertions.assertDoesNotThrow(
+            () -> lenientMapper.readValue(payload, CreateUpdateViewRequestBody.class));
+
+    Assertions.assertEquals(
+        ViewModelConstants.VIEW_ID,
+        request.getViewId(),
+        "Precondition: the rest of the payload still binds; only the cluster key is unknown.");
+    Assertions.assertFalse(MAPPER.valueToTree(request).has("clusterId"));
+    Assertions.assertFalse(parse(request.toJson()).has("clusterId"));
   }
 
   @Test

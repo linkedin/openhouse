@@ -2,7 +2,6 @@ package com.linkedin.openhouse.tables.mock.api;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 
-import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ViewRepresentation;
 import com.linkedin.openhouse.tables.api.validator.ViewsApiValidator;
@@ -35,8 +34,6 @@ public class ViewsValidatorMultiDialectTest {
       ViewModelConstants.SPARK_REPRESENTATION.toBuilder().dialect("trino").build();
 
   @Autowired private ViewsApiValidator viewsApiValidator;
-
-  @Autowired private ClusterProperties clusterProperties;
 
   @Test
   public void validateAcceptsOneRepresentationPerConfiguredDialect() {
@@ -126,15 +123,12 @@ public class ViewsValidatorMultiDialectTest {
   private CreateUpdateViewRequestBody requestWith(List<ViewRepresentation> representations) {
     return ViewModelConstants.createRequestWithoutBaseVersion()
         .toBuilder()
-        .clusterId(clusterProperties.getClusterName())
         .representations(representations)
         .build();
   }
 
   private Executable createOf(CreateUpdateViewRequestBody requestBody) {
-    return () ->
-        viewsApiValidator.validateCreateView(
-            clusterProperties.getClusterName(), ViewModelConstants.DATABASE_ID, requestBody);
+    return () -> viewsApiValidator.validateCreateView(ViewModelConstants.DATABASE_ID, requestBody);
   }
 
   private void assertRejected(

@@ -35,23 +35,20 @@ public interface ViewsApiValidator {
   /**
    * Validate a POST request to create a view.
    *
-   * @param clusterId name of the serving cluster
    * @param databaseId path database identifier
    * @param requestBody the create request
    */
-  void validateCreateView(
-      String clusterId, String databaseId, CreateUpdateViewRequestBody requestBody);
+  void validateCreateView(String databaseId, CreateUpdateViewRequestBody requestBody);
 
   /**
    * Validate a PUT request to replace or create a view.
    *
-   * @param clusterId name of the serving cluster
    * @param databaseId path database identifier
    * @param viewId path view identifier
    * @param requestBody the update request
    */
   void validateUpdateView(
-      String clusterId, String databaseId, String viewId, CreateUpdateViewRequestBody requestBody);
+      String databaseId, String viewId, CreateUpdateViewRequestBody requestBody);
 
   /**
    * Validate a request to delete a view.
