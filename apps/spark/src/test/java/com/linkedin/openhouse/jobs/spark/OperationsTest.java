@@ -21,6 +21,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -316,6 +317,118 @@ public class OperationsTest extends OpenHouseSparkITest {
       }
       Assertions.assertEquals(
           table.location() + "/.backup", table.properties().get(AppConstants.BACKUP_DIR_KEY));
+    }
+  }
+
+  @Test
+  public void testRetentionWithNativeTimestampDailyPartitionHonorsLosAngelesBoundary()
+      throws Exception {
+    final String zonedTableName = "db.test_retention_zoned_native_timestamp";
+    final String utcTableName = "db.test_retention_utc_native_timestamp";
+    ZonedDateTime now = ZonedDateTime.of(2024, 2, 1, 2, 0, 0, 0, ZoneOffset.UTC);
+    ZonedDateTime losAngelesNow = now.withZoneSameInstant(ZoneId.of("America/Los_Angeles"));
+    ZonedDateTime losAngelesCutoff =
+        losAngelesNow.truncatedTo(ChronoUnit.DAYS).minusDays(1).withZoneSameInstant(ZoneOffset.UTC);
+    ZonedDateTime snappedLosAngelesCutoff = losAngelesCutoff.truncatedTo(ChronoUnit.DAYS);
+    ZonedDateTime utcCutoff = now.truncatedTo(ChronoUnit.DAYS).minusDays(1);
+    Assertions.assertEquals(
+        ZonedDateTime.of(2024, 1, 30, 0, 0, 0, 0, ZoneOffset.UTC), snappedLosAngelesCutoff);
+    Assertions.assertEquals(ZonedDateTime.of(2024, 1, 31, 0, 0, 0, 0, ZoneOffset.UTC), utcCutoff);
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, zonedTableName, true);
+      prepareTable(ops, utcTableName, true);
+      String fixtureRows =
+          "('older_than_zoned_cutoff', cast('2024-01-29 12:00:00' as timestamp)), "
+              + "('kept_only_by_los_angeles_zone', cast('2024-01-30 12:00:00' as timestamp)), "
+              + "('kept_by_both', cast('2024-01-31 12:00:00' as timestamp))";
+      ops.spark().sql(String.format("INSERT INTO %s VALUES %s", zonedTableName, fixtureRows));
+      ops.spark().sql(String.format("INSERT INTO %s VALUES %s", utcTableName, fixtureRows));
+
+      ops.runRetention(zonedTableName, "ts", "", "day", 1, false, "", now, "America/Los_Angeles");
+      ops.runRetention(utcTableName, "ts", "", "day", 1, false, "", now, "");
+
+      Assertions.assertEquals(
+          Arrays.asList("kept_by_both", "kept_only_by_los_angeles_zone"),
+          collectSortedDataValues(ops, zonedTableName));
+      Assertions.assertEquals(
+          Arrays.asList("kept_by_both"), collectSortedDataValues(ops, utcTableName));
+    }
+  }
+
+  @Test
+  public void testRetentionWithBackupKeepsZonedNativeTimestampDeleteMetadataOnly()
+      throws Exception {
+    final String tableName = "db.test_retention_zoned_native_timestamp_backup";
+    ZonedDateTime now = ZonedDateTime.of(2024, 2, 1, 2, 0, 0, 0, ZoneOffset.UTC);
+    OtelEmitter spyEmitter = Mockito.spy(otelEmitter);
+    try (Operations ops = Operations.withCatalog(getSparkSession(), spyEmitter)) {
+      prepareTable(ops, tableName, true);
+      ops.spark()
+          .sql(
+              String.format(
+                  "INSERT INTO %s VALUES "
+                      + "('older_than_zoned_cutoff', cast('2024-01-29 12:00:00' as timestamp)), "
+                      + "('kept_only_by_los_angeles_zone', cast('2024-01-30 12:00:00' as timestamp)), "
+                      + "('kept_by_both', cast('2024-01-31 12:00:00' as timestamp))",
+                  tableName));
+
+      Assertions.assertDoesNotThrow(
+          () ->
+              ops.runRetention(
+                  tableName, "ts", "", "day", 1, true, ".backup", now, "America/Los_Angeles"));
+
+      Assertions.assertEquals(
+          Arrays.asList("kept_by_both", "kept_only_by_los_angeles_zone"),
+          collectSortedDataValues(ops, tableName));
+      Mockito.verify(spyEmitter, Mockito.never())
+          .count(
+              ArgumentMatchers.anyString(),
+              ArgumentMatchers.eq(AppConstants.RETENTION_POLICY_MISCONFIGURED_TABLE_COUNT),
+              ArgumentMatchers.anyLong(),
+              ArgumentMatchers.any());
+    }
+  }
+
+  @Test
+  public void testRetentionWithStringDatePartitionHonorsLosAngelesBoundary() throws Exception {
+    final String zonedTableName = "db.test_retention_zoned_string_date";
+    final String utcTableName = "db.test_retention_utc_string_date";
+    ZonedDateTime now = ZonedDateTime.of(2024, 2, 1, 2, 0, 0, 0, ZoneOffset.UTC);
+    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    String losAngelesCutoff =
+        formatter.format(now.withZoneSameInstant(ZoneId.of("America/Los_Angeles")).minusDays(1));
+    String utcCutoff = formatter.format(now.minusDays(1));
+    Assertions.assertEquals("2024-01-30", losAngelesCutoff);
+    Assertions.assertEquals("2024-01-31", utcCutoff);
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTableWithStringColumn(ops, zonedTableName);
+      prepareTableWithStringColumn(ops, utcTableName);
+      String fixtureRows =
+          "('older_than_zoned_cutoff', '2024-01-29'), "
+              + "('kept_only_by_los_angeles_zone', '2024-01-30'), "
+              + "('kept_by_both', '2024-01-31')";
+      ops.spark().sql(String.format("INSERT INTO %s VALUES %s", zonedTableName, fixtureRows));
+      ops.spark().sql(String.format("INSERT INTO %s VALUES %s", utcTableName, fixtureRows));
+
+      ops.runRetention(
+          zonedTableName,
+          "datePartition",
+          "yyyy-MM-dd",
+          "day",
+          1,
+          false,
+          "",
+          now,
+          "America/Los_Angeles");
+      ops.runRetention(utcTableName, "datePartition", "yyyy-MM-dd", "day", 1, false, "", now, "");
+
+      Assertions.assertEquals(
+          Arrays.asList("kept_by_both", "kept_only_by_los_angeles_zone"),
+          collectSortedDataValues(ops, zonedTableName));
+      Assertions.assertEquals(
+          Arrays.asList("kept_by_both"), collectSortedDataValues(ops, utcTableName));
     }
   }
 
@@ -1764,6 +1877,13 @@ public class OperationsTest extends OpenHouseSparkITest {
     List<Row> resultRows =
         ops.spark().sql(String.format("SELECT * FROM %s", tableName)).collectAsList();
     Assertions.assertEquals(expectedRowCount, resultRows.size());
+  }
+
+  private static List<String> collectSortedDataValues(Operations ops, String tableName) {
+    return ops.spark().sql(String.format("SELECT data FROM %s", tableName)).collectAsList().stream()
+        .map(row -> row.getString(0))
+        .sorted()
+        .collect(Collectors.toList());
   }
 
   private static void populateTable(
