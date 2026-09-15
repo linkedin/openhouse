@@ -26,8 +26,12 @@ public class CreateUpdateLockRequestBody {
   @Schema(description = "reason for creating/updating the lock on table")
   String message;
 
-  @Schema(description = "Optional structured lock reason.")
-  LockReason reason;
+  @Schema(
+      description = "Structured lock reason. Omitted or null values default to LEGACY.",
+      defaultValue = "LEGACY",
+      nullable = true)
+  @Builder.Default
+  LockReason reason = LockReason.LEGACY;
 
   @Schema(
       description = "lock creation epoch time measured in UTC milliseconds for a table",
@@ -39,6 +43,10 @@ public class CreateUpdateLockRequestBody {
       description = "lock expiration time for a table is `n` days from creationTime",
       example = "3")
   int expirationInDays = 0;
+
+  public LockReason getReason() {
+    return reason == null ? LockReason.LEGACY : reason;
+  }
 
   public String toJson() {
     return new GsonBuilder().serializeNulls().create().toJson(this);

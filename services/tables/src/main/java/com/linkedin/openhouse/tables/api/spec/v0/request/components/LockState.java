@@ -22,8 +22,12 @@ public class LockState {
   @Builder.Default
   String message = "Default";
 
-  @Schema(description = "Structured lock reason. Null denotes a legacy lock.")
-  LockReason reason;
+  @Schema(
+      description = "Structured lock reason. Omitted or null values default to LEGACY.",
+      defaultValue = "LEGACY",
+      nullable = true)
+  @Builder.Default
+  LockReason reason = LockReason.LEGACY;
 
   @Schema(
       description = "lock creation epoch time measured in UTC milliseconds for a table",
@@ -36,4 +40,8 @@ public class LockState {
       example = "3")
   @Builder.Default
   int expirationInDays = 0;
+
+  public LockReason getReason() {
+    return reason == null ? LockReason.LEGACY : reason;
+  }
 }
