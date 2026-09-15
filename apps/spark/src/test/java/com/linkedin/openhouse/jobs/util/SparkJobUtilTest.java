@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.jobs.util;
 
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -84,9 +83,8 @@ public class SparkJobUtilTest {
   @Test
   void testCreateDeleteStatementZonedNativeSnapsToUtcPartitionEdge() {
     ZonedDateTime now = ZonedDateTime.of(2024, 2, 1, 2, 0, 0, 0, ZoneOffset.UTC);
-    // now is 2024-01-31T18:00 in America/Los_Angeles (PST, -08:00). The local day start moved back
-    // 2
-    // days is 2024-01-29T00:00 local = 2024-01-29T08:00Z, snapped down to the UTC day edge.
+    // now is 2024-01-31T18:00 in America/Los_Angeles (PST, -08:00); the local day start moved back
+    // 2 days is 2024-01-29T00:00 local = 2024-01-29T08:00Z, snapped down to the UTC day edge.
     String expected = "DELETE FROM `db`.`table-name` WHERE ts < timestamp '2024-01-29T00:00'";
     Assertions.assertEquals(
         expected,
@@ -97,12 +95,9 @@ public class SparkJobUtilTest {
   @Test
   void testCreateDeleteStatementZonedStringPatternAnchorsNowToZone() {
     ZonedDateTime now = ZonedDateTime.of(2024, 2, 1, 2, 0, 0, 0, ZoneOffset.UTC);
-    LocalDateTime zoneNow =
-        now.withZoneSameInstant(ZoneId.of("America/Los_Angeles")).toLocalDateTime();
-    String expected =
-        String.format(
-            "DELETE FROM `db`.`table-name` WHERE dp < cast(date_format(timestamp '%s' - INTERVAL 2 DAYs, 'yyyy-MM-dd') as string)",
-            zoneNow);
+    // now is 2024-01-31T18:00 in America/Los_Angeles; the wall-clock boundary two days back is
+    // 2024-01-29, formatted with the column pattern.
+    String expected = "DELETE FROM `db`.`table-name` WHERE dp < '2024-01-29'";
     Assertions.assertEquals(
         expected,
         SparkJobUtil.createDeleteStatement(
@@ -134,5 +129,46 @@ public class SparkJobUtilTest {
         expected,
         SparkJobUtil.createDeleteStatement(
             "db.table-name", "ts", "", "HOUR", 1, now, "Asia/Kolkata"));
+  }
+
+  @Test
+  void testZonedStringBoundaryConsistentAcrossDstBetweenStatementAndFilter() {
+    // America/Los_Angeles spring-forward: 2024-03-10 02:00 -> 03:00. now=2024-03-10T10:30Z is
+    // 03:30 PDT; the wall-clock boundary one hour back is 02:30, formatted as 2024-03-10-02. The
+    // executed SQL delete and the Iceberg backup filter must derive the same label.
+    ZonedDateTime now = ZonedDateTime.of(2024, 3, 10, 10, 30, 0, 0, ZoneOffset.UTC);
+    String statement =
+        SparkJobUtil.createDeleteStatement(
+            "db.table-name", "dp", "yyyy-MM-dd-HH", "HOUR", 1, now, "America/Los_Angeles");
+    Expression filter =
+        SparkJobUtil.createDeleteFilter(
+            "dp", "yyyy-MM-dd-HH", "HOUR", 1, now, "America/Los_Angeles");
+    UnboundPredicate<?> predicate = (UnboundPredicate<?>) filter;
+    Assertions.assertEquals("DELETE FROM `db`.`table-name` WHERE dp < '2024-03-10-02'", statement);
+    Assertions.assertEquals("2024-03-10-02", predicate.literal().value());
+  }
+
+  @Test
+  void testCreateDeleteStatementZonedNativeMonthSnapsToUtcMonthEdge() {
+    // now=2024-03-15T05:00Z is 2024-03-14T22:00 in America/Los_Angeles; the local month start moved
+    // back 1 month is 2024-02-01T00:00 local = 2024-02-01T08:00Z, snapped to the UTC month edge.
+    ZonedDateTime now = ZonedDateTime.of(2024, 3, 15, 5, 0, 0, 0, ZoneOffset.UTC);
+    String expected = "DELETE FROM `db`.`table-name` WHERE ts < timestamp '2024-02-01T00:00'";
+    Assertions.assertEquals(
+        expected,
+        SparkJobUtil.createDeleteStatement(
+            "db.table-name", "ts", "", "MONTH", 1, now, "America/Los_Angeles"));
+  }
+
+  @Test
+  void testCreateDeleteStatementZonedNativeYearSnapsToUtcYearEdge() {
+    // now=2024-06-15T05:00Z is 2024-06-14T22:00 in America/Los_Angeles; the local year start moved
+    // back 1 year is 2023-01-01T00:00 local = 2023-01-01T08:00Z, snapped to the UTC year edge.
+    ZonedDateTime now = ZonedDateTime.of(2024, 6, 15, 5, 0, 0, 0, ZoneOffset.UTC);
+    String expected = "DELETE FROM `db`.`table-name` WHERE ts < timestamp '2023-01-01T00:00'";
+    Assertions.assertEquals(
+        expected,
+        SparkJobUtil.createDeleteStatement(
+            "db.table-name", "ts", "", "YEAR", 1, now, "America/Los_Angeles"));
   }
 }

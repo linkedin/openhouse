@@ -42,8 +42,8 @@ public class Retention {
 
   @Schema(
       description =
-          "Optional IANA time zone id (e.g. America/Los_Angeles) or fixed offset (e.g. +05:30) in which "
-              + "the retention boundary is evaluated. Defaults to UTC when absent.",
+          "The retention boundary is evaluated in this time zone, given as an IANA zone id such as "
+              + "America/Los_Angeles or a fixed offset such as +05:30. Defaults to UTC when absent.",
       example = "America/Los_Angeles")
   String timeZone;
 }

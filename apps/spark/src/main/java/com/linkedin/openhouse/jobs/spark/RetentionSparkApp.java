@@ -102,7 +102,7 @@ public class RetentionSparkApp extends BaseTableSparkApp {
             "tz",
             "timeZone",
             true,
-            "Optional IANA zone id or fixed offset in which the retention boundary is evaluated; defaults to UTC"));
+            "The retention boundary is evaluated in this optional IANA zone id or fixed offset; it defaults to UTC."));
     CommandLine cmdLine = createCommandLine(args, extraOptions);
     return new RetentionSparkApp(
         getJobId(cmdLine),

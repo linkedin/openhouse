@@ -59,6 +59,8 @@ public final class SparkJobUtil {
   private static final String RETENTION_CONDITION_WITH_PATTERN_TEMPLATE =
       "%s < cast(date_format(timestamp '%s' - INTERVAL %s %ss, '%s') as string)";
 
+  private static final long MICROS_PER_SECOND = 1000L * 1000L;
+
   public static String createDeleteStatement(
       String fqtn,
       String columnName,
@@ -67,23 +69,31 @@ public final class SparkJobUtil {
       int count,
       ZonedDateTime now,
       String timeZone) {
-    boolean zoned = !StringUtils.isBlank(timeZone);
+    boolean hasTimeZoneOverride = !StringUtils.isBlank(timeZone);
     if (!StringUtils.isBlank(columnPattern)) {
-      // String-partitioned column: the boundary is a formatted wall-clock string. When a zone is
-      // set, anchor "now" to that zone before formatting. The comparison stays a string compare and
-      // the pattern granularity keeps the boundary aligned to a partition.
-      ZonedDateTime effectiveNow = zoned ? now.withZoneSameInstant(ZoneId.of(timeZone)) : now;
-      String query =
-          String.format(
-              "DELETE FROM %s WHERE %s",
-              getQuotedFqtn(fqtn),
-              String.format(
-                  RETENTION_CONDITION_WITH_PATTERN_TEMPLATE,
-                  columnName,
-                  effectiveNow.toLocalDateTime(),
-                  count,
-                  granularity,
-                  columnPattern));
+      // String-partitioned column: the boundary is a formatted wall-clock label, compared
+      // lexicographically. With a zone override, compute the boundary once (in the zone, on the
+      // wall
+      // clock) via zonedStringBoundary so this SQL delete and the Iceberg backup filter in
+      // createDeleteFilter derive the same label even across daylight-saving transitions.
+      String condition;
+      if (hasTimeZoneOverride) {
+        ZonedDateTime effectiveNow = now.withZoneSameInstant(ZoneId.of(timeZone));
+        condition =
+            String.format(
+                "%s < '%s'",
+                columnName, zonedStringBoundary(effectiveNow, granularity, count, columnPattern));
+      } else {
+        condition =
+            String.format(
+                RETENTION_CONDITION_WITH_PATTERN_TEMPLATE,
+                columnName,
+                now.toLocalDateTime(),
+                count,
+                granularity,
+                columnPattern);
+      }
+      String query = String.format("DELETE FROM %s WHERE %s", getQuotedFqtn(fqtn), condition);
       log.info(
           "Table: {}. Column pattern: {}, columnName {}, granularity {}s, timeZone {}, retention query: {}",
           fqtn,
@@ -93,7 +103,7 @@ public final class SparkJobUtil {
           timeZone,
           query);
       return query;
-    } else if (zoned) {
+    } else if (hasTimeZoneOverride) {
       // Native timestamp column: evaluate the boundary in the zone, then snap it down to the UTC
       // partition edge so the delete stays a metadata-only partition drop.
       LocalDateTime boundary =
@@ -138,23 +148,33 @@ public final class SparkJobUtil {
         return Expressions.lessThan(columnName, formattedCutoffDate);
       } else {
         long formattedCutoffDate =
-            cutoffDate.truncatedTo(timeUnitGranularity).toEpochSecond()
-                * 1000
-                * 1000; // microsecond
+            cutoffDate.truncatedTo(timeUnitGranularity).toEpochSecond() * MICROS_PER_SECOND;
         return Expressions.lessThan(columnName, formattedCutoffDate);
       }
     }
     ZonedDateTime effectiveNow = now.withZoneSameInstant(ZoneId.of(timeZone));
     if (!StringUtils.isBlank(columnPattern)) {
-      ZonedDateTime cutoffDate = effectiveNow.minus(count, timeUnitGranularity);
       return Expressions.lessThan(
-          columnName, DateTimeFormatter.ofPattern(columnPattern).format(cutoffDate));
+          columnName, zonedStringBoundary(effectiveNow, granularity, count, columnPattern));
     } else {
       LocalDateTime boundary = snappedNativeBoundaryUtc(effectiveNow, granularity, count);
-      long micros =
-          boundary.toInstant(ZoneOffset.UTC).getEpochSecond() * 1000 * 1000; // microsecond
+      long micros = boundary.toInstant(ZoneOffset.UTC).getEpochSecond() * MICROS_PER_SECOND;
       return Expressions.lessThan(columnName, micros);
     }
+  }
+
+  /**
+   * Compute the retention boundary for a string-partitioned column as a formatted wall-clock label.
+   * "now" is taken in the requested zone, then moved back by {@code count} periods on the wall
+   * clock (not the instant), so the executed SQL delete and the Iceberg backup filter derive the
+   * same label even across daylight-saving transitions. Retention deletes rows whose string value
+   * is lexicographically less than this label and keeps rows at or after it.
+   */
+  private static String zonedStringBoundary(
+      ZonedDateTime effectiveNow, String granularity, int count, String columnPattern) {
+    ChronoUnit unit = convertGranularityToChrono(granularity.toUpperCase());
+    LocalDateTime boundary = effectiveNow.toLocalDateTime().minus(count, unit);
+    return DateTimeFormatter.ofPattern(columnPattern).format(boundary);
   }
 
   /**
@@ -182,8 +202,10 @@ public final class SparkJobUtil {
       case YEARS:
         return dateTime.toLocalDate().withDayOfYear(1).atStartOfDay(dateTime.getZone());
       case DAYS:
-      default:
         return dateTime.truncatedTo(ChronoUnit.DAYS);
+      default:
+        throw new IllegalArgumentException(
+            "Unsupported retention granularity for time-zone-aware boundary: " + unit);
     }
   }
 
