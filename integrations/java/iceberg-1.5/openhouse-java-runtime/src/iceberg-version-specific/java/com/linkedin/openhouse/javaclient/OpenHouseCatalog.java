@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.javaclient;
 
+import static com.linkedin.openhouse.client.ssl.WebClientFactory.HTTP_HEADER_SYSTEM_ACTION;
 import static com.linkedin.openhouse.javaclient.OpenHouseTableOperations.*;
 
 import com.linkedin.openhouse.client.ssl.HttpConnectionStrategy;
@@ -135,6 +136,9 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
 
   public static final String CLIENT_VERSION = "client-version";
 
+  /** Opt-in request declaration; it does not grant privileges or bypass locks. */
+  public static final String SYSTEM_ACTION = "system-action";
+
   /** Catalog property that gates view support. Off by default. */
   private static final String VIEWS_ENABLED_PROPERTY = "iceberg-views-enabled";
 
@@ -160,6 +164,12 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     String httpConnectionStrategy = properties.getOrDefault(HTTP_CONNECTION_STRATEGY, null);
     String clientName = properties.getOrDefault(CLIENT_NAME, null);
     String clientVersion = properties.getOrDefault(CLIENT_VERSION, null);
+    String systemAction = properties.get(SYSTEM_ACTION);
+    Preconditions.checkArgument(
+        systemAction == null
+            || "true".equalsIgnoreCase(systemAction)
+            || "false".equalsIgnoreCase(systemAction),
+        "system-action must be true or false");
     try {
       TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
       tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
@@ -172,6 +182,10 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     } catch (MalformedURLException | SSLException e) {
       throw new RuntimeException(
           "OpenHouse Catalog initialization failed: Failure while initializing ApiClient", e);
+    }
+    if (systemAction != null) {
+      this.apiClient.addDefaultHeader(
+          HTTP_HEADER_SYSTEM_ACTION, Boolean.toString(Boolean.parseBoolean(systemAction)));
     }
     this.tableApi = new TableApi(apiClient);
     this.snapshotApi = new SnapshotApi(apiClient);

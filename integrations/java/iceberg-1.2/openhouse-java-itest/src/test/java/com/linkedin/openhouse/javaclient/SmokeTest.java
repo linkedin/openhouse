@@ -26,6 +26,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * This class tests out packaging done in :integrations:java:iceberg-1.2:openhouse-java-runtime. The
@@ -100,6 +103,35 @@ public class SmokeTest {
     openHouseCatalog.tableExists(TableIdentifier.of("db", "table"));
     Assertions.assertEquals(
         expectedHeaderValue, mockTableService.takeRequest().getHeader(expectedHeader));
+  }
+
+  @ParameterizedTest
+  @NullSource
+  @ValueSource(strings = {"true", "false"})
+  public void testSystemActionHeader(String systemAction) throws InterruptedException {
+    mockTableService.enqueue(
+        new MockResponse().setResponseCode(200).addHeader("Content-Type", "application/json"));
+    Map<String, String> properties = new HashMap<>();
+    properties.put(CatalogProperties.URI, url);
+    if (systemAction != null) {
+      properties.put("system-action", systemAction);
+    }
+    OpenHouseCatalog catalog = new OpenHouseCatalog();
+    catalog.initialize("openhouse", properties);
+    catalog.tableExists(TableIdentifier.of("db", "table"));
+    Assertions.assertEquals(
+        systemAction, mockTableService.takeRequest().getHeader("X-OpenHouse-System-Action"));
+  }
+
+  @Test
+  public void testInvalidSystemActionRejected() {
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new OpenHouseCatalog()
+                .initialize(
+                    "openhouse",
+                    ImmutableMap.of(CatalogProperties.URI, url, "system-action", "invalid")));
   }
 
   @Test

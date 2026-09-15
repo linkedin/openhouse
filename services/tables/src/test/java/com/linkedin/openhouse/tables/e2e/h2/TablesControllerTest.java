@@ -1630,6 +1630,28 @@ public class TablesControllerTest {
   }
 
   @Test
+  public void lockReasonIsMetadataOnly() throws Exception {
+    RequestAndValidateHelper.createTableAndValidateResponse(
+        GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+    String tablePath =
+        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+            + "/databases/"
+            + GET_TABLE_RESPONSE_BODY.getDatabaseId()
+            + "/tables/"
+            + GET_TABLE_RESPONSE_BODY.getTableId();
+    mvc.perform(
+            MockMvcRequestBuilders.post(tablePath + "/lock")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"locked\":true,\"reason\":\"TIER3_AUTO_CLEANUP\"}"))
+        .andExpect(status().isCreated());
+    mvc.perform(MockMvcRequestBuilders.get(tablePath))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.policies.lockState.reason").value("TIER3_AUTO_CLEANUP"));
+    mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock")).andExpect(status().isNoContent());
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+  }
+
+  @Test
   public void deleteSucceedsForLockPolicyOnTable() throws Exception {
     MvcResult mvcResult =
         RequestAndValidateHelper.createTableAndValidateResponse(
