@@ -62,7 +62,7 @@ public class PostCommitOperationRunner {
   public PostCommitOperationRunner(
       List<PostCommitOperation> operations,
       MeterRegistry meterRegistry,
-      @Value("${cluster.tables.postcommit.enabled:true}") boolean enabled,
+      @Value("${cluster.tables.postcommit.enabled:false}") boolean enabled,
       @Value("${cluster.tables.postcommit.max-threads:4}") int maxThreads,
       @Value("${cluster.tables.postcommit.queue-capacity:1000}") int queueCapacity,
       @Value("${cluster.tables.postcommit.idle-thread-keepalive-seconds:30}")
@@ -116,7 +116,10 @@ public class PostCommitOperationRunner {
         this.operationTimeoutMs);
   }
 
-  /** Whether post-commit dispatch is enabled; a server-side kill switch for the whole seam. */
+  /**
+   * Whether post-commit dispatch is enabled; a server-side switch for the whole seam. Disabled by
+   * default, opt in via {@code cluster.tables.postcommit.enabled=true}.
+   */
   public boolean isEnabled() {
     return enabled;
   }
