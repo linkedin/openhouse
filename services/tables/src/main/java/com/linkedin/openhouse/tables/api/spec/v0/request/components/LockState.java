@@ -30,6 +30,16 @@ public class LockState {
   LockReason reason = LockReason.LEGACY;
 
   @Schema(
+      description = "Acting principal recorded by the server for a reasoned lock.",
+      nullable = true)
+  String lockOwner;
+
+  @Schema(
+      description = "Table generation recorded by the server for a reasoned lock.",
+      nullable = true)
+  String tableUUID;
+
+  @Schema(
       description = "lock creation epoch time measured in UTC milliseconds for a table",
       example = "1651002318265")
   @Builder.Default

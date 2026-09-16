@@ -34,6 +34,11 @@ public class CreateUpdateLockRequestBody {
   LockReason reason = LockReason.LEGACY;
 
   @Schema(
+      description = "Current table UUID, required when creating a TIER3_AUTO_CLEANUP lock.",
+      nullable = true)
+  String expectedTableUUID;
+
+  @Schema(
       description = "lock creation epoch time measured in UTC milliseconds for a table",
       example = "1651002318265")
   @Builder.Default

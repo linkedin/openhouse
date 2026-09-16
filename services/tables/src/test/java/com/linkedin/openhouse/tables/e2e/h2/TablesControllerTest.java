@@ -1631,8 +1631,10 @@ public class TablesControllerTest {
 
   @Test
   public void lockReasonIsMetadataOnly() throws Exception {
-    RequestAndValidateHelper.createTableAndValidateResponse(
-        GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+    MvcResult created =
+        RequestAndValidateHelper.createTableAndValidateResponse(
+            GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+    String tableUUID = JsonPath.read(created.getResponse().getContentAsString(), "$.tableUUID");
     String tablePath =
         ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
             + "/databases/"
@@ -1642,12 +1644,25 @@ public class TablesControllerTest {
     mvc.perform(
             MockMvcRequestBuilders.post(tablePath + "/lock")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"locked\":true,\"reason\":\"TIER3_AUTO_CLEANUP\"}"))
+                .content(
+                    "{\"locked\":true,\"reason\":\"TIER3_AUTO_CLEANUP\",\"expectedTableUUID\":\""
+                        + tableUUID
+                        + "\"}"))
         .andExpect(status().isCreated());
     mvc.perform(MockMvcRequestBuilders.get(tablePath))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.policies.lockState.reason").value("TIER3_AUTO_CLEANUP"));
-    mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock")).andExpect(status().isNoContent());
+    MvcResult lockStatus =
+        mvc.perform(MockMvcRequestBuilders.get(tablePath + "/lock"))
+            .andExpect(status().isOk())
+            .andReturn();
+    String owner =
+        JsonPath.read(lockStatus.getResponse().getContentAsString(), "$.lockState.lockOwner");
+    mvc.perform(
+            MockMvcRequestBuilders.delete(tablePath + "/lock/TIER3_AUTO_CLEANUP")
+                .param("expectedTableUUID", tableUUID)
+                .param("expectedLockOwner", owner))
+        .andExpect(status().isNoContent());
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }
 

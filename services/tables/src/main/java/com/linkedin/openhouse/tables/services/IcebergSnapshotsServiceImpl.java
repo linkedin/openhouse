@@ -68,6 +68,7 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
                         .tableCreator(tableCreatorUpdater)
                         .build()),
             icebergSnapshotRequestBody);
+    tableDtoToSave = LockPolicyValidator.prepare(tableDto.orElse(null), tableDtoToSave);
 
     if (tableDto.isPresent()) {
       // A locked table must reject every write, including CREATE OR REPLACE (RTAS). The lock is
