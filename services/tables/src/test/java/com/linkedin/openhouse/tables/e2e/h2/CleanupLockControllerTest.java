@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.e2e.h2;
 
+import static com.linkedin.openhouse.tables.config.TablesMvcConstants.HTTP_HEADER_SYSTEM_ACTION;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 import static org.hamcrest.Matchers.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -238,6 +239,7 @@ class CleanupLockControllerTest {
             .build();
     mvc.perform(
             auth(post("/v1/databases/" + DB + "/tables"))
+                .header(HTTP_HEADER_SYSTEM_ACTION, "true")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(request.toJson()))
         .andExpect(status().isBadRequest())
@@ -246,6 +248,7 @@ class CleanupLockControllerTest {
         request.toBuilder().policies(omitPolicies ? null : Policies.builder().build()).build();
     mvc.perform(
             auth(post("/v1/databases/" + DB + "/tables"))
+                .header(HTTP_HEADER_SYSTEM_ACTION, "true")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(request.toJson()))
         .andExpect(status().isCreated())
@@ -269,6 +272,7 @@ class CleanupLockControllerTest {
             .build();
     mvc.perform(
             auth(put(PATH + "/iceberg/v2/snapshots"))
+                .header(HTTP_HEADER_SYSTEM_ACTION, "true")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(snapshots(request).toJson()))
         .andExpect(status().isBadRequest())

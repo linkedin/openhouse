@@ -12,6 +12,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
+import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PoliciesSpecMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
@@ -21,6 +22,7 @@ import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -28,7 +30,10 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mapstruct.factory.Mappers;
 import org.mockito.ArgumentCaptor;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 class CleanupLockPolicyServiceTest {
   private OpenHouseInternalRepository repository;
@@ -36,6 +41,11 @@ class CleanupLockPolicyServiceTest {
   private IcebergSnapshotsServiceImpl snapshots;
   private TableDto current;
   private LockState cleanup;
+
+  @AfterEach
+  void clearRequest() {
+    RequestContextHolder.resetRequestAttributes();
+  }
 
   @BeforeEach
   void setUp() throws Exception {
@@ -105,68 +115,36 @@ class CleanupLockPolicyServiceTest {
   @ParameterizedTest
   @ValueSource(strings = {"reason", "owner", "generation", "message", "time", "locked"})
   void stagedReplaceCannotChangeAnyCleanupLockField(String field) {
-    LockState changed;
+    enableSystemAction();
+    LockState.LockStateBuilder changed =
+        LockState.builder()
+            .locked(true)
+            .reason(LockReason.TIER3_AUTO_CLEANUP)
+            .lockOwner("owner")
+            .tableUUID("uuid")
+            .message("original")
+            .creationTime(123);
     switch (field) {
       case "reason":
-        changed = LockState.builder().locked(true).reason(LockReason.LEGACY).build();
+        changed.reason(LockReason.LEGACY);
         break;
       case "owner":
-        changed =
-            LockState.builder()
-                .locked(true)
-                .reason(LockReason.TIER3_AUTO_CLEANUP)
-                .lockOwner("other")
-                .tableUUID("uuid")
-                .message("original")
-                .creationTime(123)
-                .build();
+        changed.lockOwner("other");
         break;
       case "generation":
-        changed =
-            LockState.builder()
-                .locked(true)
-                .reason(LockReason.TIER3_AUTO_CLEANUP)
-                .lockOwner("owner")
-                .tableUUID("other")
-                .message("original")
-                .creationTime(123)
-                .build();
+        changed.tableUUID("other");
         break;
       case "message":
-        changed =
-            LockState.builder()
-                .locked(true)
-                .reason(LockReason.TIER3_AUTO_CLEANUP)
-                .lockOwner("owner")
-                .tableUUID("uuid")
-                .message("changed")
-                .creationTime(123)
-                .build();
+        changed.message("changed");
         break;
       case "time":
-        changed =
-            LockState.builder()
-                .locked(true)
-                .reason(LockReason.TIER3_AUTO_CLEANUP)
-                .lockOwner("owner")
-                .tableUUID("uuid")
-                .message("original")
-                .creationTime(456)
-                .build();
+        changed.creationTime(456);
         break;
       default:
-        changed =
-            LockState.builder()
-                .locked(false)
-                .reason(LockReason.TIER3_AUTO_CLEANUP)
-                .lockOwner("owner")
-                .tableUUID("uuid")
-                .message("original")
-                .creationTime(123)
-                .build();
+        changed.locked(false);
     }
     CreateUpdateTableRequestBody request =
-        request(Policies.builder().lockState(changed).build())
+        request(Policies.builder().lockState(changed.build()).build())
             .toBuilder()
             .stageReplace(true)
             .build();
@@ -177,6 +155,7 @@ class CleanupLockPolicyServiceTest {
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void stagedReplacePreservesCleanupWhenPoliciesOrLockOmitted(boolean omitPolicies) {
+    enableSystemAction();
     Policies policies = omitPolicies ? null : Policies.builder().sharingEnabled(true).build();
     write(false, request(policies).toBuilder().stageReplace(true).build());
     Policies saved = saved().getPolicies();
@@ -189,6 +168,7 @@ class CleanupLockPolicyServiceTest {
 
   @Test
   void stagedReplaceAcceptsAnExactlyUnchangedCleanupState() {
+    enableSystemAction();
     write(false, request(current.getPolicies()).toBuilder().stageReplace(true).build());
     assertEquals(cleanup, saved().getPolicies().getLockState());
   }
@@ -221,6 +201,7 @@ class CleanupLockPolicyServiceTest {
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void snapshotUpdatesAndReplaceCommitsCannotMutateCleanup(boolean replace) {
+    enableSystemAction();
     CreateUpdateTableRequestBody request =
         request(
                 Policies.builder()
@@ -244,7 +225,7 @@ class CleanupLockPolicyServiceTest {
   }
 
   @Test
-  void unchangedActiveCleanupStillUsesExistingSnapshotWriteDenial() {
+  void cleanupSnapshotWriteWithoutDeclarationIsDenied() {
     assertThrows(
         UnsupportedClientOperationException.class,
         () -> write(true, request(null).toBuilder().replaceCommit(true).build()));
@@ -259,6 +240,12 @@ class CleanupLockPolicyServiceTest {
         .baseTableVersion("v1")
         .policies(policies)
         .build();
+  }
+
+  private void enableSystemAction() {
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader(TablesMvcConstants.HTTP_HEADER_SYSTEM_ACTION, "true");
+    RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
   }
 
   private void write(boolean snapshotWrite, CreateUpdateTableRequestBody request) {

@@ -17,6 +17,47 @@ unlocked table returns HTTP 200 with `"lockState": null`; a missing table return
 message, creation time, expiration, and any recorded owner/generation. Omitted
 or null reasons in older locks still read as `LEGACY`.
 
+## Read/write evaluation
+
+All data access still requires its normal authorization. The declaration
+`X-OpenHouse-System-Action: true` permits otherwise-authorized access to an
+active `TIER3_AUTO_CLEANUP` lock; it is not an ACL permission or an administrator
+bypass. Even the table owner is blocked without the declaration.
+
+| Active lock | System-action declaration | Table reads | Table/snapshot writes |
+| --- | --- | --- | --- |
+| None | Any/absent | Existing ACL rules | Existing ACL rules |
+| `LEGACY` | False/absent or true | Existing `LOCK_ADMIN` and metadata ACL checks | Rejected |
+| `TIER3_AUTO_CLEANUP` | False/absent | Rejected | Rejected |
+| `TIER3_AUTO_CLEANUP` | True | Allowed with metadata ACL | Allowed with write ACL |
+
+The values `true` and `false` are case-insensitive. An absent declaration,
+including calls outside a Servlet request, defaults to false. Other supplied
+values, including blank values or surrounding whitespace, return 400 when
+cleanup data access is evaluated. The header is not evaluated for unlocked
+tables, legacy locks, or control operations.
+
+The write rule includes ordinary metadata updates, snapshot updates, staged
+replacement, snapshot replace commits/RTAS, and rename. Permitted writes still
+cannot alter cleanup lock identity through a policy payload. Authorization is
+checked before returning cleanup-denial details. A denial includes the reason,
+table identifier, any descriptive lock message, and guidance to promote the
+table to Tier 2 to retain it or use authorized reason-targeted unlock. Message
+text and client names never select an exception to these rules.
+
+For example, an authorized system operation can read the table with:
+
+```sh
+curl --fail-with-body "$TABLE_URL" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-OpenHouse-System-Action: true"
+```
+
+Status and authorized unlock remain usable without this header. The declaration
+does not bypass unlock identity guards, locked-table grant restrictions, or any
+control/DROP authorization. This is **not** a generation-guarded DROP API;
+coordinated DLM/server deletion remains separate work.
+
 ## Create a cleanup lock
 
 Read status first and use that response's current UUID:
@@ -96,6 +137,6 @@ Omitting policies or their lock state does not erase existing cleanup lock
 metadata; omitting the entire policy object also carries forward unrelated
 policies. Use the lifecycle endpoints to change a cleanup lock.
 
-This increment does not add cleanup-specific read/write enforcement, system
-action flag evaluation, automatic deletion, SQL unlock, or job propagation.
-Existing lock behavior and authorization still apply.
+The current implementation includes lifecycle guards and cleanup read/write
+evaluation. Request auditing, production job propagation, automated deletion,
+generation-guarded DROP/DLM integration, and SQL unlock remain separate work.

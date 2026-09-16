@@ -1630,7 +1630,7 @@ public class TablesControllerTest {
   }
 
   @Test
-  public void lockReasonIsMetadataOnly() throws Exception {
+  public void cleanupLockRequiresSystemActionForTableReads() throws Exception {
     MvcResult created =
         RequestAndValidateHelper.createTableAndValidateResponse(
             GET_TABLE_RESPONSE_BODY, mvc, storageManager);
@@ -1650,6 +1650,10 @@ public class TablesControllerTest {
                         + "\"}"))
         .andExpect(status().isCreated());
     mvc.perform(MockMvcRequestBuilders.get(tablePath))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message", containsString("TIER3_AUTO_CLEANUP")))
+        .andExpect(jsonPath("$.message", containsString("Tier 2")));
+    mvc.perform(MockMvcRequestBuilders.get(tablePath).header(HTTP_HEADER_SYSTEM_ACTION, "true"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.policies.lockState.reason").value("TIER3_AUTO_CLEANUP"));
     MvcResult lockStatus =

@@ -1,14 +1,47 @@
 package com.linkedin.openhouse.tables.services;
 
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
+import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
+import com.linkedin.openhouse.common.utils.SystemActionContext;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.model.TableDto;
 
-/** Protects cleanup lock metadata on writes that do not use the lock lifecycle API. */
+/** Enforces data-access lock rules and protects lock metadata outside the lifecycle API. */
 final class LockPolicyValidator {
   private LockPolicyValidator() {}
+
+  /** Evaluate only after the caller's data-access authorization succeeds. */
+  static void checkCleanupAccess(TableDto table) {
+    LockState lock = lockState(table);
+    if (isCleanup(lock) && lock.isLocked() && !SystemActionContext.isEnabled()) {
+      String message = lock.getMessage();
+      String detail = message == null || message.trim().isEmpty() ? "" : ": " + message;
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,
+          String.format(
+              "Table %s.%s is locked for TIER3_AUTO_CLEANUP%s. Promote the table to Tier 2 to retain it, "
+                  + "or use the reason-targeted OpenHouse unlock endpoint as an authorized lock administrator.",
+              table.getDatabaseId(), table.getTableId(), detail));
+    }
+  }
+
+  static void checkWrite(TableDto table) {
+    LockState lock = lockState(table);
+    if (lock == null || !lock.isLocked()) {
+      return;
+    }
+    if (isCleanup(lock)) {
+      checkCleanupAccess(table);
+    } else {
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,
+          String.format(
+              "Table %s.%s is in locked state and cannot be written to",
+              table.getDatabaseId(), table.getTableId()));
+    }
+  }
 
   static TableDto prepare(TableDto current, TableDto mapped) {
     LockState existing = lockState(current);

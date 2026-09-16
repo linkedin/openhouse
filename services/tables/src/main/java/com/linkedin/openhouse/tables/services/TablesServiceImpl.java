@@ -73,12 +73,13 @@ public class TablesServiceImpl implements TablesService {
         openHouseInternalRepository
             .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
-    // Restricts reading table to users with lock admin Privileges
-    if (isTableLocked(tableDto)) {
+    if (isTableLocked(tableDto)
+        && tableDto.getPolicies().getLockState().getReason() != LockReason.TIER3_AUTO_CLEANUP) {
       authorizationUtils.checkLockTablePrivilege(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
     }
     authorizationUtils.checkTablePrivilege(
         tableDto, actingPrincipal, Privileges.GET_TABLE_METADATA);
+    LockPolicyValidator.checkCleanupAccess(tableDto);
     return tableDto;
   }
 
@@ -120,6 +121,7 @@ public class TablesServiceImpl implements TablesService {
     if (tableDto.isPresent() && createUpdateTableRequestBody.isStageReplace()) {
       authorizationUtils.checkTableWritePathPrivileges(
           tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
+      LockPolicyValidator.checkWrite(tableDto.get());
     } else if (tableDto.isPresent()) {
       if (failOnExist) {
         throw new AlreadyExistsException("Table", String.format("%s.%s", databaseId, tableId));
@@ -128,15 +130,10 @@ public class TablesServiceImpl implements TablesService {
         throw new IllegalStateException(
             String.format("Staged Table %s.%s was illegally persisted", databaseId, tableId));
       }
-      checkIfLockPoliciesUpdated(tableDto.get(), createUpdateTableRequestBody);
-      if (isTableLocked(tableDto.get())) {
-        throw new UnsupportedClientOperationException(
-            UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,
-            String.format(
-                "Table %s.%s is in locked state and cannot be updated.", databaseId, tableId));
-      }
       authorizationUtils.checkTableWritePathPrivileges(
           tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
+      LockPolicyValidator.checkWrite(tableDto.get());
+      checkIfLockPoliciesUpdated(tableDto.get(), createUpdateTableRequestBody);
 
       // An optimization to avoid persisting unchanged TableDto into HouseTable.
       if (!updateNeeded(tableDto.get(), createUpdateTableRequestBody)) {
@@ -264,18 +261,12 @@ public class TablesServiceImpl implements TablesService {
       throw new AlreadyExistsException("Table", targetedTableDto.get().getTableUri());
     }
 
-    if (isTableLocked(existingTableDto.get())) {
-      throw new UnsupportedClientOperationException(
-          UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,
-          String.format(
-              "Table %s.%s is in locked state and cannot be renamed.",
-              fromDatabaseId, fromTableId));
-    }
     // Rename involves both modifying an existing table and creating a new one
     authorizationUtils.checkDatabasePrivilege(
         fromDatabaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
     authorizationUtils.checkTableWritePathPrivileges(
         existingTableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
+    LockPolicyValidator.checkWrite(existingTableDto.get());
 
     openHouseInternalRepository.rename(
         TableDtoPrimaryKey.builder().databaseId(fromDatabaseId).tableId(fromTableId).build(),

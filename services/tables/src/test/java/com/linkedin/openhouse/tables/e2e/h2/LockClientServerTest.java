@@ -7,15 +7,19 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor.DummySecurityJWT;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
+import com.linkedin.openhouse.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
 import com.linkedin.openhouse.tables.client.invoker.ApiClient;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.client.model.GetLockResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
+import com.linkedin.openhouse.tables.client.model.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.client.model.LockState;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
 import java.time.Duration;
+import java.util.Collections;
+import java.util.HashMap;
 import javax.servlet.Filter;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -34,6 +38,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 @SpringBootTest(
     classes = SpringH2Application.class,
@@ -152,6 +157,93 @@ class LockClientServerTest {
       assertNull(lock.getLockOwner());
       assertNull(lock.getTableUUID());
     }
+  }
+
+  @ParameterizedTest
+  @CsvSource(
+      value = {"NULL,false", "false,false", "true,true"},
+      nullValues = "NULL")
+  void cleanupReadAndWriteRoundTrip(String declaration, boolean allowed) {
+    GetTableResponseBody current = tableApi.getTableV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
+    tableApi
+        .createLockV1(
+            DATABASE_ID,
+            TABLE_ID,
+            new CreateUpdateLockRequestBody()
+                .locked(true)
+                .reason(CreateUpdateLockRequestBody.ReasonEnum.TIER3_AUTO_CLEANUP)
+                .expectedTableUUID(tableUUID)
+                .message("eligible for cleanup"))
+        .block(TIMEOUT);
+    if (declaration != null) {
+      apiClient.addDefaultHeader(HTTP_HEADER_SYSTEM_ACTION, declaration);
+    }
+    GetLockResponseBody status = tableApi.getLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
+    assertEquals(tableUUID, status.getTableUUID());
+    SnapshotApi snapshotApi = new SnapshotApi(apiClient);
+    if (allowed) {
+      current = tableApi.getTableV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
+      current =
+          tableApi
+              .updateTableV1(DATABASE_ID, TABLE_ID, updateRequest(current, "metadata"))
+              .block(TIMEOUT);
+      assertEquals("metadata", current.getTableProperties().get("lock-evaluation-write"));
+      assertEquals(status.getLockState(), current.getPolicies().getLockState());
+      current =
+          snapshotApi
+              .putSnapshotsV1(DATABASE_ID, TABLE_ID, snapshotRequest(current, "snapshot"))
+              .block(TIMEOUT);
+      assertEquals("snapshot", current.getTableProperties().get("lock-evaluation-write"));
+      assertEquals(status.getLockState(), current.getPolicies().getLockState());
+      assertEquals(tableUUID, current.getTableUUID());
+    } else {
+      WebClientResponseException denied =
+          assertThrows(
+              WebClientResponseException.class,
+              () -> tableApi.getTableV1(DATABASE_ID, TABLE_ID).block(TIMEOUT));
+      assertEquals(HttpStatus.BAD_REQUEST, denied.getStatusCode());
+      assertTrue(denied.getResponseBodyAsString().contains("TIER3_AUTO_CLEANUP"));
+      assertTrue(denied.getResponseBodyAsString().contains("Tier 2"));
+      CreateUpdateTableRequestBody update = updateRequest(current, "denied");
+      IcebergSnapshotsRequestBody snapshots = snapshotRequest(current, "denied");
+      assertEquals(
+          HttpStatus.BAD_REQUEST,
+          assertThrows(
+                  WebClientResponseException.class,
+                  () -> tableApi.updateTableV1(DATABASE_ID, TABLE_ID, update).block(TIMEOUT))
+              .getStatusCode());
+      assertEquals(
+          HttpStatus.BAD_REQUEST,
+          assertThrows(
+                  WebClientResponseException.class,
+                  () -> snapshotApi.putSnapshotsV1(DATABASE_ID, TABLE_ID, snapshots).block(TIMEOUT))
+              .getStatusCode());
+    }
+    assertEquals(
+        status.getLockState(),
+        tableApi.getLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT).getLockState());
+  }
+
+  private CreateUpdateTableRequestBody updateRequest(GetTableResponseBody current, String value) {
+    HashMap<String, String> properties = new HashMap<>(current.getTableProperties());
+    properties.put("lock-evaluation-write", value);
+    return new CreateUpdateTableRequestBody()
+        .databaseId(DATABASE_ID)
+        .tableId(TABLE_ID)
+        .clusterId(current.getClusterId())
+        .baseTableVersion(current.getTableLocation())
+        .schema(current.getSchema())
+        .timePartitioning(current.getTimePartitioning())
+        .clustering(current.getClustering())
+        .sortOrder(current.getSortOrder())
+        .tableProperties(properties);
+  }
+
+  private IcebergSnapshotsRequestBody snapshotRequest(GetTableResponseBody current, String value) {
+    return new IcebergSnapshotsRequestBody()
+        .baseTableVersion(current.getTableLocation())
+        .createUpdateTableRequestBody(updateRequest(current, value))
+        .jsonSnapshots(Collections.emptyList());
   }
 
   @TestConfiguration
