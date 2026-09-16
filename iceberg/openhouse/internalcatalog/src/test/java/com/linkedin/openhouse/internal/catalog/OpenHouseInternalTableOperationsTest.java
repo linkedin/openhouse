@@ -9,6 +9,8 @@ import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorage;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
+import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableException;
+import com.linkedin.openhouse.common.exception.UnprocessableEntityException;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
@@ -2205,11 +2207,11 @@ public class OpenHouseInternalTableOperationsTest {
   /**
    * Simulates the real-world bug where a table's metadata file references a schema ID that doesn't
    * exist in the schemas list. Iceberg's TableMetadataParser throws IllegalArgumentException:
-   * "Cannot find schema with current-schema-id=6 from schemas". Verifies that this is wrapped as
-   * InvalidTableMetadataException.
+   * "Cannot find schema with current-schema-id=6 from schemas". Verifies that this malformed
+   * metadata is surfaced as UnprocessableEntityException (422 permanent corruption).
    */
   @Test
-  void testRefreshMetadataCorruptSchemaIdThrowsInvalidTableMetadataException() throws IOException {
+  void testRefreshMetadataCorruptSchemaIdThrowsUnprocessableEntity() throws IOException {
     // Write a valid metadata file from BASE_TABLE_METADATA, then corrupt the current-schema-id
     java.nio.file.Path tempDir = Files.createTempDirectory("corrupt-metadata-test");
     java.nio.file.Path metadataFile = tempDir.resolve("00001-abc.metadata.json");
@@ -2220,17 +2222,98 @@ public class OpenHouseInternalTableOperationsTest {
     Files.write(metadataFile, corruptJson.getBytes());
 
     Assertions.assertThrows(
-        InvalidTableMetadataException.class,
+        UnprocessableEntityException.class,
         () -> openHouseInternalTableOperations.refreshMetadata(metadataFile.toString()));
   }
 
-  /** Verifies that a missing metadata file is surfaced as InvalidTableMetadataException. */
+  /**
+   * Verifies that a metadata pointer to a badly-named / non-loadable metadata file is surfaced as
+   * UnprocessableEntityException (422 permanent corruption), not a blanket 500.
+   */
   @Test
-  void testRefreshMetadataMissingFileThrowsInvalidTableMetadataException() {
+  void testRefreshMetadataMissingFileThrowsUnprocessableEntity() {
     String nonExistentPath = "/tmp/non-existent-" + UUID.randomUUID() + "/metadata.json";
 
     Assertions.assertThrows(
-        InvalidTableMetadataException.class,
+        UnprocessableEntityException.class,
         () -> openHouseInternalTableOperations.refreshMetadata(nonExistentPath));
+  }
+
+  // classification of metadata-refresh failures into accurate exceptions/HTTP statuses.
+
+  @Test
+  void testClassifyIcebergServiceUnavailableReturns503() {
+    Throwable e =
+        new org.apache.iceberg.exceptions.ServiceUnavailableException(
+            new IOException("boom"), "storage unavailable");
+    Assertions.assertInstanceOf(
+        StorageDependencyUnavailableException.class,
+        openHouseInternalTableOperations.classifyMetadataRefreshFailure(e));
+  }
+
+  @Test
+  void testClassifyRetriableRuntimeIOReturns503() {
+    Throwable e =
+        new org.apache.iceberg.exceptions.RuntimeIOException(
+            new java.net.SocketTimeoutException("Read timed out"), "Failed to read metadata");
+    Assertions.assertInstanceOf(
+        StorageDependencyUnavailableException.class,
+        openHouseInternalTableOperations.classifyMetadataRefreshFailure(e));
+  }
+
+  @Test
+  void testClassifyStandbyNameNodeReturns503() {
+    // NameNode standby surfaces as a message on a (wrapped) IOException.
+    Throwable e =
+        new java.io.UncheckedIOException(
+            new IOException("Operation category READ is not supported in state standby"));
+    Assertions.assertInstanceOf(
+        StorageDependencyUnavailableException.class,
+        openHouseInternalTableOperations.classifyMetadataRefreshFailure(e));
+  }
+
+  @Test
+  void testClassifyMissingFileReturnsUnprocessableEntity() {
+    Throwable e =
+        new org.apache.iceberg.exceptions.NotFoundException(
+            new java.io.FileNotFoundException(
+                "File does not exist: /data/openhouse/x.metadata.json"),
+            "Failed to open input stream for file");
+    Assertions.assertInstanceOf(
+        UnprocessableEntityException.class,
+        openHouseInternalTableOperations.classifyMetadataRefreshFailure(e));
+  }
+
+  @Test
+  void testClassifyValidationExceptionReturnsUnprocessableEntity() {
+    Throwable e =
+        new org.apache.iceberg.exceptions.ValidationException(
+            "Invalid update timestamp 1701212674865: before last snapshot log entry at 1722214349871");
+    Assertions.assertInstanceOf(
+        UnprocessableEntityException.class,
+        openHouseInternalTableOperations.classifyMetadataRefreshFailure(e));
+  }
+
+  @Test
+  void testClassifyMalformedMetadataReturnsUnprocessableEntity() {
+    Throwable e =
+        new IllegalArgumentException("Cannot find schema with current-schema-id=6 from schemas");
+    Assertions.assertInstanceOf(
+        UnprocessableEntityException.class,
+        openHouseInternalTableOperations.classifyMetadataRefreshFailure(e));
+  }
+
+  @Test
+  void testClassifyUnknownFailureReturns500InvalidTableMetadata() {
+    // A failure whose type matches no known category (not I/O, NotFound, Validation,
+    // IllegalArgument
+    // or IllegalState) is kept as InvalidTableMetadataException (500) — an OpenHouse implementation
+    // defect — and must NOT be reported as 422/503.
+    RuntimeException classified =
+        openHouseInternalTableOperations.classifyMetadataRefreshFailure(
+            new NullPointerException("totally unexpected"));
+    Assertions.assertInstanceOf(InvalidTableMetadataException.class, classified);
+    Assertions.assertFalse(classified instanceof UnprocessableEntityException);
+    Assertions.assertFalse(classified instanceof StorageDependencyUnavailableException);
   }
 }
