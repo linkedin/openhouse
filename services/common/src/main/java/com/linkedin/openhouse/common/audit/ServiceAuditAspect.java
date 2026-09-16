@@ -154,7 +154,6 @@ public class ServiceAuditAspect {
     } catch (Exception e) {
       // Fail closed. A payload that could not be parsed or could not be redacted is dropped rather
       // than audited raw, so a broken redactor cannot leak the values it was meant to remove.
-      requestPayload = null;
       log.error("Exception during parsing request payload:\n", e);
       METRICS_REPORTER.count(MetricsConstant.FAILED_PARSING_REQUEST_PAYLOAD);
     }

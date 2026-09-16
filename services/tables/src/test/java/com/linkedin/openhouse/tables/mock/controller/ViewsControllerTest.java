@@ -12,6 +12,7 @@ import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.CachingRequestBodyFilter;
 import com.linkedin.openhouse.common.audit.ServiceAuditPayloadRedactor;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
+import com.linkedin.openhouse.common.audit.model.ServiceName;
 import com.linkedin.openhouse.common.exception.handler.OpenHouseExceptionHandler;
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
@@ -54,6 +55,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.context.ContextConfiguration;
@@ -87,6 +89,11 @@ public class ViewsControllerTest {
 
   private static final String VIEWS_PATH = "/v1/databases/d200/views";
 
+  /** The header {@code ServiceAuditAspect} reads the session id from. */
+  private static final String SESSION_ID_HEADER = "session-id";
+
+  private static final String SESSION_ID = "fixed-session-id";
+
   private MockMvc mvc;
 
   /**
@@ -115,6 +122,9 @@ public class ViewsControllerTest {
    * controller passed on observable.
    */
   @SpyBean private MockViewsApiHandler viewsApiHandler;
+
+  /** Spy so a redactor fault can be injected without replacing the real redaction behaviour. */
+  @SpyBean private ViewRequestPayloadRedactor viewRequestPayloadRedactor;
 
   @Captor private ArgumentCaptor<ServiceAuditEvent> argCaptor;
 
@@ -583,6 +593,46 @@ public class ViewsControllerTest {
     return argCaptor.getValue();
   }
 
+  /** A payload that cannot be parsed or redacted is dropped; everything else is still audited. */
+  private void assertSingleAuditEventWithoutPayload(HttpMethod method, String uri, int status) {
+    Mockito.verify(serviceAuditHandler, Mockito.times(1)).audit(argCaptor.capture());
+    ServiceAuditEvent event = argCaptor.getValue();
+
+    Assertions.assertNull(event.getRequestPayload());
+    Assertions.assertEquals(status, event.getStatusCode());
+    Assertions.assertEquals(method, event.getMethod());
+    Assertions.assertEquals(uri, event.getUri());
+    Assertions.assertEquals(ServiceName.TABLES_SERVICE, event.getServiceName());
+    Assertions.assertEquals(clusterProperties.getClusterName(), event.getClusterName());
+    Assertions.assertEquals(ACTING_PRINCIPAL, event.getUser());
+    Assertions.assertEquals(SESSION_ID, event.getSessionId());
+    Assertions.assertNotNull(
+        event.getStartTimestamp(), "CachingRequestBodyFilter supplies the start instant.");
+    Assertions.assertNotNull(event.getEndTimestamp());
+    Assertions.assertFalse(event.getEndTimestamp().isBefore(event.getStartTimestamp()));
+  }
+
+  /** A redactor fault must not leak the payload, alter the response or duplicate the event. */
+  @Test
+  public void serviceAuditOnAFailingRedactorKeepsTheResponseAndDropsThePayload() throws Exception {
+    Mockito.doThrow(new IllegalStateException("redactor failed"))
+        .when(viewRequestPayloadRedactor)
+        .redact(Mockito.any());
+
+    mvc.perform(
+            MockMvcRequestBuilders.post(VIEWS_PATH)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(requestCarryingSecretDefinition().toJson())
+                .accept(MediaType.APPLICATION_JSON)
+                .header(SESSION_ID_HEADER, SESSION_ID)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isCreated())
+        .andExpect(content().json(ViewModelConstants.pointerResponse().toJson()));
+
+    Mockito.verify(viewRequestPayloadRedactor).redact(Mockito.any());
+    assertSingleAuditEventWithoutPayload(HttpMethod.POST, VIEWS_PATH, 201);
+  }
+
   private void assertViewDefinitionRedacted(ServiceAuditEvent event) {
     JsonElement payload = event.getRequestPayload();
     Assertions.assertNotNull(payload, "The audit event must still carry a request payload.");
@@ -781,10 +831,13 @@ public class ViewsControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"viewId\": ")
                 .accept(MediaType.APPLICATION_JSON)
+                .header(SESSION_ID_HEADER, SESSION_ID)
                 .header("Authorization", "Bearer " + jwtAccessToken))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.message", Matchers.startsWith("Unacceptable JSON")))
         .andExpect(jsonPath("$.errorCode").doesNotExist());
+
+    assertSingleAuditEventWithoutPayload(HttpMethod.POST, VIEWS_PATH, 400);
   }
 
   /**
