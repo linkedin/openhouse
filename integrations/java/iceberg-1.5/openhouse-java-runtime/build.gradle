@@ -26,9 +26,12 @@ ext {
 }
 
 // Inherit shared sources from the iceberg-1.2 module's src/main/java, but NOT its
-// src/iceberg-version-specific/java (whose classes bind to version-specific Iceberg base classes).
-// This module supplies its own copies of those classes under its own src/iceberg-version-specific/java
-// (today: a view-capable OpenHouseCatalog that extends BaseMetastoreViewCatalog).
+// src/iceberg-version-specific/java (whose classes bind to version-specific Iceberg base classes,
+// e.g. a view-capable OpenHouseCatalog that extends BaseMetastoreViewCatalog). This module supplies
+// its own copies of those classes under its own src/iceberg-version-specific/java.
+// This module ALSO has its own src/main/java (a Gradle-default source root) for single-copy,
+// iceberg-1.5-only classes that have no iceberg-1.2 counterpart, e.g. OpenHouseViewOperations
+// (binds to the 1.5-only Iceberg view API).
 sourceSets {
   main {
     java {

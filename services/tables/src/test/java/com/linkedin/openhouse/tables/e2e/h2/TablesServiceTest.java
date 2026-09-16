@@ -253,6 +253,40 @@ public class TablesServiceTest {
   }
 
   @Test
+  public void testStagedReplaceChecksUpdateTableMetadataPrivilege() {
+    TableDto tableDto =
+        TABLE_DTO
+            .toBuilder()
+            .databaseId("rtas_auth_database")
+            .tableId("rtas_auth_table")
+            .tableUri(CLUSTER_NAME + ".rtas_auth_database.rtas_auth_table")
+            .policies(null)
+            .tableProperties(
+                ImmutableMap.<String, String>builder()
+                    .putAll(TABLE_DTO.getTableProperties())
+                    .put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true")
+                    .build())
+            .build();
+    TableDto createdTable = verifyPutTableRequest(tableDto, null, true);
+    Mockito.clearInvocations(authorizationHandler);
+
+    Assertions.assertDoesNotThrow(
+        () ->
+            tablesService.putTable(
+                buildCreateUpdateTableRequestBody(tableDto)
+                    .toBuilder()
+                    .baseTableVersion(createdTable.getTableLocation())
+                    .stageReplace(true)
+                    .build(),
+                TEST_USER,
+                false));
+
+    Mockito.verify(authorizationHandler)
+        .checkAccessDecision(TEST_USER, createdTable, Privileges.UPDATE_TABLE_METADATA);
+    tablesService.deleteTable(tableDto.getDatabaseId(), tableDto.getTableId(), TEST_USER);
+  }
+
+  @Test
   public void testTableDeleteThatDoesNotExist() {
     Assertions.assertThrows(
         NoSuchUserTableException.class,

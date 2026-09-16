@@ -79,13 +79,8 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
             String.format(
                 "Table %s.%s is in locked state and cannot be written to", databaseId, tableId));
       }
-      if (icebergSnapshotRequestBody.getCreateUpdateTableRequestBody().isReplaceCommit()) {
-        // Check if table creator has the privilege to replace the table.
-        authorizationUtils.checkReplaceTablePrivilege(tableDto.get(), tableCreatorUpdater);
-      } else {
-        authorizationUtils.checkTableWritePathPrivileges(
-            tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
-      }
+      authorizationUtils.checkTableWritePathPrivileges(
+          tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
     } else {
       authorizationUtils.checkDatabasePrivilege(
           databaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
