@@ -68,6 +68,8 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Autowired TableMetadataCache tableMetadataCache;
 
+  @Autowired PostCommitOperationRunner postCommitOperationRunner;
+
   @Override
   protected TableOperations newTableOps(TableIdentifier tableIdentifier) {
     FileIO fileIO = resolveFileIO(tableIdentifier);
@@ -80,7 +82,8 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
         tableIdentifier,
         metricsReporter,
         fileIOManager,
-        tableMetadataCache);
+        tableMetadataCache,
+        postCommitOperationRunner);
   }
 
   @Override
