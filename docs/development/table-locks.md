@@ -123,6 +123,15 @@ This compatibility path still requires the current UUID, cleanup reason, and
 `LOCK_ADMIN`. It does not bypass owner/generation checks when either recorded
 field is present, nor can a create retry claim an unowned active lock.
 
+## Audit visibility
+
+Existing service-request and table-operation audit events include `systemAction`
+alongside their existing caller, table/URI, and outcome context. This nullable
+string records the request header as received: absent is `null`, while values
+such as `"false"`, `"true"`, and invalid declarations remain distinguishable,
+including on failed requests. It is not a computed authorization or execution
+result and does not change access decisions or existing audit failure handling.
+
 ## Legacy compatibility and scope
 
 `DELETE /v1/databases/{databaseId}/tables/{tableId}/lock` removes **only LEGACY**
@@ -137,6 +146,6 @@ Omitting policies or their lock state does not erase existing cleanup lock
 metadata; omitting the entire policy object also carries forward unrelated
 policies. Use the lifecycle endpoints to change a cleanup lock.
 
-The current implementation includes lifecycle guards and cleanup read/write
-evaluation. Request auditing, production job propagation, automated deletion,
+The current implementation includes lifecycle guards, cleanup read/write
+evaluation, and system-action audit visibility. Production job propagation, automated deletion,
 generation-guarded DROP/DLM integration, and SQL unlock remain separate work.

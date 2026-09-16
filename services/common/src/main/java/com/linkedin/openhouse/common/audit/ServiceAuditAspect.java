@@ -11,6 +11,7 @@ import com.linkedin.openhouse.common.api.spec.ErrorResponseBody;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.common.audit.model.ServiceName;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
+import com.linkedin.openhouse.common.utils.SystemActionContext;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import javax.servlet.http.HttpServletRequest;
@@ -172,6 +173,7 @@ public class ServiceAuditAspect {
         .clusterName(clusterProperties.getClusterName())
         .serviceName(getServiceNameFromRequestURI(request.getRequestURI()))
         .user(extractAuthenticatedUserPrincipal())
+        .systemAction(request.getHeader(SystemActionContext.HTTP_HEADER_SYSTEM_ACTION))
         .method(HttpMethod.valueOf(request.getMethod()))
         .uri(uriAndQueryString)
         .requestPayload(requestPayload)
