@@ -98,7 +98,6 @@ public final class ViewModelConstants {
         .viewId(VIEW_ID)
         .databaseId(DATABASE_ID)
         .clusterId(CLUSTER_ID)
-        .viewUri(VIEW_URI)
         .metadataLocation(METADATA_LOCATION)
         .viewVersion(VIEW_VERSION)
         .creationTime(CREATION_TIME)

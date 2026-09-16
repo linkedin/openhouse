@@ -33,12 +33,6 @@ public class GetViewResponseBody {
   private String clusterId;
 
   @Schema(
-      description = "Fully Qualified Resource URI for the view",
-      example = "my_cluster.my_database.my_view")
-  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
-  private String viewUri;
-
-  @Schema(
       description = "Location of the view metadata in File System / Blob Store",
       example =
           "<fs>://<hostname>/<openhouse_namespace>/<database_name>/<viewUUID>/metadata/<uuid>.metadata.json")

@@ -91,13 +91,7 @@ public class ViewApiContractTest {
   public void testGetViewResponseBodyFieldsAreFrozen() {
     Set<String> expected =
         setOf(
-            "viewId",
-            "databaseId",
-            "clusterId",
-            "viewUri",
-            "metadataLocation",
-            "viewVersion",
-            "creationTime");
+            "viewId", "databaseId", "clusterId", "metadataLocation", "viewVersion", "creationTime");
 
     Assertions.assertEquals(
         expected,
@@ -356,18 +350,13 @@ public class ViewApiContractTest {
   public void testPointerResponseSerializesExactKeysAndNoDefinition() {
     // Uses distinct metadataLocation/viewVersion sentinels so a swap of the two Jackson property
     // associations cannot pass. Production keeps them equal; see ViewModelConstants.
-    JsonNode json = MAPPER.valueToTree(ViewModelConstants.pointerResponseWithDistinctPointers());
+    GetViewResponseBody response = ViewModelConstants.pointerResponseWithDistinctPointers();
+    JsonNode json = MAPPER.valueToTree(response);
 
-    Assertions.assertEquals(
+    Set<String> expected =
         setOf(
-            "viewId",
-            "databaseId",
-            "clusterId",
-            "viewUri",
-            "metadataLocation",
-            "viewVersion",
-            "creationTime"),
-        keysOf(json));
+            "viewId", "databaseId", "clusterId", "metadataLocation", "viewVersion", "creationTime");
+    Assertions.assertEquals(expected, keysOf(json));
 
     List<String> definitionFields =
         Arrays.asList(
@@ -388,7 +377,13 @@ public class ViewApiContractTest {
           json.has(forbidden), "Pointer response leaked definition field '" + forbidden + "'.");
     }
 
-    Assertions.assertEquals(ViewModelConstants.VIEW_URI, json.get("viewUri").asText());
+    Assertions.assertFalse(
+        json.has("viewUri"),
+        "The fully qualified URI is derivable from the identifiers already on the response, so it"
+            + " is not part of the wire contract.");
+    Assertions.assertEquals(ViewModelConstants.VIEW_ID, json.get("viewId").asText());
+    Assertions.assertEquals(ViewModelConstants.DATABASE_ID, json.get("databaseId").asText());
+    Assertions.assertEquals(ViewModelConstants.CLUSTER_ID, json.get("clusterId").asText());
     Assertions.assertEquals(
         ViewModelConstants.DISTINCT_METADATA_LOCATION, json.get("metadataLocation").asText());
     Assertions.assertEquals(
@@ -400,6 +395,13 @@ public class ViewApiContractTest {
             + " swapped property association.");
     Assertions.assertTrue(json.get("creationTime").isNumber());
     Assertions.assertEquals(ViewModelConstants.CREATION_TIME, json.get("creationTime").asLong());
+
+    // Gson serializes declared fields, so a removed property has to leave the field itself.
+    JsonNode gsonPayload = parse(response.toJson());
+    Assertions.assertEquals(expected, keysOf(gsonPayload));
+    Assertions.assertEquals(
+        ViewModelConstants.DISTINCT_METADATA_LOCATION,
+        gsonPayload.get("metadataLocation").asText());
   }
 
   /** Terminal responses omit the token rather than serialize JSON null. */
@@ -444,16 +446,16 @@ public class ViewApiContractTest {
               "viewId",
               "databaseId",
               "clusterId",
-              "viewUri",
               "metadataLocation",
               "viewVersion",
               "creationTime"),
           keysOf(element),
           "List elements must expose exactly the pointer contract.");
+      Assertions.assertFalse(element.has("viewUri"));
       Assertions.assertFalse(element.get("viewId").isNull());
       Assertions.assertEquals(ViewModelConstants.DATABASE_ID, element.get("databaseId").asText());
       List<String> unpopulatedPointerFields =
-          Arrays.asList("clusterId", "viewUri", "metadataLocation", "viewVersion");
+          Arrays.asList("clusterId", "metadataLocation", "viewVersion");
       for (String unpopulated : unpopulatedPointerFields) {
         Assertions.assertTrue(
             element.get(unpopulated).isNull(),
