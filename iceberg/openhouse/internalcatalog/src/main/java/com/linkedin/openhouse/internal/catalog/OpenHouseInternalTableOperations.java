@@ -549,7 +549,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           metadata ->
               postCommitOperationRunner.runAll(new PostCommitContext(tableIdentifier, metadata)));
     } catch (Throwable t) {
-      log.warn(
+      log.error(
           "Failed to dispatch post-commit operations for table {} (nonfatal)", tableIdentifier, t);
     }
   }

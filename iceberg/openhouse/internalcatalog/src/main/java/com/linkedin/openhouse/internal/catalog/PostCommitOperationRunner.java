@@ -162,7 +162,7 @@ public class PostCommitOperationRunner {
           "Post-commit operation '{}' rejected (pool saturated) for table {}",
           name,
           context.getTableIdentifier());
-    } catch (Throwable submitFailure) {
+    } catch (Exception submitFailure) {
       // Unexpected, but nonfatal: the commit has already durably succeeded and is unaffected.
       count(name, "rejected");
       log.warn("Failed to submit post-commit operation '{}' (nonfatal)", name, submitFailure);
@@ -178,7 +178,7 @@ public class PostCommitOperationRunner {
       // Cancelled by the timeout scheduler (timeout already recorded there); restore the flag and
       // stop.
       Thread.currentThread().interrupt();
-    } catch (Throwable failure) {
+    } catch (Exception failure) {
       if (Thread.currentThread().isInterrupted()) {
         // Interruption surfaced as a wrapped exception; treat as timeout, already counted.
         return;
@@ -195,7 +195,7 @@ public class PostCommitOperationRunner {
   private void count(String name, String result) {
     try {
       meterRegistry.counter(METRIC_PREFIX, TAG_NAME, name, TAG_RESULT, result).increment();
-    } catch (Throwable ignored) {
+    } catch (Exception ignored) {
       // Metrics must never break best-effort execution.
     }
   }
