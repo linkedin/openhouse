@@ -65,10 +65,10 @@ public class CommitStatsFactoryTest {
     Assertions.assertEquals("db", cs.getDatabaseName());
     Assertions.assertEquals("tbl", cs.getTableName());
     Assertions.assertEquals("file:/tmp/db/tbl", cs.getTableLocation());
-    // No current snapshot => snapshot/delta metrics are null (properties-only publish).
+    // No current snapshot => current totals and delta are null (properties-only publish).
     Assertions.assertNull(cs.getNumCurrentFiles());
     Assertions.assertNull(cs.getTableSizeBytes());
-    Assertions.assertNull(cs.getNumFilesAdded());
+    Assertions.assertNull(cs.getDelta());
     Assertions.assertNotNull(cs.getTableProperties());
   }
 
@@ -86,10 +86,11 @@ public class CommitStatsFactoryTest {
     CommitStats cs = CommitStatsFactory.extract(ID, mockMetadataWithSummary(summary)).orElseThrow();
     Assertions.assertEquals(42L, cs.getNumCurrentFiles());
     Assertions.assertEquals(1000L, cs.getTableSizeBytes());
-    Assertions.assertEquals(5L, cs.getNumFilesAdded());
-    Assertions.assertEquals(2L, cs.getNumFilesDeleted());
-    Assertions.assertEquals(500L, cs.getAddedSizeBytes());
-    Assertions.assertEquals(200L, cs.getDeletedSizeBytes());
+    Assertions.assertNotNull(cs.getDelta());
+    Assertions.assertEquals(5L, cs.getDelta().getNumFilesAdded());
+    Assertions.assertEquals(2L, cs.getDelta().getNumFilesDeleted());
+    Assertions.assertEquals(500L, cs.getDelta().getAddedSizeBytes());
+    Assertions.assertEquals(200L, cs.getDelta().getDeletedSizeBytes());
     Assertions.assertEquals("v3", cs.getTableVersion());
   }
 

@@ -29,8 +29,10 @@ public final class CommitStatsFactory {
 
   /**
    * Extract {@link CommitStats} from a successful commit. Returns empty when the table has no
-   * stable UUID (nothing to key on). Snapshot/delta metrics are populated from the current snapshot
-   * summary when present; otherwise they are left null (properties-only).
+   * stable UUID (nothing to key on). Current-state totals and the per-commit {@link
+   * CommitStats.Delta} are populated from the current snapshot summary when present; for a commit
+   * with no new snapshot (metadata-only) they are left null, so the publish is properties-only and
+   * reports the same current state as the prior commit.
    */
   public static Optional<CommitStats> extract(
       TableIdentifier tableIdentifier, TableMetadata committedMetadata) {
@@ -63,10 +65,13 @@ public final class CommitStatsFactory {
       builder
           .numCurrentFiles(parseLong(summary.get(SnapshotSummary.TOTAL_DATA_FILES_PROP)))
           .tableSizeBytes(parseLong(summary.get(SnapshotSummary.TOTAL_FILE_SIZE_PROP)))
-          .numFilesAdded(parseLong(summary.get(SnapshotSummary.ADDED_FILES_PROP)))
-          .numFilesDeleted(parseLong(summary.get(SnapshotSummary.DELETED_FILES_PROP)))
-          .addedSizeBytes(parseLong(summary.get(SnapshotSummary.ADDED_FILE_SIZE_PROP)))
-          .deletedSizeBytes(parseLong(summary.get(SnapshotSummary.REMOVED_FILE_SIZE_PROP)));
+          .delta(
+              CommitStats.Delta.builder()
+                  .numFilesAdded(parseLong(summary.get(SnapshotSummary.ADDED_FILES_PROP)))
+                  .numFilesDeleted(parseLong(summary.get(SnapshotSummary.DELETED_FILES_PROP)))
+                  .addedSizeBytes(parseLong(summary.get(SnapshotSummary.ADDED_FILE_SIZE_PROP)))
+                  .deletedSizeBytes(parseLong(summary.get(SnapshotSummary.REMOVED_FILE_SIZE_PROP)))
+                  .build());
     }
     return Optional.of(builder.build());
   }
