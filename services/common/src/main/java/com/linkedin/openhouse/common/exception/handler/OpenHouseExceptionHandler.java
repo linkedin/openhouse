@@ -3,6 +3,7 @@ package com.linkedin.openhouse.common.exception.handler;
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.linkedin.openhouse.common.api.spec.ErrorResponseBody;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
+import com.linkedin.openhouse.common.exception.CleanupLockAccessDeniedException;
 import com.linkedin.openhouse.common.exception.CorruptEntityTypeException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
@@ -273,10 +274,14 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
   @ExceptionHandler(UnsupportedClientOperationException.class)
   protected ResponseEntity<ErrorResponseBody> handleUnsupportedClientOperationException(
       UnsupportedClientOperationException unsupportedClientOperationException) {
+    HttpStatus status =
+        unsupportedClientOperationException instanceof CleanupLockAccessDeniedException
+            ? HttpStatus.LOCKED
+            : HttpStatus.BAD_REQUEST;
     ErrorResponseBody errorResponseBody =
         ErrorResponseBody.builder()
-            .status(HttpStatus.BAD_REQUEST)
-            .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
+            .status(status)
+            .error(status.getReasonPhrase())
             .message(unsupportedClientOperationException.getMessage())
             .stacktrace(getAbbreviatedStackTrace(unsupportedClientOperationException))
             .cause(getExceptionCause(unsupportedClientOperationException))

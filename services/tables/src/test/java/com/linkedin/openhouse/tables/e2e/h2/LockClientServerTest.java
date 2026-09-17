@@ -161,9 +161,9 @@ class LockClientServerTest {
 
   @ParameterizedTest
   @CsvSource(
-      value = {"NULL,false", "false,false", "true,true"},
+      value = {"NULL,423", "false,423", "true,200", "invalid,400"},
       nullValues = "NULL")
-  void cleanupReadAndWriteRoundTrip(String declaration, boolean allowed) {
+  void cleanupReadAndWriteRoundTrip(String declaration, int expectedStatus) {
     GetTableResponseBody current = tableApi.getTableV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
     tableApi
         .createLockV1(
@@ -181,7 +181,7 @@ class LockClientServerTest {
     GetLockResponseBody status = tableApi.getLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
     assertEquals(tableUUID, status.getTableUUID());
     SnapshotApi snapshotApi = new SnapshotApi(apiClient);
-    if (allowed) {
+    if (expectedStatus == 200) {
       current = tableApi.getTableV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
       current =
           tableApi
@@ -201,23 +201,25 @@ class LockClientServerTest {
           assertThrows(
               WebClientResponseException.class,
               () -> tableApi.getTableV1(DATABASE_ID, TABLE_ID).block(TIMEOUT));
-      assertEquals(HttpStatus.BAD_REQUEST, denied.getStatusCode());
-      assertTrue(denied.getResponseBodyAsString().contains("TIER3_AUTO_CLEANUP"));
-      assertTrue(denied.getResponseBodyAsString().contains("Tier 2"));
+      assertEquals(expectedStatus, denied.getRawStatusCode());
+      if (expectedStatus == 423) {
+        assertTrue(denied.getResponseBodyAsString().contains("TIER3_AUTO_CLEANUP"));
+        assertTrue(denied.getResponseBodyAsString().contains("Tier 2"));
+      }
       CreateUpdateTableRequestBody update = updateRequest(current, "denied");
       IcebergSnapshotsRequestBody snapshots = snapshotRequest(current, "denied");
       assertEquals(
-          HttpStatus.BAD_REQUEST,
+          expectedStatus,
           assertThrows(
                   WebClientResponseException.class,
                   () -> tableApi.updateTableV1(DATABASE_ID, TABLE_ID, update).block(TIMEOUT))
-              .getStatusCode());
+              .getRawStatusCode());
       assertEquals(
-          HttpStatus.BAD_REQUEST,
+          expectedStatus,
           assertThrows(
                   WebClientResponseException.class,
                   () -> snapshotApi.putSnapshotsV1(DATABASE_ID, TABLE_ID, snapshots).block(TIMEOUT))
-              .getStatusCode());
+              .getRawStatusCode());
     }
     assertEquals(
         status.getLockState(),

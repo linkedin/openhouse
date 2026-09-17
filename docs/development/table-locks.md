@@ -27,8 +27,8 @@ bypass. Even the table owner is blocked without the declaration.
 | Active lock | System-action declaration | Table reads | Table/snapshot writes |
 | --- | --- | --- | --- |
 | None | Any/absent | Existing ACL rules | Existing ACL rules |
-| `LEGACY` | False/absent or true | Existing `LOCK_ADMIN` and metadata ACL checks | Rejected |
-| `TIER3_AUTO_CLEANUP` | False/absent | Rejected | Rejected |
+| `LEGACY` | False/absent or true | Existing `LOCK_ADMIN` and metadata ACL checks | Rejected (400) |
+| `TIER3_AUTO_CLEANUP` | False/absent | Rejected (423 Locked) | Rejected (423 Locked) |
 | `TIER3_AUTO_CLEANUP` | True | Allowed with metadata ACL | Allowed with write ACL |
 
 The values `true` and `false` are case-insensitive. An absent declaration,
@@ -44,6 +44,19 @@ checked before returning cleanup-denial details. A denial includes the reason,
 table identifier, any descriptive lock message, and guidance to promote the
 table to Tier 2 to retain it or use authorized reason-targeted unlock. Message
 text and client names never select an exception to these rules.
+
+Cleanup read and write denials use HTTP **423 Locked**, with the existing error
+response fields and recovery message. Catalog `loadTable`, already-loaded table
+`refresh`, and `tableExists` propagate `WebClientResponseWithMessageException`
+with these details; a cleanup-denied `tableExists` throws instead of returning
+false. Cleanup write denials are known, non-retrying failures with the existing
+uncommitted-file cleanup behavior, not retryable conflicts or unknown commit
+states.
+
+Legacy lock write denials and unrelated unsupported operations remain 400. Invalid
+system-action declarations also remain 400, and genuine missing tables remain
+404. The catalog's existing handling of generic 400/404 responses is unchanged:
+for example, a malformed-identifier 400 still maps to not-found behavior.
 
 For example, an authorized system operation can read the table with:
 

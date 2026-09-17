@@ -7,6 +7,7 @@ import com.linkedin.openhouse.gen.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.gen.tables.client.api.TableApi;
 import com.linkedin.openhouse.gen.tables.client.invoker.ApiClient;
 import com.linkedin.openhouse.gen.tables.client.model.IcebergSnapshotsRequestBody;
+import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientResponseException;
 import com.linkedin.openhouse.relocated.reactor.core.publisher.Mono;
 import java.io.IOException;
@@ -27,6 +28,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -187,6 +189,40 @@ public class SmokeTest {
     Assertions.assertThrows(
         NoSuchTableException.class,
         () -> openHouseCatalog.loadTable(TableIdentifier.of("db", "table")));
+  }
+
+  @ParameterizedTest
+  @CsvSource({"423,table", "400,bad-name", "404,missing_table"})
+  public void testCatalogCleanupDenialIsDistinctFromNotFound(int status, String table) {
+    String message =
+        "Table db.table is locked for TIER3_AUTO_CLEANUP: eligible for cleanup. "
+            + "Promote to Tier 2 or use reason-targeted OpenHouse unlock.";
+    for (int request = 0; request < 2; request++) {
+      mockTableService.enqueue(
+          new MockResponse()
+              .setResponseCode(status)
+              .setBody("{\"message\":\"" + message + "\"}")
+              .addHeader("Content-Type", "application/json"));
+    }
+    OpenHouseCatalog catalog = new OpenHouseCatalog();
+    catalog.initialize("openhouse", ImmutableMap.of(CatalogProperties.URI, url));
+    TableIdentifier id = TableIdentifier.of("db", table);
+    if (status == 423) {
+      WebClientResponseWithMessageException load =
+          Assertions.assertThrows(
+              WebClientResponseWithMessageException.class, () -> catalog.loadTable(id));
+      WebClientResponseWithMessageException exists =
+          Assertions.assertThrows(
+              WebClientResponseWithMessageException.class, () -> catalog.tableExists(id));
+      Assertions.assertEquals(423, load.getStatusCode());
+      Assertions.assertEquals(423, exists.getStatusCode());
+      Assertions.assertTrue(load.getMessage().contains(message));
+      Assertions.assertTrue(exists.getMessage().contains(message));
+    } else {
+      Assertions.assertThrows(NoSuchTableException.class, () -> catalog.loadTable(id));
+      Assertions.assertFalse(catalog.tableExists(id));
+    }
+    Assertions.assertEquals(2, mockTableService.getRequestCount());
   }
 
   @Test
