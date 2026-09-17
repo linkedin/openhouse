@@ -13,19 +13,20 @@ executable catalog on each branch.
 ```text
 main
 `-- Core foundation (34)
-    |-- Standard DML (+96, total 130)
-    |   |-- RTAS (+264, total 394)
-    |   |   |-- Compatibility and streaming (+114, total 508)
-    |   |   |-- History (+36, total 430)
-    |   |   |-- Governance (+21, total 415)
-    |   |   |-- Maintenance and planning (+23, total 417)
-    |   |   |-- Catalog DDL (+38, total 432)
-    |   |   `-- Merge-on-read (+320, total 714)
-    |   |       `-- Branch and write-audit-publish (+102, total 816)
-    |   `-- DML state matrix (+428, total 558)
-    |-- Schema and types (+60, total 94)
-    |-- Catalog constraints (+24, total 58)
-    `-- Column defaults (+4, total 38)
+    `-- Test coverage documentation
+        |-- Standard DML (+96, total 130)
+        |   |-- RTAS (+264, total 394)
+        |   |   |-- Compatibility and streaming (+114, total 508)
+        |   |   |-- History (+36, total 430)
+        |   |   |-- Governance (+21, total 415)
+        |   |   |-- Maintenance and planning (+23, total 417)
+        |   |   |-- Catalog DDL (+38, total 432)
+        |   |   `-- Merge-on-read (+320, total 714)
+        |   |       `-- Branch and write-audit-publish (+102, total 816)
+        |   `-- DML state matrix (+428, total 558)
+        |-- Schema and types (+60, total 94)
+        |-- Catalog constraints (+24, total 58)
+        `-- Column defaults (+4, total 38)
 ```
 
 ## Validated layers
@@ -35,15 +36,16 @@ Every result below comes from the complete embedded catalog on that branch.
 | Layer | Parent | Added cases | Catalog | Result | Branch |
 |-------|--------|------------:|--------:|--------|--------|
 | Core foundation | `main` | 34 | 34 | 34 passed | [`delta-harness-oss`][core] |
-| Standard DML | Core | 96 | 130 | 130 passed | [`delta-harness-standard-dml`][standard-dml] |
+| Test coverage documentation | Core | 0 | 34 | Documentation only | [`delta-harness-docs`][docs] |
+| Standard DML | Test coverage documentation | 96 | 130 | 130 passed | [`delta-harness-standard-dml`][standard-dml] |
 | RTAS | Standard DML | 264 | 394 | 390 passed, 4 skipped | [`delta-harness-rtas`][rtas] |
 | DML state matrix | Standard DML | 428 | 558 | 554 passed, 4 skipped | [`delta-harness-standard-dml-state-matrix`][matrix] |
-| Schema and types | Core | 60 | 94 | 88 passed, 6 skipped | [`delta-harness-schema-types`][schema] |
-| Catalog constraints | Core | 24 | 58 | 58 passed | [`delta-harness-catalog-constraints`][constraints] |
+| Schema and types | Test coverage documentation | 60 | 94 | 88 passed, 6 skipped | [`delta-harness-schema-types`][schema] |
+| Catalog constraints | Test coverage documentation | 24 | 58 | 58 passed | [`delta-harness-catalog-constraints`][constraints] |
 | Compatibility and streaming | RTAS | 114 | 508 | 504 passed, 4 skipped | [`delta-harness-compatibility-streaming`][compatibility] |
 | Merge-on-read | RTAS | 320 | 714 | 710 passed, 4 skipped | [`delta-harness-mor`][mor] |
 | Branch and write-audit-publish | Merge-on-read | 102 | 816 | 812 passed, 4 skipped | [`delta-harness-branch`][branch] |
-| Column defaults | Core | 4 | 38 | 38 passed | [`delta-harness-column-defaults`][defaults] |
+| Column defaults | Test coverage documentation | 4 | 38 | 38 passed | [`delta-harness-column-defaults`][defaults] |
 | History | RTAS | 36 | 430 | 426 passed, 4 skipped | [`delta-harness-history`][history] |
 | Governance | RTAS | 21 | 415 | 409 passed, 6 skipped | [`delta-harness-governance`][governance] |
 | Maintenance and planning | RTAS | 23 | 417 | 413 passed, 4 skipped | [`delta-harness-maintenance-planning`][maintenance] |
@@ -260,17 +262,18 @@ li-openhouse adapter must also prove:
 - Remote runtime settings select the deployed OpenHouse catalog and data source.
 - Embedded skips run when the acceptance environment provides the missing service.
 
-[core]: https://github.com/mkuchenbecker/openhouse/tree/mkuchenbecker/delta-harness-oss
-[standard-dml]: https://github.com/mkuchenbecker/openhouse/tree/mkuchenbecker/delta-harness-standard-dml
-[rtas]: https://github.com/mkuchenbecker/openhouse/tree/mkuchenbecker/delta-harness-rtas
-[matrix]: https://github.com/mkuchenbecker/openhouse/tree/mkuchenbecker/delta-harness-standard-dml-state-matrix
-[schema]: https://github.com/mkuchenbecker/openhouse/tree/mkuchenbecker/delta-harness-schema-types
-[constraints]: https://github.com/mkuchenbecker/openhouse/tree/mkuchenbecker/delta-harness-catalog-constraints
-[compatibility]: https://github.com/mkuchenbecker/openhouse/tree/mkuchenbecker/delta-harness-compatibility-streaming
-[mor]: https://github.com/mkuchenbecker/openhouse/tree/mkuchenbecker/delta-harness-mor
-[branch]: https://github.com/mkuchenbecker/openhouse/tree/mkuchenbecker/delta-harness-branch
-[defaults]: https://github.com/mkuchenbecker/openhouse/tree/mkuchenbecker/delta-harness-column-defaults
-[history]: https://github.com/mkuchenbecker/openhouse/tree/mkuchenbecker/delta-harness-history
-[governance]: https://github.com/mkuchenbecker/openhouse/tree/mkuchenbecker/delta-harness-governance
-[maintenance]: https://github.com/mkuchenbecker/openhouse/tree/mkuchenbecker/delta-harness-maintenance-planning
-[catalog-ddl]: https://github.com/mkuchenbecker/openhouse/tree/mkuchenbecker/delta-harness-catalog-ddl
+[core]: https://github.com/linkedin/openhouse/tree/mkuchenbecker/delta-harness-oss
+[docs]: https://github.com/linkedin/openhouse/tree/mkuchenbecker/delta-harness-docs
+[standard-dml]: https://github.com/linkedin/openhouse/tree/mkuchenbecker/delta-harness-standard-dml
+[rtas]: https://github.com/linkedin/openhouse/tree/mkuchenbecker/delta-harness-rtas
+[matrix]: https://github.com/linkedin/openhouse/tree/mkuchenbecker/delta-harness-standard-dml-state-matrix
+[schema]: https://github.com/linkedin/openhouse/tree/mkuchenbecker/delta-harness-schema-types
+[constraints]: https://github.com/linkedin/openhouse/tree/mkuchenbecker/delta-harness-catalog-constraints
+[compatibility]: https://github.com/linkedin/openhouse/tree/mkuchenbecker/delta-harness-compatibility-streaming
+[mor]: https://github.com/linkedin/openhouse/tree/mkuchenbecker/delta-harness-mor
+[branch]: https://github.com/linkedin/openhouse/tree/mkuchenbecker/delta-harness-branch
+[defaults]: https://github.com/linkedin/openhouse/tree/mkuchenbecker/delta-harness-column-defaults
+[history]: https://github.com/linkedin/openhouse/tree/mkuchenbecker/delta-harness-history
+[governance]: https://github.com/linkedin/openhouse/tree/mkuchenbecker/delta-harness-governance
+[maintenance]: https://github.com/linkedin/openhouse/tree/mkuchenbecker/delta-harness-maintenance-planning
+[catalog-ddl]: https://github.com/linkedin/openhouse/tree/mkuchenbecker/delta-harness-catalog-ddl
