@@ -26,6 +26,26 @@ main
         `-- Column defaults
 ```
 
+## Review links
+
+| Layer | Pull request |
+|---|---|
+| Harness core | [#682](https://github.com/linkedin/openhouse/pull/682) |
+| Test coverage documentation | [#707](https://github.com/linkedin/openhouse/pull/707) |
+| Standard DML | [#715](https://github.com/linkedin/openhouse/pull/715) |
+| RTAS | [#704](https://github.com/linkedin/openhouse/pull/704) |
+| DML state matrix | [#716](https://github.com/linkedin/openhouse/pull/716) |
+| Schema and types | [#717](https://github.com/linkedin/openhouse/pull/717) |
+| Catalog constraints | [#718](https://github.com/linkedin/openhouse/pull/718) |
+| Column defaults | [#720](https://github.com/linkedin/openhouse/pull/720) |
+| Compatibility and streaming | [#719](https://github.com/linkedin/openhouse/pull/719) |
+| History | [#721](https://github.com/linkedin/openhouse/pull/721) |
+| Governance | [#722](https://github.com/linkedin/openhouse/pull/722) |
+| Maintenance and planning | [#723](https://github.com/linkedin/openhouse/pull/723) |
+| Catalog DDL | [#724](https://github.com/linkedin/openhouse/pull/724) |
+| Merge-on-read | [#705](https://github.com/linkedin/openhouse/pull/705) |
+| Branch and write-audit-publish | [#706](https://github.com/linkedin/openhouse/pull/706) |
+
 ## Foundation
 
 The 34-case foundation demonstrates each catalog composition path and runs as part
