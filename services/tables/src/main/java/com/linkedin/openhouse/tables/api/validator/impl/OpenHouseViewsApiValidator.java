@@ -125,9 +125,9 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
   }
 
   @Override
-  public void validateCreateView(String databaseId, CreateUpdateViewRequestBody requestBody) {
+  public void validateCreateView(CreateUpdateViewRequestBody requestBody) {
     ViewValidationFailures failures = new ViewValidationFailures();
-    validateBody(databaseId, requestBody, failures);
+    validateBody(requestBody, failures);
     // POST distinguishes only "supplied" from "omitted": a supplied-but-blank token is a value the
     // rule below has to reject, not an absence.
     validateCreateBaseMetadataLocation(
@@ -136,16 +136,9 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
   }
 
   @Override
-  public void validateUpdateView(
-      String databaseId, String viewId, CreateUpdateViewRequestBody requestBody) {
+  public void validateUpdateView(CreateUpdateViewRequestBody requestBody) {
     ViewValidationFailures failures = new ViewValidationFailures();
-    validateBody(databaseId, requestBody, failures);
-    if (requestBody.getViewId() != null && !requestBody.getViewId().equals(viewId)) {
-      failures.addGeneric(
-          String.format(
-              "viewId : provided %s, doesn't match with the RequestBody %s",
-              viewId, requestBody.getViewId()));
-    }
+    validateBody(requestBody, failures);
     validateUpdateBaseMetadataLocation(
         nonBlankField(requestBody.getBaseMetadataLocation()), failures);
     failures.throwIfPresent();
@@ -160,6 +153,9 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
   /**
    * Rules shared by POST and PUT. Verb-specific base-version rules are applied by the caller.
    *
+   * <p>Only the request body is examined. Whether its identifiers agree with the ones in the
+   * request path is the controller's rule, applied before this validator runs.
+   *
    * <p>This is the one place absence is decided. Every nullable field of the request body is
    * converted here to an explicit {@link Optional}, so no rule below re-derives what "not supplied"
    * means for its own field. The two list fields are normalized differently on purpose:
@@ -172,18 +168,12 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
    * </ul>
    */
   private void validateBody(
-      String databaseId, CreateUpdateViewRequestBody requestBody, ViewValidationFailures failures) {
+      CreateUpdateViewRequestBody requestBody, ViewValidationFailures failures) {
     // Bean violations stay in the generic category, so they are collected into a plain list first
     // and then forwarded, rather than influencing the error-code precedence.
     List<String> beanViolations = new ArrayList<>();
     ApiValidatorUtil.collectViolations(validator, requestBody, beanViolations);
     beanViolations.forEach(failures::addGeneric);
-    if (requestBody.getDatabaseId() != null && !requestBody.getDatabaseId().equals(databaseId)) {
-      failures.addGeneric(
-          String.format(
-              "databaseId : provided %s, doesn't match with the RequestBody %s",
-              databaseId, requestBody.getDatabaseId()));
-    }
 
     Optional<String> schema = nonEmptyField(requestBody.getSchema());
     Optional<List<ViewRepresentation>> representations =

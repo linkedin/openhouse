@@ -28,12 +28,15 @@ import org.springframework.stereotype.Component;
  * a {@link ViewApiException} carrying that code, and two further ids cover the uncoded paths: an
  * {@link AccessDeniedException} and a generic infrastructure {@link AuthorizationServiceException}.
  * Any other database id, including the {@code "d200"} the tests use for success, responds normally.
+ * The read and delete routes take that id from the path; the write routes have no path identifier
+ * at all, so they read it from the request body, which the controller has already proven matches
+ * the path.
  *
  * <p><b>PUT signal:</b> PUT has two success statuses and the handler picks between them from the
  * service's created flag, which does not exist here. The mock therefore uses a deterministic,
- * documented identifier signal instead: a PUT for {@link #PUT_CREATES_VIEW_ID} reports 201 CREATED
- * and every other view id reports 200 OK. Database ids select errors independently of this
- * success-status signal.
+ * documented identifier signal instead: a PUT whose body names {@link #PUT_CREATES_VIEW_ID} reports
+ * 201 CREATED and every other view id reports 200 OK. Database ids select errors independently of
+ * this success-status signal.
  *
  * <p>Listing returns a fixed terminal fixture; token traversal is covered by {@code
  * ViewsPaginationControllerTest}.
@@ -42,7 +45,7 @@ import org.springframework.stereotype.Component;
 @Primary
 public class MockViewsApiHandler implements ViewsApiHandler {
 
-  /** A PUT to this view id reports 201 CREATED; any other view id reports 200 OK. */
+  /** A PUT whose body names this view id reports 201 CREATED; any other view id reports 200 OK. */
   public static final String PUT_CREATES_VIEW_ID = "v201";
 
   /**
@@ -121,8 +124,8 @@ public class MockViewsApiHandler implements ViewsApiHandler {
 
   @Override
   public ApiResponse<GetViewResponseBody> createView(
-      String databaseId, CreateUpdateViewRequestBody requestBody, String actingPrincipal) {
-    throwIfErrorDatabaseId(databaseId);
+      CreateUpdateViewRequestBody requestBody, String actingPrincipal) {
+    throwIfErrorDatabaseId(requestBody.getDatabaseId());
     return ApiResponse.<GetViewResponseBody>builder()
         .httpStatus(HttpStatus.CREATED)
         .responseBody(ViewModelConstants.pointerResponse())
@@ -131,12 +134,10 @@ public class MockViewsApiHandler implements ViewsApiHandler {
 
   @Override
   public ApiResponse<GetViewResponseBody> updateView(
-      String databaseId,
-      String viewId,
-      CreateUpdateViewRequestBody requestBody,
-      String actingPrincipal) {
-    throwIfErrorDatabaseId(databaseId);
-    HttpStatus httpStatus = PUT_CREATES_VIEW_ID.equals(viewId) ? HttpStatus.CREATED : HttpStatus.OK;
+      CreateUpdateViewRequestBody requestBody, String actingPrincipal) {
+    throwIfErrorDatabaseId(requestBody.getDatabaseId());
+    HttpStatus httpStatus =
+        PUT_CREATES_VIEW_ID.equals(requestBody.getViewId()) ? HttpStatus.CREATED : HttpStatus.OK;
     return ApiResponse.<GetViewResponseBody>builder()
         .httpStatus(httpStatus)
         .responseBody(ViewModelConstants.pointerResponse())

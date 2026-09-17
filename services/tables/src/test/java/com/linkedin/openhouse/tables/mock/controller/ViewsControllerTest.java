@@ -20,6 +20,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.ViewRepresen
 import com.linkedin.openhouse.tables.audit.ViewRequestPayloadRedactor;
 import com.linkedin.openhouse.tables.controller.ViewsController;
 import com.linkedin.openhouse.tables.exception.ViewErrorCode;
+import com.linkedin.openhouse.tables.exception.ViewRequestValidationFailureException;
 import com.linkedin.openhouse.tables.mock.MockViewsApiHandler;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
@@ -72,7 +73,8 @@ import org.springframework.web.bind.annotation.RequestParam;
  *
  * <p>Error statuses are driven through {@link MockViewsApiHandler}'s database-id switch, so this
  * class exercises controller wiring and the shared exception handler rather than validation. The
- * validator's own rejections are covered by {@code ViewsValidatorTest}.
+ * validator's own rejections are covered by {@code ViewsValidatorTest}; the one rule the controller
+ * owns itself, that the path identifiers must match the request body, is covered here.
  *
  * <p><b>No test here asserts an error code in the response JSON.</b> View error codes are internal
  * status selectors: they choose the HTTP status and are never serialized. The assertions are
@@ -88,6 +90,15 @@ import org.springframework.web.bind.annotation.RequestParam;
 public class ViewsControllerTest {
 
   private static final String VIEWS_PATH = "/v1/databases/d200/views";
+
+  /**
+   * Write routes have to address the database the request body names: the controller rejects a POST
+   * or PUT whose path identifiers do not match the body. The shared fixtures carry {@link
+   * ViewModelConstants#DATABASE_ID}, so the write tests below address that database while the read
+   * and delete tests keep using the {@code d200} error-signal path, which carries no body at all.
+   */
+  private static final String WRITE_VIEWS_PATH =
+      "/v1/databases/" + ViewModelConstants.DATABASE_ID + "/views";
 
   /** The header {@code ServiceAuditAspect} reads the session id from. */
   private static final String SESSION_ID_HEADER = "session-id";
@@ -165,7 +176,7 @@ public class ViewsControllerTest {
   @Test
   public void createViewReturns201WithPointerBody() throws Exception {
     mvc.perform(
-            MockMvcRequestBuilders.post(VIEWS_PATH)
+            MockMvcRequestBuilders.post(WRITE_VIEWS_PATH)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(ViewModelConstants.createRequestWithoutBaseVersion().toJson())
                 .accept(MediaType.APPLICATION_JSON)
@@ -196,7 +207,7 @@ public class ViewsControllerTest {
             + "\"}";
 
     mvc.perform(
-            MockMvcRequestBuilders.post(VIEWS_PATH)
+            MockMvcRequestBuilders.post(WRITE_VIEWS_PATH)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(requestBody)
                 .accept(MediaType.APPLICATION_JSON)
@@ -205,8 +216,7 @@ public class ViewsControllerTest {
 
     ArgumentCaptor<CreateUpdateViewRequestBody> boundRequest =
         ArgumentCaptor.forClass(CreateUpdateViewRequestBody.class);
-    Mockito.verify(viewsApiHandler)
-        .createView(Mockito.anyString(), boundRequest.capture(), Mockito.any());
+    Mockito.verify(viewsApiHandler).createView(boundRequest.capture(), Mockito.any());
 
     CreateUpdateViewRequestBody captured = boundRequest.getValue();
     Assertions.assertEquals(
@@ -223,7 +233,7 @@ public class ViewsControllerTest {
   @Test
   public void updateViewReplacingExistingViewReturns200() throws Exception {
     mvc.perform(
-            MockMvcRequestBuilders.put(VIEWS_PATH + "/my_view")
+            MockMvcRequestBuilders.put(WRITE_VIEWS_PATH + "/my_view")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(ViewModelConstants.fullyPopulatedRequest().toJson())
                 .accept(MediaType.APPLICATION_JSON)
@@ -236,7 +246,8 @@ public class ViewsControllerTest {
   @Test
   public void updateViewCreatingNewViewReturns201() throws Exception {
     mvc.perform(
-            MockMvcRequestBuilders.put(VIEWS_PATH + "/" + MockViewsApiHandler.PUT_CREATES_VIEW_ID)
+            MockMvcRequestBuilders.put(
+                    WRITE_VIEWS_PATH + "/" + MockViewsApiHandler.PUT_CREATES_VIEW_ID)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     ViewModelConstants.fullyPopulatedRequest()
@@ -269,6 +280,348 @@ public class ViewsControllerTest {
         // JsonPath treats explicit null as absent, so check the raw body.
         .andExpect(content().string(Matchers.not(Matchers.containsString("nextPageToken"))))
         .andExpect(content().string(Matchers.not(Matchers.containsString("pageResults"))));
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Path and body identifier agreement
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * The write routes carry the identifiers twice, in the path and in the body, and the controller
+   * is the only place that can compare them: the handler is handed the body alone. The tests below
+   * pin that the comparison happens there, that it is exact, and that a disagreeing request is
+   * refused before anything downstream can act on either copy.
+   */
+  private static String databaseIdMismatch(String pathValue, String bodyValue) {
+    return String.format(
+        "databaseId : provided %s, doesn't match with the RequestBody %s", pathValue, bodyValue);
+  }
+
+  private static String viewIdMismatch(String pathValue, String bodyValue) {
+    return String.format(
+        "viewId : provided %s, doesn't match with the RequestBody %s", pathValue, bodyValue);
+  }
+
+  private void assertWriteRoutesNeverReachedTheHandler() {
+    Mockito.verify(viewsApiHandler, Mockito.never()).createView(Mockito.any(), Mockito.any());
+    Mockito.verify(viewsApiHandler, Mockito.never()).updateView(Mockito.any(), Mockito.any());
+  }
+
+  private MockHttpServletRequestBuilder createRequestTo(
+      String path, CreateUpdateViewRequestBody requestBody) {
+    return MockMvcRequestBuilders.post(path)
+        .contentType(MediaType.APPLICATION_JSON)
+        .content(requestBody.toJson())
+        .accept(MediaType.APPLICATION_JSON)
+        .header("Authorization", "Bearer " + jwtAccessToken);
+  }
+
+  private MockHttpServletRequestBuilder replaceRequestTo(
+      String path, CreateUpdateViewRequestBody requestBody) {
+    return MockMvcRequestBuilders.put(path)
+        .contentType(MediaType.APPLICATION_JSON)
+        .content(requestBody.toJson())
+        .accept(MediaType.APPLICATION_JSON)
+        .header("Authorization", "Bearer " + jwtAccessToken);
+  }
+
+  @Test
+  public void createViewRejectsABodyNamingADifferentDatabase() throws Exception {
+    mvc.perform(createRequestTo(VIEWS_PATH, ViewModelConstants.createRequestWithoutBaseVersion()))
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath(
+                "$.message",
+                Matchers.is(databaseIdMismatch("d200", ViewModelConstants.DATABASE_ID))))
+        .andExpect(jsonPath("$.status", Matchers.is("BAD_REQUEST")))
+        .andExpect(jsonPath("$.errorCode").doesNotExist());
+
+    assertWriteRoutesNeverReachedTheHandler();
+  }
+
+  @Test
+  public void updateViewRejectsABodyNamingADifferentDatabase() throws Exception {
+    mvc.perform(
+            replaceRequestTo(
+                viewsPath("d200") + "/" + ViewModelConstants.VIEW_ID,
+                ViewModelConstants.fullyPopulatedRequest()))
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath(
+                "$.message",
+                Matchers.is(databaseIdMismatch("d200", ViewModelConstants.DATABASE_ID))))
+        .andExpect(jsonPath("$.errorCode").doesNotExist());
+
+    assertWriteRoutesNeverReachedTheHandler();
+  }
+
+  @Test
+  public void updateViewRejectsABodyNamingADifferentView() throws Exception {
+    mvc.perform(
+            replaceRequestTo(
+                WRITE_VIEWS_PATH + "/another_view", ViewModelConstants.fullyPopulatedRequest()))
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath(
+                "$.message",
+                Matchers.is(viewIdMismatch("another_view", ViewModelConstants.VIEW_ID))))
+        .andExpect(jsonPath("$.errorCode").doesNotExist());
+
+    assertWriteRoutesNeverReachedTheHandler();
+  }
+
+  /** Both disagreements are reported in one response, database first, joined like every other. */
+  @Test
+  public void updateViewReportsBothIdentifierMismatchesTogether() throws Exception {
+    mvc.perform(
+            replaceRequestTo(
+                viewsPath("d200") + "/another_view", ViewModelConstants.fullyPopulatedRequest()))
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath(
+                "$.message",
+                Matchers.is(
+                    databaseIdMismatch("d200", ViewModelConstants.DATABASE_ID)
+                        + "; "
+                        + viewIdMismatch("another_view", ViewModelConstants.VIEW_ID))))
+        .andExpect(jsonPath("$.errorCode").doesNotExist());
+
+    assertWriteRoutesNeverReachedTheHandler();
+  }
+
+  /**
+   * The comparison is the identifiers as they were sent: identifiers are case sensitive elsewhere
+   * in the API, and nothing trims or normalizes them, so a differing case, an empty value or a
+   * padded one is a disagreement rather than a match. The padded cases also pin that the value
+   * echoed back is the caller's raw string, not a cleaned-up rendering of it.
+   */
+  @ParameterizedTest(name = "body databaseId=[{0}]")
+  @ValueSource(strings = {"My_Database", "MY_DATABASE", "", " my_database", "my_database "})
+  public void createViewComparesTheDatabaseIdExactlyAsItWasSent(String bodyDatabaseId)
+      throws Exception {
+    mvc.perform(
+            createRequestTo(
+                WRITE_VIEWS_PATH,
+                ViewModelConstants.createRequestWithoutBaseVersion()
+                    .toBuilder()
+                    .databaseId(bodyDatabaseId)
+                    .build()))
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath(
+                "$.message",
+                Matchers.is(databaseIdMismatch(ViewModelConstants.DATABASE_ID, bodyDatabaseId))));
+
+    assertWriteRoutesNeverReachedTheHandler();
+  }
+
+  /** The replace route compares its database id on the same terms the create route does. */
+  @ParameterizedTest(name = "body databaseId=[{0}]")
+  @ValueSource(strings = {"My_Database", "MY_DATABASE", "", " my_database", "my_database "})
+  public void updateViewComparesTheDatabaseIdExactlyAsItWasSent(String bodyDatabaseId)
+      throws Exception {
+    mvc.perform(
+            replaceRequestTo(
+                WRITE_VIEWS_PATH + "/" + ViewModelConstants.VIEW_ID,
+                ViewModelConstants.fullyPopulatedRequest()
+                    .toBuilder()
+                    .databaseId(bodyDatabaseId)
+                    .build()))
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath(
+                "$.message",
+                Matchers.is(databaseIdMismatch(ViewModelConstants.DATABASE_ID, bodyDatabaseId))));
+
+    assertWriteRoutesNeverReachedTheHandler();
+  }
+
+  @ParameterizedTest(name = "body viewId=[{0}]")
+  @ValueSource(strings = {"My_View", "MY_VIEW", "", " my_view", "my_view "})
+  public void updateViewComparesTheViewIdExactlyAsItWasSent(String bodyViewId) throws Exception {
+    mvc.perform(
+            replaceRequestTo(
+                WRITE_VIEWS_PATH + "/" + ViewModelConstants.VIEW_ID,
+                ViewModelConstants.fullyPopulatedRequest().toBuilder().viewId(bodyViewId).build()))
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath(
+                "$.message", Matchers.is(viewIdMismatch(ViewModelConstants.VIEW_ID, bodyViewId))));
+
+    assertWriteRoutesNeverReachedTheHandler();
+  }
+
+  /**
+   * An omitted identifier is not a disagreement: there is nothing to compare it with. It is a
+   * missing required field, which the body validator downstream already reports, so the controller
+   * has to let the request through rather than invent a mismatch against a null.
+   */
+  @Test
+  public void createViewWithoutADatabaseIdInTheBodyIsPassedOnRatherThanCalledAMismatch()
+      throws Exception {
+    mvc.perform(
+            createRequestTo(
+                WRITE_VIEWS_PATH,
+                ViewModelConstants.createRequestWithoutBaseVersion()
+                    .toBuilder()
+                    .databaseId(null)
+                    .build()))
+        .andExpect(status().isCreated());
+
+    Mockito.verify(viewsApiHandler).createView(Mockito.any(), Mockito.eq(ACTING_PRINCIPAL));
+  }
+
+  @Test
+  public void updateViewWithoutIdentifiersInTheBodyIsPassedOnRatherThanCalledAMismatch()
+      throws Exception {
+    mvc.perform(
+            replaceRequestTo(
+                WRITE_VIEWS_PATH + "/" + ViewModelConstants.VIEW_ID,
+                ViewModelConstants.fullyPopulatedRequest()
+                    .toBuilder()
+                    .databaseId(null)
+                    .viewId(null)
+                    .build()))
+        .andExpect(status().isOk());
+
+    Mockito.verify(viewsApiHandler).updateView(Mockito.any(), Mockito.eq(ACTING_PRINCIPAL));
+  }
+
+  /**
+   * The replace route carries two identifiers and each is compared on its own: an omitted one is
+   * skipped, and the other is still compared. Skipping both because one was omitted would let a
+   * request through that plainly disagrees with its path.
+   */
+  @Test
+  public void updateViewWithoutADatabaseIdInTheBodyStillRejectsADisagreeingViewId()
+      throws Exception {
+    mvc.perform(
+            replaceRequestTo(
+                WRITE_VIEWS_PATH + "/another_view",
+                ViewModelConstants.fullyPopulatedRequest().toBuilder().databaseId(null).build()))
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath(
+                "$.message",
+                Matchers.is(viewIdMismatch("another_view", ViewModelConstants.VIEW_ID))));
+
+    assertWriteRoutesNeverReachedTheHandler();
+  }
+
+  @Test
+  public void updateViewWithoutAViewIdInTheBodyStillRejectsADisagreeingDatabaseId()
+      throws Exception {
+    mvc.perform(
+            replaceRequestTo(
+                viewsPath("d200") + "/" + ViewModelConstants.VIEW_ID,
+                ViewModelConstants.fullyPopulatedRequest().toBuilder().viewId(null).build()))
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath(
+                "$.message",
+                Matchers.is(databaseIdMismatch("d200", ViewModelConstants.DATABASE_ID))));
+
+    assertWriteRoutesNeverReachedTheHandler();
+  }
+
+  /**
+   * Status and message cannot tell the identifier rule apart from the body rules: the schema and
+   * dialect failures answer 400 too, and none of the three codes reaches the wire. The code is
+   * therefore read off the exception the controller threw, which is also what pins that the
+   * controller reports this as a view validation failure rather than some other 400.
+   */
+  private static ViewRequestValidationFailureException identifierRejectionOf(MvcResult result) {
+    ViewRequestValidationFailureException failure =
+        Assertions.assertInstanceOf(
+            ViewRequestValidationFailureException.class,
+            result.getResolvedException(),
+            "An identifier disagreement must be reported as a view request validation failure.");
+    Assertions.assertEquals(
+        ViewErrorCode.INVALID_VIEW_DEFINITION,
+        failure.getErrorCode(),
+        "The identifier rule is an invalid view definition, not an unsupported schema or dialect.");
+    return failure;
+  }
+
+  @Test
+  public void bothWriteRoutesReportAnIdentifierMismatchAsAnInvalidViewDefinition()
+      throws Exception {
+    MvcResult created =
+        mvc.perform(
+                createRequestTo(VIEWS_PATH, ViewModelConstants.createRequestWithoutBaseVersion()))
+            .andExpect(status().isBadRequest())
+            .andReturn();
+    identifierRejectionOf(created);
+
+    MvcResult replaced =
+        mvc.perform(
+                replaceRequestTo(
+                    viewsPath("d200") + "/another_view",
+                    ViewModelConstants.fullyPopulatedRequest()))
+            .andExpect(status().isBadRequest())
+            .andReturn();
+    identifierRejectionOf(replaced);
+
+    assertWriteRoutesNeverReachedTheHandler();
+  }
+
+  /**
+   * A request that disagrees about its identifiers is refused on that ground alone. Nothing else
+   * about the body has been examined at this point, so no other reason may appear beside it.
+   */
+  @Test
+  public void anIdentifierMismatchIsTheOnlyReasonReportedForAnOtherwiseInvalidBody()
+      throws Exception {
+    mvc.perform(
+            createRequestTo(
+                VIEWS_PATH,
+                ViewModelConstants.createRequestWithoutBaseVersion()
+                    .toBuilder()
+                    .schema(ViewModelConstants.MALFORMED_SCHEMA_LITERAL)
+                    .defaultCatalog("   ")
+                    .baseMetadataLocation("not-the-initial-token")
+                    .build()))
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath(
+                "$.message",
+                Matchers.is(databaseIdMismatch("d200", ViewModelConstants.DATABASE_ID))))
+        .andExpect(jsonPath("$.errorCode").doesNotExist())
+        // The rejected body values are the caller's and must not come back in the reason text.
+        .andExpect(content().string(Matchers.not(Matchers.containsString("not-the-initial-token"))))
+        .andExpect(content().string(Matchers.not(Matchers.containsString("defaultCatalog"))));
+
+    assertWriteRoutesNeverReachedTheHandler();
+  }
+
+  /**
+   * Agreeing identifiers leave the request untouched: the handler is handed the body the caller
+   * sent and the authenticated principal, and nothing derived from the path.
+   */
+  @Test
+  public void matchingIdentifiersForwardTheBodyAndPrincipalUnchanged() throws Exception {
+    CreateUpdateViewRequestBody createRequest =
+        ViewModelConstants.createRequestWithoutBaseVersion();
+    CreateUpdateViewRequestBody replaceRequest = ViewModelConstants.fullyPopulatedRequest();
+
+    mvc.perform(createRequestTo(WRITE_VIEWS_PATH, createRequest)).andExpect(status().isCreated());
+    mvc.perform(
+            replaceRequestTo(WRITE_VIEWS_PATH + "/" + ViewModelConstants.VIEW_ID, replaceRequest))
+        .andExpect(status().isOk());
+
+    ArgumentCaptor<CreateUpdateViewRequestBody> created =
+        ArgumentCaptor.forClass(CreateUpdateViewRequestBody.class);
+    ArgumentCaptor<CreateUpdateViewRequestBody> replaced =
+        ArgumentCaptor.forClass(CreateUpdateViewRequestBody.class);
+    Mockito.verify(viewsApiHandler).createView(created.capture(), Mockito.eq(ACTING_PRINCIPAL));
+    Mockito.verify(viewsApiHandler).updateView(replaced.capture(), Mockito.eq(ACTING_PRINCIPAL));
+
+    Assertions.assertEquals(
+        createRequest,
+        created.getValue(),
+        "The create handler receives the caller's body verbatim; the controller neither rebuilds it"
+            + " nor overwrites its identifiers from the path.");
+    Assertions.assertEquals(replaceRequest, replaced.getValue());
   }
 
   // List parameters
@@ -541,7 +894,7 @@ public class ViewsControllerTest {
   @Test
   public void serviceAuditOnViewCreateRedactsSchemaAndSql() throws Exception {
     mvc.perform(
-        MockMvcRequestBuilders.post(VIEWS_PATH)
+        MockMvcRequestBuilders.post(WRITE_VIEWS_PATH)
             .contentType(MediaType.APPLICATION_JSON)
             .content(requestCarryingSecretDefinition().toJson())
             .accept(MediaType.APPLICATION_JSON)
@@ -555,7 +908,7 @@ public class ViewsControllerTest {
   @Test
   public void serviceAuditOnViewReplaceRedactsSchemaAndSql() throws Exception {
     mvc.perform(
-        MockMvcRequestBuilders.put(VIEWS_PATH + "/my_view")
+        MockMvcRequestBuilders.put(WRITE_VIEWS_PATH + "/my_view")
             .contentType(MediaType.APPLICATION_JSON)
             .content(requestCarryingSecretDefinition().toJson())
             .accept(MediaType.APPLICATION_JSON)
@@ -578,14 +931,48 @@ public class ViewsControllerTest {
     mvc.perform(
         MockMvcRequestBuilders.post(viewsPath(failingDatabaseId))
             .contentType(MediaType.APPLICATION_JSON)
-            .content(requestCarryingSecretDefinition().toJson())
+            // The body has to name the failing database too, or the controller's identifier check
+            // would reject the request before the handler could raise the failure under test.
+            .content(
+                requestCarryingSecretDefinition()
+                    .toBuilder()
+                    .databaseId(failingDatabaseId)
+                    .build()
+                    .toJson())
             .accept(MediaType.APPLICATION_JSON)
             .header("Authorization", "Bearer " + jwtAccessToken));
 
     ServiceAuditEvent event = capturedAuditEvent();
     Assertions.assertEquals(
         404, event.getStatusCode(), "Precondition: the create must actually be rejected.");
+    assertViewDefinitionRedacted(event, failingDatabaseId);
+  }
+
+  /**
+   * A request the controller itself rejects never reaches the handler, so it is the last place a
+   * view definition could still be audited raw. The reason text is server-owned, but the cached
+   * payload is the caller's, and it has to be redacted exactly as an accepted request's is.
+   */
+  @Test
+  public void serviceAuditOnAnIdentifierMismatchRedactsSchemaAndSql() throws Exception {
+    mvc.perform(
+        MockMvcRequestBuilders.post(VIEWS_PATH)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(requestCarryingSecretDefinition().toJson())
+            .accept(MediaType.APPLICATION_JSON)
+            .header(SESSION_ID_HEADER, SESSION_ID)
+            .header("Authorization", "Bearer " + jwtAccessToken));
+
+    ServiceAuditEvent event = capturedAuditEvent();
+    Assertions.assertEquals(
+        400, event.getStatusCode(), "Precondition: the mismatched create must be rejected.");
+    Assertions.assertEquals(HttpMethod.POST, event.getMethod());
+    Assertions.assertEquals(VIEWS_PATH, event.getUri());
+    Assertions.assertEquals(ACTING_PRINCIPAL, event.getUser());
+    Assertions.assertEquals(SESSION_ID, event.getSessionId());
     assertViewDefinitionRedacted(event);
+
+    assertWriteRoutesNeverReachedTheHandler();
   }
 
   private ServiceAuditEvent capturedAuditEvent() {
@@ -620,7 +1007,7 @@ public class ViewsControllerTest {
         .redact(Mockito.any());
 
     mvc.perform(
-            MockMvcRequestBuilders.post(VIEWS_PATH)
+            MockMvcRequestBuilders.post(WRITE_VIEWS_PATH)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(requestCarryingSecretDefinition().toJson())
                 .accept(MediaType.APPLICATION_JSON)
@@ -630,10 +1017,14 @@ public class ViewsControllerTest {
         .andExpect(content().json(ViewModelConstants.pointerResponse().toJson()));
 
     Mockito.verify(viewRequestPayloadRedactor).redact(Mockito.any());
-    assertSingleAuditEventWithoutPayload(HttpMethod.POST, VIEWS_PATH, 201);
+    assertSingleAuditEventWithoutPayload(HttpMethod.POST, WRITE_VIEWS_PATH, 201);
   }
 
   private void assertViewDefinitionRedacted(ServiceAuditEvent event) {
+    assertViewDefinitionRedacted(event, ViewModelConstants.DATABASE_ID);
+  }
+
+  private void assertViewDefinitionRedacted(ServiceAuditEvent event, String expectedDatabaseId) {
     JsonElement payload = event.getRequestPayload();
     Assertions.assertNotNull(payload, "The audit event must still carry a request payload.");
     Assertions.assertTrue(payload.isJsonObject(), "The view request payload is a JSON object.");
@@ -674,8 +1065,7 @@ public class ViewsControllerTest {
 
     // The identifying and routing fields are what makes the audit event useful; leave them alone.
     Assertions.assertEquals(ViewModelConstants.VIEW_ID, payloadObject.get("viewId").getAsString());
-    Assertions.assertEquals(
-        ViewModelConstants.DATABASE_ID, payloadObject.get("databaseId").getAsString());
+    Assertions.assertEquals(expectedDatabaseId, payloadObject.get("databaseId").getAsString());
     Assertions.assertEquals(
         clusterProperties.getClusterName(),
         event.getClusterName(),
@@ -822,7 +1212,8 @@ public class ViewsControllerTest {
 
   /**
    * Malformed JSON fails during message conversion, before any view code runs, so it must stay on
-   * the shared Jackson path and carry no view vocabulary at all.
+   * the shared Jackson path and carry no view vocabulary at all. The path names a database the body
+   * would have disagreed with had it parsed, which pins that conversion still comes first.
    */
   @Test
   public void malformedJsonBodyIsRejectedByTheSharedHandlerWith400() throws Exception {

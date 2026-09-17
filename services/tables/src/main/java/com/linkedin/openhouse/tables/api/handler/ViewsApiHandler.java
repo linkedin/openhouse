@@ -51,16 +51,18 @@ public interface ViewsApiHandler {
   /**
    * Create a view.
    *
+   * <p>The request body is the whole request: the path identifiers have already been compared with
+   * the ones it carries by {@link com.linkedin.openhouse.tables.controller.ViewsController}.
+   *
    * <p>Failure outcomes: 400 for an invalid request; 404 for a missing database or disabled views;
    * 409 for an occupied name. Status 422 is reserved for admission rejection.
    *
-   * @param databaseId database identifier
    * @param requestBody the create request
    * @param actingPrincipal authenticated user
    * @return 201 with the created view pointer
    */
   ApiResponse<GetViewResponseBody> createView(
-      String databaseId, CreateUpdateViewRequestBody requestBody, String actingPrincipal);
+      CreateUpdateViewRequestBody requestBody, String actingPrincipal);
 
   /**
    * Replace a view, creating it when it does not exist.
@@ -69,17 +71,12 @@ public interface ViewsApiHandler {
    * 409 for a name collision or stale base metadata location. Status 422 is reserved for admission
    * rejection.
    *
-   * @param databaseId database identifier
-   * @param viewId view identifier
    * @param requestBody the update request
    * @param actingPrincipal authenticated user
    * @return 201 when the call created the view, otherwise 200
    */
   ApiResponse<GetViewResponseBody> updateView(
-      String databaseId,
-      String viewId,
-      CreateUpdateViewRequestBody requestBody,
-      String actingPrincipal);
+      CreateUpdateViewRequestBody requestBody, String actingPrincipal);
 
   /**
    * Delete a view.

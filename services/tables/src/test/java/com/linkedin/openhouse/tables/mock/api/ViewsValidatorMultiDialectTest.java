@@ -128,7 +128,7 @@ public class ViewsValidatorMultiDialectTest {
   }
 
   private Executable createOf(CreateUpdateViewRequestBody requestBody) {
-    return () -> viewsApiValidator.validateCreateView(ViewModelConstants.DATABASE_ID, requestBody);
+    return () -> viewsApiValidator.validateCreateView(requestBody);
   }
 
   private void assertRejected(

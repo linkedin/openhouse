@@ -54,8 +54,8 @@ public class OpenHouseViewsApiHandler implements ViewsApiHandler {
 
   @Override
   public ApiResponse<GetViewResponseBody> createView(
-      String databaseId, CreateUpdateViewRequestBody requestBody, String actingPrincipal) {
-    viewsApiValidator.validateCreateView(databaseId, requestBody);
+      CreateUpdateViewRequestBody requestBody, String actingPrincipal) {
+    viewsApiValidator.validateCreateView(requestBody);
     Pair<ViewDto, Boolean> putResult = viewsService.putView(requestBody, actingPrincipal, true);
     return ApiResponse.<GetViewResponseBody>builder()
         .httpStatus(HttpStatus.CREATED)
@@ -65,11 +65,8 @@ public class OpenHouseViewsApiHandler implements ViewsApiHandler {
 
   @Override
   public ApiResponse<GetViewResponseBody> updateView(
-      String databaseId,
-      String viewId,
-      CreateUpdateViewRequestBody requestBody,
-      String actingPrincipal) {
-    viewsApiValidator.validateUpdateView(databaseId, viewId, requestBody);
+      CreateUpdateViewRequestBody requestBody, String actingPrincipal) {
+    viewsApiValidator.validateUpdateView(requestBody);
     Pair<ViewDto, Boolean> putResult = viewsService.putView(requestBody, actingPrincipal, false);
     HttpStatus httpStatus = putResult.getSecond() ? HttpStatus.CREATED : HttpStatus.OK;
     return ApiResponse.<GetViewResponseBody>builder()

@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.mock.api;
 
+import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.ALPHA_NUM_UNDERSCORE_ERROR_MSG;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.MAX_VIEW_IDENTIFIER_LENGTH;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.MAX_VIEW_SCHEMA_BYTES;
@@ -47,7 +48,6 @@ public class ViewsValidatorTest {
     assertDoesNotThrow(
         () ->
             viewsApiValidator.validateCreateView(
-                ViewModelConstants.DATABASE_ID,
                 ViewModelConstants.createRequestWithoutBaseVersion()),
         "A POST that omits baseMetadataLocation entirely is the plain create shape and must be"
             + " accepted.");
@@ -55,7 +55,6 @@ public class ViewsValidatorTest {
     assertDoesNotThrow(
         () ->
             viewsApiValidator.validateCreateView(
-                ViewModelConstants.DATABASE_ID,
                 ViewModelConstants.createRequestWithInitialBaseVersion()),
         "The Iceberg client sends "
             + INITIAL_TABLE_VERSION
@@ -71,10 +70,7 @@ public class ViewsValidatorTest {
             .baseMetadataLocation("an-entirely-opaque-token")
             .build();
 
-    assertDoesNotThrow(
-        () ->
-            viewsApiValidator.validateUpdateView(
-                ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, request));
+    assertDoesNotThrow(() -> viewsApiValidator.validateUpdateView(request));
   }
 
   /**
@@ -201,34 +197,77 @@ public class ViewsValidatorTest {
   }
 
   private Executable createOf(CreateUpdateViewRequestBody requestBody) {
-    return () -> viewsApiValidator.validateCreateView(ViewModelConstants.DATABASE_ID, requestBody);
+    return () -> viewsApiValidator.validateCreateView(requestBody);
   }
 
   private Executable updateOf(CreateUpdateViewRequestBody requestBody) {
-    return () ->
-        viewsApiValidator.validateUpdateView(
-            ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, requestBody);
+    return () -> viewsApiValidator.validateUpdateView(requestBody);
   }
 
+  /**
+   * The validator sees only the request body, so identifiers are judged on their own merits. Their
+   * agreement with the path is the controller's rule and is pinned by {@code ViewsControllerTest}
+   * and {@code ViewsWriteControllerTest}.
+   */
   @Test
-  public void validateRejectsIdentifierMismatchesAgainstPath() {
+  public void validateRejectsMalformedBodyIdentifiers() {
     assertRejected(
-        createOf(validCreateRequest().toBuilder().databaseId("another_database").build()),
+        createOf(validCreateRequest().toBuilder().databaseId("another database!").build()),
         ViewErrorCode.INVALID_VIEW_DEFINITION,
-        String.format(
-            "databaseId : provided %s, doesn't match with the RequestBody another_database",
-            ViewModelConstants.DATABASE_ID));
+        "CreateUpdateViewRequestBody.databaseId : " + ALPHA_NUM_UNDERSCORE_ERROR_MSG);
 
     assertRejected(
-        updateOf(validUpdateRequest().toBuilder().viewId("another_view").build()),
+        updateOf(validUpdateRequest().toBuilder().viewId("another view!").build()),
         ViewErrorCode.INVALID_VIEW_DEFINITION,
-        String.format(
-            "viewId : provided %s, doesn't match with the RequestBody another_view",
-            ViewModelConstants.VIEW_ID));
+        "CreateUpdateViewRequestBody.viewId : " + ALPHA_NUM_UNDERSCORE_ERROR_MSG);
+  }
+
+  /** A body naming a different database than the caller's path is no longer a validator concern. */
+  @Test
+  public void validateAcceptsAnyWellFormedBodyIdentifiers() {
+    assertDoesNotThrow(
+        createOf(
+            validCreateRequest()
+                .toBuilder()
+                .databaseId("another_database")
+                .viewId("another_view")
+                .build()));
+
+    assertDoesNotThrow(
+        updateOf(
+            validUpdateRequest()
+                .toBuilder()
+                .databaseId("another_database")
+                .viewId("another_view")
+                .build()));
+  }
+
+  /**
+   * The write seams take the body alone, so a null one is a programming error rather than a client
+   * failure: bean validation reports it as such, and the shared handler answers 400 without any
+   * view vocabulary. Pinned because the controller deliberately forwards a null body here instead
+   * of dereferencing it.
+   */
+  @Test
+  public void validateRejectsANullRequestBody() {
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> viewsApiValidator.validateCreateView(null));
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> viewsApiValidator.validateUpdateView(null));
   }
 
   @Test
   public void validateRejectsMissingRequiredBodyFields() {
+    assertRejected(
+        createOf(validCreateRequest().toBuilder().databaseId(null).build()),
+        ViewErrorCode.INVALID_VIEW_DEFINITION,
+        "CreateUpdateViewRequestBody.databaseId : databaseId cannot be empty");
+
+    assertRejected(
+        updateOf(validUpdateRequest().toBuilder().viewId(null).build()),
+        ViewErrorCode.INVALID_VIEW_DEFINITION,
+        "CreateUpdateViewRequestBody.viewId : viewId cannot be empty");
+
     assertRejected(
         createOf(validCreateRequest().toBuilder().schema(null).build()),
         ViewErrorCode.INVALID_VIEW_DEFINITION,
@@ -746,7 +785,7 @@ public class ViewsValidatorTest {
     CreateUpdateViewRequestBody requestBody =
         validCreateRequest()
             .toBuilder()
-            .databaseId("another_database")
+            .databaseId("another database!")
             .defaultCatalog("   ")
             .baseMetadataLocation("not-the-initial-token")
             .build();
@@ -754,7 +793,8 @@ public class ViewsValidatorTest {
     ViewRequestValidationFailureException exception =
         Assertions.assertThrows(ViewRequestValidationFailureException.class, createOf(requestBody));
 
-    Assertions.assertTrue(exception.getMessage().contains("databaseId : provided"));
+    Assertions.assertTrue(
+        exception.getMessage().contains("CreateUpdateViewRequestBody.databaseId"));
     Assertions.assertTrue(
         exception.getMessage().contains("defaultCatalog : cannot be blank when provided"));
     Assertions.assertTrue(

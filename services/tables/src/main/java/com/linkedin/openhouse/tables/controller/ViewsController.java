@@ -14,6 +14,8 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import java.util.ArrayList;
+import java.util.List;
 import javax.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -34,6 +36,10 @@ import org.springframework.web.bind.annotation.RestController;
  * logic. Request bodies are validated by the view validator, which accumulates structural failures
  * before reporting them.
  *
+ * <p>The one rule the controller owns is that a write's path identifiers must agree with the ones
+ * its body carries: the handler is given the body alone, so this is the only place the two copies
+ * can be compared. See {@link #rejectIdentifierMismatch}.
+ *
  * <p>The endpoint contract includes gateway-generated 502 and 504 responses. These are distinct
  * from service-generated failures and may not carry the service's error body.
  */
@@ -44,6 +50,12 @@ public class ViewsController {
 
   private static final String UNSUPPORTED_PAGE_REJECTION_MESSAGE =
       "page : is not supported; use pageToken for continuation";
+
+  private static final String DATABASE_ID_MISMATCH_MESSAGE_FORMAT =
+      "databaseId : provided %s, doesn't match with the RequestBody %s";
+
+  private static final String VIEW_ID_MISMATCH_MESSAGE_FORMAT =
+      "viewId : provided %s, doesn't match with the RequestBody %s";
 
   @Autowired private ViewsApiHandler viewsApiHandler;
 
@@ -147,6 +159,44 @@ public class ViewsController {
     }
   }
 
+  /**
+   * Refuse a write whose path identifiers disagree with the ones its body carries, before the
+   * handler runs. A caller who addressed the wrong view is then answered with that disagreement
+   * alone rather than with structural findings about a body meant for somewhere else.
+   *
+   * <p>Each identifier is judged independently, and only when the body supplied it: an omitted one
+   * has nothing to disagree with and is a missing required field, which the validator reports. The
+   * comparison is exact — view identifiers are case sensitive and nothing trims or normalizes them
+   * — so a differing case or a padded value is a disagreement. Both reasons are collected, database
+   * first, and reported together in the accumulating style every other view failure uses.
+   *
+   * @param viewId the path view identifier, or null on a route that carries none
+   * @param requestBody the caller's body. HTTP declares it required, but a direct caller can pass
+   *     null; there is then nothing to compare, and the validator behind the handler rejects it.
+   */
+  private static void rejectIdentifierMismatch(
+      String databaseId, String viewId, CreateUpdateViewRequestBody requestBody) {
+    if (requestBody == null) {
+      return;
+    }
+
+    List<String> mismatches = new ArrayList<>();
+    String bodyDatabaseId = requestBody.getDatabaseId();
+    if (bodyDatabaseId != null && !bodyDatabaseId.equals(databaseId)) {
+      mismatches.add(
+          String.format(DATABASE_ID_MISMATCH_MESSAGE_FORMAT, databaseId, bodyDatabaseId));
+    }
+    String bodyViewId = requestBody.getViewId();
+    if (viewId != null && bodyViewId != null && !bodyViewId.equals(viewId)) {
+      mismatches.add(String.format(VIEW_ID_MISMATCH_MESSAGE_FORMAT, viewId, bodyViewId));
+    }
+
+    if (!mismatches.isEmpty()) {
+      throw new ViewRequestValidationFailureException(
+          ViewValidationErrorCode.INVALID_VIEW_DEFINITION, mismatches);
+    }
+  }
+
   @Operation(
       summary = "Create a View",
       description =
@@ -187,9 +237,11 @@ public class ViewsController {
           @RequestBody
           CreateUpdateViewRequestBody createUpdateViewRequestBody) {
 
+    rejectIdentifierMismatch(databaseId, null, createUpdateViewRequestBody);
+
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetViewResponseBody> apiResponse =
         viewsApiHandler.createView(
-            databaseId, createUpdateViewRequestBody, extractAuthenticatedUserPrincipal());
+            createUpdateViewRequestBody, extractAuthenticatedUserPrincipal());
 
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
@@ -238,9 +290,11 @@ public class ViewsController {
           @RequestBody
           CreateUpdateViewRequestBody createUpdateViewRequestBody) {
 
+    rejectIdentifierMismatch(databaseId, viewId, createUpdateViewRequestBody);
+
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetViewResponseBody> apiResponse =
         viewsApiHandler.updateView(
-            databaseId, viewId, createUpdateViewRequestBody, extractAuthenticatedUserPrincipal());
+            createUpdateViewRequestBody, extractAuthenticatedUserPrincipal());
 
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());

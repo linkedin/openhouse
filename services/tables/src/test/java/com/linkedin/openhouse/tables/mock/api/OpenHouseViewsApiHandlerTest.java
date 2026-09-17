@@ -189,17 +189,51 @@ public class OpenHouseViewsApiHandlerTest {
     when(viewsMapper.toGetViewResponseBody(viewDto)).thenReturn(responseBody);
 
     ApiResponse<GetViewResponseBody> apiResponse =
-        handler.createView(ViewModelConstants.DATABASE_ID, requestBody, ACTING_PRINCIPAL);
+        handler.createView(requestBody, ACTING_PRINCIPAL);
 
     InOrder inOrder = Mockito.inOrder(viewsApiValidator, viewsService);
-    inOrder
-        .verify(viewsApiValidator)
-        .validateCreateView(ViewModelConstants.DATABASE_ID, requestBody);
+    // The handler has no path identifiers to pass on: the controller has already checked them
+    // against this body, so validation is a body-only concern from here down.
+    inOrder.verify(viewsApiValidator).validateCreateView(requestBody);
     // failOnExist is true on POST: a POST must never silently replace an existing view.
     inOrder.verify(viewsService).putView(requestBody, ACTING_PRINCIPAL, true);
 
     Assertions.assertEquals(HttpStatus.CREATED, apiResponse.getHttpStatus());
     Assertions.assertSame(responseBody, apiResponse.getResponseBody());
+  }
+
+  @Test
+  public void createViewStopsAtAValidationFailure() {
+    CreateUpdateViewRequestBody requestBody = ViewModelConstants.createRequestWithoutBaseVersion();
+    Mockito.doThrow(
+            new ViewRequestValidationFailureException(
+                ViewValidationErrorCode.INVALID_VIEW_DEFINITION,
+                "defaultCatalog : cannot be blank when provided"))
+        .when(viewsApiValidator)
+        .validateCreateView(requestBody);
+
+    Assertions.assertThrows(
+        ViewRequestValidationFailureException.class,
+        () -> handler.createView(requestBody, ACTING_PRINCIPAL));
+
+    Mockito.verifyNoInteractions(viewsService, viewsMapper);
+  }
+
+  @Test
+  public void updateViewStopsAtAValidationFailure() {
+    CreateUpdateViewRequestBody requestBody = ViewModelConstants.fullyPopulatedRequest();
+    Mockito.doThrow(
+            new ViewRequestValidationFailureException(
+                ViewValidationErrorCode.INVALID_VIEW_DEFINITION,
+                "baseMetadataLocation : is required and cannot be blank on PUT"))
+        .when(viewsApiValidator)
+        .validateUpdateView(requestBody);
+
+    Assertions.assertThrows(
+        ViewRequestValidationFailureException.class,
+        () -> handler.updateView(requestBody, ACTING_PRINCIPAL));
+
+    Mockito.verifyNoInteractions(viewsService, viewsMapper);
   }
 
   @Test
@@ -211,36 +245,21 @@ public class OpenHouseViewsApiHandlerTest {
         .thenReturn(Pair.of(viewDto, false));
     Assertions.assertEquals(
         HttpStatus.OK,
-        handler
-            .updateView(
-                ViewModelConstants.DATABASE_ID,
-                ViewModelConstants.VIEW_ID,
-                requestBody,
-                ACTING_PRINCIPAL)
-            .getHttpStatus(),
+        handler.updateView(requestBody, ACTING_PRINCIPAL).getHttpStatus(),
         "A PUT that replaced an existing view reports 200.");
 
     when(viewsService.putView(requestBody, ACTING_PRINCIPAL, false))
         .thenReturn(Pair.of(viewDto, true));
     Assertions.assertEquals(
         HttpStatus.CREATED,
-        handler
-            .updateView(
-                ViewModelConstants.DATABASE_ID,
-                ViewModelConstants.VIEW_ID,
-                requestBody,
-                ACTING_PRINCIPAL)
-            .getHttpStatus(),
+        handler.updateView(requestBody, ACTING_PRINCIPAL).getHttpStatus(),
         "A PUT that created the view reports 201.");
 
     // Strict alternation proves the validator ran before the service on *each* invocation, not
     // merely that both collaborators were touched. failOnExist is false on PUT: a PUT may create.
     InOrder inOrder = Mockito.inOrder(viewsApiValidator, viewsService);
     for (int invocation = 0; invocation < 2; invocation++) {
-      inOrder
-          .verify(viewsApiValidator)
-          .validateUpdateView(
-              ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, requestBody);
+      inOrder.verify(viewsApiValidator).validateUpdateView(requestBody);
       inOrder.verify(viewsService).putView(requestBody, ACTING_PRINCIPAL, false);
     }
     inOrder.verifyNoMoreInteractions();

@@ -35,20 +35,19 @@ public interface ViewsApiValidator {
   /**
    * Validate a POST request to create a view.
    *
-   * @param databaseId path database identifier
+   * <p>The body is judged on its own merits. Whether its identifiers agree with the ones in the
+   * request path is the controller's rule, applied before this validator runs.
+   *
    * @param requestBody the create request
    */
-  void validateCreateView(String databaseId, CreateUpdateViewRequestBody requestBody);
+  void validateCreateView(CreateUpdateViewRequestBody requestBody);
 
   /**
    * Validate a PUT request to replace or create a view.
    *
-   * @param databaseId path database identifier
-   * @param viewId path view identifier
    * @param requestBody the update request
    */
-  void validateUpdateView(
-      String databaseId, String viewId, CreateUpdateViewRequestBody requestBody);
+  void validateUpdateView(CreateUpdateViewRequestBody requestBody);
 
   /**
    * Validate a request to delete a view.
