@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import com.linkedin.openhouse.common.exception.CleanupLockAccessDeniedException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
@@ -128,10 +129,12 @@ class LockEvaluationServiceTest {
       snapshotWrite(false);
       assertSavedLocks(2);
     } else {
-      assertThrows(
-          UnsupportedClientOperationException.class,
-          () -> tables.putTable(request(), "owner", false));
-      assertThrows(UnsupportedClientOperationException.class, () -> snapshotWrite(false));
+      Class<? extends UnsupportedClientOperationException> expected =
+          "TIER3_AUTO_CLEANUP".equals(reason)
+              ? CleanupLockAccessDeniedException.class
+              : UnsupportedClientOperationException.class;
+      assertThrowsExactly(expected, () -> tables.putTable(request(), "owner", false));
+      assertThrowsExactly(expected, () -> snapshotWrite(false));
       verify(repository, never()).save(any());
     }
   }
@@ -359,6 +362,7 @@ class LockEvaluationServiceTest {
   }
 
   private void assertCleanupDenial(UnsupportedClientOperationException exception) {
+    assertInstanceOf(CleanupLockAccessDeniedException.class, exception);
     assertTrue(exception.getMessage().contains("TIER3_AUTO_CLEANUP"));
     assertTrue(exception.getMessage().contains("db.table"));
     assertTrue(exception.getMessage().contains("eligible for cleanup"));
