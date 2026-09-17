@@ -15,8 +15,10 @@ public interface ColumnDefaultsSource {
   ColumnDefaultsSource NONE = tableDto -> Collections.emptyMap();
 
   /**
-   * Field-id → Iceberg single-value JSON. Empty/null stamps nothing. Omit a field that cannot bind
-   * (today's NULL); do not throw — this is the table-load path.
+   * Field-id → Iceberg single-value JSON. Empty/null stamps nothing. Omit absent or valid null
+   * defaults and explicitly unsupported representations. Throw when a supported declared default is
+   * malformed, incompatible, or cannot be converted safely; do not report failure as absence. The
+   * resolver fail-opens GET and fails closed on writes when the source throws.
    */
   Map<Integer, JsonNode> defaults(TableDto tableDto);
 }
