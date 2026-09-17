@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
 /**
- * Verifies the Spark 3.5 SQL extension parses the retention time-zone clause {@code AT TIME ZONE
+ * Verifies the Spark 3.5 SQL extension parses the retention time-zone clause {@code WITH TIMEZONE
  * '<zone>'} on {@code ALTER TABLE ... SET POLICY (RETENTION=...)} and serializes the zone into the
  * stored retention policy.
  */
@@ -54,7 +54,7 @@ public class SetRetentionTimeZoneStatementTest {
   public void testSetRetentionWithTimeZone() {
     spark
         .sql(
-            "ALTER TABLE openhouse.db.table SET POLICY (RETENTION=30d AT TIME ZONE 'America/Los_Angeles')")
+            "ALTER TABLE openhouse.db.table SET POLICY (RETENTION=30d WITH TIMEZONE 'America/Los_Angeles')")
         .show();
     String policy = storedPolicy("openhouse.db.table");
     Assertions.assertTrue(policy.contains("\"timeZone\":\"America/Los_Angeles\""), policy);
@@ -65,7 +65,7 @@ public class SetRetentionTimeZoneStatementTest {
   public void testSetRetentionWithTimeZoneAndColumnPattern() {
     spark
         .sql(
-            "ALTER TABLE openhouse.db.table SET POLICY (RETENTION=30d AT TIME ZONE 'America/Los_Angeles'"
+            "ALTER TABLE openhouse.db.table SET POLICY (RETENTION=30d WITH TIMEZONE 'America/Los_Angeles'"
                 + " ON COLUMN ts WHERE PATTERN='yyyy-MM-dd')")
         .show();
     String policy = storedPolicy("openhouse.db.table");
@@ -76,7 +76,7 @@ public class SetRetentionTimeZoneStatementTest {
   @Test
   public void testSetRetentionWithFixedOffsetTimeZone() {
     spark
-        .sql("ALTER TABLE openhouse.db.table SET POLICY (RETENTION=12h AT TIME ZONE '+05:30')")
+        .sql("ALTER TABLE openhouse.db.table SET POLICY (RETENTION=12h WITH TIMEZONE '+05:30')")
         .show();
     String policy = storedPolicy("openhouse.db.table");
     Assertions.assertTrue(policy.contains("\"timeZone\":\"+05:30\""), policy);
@@ -92,15 +92,18 @@ public class SetRetentionTimeZoneStatementTest {
   }
 
   @Test
-  public void testSetRetentionTimeZoneIsJsonEscaped() {
-    // A crafted zone containing a double quote must be JSON-escaped so it cannot break out of the
-    // policy value and inject additional JSON fields. The zone is invalid and the server rejects it
-    // later; this test asserts only that the client serializes it as an escaped string literal.
-    spark
-        .sql("ALTER TABLE openhouse.db.table SET POLICY (RETENTION=30d AT TIME ZONE 'evil\"zone')")
-        .show();
+  public void testSetRetentionWithInvalidTimeZoneIsRejected() {
+    // An unresolvable zone is rejected at the SQL boundary rather than persisted, so the retention
+    // job never receives a policy it cannot evaluate.
+    Assertions.assertThrows(
+        Exception.class,
+        () ->
+            spark
+                .sql(
+                    "ALTER TABLE openhouse.db.table SET POLICY (RETENTION=30d WITH TIMEZONE 'Not/AZone')")
+                .collectAsList());
     String policy = storedPolicy("openhouse.db.table");
-    Assertions.assertTrue(policy.contains("\"timeZone\":\"evil\\\"zone\""), policy);
+    Assertions.assertFalse(policy.contains("Not/AZone"), policy);
   }
 
   private String storedPolicy(String table) {
