@@ -86,17 +86,17 @@ public class DoRefreshTest {
   }
 
   /**
-   * Verifies that server-side errors (500) surface as WebClientWithMessageException on the client
-   * side during doRefresh. This is the expected behavior for InvalidTableMetadataException (corrupt
-   * metadata) which maps to 500 on the server. The client should NOT swallow this error — it must
-   * propagate so users see the actual error message instead of "Table does not exist".
+   * Verifies that server-side 5xx errors surface as WebClientWithMessageException on the client
+   * side during doRefresh (the client must NOT swallow them — users must see the real error instead
+   * of "Table does not exist"). Post-BDP-108628, corrupt metadata maps to 422 and transient storage
+   * to 503; a 500 now represents an unexpected OpenHouse implementation defect.
    */
   @Test
   public void testServerErrorSurfacedOnRefresh() {
     mockTableService.enqueue(
         mockResponse(
             500,
-            "{\"message\":\"Table db.tbl has invalid metadata: Cannot find schema with current-schema-id=6\"}"));
+            "{\"message\":\"Table db.tbl unexpected error loading metadata (possible OpenHouse defect)\"}"));
     Assertions.assertThrows(WebClientWithMessageException.class, () -> ops.doRefresh());
   }
 
