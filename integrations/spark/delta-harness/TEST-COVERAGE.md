@@ -66,7 +66,13 @@ _The DML state matrix PR fills this section._
 ## Schema and types
 
 <!-- coverage:schema-types:start -->
-_The Schema and types PR fills this section._
+This layer adds 60 cases for a 94-case catalog. The local result is 88 passed and
+six documented skips.
+
+The catalog covers nested structs, arrays, and maps; schema additions, removals,
+renames, reordering, widening, and rejected incompatible changes; and reads and
+writes before and after schema evolution. The assertions cover both table metadata
+and complete query results in Parquet and ORC.
 <!-- coverage:schema-types:end -->
 
 ## Catalog constraints
