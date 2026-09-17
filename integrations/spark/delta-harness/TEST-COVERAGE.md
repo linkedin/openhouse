@@ -120,7 +120,13 @@ _The Governance PR fills this section._
 ## Maintenance and planning
 
 <!-- coverage:maintenance-planning:start -->
-_The Maintenance and planning PR fills this section._
+This layer adds 23 cases for a 417-case catalog. The local result is 413 passed
+and the four inherited RTAS skips.
+
+The catalog covers compaction planning, maintenance procedures, metadata-table
+queries, and scan planning. It verifies selected files and tasks, post-maintenance
+rows and snapshots, metadata visibility, and planner behavior for representative
+filters and table layouts.
 <!-- coverage:maintenance-planning:end -->
 
 ## Catalog DDL
