@@ -72,7 +72,12 @@ _The Schema and types PR fills this section._
 ## Catalog constraints
 
 <!-- coverage:catalog-constraints:start -->
-_The Catalog constraints PR fills this section._
+This layer adds 24 cases for a 58-case catalog, all passing locally.
+
+The catalog covers accepted and rejected table properties, partition evolution,
+file-format behavior, and the catalog rules that constrain those operations.
+Successful cases assert committed metadata and readable rows. Rejected cases assert
+the diagnostic and unchanged table state.
 <!-- coverage:catalog-constraints:end -->
 
 ## Column defaults
