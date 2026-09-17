@@ -539,22 +539,25 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
   /**
    * Check the properties that will actually be persisted, including on replacement and replication
-   * commits. Unlike reserved properties, this property may be assigned for the first time on an
-   * existing table. Compare against this commit's base so transaction retries cannot overwrite a
-   * value committed concurrently.
+   * commits. A committed {@code true} cannot be changed or removed; {@code false} and an absent
+   * property remain mutable so a table can still opt in later. Compare against this commit's base
+   * so transaction retries cannot overwrite a value committed concurrently.
    */
   private void validateColumnDefaultProperty(TableMetadata base, Map<String, String> properties) {
     String key = CatalogConstants.COLUMN_DEFAULT_ENABLED_TABLE_PROP;
-    if (base != null
-        && base.properties().containsKey(key)
-        && !base.properties().get(key).equals(properties.get(key))) {
+    String committed = base == null ? null : base.properties().get(key);
+    if (isColumnDefaultOptedIn(committed) && !committed.equals(properties.get(key))) {
       throw new UnsupportedClientOperationException(
           UnsupportedClientOperationException.Operation.ALTER_RESERVED_TBLPROPS,
           String.format(
-              "Table property %s is immutable once committed on table %s; cannot change or remove"
-                  + " its committed value '%s'.",
-              key, tableIdentifier, base.properties().get(key)));
+              "Table property %s is immutable once set to true on table %s; cannot change or remove"
+                  + " it.",
+              key, tableIdentifier));
     }
+  }
+
+  private static boolean isColumnDefaultOptedIn(String value) {
+    return value != null && "true".equalsIgnoreCase(value.trim());
   }
 
   /**

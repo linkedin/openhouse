@@ -169,9 +169,9 @@ public class OpenHouseInternalTableOperationsTest {
 
   @ParameterizedTest
   @CsvSource(
-      value = {"true,false", "false,true", "true,", "false,", "true,TRUE", "invalid,true"},
+      value = {"true,false", "true,", "true,TRUE", "TRUE,false", " True ,false"},
       nullValues = "")
-  void testColumnDefaultPropertyCannotChangeOrBeRemoved(String original, String proposed) {
+  void testColumnDefaultPropertyCannotChangeOrBeRemovedOnceTrue(String original, String proposed) {
     TableMetadata base =
         BASE_TABLE_METADATA.replaceProperties(Map.of(COLUMN_DEFAULT_PROPERTY, original));
     TableMetadata updated =
@@ -184,10 +184,31 @@ public class OpenHouseInternalTableOperationsTest {
               UnsupportedClientOperationException.class,
               () -> openHouseInternalTableOperations.doCommit(base, updated));
       Assertions.assertTrue(exception.getMessage().contains(COLUMN_DEFAULT_PROPERTY));
-      Assertions.assertTrue(exception.getMessage().contains("immutable once committed"));
+      Assertions.assertTrue(exception.getMessage().contains("immutable once set to true"));
       // Validation must fail before writing metadata or attempting commit-status recovery.
       metadataFiles.verify(() -> TableMetadataParser.write(any(), any()), never());
       verifyNoInteractions(mockHouseTableRepository, mockHouseTableMapper);
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource(
+      value = {"false,true", "false,", "false,FALSE", "invalid,true", "invalid,"},
+      nullValues = "")
+  void testColumnDefaultPropertyFalseOrInvalidCanBeChangedOrRemoved(
+      String original, String proposed) {
+    TableMetadata base =
+        BASE_TABLE_METADATA.replaceProperties(Map.of(COLUMN_DEFAULT_PROPERTY, original));
+    Map<String, String> properties =
+        proposed == null ? Map.of() : Map.of(COLUMN_DEFAULT_PROPERTY, proposed);
+    TableMetadata updated = BASE_TABLE_METADATA.replaceProperties(properties);
+
+    try (MockedStatic<TableMetadataParser> metadataFiles = mockStatic(TableMetadataParser.class)) {
+      openHouseInternalTableOperations.doCommit(base, updated);
+      verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), any());
+      Assertions.assertEquals(
+          proposed, tblMetadataCaptor.getValue().properties().get(COLUMN_DEFAULT_PROPERTY));
+      verify(mockHouseTableRepository).save(mockHouseTable);
     }
   }
 

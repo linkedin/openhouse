@@ -36,7 +36,7 @@ public final class CatalogConstants {
 
   public static final String COLUMN_DEFAULT_FEATURE_ID = "read-bridge.column-default";
 
-  /** Self-service opt-in/out; once committed, its value cannot be changed or removed. */
+  /** Self-service opt-in/out; a committed {@code true} cannot be changed or removed. */
   public static final String COLUMN_DEFAULT_ENABLED_TABLE_PROP =
       COLUMN_DEFAULT_FEATURE_ID + ".enabled";
 

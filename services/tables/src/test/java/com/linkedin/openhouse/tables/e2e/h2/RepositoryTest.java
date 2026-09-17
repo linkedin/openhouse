@@ -118,18 +118,29 @@ public class RepositoryTest {
 
       Map<String, String> removed = new HashMap<>(unchanged.getTableProperties());
       removed.remove(property);
-      Assertions.assertThrows(
-          UnsupportedClientOperationException.class,
-          () ->
-              openHouseInternalRepository.save(
-                  unchanged
-                      .toBuilder()
-                      .tableVersion(unchanged.getTableLocation())
-                      .tableProperties(removed)
-                      .build()));
-      Assertions.assertEquals(
-          value,
-          openHouseInternalRepository.findById(key).get().getTableProperties().get(property));
+      if ("true".equals(value)) {
+        Assertions.assertThrows(
+            UnsupportedClientOperationException.class,
+            () ->
+                openHouseInternalRepository.save(
+                    unchanged
+                        .toBuilder()
+                        .tableVersion(unchanged.getTableLocation())
+                        .tableProperties(removed)
+                        .build()));
+        Assertions.assertEquals(
+            value,
+            openHouseInternalRepository.findById(key).get().getTableProperties().get(property));
+      } else {
+        TableDto afterRemove =
+            openHouseInternalRepository.save(
+                unchanged
+                    .toBuilder()
+                    .tableVersion(unchanged.getTableLocation())
+                    .tableProperties(removed)
+                    .build());
+        Assertions.assertFalse(afterRemove.getTableProperties().containsKey(property));
+      }
     } finally {
       openHouseInternalRepository.deleteById(key);
     }
@@ -139,20 +150,14 @@ public class RepositoryTest {
   @CsvSource(
       value = {
         "update,true,false",
-        "update,false,true",
         "update,true,",
-        "update,false,",
         "replace,true,false",
-        "replace,false,true",
         "stageReplace,true,false",
-        "stageReplace,false,true",
         "replication,true,false",
-        "replication,false,true",
-        "replication,true,",
-        "replication,false,"
+        "replication,true,"
       },
       nullValues = "")
-  void testCommittedColumnDefaultPropertyCannotBeChanged(
+  void testCommittedTrueColumnDefaultPropertyCannotBeChanged(
       String operation, String original, String proposed) {
     String property = CatalogConstants.COLUMN_DEFAULT_ENABLED_TABLE_PROP;
     Map<String, String> properties = new HashMap<>();
@@ -196,10 +201,64 @@ public class RepositoryTest {
               UnsupportedClientOperationException.class,
               () -> openHouseInternalRepository.save(update));
       Assertions.assertTrue(
-          exception.getMessage().contains("immutable once committed"), exception.getMessage());
+          exception.getMessage().contains("immutable once set to true"), exception.getMessage());
       TableDto persisted = openHouseInternalRepository.findById(key).get();
       Assertions.assertEquals(original, persisted.getTableProperties().get(property));
       Assertions.assertEquals(created.getTableLocation(), persisted.getTableLocation());
+    } finally {
+      openHouseInternalRepository.deleteById(key);
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource(
+      value = {
+        "update,true",
+        "update,",
+        "replace,true",
+        "stageReplace,true",
+        "replication,true",
+        "replication,"
+      },
+      nullValues = "")
+  void testCommittedFalseColumnDefaultPropertyCanBeChanged(String operation, String proposed) {
+    String property = CatalogConstants.COLUMN_DEFAULT_ENABLED_TABLE_PROP;
+    Map<String, String> properties = new HashMap<>();
+    properties.put(property, "false");
+    properties.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    properties.put(
+        CatalogConstants.OPENHOUSE_IS_TABLE_REPLICATED_KEY,
+        Boolean.toString("replication".equals(operation)));
+    TableDto created =
+        openHouseInternalRepository.save(
+            TABLE_DTO
+                .toBuilder()
+                .tableId("columnDefaultMutableFalse" + operation + proposed)
+                .tableVersion(INITIAL_TABLE_VERSION)
+                .policies(null)
+                .tableProperties(properties)
+                .build());
+    TableDtoPrimaryKey key = getPrimaryKey(created);
+    try {
+      Map<String, String> changed = new HashMap<>(created.getTableProperties());
+      if (proposed == null) {
+        changed.remove(property);
+      } else {
+        changed.put(property, proposed);
+      }
+      if ("replication".equals(operation)) {
+        changed.put(CatalogConstants.OPENHOUSE_CLUSTERID_KEY, "source-cluster");
+      }
+      TableDto updated =
+          openHouseInternalRepository.save(
+              created
+                  .toBuilder()
+                  .tableVersion(created.getTableLocation())
+                  .tableProperties(changed)
+                  .replaceCommit("replace".equals(operation))
+                  .stageReplace("stageReplace".equals(operation))
+                  .build());
+      Assertions.assertEquals(proposed, updated.getTableProperties().get(property));
     } finally {
       openHouseInternalRepository.deleteById(key);
     }
