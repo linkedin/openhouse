@@ -48,7 +48,14 @@ parallel result ordering, row generation, and the portable jar contents.
 ## Standard DML
 
 <!-- coverage:standard-dml:start -->
-_The Standard DML PR fills this section._
+This layer adds 96 cases for a 130-case catalog, all passing locally. It runs 48
+additional operations on Parquet and ORC across the canonical unpartitioned,
+null-containing, and date-partitioned preparations.
+
+The catalog covers two reads, fourteen deletes, thirteen updates, sixteen merges,
+six inserts or overwrites, one null-string delete, and two partition-scoped
+overwrites when combined with the representative foundation operations. Each
+mutation asserts complete rows and the expected snapshot change.
 <!-- coverage:standard-dml:end -->
 
 ## RTAS
