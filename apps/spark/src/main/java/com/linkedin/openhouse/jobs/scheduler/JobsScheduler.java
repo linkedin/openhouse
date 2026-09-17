@@ -190,7 +190,7 @@ public class JobsScheduler {
     JobConf.JobTypeEnum operationType = getOperationJobType(cmdLine);
     Class<? extends OperationTask> operationTaskCls = getOperationTaskCls(operationType.toString());
     TablesClientFactory tablesClientFactory = getTablesClientFactory(cmdLine);
-    TablesClient tablesClient = tablesClientFactory.create();
+    TablesClient tablesClient = tablesClientFactory.create(cmdLine.hasOption("systemAction"));
     JobsClientFactory jobsClientFactory = getJobsClientFactory(cmdLine);
     JobsClient jobsClient = jobsClientFactory.create();
     Properties properties = getAdditionalProperties(cmdLine);
@@ -482,6 +482,14 @@ public class JobsScheduler {
             .desc(String.format("Scheduler job type: %s", SUPPORTED_OPERATIONS_STRING))
             .build());
     options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg(false)
+            .longOpt("systemAction")
+            .desc(
+                "Declare scheduler metadata requests as system actions (SNAPSHOTS_EXPIRATION only)")
+            .build());
+    options.addOption(
         Option.builder(null).required().hasArg().longOpt("cluster").desc("Cluster id").build());
     options.addOption(
         Option.builder(null)
@@ -676,7 +684,12 @@ public class JobsScheduler {
             .build());
     CommandLineParser parser = new BasicParser();
     try {
-      return parser.parse(options, args);
+      CommandLine commandLine = parser.parse(options, args);
+      if (commandLine.hasOption("systemAction")
+          && getOperationJobType(commandLine) != JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION) {
+        throw new ParseException("--systemAction is supported only for SNAPSHOTS_EXPIRATION");
+      }
+      return commandLine;
     } catch (ParseException e) {
       throw new RuntimeException(e);
     }

@@ -1,14 +1,17 @@
 package com.linkedin.openhouse.jobs.mock;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
+import com.linkedin.openhouse.cluster.configs.YamlPropertySourceFactory;
 import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
 import com.linkedin.openhouse.cluster.storage.filesystem.HdfsStorageProvider;
 import com.linkedin.openhouse.jobs.config.JobLaunchConf;
 import com.linkedin.openhouse.jobs.config.JobsProperties;
 import com.linkedin.openhouse.jobs.model.JobConf;
 import com.linkedin.openhouse.jobs.services.JobsRegistry;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,8 +19,15 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.core.env.PropertySource;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.support.EncodedResource;
 import org.springframework.test.context.ContextConfiguration;
 
 @SpringBootTest(
@@ -111,6 +121,46 @@ public class JobsRegistryTest {
     int index = launchConf.getArgs().indexOf("--trashDir");
     Assertions.assertEquals(".updatedTrash", launchConf.getArgs().get(index + 1));
     Assertions.assertEquals(-1, launchConf.getArgs().indexOf(".trash"));
+  }
+
+  @Test
+  void testDockerRecipeEnablesSystemActionOnlyForSnapshotExpiration() throws IOException {
+    PropertySource<?> recipe =
+        new YamlPropertySourceFactory()
+            .createPropertySource(
+                "dockerRecipe",
+                new EncodedResource(
+                    new FileSystemResource(
+                        "../../infra/recipes/docker-compose/oh-hadoop-spark/jobs.yaml")));
+    Binder binder = new Binder(ConfigurationPropertySources.from(recipe));
+    JobsProperties recipeProperties =
+        binder.bind("jobs.spark", Bindable.of(JobsProperties.class)).get();
+    String systemAction = "spark.sql.catalog.openhouse.system-action";
+    Assertions.assertNull(recipe.getProperty("jobs.defaults.spark-properties." + systemAction));
+    recipeProperties.setAuthTokenPath(
+        new ClassPathResource("test-jobs-auth-token.txt").getFile().getAbsolutePath());
+    JobsRegistry registry = JobsRegistry.from(recipeProperties, Collections.emptyMap());
+
+    for (JobLaunchConf app : recipeProperties.getApps()) {
+      JobConf.JobType type = JobConf.JobType.valueOf(app.getType());
+      JobLaunchConf launch =
+          registry.createLaunchConf(
+              "job-" + app.getType(),
+              JobConf.builder().jobType(type).proxyUser("table-creator").build());
+      Assertions.assertEquals(
+          type == JobConf.JobType.SNAPSHOTS_EXPIRATION ? "true" : null,
+          launch.getSparkProperties().get(systemAction),
+          app.getType());
+      Assertions.assertEquals("table-creator", launch.getProxyUser(), app.getType());
+      Assertions.assertEquals(
+          "test-only-jobs-auth-token",
+          launch.getSparkProperties().get("spark.sql.catalog.openhouse.auth-token"),
+          app.getType());
+      Assertions.assertEquals(
+          "com.linkedin.openhouse.spark.OpenHouseCatalog",
+          launch.getSparkProperties().get("spark.sql.catalog.openhouse.catalog-impl"),
+          app.getType());
+    }
   }
 
   @Test
