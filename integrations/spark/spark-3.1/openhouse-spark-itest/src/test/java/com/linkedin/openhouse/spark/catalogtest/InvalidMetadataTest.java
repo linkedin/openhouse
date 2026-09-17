@@ -70,7 +70,7 @@ public class InvalidMetadataTest extends OpenHouseSparkITest {
           Assertions.assertThrows(
               Exception.class, () -> spark.sql("SELECT * FROM " + fqtn).count());
       Assertions.assertTrue(
-          readException.getMessage().contains("has invalid metadata"),
+          readException.getMessage().contains("permanently corrupted"),
           "Read path should surface invalid metadata error, got: " + readException.getMessage());
 
       // Step 5: Write path — INSERT should also fail (refresh happens before commit)
@@ -78,7 +78,7 @@ public class InvalidMetadataTest extends OpenHouseSparkITest {
           Assertions.assertThrows(
               Exception.class, () -> spark.sql("INSERT INTO " + fqtn + " VALUES ('Charlie', 3)"));
       Assertions.assertTrue(
-          writeException.getMessage().contains("has invalid metadata"),
+          writeException.getMessage().contains("permanently corrupted"),
           "Write path should surface invalid metadata error, got: " + writeException.getMessage());
 
       // Step 6: Restore the original metadata and verify all data is intact
