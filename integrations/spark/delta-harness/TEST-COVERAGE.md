@@ -132,7 +132,14 @@ _The Catalog DDL PR fills this section._
 ## Merge-on-read
 
 <!-- coverage:merge-on-read:start -->
-_The Merge-on-read PR fills this section._
+This layer adds 320 cases for a 714-case catalog. The local result is 710 passed
+and the four inherited RTAS skips.
+
+The catalog reuses 268 DML cases across merge-on-read, partitioned
+merge-on-read, and replace-lineage preparations. The remaining 52 cases cover
+position-delete creation, write-mode changes, operations over live delete files,
+metadata and changelog behavior, format materialization, replication, time travel,
+rollback, and maintenance procedures that retain or compact delete files.
 <!-- coverage:merge-on-read:end -->
 
 ## Branch and write-audit-publish
