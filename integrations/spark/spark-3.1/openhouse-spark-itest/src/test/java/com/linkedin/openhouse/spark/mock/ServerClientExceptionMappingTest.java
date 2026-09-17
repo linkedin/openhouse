@@ -25,6 +25,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Comprehensive test documenting the server-to-client exception mapping for both refresh (read) and
@@ -46,7 +48,7 @@ import org.junit.jupiter.api.Test;
  *       (known failure)
  *   <li>{@code c.l.openhouse.javaclient.exception.WebClientResponseWithMessageException}: OpenHouse
  *       exception, not known to Iceberg — treated as generic RuntimeException, cleans up
- *       uncommitted files
+ *       uncommitted files without retry
  * </ul>
  *
  * <p>Server-side exception → HTTP status mapping is defined in {@code OpenHouseExceptionHandler}
@@ -78,6 +80,7 @@ import org.junit.jupiter.api.Test;
  * AuthorizationServiceException            → 503  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → o.a.iceberg.exceptions.CommitStateUnknownException → no cleanup
  * (gateway timeout)                        → 504  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → o.a.iceberg.exceptions.CommitStateUnknownException → no cleanup
  * AccessDeniedException                    → 403  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → c.l.openhouse.javaclient.exception.WebClientResponseWithMsgExc → cleans up uncommitted files
+ * CleanupLockAccessDeniedException         → 423  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → c.l.openhouse.javaclient.exception.WebClientResponseWithMsgExc → no retry, cleans up uncommitted files
  * </pre>
  */
 public class ServerClientExceptionMappingTest {
@@ -135,6 +138,28 @@ public class ServerClientExceptionMappingTest {
   public void testRefresh_400_swallowed() {
     server.enqueue(jsonResponse(400, "Bad Request"));
     Assertions.assertDoesNotThrow(() -> ops.doRefresh());
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  public void testCleanupDenialPreservesGuidanceWithoutCommitRetry(boolean write) {
+    String message =
+        "Table db.tbl is locked for TIER3_AUTO_CLEANUP: eligible for cleanup. "
+            + "Promote to Tier 2 or use reason-targeted OpenHouse unlock.";
+    server.enqueue(jsonResponse(423, message));
+    WebClientResponseWithMessageException failure =
+        Assertions.assertThrowsExactly(
+            WebClientResponseWithMessageException.class,
+            () -> {
+              if (write) {
+                ops.doCommit(null, base);
+              } else {
+                ops.doRefresh();
+              }
+            });
+    Assertions.assertEquals(423, failure.getStatusCode());
+    Assertions.assertTrue(failure.getMessage().contains(message));
+    Assertions.assertEquals(1, server.getRequestCount());
   }
 
   @Test

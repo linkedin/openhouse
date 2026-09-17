@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.services;
 
+import com.linkedin.openhouse.common.exception.CleanupLockAccessDeniedException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.common.utils.SystemActionContext;
@@ -18,8 +19,7 @@ final class LockPolicyValidator {
     if (isCleanup(lock) && lock.isLocked() && !SystemActionContext.isEnabled()) {
       String message = lock.getMessage();
       String detail = message == null || message.trim().isEmpty() ? "" : ": " + message;
-      throw new UnsupportedClientOperationException(
-          UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,
+      throw new CleanupLockAccessDeniedException(
           String.format(
               "Table %s.%s is locked for TIER3_AUTO_CLEANUP%s. Promote the table to Tier 2 to retain it, "
                   + "or use the reason-targeted OpenHouse unlock endpoint as an authorized lock administrator.",

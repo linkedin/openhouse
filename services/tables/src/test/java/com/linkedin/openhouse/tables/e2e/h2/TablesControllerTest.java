@@ -1650,7 +1650,7 @@ public class TablesControllerTest {
                         + "\"}"))
         .andExpect(status().isCreated());
     mvc.perform(MockMvcRequestBuilders.get(tablePath))
-        .andExpect(status().isBadRequest())
+        .andExpect(status().isLocked())
         .andExpect(jsonPath("$.message", containsString("TIER3_AUTO_CLEANUP")))
         .andExpect(jsonPath("$.message", containsString("Tier 2")));
     mvc.perform(MockMvcRequestBuilders.get(tablePath).header(HTTP_HEADER_SYSTEM_ACTION, "true"))
