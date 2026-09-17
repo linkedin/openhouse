@@ -67,7 +67,13 @@ _The RTAS PR fills this section._
 ## DML state matrix
 
 <!-- coverage:dml-state-matrix:start -->
-_The DML state matrix PR fills this section._
+This layer adds 428 cases for a 558-case catalog. The local result is 554 passed
+and four documented skips.
+
+It reuses the Standard DML row and snapshot oracles across additional table states:
+104 cases on date-partitioned tables, 208 cases on write-ordered tables, and 116
+cases after adding a nullable column. The four skips preserve the known
+partition-predicate DELETE failure across the write-order preparations.
 <!-- coverage:dml-state-matrix:end -->
 
 ## Schema and types
