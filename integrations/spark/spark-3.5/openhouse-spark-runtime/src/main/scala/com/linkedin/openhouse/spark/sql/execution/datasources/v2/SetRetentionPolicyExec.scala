@@ -12,7 +12,8 @@ case class SetRetentionPolicyExec(
   granularity: String,
   count: Int,
   colName: Option[String],
-  colPattern: Option[String]
+  colPattern: Option[String],
+  timeZone: Option[String]
                                  ) extends LeafV2CommandExec {
 
   override lazy val output: Seq[Attribute] = Nil
@@ -21,16 +22,20 @@ case class SetRetentionPolicyExec(
     catalog.loadTable(ident) match {
       case iceberg: SparkTable if iceberg.table().properties().containsKey("openhouse.tableId") =>
         val key = "updated.openhouse.policy"
+        val timeZoneJson = timeZone match {
+          case Some(tz) => s""","timeZone":"${tz}""""
+          case None => ""
+        }
         val value = {
           (colName, colPattern) match {
-            case (None, None) => s"""{"retention":{"count":${count},"granularity":"${granularity}"}}"""
+            case (None, None) => s"""{"retention":{"count":${count},"granularity":"${granularity}"${timeZoneJson}}}"""
             case (Some(nameVal), Some(patternVal)) => {
               val columnPattern = s"""{"columnName":"${nameVal}","pattern": "${patternVal}"}"""
-              s"""{"retention":{"count":${count},"granularity":"${granularity}", "columnPattern":${columnPattern}}}"""
+              s"""{"retention":{"count":${count},"granularity":"${granularity}"${timeZoneJson}, "columnPattern":${columnPattern}}}"""
             }
             case (Some(nameVal), None) => {
               val columnPattern = s"""{"columnName":"${nameVal}","pattern": ""}"""
-              s"""{"retention":{"count":${count},"granularity":"${granularity}", "columnPattern":${columnPattern}}}"""
+              s"""{"retention":{"count":${count},"granularity":"${granularity}"${timeZoneJson}, "columnPattern":${columnPattern}}}"""
             }
           }
         }
@@ -47,6 +52,6 @@ case class SetRetentionPolicyExec(
   }
 
   override def simpleString(maxFields: Int): String = {
-    s"SetRetentionPolicyExec: ${catalog} ${ident} ${count} ${granularity} ${colName.getOrElse("")} ${colPattern.getOrElse("")}"
+    s"SetRetentionPolicyExec: ${catalog} ${ident} ${count} ${granularity} ${colName.getOrElse("")} ${colPattern.getOrElse("")} ${timeZone.getOrElse("")}"
   }
 }

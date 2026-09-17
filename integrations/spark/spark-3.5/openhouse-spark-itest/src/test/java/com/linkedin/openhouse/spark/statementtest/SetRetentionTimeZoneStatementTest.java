@@ -1,0 +1,108 @@
+package com.linkedin.openhouse.spark.statementtest;
+
+import java.nio.file.Files;
+import lombok.SneakyThrows;
+import org.apache.hadoop.fs.Path;
+import org.apache.spark.sql.Row;
+import org.apache.spark.sql.SparkSession;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
+
+/**
+ * Verifies the Spark 3.5 SQL extension parses the retention time-zone clause {@code AT TIME ZONE
+ * '<zone>'} on {@code ALTER TABLE ... SET POLICY (RETENTION=...)} and serializes the zone into the
+ * stored retention policy.
+ */
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+public class SetRetentionTimeZoneStatementTest {
+  private static SparkSession spark = null;
+
+  @SneakyThrows
+  @BeforeAll
+  public void setupSpark() {
+    Path unittest = new Path(Files.createTempDirectory("unittest_settzpolicy").toString());
+    spark =
+        SparkSession.builder()
+            .master("local[2]")
+            .config(
+                "spark.sql.extensions",
+                ("org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,"
+                    + "com.linkedin.openhouse.spark.extensions.OpenhouseSparkSessionExtensions"))
+            .config("spark.sql.catalog.openhouse", "org.apache.iceberg.spark.SparkCatalog")
+            .config("spark.sql.catalog.openhouse.type", "hadoop")
+            .config("spark.sql.catalog.openhouse.warehouse", unittest.toString())
+            .getOrCreate();
+  }
+
+  @BeforeEach
+  public void setup() {
+    spark.sql("CREATE TABLE openhouse.db.table (id bigint, data string) USING iceberg").show();
+    spark
+        .sql("ALTER TABLE openhouse.db.table SET TBLPROPERTIES ('openhouse.tableId' = 'tableid')")
+        .show();
+  }
+
+  @AfterEach
+  public void tearDown() {
+    spark.sql("DROP TABLE openhouse.db.table").show();
+  }
+
+  @Test
+  public void testSetRetentionWithTimeZone() {
+    spark
+        .sql(
+            "ALTER TABLE openhouse.db.table SET POLICY (RETENTION=30d AT TIME ZONE 'America/Los_Angeles')")
+        .show();
+    String policy = storedPolicy("openhouse.db.table");
+    Assertions.assertTrue(policy.contains("\"timeZone\":\"America/Los_Angeles\""), policy);
+    Assertions.assertTrue(policy.contains("\"granularity\":\"DAY\""), policy);
+  }
+
+  @Test
+  public void testSetRetentionWithTimeZoneAndColumnPattern() {
+    spark
+        .sql(
+            "ALTER TABLE openhouse.db.table SET POLICY (RETENTION=30d AT TIME ZONE 'America/Los_Angeles'"
+                + " ON COLUMN ts WHERE PATTERN='yyyy-MM-dd')")
+        .show();
+    String policy = storedPolicy("openhouse.db.table");
+    Assertions.assertTrue(policy.contains("\"timeZone\":\"America/Los_Angeles\""), policy);
+    Assertions.assertTrue(policy.contains("\"columnName\":\"ts\""), policy);
+  }
+
+  @Test
+  public void testSetRetentionWithFixedOffsetTimeZone() {
+    spark
+        .sql("ALTER TABLE openhouse.db.table SET POLICY (RETENTION=12h AT TIME ZONE '+05:30')")
+        .show();
+    String policy = storedPolicy("openhouse.db.table");
+    Assertions.assertTrue(policy.contains("\"timeZone\":\"+05:30\""), policy);
+    Assertions.assertTrue(policy.contains("\"granularity\":\"HOUR\""), policy);
+  }
+
+  @Test
+  public void testSetRetentionWithoutTimeZoneOmitsField() {
+    spark.sql("ALTER TABLE openhouse.db.table SET POLICY (RETENTION=30d)").show();
+    String policy = storedPolicy("openhouse.db.table");
+    Assertions.assertTrue(policy.contains("\"granularity\":\"DAY\""), policy);
+    Assertions.assertFalse(policy.contains("timeZone"), policy);
+  }
+
+  private String storedPolicy(String table) {
+    StringBuilder allProps = new StringBuilder();
+    for (Row row : spark.sql("SHOW TBLPROPERTIES " + table).collectAsList()) {
+      allProps.append(row.getString(0)).append('=').append(row.getString(1)).append('\n');
+    }
+    return allProps.toString();
+  }
+
+  @AfterAll
+  public void tearDownSpark() {
+    spark.close();
+  }
+}
