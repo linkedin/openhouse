@@ -16,6 +16,7 @@ import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.ResourceGatedByToggledOnFeatureException;
+import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableException;
 import com.linkedin.openhouse.common.exception.UnprocessableEntityException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import io.swagger.v3.oas.annotations.Hidden;
@@ -303,6 +304,14 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
   @ExceptionHandler(InvalidTableMetadataException.class)
   protected ResponseEntity<ErrorResponseBody> handleInvalidTableMetadataException(
       InvalidTableMetadataException invalidTableMetadataException) {
+    // Reserved for uncategorized/unexpected metadata-load failures -> 500
+    // Confirmed permanent corruption is surfaced as 422 via
+    // UnprocessableEntityException, and transient I/O as 503 via
+    // StorageDependencyUnavailableException.
+    // Reserved for uncategorized/unexpected metadata-load failures -> 500
+    // Confirmed permanent corruption is surfaced as 422 via
+    // UnprocessableEntityException, and transient I/O as 503 via
+    // StorageDependencyUnavailableException.
     ErrorResponseBody errorResponseBody =
         ErrorResponseBody.builder()
             .status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -310,6 +319,27 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
             .message(invalidTableMetadataException.getMessage())
             .stacktrace(getAbbreviatedStackTrace(invalidTableMetadataException))
             .cause(getExceptionCause(invalidTableMetadataException))
+            .build();
+    return buildResponseEntity(errorResponseBody);
+  }
+
+  /**
+   * Transient storage-dependency failures encountered while reading table metadata (HDFS timeout,
+   * connection failure, NameNode standby, Iceberg ServiceUnavailableException, or another retriable
+   * I/O error) are retriable server conditions, surfaced as 503 rather than being misrepresented as
+   * invalid metadata.
+   */
+  @Hidden
+  @ExceptionHandler(StorageDependencyUnavailableException.class)
+  protected ResponseEntity<ErrorResponseBody> handleStorageDependencyUnavailableException(
+      StorageDependencyUnavailableException storageDependencyUnavailableException) {
+    ErrorResponseBody errorResponseBody =
+        ErrorResponseBody.builder()
+            .status(HttpStatus.SERVICE_UNAVAILABLE)
+            .error(HttpStatus.SERVICE_UNAVAILABLE.getReasonPhrase())
+            .message(storageDependencyUnavailableException.getMessage())
+            .stacktrace(getAbbreviatedStackTrace(storageDependencyUnavailableException))
+            .cause(getExceptionCause(storageDependencyUnavailableException))
             .build();
     return buildResponseEntity(errorResponseBody);
   }

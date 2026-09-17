@@ -13,6 +13,8 @@ import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.hdfs.HdfsStorageClient;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
+import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableException;
+import com.linkedin.openhouse.common.exception.UnprocessableEntityException;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
@@ -30,7 +32,9 @@ import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -63,6 +67,8 @@ import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NotFoundException;
+import org.apache.iceberg.exceptions.RuntimeIOException;
+import org.apache.iceberg.exceptions.ServiceUnavailableException;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Term;
@@ -193,25 +199,163 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           "refreshMetadata from location {} succeeded, took {} ms",
           metadataLoc,
           System.currentTimeMillis() - startTime);
-    } catch (IllegalArgumentException
-        | IllegalStateException
-        | NotFoundException
-        | ValidationException e) {
-      log.error(
-          "refreshMetadata from location {} failed after {} ms",
-          metadataLoc,
-          System.currentTimeMillis() - startTime,
-          e);
-      throw new InvalidTableMetadataException(
-          tableIdentifier.namespace().toString(), tableIdentifier.name(), e.getMessage(), e);
     } catch (Exception e) {
       log.error(
           "refreshMetadata from location {} failed after {} ms",
           metadataLoc,
-          System.currentTimeMillis() - startTime,
-          e);
-      throw e;
+          System.currentTimeMillis() - startTime);
+      throw classifyMetadataRefreshFailure(e);
     }
+  }
+
+  /**
+   * Classifies a failure encountered while reading a table's Iceberg metadata so the API returns an
+   * accurate status instead of a blanket {@code 500} {@link InvalidTableMetadataException}. See
+   * BDP-108628.
+   *
+   * <p>Classification is by exception TYPE (walking the cause chain), never by parsing exception
+   * messages, so it stays stable across Iceberg/Hadoop versions and locales.
+   *
+   * <ul>
+   *   <li>{@link UnprocessableEntityException} (422) — persistent, caller-actionable corruption: a
+   *       missing metadata/manifest file ({@link NotFoundException}/{@link FileNotFoundException} =
+   *       dangling pointer), an Iceberg invariant violation ({@link ValidationException}), or
+   *       malformed metadata surfaced by the Iceberg parser as an {@link IllegalArgumentException}/
+   *       {@link IllegalStateException}. The table is permanently corrupted (repair or drop it).
+   *   <li>{@link StorageDependencyUnavailableException} (503) — a transient storage-dependency
+   *       failure: any other I/O error (Iceberg {@link ServiceUnavailableException}/{@link
+   *       RuntimeIOException}, a {@link UncheckedIOException}, or an {@link IOException} subtype
+   *       such as socket timeout, connection failure, or NameNode standby). Retriable, not
+   *       corruption.
+   *   <li>{@link InvalidTableMetadataException} (500) — anything else: an unexpected/uncategorized
+   *       failure, treated as an OpenHouse implementation defect.
+   * </ul>
+   */
+  @com.google.common.annotations.VisibleForTesting
+  RuntimeException classifyMetadataRefreshFailure(Throwable e) {
+    final String databaseId = tableIdentifier.namespace().toString();
+    final String tableId = tableIdentifier.name();
+
+    // 422: the metadata/manifest file is genuinely missing (dangling pointer). Checked before the
+    // generic I/O branch because FileNotFoundException is itself an IOException.
+    if (hasCauseOfType(e, NotFoundException.class)
+        || hasCauseOfType(e, FileNotFoundException.class)) {
+      return logClassifiedFailure(
+          databaseId,
+          tableId,
+          "PERSISTENT_DANGLING_METADATA_POINTER (422)",
+          false,
+          corruptTableMetadata(
+              databaseId,
+              tableId,
+              "the referenced metadata or manifest file does not exist (dangling metadata pointer)",
+              e),
+          e);
+    }
+    // 422: Iceberg invariant violation (e.g. snapshot-log/timestamp ordering).
+    if (hasCauseOfType(e, ValidationException.class)) {
+      return logClassifiedFailure(
+          databaseId,
+          tableId,
+          "SEMANTIC_METADATA_CORRUPTION (422)",
+          false,
+          corruptTableMetadata(databaseId, tableId, rootCauseMessage(e), e),
+          e);
+    }
+    // 503: any other I/O failure is a transient storage-dependency problem. Timeout / connection /
+    // NameNode standby all extend IOException; Iceberg wraps I/O as ServiceUnavailableException or
+    // RuntimeIOException, and UncheckedIOException wraps an IOException.
+    if (hasCauseOfType(e, ServiceUnavailableException.class)
+        || hasCauseOfType(e, RuntimeIOException.class)
+        || hasCauseOfType(e, UncheckedIOException.class)
+        || hasCauseOfType(e, IOException.class)) {
+      return logClassifiedFailure(
+          databaseId,
+          tableId,
+          "TRANSIENT_STORAGE_DEPENDENCY_FAILURE (503)",
+          false,
+          new StorageDependencyUnavailableException(databaseId, tableId, rootCauseMessage(e), e),
+          e);
+    }
+    // 422: the Iceberg parser rejects malformed/inconsistent metadata with an
+    // IllegalArgumentException/IllegalStateException (e.g. a missing schema/spec id, or a name that
+    // is not a valid metadata file). In this metadata-load path these are corruption.
+    if (hasCauseOfType(e, IllegalArgumentException.class)
+        || hasCauseOfType(e, IllegalStateException.class)) {
+      return logClassifiedFailure(
+          databaseId,
+          tableId,
+          "MALFORMED_METADATA (422)",
+          false,
+          corruptTableMetadata(databaseId, tableId, rootCauseMessage(e), e),
+          e);
+    }
+    // 500: unexpected/uncategorized -> OpenHouse implementation defect.
+    return logClassifiedFailure(
+        databaseId,
+        tableId,
+        "OPENHOUSE_IMPLEMENTATION_DEFECT (500)",
+        true,
+        new InvalidTableMetadataException(databaseId, tableId, rootCauseMessage(e), e),
+        e);
+  }
+
+  /**
+   * Builds a 422 {@link UnprocessableEntityException} for a permanently corrupt table, so the
+   * caller is told the table must be repaired or dropped (retrying will not help).
+   */
+  private static UnprocessableEntityException corruptTableMetadata(
+      String databaseId, String tableId, String reason, Throwable cause) {
+    return new UnprocessableEntityException(
+        String.format(
+            "Table %s.%s is permanently corrupted and must be repaired or dropped: %s",
+            databaseId, tableId, reason),
+        cause);
+  }
+
+  /**
+   * Logs the classification decision together with the original exception (including its stack
+   * trace) so operators can see exactly which underlying failure was mapped to which category.
+   */
+  private static RuntimeException logClassifiedFailure(
+      String databaseId,
+      String tableId,
+      String category,
+      boolean serverError,
+      RuntimeException classified,
+      Throwable original) {
+    String message =
+        "Classified metadata refresh failure for table {}.{} as [{}]; returning {}. Original exception:";
+    if (serverError) {
+      log.error(
+          message, databaseId, tableId, category, classified.getClass().getSimpleName(), original);
+    } else {
+      log.warn(
+          message, databaseId, tableId, category, classified.getClass().getSimpleName(), original);
+    }
+    return classified;
+  }
+
+  private static boolean hasCauseOfType(Throwable e, Class<? extends Throwable> type) {
+    for (Throwable t = e; t != null; t = t.getCause()) {
+      if (type.isInstance(t)) {
+        return true;
+      }
+      if (t == t.getCause()) {
+        break;
+      }
+    }
+    return false;
+  }
+
+  private static String rootCauseMessage(Throwable e) {
+    Throwable root = e;
+    while (root.getCause() != null && root.getCause() != root) {
+      root = root.getCause();
+    }
+    return root.getMessage() == null
+        ? root.getClass().getSimpleName()
+        : root.getClass().getSimpleName() + ": " + root.getMessage();
   }
 
   /**
