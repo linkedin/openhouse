@@ -566,7 +566,7 @@ public class ViewApiContractTest {
     expected.put(ViewErrorCode.REQUIRED_REPRESENTATION_MISSING, HttpStatus.UNPROCESSABLE_ENTITY);
     expected.put(ViewErrorCode.DEPENDENCY_CYCLE, HttpStatus.UNPROCESSABLE_ENTITY);
     expected.put(ViewErrorCode.MAX_VIEW_DEPTH_EXCEEDED, HttpStatus.UNPROCESSABLE_ENTITY);
-    expected.put(ViewErrorCode.ADMISSION_SERVICE_UNAVAILABLE, HttpStatus.SERVICE_UNAVAILABLE);
+    expected.put(ViewErrorCode.VIEW_SERVICE_UNAVAILABLE, HttpStatus.SERVICE_UNAVAILABLE);
 
     Assertions.assertEquals(
         14, ViewErrorCode.values().length, "ViewErrorCode ships exactly 14 values.");
@@ -586,11 +586,18 @@ public class ViewApiContractTest {
             "REQUIRED_REPRESENTATION_MISSING",
             "DEPENDENCY_CYCLE",
             "MAX_VIEW_DEPTH_EXCEEDED",
-            "ADMISSION_SERVICE_UNAVAILABLE"),
+            "VIEW_SERVICE_UNAVAILABLE"),
         Arrays.stream(ViewErrorCode.values())
             .map(Enum::name)
             .collect(Collectors.toCollection(LinkedHashSet::new)),
         "Reserved codes ship now so later milestones add behavior without an enum change.");
+
+    // The 503 code names the view service itself; VIEW_ADMISSION_FAILED still reserves the
+    // admission capability's own 422, asserted with the rest of the map below.
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> ViewErrorCode.valueOf("ADMISSION_SERVICE_UNAVAILABLE"),
+        "The code is renamed rather than aliased, so the pre-rename name must not resolve.");
 
     Assertions.assertEquals(expected.size(), ViewErrorCode.values().length);
     for (ViewErrorCode code : ViewErrorCode.values()) {
