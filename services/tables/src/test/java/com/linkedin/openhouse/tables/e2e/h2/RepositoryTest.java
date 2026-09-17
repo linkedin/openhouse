@@ -136,20 +136,22 @@ public class RepositoryTest {
   }
 
   @ParameterizedTest
-  @CsvSource({
-    "update,true,false",
-    "update,false,true",
-    "update,true,",
-    "update,false,",
-    "replace,true,false",
-    "replace,false,true",
-    "stageReplace,true,false",
-    "stageReplace,false,true",
-    "replication,true,false",
-    "replication,false,true",
-    "replication,true,",
-    "replication,false,"
-  })
+  @CsvSource(
+      value = {
+        "update,true,false",
+        "update,false,true",
+        "update,true,",
+        "update,false,",
+        "replace,true,false",
+        "replace,false,true",
+        "stageReplace,true,false",
+        "stageReplace,false,true",
+        "replication,true,false",
+        "replication,false,true",
+        "replication,true,",
+        "replication,false,"
+      },
+      nullValues = "")
   void testCommittedColumnDefaultPropertyCannotBeChanged(
       String operation, String original, String proposed) {
     String property = CatalogConstants.COLUMN_DEFAULT_ENABLED_TABLE_PROP;

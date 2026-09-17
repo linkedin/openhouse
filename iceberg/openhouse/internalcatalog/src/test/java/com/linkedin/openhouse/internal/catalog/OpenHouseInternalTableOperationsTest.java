@@ -168,7 +168,9 @@ public class OpenHouseInternalTableOperationsTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"true,false", "false,true", "true,", "false,", "true,TRUE", "invalid,true"})
+  @CsvSource(
+      value = {"true,false", "false,true", "true,", "false,", "true,TRUE", "invalid,true"},
+      nullValues = "")
   void testColumnDefaultPropertyCannotChangeOrBeRemoved(String original, String proposed) {
     TableMetadata base =
         BASE_TABLE_METADATA.replaceProperties(Map.of(COLUMN_DEFAULT_PROPERTY, original));
@@ -190,15 +192,17 @@ public class OpenHouseInternalTableOperationsTest {
   }
 
   @ParameterizedTest
-  @CsvSource({
-    "create,true",
-    "create,false",
-    "add,true",
-    "add,false",
-    "same,true",
-    "same,false",
-    "absent,"
-  })
+  @CsvSource(
+      value = {
+        "create,true",
+        "create,false",
+        "add,true",
+        "add,false",
+        "same,true",
+        "same,false",
+        "absent,"
+      },
+      nullValues = "")
   void testColumnDefaultPropertyAllowsFirstAssignmentAndUnchangedValues(
       String operation, String value) {
     Map<String, String> properties =
