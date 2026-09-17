@@ -114,7 +114,13 @@ _The History PR fills this section._
 ## Governance
 
 <!-- coverage:governance:start -->
-_The Governance PR fills this section._
+This layer adds 21 cases for a 415-case catalog. The local result is 409 passed
+and six documented skips.
+
+The catalog covers access-control grant and revoke behavior, column-tag
+preservation, encryption properties, and file-replication configuration. Four
+skips are inherited from RTAS. The two access-control cases are skipped locally
+because the embedded server has no OPA endpoint.
 <!-- coverage:governance:end -->
 
 ## Maintenance and planning
