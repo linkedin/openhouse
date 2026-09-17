@@ -35,8 +35,7 @@ public interface ViewsApiValidator {
   /**
    * Validate a POST request to create a view.
    *
-   * <p>The body is judged on its own merits. Whether its identifiers agree with the ones in the
-   * request path is the controller's rule, applied before this validator runs.
+   * <p>The controller checks URL/body identifiers; this validator checks the body.
    *
    * @param requestBody the create request
    */

@@ -39,17 +39,8 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 /**
- * Write-path coverage through the real API stack — controller, handler, validator and mapper — with
- * only the view service mocked.
- *
- * <p>The identifiers a write request carries in its path are compared against the ones it carries
- * in its body by the controller, and everything else about the body is checked by the validator
- * behind the handler. Those two rules can only be told apart where both are real, which is what
- * this class wires up: {@code ViewsControllerTest} substitutes the handler and so cannot show a
- * structural rule at all, and {@code ViewsPaginationControllerTest} covers the accepted write
- * requests this class deliberately does not repeat.
- *
- * <p>Local instances leave the shared Spring test beans untouched.
+ * Tests controller and validator boundaries with a mocked service. Local wiring leaves shared
+ * Spring test beans untouched.
  */
 @SpringBootTest
 @ContextConfiguration(initializers = AuthorizationPropertiesInitializer.class)
@@ -202,15 +193,7 @@ public class ViewsWriteControllerTest {
     Mockito.verifyNoInteractions(viewsService);
   }
 
-  /**
-   * The consequence of moving the comparison ahead of the validator: a request that disagrees about
-   * its identifiers is answered with that disagreement alone, and the structural rules it also
-   * breaks are never evaluated. The status is unchanged, so the difference is only in the reasons.
-   *
-   * <p>The code is asserted off the exception rather than the body: the schema and dialect rules
-   * this body also breaks answer 400 as well, and no code is serialized, so the status and message
-   * alone cannot show which rule rejected the request.
-   */
+  /** Identifier mismatches take precedence over structural errors. */
   @Test
   public void anIdentifierMismatchStopsTheRequestBeforeAnyStructuralRuleRuns() throws Exception {
     MvcResult result =
@@ -237,7 +220,6 @@ public class ViewsWriteControllerTest {
     Mockito.verifyNoInteractions(viewsService);
   }
 
-  /** The replace route short-circuits on the same terms, with the same code. */
   @Test
   public void aReplaceIdentifierMismatchStopsTheRequestBeforeAnyStructuralRuleRuns()
       throws Exception {
@@ -263,10 +245,7 @@ public class ViewsWriteControllerTest {
     Mockito.verifyNoInteractions(viewsService);
   }
 
-  /**
-   * The internal code the controller rejected with. It selects the status and is never serialized,
-   * so it can only be read off the thrown exception.
-   */
+  /** Error codes are internal and cannot be checked in the response JSON. */
   private static ViewRequestValidationFailureException identifierRejectionOf(MvcResult result) {
     ViewRequestValidationFailureException failure =
         Assertions.assertInstanceOf(
@@ -280,7 +259,6 @@ public class ViewsWriteControllerTest {
     return failure;
   }
 
-  /** Agreeing identifiers leave the accumulating structural report exactly as it was. */
   @Test
   public void agreeingIdentifiersStillReportEveryStructuralFailureTogether() throws Exception {
     mvc.perform(
@@ -303,10 +281,6 @@ public class ViewsWriteControllerTest {
     Mockito.verifyNoInteractions(viewsService);
   }
 
-  /**
-   * An omitted identifier has nothing to disagree with, so it must be reported as the missing
-   * required field it is, by the body validator rather than by the controller.
-   */
   @Test
   public void aCreateWithoutADatabaseIdIsReportedAsAMissingFieldRatherThanAMismatch()
       throws Exception {
@@ -346,10 +320,7 @@ public class ViewsWriteControllerTest {
 
   // The body is required by the route itself
 
-  /**
-   * The body is declared required, so an absent one, a JSON {@code null} and unparseable text all
-   * fail during message conversion, before the controller's comparison can dereference anything.
-   */
+  /** Required-body conversion rejects these inputs before controller validation. */
   @ParameterizedTest(name = "body={0}")
   @ValueSource(strings = {"", "null", "{\"viewId\": "})
   public void anUnusableRequestBodyIsRejectedDuringConversion(String body) throws Exception {
@@ -368,11 +339,7 @@ public class ViewsWriteControllerTest {
     Mockito.verifyNoInteractions(viewsService);
   }
 
-  /**
-   * HTTP cannot deliver a null body to the controller, but a direct caller can. The comparison must
-   * not dereference it: the request still has to reach the validator, whose own null contract
-   * reports it.
-   */
+  /** Direct calls can pass null even though HTTP request bodies are required. */
   @Test
   public void aDirectlySuppliedNullBodyIsLeftForTheValidatorRatherThanDereferenced() {
     Assertions.assertThrows(
@@ -392,9 +359,6 @@ public class ViewsWriteControllerTest {
 
   // Accepted writes
 
-  /**
-   * The body the service receives is the caller's, not one the controller rebuilt from the path.
-   */
   @Test
   public void anAgreeingCreateForwardsTheCallersBodyToTheService() throws Exception {
     CreateUpdateViewRequestBody request = ViewModelConstants.createRequestWithoutBaseVersion();
@@ -436,12 +400,7 @@ public class ViewsWriteControllerTest {
     Assertions.assertEquals(request, forwarded.getValue());
   }
 
-  /**
-   * The creator and modification time on the response are the service's. A caller can put those
-   * keys in its body, but they bind nowhere on the typed request, so they neither reach the service
-   * nor displace the recorded values. {@code ACTING_PRINCIPAL} is not the recorded creator, so a
-   * response that stamped the current caller instead would fail here too.
-   */
+  /** Client metadata must not reach the service or replace service-owned response values. */
   @ParameterizedTest(name = "{0} ignores forged server-owned metadata")
   @ValueSource(strings = {"create", "replace"})
   public void aWriteIgnoresForgedServerOwnedMetadata(String route) throws Exception {
@@ -479,7 +438,7 @@ public class ViewsWriteControllerTest {
             + " unchanged.");
   }
 
-  /** Raw JSON, so keys the typed request does not declare can be sent at all. */
+  /** Add fields the typed request cannot represent. */
   private static String bodyWithForgedMetadata(CreateUpdateViewRequestBody request)
       throws Exception {
     ObjectNode body = (ObjectNode) MAPPER.readTree(request.toJson());

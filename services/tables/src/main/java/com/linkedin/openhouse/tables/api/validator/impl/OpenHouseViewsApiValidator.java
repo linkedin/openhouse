@@ -153,9 +153,6 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
   /**
    * Rules shared by POST and PUT. Verb-specific base-version rules are applied by the caller.
    *
-   * <p>Only the request body is examined. Whether its identifiers agree with the ones in the
-   * request path is the controller's rule, applied before this validator runs.
-   *
    * <p>This is the one place absence is decided. Every nullable field of the request body is
    * converted here to an explicit {@link Optional}, so no rule below re-derives what "not supplied"
    * means for its own field. The two list fields are normalized differently on purpose:

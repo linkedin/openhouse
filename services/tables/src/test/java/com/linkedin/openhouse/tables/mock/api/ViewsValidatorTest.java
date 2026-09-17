@@ -204,11 +204,7 @@ public class ViewsValidatorTest {
     return () -> viewsApiValidator.validateUpdateView(requestBody);
   }
 
-  /**
-   * The validator sees only the request body, so identifiers are judged on their own merits. Their
-   * agreement with the path is the controller's rule and is pinned by {@code ViewsControllerTest}
-   * and {@code ViewsWriteControllerTest}.
-   */
+  /** Identifier syntax is validated here; URL/body agreement is checked by the controller. */
   @Test
   public void validateRejectsMalformedBodyIdentifiers() {
     assertRejected(
@@ -222,7 +218,6 @@ public class ViewsValidatorTest {
         "CreateUpdateViewRequestBody.viewId : " + ALPHA_NUM_UNDERSCORE_ERROR_MSG);
   }
 
-  /** A body naming a different database than the caller's path is no longer a validator concern. */
   @Test
   public void validateAcceptsAnyWellFormedBodyIdentifiers() {
     assertDoesNotThrow(
@@ -242,12 +237,7 @@ public class ViewsValidatorTest {
                 .build()));
   }
 
-  /**
-   * The write seams take the body alone, so a null one is a programming error rather than a client
-   * failure: bean validation reports it as such, and the shared handler answers 400 without any
-   * view vocabulary. Pinned because the controller deliberately forwards a null body here instead
-   * of dereferencing it.
-   */
+  /** Direct null-body calls retain bean validation's IllegalArgumentException. */
   @Test
   public void validateRejectsANullRequestBody() {
     Assertions.assertThrows(

@@ -36,9 +36,7 @@ import org.springframework.web.bind.annotation.RestController;
  * logic. Request bodies are validated by the view validator, which accumulates structural failures
  * before reporting them.
  *
- * <p>The one rule the controller owns is that a write's path identifiers must agree with the ones
- * its body carries: the handler is given the body alone, so this is the only place the two copies
- * can be compared. See {@link #rejectIdentifierMismatch}.
+ * <p>Write URL/body identifiers must match before the body is passed to the handler.
  *
  * <p>The endpoint contract includes gateway-generated 502 and 504 responses. These are distinct
  * from service-generated failures and may not carry the service's error body.
@@ -160,19 +158,9 @@ public class ViewsController {
   }
 
   /**
-   * Refuse a write whose path identifiers disagree with the ones its body carries, before the
-   * handler runs. A caller who addressed the wrong view is then answered with that disagreement
-   * alone rather than with structural findings about a body meant for somewhere else.
+   * Reject identifier mismatches before body validation; leave missing fields to the validator.
    *
-   * <p>Each identifier is judged independently, and only when the body supplied it: an omitted one
-   * has nothing to disagree with and is a missing required field, which the validator reports. The
-   * comparison is exact — view identifiers are case sensitive and nothing trims or normalizes them
-   * — so a differing case or a padded value is a disagreement. Both reasons are collected, database
-   * first, and reported together in the accumulating style every other view failure uses.
-   *
-   * @param viewId the path view identifier, or null on a route that carries none
-   * @param requestBody the caller's body. HTTP declares it required, but a direct caller can pass
-   *     null; there is then nothing to compare, and the validator behind the handler rejects it.
+   * @param viewId the URL view identifier, or null for POST
    */
   private static void rejectIdentifierMismatch(
       String databaseId, String viewId, CreateUpdateViewRequestBody requestBody) {

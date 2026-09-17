@@ -28,15 +28,10 @@ import org.springframework.stereotype.Component;
  * a {@link ViewApiException} carrying that code, and two further ids cover the uncoded paths: an
  * {@link AccessDeniedException} and a generic infrastructure {@link AuthorizationServiceException}.
  * Any other database id, including the {@code "d200"} the tests use for success, responds normally.
- * The read and delete routes take that id from the path; the write routes have no path identifier
- * at all, so they read it from the request body, which the controller has already proven matches
- * the path.
+ * Write handlers read the database id from the validated body; other handlers use path arguments.
  *
- * <p><b>PUT signal:</b> PUT has two success statuses and the handler picks between them from the
- * service's created flag, which does not exist here. The mock therefore uses a deterministic,
- * documented identifier signal instead: a PUT whose body names {@link #PUT_CREATES_VIEW_ID} reports
- * 201 CREATED and every other view id reports 200 OK. Database ids select errors independently of
- * this success-status signal.
+ * <p><b>PUT signal:</b> {@link #PUT_CREATES_VIEW_ID} returns 201; other view ids return 200.
+ * Database ids select errors independently.
  *
  * <p>Listing returns a fixed terminal fixture; token traversal is covered by {@code
  * ViewsPaginationControllerTest}.
@@ -45,7 +40,7 @@ import org.springframework.stereotype.Component;
 @Primary
 public class MockViewsApiHandler implements ViewsApiHandler {
 
-  /** A PUT whose body names this view id reports 201 CREATED; any other view id reports 200 OK. */
+  /** Selects 201 rather than 200 for PUT. */
   public static final String PUT_CREATES_VIEW_ID = "v201";
 
   /**

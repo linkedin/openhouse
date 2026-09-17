@@ -114,8 +114,7 @@ public class ViewApiContractTest {
         "A getter-only property would leak onto the wire without adding a declared field, so the"
             + " Jackson property set is pinned as well.");
 
-    // A name set cannot see how a field is declared or marked, so the two server-owned additions
-    // pin their declared type and their read-only, non-required marking as well.
+    // Check types and annotations as well as property names.
     Assertions.assertEquals(
         String.class,
         declaredField(GetViewResponseBody.class, "viewCreator").getType(),
@@ -402,11 +401,7 @@ public class ViewApiContractTest {
     Assertions.assertFalse(parse(request.toJson()).has("clusterId"));
   }
 
-  /**
-   * The response now carries server-owned creator and modification metadata. Neither has a request
-   * counterpart, so a caller that sends them is sending unknown keys: they bind nowhere and cannot
-   * reappear on either serialized form of the request.
-   */
+  /** Server-owned response metadata must not survive request binding. */
   @Test
   public void testForgedServerOwnedMetadataDoesNotSurviveBinding() {
     ObjectMapper lenientMapper =
@@ -499,12 +494,7 @@ public class ViewApiContractTest {
     assertPopulatedServerMetadata(gsonPayload);
   }
 
-  /**
-   * Every populated server-owned value, pinned independently against its own constant and against
-   * the JSON type its declared field implies. Shared by the item response and the list element so
-   * both serializers are held to the same values: the sparse list fixtures cannot show any of this,
-   * since nothing there is populated.
-   */
+  /** Check types and distinct timestamp values to catch coercion or swapped fields. */
   private static void assertPopulatedServerMetadata(JsonNode node) {
     Assertions.assertTrue(
         node.get("viewCreator").isTextual(),
@@ -526,11 +516,7 @@ public class ViewApiContractTest {
             + " detects a swapped property association.");
   }
 
-  /**
-   * A populated element inside the list envelope carries the same metadata as the item response, in
-   * both serializers. The list fixtures elsewhere are identifier-only by design, so this is the
-   * only place a populated element's wire form is pinned.
-   */
+  /** Sparse fixtures cannot verify populated metadata. */
   @Test
   public void testPopulatedListElementCarriesTheSameMetadataInBothSerializers() {
     GetAllViewsResponseBody listResponse =
@@ -755,8 +741,7 @@ public class ViewApiContractTest {
             .collect(Collectors.toCollection(LinkedHashSet::new)),
         "Reserved codes ship now so later milestones add behavior without an enum change.");
 
-    // The 503 code names the view service itself; VIEW_ADMISSION_FAILED still reserves the
-    // admission capability's own 422, asserted with the rest of the map below.
+    // Rename the 503 code without retaining an alias.
     Assertions.assertThrows(
         IllegalArgumentException.class,
         () -> ViewErrorCode.valueOf("ADMISSION_SERVICE_UNAVAILABLE"),
@@ -797,7 +782,6 @@ public class ViewApiContractTest {
         .collect(Collectors.toCollection(LinkedHashSet::new));
   }
 
-  /** The declared field behind a contract property, so its type and annotations can be pinned. */
   private static Field declaredField(Class<?> type, String name) {
     return Assertions.assertDoesNotThrow(
         () -> type.getDeclaredField(name),

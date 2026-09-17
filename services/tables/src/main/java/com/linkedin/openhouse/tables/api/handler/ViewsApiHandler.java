@@ -51,8 +51,7 @@ public interface ViewsApiHandler {
   /**
    * Create a view.
    *
-   * <p>The request body is the whole request: the path identifiers have already been compared with
-   * the ones it carries by {@link com.linkedin.openhouse.tables.controller.ViewsController}.
+   * <p>The controller has already checked URL/body identifier agreement.
    *
    * <p>Failure outcomes: 400 for an invalid request; 404 for a missing database or disabled views;
    * 409 for an occupied name. Status 422 is reserved for admission rejection.

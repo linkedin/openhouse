@@ -34,20 +34,12 @@ public final class ViewModelConstants {
   public static final String VIEW_VERSION =
       "file:/tmp/openhouse/my_database/my_view/metadata/00000-fixed.metadata.json";
 
-  /**
-   * The principal the service recorded as the view's creator. Deliberately not the principal the
-   * controller tests act as, so a response that substituted the current caller for the stored
-   * creator is visible rather than indistinguishable.
-   */
+  /** Differs from the caller to catch accidental creator substitution. */
   public static final String VIEW_CREATOR = "bob";
 
   public static final long CREATION_TIME = 1651002318265L;
 
-  /**
-   * Fixed modification time, deliberately later than {@link #CREATION_TIME}. Keeping the two
-   * distinct is what lets the contract assertions pin each timestamp independently instead of
-   * passing on a swapped property association.
-   */
+  /** Differs from creation time to catch swapped timestamp mappings. */
   public static final long LAST_MODIFIED_TIME = 1651088718265L;
 
   /**

@@ -95,7 +95,6 @@ public class ViewsMapperTest {
         "The fixture keeps the two timestamps distinct, otherwise a swapped mapping would pass.");
   }
 
-  /** The list path maps every element through the same mapping, metadata included. */
   @Test
   public void testPopulatedListElementsCarryTheServiceSuppliedMetadata() {
     GetAllViewsResponseBody responseBody =
@@ -111,7 +110,7 @@ public class ViewsMapperTest {
         responseBody.getResults().get(0).getLastModifiedTime());
   }
 
-  /** The service-owned pointer a populated read returns, matching {@code pointerResponse()}. */
+  /** DTO equivalent of {@link ViewModelConstants#pointerResponse()}. */
   private static ViewDto pointerDto() {
     return ViewDto.builder()
         .viewId(ViewModelConstants.VIEW_ID)

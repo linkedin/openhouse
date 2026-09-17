@@ -192,8 +192,6 @@ public class OpenHouseViewsApiHandlerTest {
         handler.createView(requestBody, ACTING_PRINCIPAL);
 
     InOrder inOrder = Mockito.inOrder(viewsApiValidator, viewsService);
-    // The handler has no path identifiers to pass on: the controller has already checked them
-    // against this body, so validation is a body-only concern from here down.
     inOrder.verify(viewsApiValidator).validateCreateView(requestBody);
     // failOnExist is true on POST: a POST must never silently replace an existing view.
     inOrder.verify(viewsService).putView(requestBody, ACTING_PRINCIPAL, true);

@@ -73,8 +73,8 @@ import org.springframework.web.bind.annotation.RequestParam;
  *
  * <p>Error statuses are driven through {@link MockViewsApiHandler}'s database-id switch, so this
  * class exercises controller wiring and the shared exception handler rather than validation. The
- * validator's own rejections are covered by {@code ViewsValidatorTest}; the one rule the controller
- * owns itself, that the path identifiers must match the request body, is covered here.
+ * validator's rejections are covered by {@code ViewsValidatorTest}; URL/body mismatches are covered
+ * here.
  *
  * <p><b>No test here asserts an error code in the response JSON.</b> View error codes are internal
  * status selectors: they choose the HTTP status and are never serialized. The assertions are
@@ -91,12 +91,7 @@ public class ViewsControllerTest {
 
   private static final String VIEWS_PATH = "/v1/databases/d200/views";
 
-  /**
-   * Write routes have to address the database the request body names: the controller rejects a POST
-   * or PUT whose path identifiers do not match the body. The shared fixtures carry {@link
-   * ViewModelConstants#DATABASE_ID}, so the write tests below address that database while the read
-   * and delete tests keep using the {@code d200} error-signal path, which carries no body at all.
-   */
+  /** Match the shared request body's database for successful writes. */
   private static final String WRITE_VIEWS_PATH =
       "/v1/databases/" + ViewModelConstants.DATABASE_ID + "/views";
 
@@ -286,12 +281,6 @@ public class ViewsControllerTest {
   // Path and body identifier agreement
   // ---------------------------------------------------------------------------------------------
 
-  /**
-   * The write routes carry the identifiers twice, in the path and in the body, and the controller
-   * is the only place that can compare them: the handler is handed the body alone. The tests below
-   * pin that the comparison happens there, that it is exact, and that a disagreeing request is
-   * refused before anything downstream can act on either copy.
-   */
   private static String databaseIdMismatch(String pathValue, String bodyValue) {
     return String.format(
         "databaseId : provided %s, doesn't match with the RequestBody %s", pathValue, bodyValue);
@@ -370,7 +359,6 @@ public class ViewsControllerTest {
     assertWriteRoutesNeverReachedTheHandler();
   }
 
-  /** Both disagreements are reported in one response, database first, joined like every other. */
   @Test
   public void updateViewReportsBothIdentifierMismatchesTogether() throws Exception {
     mvc.perform(
@@ -389,12 +377,7 @@ public class ViewsControllerTest {
     assertWriteRoutesNeverReachedTheHandler();
   }
 
-  /**
-   * The comparison is the identifiers as they were sent: identifiers are case sensitive elsewhere
-   * in the API, and nothing trims or normalizes them, so a differing case, an empty value or a
-   * padded one is a disagreement rather than a match. The padded cases also pin that the value
-   * echoed back is the caller's raw string, not a cleaned-up rendering of it.
-   */
+  /** Neither comparisons nor error messages may trim or normalize identifiers. */
   @ParameterizedTest(name = "body databaseId=[{0}]")
   @ValueSource(strings = {"My_Database", "MY_DATABASE", "", " my_database", "my_database "})
   public void createViewComparesTheDatabaseIdExactlyAsItWasSent(String bodyDatabaseId)
@@ -415,7 +398,6 @@ public class ViewsControllerTest {
     assertWriteRoutesNeverReachedTheHandler();
   }
 
-  /** The replace route compares its database id on the same terms the create route does. */
   @ParameterizedTest(name = "body databaseId=[{0}]")
   @ValueSource(strings = {"My_Database", "MY_DATABASE", "", " my_database", "my_database "})
   public void updateViewComparesTheDatabaseIdExactlyAsItWasSent(String bodyDatabaseId)
@@ -451,11 +433,7 @@ public class ViewsControllerTest {
     assertWriteRoutesNeverReachedTheHandler();
   }
 
-  /**
-   * An omitted identifier is not a disagreement: there is nothing to compare it with. It is a
-   * missing required field, which the body validator downstream already reports, so the controller
-   * has to let the request through rather than invent a mismatch against a null.
-   */
+  /** Missing identifiers are rejected by body validation, not the mismatch check. */
   @Test
   public void createViewWithoutADatabaseIdInTheBodyIsPassedOnRatherThanCalledAMismatch()
       throws Exception {
@@ -487,11 +465,7 @@ public class ViewsControllerTest {
     Mockito.verify(viewsApiHandler).updateView(Mockito.any(), Mockito.eq(ACTING_PRINCIPAL));
   }
 
-  /**
-   * The replace route carries two identifiers and each is compared on its own: an omitted one is
-   * skipped, and the other is still compared. Skipping both because one was omitted would let a
-   * request through that plainly disagrees with its path.
-   */
+  /** A missing identifier must not skip the other identifier's comparison. */
   @Test
   public void updateViewWithoutADatabaseIdInTheBodyStillRejectsADisagreeingViewId()
       throws Exception {
@@ -524,12 +498,7 @@ public class ViewsControllerTest {
     assertWriteRoutesNeverReachedTheHandler();
   }
 
-  /**
-   * Status and message cannot tell the identifier rule apart from the body rules: the schema and
-   * dialect failures answer 400 too, and none of the three codes reaches the wire. The code is
-   * therefore read off the exception the controller threw, which is also what pins that the
-   * controller reports this as a view validation failure rather than some other 400.
-   */
+  /** Inspect the internal code: several validation failures share HTTP 400. */
   private static ViewRequestValidationFailureException identifierRejectionOf(MvcResult result) {
     ViewRequestValidationFailureException failure =
         Assertions.assertInstanceOf(
@@ -565,10 +534,6 @@ public class ViewsControllerTest {
     assertWriteRoutesNeverReachedTheHandler();
   }
 
-  /**
-   * A request that disagrees about its identifiers is refused on that ground alone. Nothing else
-   * about the body has been examined at this point, so no other reason may appear beside it.
-   */
   @Test
   public void anIdentifierMismatchIsTheOnlyReasonReportedForAnOtherwiseInvalidBody()
       throws Exception {
@@ -587,17 +552,13 @@ public class ViewsControllerTest {
                 "$.message",
                 Matchers.is(databaseIdMismatch("d200", ViewModelConstants.DATABASE_ID))))
         .andExpect(jsonPath("$.errorCode").doesNotExist())
-        // The rejected body values are the caller's and must not come back in the reason text.
+        // Do not echo unrelated body fields.
         .andExpect(content().string(Matchers.not(Matchers.containsString("not-the-initial-token"))))
         .andExpect(content().string(Matchers.not(Matchers.containsString("defaultCatalog"))));
 
     assertWriteRoutesNeverReachedTheHandler();
   }
 
-  /**
-   * Agreeing identifiers leave the request untouched: the handler is handed the body the caller
-   * sent and the authenticated principal, and nothing derived from the path.
-   */
   @Test
   public void matchingIdentifiersForwardTheBodyAndPrincipalUnchanged() throws Exception {
     CreateUpdateViewRequestBody createRequest =
@@ -931,8 +892,7 @@ public class ViewsControllerTest {
     mvc.perform(
         MockMvcRequestBuilders.post(viewsPath(failingDatabaseId))
             .contentType(MediaType.APPLICATION_JSON)
-            // The body has to name the failing database too, or the controller's identifier check
-            // would reject the request before the handler could raise the failure under test.
+            // Match identifiers so the request reaches the handler failure.
             .content(
                 requestCarryingSecretDefinition()
                     .toBuilder()
@@ -948,11 +908,7 @@ public class ViewsControllerTest {
     assertViewDefinitionRedacted(event, failingDatabaseId);
   }
 
-  /**
-   * A request the controller itself rejects never reaches the handler, so it is the last place a
-   * view definition could still be audited raw. The reason text is server-owned, but the cached
-   * payload is the caller's, and it has to be redacted exactly as an accepted request's is.
-   */
+  /** Controller rejections must still redact SQL/schema from request logs. */
   @Test
   public void serviceAuditOnAnIdentifierMismatchRedactsSchemaAndSql() throws Exception {
     mvc.perform(
@@ -1210,11 +1166,7 @@ public class ViewsControllerTest {
         .andExpect(jsonPath("$.errorCode").doesNotExist());
   }
 
-  /**
-   * Malformed JSON fails during message conversion, before any view code runs, so it must stay on
-   * the shared Jackson path and carry no view vocabulary at all. The path names a database the body
-   * would have disagreed with had it parsed, which pins that conversion still comes first.
-   */
+  /** Malformed JSON is rejected before controller validation. */
   @Test
   public void malformedJsonBodyIsRejectedByTheSharedHandlerWith400() throws Exception {
     mvc.perform(
