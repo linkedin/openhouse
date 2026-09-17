@@ -6,6 +6,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
 import com.linkedin.openhouse.tables.model.TableDto;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.util.Pair;
@@ -73,7 +74,8 @@ public interface TablesService {
   Pair<TableDto, Boolean> putTable(
       CreateUpdateTableRequestBody createUpdateTableRequestBody,
       String tableCreatorUpdater,
-      Boolean failOnExist);
+      Boolean failOnExist)
+      throws ColumnDefaultException;
 
   /**
    * Delete a table represented by databaseId and tableId if actingPrincipal has the right privilege

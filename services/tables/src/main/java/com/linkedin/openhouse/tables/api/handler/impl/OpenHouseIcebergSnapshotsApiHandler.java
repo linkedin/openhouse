@@ -8,6 +8,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.api.validator.IcebergSnapshotsApiValidator;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
 import com.linkedin.openhouse.tables.services.IcebergSnapshotsService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.util.Pair;
@@ -30,7 +31,8 @@ public class OpenHouseIcebergSnapshotsApiHandler implements IcebergSnapshotsApiH
       String databaseId,
       String tableId,
       IcebergSnapshotsRequestBody icebergSnapshotRequestBody,
-      String tableCreator) {
+      String tableCreator)
+      throws ColumnDefaultException {
 
     icebergSnapshotsApiValidator.validatePutSnapshots(
         clusterProperties.getClusterName(), databaseId, tableId, icebergSnapshotRequestBody);

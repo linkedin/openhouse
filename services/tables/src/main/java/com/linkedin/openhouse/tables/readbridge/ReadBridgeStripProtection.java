@@ -5,6 +5,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.linkedin.openhouse.tables.model.TableDto;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException.Origin;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException.Reason;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -66,14 +69,25 @@ public class ReadBridgeStripProtection {
     if (incoming == null) {
       return incoming;
     }
-    Map<Integer, String> previousStamped =
-        existing == null ? Collections.emptyMap() : resolver.stampedColumnDefaults(existing);
-    Map<Integer, String> incomingStamped = resolver.stampedColumnDefaults(incoming);
-    if (existing != null) {
-      rejectRemovedDefaults(previousStamped, incomingStamped, incoming);
-      rejectUnawareRewrite(previousStamped, incoming);
+    Map<Integer, String> previousStamped;
+    try {
+      previousStamped =
+          existing == null ? Collections.emptyMap() : resolver.stampedColumnDefaults(existing);
+    } catch (ColumnDefaultException e) {
+      throw e.withOrigin(Origin.STORED);
     }
-    return stripInitialDefaults(incoming);
+    try {
+      Map<Integer, String> incomingStamped = resolver.stampedColumnDefaults(incoming);
+      if (existing != null) {
+        rejectRemovedDefaults(previousStamped, incomingStamped, incoming);
+        rejectUnawareRewrite(previousStamped, incoming);
+      }
+      return stripInitialDefaults(incoming);
+    } catch (ColumnDefaultException e) {
+      throw e.withOrigin(Origin.INCOMING);
+    } catch (RuntimeException e) {
+      throw new ColumnDefaultException(Reason.INTERNAL, incoming, e).withOrigin(Origin.INCOMING);
+    }
   }
 
   /**
@@ -91,12 +105,7 @@ public class ReadBridgeStripProtection {
     for (Integer fieldId : previousStamped.keySet()) {
       if (remaining.contains(fieldId) && !incomingStamped.containsKey(fieldId)) {
         throw new ColumnDefaultException(
-            ColumnDefaultException.Operation.REMOVED,
-            String.format(
-                "COLUMN_DEFAULT_REMOVED: %s.%s still has a column default on %s. This commit"
-                    + " omitted it. Retry from Spark 3.1 or Spark 3.5 using the jars on the"
-                    + " standard client image. Column defaults cannot be removed or changed.",
-                incoming.getDatabaseId(), incoming.getTableId(), fieldLabel(schema, fieldId)));
+            Reason.REMOVED, incoming, fieldId, fieldName(schema, fieldId), null, null, null);
       }
     }
   }
@@ -119,16 +128,13 @@ public class ReadBridgeStripProtection {
       JsonNode actual = initialDefault(schema, stamp.getKey());
       if (!tree(stamp.getValue(), incoming).equals(actual)) {
         throw new ColumnDefaultException(
-            ColumnDefaultException.Operation.REWRITE,
-            String.format(
-                "COLUMN_DEFAULT_REWRITE: %s.%s still has a column default on %s. This"
-                    + " overwrite/replace did not send a matching initial-default. Retry from"
-                    + " Spark 3.1 or Spark 3.5 using the jars on the standard client image."
-                    + " Unaware clients cannot overwrite or replace a table that has column"
-                    + " defaults.",
-                incoming.getDatabaseId(),
-                incoming.getTableId(),
-                fieldLabel(schema, stamp.getKey())));
+            Reason.REWRITE,
+            incoming,
+            stamp.getKey(),
+            fieldName(schema, stamp.getKey()),
+            null,
+            null,
+            null);
       }
     }
   }
@@ -170,8 +176,7 @@ public class ReadBridgeStripProtection {
           return snapshot;
         }
       }
-      throw ColumnDefaultException.unusable(
-          incoming, "main-branch snapshot is missing from the request", null);
+      throw new ColumnDefaultException(Reason.INVALID_SCHEMA, incoming, null);
     }
     return snapshot(jsonSnapshots.get(jsonSnapshots.size() - 1), incoming);
   }
@@ -187,19 +192,19 @@ public class ReadBridgeStripProtection {
     }
     try {
       return SnapshotRefParser.fromJson(main).snapshotId();
-    } catch (RuntimeException e) {
-      throw ColumnDefaultException.unusable(incoming, "unreadable snapshot ref", e);
+    } catch (IllegalArgumentException | UncheckedIOException e) {
+      throw new ColumnDefaultException(Reason.INVALID_SCHEMA, incoming, e);
     }
   }
 
   private static Snapshot snapshot(String json, TableDto incoming) throws ColumnDefaultException {
     if (json == null || json.isEmpty()) {
-      throw ColumnDefaultException.unusable(incoming, "unreadable snapshot", null);
+      throw new ColumnDefaultException(Reason.INVALID_SCHEMA, incoming, null);
     }
     try {
       return SnapshotParser.fromJson(json);
-    } catch (RuntimeException e) {
-      throw ColumnDefaultException.unusable(incoming, "unreadable snapshot", e);
+    } catch (IllegalArgumentException | UncheckedIOException e) {
+      throw new ColumnDefaultException(Reason.INVALID_SCHEMA, incoming, e);
     }
   }
 
@@ -225,8 +230,7 @@ public class ReadBridgeStripProtection {
     try {
       return MAPPER.writeValueAsString(root);
     } catch (JsonProcessingException e) {
-      throw ColumnDefaultException.unusable(
-          incoming, "failed to strip initial-default from schema", e);
+      throw new ColumnDefaultException(Reason.INTERNAL, incoming, e);
     }
   }
 
@@ -255,17 +259,17 @@ public class ReadBridgeStripProtection {
     return ids;
   }
 
-  private static String fieldLabel(JsonNode schema, int fieldId) {
+  private static String fieldName(JsonNode schema, int fieldId) {
     for (JsonNode field : fieldObjects(schema)) {
       if (field.has(SchemaKeys.ID) && field.get(SchemaKeys.ID).asInt() == fieldId) {
         JsonNode name = field.get(SchemaKeys.NAME);
         if (name != null && name.isTextual() && !name.asText().isEmpty()) {
-          return name.asText() + " (field-id " + fieldId + ")";
+          return name.asText();
         }
         break;
       }
     }
-    return "field-id " + fieldId;
+    return null;
   }
 
   private static JsonNode initialDefault(JsonNode schema, int fieldId) {
@@ -284,12 +288,16 @@ public class ReadBridgeStripProtection {
 
   private static JsonNode tree(String json, TableDto incoming) throws ColumnDefaultException {
     if (json == null || json.isEmpty()) {
-      throw ColumnDefaultException.unusable(incoming, "unreadable json", null);
+      throw new ColumnDefaultException(Reason.INVALID_SCHEMA, incoming, null);
     }
     try {
-      return MAPPER.readTree(json);
+      JsonNode node = MAPPER.readTree(json);
+      if (node == null) {
+        throw new ColumnDefaultException(Reason.INVALID_SCHEMA, incoming, null);
+      }
+      return node;
     } catch (JsonProcessingException e) {
-      throw ColumnDefaultException.unusable(incoming, "unreadable json", e);
+      throw new ColumnDefaultException(Reason.INVALID_SCHEMA, incoming, e);
     }
   }
 }

@@ -25,6 +25,7 @@ import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.TableDto;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.services.TablesService;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
@@ -97,7 +98,8 @@ public class TablesServiceTest {
   }
 
   private TableDto verifyPutTableRequest(
-      TableDto tableDto, TableDto previousTableDto, boolean isCreate) {
+      TableDto tableDto, TableDto previousTableDto, boolean isCreate)
+      throws ColumnDefaultException {
     Pair<TableDto, Boolean> putResult;
     putResult =
         tablesService.putTable(buildCreateUpdateTableRequestBody(tableDto), TEST_USER, isCreate);
@@ -109,7 +111,8 @@ public class TablesServiceTest {
     return putResult.getFirst();
   }
 
-  private void verifyPutIdenticalTableRequest(TableDto tableDto, TableDto previousTableDto) {
+  private void verifyPutIdenticalTableRequest(TableDto tableDto, TableDto previousTableDto)
+      throws ColumnDefaultException {
     Pair<TableDto, Boolean> putResult;
     putResult = tablesService.putTable(buildCreateUpdateTableRequestBody(tableDto), null, false);
     Assertions.assertEquals(tableDto, previousTableDto);
@@ -126,7 +129,7 @@ public class TablesServiceTest {
   }
 
   @Test
-  public void testTableService() {
+  public void testTableService() throws ColumnDefaultException {
     // Create Table
     TableDto putResultCreate = verifyPutTableRequest(TABLE_DTO, null, true);
     TableDto putResultCreateSameDB = verifyPutTableRequest(TABLE_DTO_SAME_DB, null, true);
@@ -176,7 +179,7 @@ public class TablesServiceTest {
   }
 
   @Test
-  public void testInvalidSchemaEvolution() throws IOException {
+  public void testInvalidSchemaEvolution() throws IOException, ColumnDefaultException {
     // Setup: Create the base tableDTO.
     TableDto putResultCreate = verifyPutTableRequest(TABLE_DTO, null, true);
 
@@ -200,7 +203,7 @@ public class TablesServiceTest {
   }
 
   @Test
-  public void testSimpleFieldUpdate() throws IOException {
+  public void testSimpleFieldUpdate() throws IOException, ColumnDefaultException {
     String baseSchema = ResourceIoHelper.getSchemaJsonFromResource("field_update/base.json");
     TableDto baseResult =
         verifyPutTableRequest(decorateSchemaEvolution(TABLE_DTO, baseSchema), null, true);
@@ -235,7 +238,7 @@ public class TablesServiceTest {
   }
 
   @Test
-  public void testTableCreateFailsIfAlreadyExist() {
+  public void testTableCreateFailsIfAlreadyExist() throws ColumnDefaultException {
     verifyPutTableRequest(TABLE_DTO, null, true);
     Assertions.assertThrows(
         AlreadyExistsException.class,
@@ -245,7 +248,7 @@ public class TablesServiceTest {
   }
 
   @Test
-  public void testTablePutDoesNotFailIfAlreadyExist() {
+  public void testTablePutDoesNotFailIfAlreadyExist() throws ColumnDefaultException {
     verifyPutTableRequest(TABLE_DTO, null, true);
     Assertions.assertDoesNotThrow(
         () -> tablesService.putTable(CREATE_TABLE_REQUEST_BODY, TEST_USER, false));
@@ -253,7 +256,7 @@ public class TablesServiceTest {
   }
 
   @Test
-  public void testStagedReplaceChecksUpdateTableMetadataPrivilege() {
+  public void testStagedReplaceChecksUpdateTableMetadataPrivilege() throws ColumnDefaultException {
     TableDto tableDto =
         TABLE_DTO
             .toBuilder()
@@ -294,7 +297,7 @@ public class TablesServiceTest {
   }
 
   @Test
-  public void testTableDeleteAlreadyDeleted() {
+  public void testTableDeleteAlreadyDeleted() throws ColumnDefaultException {
     verifyPutTableRequest(TABLE_DTO, null, true);
     tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
     Assertions.assertThrows(
@@ -310,7 +313,8 @@ public class TablesServiceTest {
    * findTableRefById lookup and avoids loadTable entirely.
    */
   @Test
-  public void testTableDeleteSucceedsWhenMetadataJsonIsCorrupted() throws IOException {
+  public void testTableDeleteSucceedsWhenMetadataJsonIsCorrupted()
+      throws IOException, ColumnDefaultException {
     TableDto created = verifyPutTableRequest(TABLE_DTO, null, true);
 
     // tableLocation on TableDto is the metadata.json path (file:/<base>/<filename>.metadata.json).
@@ -342,7 +346,7 @@ public class TablesServiceTest {
   }
 
   @Test
-  public void testTimePartitioning() {
+  public void testTimePartitioning() throws ColumnDefaultException {
     Schema schema =
         new Schema(
             Types.NestedField.required(1, "stringId", Types.StringType.get()),
@@ -382,7 +386,7 @@ public class TablesServiceTest {
   }
 
   @Test
-  public void testTimePartitioningEvolution() {
+  public void testTimePartitioningEvolution() throws ColumnDefaultException {
     Schema schema =
         new org.apache.iceberg.Schema(
             Types.NestedField.required(1, "stringId", Types.StringType.get()),
@@ -446,7 +450,7 @@ public class TablesServiceTest {
   }
 
   @Test
-  public void testUpdateAclPoliciesOnTable() {
+  public void testUpdateAclPoliciesOnTable() throws ColumnDefaultException {
     verifyPutTableRequest(SHARED_TABLE_DTO, null, true);
     Assertions.assertDoesNotThrow(
         () ->
@@ -493,7 +497,7 @@ public class TablesServiceTest {
   }
 
   @Test
-  public void testGetAclPoliciesOnTable() {
+  public void testGetAclPoliciesOnTable() throws ColumnDefaultException {
     verifyPutTableRequest(TABLE_DTO, null, true);
     Assertions.assertDoesNotThrow(
         () ->
@@ -513,7 +517,7 @@ public class TablesServiceTest {
   }
 
   @Test
-  public void testGetAclPoliciesForPrincipalOnTable() {
+  public void testGetAclPoliciesForPrincipalOnTable() throws ColumnDefaultException {
     verifyPutTableRequest(TABLE_DTO, null, true);
     Assertions.assertDoesNotThrow(
         () ->
@@ -533,7 +537,7 @@ public class TablesServiceTest {
   }
 
   @Test
-  public void testUpdateAclPoliciesOnUnSharedTable() {
+  public void testUpdateAclPoliciesOnUnSharedTable() throws ColumnDefaultException {
     verifyPutTableRequest(TABLE_DTO, null, true);
 
     Assertions.assertThrows(
@@ -564,7 +568,7 @@ public class TablesServiceTest {
   }
 
   @Test
-  public void testTableTypePropertyOnTable() {
+  public void testTableTypePropertyOnTable() throws ColumnDefaultException {
     // test if default tableType is used if tableType is not defined
     TableDto tableDtoCopy = TABLE_DTO.toBuilder().tableType(null).build();
     Assertions.assertNull(tableDtoCopy.getTableType());
@@ -586,7 +590,7 @@ public class TablesServiceTest {
   }
 
   @Test
-  public void testInvalidUpdateTableTypeForExistingTable() {
+  public void testInvalidUpdateTableTypeForExistingTable() throws ColumnDefaultException {
     // Create Table
     TableDto putResultCreate = verifyPutTableRequest(TABLE_DTO, null, true);
     Assertions.assertEquals(putResultCreate.getTableType(), TableType.PRIMARY_TABLE);
@@ -606,7 +610,7 @@ public class TablesServiceTest {
   }
 
   @Test
-  public void testReplicaTableCreationWithUUIDFromProperties() {
+  public void testReplicaTableCreationWithUUIDFromProperties() throws ColumnDefaultException {
     UUID expectedUUID = UUID.randomUUID();
     TableDto tableDtoCopy =
         TABLE_DTO
@@ -638,7 +642,7 @@ public class TablesServiceTest {
 
   /** Test replica table permissions: update requires SYSTEM_ADMIN, delete uses DELETE_TABLE. */
   @Test
-  public void testReplicaTableUpdateAndDeletePermissions() {
+  public void testReplicaTableUpdateAndDeletePermissions() throws ColumnDefaultException {
     UUID expectedUUID = UUID.randomUUID();
     TableDto tableDtoCopy =
         TABLE_DTO
@@ -691,7 +695,7 @@ public class TablesServiceTest {
   }
 
   @Test
-  public void testPrimaryTableUpdateAsNonSystemAdmin() {
+  public void testPrimaryTableUpdateAsNonSystemAdmin() throws ColumnDefaultException {
     TableDto tableDtoCopy = TABLE_DTO.toBuilder().build();
     Assertions.assertEquals(tableDtoCopy.getTableType(), TableType.PRIMARY_TABLE);
     TableDto putResultCreate = verifyPutTableRequest(tableDtoCopy, null, true);
@@ -708,7 +712,7 @@ public class TablesServiceTest {
   }
 
   @Test
-  public void testSearchTablesWithFieldsRequiresGetTableMetadata() {
+  public void testSearchTablesWithFieldsRequiresGetTableMetadata() throws ColumnDefaultException {
     TableDto tableDtoCopy = TABLE_DTO.toBuilder().build();
     verifyPutTableRequest(tableDtoCopy, null, true);
 
@@ -761,7 +765,7 @@ public class TablesServiceTest {
 
   /** assert lock is created as policy object on createLock call */
   @Test
-  public void testCreateLockOnTable() {
+  public void testCreateLockOnTable() throws ColumnDefaultException {
     TableDto tableDtoCopy = TABLE_DTO.toBuilder().build();
     verifyPutTableRequest(tableDtoCopy, null, true);
     tablesService.createLock(
@@ -792,7 +796,7 @@ public class TablesServiceTest {
 
   /** assert lock is created as policy object on createLock call */
   @Test
-  public void testDeleteLockOnTable() {
+  public void testDeleteLockOnTable() throws ColumnDefaultException {
     TableDto tableDtoCopy = TABLE_DTO.toBuilder().build();
     verifyPutTableRequest(tableDtoCopy, null, true);
     tablesService.createLock(
@@ -818,7 +822,7 @@ public class TablesServiceTest {
   }
 
   @Test
-  public void testFailedOpsOnLockTable() {
+  public void testFailedOpsOnLockTable() throws ColumnDefaultException {
     TableDto tableDtoCopy = TABLE_DTO.toBuilder().build();
     verifyPutTableRequest(tableDtoCopy, null, true);
     tablesService.createLock(
@@ -852,7 +856,7 @@ public class TablesServiceTest {
   }
 
   @Test
-  public void testRenameTable() {
+  public void testRenameTable() throws ColumnDefaultException {
     TableDto putResultCreate = verifyPutTableRequest(TABLE_DTO, null, true);
     // Create a table in the same db for conflicts
     TableDto conflictingTable = verifyPutTableRequest(TABLE_DTO_SAME_DB, null, true);

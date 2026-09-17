@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.services;
 
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.model.TableDto;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
 import org.springframework.data.util.Pair;
 
 /** Service layer for loading Iceberg {@link org.apache.iceberg.Snapshot} provided by client. */
@@ -12,5 +13,6 @@ public interface IcebergSnapshotsService {
       String databaseId,
       String tableId,
       IcebergSnapshotsRequestBody icebergSnapshotRequestBody,
-      String tableCreator);
+      String tableCreator)
+      throws ColumnDefaultException;
 }

@@ -19,14 +19,22 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException.Reason;
 import com.linkedin.openhouse.tables.services.TablesService;
 import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
+import java.io.IOException;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 public class ReadBridgeConfigResolverTest {
 
@@ -89,7 +97,8 @@ public class ReadBridgeConfigResolverTest {
         new TableFeatureToggle() {
           @Override
           public boolean isFeatureActivated(String databaseId, String tableId, String featureId) {
-            throw new IllegalStateException("housetables is down");
+            throw WebClientResponseException.create(
+                503, "Unavailable", HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8);
           }
         };
 
@@ -119,7 +128,7 @@ public class ReadBridgeConfigResolverTest {
 
   /** Write path must not commit when the source cannot answer. */
   @Test
-  public void testWritePathSourceFailureFailsClosed() {
+  public void testUnexpectedSourceFailureIsInternalNotInvalidInput() {
     ColumnDefaultsSource exploding =
         tableDto -> {
           throw new IllegalStateException("encoder exploded");
@@ -132,10 +141,59 @@ public class ReadBridgeConfigResolverTest {
                 resolverFor(exploding)
                     .stampedColumnDefaults(
                         TableDto.builder().databaseId("db").tableId("tbl").build()));
-    Assertions.assertEquals(ColumnDefaultException.Operation.UNUSABLE, thrown.getOperation());
-    Assertions.assertTrue(
-        thrown.toUnsupportedClient().getMessage().contains("COLUMN_DEFAULT_UNUSABLE"));
-    Assertions.assertTrue(thrown.getMessage().contains("db.tbl"));
+    Assertions.assertEquals(Reason.INTERNAL, thrown.getReason());
+  }
+
+  @Test
+  public void testDeclaredSourceFailureRetainsItsReasonAndGetFallback() {
+    TableDto table = TableDto.builder().databaseId("db").tableId("tbl").build();
+    ColumnDefaultsSource invalid =
+        input -> {
+          throw new ColumnDefaultException(Reason.INVALID_VALUE, input, null);
+        };
+    ReadBridgeConfigResolver resolver = resolverFor(invalid);
+    Assertions.assertTrue(resolver.resolve(table).isEmpty());
+    ColumnDefaultException thrown =
+        Assertions.assertThrows(
+            ColumnDefaultException.class, () -> resolver.stampedColumnDefaults(table));
+    Assertions.assertEquals(Reason.INVALID_VALUE, thrown.getReason());
+  }
+
+  @Test
+  public void testConnectionFailureIsUnavailable() {
+    TableFeatureToggle unavailable =
+        (databaseId, tableId, featureId) -> {
+          throw new WebClientRequestException(
+              new IOException("connection refused"),
+              HttpMethod.GET,
+              URI.create("https://housetables.invalid/"),
+              HttpHeaders.EMPTY);
+        };
+    ColumnDefaultException thrown =
+        Assertions.assertThrows(
+            ColumnDefaultException.class,
+            () ->
+                new ReadBridgeConfigResolver(oneDefault(), unavailable)
+                    .stampedColumnDefaults(
+                        TableDto.builder().databaseId("db").tableId("tbl").build()));
+    Assertions.assertEquals(Reason.UNAVAILABLE, thrown.getReason());
+  }
+
+  @Test
+  public void testUpstreamPermissionFailureIsInternalNotRetryableOutage() {
+    TableFeatureToggle denied =
+        (databaseId, tableId, featureId) -> {
+          throw WebClientResponseException.create(
+              403, "Forbidden", HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8);
+        };
+    ColumnDefaultException thrown =
+        Assertions.assertThrows(
+            ColumnDefaultException.class,
+            () ->
+                new ReadBridgeConfigResolver(oneDefault(), denied)
+                    .stampedColumnDefaults(
+                        TableDto.builder().databaseId("db").tableId("tbl").build()));
+    Assertions.assertEquals(Reason.INTERNAL, thrown.getReason());
   }
 
   /** Write path must not commit when the ramp lookup cannot answer. */
@@ -145,15 +203,19 @@ public class ReadBridgeConfigResolverTest {
         new TableFeatureToggle() {
           @Override
           public boolean isFeatureActivated(String databaseId, String tableId, String featureId) {
-            throw new IllegalStateException("housetables is down");
+            throw WebClientResponseException.create(
+                503, "Unavailable", HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8);
           }
         };
 
-    Assertions.assertThrows(
-        ColumnDefaultException.class,
-        () ->
-            new ReadBridgeConfigResolver(oneDefault(), exploding)
-                .stampedColumnDefaults(TableDto.builder().databaseId("db").tableId("tbl").build()));
+    ColumnDefaultException thrown =
+        Assertions.assertThrows(
+            ColumnDefaultException.class,
+            () ->
+                new ReadBridgeConfigResolver(oneDefault(), exploding)
+                    .stampedColumnDefaults(
+                        TableDto.builder().databaseId("db").tableId("tbl").build()));
+    Assertions.assertEquals(Reason.UNAVAILABLE, thrown.getReason());
   }
 
   /** Gate 3: a table the ramp has not activated is not bridged, and its source is never asked. */
@@ -203,7 +265,7 @@ public class ReadBridgeConfigResolverTest {
    * the same as {@link ColumnDefaultsSource#NONE}: the toggle ran and the source was asked.
    */
   @Test
-  public void testEmptyWhenSourceReturnsNoDefaults() {
+  public void testEmptyWhenSourceReturnsNoDefaults() throws ColumnDefaultException {
     ColumnDefaultsSource emptySource = mock(ColumnDefaultsSource.class);
     when(emptySource.defaults(any())).thenReturn(Collections.emptyMap());
 

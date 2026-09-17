@@ -2,12 +2,15 @@ package com.linkedin.openhouse.tables.readbridge;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.linkedin.openhouse.tables.model.TableDto;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException.Reason;
 import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 /**
  * Stamps per-table {@code config} for read-bridge capabilities. Owns policy (feature id, ramp,
@@ -54,7 +57,7 @@ public class ReadBridgeConfigResolver {
     try {
       return columnDefaultsByFieldId(tableDto);
     } catch (RuntimeException e) {
-      throw ColumnDefaultException.unusable(tableDto, e);
+      throw new ColumnDefaultException(Reason.INTERNAL, tableDto, e);
     }
   }
 
@@ -66,23 +69,28 @@ public class ReadBridgeConfigResolver {
    */
   public boolean isRampedForCommit(TableDto tableDto) throws ColumnDefaultException {
     Objects.requireNonNull(tableDto, "tableDto");
-    try {
-      return isColumnDefaultRamped(tableDto);
-    } catch (RuntimeException e) {
-      throw ColumnDefaultException.unusable(tableDto, e);
-    }
+    return isColumnDefaultRamped(tableDto);
   }
 
   private Map<String, String> columnDefaultConfig(TableDto tableDto) {
     Map<Integer, String> byId;
     try {
-      byId = columnDefaultsByFieldId(tableDto);
-    } catch (RuntimeException e) {
-      log.warn(
-          "read-bridge: column-defaults lookup failed for {}.{}; treating as not bridged",
-          tableDto.getDatabaseId(),
-          tableDto.getTableId(),
-          e);
+      byId = stampedColumnDefaults(tableDto);
+    } catch (ColumnDefaultException e) {
+      if (e.getReason() == Reason.INTERNAL) {
+        log.error(
+            "Column-default source failed unexpectedly for {}.{}",
+            tableDto.getDatabaseId(),
+            tableDto.getTableId(),
+            e);
+      } else {
+        log.debug(
+            "Column-default bridge omitted for {}.{}: {}",
+            tableDto.getDatabaseId(),
+            tableDto.getTableId(),
+            e.getReason(),
+            e);
+      }
       return Collections.emptyMap();
     }
     if (byId.isEmpty()) {
@@ -93,7 +101,8 @@ public class ReadBridgeConfigResolver {
     return config;
   }
 
-  private Map<Integer, String> columnDefaultsByFieldId(TableDto tableDto) {
+  private Map<Integer, String> columnDefaultsByFieldId(TableDto tableDto)
+      throws ColumnDefaultException {
     if (columnDefaultsSource == ColumnDefaultsSource.NONE) {
       return Collections.emptyMap();
     }
@@ -119,10 +128,24 @@ public class ReadBridgeConfigResolver {
    * read-bridge.column-default.enabled} can opt in/out without HTS. GET fail-opens on lookup
    * errors: not bridging equals today's NULL reads. The write path fail-closes instead.
    */
-  private boolean isColumnDefaultRamped(TableDto tableDto) {
+  private boolean isColumnDefaultRamped(TableDto tableDto) throws ColumnDefaultException {
     if (columnDefaultsSource == ColumnDefaultsSource.NONE) {
       return false;
     }
-    return featureToggle.isFeatureActivatedWithOverride(tableDto, COLUMN_DEFAULT_FEATURE_ID);
+    try {
+      return featureToggle.isFeatureActivatedWithOverride(tableDto, COLUMN_DEFAULT_FEATURE_ID);
+    } catch (WebClientRequestException e) {
+      throw new ColumnDefaultException(Reason.UNAVAILABLE, tableDto, e);
+    } catch (WebClientResponseException e) {
+      Reason reason =
+          e.getStatusCode().is5xxServerError()
+                  || e.getRawStatusCode() == 429
+                  || e.getRawStatusCode() == 408
+              ? Reason.UNAVAILABLE
+              : Reason.INTERNAL;
+      throw new ColumnDefaultException(reason, tableDto, e);
+    } catch (RuntimeException e) {
+      throw new ColumnDefaultException(Reason.INTERNAL, tableDto, e);
+    }
   }
 }

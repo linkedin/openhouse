@@ -5,6 +5,7 @@ import static com.linkedin.openhouse.common.security.AuthenticationUtils.*;
 import com.linkedin.openhouse.tables.api.handler.IcebergSnapshotsApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -36,6 +37,12 @@ public class IcebergSnapshotsController {
         @ApiResponse(responseCode = "201", description = "Iceberg snapshot PUT: CREATED"),
         @ApiResponse(responseCode = "200", description = "Iceberg snapshot PUT: UPDATED"),
         @ApiResponse(responseCode = "400", description = "Iceberg snapshot PUT: BAD_REQUEST"),
+        @ApiResponse(
+            responseCode = "500",
+            description = "Iceberg snapshot PUT: INTERNAL_ERROR_OR_STORED_DEFAULT_REPAIR_REQUIRED"),
+        @ApiResponse(
+            responseCode = "503",
+            description = "Iceberg snapshot PUT: COLUMN_DEFAULT_DEPENDENCY_UNAVAILABLE"),
         @ApiResponse(responseCode = "409", description = "Iceberg snapshot PUT: CONFLICT")
       })
   @PutMapping(
@@ -54,7 +61,8 @@ public class IcebergSnapshotsController {
               required = true,
               schema = @Schema(implementation = IcebergSnapshotsRequestBody.class))
           @RequestBody
-          IcebergSnapshotsRequestBody icebergsSnapshotRequestBody) {
+          IcebergSnapshotsRequestBody icebergsSnapshotRequestBody)
+      throws ColumnDefaultException {
 
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetTableResponseBody> apiResponse =
         icebergSnapshotsApiHandler.putIcebergSnapshots(

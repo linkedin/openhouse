@@ -11,9 +11,9 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
-import com.linkedin.openhouse.tables.dto.mapper.TablesMapperImpl;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.services.IcebergSnapshotsService;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
@@ -59,20 +59,7 @@ public class IcebergSnapshotsServiceTest {
   }
 
   @Test
-  public void testRepositoryMockWired() {
-    Assertions.assertEquals(
-        Mockito.mock(OpenHouseInternalRepository.class).getClass(),
-        applicationContext.getBean(OpenHouseInternalRepository.class).getClass());
-  }
-
-  @Test
-  public void testTablesMapperImplWired() {
-    Assertions.assertEquals(
-        TablesMapperImpl.class, applicationContext.getBean(TablesMapper.class).getClass());
-  }
-
-  @Test
-  public void testTableCreated() {
+  public void testTableCreated() throws ColumnDefaultException {
     final IcebergSnapshotsRequestBody requestBody =
         TEST_ICEBERG_SNAPSHOTS_INITIAL_VERSION_REQUEST_BODY;
     final String dbId = requestBody.getCreateUpdateTableRequestBody().getDatabaseId();
@@ -144,7 +131,7 @@ public class IcebergSnapshotsServiceTest {
   }
 
   @Test
-  public void testTableUpdated() {
+  public void testTableUpdated() throws ColumnDefaultException {
     final IcebergSnapshotsRequestBody requestBody = TEST_ICEBERG_SNAPSHOTS_REQUEST_BODY;
     final String dbId = requestBody.getCreateUpdateTableRequestBody().getDatabaseId();
     final String tableId = requestBody.getCreateUpdateTableRequestBody().getTableId();
@@ -173,7 +160,7 @@ public class IcebergSnapshotsServiceTest {
   }
 
   @Test
-  public void testReplaceCommitChecksUpdateTableMetadataPrivilege() {
+  public void testReplaceCommitChecksUpdateTableMetadataPrivilege() throws ColumnDefaultException {
     final IcebergSnapshotsRequestBody base = TEST_ICEBERG_SNAPSHOTS_REQUEST_BODY;
     final IcebergSnapshotsRequestBody requestBody =
         IcebergSnapshotsRequestBody.builder()

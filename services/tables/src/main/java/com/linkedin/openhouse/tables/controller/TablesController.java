@@ -11,6 +11,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTable
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.authorization.Privileges;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -148,6 +149,12 @@ public class TablesController {
         @ApiResponse(responseCode = "401", description = "Table POST: UNAUTHORIZED"),
         @ApiResponse(responseCode = "403", description = "Table POST: FORBIDDEN"),
         @ApiResponse(responseCode = "404", description = "Table POST: DB_NOT_FOUND"),
+        @ApiResponse(
+            responseCode = "500",
+            description = "Table POST: INTERNAL_ERROR_OR_STORED_DEFAULT_REPAIR_REQUIRED"),
+        @ApiResponse(
+            responseCode = "503",
+            description = "Table POST: COLUMN_DEFAULT_DEPENDENCY_UNAVAILABLE"),
         @ApiResponse(responseCode = "409", description = "Table POST: TBL_EXISTS")
       })
   @PostMapping(
@@ -161,7 +168,8 @@ public class TablesController {
               required = true,
               schema = @Schema(implementation = CreateUpdateTableRequestBody.class))
           @RequestBody
-          CreateUpdateTableRequestBody createUpdateTableRequestBody) {
+          CreateUpdateTableRequestBody createUpdateTableRequestBody)
+      throws ColumnDefaultException {
 
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetTableResponseBody> apiResponse =
         tablesApiHandler.createTable(
@@ -184,6 +192,12 @@ public class TablesController {
         @ApiResponse(responseCode = "400", description = "Table PUT: BAD_REQUEST"),
         @ApiResponse(responseCode = "401", description = "Table PUT: UNAUTHORIZED"),
         @ApiResponse(responseCode = "403", description = "Table PUT: FORBIDDEN"),
+        @ApiResponse(
+            responseCode = "500",
+            description = "Table PUT: INTERNAL_ERROR_OR_STORED_DEFAULT_REPAIR_REQUIRED"),
+        @ApiResponse(
+            responseCode = "503",
+            description = "Table PUT: COLUMN_DEFAULT_DEPENDENCY_UNAVAILABLE"),
         @ApiResponse(responseCode = "404", description = "Table PUT: DB_NOT_FOUND")
       })
   @PutMapping(
@@ -201,7 +215,8 @@ public class TablesController {
               required = true,
               schema = @Schema(implementation = CreateUpdateTableRequestBody.class))
           @RequestBody
-          CreateUpdateTableRequestBody createUpdateTableRequestBody) {
+          CreateUpdateTableRequestBody createUpdateTableRequestBody)
+      throws ColumnDefaultException {
 
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetTableResponseBody> apiResponse =
         tablesApiHandler.updateTable(

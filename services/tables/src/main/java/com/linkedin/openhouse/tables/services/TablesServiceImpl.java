@@ -105,7 +105,8 @@ public class TablesServiceImpl implements TablesService {
   public Pair<TableDto, Boolean> putTable(
       CreateUpdateTableRequestBody createUpdateTableRequestBody,
       String tableCreatorUpdater,
-      Boolean failOnExist) {
+      Boolean failOnExist)
+      throws ColumnDefaultException {
     String databaseId = createUpdateTableRequestBody.getDatabaseId();
     String tableId = createUpdateTableRequestBody.getTableId();
 
@@ -165,11 +166,7 @@ public class TablesServiceImpl implements TablesService {
                         .tableCreator(tableCreatorUpdater)
                         .build()),
             createUpdateTableRequestBody);
-    try {
-      tableDtoToSave = readBridgeStripProtection.prepare(tableDto.orElse(null), tableDtoToSave);
-    } catch (ColumnDefaultException e) {
-      throw e.toUnsupportedClient();
-    }
+    tableDtoToSave = readBridgeStripProtection.prepare(tableDto.orElse(null), tableDtoToSave);
     return saveTableDto(tableDtoToSave, tableDto);
   }
 

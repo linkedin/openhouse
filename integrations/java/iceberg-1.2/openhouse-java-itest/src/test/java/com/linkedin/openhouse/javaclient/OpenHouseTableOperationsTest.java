@@ -12,14 +12,19 @@ import com.linkedin.openhouse.gen.tables.client.model.IcebergSnapshotsRequestBod
 import com.linkedin.openhouse.gen.tables.client.model.Policies;
 import com.linkedin.openhouse.gen.tables.client.model.PolicyTag;
 import com.linkedin.openhouse.gen.tables.client.model.Retention;
-import com.linkedin.openhouse.javaclient.exception.WebClientWithMessageException;
+import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.node.ArrayNode;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.node.ObjectNode;
+import com.linkedin.openhouse.relocated.org.springframework.http.HttpHeaders;
+import com.linkedin.openhouse.relocated.org.springframework.http.HttpMethod;
 import com.linkedin.openhouse.relocated.org.springframework.http.HttpStatus;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientRequestException;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientResponseException;
 import com.linkedin.openhouse.relocated.reactor.core.publisher.Mono;
+import java.io.IOException;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collections;
@@ -29,6 +34,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.apache.commons.compress.utils.Lists;
+import org.apache.iceberg.AppendFiles;
+import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.Files;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -38,6 +46,7 @@ import org.apache.iceberg.SnapshotParser;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
@@ -51,6 +60,7 @@ import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.Tasks;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 
 public class OpenHouseTableOperationsTest {
@@ -109,47 +119,194 @@ public class OpenHouseTableOperationsTest {
     when(metadata.snapshots()).thenReturn(snapshotList);
     when(base.snapshots()).thenReturn(snapshotList);
 
-    // Ensure tableApi throw expected exception
+    String message = "Column default for field 7 cannot be resolved (100%).";
+    String code = "COLUMN_DEFAULT_INVALID_VALUE";
+    String requestId = "column-default-request-17";
+    String body =
+        new ObjectMapper()
+            .createObjectNode()
+            .put("message", message)
+            .put("code", code)
+            .put("requestId", requestId)
+            .put("retryable", false)
+            .put("stacktrace", "private-stacktrace-marker")
+            .put("cause", "private-cause-marker")
+            .toString();
 
+    Map<HttpStatus, Class<? extends RuntimeException>> expected = new HashMap<>();
+    expected.put(HttpStatus.BAD_REQUEST, BadRequestException.class);
+    expected.put(HttpStatus.CONFLICT, CommitFailedException.class);
+    expected.put(HttpStatus.NOT_FOUND, NoSuchTableException.class);
+    expected.put(HttpStatus.METHOD_NOT_ALLOWED, WebClientResponseWithMessageException.class);
+    expected.put(HttpStatus.NOT_IMPLEMENTED, WebClientResponseWithMessageException.class);
+    // These classes prohibit Iceberg's unsafe cleanup after an ambiguous commit. The response's
+    // retryable flag or human message must not weaken that guarantee.
+    expected.put(HttpStatus.INTERNAL_SERVER_ERROR, CommitStateUnknownException.class);
+    expected.put(HttpStatus.BAD_GATEWAY, CommitStateUnknownException.class);
+    expected.put(HttpStatus.SERVICE_UNAVAILABLE, CommitStateUnknownException.class);
+    expected.put(HttpStatus.GATEWAY_TIMEOUT, CommitStateUnknownException.class);
+    for (Map.Entry<HttpStatus, Class<? extends RuntimeException>> entry : expected.entrySet()) {
+      WebClientResponseException response = httpError(entry.getKey(), body);
+      when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
+          .thenReturn(Mono.error(response));
+      RuntimeException failure =
+          Assertions.assertThrows(
+              entry.getValue(), () -> openHouseTableOperations.doCommit(base, metadata));
+      Assertions.assertEquals(entry.getValue(), failure.getClass());
+      Assertions.assertSame(response, failure.getCause());
+      if (entry.getKey() != HttpStatus.NOT_FOUND) {
+        Assertions.assertTrue(failure.getMessage().contains(message));
+        Assertions.assertTrue(failure.getMessage().contains(code));
+        Assertions.assertTrue(failure.getMessage().contains(requestId));
+      }
+      Assertions.assertFalse(failure.getMessage().contains("private-stacktrace-marker"));
+      Assertions.assertFalse(failure.getMessage().contains("private-cause-marker"));
+      Assertions.assertFalse(failure.getMessage().contains("\"message\":"));
+      Assertions.assertFalse(failure.getMessage().contains("\"retryable\":"));
+    }
+
+    WebClientRequestException transportFailure =
+        new WebClientRequestException(
+            new IOException("Connection closed before response completed"),
+            HttpMethod.PUT,
+            URI.create("https://openhouse.invalid/v1/databases/db/tables/tbl"),
+            HttpHeaders.EMPTY);
     when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
-        .thenReturn(Mono.error(mock(WebClientResponseException.ServiceUnavailable.class)));
-    Assertions.assertThrows(
-        CommitStateUnknownException.class, () -> openHouseTableOperations.doCommit(base, metadata));
-    when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
-        .thenReturn(Mono.error(mock(WebClientResponseException.GatewayTimeout.class)));
-    Assertions.assertThrows(
-        CommitStateUnknownException.class, () -> openHouseTableOperations.doCommit(base, metadata));
-    when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
-        .thenReturn(Mono.error(mock(WebClientResponseException.NotFound.class)));
-    Assertions.assertThrows(
-        NoSuchTableException.class, () -> openHouseTableOperations.doCommit(base, metadata));
-    when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
-        .thenReturn(Mono.error(mock(WebClientResponseException.InternalServerError.class)));
-    Assertions.assertThrows(
-        CommitStateUnknownException.class, () -> openHouseTableOperations.doCommit(base, metadata));
-    when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
-        .thenReturn(Mono.error(mock(WebClientResponseException.NotImplemented.class)));
-    Assertions.assertThrows(
-        WebClientWithMessageException.class,
-        () -> openHouseTableOperations.doCommit(base, metadata));
-    when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
-        .thenReturn(Mono.error(mock(WebClientRequestException.class)));
-    Assertions.assertThrows(
-        CommitStateUnknownException.class, () -> openHouseTableOperations.doCommit(base, metadata));
-    WebClientResponseException exception40x =
-        mock(WebClientResponseException.MethodNotAllowed.class);
-    when(exception40x.getStatusCode()).thenReturn(HttpStatus.METHOD_NOT_ALLOWED);
-    when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
-        .thenReturn(Mono.error(exception40x));
-    Assertions.assertThrows(
-        WebClientWithMessageException.class,
-        () -> openHouseTableOperations.doCommit(base, metadata));
-    WebClientResponseException exception50x = mock(WebClientResponseException.BadGateway.class);
-    when(exception50x.getStatusCode()).thenReturn(HttpStatus.BAD_GATEWAY);
-    when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
-        .thenReturn(Mono.error(exception50x));
-    Assertions.assertThrows(
-        CommitStateUnknownException.class, () -> openHouseTableOperations.doCommit(base, metadata));
+        .thenReturn(Mono.error(transportFailure));
+    CommitStateUnknownException failure =
+        Assertions.assertThrows(
+            CommitStateUnknownException.class,
+            () -> openHouseTableOperations.doCommit(base, metadata));
+    Assertions.assertEquals(CommitStateUnknownException.class, failure.getClass());
+    Assertions.assertSame(transportFailure, failure.getCause());
+  }
+
+  @Test
+  public void testUnrecognizedErrorBodiesUseHttpStatusWithoutDiagnostics() {
+    List<String> bodies =
+        Arrays.asList(
+            "<html>private-diagnostic-marker</html>",
+            "{\"message\":\"private-diagnostic-marker\"",
+            "{\"message\":\"private-diagnostic-marker\"} trailing-data",
+            "{\"cause\":\"private-diagnostic-marker\",\"stacktrace\":\"private-diagnostic-marker\"}",
+            "{\"message\":{\"private-diagnostic-marker\":true},\"code\":[],\"requestId\":42}",
+            "[\"private-diagnostic-marker\"]",
+            "null",
+            "");
+    for (String body : bodies) {
+      WebClientResponseException response = httpError(HttpStatus.BAD_REQUEST, body);
+      BadRequestException failure =
+          Assertions.assertThrows(
+              BadRequestException.class,
+              () ->
+                  OpenHouseTableOperations.handleCreateUpdateHttpError(response, "db", "tbl")
+                      .block());
+      Assertions.assertEquals(BadRequestException.class, failure.getClass());
+      Assertions.assertSame(response, failure.getCause());
+      Assertions.assertTrue(failure.getMessage().contains("400"));
+      Assertions.assertTrue(
+          failure.getMessage().contains(HttpStatus.BAD_REQUEST.getReasonPhrase()));
+      Assertions.assertFalse(failure.getMessage().contains("private-diagnostic-marker"));
+      Assertions.assertFalse(failure.getMessage().contains("trailing-data"));
+      Assertions.assertFalse(failure.getMessage().contains("{"));
+      Assertions.assertFalse(failure.getMessage().contains("<html>"));
+    }
+  }
+
+  @Test
+  public void testLegacyAndPartialErrorEnvelopes() {
+    WebClientResponseException legacy =
+        httpError(
+            HttpStatus.CONFLICT,
+            "{\"message\":\"Concurrent write for field 17 (100%).\",\"cause\":\"private-diagnostic-marker\"}");
+    CommitFailedException conflict =
+        Assertions.assertThrows(
+            CommitFailedException.class,
+            () ->
+                OpenHouseTableOperations.handleCreateUpdateHttpError(legacy, "db", "tbl").block());
+    Assertions.assertTrue(conflict.getMessage().contains("Concurrent write for field 17 (100%)."));
+    Assertions.assertFalse(conflict.getMessage().contains("private-diagnostic-marker"));
+    Assertions.assertSame(legacy, conflict.getCause());
+
+    WebClientResponseException partial =
+        httpError(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "{\"message\":null,\"code\":\"COLUMN_DEFAULT_UNAVAILABLE\",\"requestId\":\"request-31\"}");
+    CommitStateUnknownException unavailable =
+        Assertions.assertThrows(
+            CommitStateUnknownException.class,
+            () ->
+                OpenHouseTableOperations.handleCreateUpdateHttpError(partial, "db", "tbl").block());
+    Assertions.assertEquals(CommitStateUnknownException.class, unavailable.getClass());
+    Assertions.assertTrue(unavailable.getMessage().contains("503"));
+    Assertions.assertTrue(unavailable.getMessage().contains("COLUMN_DEFAULT_UNAVAILABLE"));
+    Assertions.assertTrue(unavailable.getMessage().contains("request-31"));
+    Assertions.assertFalse(unavailable.getMessage().contains("null"));
+    Assertions.assertSame(partial, unavailable.getCause());
+  }
+
+  @Test
+  public void testUnavailableCommitPreservesPendingManifests(@TempDir Path directory)
+      throws IOException {
+    java.nio.file.Files.createDirectory(directory.resolve("metadata"));
+    TableMetadata initial =
+        TableMetadata.newTableMetadata(
+            new Schema(NestedField.optional(1, "id", Types.IntegerType.get())),
+            PartitionSpec.unpartitioned(),
+            directory.toString(),
+            Collections.emptyMap());
+    String metadataLocation = directory.resolve("initial.metadata.json").toString();
+    TableMetadataParser.overwrite(initial, Files.localOutput(metadataLocation));
+    GetTableResponseBody tableResponse = mock(GetTableResponseBody.class);
+    when(tableResponse.getTableLocation()).thenReturn(metadataLocation);
+    TableApi tableApi = mock(TableApi.class);
+    when(tableApi.getTableV1(anyString(), anyString())).thenReturn(Mono.just(tableResponse));
+
+    WebClientResponseException response =
+        httpError(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "{\"message\":\"Dependency unavailable; retry later.\","
+                + "\"code\":\"COLUMN_DEFAULT_UNAVAILABLE\",\"requestId\":\"request-57\",\"retryable\":true}");
+    SnapshotApi snapshotApi = mock(SnapshotApi.class);
+    when(snapshotApi.putSnapshotsV1(anyString(), anyString(), any()))
+        .thenReturn(Mono.error(response));
+    FileIO fileIO = spy(localFileIO());
+    OpenHouseTableOperations ops =
+        new OpenHouseTableOperationsForTest(
+            TableIdentifier.of("db", "tbl"), fileIO, tableApi, snapshotApi, "cluster");
+    AppendFiles append =
+        new BaseTable(ops, "db.tbl")
+            .newFastAppend()
+            .appendFile(
+                DataFiles.builder(PartitionSpec.unpartitioned())
+                    .withPath(directory.resolve("data.parquet").toString())
+                    .withRecordCount(1)
+                    .withFileSizeInBytes(10)
+                    .build());
+    Snapshot pending = append.apply();
+    String manifest = pending.allManifests(fileIO).get(0).path();
+    Assertions.assertTrue(fileIO.newInputFile(manifest).exists());
+    Assertions.assertTrue(fileIO.newInputFile(pending.manifestListLocation()).exists());
+
+    CommitStateUnknownException failure =
+        Assertions.assertThrows(CommitStateUnknownException.class, append::commit);
+    Assertions.assertEquals(CommitStateUnknownException.class, failure.getClass());
+    Assertions.assertSame(response, failure.getCause());
+    Assertions.assertTrue(failure.getMessage().contains("COLUMN_DEFAULT_UNAVAILABLE"));
+    Assertions.assertTrue(failure.getMessage().contains("request-57"));
+    Assertions.assertTrue(fileIO.newInputFile(manifest).exists());
+    Assertions.assertTrue(fileIO.newInputFile(pending.manifestListLocation()).exists());
+    verify(fileIO, never()).deleteFile(anyString());
+    verify(snapshotApi, times(1)).putSnapshotsV1(anyString(), anyString(), any());
+  }
+
+  private static WebClientResponseException httpError(HttpStatus status, String body) {
+    return WebClientResponseException.create(
+        status.value(),
+        status.getReasonPhrase(),
+        HttpHeaders.EMPTY,
+        body.getBytes(StandardCharsets.UTF_8),
+        StandardCharsets.UTF_8);
   }
 
   @Test

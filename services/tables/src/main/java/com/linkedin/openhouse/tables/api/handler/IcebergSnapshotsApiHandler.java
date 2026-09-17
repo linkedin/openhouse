@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.api.handler;
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
 
 /**
  * Interface layer between REST and Iceberg Snapshots backend. The implementation is injected into
@@ -14,5 +15,6 @@ public interface IcebergSnapshotsApiHandler {
       String databaseId,
       String tableId,
       IcebergSnapshotsRequestBody icebergSnapshotRequestBody,
-      String tableCreator);
+      String tableCreator)
+      throws ColumnDefaultException;
 }

@@ -41,7 +41,8 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
       String databaseId,
       String tableId,
       IcebergSnapshotsRequestBody icebergSnapshotRequestBody,
-      String tableCreatorUpdater) {
+      String tableCreatorUpdater)
+      throws ColumnDefaultException {
     Optional<TableDto> tableDto =
         openHouseInternalRepository.findById(
             TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build());
@@ -85,11 +86,7 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
       authorizationUtils.checkDatabasePrivilege(
           databaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
     }
-    try {
-      tableDtoToSave = readBridgeStripProtection.prepare(tableDto.orElse(null), tableDtoToSave);
-    } catch (ColumnDefaultException e) {
-      throw e.toUnsupportedClient();
-    }
+    tableDtoToSave = readBridgeStripProtection.prepare(tableDto.orElse(null), tableDtoToSave);
     try {
       return Pair.of(openHouseInternalRepository.save(tableDtoToSave), !tableDto.isPresent());
     } catch (BadRequestException e) {

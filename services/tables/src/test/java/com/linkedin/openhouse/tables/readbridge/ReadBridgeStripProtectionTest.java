@@ -61,9 +61,9 @@ public class ReadBridgeStripProtectionTest {
     ColumnDefaultException thrown =
         Assertions.assertThrows(
             ColumnDefaultException.class, () -> protection.prepare(existing, incoming));
-    Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_REWRITE"));
-    Assertions.assertTrue(thrown.getMessage().contains("country (field-id 2)"));
-    Assertions.assertTrue(thrown.getMessage().contains("Spark 3.1"));
+    Assertions.assertEquals(ColumnDefaultException.Reason.REWRITE, thrown.getReason());
+    Assertions.assertEquals(ColumnDefaultException.Origin.INCOMING, thrown.getOrigin());
+    Assertions.assertEquals(Integer.valueOf(2), thrown.getFieldId());
   }
 
   @Test
@@ -75,9 +75,8 @@ public class ReadBridgeStripProtectionTest {
     ColumnDefaultException thrown =
         Assertions.assertThrows(
             ColumnDefaultException.class, () -> protection.prepare(existing, incoming));
-    Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_REWRITE"));
-    Assertions.assertTrue(thrown.getMessage().contains("matching initial-default"));
-    Assertions.assertTrue(thrown.getMessage().contains("country (field-id 2)"));
+    Assertions.assertEquals(ColumnDefaultException.Reason.REWRITE, thrown.getReason());
+    Assertions.assertEquals("country", thrown.getColumnPath());
   }
 
   @Test
@@ -271,10 +270,10 @@ public class ReadBridgeStripProtectionTest {
     ColumnDefaultException thrown =
         Assertions.assertThrows(
             ColumnDefaultException.class, () -> protection.prepare(existing, incoming));
-    Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_REMOVED"));
-    Assertions.assertEquals(ColumnDefaultException.Operation.REMOVED, thrown.getOperation());
-    Assertions.assertTrue(thrown.getMessage().contains("country (field-id 2)"));
-    Assertions.assertTrue(thrown.getMessage().contains("cannot be removed or changed"));
+    Assertions.assertEquals(ColumnDefaultException.Reason.REMOVED, thrown.getReason());
+    Assertions.assertEquals(ColumnDefaultException.Origin.INCOMING, thrown.getOrigin());
+    Assertions.assertEquals(Integer.valueOf(2), thrown.getFieldId());
+    Assertions.assertEquals("country", thrown.getColumnPath());
   }
 
   @Test
@@ -334,9 +333,44 @@ public class ReadBridgeStripProtectionTest {
     ColumnDefaultException thrown =
         Assertions.assertThrows(
             ColumnDefaultException.class, () -> protection.prepare(existing, incoming));
-    Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_UNUSABLE"));
-    Assertions.assertTrue(thrown.getMessage().contains("encoder exploded"));
-    Assertions.assertTrue(thrown.getMessage().contains(METADATA_LOCATION));
+    Assertions.assertEquals(ColumnDefaultException.Reason.INTERNAL, thrown.getReason());
+    Assertions.assertEquals(ColumnDefaultException.Origin.STORED, thrown.getOrigin());
+  }
+
+  @Test
+  public void malformedStoredDefaultsAreIdentifiedAsStoredMetadata() {
+    ColumnDefaultsSource invalid =
+        table -> {
+          throw new ColumnDefaultException(
+              ColumnDefaultException.Reason.INVALID_VALUE, table, null);
+        };
+    ColumnDefaultException thrown =
+        Assertions.assertThrows(
+            ColumnDefaultException.class,
+            () ->
+                protection(invalid)
+                    .prepare(ramped(SCHEMA_WITHOUT_DEFAULT), ramped(SCHEMA_WITH_DEFAULT)));
+    Assertions.assertEquals(ColumnDefaultException.Reason.INVALID_VALUE, thrown.getReason());
+    Assertions.assertEquals(ColumnDefaultException.Origin.STORED, thrown.getOrigin());
+  }
+
+  @Test
+  public void malformedIncomingDefaultsAreNotReportedAsRemoved() {
+    ColumnDefaultsSource invalidIncoming =
+        table -> {
+          if (table.isReplaceCommit()) {
+            throw new ColumnDefaultException(
+                ColumnDefaultException.Reason.INVALID_VALUE, table, null);
+          }
+          return Collections.singletonMap(2, TextNode.valueOf("US"));
+        };
+    TableDto incoming = ramped(SCHEMA_WITH_DEFAULT).toBuilder().replaceCommit(true).build();
+    ColumnDefaultException thrown =
+        Assertions.assertThrows(
+            ColumnDefaultException.class,
+            () -> protection(invalidIncoming).prepare(ramped(SCHEMA_WITHOUT_DEFAULT), incoming));
+    Assertions.assertEquals(ColumnDefaultException.Reason.INVALID_VALUE, thrown.getReason());
+    Assertions.assertEquals(ColumnDefaultException.Origin.INCOMING, thrown.getOrigin());
   }
 
   @Test
@@ -348,9 +382,8 @@ public class ReadBridgeStripProtectionTest {
     ColumnDefaultException thrown =
         Assertions.assertThrows(
             ColumnDefaultException.class, () -> protection.prepare(existing, incoming));
-    Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_UNUSABLE"));
-    Assertions.assertTrue(thrown.getMessage().contains("unreadable json"));
-    Assertions.assertTrue(thrown.getMessage().contains(METADATA_LOCATION));
+    Assertions.assertEquals(ColumnDefaultException.Reason.INVALID_SCHEMA, thrown.getReason());
+    Assertions.assertEquals(ColumnDefaultException.Origin.INCOMING, thrown.getOrigin());
   }
 
   @Test
@@ -370,9 +403,8 @@ public class ReadBridgeStripProtectionTest {
     ColumnDefaultException thrown =
         Assertions.assertThrows(
             ColumnDefaultException.class, () -> protection.prepare(existing, incoming));
-    Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_UNUSABLE"));
-    Assertions.assertTrue(thrown.getMessage().contains("unreadable snapshot"));
-    Assertions.assertTrue(thrown.getMessage().contains(METADATA_LOCATION));
+    Assertions.assertEquals(ColumnDefaultException.Reason.INVALID_SCHEMA, thrown.getReason());
+    Assertions.assertEquals(ColumnDefaultException.Origin.INCOMING, thrown.getOrigin());
   }
 
   private static String schema(String resourceName) {

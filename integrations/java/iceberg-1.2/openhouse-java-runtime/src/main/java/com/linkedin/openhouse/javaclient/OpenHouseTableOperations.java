@@ -484,13 +484,12 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
       Throwable e, String databaseId, String tableId) {
     if (e instanceof WebClientResponseException.NotFound) {
       return Mono.error(
-          new NoSuchTableException(
-              String.format("Table %s.%s doesn't exist, ", databaseId, tableId), e));
+          new NoSuchTableException(e, "Table %s.%s doesn't exist", databaseId, tableId));
     } else if (e instanceof WebClientResponseException.Conflict) {
       WebClientResponseException casted = (WebClientResponseException) e;
       return Mono.error(
           new CommitFailedException(
-              casted, casted.getStatusCode().value() + " , " + casted.getResponseBodyAsString()));
+              casted, "%s", WebClientResponseWithMessageException.getResponseMessage(casted)));
 
     } else if (e instanceof WebClientResponseException.GatewayTimeout
         || e instanceof WebClientResponseException.ServiceUnavailable
@@ -500,12 +499,14 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
        * leads to deletion of iceberg metadata files.
        */
       WebClientResponseException casted = (WebClientResponseException) e;
-      return Mono.error(new CommitStateUnknownException(casted.getResponseBodyAsString(), casted));
+      return Mono.error(
+          new CommitStateUnknownException(
+              WebClientResponseWithMessageException.getResponseMessage(casted), casted));
     } else if (e instanceof WebClientResponseException.BadRequest) {
       WebClientResponseException casted = (WebClientResponseException) e;
       return Mono.error(
           new BadRequestException(
-              casted, casted.getStatusCode().value() + " , " + casted.getResponseBodyAsString()));
+              casted, "%s", WebClientResponseWithMessageException.getResponseMessage(casted)));
     } else if (e instanceof WebClientResponseException.NotImplemented) {
       return Mono.error(new WebClientResponseWithMessageException((WebClientResponseException) e));
     } else if (e instanceof WebClientResponseException
@@ -524,7 +525,13 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
               "Unexpected exception occurred during doCommit: %s, with stacktrace: ",
               e.getClass().getSimpleName()),
           e);
-      return Mono.error(new CommitStateUnknownException(e));
+      return Mono.error(
+          e instanceof WebClientResponseException
+              ? new CommitStateUnknownException(
+                  WebClientResponseWithMessageException.getResponseMessage(
+                      (WebClientResponseException) e),
+                  e)
+              : new CommitStateUnknownException(e));
     }
   }
 }

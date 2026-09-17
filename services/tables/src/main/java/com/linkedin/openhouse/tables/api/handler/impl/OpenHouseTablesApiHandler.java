@@ -13,6 +13,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
 import com.linkedin.openhouse.tables.services.TablesService;
 import java.util.List;
@@ -94,7 +95,8 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
   public ApiResponse<GetTableResponseBody> createTable(
       String databaseId,
       CreateUpdateTableRequestBody createUpdateTableRequestBody,
-      String tableCreator) {
+      String tableCreator)
+      throws ColumnDefaultException {
     tablesApiValidator.validateCreateTable(
         clusterProperties.getClusterName(), databaseId, createUpdateTableRequestBody);
     Pair<TableDto, Boolean> putResult =
@@ -111,7 +113,8 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
       String databaseId,
       String tableId,
       CreateUpdateTableRequestBody createUpdateTableRequestBody,
-      String tableCreatorUpdator) {
+      String tableCreatorUpdator)
+      throws ColumnDefaultException {
     tablesApiValidator.validateUpdateTable(
         clusterProperties.getClusterName(), databaseId, tableId, createUpdateTableRequestBody);
     Pair<TableDto, Boolean> putResult =

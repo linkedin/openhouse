@@ -8,6 +8,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponse
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
 import java.util.List;
 
 /**
@@ -68,7 +69,8 @@ public interface TablesApiHandler {
   ApiResponse<GetTableResponseBody> createTable(
       String databaseId,
       CreateUpdateTableRequestBody createUpdateTableRequestBody,
-      String tableCreator);
+      String tableCreator)
+      throws ColumnDefaultException;
 
   /**
    * Function to Create/Update Table Resource in a given databaseId
@@ -82,7 +84,8 @@ public interface TablesApiHandler {
       String databaseId,
       String tableId,
       CreateUpdateTableRequestBody createUpdateTableRequestBody,
-      String tableCreatorUpdator);
+      String tableCreatorUpdator)
+      throws ColumnDefaultException;
 
   /**
    * Function to Delete a Table Resource identified by tableId in a given databaseId
