@@ -84,8 +84,13 @@ public class SparkJobUtilTest {
   void testCreateDeleteStatementZonedNativeSnapsToUtcPartitionEdge() {
     ZonedDateTime now = ZonedDateTime.of(2024, 2, 1, 2, 0, 0, 0, ZoneOffset.UTC);
     // now is 2024-01-31T18:00 in America/Los_Angeles (PST, -08:00); the local day start moved back
-    // 2 days is 2024-01-29T00:00 local = 2024-01-29T08:00Z, snapped down to the UTC day edge.
-    String expected = "DELETE FROM `db`.`table-name` WHERE ts < timestamp '2024-01-29T00:00'";
+    // 2 days is 2024-01-29T00:00 local = 2024-01-29T08:00Z, snapped down to the UTC day edge and
+    // emitted as absolute micros so the executed delete is independent of the Spark session zone.
+    long micros =
+        LocalDateTime.of(2024, 1, 29, 0, 0).toInstant(ZoneOffset.UTC).getEpochSecond()
+            * 1000
+            * 1000;
+    String expected = "DELETE FROM `db`.`table-name` WHERE ts < timestamp_micros(" + micros + ")";
     Assertions.assertEquals(
         expected,
         SparkJobUtil.createDeleteStatement(
@@ -124,7 +129,11 @@ public class SparkJobUtilTest {
     ZonedDateTime now = ZonedDateTime.of(2024, 6, 1, 12, 0, 0, 0, ZoneOffset.UTC);
     // Asia/Kolkata is +05:30. now in zone is 2024-06-01T17:30; hour start is 17:00 (= 11:30Z); one
     // hour back is 16:00 (= 10:30Z); snapped down to the UTC hour edge is 10:00Z.
-    String expected = "DELETE FROM `db`.`table-name` WHERE ts < timestamp '2024-06-01T10:00'";
+    long micros =
+        LocalDateTime.of(2024, 6, 1, 10, 0).toInstant(ZoneOffset.UTC).getEpochSecond()
+            * 1000
+            * 1000;
+    String expected = "DELETE FROM `db`.`table-name` WHERE ts < timestamp_micros(" + micros + ")";
     Assertions.assertEquals(
         expected,
         SparkJobUtil.createDeleteStatement(
@@ -153,7 +162,9 @@ public class SparkJobUtilTest {
     // now=2024-03-15T05:00Z is 2024-03-14T22:00 in America/Los_Angeles; the local month start moved
     // back 1 month is 2024-02-01T00:00 local = 2024-02-01T08:00Z, snapped to the UTC month edge.
     ZonedDateTime now = ZonedDateTime.of(2024, 3, 15, 5, 0, 0, 0, ZoneOffset.UTC);
-    String expected = "DELETE FROM `db`.`table-name` WHERE ts < timestamp '2024-02-01T00:00'";
+    long micros =
+        LocalDateTime.of(2024, 2, 1, 0, 0).toInstant(ZoneOffset.UTC).getEpochSecond() * 1000 * 1000;
+    String expected = "DELETE FROM `db`.`table-name` WHERE ts < timestamp_micros(" + micros + ")";
     Assertions.assertEquals(
         expected,
         SparkJobUtil.createDeleteStatement(
@@ -165,10 +176,51 @@ public class SparkJobUtilTest {
     // now=2024-06-15T05:00Z is 2024-06-14T22:00 in America/Los_Angeles; the local year start moved
     // back 1 year is 2023-01-01T00:00 local = 2023-01-01T08:00Z, snapped to the UTC year edge.
     ZonedDateTime now = ZonedDateTime.of(2024, 6, 15, 5, 0, 0, 0, ZoneOffset.UTC);
-    String expected = "DELETE FROM `db`.`table-name` WHERE ts < timestamp '2023-01-01T00:00'";
+    long micros =
+        LocalDateTime.of(2023, 1, 1, 0, 0).toInstant(ZoneOffset.UTC).getEpochSecond() * 1000 * 1000;
+    String expected = "DELETE FROM `db`.`table-name` WHERE ts < timestamp_micros(" + micros + ")";
     Assertions.assertEquals(
         expected,
         SparkJobUtil.createDeleteStatement(
             "db.table-name", "ts", "", "YEAR", 1, now, "America/Los_Angeles"));
+  }
+
+  @Test
+  void testZonedNativeStatementAndFilterUseIdenticalUtcMicros() {
+    // The executed SQL delete (timestamp_micros) and the Iceberg backup filter must compare against
+    // the identical absolute instant, so the certified metadata-only range matches what is deleted
+    // regardless of the Spark session time zone.
+    ZonedDateTime now = ZonedDateTime.of(2024, 2, 1, 2, 0, 0, 0, ZoneOffset.UTC);
+    long micros =
+        LocalDateTime.of(2024, 1, 29, 0, 0).toInstant(ZoneOffset.UTC).getEpochSecond()
+            * 1000
+            * 1000;
+    String statement =
+        SparkJobUtil.createDeleteStatement(
+            "db.table-name", "ts", "", "DAY", 2, now, "America/Los_Angeles");
+    Expression filter =
+        SparkJobUtil.createDeleteFilter("ts", "", "DAY", 2, now, "America/Los_Angeles");
+    UnboundPredicate<?> predicate = (UnboundPredicate<?>) filter;
+    Assertions.assertEquals(
+        "DELETE FROM `db`.`table-name` WHERE ts < timestamp_micros(" + micros + ")", statement);
+    Assertions.assertEquals(micros, predicate.literal().value());
+  }
+
+  @Test
+  void testZonedStringBoundaryConsistentAcrossFallBackDst() {
+    // America/Los_Angeles fall-back: 2024-11-03 02:00 -> 01:00 (the 01:00 hour repeats).
+    // now=2024-11-03T09:30Z is 01:30 PST (after the transition at 09:00Z); the wall-clock boundary
+    // one hour back is 00:30, formatted as 2024-11-03-00. The executed SQL delete and the Iceberg
+    // backup filter must derive the same label.
+    ZonedDateTime now = ZonedDateTime.of(2024, 11, 3, 9, 30, 0, 0, ZoneOffset.UTC);
+    String statement =
+        SparkJobUtil.createDeleteStatement(
+            "db.table-name", "dp", "yyyy-MM-dd-HH", "HOUR", 1, now, "America/Los_Angeles");
+    Expression filter =
+        SparkJobUtil.createDeleteFilter(
+            "dp", "yyyy-MM-dd-HH", "HOUR", 1, now, "America/Los_Angeles");
+    UnboundPredicate<?> predicate = (UnboundPredicate<?>) filter;
+    Assertions.assertEquals("DELETE FROM `db`.`table-name` WHERE dp < '2024-11-03-00'", statement);
+    Assertions.assertEquals("2024-11-03-00", predicate.literal().value());
   }
 }

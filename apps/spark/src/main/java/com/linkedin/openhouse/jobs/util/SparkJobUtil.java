@@ -104,15 +104,17 @@ public final class SparkJobUtil {
           query);
       return query;
     } else if (hasTimeZoneOverride) {
-      // Native timestamp column: evaluate the boundary in the zone, then snap it down to the UTC
-      // partition edge so the delete stays a metadata-only partition drop.
-      LocalDateTime boundary =
-          snappedNativeBoundaryUtc(
+      // Native timestamp column: evaluate the boundary in the zone and snap it down to the UTC
+      // partition edge (metadata-only partition drop). Emit it as an absolute epoch value via
+      // timestamp_micros so the executed delete matches the Iceberg backup filter regardless of the
+      // Spark session time zone.
+      long boundaryMicros =
+          snappedNativeBoundaryUtcMicros(
               now.withZoneSameInstant(ZoneId.of(timeZone)), granularity, count);
       String query =
           String.format(
-              "DELETE FROM %s WHERE %s < timestamp '%s'",
-              getQuotedFqtn(fqtn), columnName, boundary);
+              "DELETE FROM %s WHERE %s < timestamp_micros(%d)",
+              getQuotedFqtn(fqtn), columnName, boundaryMicros);
       log.info(
           "Table: {}. No column pattern, timeZone {}, retention query: {}", fqtn, timeZone, query);
       return query;
@@ -157,8 +159,7 @@ public final class SparkJobUtil {
       return Expressions.lessThan(
           columnName, zonedStringBoundary(effectiveNow, granularity, count, columnPattern));
     } else {
-      LocalDateTime boundary = snappedNativeBoundaryUtc(effectiveNow, granularity, count);
-      long micros = boundary.toInstant(ZoneOffset.UTC).getEpochSecond() * MICROS_PER_SECOND;
+      long micros = snappedNativeBoundaryUtcMicros(effectiveNow, granularity, count);
       return Expressions.lessThan(columnName, micros);
     }
   }
@@ -175,6 +176,19 @@ public final class SparkJobUtil {
     ChronoUnit unit = convertGranularityToChrono(granularity.toUpperCase());
     LocalDateTime boundary = effectiveNow.toLocalDateTime().minus(count, unit);
     return DateTimeFormatter.ofPattern(columnPattern).format(boundary);
+  }
+
+  /**
+   * Compute the native-timestamp retention boundary as absolute microseconds since the UTC epoch,
+   * so the executed SQL delete and the Iceberg backup filter compare against the identical instant
+   * regardless of the Spark session time zone.
+   */
+  private static long snappedNativeBoundaryUtcMicros(
+      ZonedDateTime nowInZone, String granularity, int count) {
+    return snappedNativeBoundaryUtc(nowInZone, granularity, count)
+            .toInstant(ZoneOffset.UTC)
+            .getEpochSecond()
+        * MICROS_PER_SECOND;
   }
 
   /**
