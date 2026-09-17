@@ -1,9 +1,8 @@
 package com.linkedin.openhouse.spark.statementtest;
 
 import java.nio.file.Files;
-import lombok.SneakyThrows;
+import java.util.stream.Collectors;
 import org.apache.hadoop.fs.Path;
-import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -20,11 +19,10 @@ import org.junit.jupiter.api.TestInstance;
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class SetRetentionTimeZoneStatementTest {
-  private static SparkSession spark = null;
+  private static SparkSession spark;
 
-  @SneakyThrows
   @BeforeAll
-  public void setupSpark() {
+  public void setupSpark() throws Exception {
     Path unittest = new Path(Files.createTempDirectory("unittest_settzpolicy").toString());
     spark =
         SparkSession.builder()
@@ -106,11 +104,9 @@ public class SetRetentionTimeZoneStatementTest {
   }
 
   private String storedPolicy(String table) {
-    StringBuilder allProps = new StringBuilder();
-    for (Row row : spark.sql("SHOW TBLPROPERTIES " + table).collectAsList()) {
-      allProps.append(row.getString(0)).append('=').append(row.getString(1)).append('\n');
-    }
-    return allProps.toString();
+    return spark.sql("SHOW TBLPROPERTIES " + table).collectAsList().stream()
+        .map(row -> row.getString(0) + "=" + row.getString(1))
+        .collect(Collectors.joining("\n", "", "\n"));
   }
 
   @AfterAll
