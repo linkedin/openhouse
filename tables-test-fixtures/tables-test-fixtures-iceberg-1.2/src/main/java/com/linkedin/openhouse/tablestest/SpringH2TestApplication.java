@@ -11,6 +11,7 @@ import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 
 @SpringBootApplication
@@ -42,6 +43,7 @@ import org.springframework.context.annotation.Primary;
     })
 @EnableAutoConfiguration(
     exclude = {SecurityAutoConfiguration.class, ManagementWebSecurityAutoConfiguration.class})
+@Import(SparkItestColumnDefaults.class)
 public class SpringH2TestApplication {
 
   public static void main(String[] args) {
