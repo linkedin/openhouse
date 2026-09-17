@@ -9,6 +9,7 @@ import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorage;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
+import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
@@ -72,6 +73,9 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
@@ -81,6 +85,8 @@ import org.mockito.MockitoAnnotations;
 
 public class OpenHouseInternalTableOperationsTest {
   private static final String TEST_LOCATION = "test_location";
+  private static final String COLUMN_DEFAULT_PROPERTY =
+      CatalogConstants.COLUMN_DEFAULT_ENABLED_TABLE_PROP;
   private static final TableIdentifier TEST_TABLE_IDENTIFIER =
       TableIdentifier.of("test_db", "test_table");
   private static final TableMetadata BASE_TABLE_METADATA =
@@ -159,6 +165,80 @@ public class OpenHouseInternalTableOperationsTest {
     LocalStorage localStorage = mock(LocalStorage.class);
     when(fileIOManager.getStorage(fileIO)).thenReturn(localStorage);
     when(localStorage.getType()).thenReturn(StorageType.LOCAL);
+  }
+
+  @ParameterizedTest
+  @CsvSource({"true,false", "false,true", "true,", "false,", "true,TRUE", "invalid,true"})
+  void testColumnDefaultPropertyCannotChangeOrBeRemoved(String original, String proposed) {
+    TableMetadata base =
+        BASE_TABLE_METADATA.replaceProperties(Map.of(COLUMN_DEFAULT_PROPERTY, original));
+    TableMetadata updated =
+        base.replaceProperties(
+            proposed == null ? Map.of() : Map.of(COLUMN_DEFAULT_PROPERTY, proposed));
+
+    try (MockedStatic<TableMetadataParser> metadataFiles = mockStatic(TableMetadataParser.class)) {
+      UnsupportedClientOperationException exception =
+          Assertions.assertThrows(
+              UnsupportedClientOperationException.class,
+              () -> openHouseInternalTableOperations.doCommit(base, updated));
+      Assertions.assertTrue(exception.getMessage().contains(COLUMN_DEFAULT_PROPERTY));
+      Assertions.assertTrue(exception.getMessage().contains("immutable once committed"));
+      // Validation must fail before writing metadata or attempting commit-status recovery.
+      metadataFiles.verify(() -> TableMetadataParser.write(any(), any()), never());
+      verifyNoInteractions(mockHouseTableRepository, mockHouseTableMapper);
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "create,true",
+    "create,false",
+    "add,true",
+    "add,false",
+    "same,true",
+    "same,false",
+    "absent,"
+  })
+  void testColumnDefaultPropertyAllowsFirstAssignmentAndUnchangedValues(
+      String operation, String value) {
+    Map<String, String> properties =
+        value == null ? Map.of() : Map.of(COLUMN_DEFAULT_PROPERTY, value);
+    TableMetadata base =
+        "create".equals(operation)
+            ? null
+            : "same".equals(operation)
+                ? BASE_TABLE_METADATA.replaceProperties(properties)
+                : BASE_TABLE_METADATA;
+    TableMetadata updated = BASE_TABLE_METADATA.replaceProperties(properties);
+
+    try (MockedStatic<TableMetadataParser> metadataFiles = mockStatic(TableMetadataParser.class)) {
+      openHouseInternalTableOperations.doCommit(base, updated);
+      verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), any());
+      Assertions.assertEquals(
+          value, tblMetadataCaptor.getValue().properties().get(COLUMN_DEFAULT_PROPERTY));
+      verify(mockHouseTableRepository).save(mockHouseTable);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        CatalogConstants.TRANSIENT_RESTORE_PREFIX,
+        CatalogConstants.TRANSIENT_ADDED_PREFIX
+      })
+  void testColumnDefaultPropertyCheckedAfterTransientPropertiesRestored(String prefix) {
+    TableMetadata base =
+        BASE_TABLE_METADATA.replaceProperties(Map.of(COLUMN_DEFAULT_PROPERTY, "true"));
+    TableMetadata updated =
+        base.replaceProperties(
+            Map.of(COLUMN_DEFAULT_PROPERTY, "true", prefix + COLUMN_DEFAULT_PROPERTY, "false"));
+    try (MockedStatic<TableMetadataParser> metadataFiles = mockStatic(TableMetadataParser.class)) {
+      Assertions.assertThrows(
+          UnsupportedClientOperationException.class,
+          () -> openHouseInternalTableOperations.doCommit(base, updated));
+      metadataFiles.verify(() -> TableMetadataParser.write(any(), any()), never());
+      verifyNoInteractions(mockHouseTableRepository);
+    }
   }
 
   /**

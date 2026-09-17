@@ -34,6 +34,12 @@ public final class CatalogConstants {
 
   public static final String WAP_ENABLED_TABLE_PROP = "write.wap.enabled";
 
+  public static final String COLUMN_DEFAULT_FEATURE_ID = "read-bridge.column-default";
+
+  /** Self-service opt-in/out; once committed, its value cannot be changed or removed. */
+  public static final String COLUMN_DEFAULT_ENABLED_TABLE_PROP =
+      COLUMN_DEFAULT_FEATURE_ID + ".enabled";
+
   static final String FEATURE_TOGGLE_STOP_CREATE = "stop_create";
 
   static final String CLIENT_TABLE_SCHEMA = "client.table.schema";
