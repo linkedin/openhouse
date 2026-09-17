@@ -6,8 +6,8 @@ package com.linkedin.openhouse.common.exception;
  * {@code ServiceUnavailableException}, or another retriable I/O error.
  *
  * <p>This is a server/dependency condition, not table corruption, so it is surfaced as a {@code 503
- * Service Unavailable} and the caller should retry. See BDP-108628: we must not misrepresent a
- * transient I/O failure as {@link InvalidTableMetadataException}.
+ * Service Unavailable} and the caller should retry. We must not misrepresent a transient I/O
+ * failure as {@link InvalidTableMetadataException}.
  */
 public class StorageDependencyUnavailableException extends RuntimeException {
 
