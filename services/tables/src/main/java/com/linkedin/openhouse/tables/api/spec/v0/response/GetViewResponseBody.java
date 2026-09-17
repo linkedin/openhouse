@@ -43,6 +43,16 @@ public class GetViewResponseBody {
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private String viewVersion;
 
+  @Schema(description = "Authenticated user principal that created the View.", example = "bob")
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+  private String viewCreator;
+
+  @Schema(
+      description = "Last modification epoch time in UTC measured in milliseconds of a view.",
+      example = "1651002318265")
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+  private long lastModifiedTime;
+
   @Schema(
       description = "View creation epoch time measured in UTC in milliseconds of a view.",
       example = "1651002318265")

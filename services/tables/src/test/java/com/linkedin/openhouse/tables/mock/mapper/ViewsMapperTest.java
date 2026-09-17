@@ -65,14 +65,10 @@ public class ViewsMapperTest {
   @Test
   public void testViewDtoMapsToPointerResponseBody() {
     ViewDto viewDto =
-        ViewDto.builder()
-            .viewId(ViewModelConstants.VIEW_ID)
-            .databaseId(ViewModelConstants.DATABASE_ID)
-            .clusterId(ViewModelConstants.CLUSTER_ID)
-            .viewUri(ViewModelConstants.VIEW_URI)
+        pointerDto()
+            .toBuilder()
             .metadataLocation(ViewModelConstants.DISTINCT_METADATA_LOCATION)
             .viewVersion(ViewModelConstants.DISTINCT_VIEW_VERSION)
-            .creationTime(ViewModelConstants.CREATION_TIME)
             // Definition fields have no counterpart on the pointer-only read contract.
             .schema(ViewModelConstants.VIEW_SCHEMA_LITERAL)
             .sourceDialect(ViewModelConstants.SOURCE_DIALECT)
@@ -85,6 +81,49 @@ public class ViewsMapperTest {
         ViewModelConstants.DISTINCT_METADATA_LOCATION, responseBody.getMetadataLocation());
     Assertions.assertEquals(
         ViewModelConstants.DISTINCT_VIEW_VERSION, responseBody.getViewVersion());
+    Assertions.assertEquals(
+        ViewModelConstants.VIEW_CREATOR,
+        responseBody.getViewCreator(),
+        "The creator the service recorded reaches the response unchanged; the mapper neither"
+            + " substitutes the current caller nor blanks it.");
+    Assertions.assertEquals(
+        ViewModelConstants.LAST_MODIFIED_TIME, responseBody.getLastModifiedTime());
+    Assertions.assertEquals(ViewModelConstants.CREATION_TIME, responseBody.getCreationTime());
+    Assertions.assertNotEquals(
+        responseBody.getCreationTime(),
+        responseBody.getLastModifiedTime(),
+        "The fixture keeps the two timestamps distinct, otherwise a swapped mapping would pass.");
+  }
+
+  /** The list path maps every element through the same mapping, metadata included. */
+  @Test
+  public void testPopulatedListElementsCarryTheServiceSuppliedMetadata() {
+    GetAllViewsResponseBody responseBody =
+        viewsMapper.toGetAllViewsResponseBody(
+            ViewListResult.builder().results(Collections.singletonList(pointerDto())).build());
+
+    Assertions.assertEquals(
+        Collections.singletonList(ViewModelConstants.pointerResponse()), responseBody.getResults());
+    Assertions.assertEquals(
+        ViewModelConstants.VIEW_CREATOR, responseBody.getResults().get(0).getViewCreator());
+    Assertions.assertEquals(
+        ViewModelConstants.LAST_MODIFIED_TIME,
+        responseBody.getResults().get(0).getLastModifiedTime());
+  }
+
+  /** The service-owned pointer a populated read returns, matching {@code pointerResponse()}. */
+  private static ViewDto pointerDto() {
+    return ViewDto.builder()
+        .viewId(ViewModelConstants.VIEW_ID)
+        .databaseId(ViewModelConstants.DATABASE_ID)
+        .clusterId(ViewModelConstants.CLUSTER_ID)
+        .viewUri(ViewModelConstants.VIEW_URI)
+        .metadataLocation(ViewModelConstants.METADATA_LOCATION)
+        .viewVersion(ViewModelConstants.VIEW_VERSION)
+        .viewCreator(ViewModelConstants.VIEW_CREATOR)
+        .creationTime(ViewModelConstants.CREATION_TIME)
+        .lastModifiedTime(ViewModelConstants.LAST_MODIFIED_TIME)
+        .build();
   }
 
   @Test
@@ -111,6 +150,14 @@ public class ViewsMapperTest {
     Assertions.assertNull(
         responseBody.getResults().get(0).getMetadataLocation(),
         "List elements stay sparse: only identifiers are populated.");
+    Assertions.assertNull(
+        responseBody.getResults().get(0).getViewCreator(),
+        "A sparse element carries no creator; the mapper does not fabricate one.");
+    Assertions.assertEquals(
+        0L,
+        responseBody.getResults().get(0).getLastModifiedTime(),
+        "A primitive timestamp has no absent form, so an unpopulated element stays at zero rather"
+            + " than being stamped with the current time.");
   }
 
   /** Neither exhaustion nor continuation may be inferred from the number of elements. */

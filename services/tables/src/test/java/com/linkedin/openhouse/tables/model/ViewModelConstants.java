@@ -33,7 +33,22 @@ public final class ViewModelConstants {
       "file:/tmp/openhouse/my_database/my_view/metadata/00000-fixed.metadata.json";
   public static final String VIEW_VERSION =
       "file:/tmp/openhouse/my_database/my_view/metadata/00000-fixed.metadata.json";
+
+  /**
+   * The principal the service recorded as the view's creator. Deliberately not the principal the
+   * controller tests act as, so a response that substituted the current caller for the stored
+   * creator is visible rather than indistinguishable.
+   */
+  public static final String VIEW_CREATOR = "bob";
+
   public static final long CREATION_TIME = 1651002318265L;
+
+  /**
+   * Fixed modification time, deliberately later than {@link #CREATION_TIME}. Keeping the two
+   * distinct is what lets the contract assertions pin each timestamp independently instead of
+   * passing on a swapped property association.
+   */
+  public static final long LAST_MODIFIED_TIME = 1651088718265L;
 
   /**
    * Distinct sentinels for {@code metadataLocation} and {@code viewVersion}. In production the two
@@ -100,6 +115,8 @@ public final class ViewModelConstants {
         .clusterId(CLUSTER_ID)
         .metadataLocation(METADATA_LOCATION)
         .viewVersion(VIEW_VERSION)
+        .viewCreator(VIEW_CREATOR)
+        .lastModifiedTime(LAST_MODIFIED_TIME)
         .creationTime(CREATION_TIME)
         .build();
   }

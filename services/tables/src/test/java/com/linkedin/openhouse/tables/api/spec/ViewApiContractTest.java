@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.api.spec;
 
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.BeanDescription;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -13,6 +14,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllViewsResponseBod
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetViewResponseBody;
 import com.linkedin.openhouse.tables.exception.ViewErrorCode;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
@@ -91,7 +93,14 @@ public class ViewApiContractTest {
   public void testGetViewResponseBodyFieldsAreFrozen() {
     Set<String> expected =
         setOf(
-            "viewId", "databaseId", "clusterId", "metadataLocation", "viewVersion", "creationTime");
+            "viewId",
+            "databaseId",
+            "clusterId",
+            "metadataLocation",
+            "viewVersion",
+            "viewCreator",
+            "lastModifiedTime",
+            "creationTime");
 
     Assertions.assertEquals(
         expected,
@@ -104,6 +113,53 @@ public class ViewApiContractTest {
         jacksonPropertyNames(GetViewResponseBody.class),
         "A getter-only property would leak onto the wire without adding a declared field, so the"
             + " Jackson property set is pinned as well.");
+
+    // A name set cannot see how a field is declared or marked, so the two server-owned additions
+    // pin their declared type and their read-only, non-required marking as well.
+    Assertions.assertEquals(
+        String.class,
+        declaredField(GetViewResponseBody.class, "viewCreator").getType(),
+        "The creator is the principal string the service recorded, not a structured actor object.");
+    Assertions.assertEquals(
+        long.class,
+        declaredField(GetViewResponseBody.class, "lastModifiedTime").getType(),
+        "The modification time is a primitive epoch-millisecond value like creationTime, so it has"
+            + " no absent form and can never serialize as null.");
+
+    for (String serverOwned : Arrays.asList("viewCreator", "lastModifiedTime")) {
+      Field field = declaredField(GetViewResponseBody.class, serverOwned);
+
+      JsonProperty jsonProperty = field.getAnnotation(JsonProperty.class);
+      Assertions.assertNotNull(
+          jsonProperty, "'" + serverOwned + "' must carry @JsonProperty like every pointer field.");
+      Assertions.assertEquals(
+          JsonProperty.Access.READ_ONLY,
+          jsonProperty.access(),
+          "'"
+              + serverOwned
+              + "' is service-owned: it is response-only, so a caller can never write it and it"
+              + " must not appear as a writable property in the generated spec.");
+
+      Schema schema = field.getAnnotation(Schema.class);
+      Assertions.assertNotNull(
+          schema, "'" + serverOwned + "' must be documented in the generated spec.");
+      Assertions.assertFalse(
+          schema.description().trim().isEmpty(),
+          "'" + serverOwned + "' must carry a description, following GetTableResponseBody.");
+      Assertions.assertFalse(
+          schema.example().trim().isEmpty(), "'" + serverOwned + "' must carry an example.");
+      Assertions.assertEquals(
+          Schema.RequiredMode.AUTO,
+          schema.requiredMode(),
+          "'"
+              + serverOwned
+              + "' is optional: a sparse list element leaves it unpopulated, so marking it required"
+              + " would describe a guarantee the list path does not make.");
+      Assertions.assertFalse(
+          schema.required(),
+          "The deprecated required attribute is the other way to mark the same guarantee, so it is"
+              + " pinned too.");
+    }
   }
 
   @Test
@@ -346,6 +402,36 @@ public class ViewApiContractTest {
     Assertions.assertFalse(parse(request.toJson()).has("clusterId"));
   }
 
+  /**
+   * The response now carries server-owned creator and modification metadata. Neither has a request
+   * counterpart, so a caller that sends them is sending unknown keys: they bind nowhere and cannot
+   * reappear on either serialized form of the request.
+   */
+  @Test
+  public void testForgedServerOwnedMetadataDoesNotSurviveBinding() {
+    ObjectMapper lenientMapper =
+        new ObjectMapper().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+    String payload =
+        "{\"viewId\": \""
+            + ViewModelConstants.VIEW_ID
+            + "\", \"viewCreator\": \"mallory\", \"lastModifiedTime\": 1}";
+
+    CreateUpdateViewRequestBody request =
+        Assertions.assertDoesNotThrow(
+            () -> lenientMapper.readValue(payload, CreateUpdateViewRequestBody.class));
+
+    Assertions.assertEquals(
+        ViewModelConstants.VIEW_ID,
+        request.getViewId(),
+        "Precondition: the rest of the payload still binds; only the metadata keys are unknown.");
+    JsonNode json = MAPPER.valueToTree(request);
+    JsonNode gsonPayload = parse(request.toJson());
+    for (String forged : Arrays.asList("viewCreator", "lastModifiedTime")) {
+      Assertions.assertFalse(json.has(forged));
+      Assertions.assertFalse(gsonPayload.has(forged));
+    }
+  }
+
   @Test
   public void testPointerResponseSerializesExactKeysAndNoDefinition() {
     // Uses distinct metadataLocation/viewVersion sentinels so a swap of the two Jackson property
@@ -355,7 +441,14 @@ public class ViewApiContractTest {
 
     Set<String> expected =
         setOf(
-            "viewId", "databaseId", "clusterId", "metadataLocation", "viewVersion", "creationTime");
+            "viewId",
+            "databaseId",
+            "clusterId",
+            "metadataLocation",
+            "viewVersion",
+            "viewCreator",
+            "lastModifiedTime",
+            "creationTime");
     Assertions.assertEquals(expected, keysOf(json));
 
     List<String> definitionFields =
@@ -393,8 +486,7 @@ public class ViewApiContractTest {
         json.get("viewVersion").asText(),
         "The fixture must keep the two pointers distinct, otherwise this test cannot detect a"
             + " swapped property association.");
-    Assertions.assertTrue(json.get("creationTime").isNumber());
-    Assertions.assertEquals(ViewModelConstants.CREATION_TIME, json.get("creationTime").asLong());
+    assertPopulatedServerMetadata(json);
 
     // Gson serializes declared fields, so a removed property has to leave the field itself.
     JsonNode gsonPayload = parse(response.toJson());
@@ -402,6 +494,61 @@ public class ViewApiContractTest {
     Assertions.assertEquals(
         ViewModelConstants.DISTINCT_METADATA_LOCATION,
         gsonPayload.get("metadataLocation").asText());
+    Assertions.assertEquals(
+        ViewModelConstants.DISTINCT_VIEW_VERSION, gsonPayload.get("viewVersion").asText());
+    assertPopulatedServerMetadata(gsonPayload);
+  }
+
+  /**
+   * Every populated server-owned value, pinned independently against its own constant and against
+   * the JSON type its declared field implies. Shared by the item response and the list element so
+   * both serializers are held to the same values: the sparse list fixtures cannot show any of this,
+   * since nothing there is populated.
+   */
+  private static void assertPopulatedServerMetadata(JsonNode node) {
+    Assertions.assertTrue(
+        node.get("viewCreator").isTextual(),
+        "The creator serializes as a JSON string, never as a nested object or a number.");
+    Assertions.assertEquals(
+        ViewModelConstants.VIEW_CREATOR,
+        node.get("viewCreator").asText(),
+        "The creator is the principal the service recorded, carried through verbatim rather than"
+            + " replaced by the caller acting now.");
+    Assertions.assertTrue(
+        node.get("creationTime").isIntegralNumber(),
+        "Epoch milliseconds serialize as an integral number, not a string or a decimal.");
+    Assertions.assertEquals(ViewModelConstants.CREATION_TIME, node.get("creationTime").asLong());
+    Assertions.assertTrue(node.get("lastModifiedTime").isIntegralNumber());
+    Assertions.assertEquals(
+        ViewModelConstants.LAST_MODIFIED_TIME,
+        node.get("lastModifiedTime").asLong(),
+        "The fixture's two timestamps differ, so pinning each against its own constant is what"
+            + " detects a swapped property association.");
+  }
+
+  /**
+   * A populated element inside the list envelope carries the same metadata as the item response, in
+   * both serializers. The list fixtures elsewhere are identifier-only by design, so this is the
+   * only place a populated element's wire form is pinned.
+   */
+  @Test
+  public void testPopulatedListElementCarriesTheSameMetadataInBothSerializers() {
+    GetAllViewsResponseBody listResponse =
+        GetAllViewsResponseBody.builder()
+            .results(Collections.singletonList(ViewModelConstants.pointerResponse()))
+            .build();
+
+    JsonNode jacksonPayload = MAPPER.valueToTree(listResponse);
+    JsonNode jacksonElement = jacksonPayload.get("results").get(0);
+    JsonNode gsonElement = parse(listResponse.toJson()).get("results").get(0);
+
+    for (JsonNode element : Arrays.asList(jacksonElement, gsonElement)) {
+      Assertions.assertEquals(
+          ViewModelConstants.VIEW_ID,
+          element.get("viewId").asText(),
+          "Precondition: the element is the populated fixture, not an empty node.");
+      assertPopulatedServerMetadata(element);
+    }
   }
 
   /** Terminal responses omit the token rather than serialize JSON null. */
@@ -448,6 +595,8 @@ public class ViewApiContractTest {
               "clusterId",
               "metadataLocation",
               "viewVersion",
+              "viewCreator",
+              "lastModifiedTime",
               "creationTime"),
           keysOf(element),
           "List elements must expose exactly the pointer contract.");
@@ -455,13 +604,18 @@ public class ViewApiContractTest {
       Assertions.assertFalse(element.get("viewId").isNull());
       Assertions.assertEquals(ViewModelConstants.DATABASE_ID, element.get("databaseId").asText());
       List<String> unpopulatedPointerFields =
-          Arrays.asList("clusterId", "metadataLocation", "viewVersion");
+          Arrays.asList("clusterId", "metadataLocation", "viewVersion", "viewCreator");
       for (String unpopulated : unpopulatedPointerFields) {
         Assertions.assertTrue(
             element.get(unpopulated).isNull(),
             "List results are identifier-only, so '" + unpopulated + "' must stay unpopulated.");
       }
       Assertions.assertEquals(0L, element.get("creationTime").asLong());
+      Assertions.assertEquals(
+          0L,
+          element.get("lastModifiedTime").asLong(),
+          "A primitive timestamp has no absent form, so an unpopulated element reports zero rather"
+              + " than omitting the key.");
     }
 
     // Compare envelopes; Gson and Jackson differ on nullable fields inside items.
@@ -476,6 +630,15 @@ public class ViewApiContractTest {
     Assertions.assertEquals("my_view", gsonPayload.get("results").get(0).get("viewId").asText());
     Assertions.assertEquals(
         "my_other_view", gsonPayload.get("results").get(1).get("viewId").asText());
+    JsonNode gsonElement = gsonPayload.get("results").get(0);
+    Assertions.assertFalse(
+        gsonElement.has("viewCreator"),
+        "Gson drops null fields, so an unpopulated creator is absent there while Jackson emits it"
+            + " as null. Both forms are accepted; neither serializer may invent a value.");
+    Assertions.assertEquals(
+        0L,
+        gsonElement.get("lastModifiedTime").asLong(),
+        "A primitive has no null form, so both serializers agree on zero.");
   }
 
   @Test
@@ -632,6 +795,13 @@ public class ViewApiContractTest {
         .map(Field::getName)
         .filter(name -> !name.contains("$"))
         .collect(Collectors.toCollection(LinkedHashSet::new));
+  }
+
+  /** The declared field behind a contract property, so its type and annotations can be pinned. */
+  private static Field declaredField(Class<?> type, String name) {
+    return Assertions.assertDoesNotThrow(
+        () -> type.getDeclaredField(name),
+        "'" + name + "' must be a declared field of " + type.getSimpleName() + ".");
   }
 
   /**

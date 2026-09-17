@@ -630,7 +630,9 @@ public class ViewsPaginationControllerTest {
         .viewUri(ViewModelConstants.VIEW_URI)
         .metadataLocation(ViewModelConstants.METADATA_LOCATION)
         .viewVersion(ViewModelConstants.VIEW_VERSION)
+        .viewCreator(ViewModelConstants.VIEW_CREATOR)
         .creationTime(ViewModelConstants.CREATION_TIME)
+        .lastModifiedTime(ViewModelConstants.LAST_MODIFIED_TIME)
         .build();
   }
 }

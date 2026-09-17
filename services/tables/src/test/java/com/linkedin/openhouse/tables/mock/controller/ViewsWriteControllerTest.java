@@ -3,6 +3,8 @@ package com.linkedin.openhouse.tables.mock.controller;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.linkedin.openhouse.common.exception.handler.OpenHouseExceptionHandler;
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
 import com.linkedin.openhouse.tables.api.handler.impl.OpenHouseViewsApiHandler;
@@ -64,6 +66,8 @@ public class ViewsWriteControllerTest {
 
   /** The principal {@link DummyTokenInterceptor} establishes for these requests. */
   private static final String ACTING_PRINCIPAL = "DUMMY_ANONYMOUS_USER";
+
+  private static final ObjectMapper MAPPER = new ObjectMapper();
 
   @Autowired private ViewsApiValidator viewsApiValidator;
 
@@ -142,7 +146,9 @@ public class ViewsWriteControllerTest {
         .viewUri(ViewModelConstants.VIEW_URI)
         .metadataLocation(ViewModelConstants.METADATA_LOCATION)
         .viewVersion(ViewModelConstants.VIEW_VERSION)
+        .viewCreator(ViewModelConstants.VIEW_CREATOR)
         .creationTime(ViewModelConstants.CREATION_TIME)
+        .lastModifiedTime(ViewModelConstants.LAST_MODIFIED_TIME)
         .build();
   }
 
@@ -396,7 +402,12 @@ public class ViewsWriteControllerTest {
             viewsService.putView(Mockito.any(), Mockito.eq(ACTING_PRINCIPAL), Mockito.eq(true)))
         .thenReturn(Pair.of(serviceOwnedPointerDto(), true));
 
-    mvc.perform(createRequest(VIEWS_PATH, request)).andExpect(status().isCreated());
+    mvc.perform(createRequest(VIEWS_PATH, request))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.viewCreator", Matchers.is(ViewModelConstants.VIEW_CREATOR)))
+        .andExpect(
+            jsonPath("$.lastModifiedTime", Matchers.is(ViewModelConstants.LAST_MODIFIED_TIME)))
+        .andExpect(jsonPath("$.creationTime", Matchers.is(ViewModelConstants.CREATION_TIME)));
 
     ArgumentCaptor<CreateUpdateViewRequestBody> forwarded =
         ArgumentCaptor.forClass(CreateUpdateViewRequestBody.class);
@@ -412,12 +423,68 @@ public class ViewsWriteControllerTest {
             viewsService.putView(Mockito.any(), Mockito.eq(ACTING_PRINCIPAL), Mockito.eq(false)))
         .thenReturn(Pair.of(serviceOwnedPointerDto(), false));
 
-    mvc.perform(replaceRequest(VIEW_PATH, request)).andExpect(status().isOk());
+    mvc.perform(replaceRequest(VIEW_PATH, request))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.viewCreator", Matchers.is(ViewModelConstants.VIEW_CREATOR)))
+        .andExpect(
+            jsonPath("$.lastModifiedTime", Matchers.is(ViewModelConstants.LAST_MODIFIED_TIME)));
 
     ArgumentCaptor<CreateUpdateViewRequestBody> forwarded =
         ArgumentCaptor.forClass(CreateUpdateViewRequestBody.class);
     Mockito.verify(viewsService)
         .putView(forwarded.capture(), Mockito.eq(ACTING_PRINCIPAL), Mockito.eq(false));
     Assertions.assertEquals(request, forwarded.getValue());
+  }
+
+  /**
+   * The creator and modification time on the response are the service's. A caller can put those
+   * keys in its body, but they bind nowhere on the typed request, so they neither reach the service
+   * nor displace the recorded values. {@code ACTING_PRINCIPAL} is not the recorded creator, so a
+   * response that stamped the current caller instead would fail here too.
+   */
+  @ParameterizedTest(name = "{0} ignores forged server-owned metadata")
+  @ValueSource(strings = {"create", "replace"})
+  public void aWriteIgnoresForgedServerOwnedMetadata(String route) throws Exception {
+    boolean create = "create".equals(route);
+    CreateUpdateViewRequestBody request =
+        create
+            ? ViewModelConstants.createRequestWithoutBaseVersion()
+            : ViewModelConstants.fullyPopulatedRequest();
+    Mockito.when(
+            viewsService.putView(Mockito.any(), Mockito.eq(ACTING_PRINCIPAL), Mockito.eq(create)))
+        .thenReturn(Pair.of(serviceOwnedPointerDto(), create));
+
+    MockHttpServletRequestBuilder forged =
+        authorize(
+                create
+                    ? MockMvcRequestBuilders.post(VIEWS_PATH)
+                    : MockMvcRequestBuilders.put(VIEW_PATH))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(bodyWithForgedMetadata(request));
+
+    mvc.perform(forged)
+        .andExpect(status().is(create ? 201 : 200))
+        .andExpect(jsonPath("$.viewCreator", Matchers.is(ViewModelConstants.VIEW_CREATOR)))
+        .andExpect(
+            jsonPath("$.lastModifiedTime", Matchers.is(ViewModelConstants.LAST_MODIFIED_TIME)));
+
+    ArgumentCaptor<CreateUpdateViewRequestBody> forwarded =
+        ArgumentCaptor.forClass(CreateUpdateViewRequestBody.class);
+    Mockito.verify(viewsService)
+        .putView(forwarded.capture(), Mockito.eq(ACTING_PRINCIPAL), Mockito.eq(create));
+    Assertions.assertEquals(
+        request,
+        forwarded.getValue(),
+        "The forged keys have no request counterpart, so the service sees the caller's body"
+            + " unchanged.");
+  }
+
+  /** Raw JSON, so keys the typed request does not declare can be sent at all. */
+  private static String bodyWithForgedMetadata(CreateUpdateViewRequestBody request)
+      throws Exception {
+    ObjectNode body = (ObjectNode) MAPPER.readTree(request.toJson());
+    body.put("viewCreator", "mallory");
+    body.put("lastModifiedTime", 1L);
+    return MAPPER.writeValueAsString(body);
   }
 }
