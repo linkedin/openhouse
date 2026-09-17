@@ -78,7 +78,12 @@ _The Catalog constraints PR fills this section._
 ## Column defaults
 
 <!-- coverage:column-defaults:start -->
-_The Column defaults PR fills this section._
+This layer adds four probes for a 38-case catalog, all passing locally.
+
+Two format-specific cases show that `ALTER TABLE ADD COLUMN ... DEFAULT` is
+accepted by the SQL parser but does not persist or apply the default in the current
+stack. The other probes pin Iceberg schema serialization and the low-level metadata
+read contract for a column carrying an initial default.
 <!-- coverage:column-defaults:end -->
 
 ## Compatibility and streaming
