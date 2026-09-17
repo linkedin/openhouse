@@ -203,8 +203,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       log.error(
           "refreshMetadata from location {} failed after {} ms",
           metadataLoc,
-          System.currentTimeMillis() - startTime,
-          e);
+          System.currentTimeMillis() - startTime);
       throw classifyMetadataRefreshFailure(e);
     }
   }
@@ -241,15 +240,27 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     // generic I/O branch because FileNotFoundException is itself an IOException.
     if (hasCauseOfType(e, NotFoundException.class)
         || hasCauseOfType(e, FileNotFoundException.class)) {
-      return corruptTableMetadata(
+      return logClassifiedFailure(
           databaseId,
           tableId,
-          "the referenced metadata or manifest file does not exist (dangling metadata pointer)",
+          "PERSISTENT_DANGLING_METADATA_POINTER (422)",
+          false,
+          corruptTableMetadata(
+              databaseId,
+              tableId,
+              "the referenced metadata or manifest file does not exist (dangling metadata pointer)",
+              e),
           e);
     }
     // 422: Iceberg invariant violation (e.g. snapshot-log/timestamp ordering).
     if (hasCauseOfType(e, ValidationException.class)) {
-      return corruptTableMetadata(databaseId, tableId, rootCauseMessage(e), e);
+      return logClassifiedFailure(
+          databaseId,
+          tableId,
+          "SEMANTIC_METADATA_CORRUPTION (422)",
+          false,
+          corruptTableMetadata(databaseId, tableId, rootCauseMessage(e), e),
+          e);
     }
     // 503: any other I/O failure is a transient storage-dependency problem. Timeout / connection /
     // NameNode standby all extend IOException; Iceberg wraps I/O as ServiceUnavailableException or
@@ -258,17 +269,35 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         || hasCauseOfType(e, RuntimeIOException.class)
         || hasCauseOfType(e, UncheckedIOException.class)
         || hasCauseOfType(e, IOException.class)) {
-      return new StorageDependencyUnavailableException(databaseId, tableId, rootCauseMessage(e), e);
+      return logClassifiedFailure(
+          databaseId,
+          tableId,
+          "TRANSIENT_STORAGE_DEPENDENCY_FAILURE (503)",
+          false,
+          new StorageDependencyUnavailableException(databaseId, tableId, rootCauseMessage(e), e),
+          e);
     }
     // 422: the Iceberg parser rejects malformed/inconsistent metadata with an
     // IllegalArgumentException/IllegalStateException (e.g. a missing schema/spec id, or a name that
     // is not a valid metadata file). In this metadata-load path these are corruption.
     if (hasCauseOfType(e, IllegalArgumentException.class)
         || hasCauseOfType(e, IllegalStateException.class)) {
-      return corruptTableMetadata(databaseId, tableId, rootCauseMessage(e), e);
+      return logClassifiedFailure(
+          databaseId,
+          tableId,
+          "MALFORMED_METADATA (422)",
+          false,
+          corruptTableMetadata(databaseId, tableId, rootCauseMessage(e), e),
+          e);
     }
     // 500: unexpected/uncategorized -> OpenHouse implementation defect.
-    return new InvalidTableMetadataException(databaseId, tableId, rootCauseMessage(e), e);
+    return logClassifiedFailure(
+        databaseId,
+        tableId,
+        "OPENHOUSE_IMPLEMENTATION_DEFECT (500)",
+        true,
+        new InvalidTableMetadataException(databaseId, tableId, rootCauseMessage(e), e),
+        e);
   }
 
   /**
@@ -282,6 +311,29 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             "Table %s.%s is permanently corrupted and must be repaired or dropped: %s",
             databaseId, tableId, reason),
         cause);
+  }
+
+  /**
+   * Logs the classification decision together with the original exception (including its stack
+   * trace) so operators can see exactly which underlying failure was mapped to which category.
+   */
+  private static RuntimeException logClassifiedFailure(
+      String databaseId,
+      String tableId,
+      String category,
+      boolean serverError,
+      RuntimeException classified,
+      Throwable original) {
+    String message =
+        "Classified metadata refresh failure for table {}.{} as [{}]; returning {}. Original exception:";
+    if (serverError) {
+      log.error(
+          message, databaseId, tableId, category, classified.getClass().getSimpleName(), original);
+    } else {
+      log.warn(
+          message, databaseId, tableId, category, classified.getClass().getSimpleName(), original);
+    }
+    return classified;
   }
 
   private static boolean hasCauseOfType(Throwable e, Class<? extends Throwable> type) {
@@ -301,7 +353,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     while (root.getCause() != null && root.getCause() != root) {
       root = root.getCause();
     }
-    return root.getMessage() == null ? root.getClass().getSimpleName() : root.getMessage();
+    return root.getMessage() == null
+        ? root.getClass().getSimpleName()
+        : root.getClass().getSimpleName() + ": " + root.getMessage();
   }
 
   /**
