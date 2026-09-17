@@ -26,7 +26,7 @@ Pass case ID substrings through `--args` to select a smaller slice:
 ```bash
 ./gradlew --no-daemon \
   :integrations:spark:openhouse-spark-delta-harness_2.12:runOpenHouse \
-  --args='rtas.schema parquet'
+  --args='merge.upsert parquet'
 ```
 
 Every supplied substring must occur in the case ID. With no filters,
@@ -44,7 +44,7 @@ integer. Set it to `1` when diagnosing order-sensitive product or service behavi
 
 ```bash
 HARNESS_PARALLELISM=1 \
-  integrations/spark/delta-harness/run-openhouse.sh accessControl
+  integrations/spark/delta-harness/run-openhouse.sh merge.upsert
 ```
 
 Run the fixed 34-case foundation:
@@ -182,8 +182,6 @@ Examples:
 ```text
 read.projection @ parquet
 merge.upsert @ orc
-prep.rtas:delete.byPredicate @ partitioned/parquet
-rtas.schema.widenColumn @ orc
 ```
 
 Prefixes identify a meaningful starting-state transition. They are not inferred
