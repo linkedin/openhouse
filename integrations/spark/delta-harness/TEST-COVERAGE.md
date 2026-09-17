@@ -126,7 +126,13 @@ _The Maintenance and planning PR fills this section._
 ## Catalog DDL
 
 <!-- coverage:catalog-ddl:start -->
-_The Catalog DDL PR fills this section._
+This layer adds 38 cases for a 432-case catalog. The local result is 428 passed
+and the four inherited RTAS skips.
+
+The catalog covers namespace lifecycle, partition transforms, table rename,
+sort-order definition and evolution, and write-distribution configuration. The
+cases assert catalog-visible metadata, writable tables after each transition, and
+rejected invalid definitions in Parquet and ORC.
 <!-- coverage:catalog-ddl:end -->
 
 ## Merge-on-read
