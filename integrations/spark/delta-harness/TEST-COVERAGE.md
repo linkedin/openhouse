@@ -145,5 +145,13 @@ rollback, and maintenance procedures that retain or compact delete files.
 ## Branch and write-audit-publish
 
 <!-- coverage:branch-wap:start -->
-_The Branch and write-audit-publish PR fills this section._
+This layer adds 102 cases for an 816-case catalog. The local result is 812 passed
+and the four inherited RTAS skips.
+
+The 68 branch cases cover reference lifecycle, branch-scoped writes, branch merge,
+intersections with time travel, rename, maintenance, table evolution, file format,
+and merge-on-read position deletes. The 34 write-audit-publish cases cover
+configuration, staged inserts and mutations, independent staging identifiers,
+cherry-pick and `publish_changes`, repeated publish rejection, and publishing an
+expired staged snapshot.
 <!-- coverage:branch-wap:end -->
