@@ -102,7 +102,13 @@ _The Column defaults PR fills this section._
 ## Compatibility and streaming
 
 <!-- coverage:compatibility-streaming:start -->
-_The Compatibility and streaming PR fills this section._
+This layer adds 114 cases for a 508-case catalog. The local result is 504 passed
+and the four inherited RTAS skips.
+
+The catalog covers concurrent writers, catalog locking, streaming writes and
+checkpoint recovery, table-evolution compatibility, and writer-version
+compatibility. Assertions verify committed rows, snapshots, metadata, conflict
+handling, and behavior after restarting a stream or changing the table shape.
 <!-- coverage:compatibility-streaming:end -->
 
 ## History
