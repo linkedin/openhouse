@@ -93,6 +93,18 @@ public class SetRetentionTimeZoneStatementTest {
     Assertions.assertFalse(policy.contains("timeZone"), policy);
   }
 
+  @Test
+  public void testSetRetentionTimeZoneIsJsonEscaped() {
+    // A crafted zone containing a double quote must be JSON-escaped so it cannot break out of the
+    // policy value and inject additional JSON fields. The zone is invalid and the server rejects it
+    // later; this test asserts only that the client serializes it as an escaped string literal.
+    spark
+        .sql("ALTER TABLE openhouse.db.table SET POLICY (RETENTION=30d AT TIME ZONE 'evil\"zone')")
+        .show();
+    String policy = storedPolicy("openhouse.db.table");
+    Assertions.assertTrue(policy.contains("\"timeZone\":\"evil\\\"zone\""), policy);
+  }
+
   private String storedPolicy(String table) {
     StringBuilder allProps = new StringBuilder();
     for (Row row : spark.sql("SHOW TBLPROPERTIES " + table).collectAsList()) {
