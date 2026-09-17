@@ -61,7 +61,18 @@ mutation asserts complete rows and the expected snapshot change.
 ## RTAS
 
 <!-- coverage:rtas:start -->
-_The RTAS PR fills this section._
+This layer adds 264 cases for a 394-case catalog. The local result is 390 passed
+and four documented skips.
+
+The catalog replays compatible DML after replacement, then covers enablement and
+replication gates; same-shape replacement; subsequent writes; schema and partition
+changes; property, retention, tag, sort-order, and creator preservation; time
+travel, rollback, snapshot recovery, changelog, and incremental reads across the
+replacement boundary; rename ordering; and replace-versus-append concurrency.
+
+The four skips keep two known defects visible in both formats:
+`rtas.schema.incompatibleType.notSilentlyLossy` and
+`rtas.concurrency.replaceVersusAppend`.
 <!-- coverage:rtas:end -->
 
 ## DML state matrix
