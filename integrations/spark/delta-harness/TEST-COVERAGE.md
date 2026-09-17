@@ -108,7 +108,13 @@ _The Compatibility and streaming PR fills this section._
 ## History
 
 <!-- coverage:history:start -->
-_The History PR fills this section._
+This layer adds 36 cases for a 430-case catalog. The local result is 426 passed
+and the four inherited RTAS skips.
+
+The catalog covers changelog scans, incremental reads, snapshot rollback and
+recovery, and timestamp and version time travel. It verifies operation-specific
+change rows, inclusive and exclusive boundaries, restored current state, and
+historical reads across both file formats.
 <!-- coverage:history:end -->
 
 ## Governance
