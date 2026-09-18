@@ -1,13 +1,13 @@
 # OpenHouse Delta harness
 
-The Delta harness defines OpenHouse behavior as reusable Scala test cases. The same
-scenario catalog runs in two environments:
+The Delta harness generates executable tests by combining prepared tables with
+compatible test cases. The same generated set runs in two environments:
 
 - This repository runs it against an embedded OpenHouse server.
 - The li-openhouse acceptance suite supplies a remote `Ctx` and runs the portable
   catalog as Airflow shards.
 
-The scenario definitions and assertions stay in this module. Environment adapters
+The test-case definitions and assertions stay in this module. Environment adapters
 provide only the catalog connection, runtime dependencies, and execution policy.
 
 ## Run locally
@@ -66,25 +66,26 @@ Run the Spark-free framework and catalog tests with:
 
 ## How tests are structured
 
-Each test describes three things:
+Each generated test combines two inputs:
 
-1. The table state that exists before the test.
-2. The SQL query or statement under test.
-3. The complete rows, snapshots, metadata, or error expected afterward.
+1. A prepared table defines the initial state, including its storage format,
+   schema, rows, partitioning, ordering, properties, and history.
+2. A test case defines the action and the complete rows, snapshots, metadata, or
+   error expected afterward.
 
-A DML operation is described once and runs against every compatible prepared
-table. Adding a partitioned, ordered, evolved, or otherwise specialized table
-therefore exercises the existing DML behavior without redefining it.
+Compatibility determines which prepared-table and test-case pairs enter the
+executable test set. A DML test case is defined once and runs against every
+compatible prepared table.
 
-Every test creates a fresh table, records its starting state, runs one behavior,
-and checks the complete observable result. Rejected statements also verify the
-error type and diagnostic. When an invalid statement can reach execution, the
-test verifies that rows and snapshots remain unchanged.
+Every generated test creates a fresh instance of its prepared table, runs its
+test case, and checks the complete observable result. Rejected statements also
+verify the error type and diagnostic. When an invalid statement can reach
+execution, the test verifies that rows and snapshots remain unchanged.
 
 [TEST-COVERAGE.md](TEST-COVERAGE.md) describes the assertions made by the
 executable catalog in the current checkout.
-[CAPABILITY-MATRIX.md](CAPABILITY-MATRIX.md) shows the DML operations, prepared
-tables, and the dimensions across which the tests run.
+[CAPABILITY-MATRIX.md](CAPABILITY-MATRIX.md) shows how prepared tables and test
+cases multiply into the executable test set.
 
 ## Skipped tests
 
@@ -101,22 +102,18 @@ to be validated.
 
 ## Extend coverage
 
-### Add a DML operation
+### Add a test case
 
-Describe the SQL statement and its complete expected result once. Add it to the
-operation group used by every compatible prepared table.
+Describe the action and its complete expected result once. Mark the prepared
+tables that are compatible with it. The harness adds those pairs to the
+executable test set.
 
 ### Add a prepared table
 
 Describe the table's schema, partitioning, ordering, properties, and starting
-rows. Select the existing DML operations that apply to it. Those operations
-then run against the new table without duplicating their definitions.
-
-### Add another behavior
-
-Describe the starting table, action, and expected outcome together so a reader
-can understand the test without consulting implementation terminology.
+rows, including the storage format. Mark the existing test cases that apply to
+it. The harness adds those pairs and reuses the existing test-case definitions.
 
 For every coverage change, update [TEST-COVERAGE.md](TEST-COVERAGE.md) with the
 observable behavior and [CAPABILITY-MATRIX.md](CAPABILITY-MATRIX.md) with the new
-operation or prepared table.
+test case or prepared table.
