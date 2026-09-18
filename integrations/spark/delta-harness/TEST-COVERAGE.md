@@ -1,7 +1,7 @@
-# Delta harness test coverage
+# Delta integration test coverage
 
-The harness tests observable end-user behavior by multiplying prepared tables by
-compatible test cases:
+The integration tests cover observable end-user behavior by multiplying
+prepared tables by compatible test cases:
 
 ```text
 Executable Test Set = compatible(Prepared Tables x Test Cases)
@@ -62,7 +62,7 @@ DML Rejection Tests =
 | `MERGE` assigning one target column twice | Analysis rejects the conflicting assignments. |
 | `MERGE` matching two source rows to one target row | Execution reports the cardinality violation and preserves the complete table state. |
 
-[How the Delta harness generates tests](CAPABILITY-MATRIX.md) explains how
+[How integration tests are generated](CAPABILITY-MATRIX.md) explains how
 compatibility selects the prepared-table and test-case pairs in these equations.
 
 ## Standard DML
