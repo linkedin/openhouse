@@ -37,7 +37,7 @@ object ConcurrencySupport {
             case throwable: Throwable =>
               errors.add(throwable)
           },
-        s"delta-harness-concurrent-$index")
+        s"openhouse-delta-test-concurrent-$index")
       thread.setDaemon(true)
       thread
     }
