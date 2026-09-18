@@ -2,8 +2,8 @@ package com.linkedin.openhouse.jobs.client;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.linkedin.openhouse.client.ssl.TablesApiClientFactory;
+import com.linkedin.openhouse.client.ssl.WebClientFactory;
 import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
-import com.linkedin.openhouse.common.utils.SystemActionContext;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.RetryUtil;
 import com.linkedin.openhouse.tables.client.api.DatabaseApi;
@@ -43,7 +43,8 @@ public class TablesClientFactory {
     }
     client.setBasePath(basePath);
     if (systemAction) {
-      client.addDefaultHeader(SystemActionContext.HTTP_HEADER_SYSTEM_ACTION, "true");
+      client.addDefaultHeader(
+          WebClientFactory.HTTP_HEADER_ACTION_TYPE, WebClientFactory.ACTION_TYPE_SYSTEM);
     }
     return create(retryTemplate, new TableApi(client), new DatabaseApi(client));
   }

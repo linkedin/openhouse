@@ -6,7 +6,7 @@ import static com.linkedin.openhouse.common.security.AuthenticationUtils.extract
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.common.audit.AuditHandler;
-import com.linkedin.openhouse.common.utils.SystemActionContext;
+import com.linkedin.openhouse.common.utils.ActionTypeContext;
 import com.linkedin.openhouse.tables.api.handler.impl.OpenHouseTablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
@@ -661,7 +661,7 @@ public class TableAuditAspect {
             .toBuilder()
             .clusterName(clusterProperties.getClusterName())
             .user(extractAuthenticatedUserPrincipal())
-            .systemAction(SystemActionContext.getDeclaration())
+            .actionType(ActionTypeContext.getDeclaration())
             .operationStatus(status)
             .currentTableRoot(currentTableRoot)
             .build();

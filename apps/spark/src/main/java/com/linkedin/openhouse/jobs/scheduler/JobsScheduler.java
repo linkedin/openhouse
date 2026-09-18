@@ -487,7 +487,7 @@ public class JobsScheduler {
             .hasArg(false)
             .longOpt("systemAction")
             .desc(
-                "Declare scheduler metadata requests as system actions (SNAPSHOTS_EXPIRATION only)")
+                "Declare scheduler metadata requests with action type SYSTEM (SNAPSHOTS_EXPIRATION only)")
             .build());
     options.addOption(
         Option.builder(null).required().hasArg().longOpt("cluster").desc("Cluster id").build());

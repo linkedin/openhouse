@@ -29,7 +29,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
@@ -108,32 +107,38 @@ public class SmokeTest {
   }
 
   @ParameterizedTest
-  @NullSource
-  @ValueSource(strings = {"true", "false"})
-  public void testSystemActionHeader(String systemAction) throws InterruptedException {
+  @CsvSource(
+      value = {"SYSTEM,SYSTEM", "USER,USER", "system,SYSTEM", "uSeR,USER", "NULL,NULL"},
+      nullValues = "NULL")
+  public void testActionTypeHeader(String actionType, String expected) throws InterruptedException {
     mockTableService.enqueue(
         new MockResponse().setResponseCode(200).addHeader("Content-Type", "application/json"));
     Map<String, String> properties = new HashMap<>();
     properties.put(CatalogProperties.URI, url);
-    if (systemAction != null) {
-      properties.put("system-action", systemAction);
+    if (actionType != null) {
+      properties.put("action-type", actionType);
     }
     OpenHouseCatalog catalog = new OpenHouseCatalog();
     catalog.initialize("openhouse", properties);
     catalog.tableExists(TableIdentifier.of("db", "table"));
-    Assertions.assertEquals(
-        systemAction, mockTableService.takeRequest().getHeader("X-OpenHouse-System-Action"));
+    RecordedRequest request = mockTableService.takeRequest(5, TimeUnit.SECONDS);
+    Assertions.assertNotNull(request);
+    Assertions.assertEquals(expected, request.getHeader("X-OpenHouse-Action-Type"));
+    Assertions.assertNull(request.getHeader("X-OpenHouse-System-Action"));
   }
 
-  @Test
-  public void testInvalidSystemActionRejected() {
-    Assertions.assertThrows(
-        IllegalArgumentException.class,
-        () ->
-            new OpenHouseCatalog()
-                .initialize(
-                    "openhouse",
-                    ImmutableMap.of(CatalogProperties.URI, url, "system-action", "invalid")));
+  @ParameterizedTest
+  @ValueSource(strings = {"invalid", "", " SYSTEM ", "true", "false"})
+  public void testInvalidActionTypeRejected(String actionType) {
+    IllegalArgumentException failure =
+        Assertions.assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                new OpenHouseCatalog()
+                    .initialize(
+                        "openhouse",
+                        ImmutableMap.of(CatalogProperties.URI, url, "action-type", actionType)));
+    Assertions.assertEquals("action-type must be SYSTEM or USER", failure.getMessage());
   }
 
   @Test
@@ -193,10 +198,10 @@ public class SmokeTest {
 
   @ParameterizedTest
   @CsvSource({"423,table", "400,bad-name", "404,missing_table"})
-  public void testCatalogCleanupDenialIsDistinctFromNotFound(int status, String table) {
+  public void testCatalogSystemOnlyDenialIsDistinctFromNotFound(int status, String table) {
     String message =
-        "Table db.table is locked for TIER3_AUTO_CLEANUP: eligible for cleanup. "
-            + "Promote to Tier 2 or use reason-targeted OpenHouse unlock.";
+        "Table db.table has a SYSTEM_ONLY lock: maintenance in progress. "
+            + "Use the reason-targeted OpenHouse unlock endpoint as an authorized lock administrator.";
     for (int request = 0; request < 2; request++) {
       mockTableService.enqueue(
           new MockResponse()

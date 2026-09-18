@@ -22,12 +22,12 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
-class CleanupLockCatalogTest extends OpenHouseSparkITest {
-  private static final String DATABASE = "cleanup_catalog";
+class SystemOnlyLockCatalogTest extends OpenHouseSparkITest {
+  private static final String DATABASE = "system_only_catalog";
 
   @ParameterizedTest
   @ValueSource(strings = {"load", "refresh", "exists"})
-  void cleanupDenialIsNotMistakenForAMissingTable(String operation) throws Exception {
+  void systemOnlyDenialIsNotMistakenForAMissingTable(String operation) throws Exception {
     try (SparkSession spark = getSparkSession()) {
       OpenHouseCatalog catalog = (OpenHouseCatalog) getOpenHouseCatalog(spark);
       TableIdentifier id = TableIdentifier.of(DATABASE, "denied_" + operation);
@@ -42,9 +42,9 @@ class CleanupLockCatalogTest extends OpenHouseSparkITest {
               id.name(),
               new CreateUpdateLockRequestBody()
                   .locked(true)
-                  .reason(CreateUpdateLockRequestBody.ReasonEnum.TIER3_AUTO_CLEANUP)
+                  .reason(CreateUpdateLockRequestBody.ReasonEnum.SYSTEM_ONLY)
                   .expectedTableUUID(uuid)
-                  .message("eligible for cleanup"))
+                  .message("maintenance in progress"))
           .block();
       try {
         WebClientResponseWithMessageException failure =
@@ -66,14 +66,13 @@ class CleanupLockCatalogTest extends OpenHouseSparkITest {
                   }
                 });
         Assertions.assertEquals(423, failure.getStatusCode());
-        Assertions.assertTrue(failure.getMessage().contains("TIER3_AUTO_CLEANUP"));
+        Assertions.assertTrue(failure.getMessage().contains("SYSTEM_ONLY"));
         Assertions.assertTrue(failure.getMessage().contains(id.toString()));
-        Assertions.assertTrue(failure.getMessage().contains("eligible for cleanup"));
-        Assertions.assertTrue(failure.getMessage().contains("Tier 2"));
+        Assertions.assertTrue(failure.getMessage().contains("maintenance in progress"));
         Assertions.assertTrue(failure.getMessage().contains("reason-targeted OpenHouse unlock"));
 
         Map<String, String> properties = new HashMap<>(catalog.properties());
-        properties.put("system-action", "true");
+        properties.put("action-type", "SYSTEM");
         OpenHouseCatalog maintenance = new OpenHouseCatalog();
         maintenance.setConf(spark.sparkContext().hadoopConfiguration());
         maintenance.initialize("maintenance", properties);
@@ -85,7 +84,7 @@ class CleanupLockCatalogTest extends OpenHouseSparkITest {
             .deleteLockByReasonV1(
                 DATABASE,
                 id.name(),
-                "TIER3_AUTO_CLEANUP",
+                "SYSTEM_ONLY",
                 status.getTableUUID(),
                 status.getLockState().getLockOwner())
             .block();

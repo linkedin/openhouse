@@ -1,9 +1,9 @@
 package com.linkedin.openhouse.tables.services;
 
-import com.linkedin.openhouse.common.exception.CleanupLockAccessDeniedException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
+import com.linkedin.openhouse.common.exception.SystemOnlyLockAccessDeniedException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
-import com.linkedin.openhouse.common.utils.SystemActionContext;
+import com.linkedin.openhouse.common.utils.ActionTypeContext;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
@@ -14,15 +14,15 @@ final class LockPolicyValidator {
   private LockPolicyValidator() {}
 
   /** Evaluate only after the caller's data-access authorization succeeds. */
-  static void checkCleanupAccess(TableDto table) {
+  static void checkSystemOnlyAccess(TableDto table) {
     LockState lock = lockState(table);
-    if (isCleanup(lock) && lock.isLocked() && !SystemActionContext.isEnabled()) {
+    if (isSystemOnly(lock) && lock.isLocked() && !ActionTypeContext.isSystemAction()) {
       String message = lock.getMessage();
       String detail = message == null || message.trim().isEmpty() ? "" : ": " + message;
-      throw new CleanupLockAccessDeniedException(
+      throw new SystemOnlyLockAccessDeniedException(
           String.format(
-              "Table %s.%s is locked for TIER3_AUTO_CLEANUP%s. Promote the table to Tier 2 to retain it, "
-                  + "or use the reason-targeted OpenHouse unlock endpoint as an authorized lock administrator.",
+              "Table %s.%s has a SYSTEM_ONLY lock%s. Use the reason-targeted OpenHouse unlock endpoint "
+                  + "as an authorized lock administrator.",
               table.getDatabaseId(), table.getTableId(), detail));
     }
   }
@@ -32,8 +32,8 @@ final class LockPolicyValidator {
     if (lock == null || !lock.isLocked()) {
       return;
     }
-    if (isCleanup(lock)) {
-      checkCleanupAccess(table);
+    if (isSystemOnly(lock)) {
+      checkSystemOnlyAccess(table);
     } else {
       throw new UnsupportedClientOperationException(
           UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,
@@ -46,14 +46,14 @@ final class LockPolicyValidator {
   static TableDto prepare(TableDto current, TableDto mapped) {
     LockState existing = lockState(current);
     LockState requested = lockState(mapped);
-    boolean existingCleanup = isCleanup(existing);
-    if ((existingCleanup || isCleanup(requested))
+    boolean existingSystemOnly = isSystemOnly(existing);
+    if ((existingSystemOnly || isSystemOnly(requested))
         && requested != null
         && !requested.equals(existing)) {
       throw new RequestValidationFailureException(
-          "Cleanup lock state can only be changed through the lock lifecycle API.");
+          "SYSTEM_ONLY lock state can only be changed through the lock lifecycle API.");
     }
-    if (existingCleanup && requested == null) {
+    if (existingSystemOnly && requested == null) {
       // Ordinary updates replace policies wholesale; omission must not erase the lock or, when
       // the entire policy object is omitted, unrelated policies.
       Policies policies =
@@ -67,7 +67,7 @@ final class LockPolicyValidator {
     return table == null || table.getPolicies() == null ? null : table.getPolicies().getLockState();
   }
 
-  private static boolean isCleanup(LockState lock) {
-    return lock != null && lock.getReason() == LockReason.TIER3_AUTO_CLEANUP;
+  private static boolean isSystemOnly(LockState lock) {
+    return lock != null && lock.getReason() == LockReason.SYSTEM_ONLY;
   }
 }

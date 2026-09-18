@@ -27,7 +27,7 @@ public class TableAuditEvent extends BaseAuditEvent {
   private String user;
 
   /** Raw request declaration, not an authorization or execution outcome. */
-  private String systemAction;
+  private String actionType;
 
   private OperationType operationType;
 

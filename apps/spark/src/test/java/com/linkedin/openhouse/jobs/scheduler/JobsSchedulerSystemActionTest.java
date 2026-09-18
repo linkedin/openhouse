@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.jobs.scheduler;
 
-import static com.linkedin.openhouse.common.utils.SystemActionContext.HTTP_HEADER_SYSTEM_ACTION;
+import static com.linkedin.openhouse.client.ssl.WebClientFactory.HTTP_HEADER_ACTION_TYPE;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.linkedin.openhouse.jobs.client.TablesClient;
@@ -146,7 +146,7 @@ class JobsSchedulerSystemActionTest {
     assertNotNull(request);
     assertEquals(path, request.get(0));
     assertEquals("Bearer " + TOKEN, request.get(1));
-    assertEquals(systemAction ? "true" : null, request.get(2));
+    assertEquals(systemAction ? "SYSTEM" : null, request.get(2));
   }
 
   private static void assertMetadataRequests(
@@ -167,7 +167,7 @@ class JobsSchedulerSystemActionTest {
         Arrays.asList(
             path,
             exchange.getRequestHeaders().getFirst("Authorization"),
-            exchange.getRequestHeaders().getFirst(HTTP_HEADER_SYSTEM_ACTION)));
+            exchange.getRequestHeaders().getFirst(HTTP_HEADER_ACTION_TYPE)));
     String body;
     switch (path) {
       case "/v1/databases":

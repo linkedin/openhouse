@@ -135,8 +135,8 @@ public class JobsRegistryTest {
     Binder binder = new Binder(ConfigurationPropertySources.from(recipe));
     JobsProperties recipeProperties =
         binder.bind("jobs.spark", Bindable.of(JobsProperties.class)).get();
-    String systemAction = "spark.sql.catalog.openhouse.system-action";
-    Assertions.assertNull(recipe.getProperty("jobs.defaults.spark-properties." + systemAction));
+    String actionType = "spark.sql.catalog.openhouse.action-type";
+    Assertions.assertNull(recipe.getProperty("jobs.defaults.spark-properties." + actionType));
     recipeProperties.setAuthTokenPath(
         new ClassPathResource("test-jobs-auth-token.txt").getFile().getAbsolutePath());
     JobsRegistry registry = JobsRegistry.from(recipeProperties, Collections.emptyMap());
@@ -148,8 +148,8 @@ public class JobsRegistryTest {
               "job-" + app.getType(),
               JobConf.builder().jobType(type).proxyUser("table-creator").build());
       Assertions.assertEquals(
-          type == JobConf.JobType.SNAPSHOTS_EXPIRATION ? "true" : null,
-          launch.getSparkProperties().get(systemAction),
+          type == JobConf.JobType.SNAPSHOTS_EXPIRATION ? "SYSTEM" : null,
+          launch.getSparkProperties().get(actionType),
           app.getType());
       Assertions.assertEquals("table-creator", launch.getProxyUser(), app.getType());
       Assertions.assertEquals(

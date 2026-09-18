@@ -51,7 +51,7 @@ jobs:
         << : *apps-defaults
         spark-properties:
           <<: *spark-defaults
-          "spark.sql.catalog.openhouse.system-action": "true"
+          "spark.sql.catalog.openhouse.action-type": "SYSTEM"
         << : *livy-engine
       - type: ORPHAN_FILES_DELETION
         class-name: com.linkedin.openhouse.jobs.spark.OrphanFilesDeletionSparkApp
