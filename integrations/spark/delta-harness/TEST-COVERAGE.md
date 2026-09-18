@@ -1,8 +1,8 @@
 # What the Delta harness tests
 
-The harness describes OpenHouse behavior through observable outcomes rather than
-through implementation details or a test inventory. The same behavior is reused
-across compatible prepared tables and storage formats.
+The harness tests OpenHouse through observable outcomes. Each test case runs
+against every compatible prepared table. The prepared table includes its storage
+format.
 
 ## Data representation
 
@@ -39,12 +39,12 @@ unchanged.
 
 ## Reuse across table states
 
-The read and DML contracts are independent of the table states where they run.
-As the suite adds partitioning, ordering, schema evolution, replacement lineage,
-delete files, references, or policies, compatible behavior contracts run again
-against those prepared tables.
+Read and DML test cases are independent of the table states where they run. As
+the suite adds prepared tables with partitioning, ordering, schema evolution,
+replacement lineage, delete files, references, or policies, compatible test
+cases run against those new initial conditions.
 
-[How Delta harness coverage composes](CAPABILITY-MATRIX.md) explains that
+[How Delta harness coverage multiplies](CAPABILITY-MATRIX.md) explains that
 multiplication model and the role of the embedded and acceptance environments.
 
 ## Catalog constraints
