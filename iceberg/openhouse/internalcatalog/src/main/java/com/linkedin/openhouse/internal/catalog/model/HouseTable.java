@@ -51,4 +51,12 @@ public class HouseTable {
    * with this table.
    */
   private String storageType;
+
+  /**
+   * Entity-type discriminator ({@code TABLE}/{@code VIEW}) for the row at this key.
+   *
+   * <p>Non-null on every hydrated row — House Table coerces a legacy null to {@code TABLE} at its
+   * parse boundary — so consumers never null-check it. Only a pre-mapping pointer may omit it.
+   */
+  private String entityType;
 }
