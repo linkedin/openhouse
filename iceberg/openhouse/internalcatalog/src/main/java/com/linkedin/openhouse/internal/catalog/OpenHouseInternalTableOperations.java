@@ -13,6 +13,7 @@ import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.hdfs.HdfsStorageClient;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
+import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
@@ -313,6 +314,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
       failIfRetryUpdate(properties);
       restoreOverriddenProperties(properties);
+      validateColumnDefaultProperty(base, properties);
 
       properties.put(
           getCanonicalFieldName("tableVersion"),
@@ -487,7 +489,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         throw new CommitFailedException(e);
       }
       throw new BadRequestException(e, e.getMessage());
-    } catch (CommitFailedException e) {
+    } catch (CommitFailedException | UnsupportedClientOperationException e) {
       throw e;
     } catch (HouseTableCallerException
         | HouseTableNotFoundException
@@ -533,6 +535,29 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           break; /*should never happen, kept to silence SpotBugs*/
       }
     }
+  }
+
+  /**
+   * Check the properties that will actually be persisted, including on replacement and replication
+   * commits. A committed {@code true} cannot be changed or removed; {@code false} and an absent
+   * property remain mutable so a table can still opt in later. Compare against this commit's base
+   * so transaction retries cannot overwrite a value committed concurrently.
+   */
+  private void validateColumnDefaultProperty(TableMetadata base, Map<String, String> properties) {
+    String key = CatalogConstants.COLUMN_DEFAULT_ENABLED_TABLE_PROP;
+    String committed = base == null ? null : base.properties().get(key);
+    if (isColumnDefaultOptedIn(committed) && !committed.equals(properties.get(key))) {
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.ALTER_RESERVED_TBLPROPS,
+          String.format(
+              "Table property %s is immutable once set to true on table %s; cannot change or remove"
+                  + " it.",
+              key, tableIdentifier));
+    }
+  }
+
+  private static boolean isColumnDefaultOptedIn(String value) {
+    return value != null && "true".equalsIgnoreCase(value.trim());
   }
 
   /**
