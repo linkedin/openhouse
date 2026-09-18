@@ -1,14 +1,8 @@
 # OpenHouse Delta harness
 
-The Delta harness generates executable tests by combining prepared tables with
-compatible test cases. The same generated set runs in two environments:
-
-- This repository runs it against an embedded OpenHouse server.
-- The li-openhouse acceptance suite supplies a remote `Ctx` and runs the portable
-  catalog as Airflow shards.
-
-The test-case definitions and assertions stay in this module. Environment adapters
-provide only the catalog connection, runtime dependencies, and execution policy.
+The Delta harness defines prepared tables and test cases once. This repository
+runs every compatible pair against embedded OpenHouse. li-openhouse runs the same
+set as Airflow acceptance tests against real clusters.
 
 ## Run locally
 

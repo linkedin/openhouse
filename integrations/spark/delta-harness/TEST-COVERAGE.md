@@ -1,15 +1,23 @@
-# What the Delta harness tests
+# Delta harness test coverage
 
-The harness tests observable end-user behavior. Each test case runs against
-compatible prepared tables, so the same operation is checked under different
-initial conditions and storage formats.
+The harness tests observable end-user behavior by multiplying prepared tables by
+compatible test cases:
+
+```text
+Executable Test Set = compatible(Prepared Tables x Test Cases)
+```
 
 ## Data representation
 
-The data-type tests require these values to survive a write and read without
-changing:
+The scalar prepared table is unpartitioned, contains standard seed rows, and is
+materialized in Parquet and ORC.
 
-| Test | Expected behavior |
+```text
+Scalar Type Tests =
+  compatible([Scalar Parquet Table, Scalar ORC Table] x [Test Cases Below])
+```
+
+| Test case | Expected behavior |
 |---|---|
 | Scalar values | `bigint`, `int`, `double`, `decimal(10,2)`, `string`, `binary`, `date`, `timestamp`, and `timestamp_ntz` values read back exactly. Complete DML row assertions also cover `boolean`. |
 | Nulls | Every non-key scalar column accepts `NULL` and reads back as null. |
@@ -19,9 +27,15 @@ changing:
 
 ## Reads and table changes
 
-Each operation has a concrete expected result:
+The standard prepared table is unpartitioned, contains three deterministic seed
+rows, and is materialized in Parquet and ORC.
 
-| Operation | Expected behavior |
+```text
+Core DML Tests =
+  compatible([Standard Parquet Table, Standard ORC Table] x [Test Cases Below])
+```
+
+| Test case | Expected behavior |
 |---|---|
 | Projection | Reading the string column in key order returns the values from the complete table and leaves the rows and snapshot count unchanged. |
 | `INSERT INTO` | Appending two rows preserves every starting row and commits one new snapshot. |
@@ -32,9 +46,14 @@ Each operation has a concrete expected result:
 
 ## Invalid operations
 
-Invalid operations must fail with a diagnostic that identifies the problem:
+The rejection tests use the same standard Parquet and ORC prepared tables.
 
-| Operation | Expected behavior |
+```text
+DML Rejection Tests =
+  compatible([Standard Parquet Table, Standard ORC Table] x [Test Cases Below])
+```
+
+| Test case | Expected behavior |
 |---|---|
 | `DELETE` with an unknown column | Analysis rejects the statement and names the missing column. |
 | `DELETE` with `rand()` in its predicate | Analysis rejects the nondeterministic predicate. |
@@ -43,22 +62,23 @@ Invalid operations must fail with a diagnostic that identifies the problem:
 | `MERGE` assigning one target column twice | Analysis rejects the conflicting assignments. |
 | `MERGE` matching two source rows to one target row | Execution reports the cardinality violation and preserves the complete table state. |
 
-## Reuse across table states
-
-Read and DML test cases are independent of the table states where they run. As
-the suite adds prepared tables with partitioning, ordering, schema evolution,
-replacement lineage, delete files, references, or policies, compatible test
-cases run against those new initial conditions.
-
-[How Delta harness coverage multiplies](CAPABILITY-MATRIX.md) explains that
-multiplication model and the role of the embedded and acceptance environments.
+[How the Delta harness generates tests](CAPABILITY-MATRIX.md) explains how
+compatibility selects the prepared-table and test-case pairs in these equations.
 
 ## Catalog constraints
 
-Catalog rules determine which table properties, partition changes, and storage
-format choices OpenHouse accepts. Accepted operations must commit the requested
-metadata and leave a readable table.
+Catalog-constraint tests use standard prepared tables in Parquet and ORC.
 
-Rejected operations must explain the violated constraint and preserve the existing
-table. This distinguishes a safe catalog rejection from a partial metadata change
-or a table that becomes unreadable.
+```text
+Catalog Constraint Tests =
+  compatible([Standard Parquet Table, Standard ORC Table] x [Test Cases Below])
+```
+
+| Test case | Expected behavior |
+|---|---|
+| Accepted table property change | The requested property is committed and the table remains readable. |
+| Accepted storage format | The catalog records the selected format and subsequent writes use it. |
+| Accepted partition change | The catalog records the requested partition metadata and later writes remain readable. |
+| Rejected property change | The diagnostic identifies the violated rule and preserves the prior metadata and rows. |
+| Rejected storage format | The operation fails before creating an unusable table or side object. |
+| Rejected partition evolution | The operation preserves the existing partition specification and readable table state. |
