@@ -49,7 +49,7 @@ digraph DeltaIntegrationTestCoverage {
   ]
 
   acceptance [
-    label="{li-openhouse|---|Airflow acceptance tests|Real clusters}"
+    label="{li-openhouse|---|Airflow acceptance tests}"
     fillcolor="#dafbe1"
   ]
 
