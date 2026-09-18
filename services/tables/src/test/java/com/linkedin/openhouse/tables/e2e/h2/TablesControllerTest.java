@@ -28,6 +28,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequest
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.History;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.PolicyTag;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
@@ -1627,6 +1628,79 @@ public class TablesControllerTest {
     Assertions.assertNotNull(updatedPolicies.get("lockState").get("creationTime"));
     RequestAndValidateHelper.deleteLockOnTableAndValidate(mvc, GET_TABLE_RESPONSE_BODY);
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+  }
+
+  @Test
+  public void lockReasonIsMetadataOnly() throws Exception {
+    MvcResult created =
+        RequestAndValidateHelper.createTableAndValidateResponse(
+            GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+    try {
+      String tableUUID = JsonPath.read(created.getResponse().getContentAsString(), "$.tableUUID");
+      String tablePath =
+          ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+              + "/databases/"
+              + GET_TABLE_RESPONSE_BODY.getDatabaseId()
+              + "/tables/"
+              + GET_TABLE_RESPONSE_BODY.getTableId();
+      mvc.perform(
+              MockMvcRequestBuilders.post(tablePath + "/lock")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(
+                      "{\"locked\":true,\"reason\":\"SYSTEM_ONLY\",\"expectedTableUUID\":\""
+                          + tableUUID
+                          + "\"}"))
+          .andExpect(status().isCreated());
+      mvc.perform(MockMvcRequestBuilders.get(tablePath))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.policies.lockState.reason").value("SYSTEM_ONLY"));
+      MvcResult lockStatus =
+          mvc.perform(MockMvcRequestBuilders.get(tablePath + "/lock"))
+              .andExpect(status().isOk())
+              .andReturn();
+      String owner =
+          JsonPath.read(lockStatus.getResponse().getContentAsString(), "$.lockState.lockOwner");
+      mvc.perform(
+              MockMvcRequestBuilders.delete(tablePath + "/lock/SYSTEM_ONLY")
+                  .param("expectedTableUUID", tableUUID)
+                  .param("expectedLockOwner", owner))
+          .andExpect(status().isNoContent());
+      mvc.perform(MockMvcRequestBuilders.get(tablePath))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.policies.lockState").value(nullValue()));
+    } finally {
+      RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+    }
+  }
+
+  @Test
+  public void inactiveLockStateHasNoDefaultReason() throws Exception {
+    RequestAndValidateHelper.createTableAndValidateResponse(
+        GET_TABLE_RESPONSE_BODY
+            .toBuilder()
+            .policies(
+                GET_TABLE_RESPONSE_BODY
+                    .getPolicies()
+                    .toBuilder()
+                    .lockState(LockState.builder().locked(false).build())
+                    .build())
+            .build(),
+        mvc,
+        storageManager);
+    try {
+      mvc.perform(
+              MockMvcRequestBuilders.get(
+                  CURRENT_MAJOR_VERSION_PREFIX
+                      + "/databases/"
+                      + GET_TABLE_RESPONSE_BODY.getDatabaseId()
+                      + "/tables/"
+                      + GET_TABLE_RESPONSE_BODY.getTableId()))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.policies.lockState.locked").value(false))
+          .andExpect(jsonPath("$.policies.lockState.reason").value(nullValue()));
+    } finally {
+      RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+    }
   }
 
   @Test

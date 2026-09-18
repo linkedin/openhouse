@@ -14,8 +14,10 @@ import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetLockResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
@@ -31,6 +33,7 @@ import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
@@ -165,6 +168,7 @@ public class TablesServiceImpl implements TablesService {
                         .tableCreator(tableCreatorUpdater)
                         .build()),
             createUpdateTableRequestBody);
+    tableDtoToSave = LockPolicyValidator.prepare(tableDto.orElse(null), tableDtoToSave);
     try {
       tableDtoToSave = readBridgeStripProtection.prepare(tableDto.orElse(null), tableDtoToSave);
     } catch (ColumnDefaultException e) {
@@ -206,8 +210,8 @@ public class TablesServiceImpl implements TablesService {
       TableDto tableDto, CreateUpdateTableRequestBody requestBody) {
     if (requestBody.getPolicies() != null
         && requestBody.getPolicies().getLockState() != null
-        && requestBody.getPolicies().getLockState().isLocked()
-            != tableDto.getPolicies().getLockState().isLocked()) {
+        && requestBody.getPolicies().getLockState().getReason() == LockReason.LEGACY
+        && requestBody.getPolicies().getLockState().isLocked() != isTableLocked(tableDto)) {
       throw new IllegalArgumentException(
           String.format(
               "Lock state cannot be updated for Table %s.%s",
@@ -356,11 +360,31 @@ public class TablesServiceImpl implements TablesService {
     checkReplicaTable(tableDto);
     authorizationUtils.checkLockTablePrivilege(
         tableDto, tableCreatorUpdater, Privileges.LOCK_ADMIN);
+    boolean systemOnly = createUpdateLockRequestBody.getReason() == LockReason.SYSTEM_ONLY;
+    if (systemOnly) {
+      checkExpectedTableUUID(tableDto, createUpdateLockRequestBody.getExpectedTableUUID());
+      requireNonblank(tableCreatorUpdater, "actingPrincipal");
+    }
+    LockState existingLock =
+        tableDto.getPolicies() == null ? null : tableDto.getPolicies().getLockState();
+    if (isTableLocked(tableDto)
+        && (systemOnly || existingLock.getReason() == LockReason.SYSTEM_ONLY)) {
+      if (existingLock.getReason() == createUpdateLockRequestBody.getReason()
+          && Objects.equals(existingLock.getLockOwner(), tableCreatorUpdater)
+          && Objects.equals(existingLock.getTableUUID(), tableDto.getTableUUID())) {
+        return;
+      }
+      throw lockConflict(
+          tableDto, "An active lock with a different reason, owner or generation exists.");
+    }
     // lock state from incoming request
     LockState lockState =
         LockState.builder()
             .locked(createUpdateLockRequestBody.isLocked())
             .message(createUpdateLockRequestBody.getMessage())
+            .reason(createUpdateLockRequestBody.getReason())
+            .lockOwner(systemOnly ? tableCreatorUpdater : null)
+            .tableUUID(systemOnly ? tableDto.getTableUUID() : null)
             .expirationInDays(createUpdateLockRequestBody.getExpirationInDays())
             .creationTime(createUpdateLockRequestBody.getCreationTime())
             .build();
@@ -372,7 +396,6 @@ public class TablesServiceImpl implements TablesService {
       } else {
         policiesToSave = Policies.builder().lockState(lockState).build();
       }
-      // should allow updating lock on a table with different reason
       TableDto tableDtoToSave =
           tableDto
               .toBuilder()
@@ -399,6 +422,15 @@ public class TablesServiceImpl implements TablesService {
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
     checkReplicaTable(tableDto);
     authorizationUtils.checkLockTablePrivilege(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
+    if (isTableLocked(tableDto)
+        && tableDto.getPolicies().getLockState().getReason() != LockReason.LEGACY) {
+      throw lockConflict(
+          tableDto, "Use the reason-targeted unlock endpoint for a SYSTEM_ONLY lock.");
+    }
+    removeLock(tableDto);
+  }
+
+  private void removeLock(TableDto tableDto) {
     Policies policies = tableDto.getPolicies();
     if (policies != null && policies.getLockState() != null && policies.getLockState().isLocked()) {
       Policies policiesToSave;
@@ -412,6 +444,82 @@ public class TablesServiceImpl implements TablesService {
               .build();
       saveTableDto(tableDtoToSave, Optional.of(tableDto));
     }
+  }
+
+  @Override
+  public void deleteLock(
+      String databaseId,
+      String tableId,
+      LockReason reason,
+      String expectedTableUUID,
+      String expectedLockOwner,
+      String actingPrincipal) {
+    TableDto tableDto =
+        openHouseInternalRepository
+            .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
+            .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
+    checkReplicaTable(tableDto);
+    authorizationUtils.checkLockTablePrivilege(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
+    if (reason == null) {
+      throw new RequestValidationFailureException("reason is required.");
+    }
+    requireNonblank(expectedLockOwner, "expectedLockOwner");
+    checkExpectedTableUUID(tableDto, expectedTableUUID);
+    if (!isTableLocked(tableDto)) {
+      return;
+    }
+    LockState lock = tableDto.getPolicies().getLockState();
+    if (lock.getReason() != reason) {
+      throw lockConflict(tableDto, "The active lock reason does not match.");
+    }
+    // Locks created before lifecycle guards may omit both identity fields. Recovery must explicitly
+    // acknowledge that state, and must not bypass either guard on an owned or partially owned lock.
+    boolean unrecordedSystemOnly =
+        reason == LockReason.SYSTEM_ONLY
+            && lock.getLockOwner() == null
+            && lock.getTableUUID() == null
+            && "__UNRECORDED__".equals(expectedLockOwner);
+    if (!unrecordedSystemOnly
+        && (!expectedLockOwner.equals(lock.getLockOwner())
+            || !expectedTableUUID.equals(lock.getTableUUID()))) {
+      throw lockConflict(
+          tableDto, "The active lock owner or recorded table generation does not match.");
+    }
+    removeLock(tableDto);
+  }
+
+  @Override
+  public GetLockResponseBody getLock(String databaseId, String tableId, String actingPrincipal) {
+    TableDto tableDto =
+        openHouseInternalRepository
+            .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
+            .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
+    authorizationUtils.checkTablePrivilege(
+        tableDto, actingPrincipal, Privileges.GET_TABLE_METADATA);
+    return GetLockResponseBody.builder()
+        .tableUUID(tableDto.getTableUUID())
+        .lockState(isTableLocked(tableDto) ? tableDto.getPolicies().getLockState() : null)
+        .build();
+  }
+
+  private static void requireNonblank(String value, String field) {
+    if (value == null || value.trim().isEmpty()) {
+      throw new RequestValidationFailureException(field + " must be nonblank.");
+    }
+  }
+
+  private static void checkExpectedTableUUID(TableDto tableDto, String expectedTableUUID) {
+    requireNonblank(expectedTableUUID, "expectedTableUUID");
+    if (!expectedTableUUID.equals(tableDto.getTableUUID())) {
+      throw lockConflict(
+          tableDto, "expectedTableUUID does not match the current table generation.");
+    }
+  }
+
+  private static EntityConcurrentModificationException lockConflict(
+      TableDto tableDto, String message) {
+    return new EntityConcurrentModificationException(
+        tableDto.getTableUri(), message, new IllegalStateException(message));
   }
 
   @Override

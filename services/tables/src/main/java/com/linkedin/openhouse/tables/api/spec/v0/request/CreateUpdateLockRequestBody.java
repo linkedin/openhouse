@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.tables.api.spec.v0.request;
 
 import com.google.gson.GsonBuilder;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import io.swagger.v3.oas.annotations.media.Schema;
 import javax.validation.constraints.NotEmpty;
 import javax.validation.constraints.NotNull;
@@ -26,6 +27,18 @@ public class CreateUpdateLockRequestBody {
   String message;
 
   @Schema(
+      description =
+          "Omitted or null reasons are interpreted as LEGACY when locked=true; otherwise they "
+              + "remain null. Explicit reasons are preserved.",
+      nullable = true)
+  LockReason reason;
+
+  @Schema(
+      description = "Current table UUID, required when creating a SYSTEM_ONLY lock.",
+      nullable = true)
+  String expectedTableUUID;
+
+  @Schema(
       description = "lock creation epoch time measured in UTC milliseconds for a table",
       example = "1651002318265")
   @Builder.Default
@@ -35,6 +48,10 @@ public class CreateUpdateLockRequestBody {
       description = "lock expiration time for a table is `n` days from creationTime",
       example = "3")
   int expirationInDays = 0;
+
+  public LockReason getReason() {
+    return reason == null && locked ? LockReason.LEGACY : reason;
+  }
 
   public String toJson() {
     return new GsonBuilder().serializeNulls().create().toJson(this);
