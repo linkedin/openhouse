@@ -88,3 +88,30 @@ Standard DML Tests =
 | Delete | Predicates, subqueries, aliases, and whole-table conditions remove exactly the selected rows. |
 | Update | Predicates, subqueries, expressions, aliases, multi-column assignments, partition moves, and null assignments change only the selected rows and columns. |
 | Merge | Matched, unmatched, conditional, wildcard, common-table-expression, and set-operation sources apply their clauses to the exact target rows. |
+
+## Replace table as select
+
+Replacement prepared tables have rows, schema, and lineage produced by `CREATE
+OR REPLACE TABLE AS SELECT`. They include unpartitioned and date-partitioned
+tables in Parquet and ORC.
+
+```text
+RTAS Tests =
+  compatible([Replacement Prepared Tables]
+    x [Standard DML Test Cases, RTAS Test Cases Below])
+```
+
+| Test case | Expected behavior |
+|---|---|
+| Enablement and replication restrictions | Unsupported replacements fail and preserve the current table. |
+| Same-shape replacement | The selected rows replace the current rows and create the expected replacement lineage. |
+| DML after replacement | Compatible Standard DML test cases retain their row and snapshot behavior after replacement. |
+| Schema replacement | The new schema and rows become current without retaining removed fields. |
+| Partition replacement | The new partition specification becomes current and subsequent writes use it. |
+| Properties and policies | Required table metadata survives replacement or changes to the requested value. |
+| Time travel and recovery | Historical snapshots remain readable and the selected snapshot can become current again. |
+| Changelog and incremental reads | Replacement produces the expected inserted and deleted rows across the requested snapshot range. |
+| Rename and sort order | Replacement remains correct before and after rename, and the requested sort order remains visible. |
+| Creator identity | Replacement records the expected creator metadata. |
+| Concurrent replacement and append | Successful commits preserve both operations; otherwise one operation reports a conflict. |
+| Narrowing a `bigint` | Values outside the target range cause rejection instead of wrapping. |
