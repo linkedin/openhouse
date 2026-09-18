@@ -10,10 +10,10 @@ import scala.util.control.NonFatal
  * Replace table as select: what CREATE OR REPLACE TABLE AS SELECT is allowed to do to a table, and what survives it.
  *
  * A replace re-specifies a table in place and starts a new snapshot lineage under the same catalog identity. That
- * makes it the one statement in the harness that can change a table's shape, its partitioning and its content at
- * once, so this file owns two separate obligations. The first is that the reusable DML contract still holds on a
- * table that reached its starting state through a replace. The second is that everything the catalog governs, and
- * everything a reader can ask about history, behaves the way a new lineage requires.
+ * makes it the one statement in these integration tests that can change a table's shape, its partitioning and its
+ * content at once, so this file owns two separate obligations. The first is that the reusable DML contract still
+ * holds on a table that reached its starting state through a replace. The second is that everything the catalog
+ * governs, and everything a reader can ask about history, behaves the way a new lineage requires.
  *
  * Operations, DML: every reusable operation `ScenarioDmlOperations` defines, reused as data. A replaced table runs the
  * statements and the same assertions as a freshly created one, so this file holds one definition of each operation.
