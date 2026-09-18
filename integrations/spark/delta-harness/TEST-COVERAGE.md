@@ -1,15 +1,23 @@
-# What the Delta harness tests
+# Delta harness test coverage
 
-The harness tests observable end-user behavior. Each test case runs against
-compatible prepared tables, so the same operation is checked under different
-initial conditions and storage formats.
+The harness tests observable end-user behavior by multiplying prepared tables by
+compatible test cases:
+
+```text
+Executable Test Set = compatible(Prepared Tables x Test Cases)
+```
 
 ## Data representation
 
-The data-type tests require these values to survive a write and read without
-changing:
+The scalar prepared table is unpartitioned, contains standard seed rows, and is
+materialized in Parquet and ORC.
 
-| Test | Expected behavior |
+```text
+Scalar Type Tests =
+  compatible([Scalar Parquet Table, Scalar ORC Table] x [Test Cases Below])
+```
+
+| Test case | Expected behavior |
 |---|---|
 | Scalar values | `bigint`, `int`, `double`, `decimal(10,2)`, `string`, `binary`, `date`, `timestamp`, and `timestamp_ntz` values read back exactly. Complete DML row assertions also cover `boolean`. |
 | Nulls | Every non-key scalar column accepts `NULL` and reads back as null. |
@@ -19,9 +27,15 @@ changing:
 
 ## Reads and table changes
 
-Each operation has a concrete expected result:
+The standard prepared table is unpartitioned, contains three deterministic seed
+rows, and is materialized in Parquet and ORC.
 
-| Operation | Expected behavior |
+```text
+Core DML Tests =
+  compatible([Standard Parquet Table, Standard ORC Table] x [Test Cases Below])
+```
+
+| Test case | Expected behavior |
 |---|---|
 | Projection | Reading the string column in key order returns the values from the complete table and leaves the rows and snapshot count unchanged. |
 | `INSERT INTO` | Appending two rows preserves every starting row and commits one new snapshot. |
@@ -32,9 +46,14 @@ Each operation has a concrete expected result:
 
 ## Invalid operations
 
-Invalid operations must fail with a diagnostic that identifies the problem:
+The rejection tests use the same standard Parquet and ORC prepared tables.
 
-| Operation | Expected behavior |
+```text
+DML Rejection Tests =
+  compatible([Standard Parquet Table, Standard ORC Table] x [Test Cases Below])
+```
+
+| Test case | Expected behavior |
 |---|---|
 | `DELETE` with an unknown column | Analysis rejects the statement and names the missing column. |
 | `DELETE` with `rand()` in its predicate | Analysis rejects the nondeterministic predicate. |
@@ -43,53 +62,76 @@ Invalid operations must fail with a diagnostic that identifies the problem:
 | `MERGE` assigning one target column twice | Analysis rejects the conflicting assignments. |
 | `MERGE` matching two source rows to one target row | Execution reports the cardinality violation and preserves the complete table state. |
 
-## Reuse across table states
-
-Read and DML test cases are independent of the table states where they run. As
-the suite adds prepared tables with partitioning, ordering, schema evolution,
-replacement lineage, delete files, references, or policies, compatible test
-cases run against those new initial conditions.
-
-[How Delta harness coverage multiplies](CAPABILITY-MATRIX.md) explains that
-multiplication model and the role of the embedded and acceptance environments.
+[How the Delta harness generates tests](CAPABILITY-MATRIX.md) explains how
+compatibility selects the prepared-table and test-case pairs in these equations.
 
 ## Standard DML
 
-The DML contract covers filtered reads; inserts from values, queries, and data
-frames; full-table and partition-scoped overwrites; deletes by predicates,
-subqueries, aliases, and whole-table conditions; updates by predicates,
-subqueries, expressions, aliases, multiple columns, partition moves, and null
-assignment; and merges with matched, unmatched, conditional, wildcard, common
-table expression, and set-operation sources.
+Standard DML uses seeded unpartitioned tables, tables containing a null value,
+and date-partitioned tables. Each prepared table is materialized in Parquet and
+ORC.
 
-Most operations run on the seeded unpartitioned table. A null-sensitive delete
-runs on the same table with an additional null value, while partition-scoped
-overwrites run on a date-partitioned table. Each compatible operation runs in
-Parquet and ORC with the same complete-row and snapshot assertions.
+```text
+Standard DML Tests =
+  compatible([Standard, Null-Containing, Date-Partitioned Prepared Tables]
+    x [Test Cases Below])
+```
+
+| Test case | Expected behavior |
+|---|---|
+| Filtered read | Predicates return exactly the matching rows and leave table state unchanged. |
+| Insert values | Literal rows append without changing existing rows. |
+| Insert query | Query results append with the target column mapping preserved. |
+| DataFrame write | Appended DataFrame rows match the input values and schema. |
+| Full-table overwrite | New rows replace the complete prior contents. |
+| Partition overwrite | New rows replace only the selected partition and preserve every other partition. |
+| Delete | Predicates, subqueries, aliases, and whole-table conditions remove exactly the selected rows. |
+| Update | Predicates, subqueries, expressions, aliases, multi-column assignments, partition moves, and null assignments change only the selected rows and columns. |
+| Merge | Matched, unmatched, conditional, wildcard, common-table-expression, and set-operation sources apply their clauses to the exact target rows. |
 
 ## Replace table as select
 
-Replacement adds prepared tables whose current rows and schema arrived through
-`CREATE OR REPLACE TABLE AS SELECT`. The standard DML contracts run again on
-unpartitioned and date-partitioned replacement lineages, including null-sensitive
-deletes and partition-scoped writes.
+Replacement prepared tables have rows, schema, and lineage produced by `CREATE
+OR REPLACE TABLE AS SELECT`. They include unpartitioned and date-partitioned
+tables in Parquet and ORC.
 
-Focused replacement behavior covers enablement and replication restrictions,
-same-shape replacement, writes after replacement, schema and partition changes,
-property and policy preservation, time travel and snapshot recovery, changelog
-and incremental reads across replacement, rename ordering, sort-order changes,
-creator identity, and concurrent replacement and append.
+```text
+RTAS Tests =
+  compatible([Replacement Prepared Tables]
+    x [Standard DML Test Cases, RTAS Test Cases Below])
+```
 
-The intended behavior remains documented where the product is currently unsafe:
-narrowing a bigint column must not silently wrap values, and a racing append must
-not report success while discarding the replacement.
+| Test case | Expected behavior |
+|---|---|
+| Enablement and replication restrictions | Unsupported replacements fail and preserve the current table. |
+| Same-shape replacement | The selected rows replace the current rows and create the expected replacement lineage. |
+| DML after replacement | Compatible Standard DML test cases retain their row and snapshot behavior after replacement. |
+| Schema replacement | The new schema and rows become current without retaining removed fields. |
+| Partition replacement | The new partition specification becomes current and subsequent writes use it. |
+| Properties and policies | Required table metadata survives replacement or changes to the requested value. |
+| Time travel and recovery | Historical snapshots remain readable and the selected snapshot can become current again. |
+| Changelog and incremental reads | Replacement produces the expected inserted and deleted rows across the requested snapshot range. |
+| Rename and sort order | Replacement remains correct before and after rename, and the requested sort order remains visible. |
+| Creator identity | Replacement records the expected creator metadata. |
+| Concurrent replacement and append | Successful commits preserve both operations; otherwise one operation reports a conflict. |
+| Narrowing a `bigint` | Values outside the target range cause rejection instead of wrapping. |
 
 ## Table history
 
-History coverage treats snapshots as observable product state. Changelog scans
-must report the inserted, deleted, and updated rows associated with each
-operation. Incremental reads must honor inclusive and exclusive snapshot ranges.
+History tests use prepared tables with multiple snapshots produced by inserts,
+updates, deletes, and replacement in Parquet and ORC.
 
-Rollback and snapshot recovery must restore the selected table state. Timestamp
-and version time travel must return the historical rows without changing the
-current table.
+```text
+History Tests =
+  compatible([Multi-Snapshot Prepared Tables] x [Test Cases Below])
+```
+
+| Test case | Expected behavior |
+|---|---|
+| Changelog scan | The changelog reports the inserted, deleted, and updated rows associated with each operation. |
+| Inclusive incremental read | The requested start and end snapshots both contribute their expected rows. |
+| Exclusive incremental read | The start snapshot is excluded and later snapshots contribute their expected rows. |
+| Rollback | The selected historical snapshot becomes current with its exact rows and metadata. |
+| Snapshot recovery | A recoverable snapshot restores the expected table state. |
+| Version time travel | Reading a snapshot ID returns its historical rows without changing the current table. |
+| Timestamp time travel | Reading at a timestamp returns the corresponding historical rows without changing the current table. |

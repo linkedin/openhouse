@@ -1,8 +1,9 @@
-# How Delta harness coverage multiplies
+# How the Delta harness generates tests
 
-The harness generates a set of executable tests from two inputs: prepared tables
-and test cases. It pairs every test case with every compatible prepared table.
-Each prepared table includes its storage format.
+[TEST-COVERAGE.md](TEST-COVERAGE.md) lists the prepared tables, test cases, and
+expected behavior. The harness generates the executable test set by pairing each
+test case with every compatible prepared table. Each prepared table includes its
+storage format.
 
 ![Coverage composition](COVERAGE-MODEL.svg)
 
@@ -10,34 +11,30 @@ The [Graphviz source](COVERAGE-MODEL.dot) is kept beside the rendered diagram.
 
 ## Prepared tables
 
-A prepared table is a table in an initial state that test cases run against.
-Schema and seed rows are standardized where possible so test cases compose
-across table types. Other state can vary, including:
-
-- Storage format.
-- Partitioning and write ordering.
-- Table properties and policies.
-- Existing snapshots, lineages, delete files, or references.
+A prepared table is an initial condition for a test case. Schema and seed rows
+are standardized where possible. Storage format, partitioning, write ordering,
+properties, policies, snapshots, lineage, delete files, and references can vary.
 
 A prepared table can establish the same rows and schema through create and
-populate, Replace Table As Select, or drop and restore. The same compatible test
-cases then reveal whether the different lineage changes the result.
+populate, Replace Table As Select, or drop and restore. Running the same test
+cases against those tables reveals whether lineage changes observable behavior.
 
 ## Test cases
 
-A test case defines an action and its expected observable result. Reads assert
-returned rows and values. Writes assert rows, snapshots, and metadata. Catalog
-operations assert table identity and metadata. Rejected operations assert the
-error and the table state that remains unchanged.
-
-One test-case definition supplies the action and assertions for every compatible
-table type.
+A test case defines an operation and its expected observable result. One
+definition supplies the action and assertions for every compatible prepared
+table.
 
 ## Compatibility and the generated set
 
-The harness considers every prepared-table and test-case pair. Compatibility
-selects the pairs that become the executable test set. Unsupported feature
-combinations remain empty cells, which makes the compatibility matrix jagged.
+The harness considers the matrix product of prepared tables and test cases:
+
+```text
+Executable Test Set = compatible(Prepared Tables x Test Cases)
+```
+
+Compatibility selects the pairs that enter the executable test set. Unsupported
+feature combinations remain empty cells, which makes the matrix jagged.
 
 Adding a prepared table applies every compatible existing test case to a new
 initial condition. Adding a test case applies it to every compatible existing
