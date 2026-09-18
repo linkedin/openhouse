@@ -2,7 +2,6 @@ package com.linkedin.openhouse.jobs.util;
 
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import java.io.IOException;
-import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -10,6 +9,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
+import java.util.function.UnaryOperator;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
 import org.apache.hadoop.fs.FileStatus;
@@ -54,7 +54,8 @@ public final class SparkJobUtil {
       int count,
       ZonedDateTime now,
       String timeZone) {
-    ZonedDateTime clock = atRetentionZone(now, timeZone);
+    ZonedDateTime clock =
+        StringUtils.isBlank(timeZone) ? now : now.withZoneSameInstant(ZoneId.of(timeZone));
     String predicate;
     if (!StringUtils.isBlank(columnPattern)) {
       predicate =
@@ -75,11 +76,19 @@ public final class SparkJobUtil {
               count,
               granularity);
     } else {
-      predicate =
-          String.format(
-              RETENTION_CONDITION_ZONED_NATIVE_TEMPLATE,
-              columnName,
-              retentionRangeStartEpochMicros(clock, granularity, count));
+      ChronoUnit period = convertGranularityToChrono(granularity.toUpperCase());
+      UnaryOperator<ZonedDateTime> periodStart =
+          time ->
+              period == ChronoUnit.MONTHS
+                  ? time.toLocalDate().withDayOfMonth(1).atStartOfDay(time.getZone())
+                  : period == ChronoUnit.YEARS
+                      ? time.toLocalDate().withDayOfYear(1).atStartOfDay(time.getZone())
+                      : time.truncatedTo(period);
+      ZonedDateTime rangeStart = periodStart.apply(clock).minus(count, period);
+      long micros =
+          periodStart.apply(rangeStart.withZoneSameInstant(ZoneOffset.UTC)).toEpochSecond()
+              * MICROS_PER_SECOND;
+      predicate = String.format(RETENTION_CONDITION_ZONED_NATIVE_TEMPLATE, columnName, micros);
     }
     String query = String.format("DELETE FROM %s WHERE %s", getQuotedFqtn(fqtn), predicate);
     log.info(
@@ -100,12 +109,23 @@ public final class SparkJobUtil {
       int count,
       ZonedDateTime now,
       String timeZone) {
-    ZonedDateTime clock = atRetentionZone(now, timeZone);
-    if (StringUtils.isBlank(columnPattern)) {
-      return Expressions.lessThan(
-          columnName, retentionRangeStartEpochMicros(clock, granularity, count));
-    }
+    ZonedDateTime clock =
+        StringUtils.isBlank(timeZone) ? now : now.withZoneSameInstant(ZoneId.of(timeZone));
     ChronoUnit period = convertGranularityToChrono(granularity.toUpperCase());
+    if (StringUtils.isBlank(columnPattern)) {
+      UnaryOperator<ZonedDateTime> periodStart =
+          time ->
+              period == ChronoUnit.MONTHS
+                  ? time.toLocalDate().withDayOfMonth(1).atStartOfDay(time.getZone())
+                  : period == ChronoUnit.YEARS
+                      ? time.toLocalDate().withDayOfYear(1).atStartOfDay(time.getZone())
+                      : time.truncatedTo(period);
+      ZonedDateTime rangeStart = periodStart.apply(clock).minus(count, period);
+      long micros =
+          periodStart.apply(rangeStart.withZoneSameInstant(ZoneOffset.UTC)).toEpochSecond()
+              * MICROS_PER_SECOND;
+      return Expressions.lessThan(columnName, micros);
+    }
     // Subtract on the frozen wall clock (toOffsetDateTime keeps now's offset) so the label matches
     // what Spark's date_format/INTERVAL produces in the statement, even across a daylight-saving
     // transition, and carries an offset for patterns that format one.
@@ -113,42 +133,6 @@ public final class SparkJobUtil {
         DateTimeFormatter.ofPattern(columnPattern)
             .format(clock.toOffsetDateTime().minus(count, period));
     return Expressions.lessThan(columnName, rangeStartLabel);
-  }
-
-  /**
-   * The reference time expressed in the retention zone: the requested IANA zone id or fixed offset
-   * when set, otherwise the zone the caller already chose for {@code now} (UTC in the retention
-   * app).
-   */
-  private static ZonedDateTime atRetentionZone(ZonedDateTime now, String timeZone) {
-    return StringUtils.isBlank(timeZone) ? now : now.withZoneSameInstant(ZoneId.of(timeZone));
-  }
-
-  /**
-   * The oldest instant to keep for a native timestamp column, as microseconds since the UTC epoch.
-   * The current period start in the retention zone, moved back {@code count} periods, then taken to
-   * the UTC partition edge so the delete removes whole Iceberg partitions instead of rewriting the
-   * edge one. Inclusive: at 12:01 with one-period retention this keeps the current partial period,
-   * so an hourly period retains 24 hours and a daily period 36 hours.
-   */
-  private static long retentionRangeStartEpochMicros(
-      ZonedDateTime asOf, String granularity, int count) {
-    ChronoUnit period = convertGranularityToChrono(granularity.toUpperCase());
-    ZonedDateTime rangeStart = startOfPeriod(asOf, period).minus(count, period);
-    ZonedDateTime utcPartitionEdge =
-        startOfPeriod(rangeStart.withZoneSameInstant(ZoneOffset.UTC), period);
-    return utcPartitionEdge.toEpochSecond() * MICROS_PER_SECOND;
-  }
-
-  /** Start of the period containing {@code time}, in {@code time}'s own zone. */
-  private static ZonedDateTime startOfPeriod(ZonedDateTime time, ChronoUnit period) {
-    if (period == ChronoUnit.MONTHS) {
-      return time.toLocalDate().withDayOfMonth(1).atStartOfDay(time.getZone());
-    }
-    if (period == ChronoUnit.YEARS) {
-      return time.toLocalDate().withDayOfYear(1).atStartOfDay(time.getZone());
-    }
-    return time.truncatedTo(period);
   }
 
   public static String getQuotedFqtn(String fqtn) {
