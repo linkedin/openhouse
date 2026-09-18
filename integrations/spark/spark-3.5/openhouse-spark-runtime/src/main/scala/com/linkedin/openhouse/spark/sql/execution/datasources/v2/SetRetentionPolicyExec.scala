@@ -21,11 +21,13 @@ case class SetRetentionPolicyExec(
   override lazy val output: Seq[Attribute] = Nil
 
   override protected def run(): Seq[InternalRow] = {
-    timeZone.foreach(validateTimeZone)
+    timeZone.foreach(SetRetentionPolicyExec.validateTimeZone)
     catalog.loadTable(ident) match {
       case iceberg: SparkTable if iceberg.table().properties().containsKey("openhouse.tableId") =>
         iceberg.table().updateProperties()
-          .set("updated.openhouse.policy", retentionPolicyJson)
+          .set(
+            "updated.openhouse.policy",
+            SetRetentionPolicyExec.retentionPolicyJson(granularity, count, timeZone, colName, colPattern))
           .commit()
 
       case table =>
@@ -35,10 +37,26 @@ case class SetRetentionPolicyExec(
     Nil
   }
 
+  override def simpleString(maxFields: Int): String = {
+    s"SetRetentionPolicyExec: ${catalog} ${ident} ${count} ${granularity} ${colName.getOrElse("")} ${colPattern.getOrElse("")} ${timeZone.getOrElse("")}"
+  }
+}
+
+object SetRetentionPolicyExec {
+
   /**
-   * Reject an invalid time zone here rather than persisting a policy the retention job
-   * cannot resolve. A table owner supplies the zone as free text in the SQL statement.
+   * Rejects a time zone that `ZoneId` cannot resolve, so an invalid zone fails the statement
+   * instead of persisting a policy the retention job cannot evaluate. A table owner supplies the
+   * zone as free text in the SQL statement.
+   *
+   * The declared exception is unchecked because this runs on the `run` override inherited from
+   * `LeafV2CommandExec`, whose signature declares no checked exception, so there is no checked
+   * channel to return the failure through; Spark surfaces the throw as the failed statement. This
+   * matches the unchecked rejections the sibling policy execs already use for a non-Openhouse table.
+   *
+   * @throws java.lang.IllegalArgumentException if the zone is not a valid IANA id or fixed offset.
    */
+  @throws[IllegalArgumentException]("if the zone is not a valid IANA id or fixed offset")
   private def validateTimeZone(tz: String): Unit = {
     try ZoneId.of(tz)
     catch {
@@ -50,11 +68,16 @@ case class SetRetentionPolicyExec(
   }
 
   /**
-   * Serialize the retention policy with a JSON writer so quotes, backslashes, and control
-   * characters in the owner-supplied column name, pattern, and time zone are escaped by the
-   * library rather than by hand.
+   * Serializes the retention policy with a JSON writer so quotes, backslashes, and control
+   * characters in the owner-supplied column name, pattern, and time zone are escaped by the library
+   * rather than by hand. Pure: it reads only its arguments.
    */
-  private def retentionPolicyJson: String = {
+  private def retentionPolicyJson(
+    granularity: String,
+    count: Int,
+    timeZone: Option[String],
+    colName: Option[String],
+    colPattern: Option[String]): String = {
     val mapper = new ObjectMapper()
     val retention = mapper.createObjectNode()
     retention.put("count", count)
@@ -68,9 +91,5 @@ case class SetRetentionPolicyExec(
     val policy = mapper.createObjectNode()
     policy.set("retention", retention)
     mapper.writeValueAsString(policy)
-  }
-
-  override def simpleString(maxFields: Int): String = {
-    s"SetRetentionPolicyExec: ${catalog} ${ident} ${count} ${granularity} ${colName.getOrElse("")} ${colPattern.getOrElse("")} ${timeZone.getOrElse("")}"
   }
 }
