@@ -49,6 +49,9 @@ jobs:
         class-name: com.linkedin.openhouse.jobs.spark.SnapshotsExpirationSparkApp
         args: ["--deleteFiles", "--backupDir", ".backup"]
         << : *apps-defaults
+        spark-properties:
+          <<: *spark-defaults
+          "spark.sql.catalog.openhouse.action-type": "SYSTEM"
         << : *livy-engine
       - type: ORPHAN_FILES_DELETION
         class-name: com.linkedin.openhouse.jobs.spark.OrphanFilesDeletionSparkApp
@@ -96,4 +99,3 @@ jobs:
         args: []
         <<: *apps-defaults
         <<: *livy-engine
-

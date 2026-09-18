@@ -3,7 +3,6 @@ package com.linkedin.openhouse.tables.services;
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
-import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
@@ -68,23 +67,15 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
                         .tableCreator(tableCreatorUpdater)
                         .build()),
             icebergSnapshotRequestBody);
-
     if (tableDto.isPresent()) {
-      // A locked table must reject every write, including CREATE OR REPLACE (RTAS). The lock is
-      // checked here — before the replace-vs-update split — so the replace path can no longer
-      // bypass it and silently overwrite a locked table.
-      if (isTableLocked(tableDto.get())) {
-        throw new UnsupportedClientOperationException(
-            UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,
-            String.format(
-                "Table %s.%s is in locked state and cannot be written to", databaseId, tableId));
-      }
       authorizationUtils.checkTableWritePathPrivileges(
           tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
+      LockPolicyValidator.checkWrite(tableDto.get());
     } else {
       authorizationUtils.checkDatabasePrivilege(
           databaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
     }
+    tableDtoToSave = LockPolicyValidator.prepare(tableDto.orElse(null), tableDtoToSave);
     try {
       tableDtoToSave = readBridgeStripProtection.prepare(tableDto.orElse(null), tableDtoToSave);
     } catch (ColumnDefaultException e) {
@@ -111,11 +102,5 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
               "The requested table has been modified/created by other processes."),
           ce);
     }
-  }
-
-  private boolean isTableLocked(TableDto tableDto) {
-    return tableDto.getPolicies() != null
-        && tableDto.getPolicies().getLockState() != null
-        && tableDto.getPolicies().getLockState().isLocked();
   }
 }
