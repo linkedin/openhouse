@@ -1,4 +1,4 @@
-digraph DeltaHarnessCoverage {
+digraph DeltaIntegrationTestCoverage {
   graph [
     rankdir=TB
     bgcolor="transparent"
