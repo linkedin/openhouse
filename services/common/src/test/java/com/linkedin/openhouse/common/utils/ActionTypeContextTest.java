@@ -15,7 +15,7 @@ import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
-class SystemActionContextTest {
+class ActionTypeContextTest {
   @AfterEach
   void clearRequest() {
     RequestContextHolder.resetRequestAttributes();
@@ -23,35 +23,42 @@ class SystemActionContextTest {
 
   @ParameterizedTest
   @CsvSource(
-      value = {"NULL,false", "true,true", "TRUE,true", "TrUe,true", "false,false", "FaLsE,false"},
+      value = {
+        "NULL,false",
+        "SYSTEM,true",
+        "system,true",
+        "SyStEm,true",
+        "USER,false",
+        "UsEr,false"
+      },
       nullValues = "NULL")
-  void evaluatesBooleanDeclarationWithoutChangingRawValue(String value, boolean enabled) {
+  void evaluatesActionTypeWithoutChangingRawValue(String value, boolean systemAction) {
     request(value);
-    assertEquals(value, SystemActionContext.getDeclaration());
-    assertEquals(enabled, SystemActionContext.isEnabled());
+    assertEquals(value, ActionTypeContext.getDeclaration());
+    assertEquals(systemAction, ActionTypeContext.isSystemAction());
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"", " ", "yes", "1", " true", "false "})
+  @ValueSource(strings = {"", " ", "yes", "1", "true", "false", " SYSTEM", "USER "})
   void invalidSuppliedValuesRemainReadableButCannotEnableAccess(String value) {
     request(value);
-    assertEquals(value, SystemActionContext.getDeclaration());
-    assertThrows(RequestValidationFailureException.class, SystemActionContext::isEnabled);
+    assertEquals(value, ActionTypeContext.getDeclaration());
+    assertThrows(RequestValidationFailureException.class, ActionTypeContext::isSystemAction);
   }
 
   @Test
-  void absentAndNonServletContextsDefaultToDisabled() {
+  void absentAndNonServletContextsAreNotSystemActions() {
     RequestContextHolder.resetRequestAttributes();
-    assertNull(SystemActionContext.getDeclaration());
-    assertFalse(SystemActionContext.isEnabled());
+    assertNull(ActionTypeContext.getDeclaration());
+    assertFalse(ActionTypeContext.isSystemAction());
     RequestContextHolder.setRequestAttributes(mock(RequestAttributes.class));
-    assertNull(SystemActionContext.getDeclaration());
-    assertFalse(SystemActionContext.isEnabled());
+    assertNull(ActionTypeContext.getDeclaration());
+    assertFalse(ActionTypeContext.isSystemAction());
   }
 
   private void request(String value) {
     HttpServletRequest request = mock(HttpServletRequest.class);
-    when(request.getHeader(SystemActionContext.HTTP_HEADER_SYSTEM_ACTION)).thenReturn(value);
+    when(request.getHeader(ActionTypeContext.HTTP_HEADER_ACTION_TYPE)).thenReturn(value);
     RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
   }
 }

@@ -80,7 +80,7 @@ import org.junit.jupiter.params.provider.ValueSource;
  * AuthorizationServiceException            → 503  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → o.a.iceberg.exceptions.CommitStateUnknownException → no cleanup
  * (gateway timeout)                        → 504  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → o.a.iceberg.exceptions.CommitStateUnknownException → no cleanup
  * AccessDeniedException                    → 403  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → c.l.openhouse.javaclient.exception.WebClientResponseWithMsgExc → cleans up uncommitted files
- * CleanupLockAccessDeniedException         → 423  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → c.l.openhouse.javaclient.exception.WebClientResponseWithMsgExc → no retry, cleans up uncommitted files
+ * SystemOnlyLockAccessDeniedException         → 423  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → c.l.openhouse.javaclient.exception.WebClientResponseWithMsgExc → no retry, cleans up uncommitted files
  * </pre>
  */
 public class ServerClientExceptionMappingTest {
@@ -142,10 +142,10 @@ public class ServerClientExceptionMappingTest {
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  public void testCleanupDenialPreservesGuidanceWithoutCommitRetry(boolean write) {
+  public void testSystemOnlyDenialPreservesGuidanceWithoutCommitRetry(boolean write) {
     String message =
-        "Table db.tbl is locked for TIER3_AUTO_CLEANUP: eligible for cleanup. "
-            + "Promote to Tier 2 or use reason-targeted OpenHouse unlock.";
+        "Table db.tbl has a SYSTEM_ONLY lock: maintenance in progress. "
+            + "Use the reason-targeted OpenHouse unlock endpoint as an authorized lock administrator.";
     server.enqueue(jsonResponse(423, message));
     WebClientResponseWithMessageException failure =
         Assertions.assertThrowsExactly(

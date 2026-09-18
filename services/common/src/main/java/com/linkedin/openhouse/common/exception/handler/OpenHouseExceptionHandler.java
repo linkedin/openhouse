@@ -3,7 +3,6 @@ package com.linkedin.openhouse.common.exception.handler;
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.linkedin.openhouse.common.api.spec.ErrorResponseBody;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
-import com.linkedin.openhouse.common.exception.CleanupLockAccessDeniedException;
 import com.linkedin.openhouse.common.exception.CorruptEntityTypeException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
@@ -17,6 +16,7 @@ import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.ResourceGatedByToggledOnFeatureException;
+import com.linkedin.openhouse.common.exception.SystemOnlyLockAccessDeniedException;
 import com.linkedin.openhouse.common.exception.UnprocessableEntityException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import io.swagger.v3.oas.annotations.Hidden;
@@ -275,7 +275,7 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
   protected ResponseEntity<ErrorResponseBody> handleUnsupportedClientOperationException(
       UnsupportedClientOperationException unsupportedClientOperationException) {
     HttpStatus status =
-        unsupportedClientOperationException instanceof CleanupLockAccessDeniedException
+        unsupportedClientOperationException instanceof SystemOnlyLockAccessDeniedException
             ? HttpStatus.LOCKED
             : HttpStatus.BAD_REQUEST;
     ErrorResponseBody errorResponseBody =

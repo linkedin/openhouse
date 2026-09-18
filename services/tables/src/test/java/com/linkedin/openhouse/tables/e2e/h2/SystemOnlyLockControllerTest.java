@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.tables.e2e.h2;
 
-import static com.linkedin.openhouse.tables.config.TablesMvcConstants.HTTP_HEADER_SYSTEM_ACTION;
+import static com.linkedin.openhouse.tables.config.TablesMvcConstants.HTTP_HEADER_ACTION_TYPE;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 import static org.hamcrest.Matchers.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -49,12 +49,12 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
       PropertyOverrideContextInitializer.class,
       AuthorizationPropertiesInitializer.class
     })
-class CleanupLockControllerTest {
+class SystemOnlyLockControllerTest {
   private static final String DB = GET_TABLE_RESPONSE_BODY.getDatabaseId();
-  private static final String TABLE = "cleanup_lock_lifecycle";
+  private static final String TABLE = "system_only_lock_lifecycle";
   private static final String OWNER = "lock-owner";
   private static final String PATH = "/v1/databases/" + DB + "/tables/" + TABLE;
-  private static final String CLEANUP_PATH = PATH + "/lock/TIER3_AUTO_CLEANUP";
+  private static final String SYSTEM_ONLY_PATH = PATH + "/lock/SYSTEM_ONLY";
   private static final TableDtoPrimaryKey KEY =
       TableDtoPrimaryKey.builder().databaseId(DB).tableId(TABLE).build();
 
@@ -99,7 +99,7 @@ class CleanupLockControllerTest {
 
   @Test
   void statusIsMetadataOnlyAndDoesNotRequireLockAdmin() throws Exception {
-    createCleanup();
+    createSystemOnly();
     doThrow(new AccessDeniedException("no lock admin"))
         .when(authorizationUtils)
         .checkLockTablePrivilege(any(), any(), any());
@@ -108,7 +108,7 @@ class CleanupLockControllerTest {
         .andExpect(jsonPath("$", aMapWithSize(2)))
         .andExpect(jsonPath("$.tableUUID").value(tableUUID))
         .andExpect(jsonPath("$.lockState.locked").value(true))
-        .andExpect(jsonPath("$.lockState.reason").value("TIER3_AUTO_CLEANUP"))
+        .andExpect(jsonPath("$.lockState.reason").value("SYSTEM_ONLY"))
         .andExpect(jsonPath("$.lockState.lockOwner").value(OWNER))
         .andExpect(jsonPath("$.lockState.tableUUID").value(tableUUID))
         .andExpect(jsonPath("$.tableLocation").doesNotExist())
@@ -142,7 +142,7 @@ class CleanupLockControllerTest {
 
   @Test
   void statusAndUnlockKeepExistingAuthorization() throws Exception {
-    createCleanup();
+    createSystemOnly();
     doThrow(new AccessDeniedException("denied"))
         .when(authorizationUtils)
         .checkTablePrivilege(any(), eq(OWNER), eq(Privileges.GET_TABLE_METADATA));
@@ -155,10 +155,10 @@ class CleanupLockControllerTest {
 
   @Test
   void guardedUnlockWorksForAnotherLockAdminAndRetriesAreNoOps() throws Exception {
-    createCleanup();
+    createSystemOnly();
     mvc.perform(auth(delete(PATH + "/lock"))).andExpect(status().isConflict());
     mvc.perform(
-            delete(CLEANUP_PATH)
+            delete(SYSTEM_ONLY_PATH)
                 .param("expectedTableUUID", tableUUID)
                 .param("expectedLockOwner", OWNER)
                 .header(
@@ -174,7 +174,7 @@ class CleanupLockControllerTest {
 
   @Test
   void guardedUnlockRejectsWrongReasonOwnerOrGeneration() throws Exception {
-    createCleanup();
+    createSystemOnly();
     mvc.perform(unlock(tableUUID, "wrong-owner")).andExpect(status().isConflict());
     mvc.perform(unlock("previous-generation", OWNER)).andExpect(status().isConflict());
     mvc.perform(
@@ -191,7 +191,7 @@ class CleanupLockControllerTest {
       value = {"NULL,owner", "uuid,NULL", "'',owner", "uuid,''", "' ',owner", "uuid,' '"},
       nullValues = "NULL")
   void absentOrBlankGuardsAreBadRequests(String generation, String owner) throws Exception {
-    MockHttpServletRequestBuilder request = auth(delete(CLEANUP_PATH));
+    MockHttpServletRequestBuilder request = auth(delete(SYSTEM_ONLY_PATH));
     if (generation != null) {
       request.param("expectedTableUUID", generation);
     }
@@ -202,7 +202,7 @@ class CleanupLockControllerTest {
   }
 
   @Test
-  void malformedReasonAndMissingCleanupGenerationAreBadRequests() throws Exception {
+  void malformedReasonAndMissingSystemOnlyGenerationAreBadRequests() throws Exception {
     mvc.perform(
             auth(delete(PATH + "/lock/UNKNOWN"))
                 .param("expectedTableUUID", tableUUID)
@@ -211,13 +211,13 @@ class CleanupLockControllerTest {
     mvc.perform(
             auth(post(PATH + "/lock"))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"locked\":true,\"reason\":\"TIER3_AUTO_CLEANUP\"}"))
+                .content("{\"locked\":true,\"reason\":\"SYSTEM_ONLY\"}"))
         .andExpect(status().isBadRequest());
   }
 
   @Test
-  void preOwnerCleanupHasExplicitGuardedRecovery() throws Exception {
-    storeLock(LockState.builder().locked(true).reason(LockReason.TIER3_AUTO_CLEANUP).build());
+  void preOwnerSystemOnlyHasExplicitGuardedRecovery() throws Exception {
+    storeLock(LockState.builder().locked(true).reason(LockReason.SYSTEM_ONLY).build());
     mvc.perform(auth(delete(PATH + "/lock"))).andExpect(status().isConflict());
     mvc.perform(unlock(tableUUID, OWNER)).andExpect(status().isConflict());
     mvc.perform(unlock("previous-generation", "__UNRECORDED__")).andExpect(status().isConflict());
@@ -227,8 +227,8 @@ class CleanupLockControllerTest {
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void stagedTableReplaceProtectsCleanupPolicies(boolean omitPolicies) throws Exception {
-    createCleanup();
+  void stagedTableReplaceProtectsSystemOnlyPolicies(boolean omitPolicies) throws Exception {
+    createSystemOnly();
     TableDto current = repository.findById(KEY).get();
     CreateUpdateTableRequestBody request =
         buildCreateUpdateTableRequestBody(current)
@@ -239,16 +239,16 @@ class CleanupLockControllerTest {
             .build();
     mvc.perform(
             auth(post("/v1/databases/" + DB + "/tables"))
-                .header(HTTP_HEADER_SYSTEM_ACTION, "true")
+                .header(HTTP_HEADER_ACTION_TYPE, "SYSTEM")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(request.toJson()))
         .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.message", containsString("Cleanup lock state")));
+        .andExpect(jsonPath("$.message", containsString("SYSTEM_ONLY lock state")));
     request =
         request.toBuilder().policies(omitPolicies ? null : Policies.builder().build()).build();
     mvc.perform(
             auth(post("/v1/databases/" + DB + "/tables"))
-                .header(HTTP_HEADER_SYSTEM_ACTION, "true")
+                .header(HTTP_HEADER_ACTION_TYPE, "SYSTEM")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(request.toJson()))
         .andExpect(status().isCreated())
@@ -260,8 +260,8 @@ class CleanupLockControllerTest {
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void snapshotUpdateAndReplaceCannotChangeCleanupPolicies(boolean replace) throws Exception {
-    createCleanup();
+  void snapshotUpdateAndReplaceCannotChangeSystemOnlyPolicies(boolean replace) throws Exception {
+    createSystemOnly();
     TableDto current = repository.findById(KEY).get();
     CreateUpdateTableRequestBody request =
         buildCreateUpdateTableRequestBody(current)
@@ -272,18 +272,18 @@ class CleanupLockControllerTest {
             .build();
     mvc.perform(
             auth(put(PATH + "/iceberg/v2/snapshots"))
-                .header(HTTP_HEADER_SYSTEM_ACTION, "true")
+                .header(HTTP_HEADER_ACTION_TYPE, "SYSTEM")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(snapshots(request).toJson()))
         .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.message", containsString("Cleanup lock state")));
+        .andExpect(jsonPath("$.message", containsString("SYSTEM_ONLY lock state")));
     org.junit.jupiter.api.Assertions.assertEquals(
         current.getPolicies(), repository.findById(KEY).get().getPolicies());
   }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void genericCreationCannotSmuggleCleanupPolicies(boolean snapshotWrite) throws Exception {
+  void genericCreationCannotSmuggleSystemOnlyPolicies(boolean snapshotWrite) throws Exception {
     Map<String, String> properties = new HashMap<>(GET_TABLE_RESPONSE_BODY.getTableProperties());
     properties.put("openhouse.databaseId", DB);
     properties.put("openhouse.tableId", TABLE + "_smuggled");
@@ -295,10 +295,7 @@ class CleanupLockControllerTest {
             .policies(
                 Policies.builder()
                     .lockState(
-                        LockState.builder()
-                            .locked(true)
-                            .reason(LockReason.TIER3_AUTO_CLEANUP)
-                            .build())
+                        LockState.builder().locked(true).reason(LockReason.SYSTEM_ONLY).build())
                     .build())
             .build();
     MockHttpServletRequestBuilder write =
@@ -307,16 +304,16 @@ class CleanupLockControllerTest {
             : post("/v1/databases/" + DB + "/tables").content(request.toJson());
     mvc.perform(auth(write).contentType(MediaType.APPLICATION_JSON))
         .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.message", containsString("Cleanup lock state")));
+        .andExpect(jsonPath("$.message", containsString("SYSTEM_ONLY lock state")));
   }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void ordinaryWritesCannotEraseOmittedCleanupMetadata(boolean snapshotWrite) throws Exception {
+  void ordinaryWritesCannotEraseOmittedSystemOnlyMetadata(boolean snapshotWrite) throws Exception {
     storeLock(
         LockState.builder()
             .locked(false)
-            .reason(LockReason.TIER3_AUTO_CLEANUP)
+            .reason(LockReason.SYSTEM_ONLY)
             .lockOwner(OWNER)
             .tableUUID(tableUUID)
             .build());
@@ -340,12 +337,12 @@ class CleanupLockControllerTest {
         .build();
   }
 
-  private void createCleanup() throws Exception {
+  private void createSystemOnly() throws Exception {
     mvc.perform(
             auth(post(PATH + "/lock"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
-                    "{\"locked\":true,\"reason\":\"TIER3_AUTO_CLEANUP\",\"expectedTableUUID\":\""
+                    "{\"locked\":true,\"reason\":\"SYSTEM_ONLY\",\"expectedTableUUID\":\""
                         + tableUUID
                         + "\",\"lockOwner\":\"spoofed-owner\"}"))
         .andExpect(status().isCreated());
@@ -364,7 +361,7 @@ class CleanupLockControllerTest {
   }
 
   private MockHttpServletRequestBuilder unlock(String generation, String owner) throws Exception {
-    return auth(delete(CLEANUP_PATH))
+    return auth(delete(SYSTEM_ONLY_PATH))
         .param("expectedTableUUID", generation)
         .param("expectedLockOwner", owner);
   }

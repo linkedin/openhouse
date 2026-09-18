@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.tables.e2e.h2;
 
-import static com.linkedin.openhouse.tables.config.TablesMvcConstants.HTTP_HEADER_SYSTEM_ACTION;
+import static com.linkedin.openhouse.tables.config.TablesMvcConstants.HTTP_HEADER_ACTION_TYPE;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.GET_TABLE_RESPONSE_BODY;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.buildCreateUpdateTableRequestBody;
 import static org.junit.jupiter.api.Assertions.*;
@@ -27,7 +27,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.openapitools.jackson.nullable.JsonNullable;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -53,7 +52,7 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 class LockClientServerTest {
   private static final String DATABASE_ID = GET_TABLE_RESPONSE_BODY.getDatabaseId();
   private static final String TABLE_ID = "lock_client_roundtrip";
-  private static final String OBSERVED_HEADER = "X-Test-System-Action";
+  private static final String OBSERVED_HEADER = "X-Test-Action-Type";
   private static final Duration TIMEOUT = Duration.ofSeconds(30);
 
   @LocalServerPort private int port;
@@ -72,11 +71,13 @@ class LockClientServerTest {
         "Bearer " + new DummySecurityJWT(GET_TABLE_RESPONSE_BODY.getTableCreator()).buildNoopJWT());
     tableApi = new TableApi(apiClient);
     CreateUpdateTableRequestBody request =
-        apiClient.getObjectMapper().readValue(
-            buildCreateUpdateTableRequestBody(
-                    GET_TABLE_RESPONSE_BODY.toBuilder().tableId(TABLE_ID).build())
-                .toJson(),
-            CreateUpdateTableRequestBody.class);
+        apiClient
+            .getObjectMapper()
+            .readValue(
+                buildCreateUpdateTableRequestBody(
+                        GET_TABLE_RESPONSE_BODY.toBuilder().tableId(TABLE_ID).build())
+                    .toJson(),
+                CreateUpdateTableRequestBody.class);
     tableUUID = tableApi.createTableV1(DATABASE_ID, request).block(TIMEOUT).getTableUUID();
     tableCreated = true;
   }
@@ -86,12 +87,12 @@ class LockClientServerTest {
     if (tableCreated) {
       GetLockResponseBody status = tableApi.getLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
       if (status.getLockState() != null
-          && status.getLockState().getReason() == LockState.ReasonEnum.TIER3_AUTO_CLEANUP) {
+          && status.getLockState().getReason() == LockState.ReasonEnum.SYSTEM_ONLY) {
         tableApi
             .deleteLockByReasonV1(
                 DATABASE_ID,
                 TABLE_ID,
-                "TIER3_AUTO_CLEANUP",
+                "SYSTEM_ONLY",
                 status.getTableUUID(),
                 status.getLockState().getLockOwner())
             .block(TIMEOUT);
@@ -105,30 +106,28 @@ class LockClientServerTest {
   @ParameterizedTest
   @CsvSource(
       value = {
-        "true,TIER3_AUTO_CLEANUP,TIER3_AUTO_CLEANUP",
-        "true,NULL,LEGACY",
-        "false,NULL,LEGACY",
+        "SYSTEM,SYSTEM_ONLY,SYSTEM_ONLY",
+        "SYSTEM,NULL,LEGACY",
+        "USER,NULL,LEGACY",
         "NULL,NULL,LEGACY",
         "NULL,LEGACY,LEGACY",
         "NULL,OMITTED,LEGACY"
       },
       nullValues = "NULL")
-  void lockRoundTrip(String systemAction, String reason, LockState.ReasonEnum expectedReason) {
-    if (systemAction != null) {
-      apiClient.addDefaultHeader("X-OpenHouse-System-Action", systemAction);
+  void lockRoundTrip(String actionType, String reason, String expectedReason) {
+    if (actionType != null) {
+      apiClient.addDefaultHeader("X-OpenHouse-Action-Type", actionType);
     }
     CreateUpdateLockRequestBody request =
         new CreateUpdateLockRequestBody()
             .locked(true)
             .creationTime(System.currentTimeMillis())
             .expirationInDays(1);
-    if ("OMITTED".equals(reason)) {
-      request.setReason_JsonNullable(JsonNullable.undefined());
-    } else {
+    if (!"OMITTED".equals(reason)) {
       request.reason(
           reason == null ? null : CreateUpdateLockRequestBody.ReasonEnum.fromValue(reason));
     }
-    if ("TIER3_AUTO_CLEANUP".equals(reason)) {
+    if ("SYSTEM_ONLY".equals(reason)) {
       request.expectedTableUUID(tableUUID);
     }
 
@@ -136,21 +135,21 @@ class LockClientServerTest {
         tableApi.createLockV1WithHttpInfo(DATABASE_ID, TABLE_ID, request).block(TIMEOUT);
     assertNotNull(created);
     assertEquals(HttpStatus.CREATED, created.getStatusCode());
-    assertEquals(systemAction, created.getHeaders().getFirst(OBSERVED_HEADER));
+    assertEquals(actionType, created.getHeaders().getFirst(OBSERVED_HEADER));
 
     ResponseEntity<GetTableResponseBody> response =
         tableApi.getTableV1WithHttpInfo(DATABASE_ID, TABLE_ID).block(TIMEOUT);
     assertNotNull(response);
     assertEquals(HttpStatus.OK, response.getStatusCode());
-    assertEquals(systemAction, response.getHeaders().getFirst(OBSERVED_HEADER));
+    assertEquals(actionType, response.getHeaders().getFirst(OBSERVED_HEADER));
     assertNotNull(response.getBody());
     LockState lock = response.getBody().getPolicies().getLockState();
     assertTrue(lock.getLocked());
-    assertEquals(expectedReason, lock.getReason());
+    assertEquals(expectedReason, lock.getReason().getValue());
     GetLockResponseBody status = tableApi.getLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
     assertEquals(tableUUID, status.getTableUUID());
     assertEquals(lock, status.getLockState());
-    if (expectedReason == LockState.ReasonEnum.TIER3_AUTO_CLEANUP) {
+    if ("SYSTEM_ONLY".equals(expectedReason)) {
       assertEquals(GET_TABLE_RESPONSE_BODY.getTableCreator(), lock.getLockOwner());
       assertEquals(tableUUID, lock.getTableUUID());
     } else {
@@ -161,9 +160,18 @@ class LockClientServerTest {
 
   @ParameterizedTest
   @CsvSource(
-      value = {"NULL,423", "false,423", "true,200", "invalid,400"},
+      value = {
+        "NULL,423",
+        "USER,423",
+        "uSeR,423",
+        "SYSTEM,200",
+        "sYsTeM,200",
+        "invalid,400",
+        "true,400",
+        "false,400"
+      },
       nullValues = "NULL")
-  void cleanupReadAndWriteRoundTrip(String declaration, int expectedStatus) {
+  void systemOnlyReadAndWriteRoundTrip(String declaration, int expectedStatus) {
     GetTableResponseBody current = tableApi.getTableV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
     tableApi
         .createLockV1(
@@ -171,12 +179,12 @@ class LockClientServerTest {
             TABLE_ID,
             new CreateUpdateLockRequestBody()
                 .locked(true)
-                .reason(CreateUpdateLockRequestBody.ReasonEnum.TIER3_AUTO_CLEANUP)
+                .reason(CreateUpdateLockRequestBody.ReasonEnum.SYSTEM_ONLY)
                 .expectedTableUUID(tableUUID)
-                .message("eligible for cleanup"))
+                .message("maintenance in progress"))
         .block(TIMEOUT);
     if (declaration != null) {
-      apiClient.addDefaultHeader(HTTP_HEADER_SYSTEM_ACTION, declaration);
+      apiClient.addDefaultHeader(HTTP_HEADER_ACTION_TYPE, declaration);
     }
     GetLockResponseBody status = tableApi.getLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
     assertEquals(tableUUID, status.getTableUUID());
@@ -203,8 +211,8 @@ class LockClientServerTest {
               () -> tableApi.getTableV1(DATABASE_ID, TABLE_ID).block(TIMEOUT));
       assertEquals(expectedStatus, denied.getRawStatusCode());
       if (expectedStatus == 423) {
-        assertTrue(denied.getResponseBodyAsString().contains("TIER3_AUTO_CLEANUP"));
-        assertTrue(denied.getResponseBodyAsString().contains("Tier 2"));
+        assertTrue(denied.getResponseBodyAsString().contains("SYSTEM_ONLY"));
+        assertTrue(denied.getResponseBodyAsString().contains("reason-targeted OpenHouse unlock"));
       }
       CreateUpdateTableRequestBody update = updateRequest(current, "denied");
       IcebergSnapshotsRequestBody snapshots = snapshotRequest(current, "denied");
@@ -251,9 +259,9 @@ class LockClientServerTest {
   @TestConfiguration
   static class HeaderObservation {
     @Bean
-    Filter observeSystemAction() {
+    Filter observeActionType() {
       return (request, response, chain) -> {
-        String value = ((HttpServletRequest) request).getHeader(HTTP_HEADER_SYSTEM_ACTION);
+        String value = ((HttpServletRequest) request).getHeader(HTTP_HEADER_ACTION_TYPE);
         if (value != null) {
           ((HttpServletResponse) response).setHeader(OBSERVED_HEADER, value);
         }
