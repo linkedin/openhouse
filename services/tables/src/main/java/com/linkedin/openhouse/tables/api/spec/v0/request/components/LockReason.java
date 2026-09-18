@@ -1,7 +1,12 @@
 package com.linkedin.openhouse.tables.api.spec.v0.request.components;
 
-/** Structured lock reasons. Omitted or null reasons are interpreted as LEGACY. */
+/** Generic lock classifications. Recording a reason does not change access enforcement. */
 public enum LockReason {
+  /** An active lock without a more specific classification. */
   LEGACY,
-  TIER3_AUTO_CLEANUP
+  /**
+   * Intended to restrict ordinary reads and writes while permitting system-declared operations
+   * subject to existing authorization.
+   */
+  SYSTEM_ONLY
 }

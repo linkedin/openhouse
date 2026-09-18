@@ -27,11 +27,11 @@ public class CreateUpdateLockRequestBody {
   String message;
 
   @Schema(
-      description = "Structured lock reason. Omitted or null values default to LEGACY.",
-      defaultValue = "LEGACY",
+      description =
+          "Omitted or null reasons are interpreted as LEGACY when locked=true; otherwise they "
+              + "remain null. Explicit reasons are preserved.",
       nullable = true)
-  @Builder.Default
-  LockReason reason = LockReason.LEGACY;
+  LockReason reason;
 
   @Schema(
       description = "lock creation epoch time measured in UTC milliseconds for a table",
@@ -45,7 +45,7 @@ public class CreateUpdateLockRequestBody {
   int expirationInDays = 0;
 
   public LockReason getReason() {
-    return reason == null ? LockReason.LEGACY : reason;
+    return reason == null && locked ? LockReason.LEGACY : reason;
   }
 
   public String toJson() {

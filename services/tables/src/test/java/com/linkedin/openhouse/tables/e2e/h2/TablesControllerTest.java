@@ -28,6 +28,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequest
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.History;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.PolicyTag;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
@@ -1633,22 +1634,59 @@ public class TablesControllerTest {
   public void lockReasonIsMetadataOnly() throws Exception {
     RequestAndValidateHelper.createTableAndValidateResponse(
         GET_TABLE_RESPONSE_BODY, mvc, storageManager);
-    String tablePath =
-        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
-            + "/databases/"
-            + GET_TABLE_RESPONSE_BODY.getDatabaseId()
-            + "/tables/"
-            + GET_TABLE_RESPONSE_BODY.getTableId();
-    mvc.perform(
-            MockMvcRequestBuilders.post(tablePath + "/lock")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"locked\":true,\"reason\":\"TIER3_AUTO_CLEANUP\"}"))
-        .andExpect(status().isCreated());
-    mvc.perform(MockMvcRequestBuilders.get(tablePath))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.policies.lockState.reason").value("TIER3_AUTO_CLEANUP"));
-    mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock")).andExpect(status().isNoContent());
-    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+    try {
+      String tablePath =
+          ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+              + "/databases/"
+              + GET_TABLE_RESPONSE_BODY.getDatabaseId()
+              + "/tables/"
+              + GET_TABLE_RESPONSE_BODY.getTableId();
+      mvc.perform(
+              MockMvcRequestBuilders.post(tablePath + "/lock")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content("{\"locked\":true,\"reason\":\"SYSTEM_ONLY\"}"))
+          .andExpect(status().isCreated());
+      mvc.perform(MockMvcRequestBuilders.get(tablePath))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.policies.lockState.reason").value("SYSTEM_ONLY"));
+      mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock"))
+          .andExpect(status().isNoContent());
+      mvc.perform(MockMvcRequestBuilders.get(tablePath))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.policies.lockState").value(nullValue()));
+    } finally {
+      RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+    }
+  }
+
+  @Test
+  public void inactiveLockStateHasNoDefaultReason() throws Exception {
+    RequestAndValidateHelper.createTableAndValidateResponse(
+        GET_TABLE_RESPONSE_BODY
+            .toBuilder()
+            .policies(
+                GET_TABLE_RESPONSE_BODY
+                    .getPolicies()
+                    .toBuilder()
+                    .lockState(LockState.builder().locked(false).build())
+                    .build())
+            .build(),
+        mvc,
+        storageManager);
+    try {
+      mvc.perform(
+              MockMvcRequestBuilders.get(
+                  CURRENT_MAJOR_VERSION_PREFIX
+                      + "/databases/"
+                      + GET_TABLE_RESPONSE_BODY.getDatabaseId()
+                      + "/tables/"
+                      + GET_TABLE_RESPONSE_BODY.getTableId()))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.policies.lockState.locked").value(false))
+          .andExpect(jsonPath("$.policies.lockState.reason").value(nullValue()));
+    } finally {
+      RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+    }
   }
 
   @Test
