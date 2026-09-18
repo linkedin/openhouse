@@ -37,7 +37,7 @@ object Main {
         } else {
           s"filter ${filters.mkString(", ")} -> ${cases.size} cases"
         }
-      println(s"\n=== delta-harness :: scenario cases @ OpenHouse catalog ($header) ===\n")
+      println(s"\n=== OpenHouse Delta integration tests ($header) ===\n")
 
       // Each case owns a fresh table. Worker tasks use separate Spark sessions over the shared Spark context, and
       // results are printed in catalog order.
@@ -93,7 +93,7 @@ object Main {
 
       if (failed > 0 || passed == 0) {
         throw new AssertionError(
-          s"delta harness finished with $passed passed, $skipped skipped, and $failed failed cases")
+          s"Delta integration tests finished with $passed passed, $skipped skipped, and $failed failed cases")
       }
     } catch {
       case failure: Throwable =>
