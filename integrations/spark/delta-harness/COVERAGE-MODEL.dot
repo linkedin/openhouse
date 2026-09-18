@@ -24,16 +24,12 @@ digraph DeltaHarnessCoverage {
     fontsize=10
   ]
 
-  behavior [
-    label="{Behavior contract|SQL, API, or catalog action|Expected rows, snapshots, metadata, or error}"
-  ]
-
   table [
-    label="{Prepared table|Schema and starting rows|Partitioning, ordering, and properties|Existing lineage, files, or references}"
+    label="{Prepared Table|Initial table state|Schema and seed rows|Format, partitioning, properties, and history}"
   ]
 
-  format [
-    label="{Storage format|The same table behavior materialized in each supported format}"
+  test_case [
+    label="{Test Case|Action|Expected observable result}"
   ]
 
   compatibility [
@@ -42,28 +38,27 @@ digraph DeltaHarnessCoverage {
     fillcolor="#fff8c5"
   ]
 
-  executable [
-    label="{Executable test|Fresh isolated table|One behavior contract|One prepared table|One storage format}"
+  executable_set [
+    label="{Executable Test Set|Every compatible Prepared Table and Test Case pair}"
     fillcolor="#ddf4ff"
   ]
 
   local [
-    label="{Embedded OpenHouse|Developer feedback|Hermetic local execution}"
+    label="{Embedded OpenHouse|Local tests}"
     fillcolor="#dafbe1"
   ]
 
   acceptance [
-    label="{Deployed OpenHouse|Acceptance execution|Environment-specific catalog connection}"
+    label="{li-openhouse|Airflow acceptance tests|Real clusters}"
     fillcolor="#dafbe1"
   ]
 
-  { rank=same; behavior; table; format }
+  { rank=same; table; test_case }
   { rank=same; local; acceptance }
 
-  behavior -> compatibility [label="applies to"]
-  table -> compatibility [label="provides state"]
-  format -> compatibility [label="materializes"]
-  compatibility -> executable [label="yes"]
-  executable -> local [label="same assertions"]
-  executable -> acceptance [label="same assertions"]
+  table -> compatibility [label="initial condition"]
+  test_case -> compatibility [label="action and assertions"]
+  compatibility -> executable_set [label="compatible pairs"]
+  executable_set -> local [label="same set"]
+  executable_set -> acceptance [label="same set"]
 }
