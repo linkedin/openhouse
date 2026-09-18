@@ -1,0 +1,69 @@
+digraph DeltaHarnessCoverage {
+  graph [
+    rankdir=TB
+    bgcolor="transparent"
+    fontname="Helvetica"
+    nodesep=0.45
+    ranksep=0.6
+    pad=0.2
+  ]
+
+  node [
+    shape=record
+    style="rounded,filled"
+    color="#57606a"
+    fillcolor="#f6f8fa"
+    fontname="Helvetica"
+    fontsize=11
+    margin="0.12,0.08"
+  ]
+
+  edge [
+    color="#57606a"
+    fontname="Helvetica"
+    fontsize=10
+  ]
+
+  behavior [
+    label="{Behavior contract|SQL, API, or catalog action|Expected rows, snapshots, metadata, or error}"
+  ]
+
+  table [
+    label="{Prepared table|Schema and starting rows|Partitioning, ordering, and properties|Existing lineage, files, or references}"
+  ]
+
+  format [
+    label="{Storage format|The same table behavior materialized in each supported format}"
+  ]
+
+  compatibility [
+    shape=diamond
+    label="Compatible?"
+    fillcolor="#fff8c5"
+  ]
+
+  executable [
+    label="{Executable test|Fresh isolated table|One behavior contract|One prepared table|One storage format}"
+    fillcolor="#ddf4ff"
+  ]
+
+  local [
+    label="{Embedded OpenHouse|Developer feedback|Hermetic local execution}"
+    fillcolor="#dafbe1"
+  ]
+
+  acceptance [
+    label="{Deployed OpenHouse|Acceptance execution|Environment-specific catalog connection}"
+    fillcolor="#dafbe1"
+  ]
+
+  { rank=same; behavior; table; format }
+  { rank=same; local; acceptance }
+
+  behavior -> compatibility [label="applies to"]
+  table -> compatibility [label="provides state"]
+  format -> compatibility [label="materializes"]
+  compatibility -> executable [label="yes"]
+  executable -> local [label="same assertions"]
+  executable -> acceptance [label="same assertions"]
+}
