@@ -30,21 +30,21 @@ main
 
 | Layer | Pull request |
 |---|---|
-| Harness core | [#682](https://github.com/linkedin/openhouse/pull/682) |
-| Test coverage documentation | [#707](https://github.com/linkedin/openhouse/pull/707) |
-| Standard DML | [#715](https://github.com/linkedin/openhouse/pull/715) |
-| RTAS | [#704](https://github.com/linkedin/openhouse/pull/704) |
-| DML state matrix | [#716](https://github.com/linkedin/openhouse/pull/716) |
-| Schema and types | [#717](https://github.com/linkedin/openhouse/pull/717) |
-| Catalog constraints | [#718](https://github.com/linkedin/openhouse/pull/718) |
-| Column defaults | [#720](https://github.com/linkedin/openhouse/pull/720) |
-| Compatibility and streaming | [#719](https://github.com/linkedin/openhouse/pull/719) |
-| History | [#721](https://github.com/linkedin/openhouse/pull/721) |
-| Governance | [#722](https://github.com/linkedin/openhouse/pull/722) |
-| Maintenance and planning | [#723](https://github.com/linkedin/openhouse/pull/723) |
-| Catalog DDL | [#724](https://github.com/linkedin/openhouse/pull/724) |
-| Merge-on-read | [#705](https://github.com/linkedin/openhouse/pull/705) |
-| Branch and write-audit-publish | [#706](https://github.com/linkedin/openhouse/pull/706) |
+| Harness core | [#741](https://github.com/linkedin/openhouse/pull/741) |
+| Test coverage documentation | [#742](https://github.com/linkedin/openhouse/pull/742) |
+| Standard DML | [#743](https://github.com/linkedin/openhouse/pull/743) |
+| RTAS | [#744](https://github.com/linkedin/openhouse/pull/744) |
+| DML state matrix | [#745](https://github.com/linkedin/openhouse/pull/745) |
+| Schema and types | [#746](https://github.com/linkedin/openhouse/pull/746) |
+| Catalog constraints | [#747](https://github.com/linkedin/openhouse/pull/747) |
+| Column defaults | [#748](https://github.com/linkedin/openhouse/pull/748) |
+| Compatibility and streaming | [#749](https://github.com/linkedin/openhouse/pull/749) |
+| History | [#750](https://github.com/linkedin/openhouse/pull/750) |
+| Governance | [#751](https://github.com/linkedin/openhouse/pull/751) |
+| Maintenance and planning | [#752](https://github.com/linkedin/openhouse/pull/752) |
+| Catalog DDL | [#753](https://github.com/linkedin/openhouse/pull/753) |
+| Merge-on-read | [#754](https://github.com/linkedin/openhouse/pull/754) |
+| Branch and write-audit-publish | [#755](https://github.com/linkedin/openhouse/pull/755) |
 
 ## Foundation
 
