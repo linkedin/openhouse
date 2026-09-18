@@ -2,13 +2,15 @@ package com.linkedin.openhouse.spark.sql.catalyst.parser.extensions
 
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes
 import com.linkedin.openhouse.spark.sql.catalyst.parser.extensions.OpenhouseSqlExtensionsParser._
-import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement, UnSetReplicationPolicy}
+import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.TableLockOperation.{Lock, Unlock}
+import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement, TableLockStatement, UnSetReplicationPolicy}
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes.GrantableResourceType
 import com.linkedin.openhouse.gen.tables.client.model.TimePartitionSpec
 import org.antlr.v4.runtime.tree.ParseTree
 import org.apache.spark.sql.catalyst.parser.ParserInterface
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 
+import java.util.Locale
 import scala.collection.JavaConversions.iterableAsScalaIterable
 import scala.collection.JavaConverters._
 
@@ -69,6 +71,31 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
   override def visitShowGrantsStatement(ctx: ShowGrantsStatementContext): ShowGrantsStatement = {
     val (resourceType, resourceName) = typedVisit[(GrantableResourceType, Seq[String])](ctx.grantableResource())
     ShowGrantsStatement(resourceType, resourceName)
+  }
+
+  override def visitLockTableStatement(ctx: LockTableStatementContext): TableLockStatement = {
+    val reasonClause = Option(ctx.lockReasonClause())
+    val message = reasonClause.flatMap(clause => Option(clause.lockMessageClause())).map { clause =>
+      val stringLiteral = clause.STRING().getText
+      val delimiter = stringLiteral.substring(0, 1)
+      val content = stringLiteral.substring(1, stringLiteral.length - 1)
+        .replace(delimiter + delimiter, "\\" + delimiter)
+      delegate.parseExpression(delimiter + content + delimiter).eval().toString
+    }
+    TableLockStatement(
+      Lock,
+      typedVisit[Seq[String]](ctx.multipartIdentifier()),
+      reasonClause.map(_.lockReason().getText.toUpperCase(Locale.ROOT)),
+      message)
+  }
+
+  override def visitUnlockTableStatement(ctx: UnlockTableStatementContext): TableLockStatement = {
+    TableLockStatement(
+      Unlock,
+      typedVisit[Seq[String]](ctx.multipartIdentifier()),
+      Option(ctx.unlockReasonClause())
+        .map(_.lockReason().getText.toUpperCase(Locale.ROOT)),
+      None)
   }
 
   override def visitPrincipal(ctx: PrincipalContext): String = {

@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.spark.sql.execution.datasources.v2
 
-import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement, UnSetReplicationPolicy}
+import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement, TableLockStatement, UnSetReplicationPolicy}
 import org.apache.iceberg.spark.{Spark3Util, SparkCatalog, SparkSessionCatalog}
 import org.apache.spark.sql.{SparkSession, Strategy}
 import org.apache.spark.sql.catalyst.expressions.PredicateHelper
@@ -28,6 +28,9 @@ case class OpenhouseDataSourceV2Strategy(spark: SparkSession) extends Strategy w
 
     case GrantRevokeStatement(isGrant, resourceType, CatalogAndIdentifierExtractor(catalog, ident), privilege, principal) =>
       GrantRevokeStatementExec(isGrant, resourceType, catalog, ident, privilege, principal) :: Nil
+
+    case TableLockStatement(operation, CatalogAndIdentifierExtractor(catalog, ident), reason, message) =>
+      TableLockStatementExec(operation, catalog, ident, reason, message) :: Nil
 
     case r @ ShowGrantsStatement(resourceType, CatalogAndIdentifierExtractor(catalog, ident)) =>
       ShowGrantsStatementExec(r.output, resourceType, catalog, ident) :: Nil

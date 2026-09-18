@@ -14,6 +14,7 @@ import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
@@ -264,6 +265,17 @@ public class MockTablesApiHandler implements TablesApiHandler {
       default:
         return null;
     }
+  }
+
+  @Override
+  public ApiResponse<Void> deleteLock(
+      String databaseId,
+      String tableId,
+      String actingPrincipal,
+      LockReason reason,
+      String expectedTableUUID,
+      String lockOwner) {
+    return deleteLock(databaseId, tableId, actingPrincipal);
   }
 
   @Override

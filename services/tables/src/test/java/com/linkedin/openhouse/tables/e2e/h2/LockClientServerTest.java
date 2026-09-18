@@ -13,13 +13,16 @@ import com.linkedin.openhouse.tables.client.model.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.LockState;
+import com.linkedin.openhouse.tables.client.model.Policies;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
 import java.time.Duration;
+import java.util.Optional;
 import javax.servlet.Filter;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.openapitools.jackson.nullable.JsonNullable;
@@ -47,6 +50,7 @@ import org.springframework.test.context.ContextConfiguration;
 class LockClientServerTest {
   private static final String DATABASE_ID = GET_TABLE_RESPONSE_BODY.getDatabaseId();
   private static final String TABLE_ID = "lock_client_roundtrip";
+  private static final String TABLE_CREATOR = GET_TABLE_RESPONSE_BODY.getTableCreator();
   private static final String OBSERVED_HEADER = "X-Test-System-Action";
   private static final Duration TIMEOUT = Duration.ofSeconds(30);
 
@@ -54,6 +58,7 @@ class LockClientServerTest {
 
   private ApiClient apiClient;
   private TableApi tableApi;
+  private String tableUUID;
   private boolean tableCreated;
 
   @BeforeEach
@@ -61,25 +66,117 @@ class LockClientServerTest {
     apiClient = new ApiClient();
     apiClient.setBasePath("http://localhost:" + port);
     apiClient.addDefaultHeader(
-        HttpHeaders.AUTHORIZATION,
-        "Bearer " + new DummySecurityJWT(GET_TABLE_RESPONSE_BODY.getTableCreator()).buildNoopJWT());
+        HttpHeaders.AUTHORIZATION, "Bearer " + new DummySecurityJWT(TABLE_CREATOR).buildNoopJWT());
     tableApi = new TableApi(apiClient);
     CreateUpdateTableRequestBody request =
-        apiClient.getObjectMapper().readValue(
-            buildCreateUpdateTableRequestBody(
-                    GET_TABLE_RESPONSE_BODY.toBuilder().tableId(TABLE_ID).build())
-                .toJson(),
-            CreateUpdateTableRequestBody.class);
-    tableApi.createTableV1(DATABASE_ID, request).block(TIMEOUT);
+        apiClient
+            .getObjectMapper()
+            .readValue(
+                buildCreateUpdateTableRequestBody(
+                        GET_TABLE_RESPONSE_BODY.toBuilder().tableId(TABLE_ID).build())
+                    .toJson(),
+                CreateUpdateTableRequestBody.class);
+    tableUUID =
+        Optional.ofNullable(tableApi.createTableV1(DATABASE_ID, request).block(TIMEOUT))
+            .map(GetTableResponseBody::getTableUUID)
+            .orElseThrow(() -> new AssertionError("Table creation returned no table UUID"));
     tableCreated = true;
   }
 
   @AfterEach
   void deleteTable() {
     if (tableCreated) {
-      tableApi.deleteLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
+      activeLock()
+          .ifPresent(
+              lock -> {
+                if (lock.getReason() == LockState.ReasonEnum.LEGACY) {
+                  tableApi.deleteLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
+                } else {
+                  tableApi
+                      .deleteLockByReasonV1(
+                          DATABASE_ID,
+                          TABLE_ID,
+                          lock.getReason().getValue(),
+                          lock.getTableUUID(),
+                          lock.getLockOwner())
+                      .block(TIMEOUT);
+                }
+              });
       tableApi.deleteTableV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
     }
+  }
+
+  /**
+   * Exercises the lock lifecycle a table owner drives from the generated client against the running
+   * service: create the table, lock it, read the lock back, unlock it, and read the table back
+   * without a lock.
+   */
+  @Test
+  void tableCreatorLocksReadsAndUnlocksOwnTable() {
+    ResponseEntity<Void> locked =
+        tableApi
+            .createLockV1WithHttpInfo(
+                DATABASE_ID,
+                TABLE_ID,
+                new CreateUpdateLockRequestBody()
+                    .locked(true)
+                    .message("Locked by the table creator")
+                    .creationTime(System.currentTimeMillis())
+                    .expirationInDays(1))
+            .block(TIMEOUT);
+    assertNotNull(locked);
+    assertEquals(HttpStatus.CREATED, locked.getStatusCode());
+
+    LockState lock = activeLock().orElseThrow(() -> new AssertionError("Expected an active lock"));
+    assertEquals(LockState.ReasonEnum.LEGACY, lock.getReason());
+    assertEquals("Locked by the table creator", lock.getMessage());
+    assertEquals(Integer.valueOf(1), lock.getExpirationInDays());
+
+    ResponseEntity<Void> unlocked =
+        tableApi.deleteLockV1WithHttpInfo(DATABASE_ID, TABLE_ID).block(TIMEOUT);
+    assertNotNull(unlocked);
+    assertEquals(HttpStatus.NO_CONTENT, unlocked.getStatusCode());
+
+    assertEquals(Optional.empty(), activeLock());
+  }
+
+  @Test
+  void tableCreatorLocksReadsAndUnlocksOwnTableWithStructuredReason() {
+    ResponseEntity<Void> locked =
+        tableApi
+            .createLockV1WithHttpInfo(
+                DATABASE_ID,
+                TABLE_ID,
+                new CreateUpdateLockRequestBody()
+                    .locked(true)
+                    .reason(CreateUpdateLockRequestBody.ReasonEnum.TIER3_AUTO_CLEANUP)
+                    .message("Cleanup starts tomorrow")
+                    .expectedTableUUID(tableUUID)
+                    .creationTime(System.currentTimeMillis())
+                    .expirationInDays(1))
+            .block(TIMEOUT);
+    assertNotNull(locked);
+    assertEquals(HttpStatus.CREATED, locked.getStatusCode());
+
+    LockState lock = activeLock().orElseThrow(() -> new AssertionError("Expected an active lock"));
+    assertEquals(LockState.ReasonEnum.TIER3_AUTO_CLEANUP, lock.getReason());
+    assertEquals("Cleanup starts tomorrow", lock.getMessage());
+    assertEquals(tableUUID, lock.getTableUUID());
+    assertEquals(TABLE_CREATOR, lock.getLockOwner());
+
+    ResponseEntity<Void> unlocked =
+        tableApi
+            .deleteLockByReasonV1WithHttpInfo(
+                DATABASE_ID,
+                TABLE_ID,
+                LockState.ReasonEnum.TIER3_AUTO_CLEANUP.getValue(),
+                tableUUID,
+                TABLE_CREATOR)
+            .block(TIMEOUT);
+    assertNotNull(unlocked);
+    assertEquals(HttpStatus.NO_CONTENT, unlocked.getStatusCode());
+
+    assertEquals(Optional.empty(), activeLock());
   }
 
   @ParameterizedTest
@@ -95,7 +192,7 @@ class LockClientServerTest {
       nullValues = "NULL")
   void lockRoundTrip(String systemAction, String reason, LockState.ReasonEnum expectedReason) {
     if (systemAction != null) {
-      apiClient.addDefaultHeader("X-OpenHouse-System-Action", systemAction);
+      apiClient.addDefaultHeader(HTTP_HEADER_SYSTEM_ACTION, systemAction);
     }
     CreateUpdateLockRequestBody request =
         new CreateUpdateLockRequestBody()
@@ -107,6 +204,9 @@ class LockClientServerTest {
     } else {
       request.reason(
           reason == null ? null : CreateUpdateLockRequestBody.ReasonEnum.fromValue(reason));
+    }
+    if (expectedReason != LockState.ReasonEnum.LEGACY) {
+      request.expectedTableUUID(tableUUID);
     }
 
     ResponseEntity<Void> created =
@@ -124,6 +224,13 @@ class LockClientServerTest {
     LockState lock = response.getBody().getPolicies().getLockState();
     assertTrue(lock.getLocked());
     assertEquals(expectedReason, lock.getReason());
+  }
+
+  private Optional<LockState> activeLock() {
+    return Optional.ofNullable(tableApi.getTableV1(DATABASE_ID, TABLE_ID).block(TIMEOUT))
+        .map(GetTableResponseBody::getPolicies)
+        .map(Policies::getLockState)
+        .filter(lock -> Boolean.TRUE.equals(lock.getLocked()));
   }
 
   @TestConfiguration

@@ -14,6 +14,7 @@ import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
@@ -32,6 +33,7 @@ import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.apache.commons.lang.StringUtils;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
@@ -336,7 +338,11 @@ public class TablesServiceImpl implements TablesService {
   }
 
   /**
-   * Creates lock on a table if lock on table is not already set.
+   * Creates a lock on a table. A LEGACY request records an unqualified lock and overwrites an
+   * existing LEGACY lock. A structured reason additionally records the acting principal as the lock
+   * owner and pins the lock to the current table generation, so it requires expectedTableUUID and
+   * an authenticated principal. Repeating a structured request that matches the active lock leaves
+   * that lock in place.
    *
    * @param databaseId
    * @param tableId
@@ -349,44 +355,55 @@ public class TablesServiceImpl implements TablesService {
       String tableId,
       CreateUpdateLockRequestBody createUpdateLockRequestBody,
       String tableCreatorUpdater) {
-    TableDto tableDto =
-        openHouseInternalRepository
-            .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
-            .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
-    checkReplicaTable(tableDto);
-    authorizationUtils.checkLockTablePrivilege(
-        tableDto, tableCreatorUpdater, Privileges.LOCK_ADMIN);
-    // lock state from incoming request
-    LockState lockState =
-        LockState.builder()
-            .locked(createUpdateLockRequestBody.isLocked())
-            .message(createUpdateLockRequestBody.getMessage())
-            .reason(createUpdateLockRequestBody.getReason())
-            .expirationInDays(createUpdateLockRequestBody.getExpirationInDays())
-            .creationTime(createUpdateLockRequestBody.getCreationTime())
-            .build();
-    if (createUpdateLockRequestBody.isLocked()) {
-      Policies policies = tableDto.getPolicies();
-      Policies policiesToSave;
-      if (policies != null) {
-        policiesToSave = tableDto.getPolicies().toBuilder().lockState(lockState).build();
-      } else {
-        policiesToSave = Policies.builder().lockState(lockState).build();
+    TableDto tableDto = authorizeLockOperation(databaseId, tableId, tableCreatorUpdater);
+    LockReason requestedReason = createUpdateLockRequestBody.getReason();
+    if (requestedReason != LockReason.LEGACY) {
+      if (StringUtils.isBlank(tableCreatorUpdater)) {
+        throw new RequestValidationFailureException(
+            "An authenticated lock owner is required for a lock with reason " + requestedReason);
       }
-      // should allow updating lock on a table with different reason
-      TableDto tableDtoToSave =
-          tableDto
-              .toBuilder()
-              .policies(policiesToSave)
-              .tableVersion(tableDto.getTableLocation())
-              .build();
-      saveTableDto(tableDtoToSave, Optional.of(tableDto));
+      checkLockTableGeneration(tableDto, createUpdateLockRequestBody.getExpectedTableUUID());
     }
+    if (!createUpdateLockRequestBody.isLocked()) {
+      return;
+    }
+
+    Optional<LockState> activeLock = findActiveLock(tableDto);
+    // A LEGACY request refreshes an active LEGACY lock. Once either side carries a structured
+    // reason the active lock is protected: a repeat of the same reason, owner, and generation
+    // keeps it in place, and every other request is rejected.
+    if (activeLock.isPresent()
+        && (requestedReason != LockReason.LEGACY
+            || activeLock.get().getReason() != LockReason.LEGACY)) {
+      if (requestedReason == activeLock.get().getReason()
+          && tableCreatorUpdater.equals(activeLock.get().getLockOwner())
+          && tableDto.getTableUUID().equals(activeLock.get().getTableUUID())) {
+        return;
+      }
+      throw lockMismatch(tableDto);
+    }
+
+    LockState.LockStateBuilder lockStateBuilder =
+        LockState.builder()
+            .locked(true)
+            .message(createUpdateLockRequestBody.getMessage())
+            .reason(requestedReason)
+            .expirationInDays(createUpdateLockRequestBody.getExpirationInDays())
+            .creationTime(createUpdateLockRequestBody.getCreationTime());
+    if (requestedReason != LockReason.LEGACY) {
+      lockStateBuilder.lockOwner(tableCreatorUpdater).tableUUID(tableDto.getTableUUID());
+    }
+    LockState lockState = lockStateBuilder.build();
+    Policies policiesToSave =
+        Optional.ofNullable(tableDto.getPolicies())
+            .map(policies -> policies.toBuilder().lockState(lockState).build())
+            .orElseGet(() -> Policies.builder().lockState(lockState).build());
+    savePolicies(tableDto, policiesToSave);
   }
 
   /**
-   * unlock the table by setting the lockState policy to null. Without a lock policy a table should
-   * be considered unlocked.
+   * Removes a LEGACY lock from the table. A table whose active lock carries a structured reason
+   * keeps that lock and the request is rejected. A table without an active lock is left unchanged.
    *
    * @param databaseId
    * @param tableId
@@ -394,25 +411,96 @@ public class TablesServiceImpl implements TablesService {
    */
   @Override
   public void deleteLock(String databaseId, String tableId, String actingPrincipal) {
+    TableDto tableDto = authorizeLockOperation(databaseId, tableId, actingPrincipal);
+    Optional<LockState> activeLock = findActiveLock(tableDto);
+    if (!activeLock.isPresent()) {
+      return;
+    }
+    if (activeLock.get().getReason() != LockReason.LEGACY) {
+      throw lockMismatch(tableDto);
+    }
+    clearLockState(tableDto);
+  }
+
+  @Override
+  public void deleteLock(
+      String databaseId,
+      String tableId,
+      String actingPrincipal,
+      LockReason reason,
+      String expectedTableUUID,
+      String lockOwner) {
+    if (reason == LockReason.LEGACY) {
+      throw new RequestValidationFailureException(
+          "A reason-qualified unlock requires a structured reason; use the unqualified unlock to "
+              + "remove a LEGACY lock");
+    }
+    if (StringUtils.isBlank(lockOwner)) {
+      throw new RequestValidationFailureException(
+          "lockOwner is required for an unlock with reason " + reason);
+    }
+    TableDto tableDto = authorizeLockOperation(databaseId, tableId, actingPrincipal);
+    checkLockTableGeneration(tableDto, expectedTableUUID);
+
+    Optional<LockState> activeLock = findActiveLock(tableDto);
+    if (!activeLock.isPresent()) {
+      return;
+    }
+    if (activeLock.get().getReason() != reason
+        || !expectedTableUUID.equals(activeLock.get().getTableUUID())
+        || !lockOwner.equals(activeLock.get().getLockOwner())) {
+      throw lockMismatch(tableDto);
+    }
+    clearLockState(tableDto);
+  }
+
+  private TableDto authorizeLockOperation(
+      String databaseId, String tableId, String actingPrincipal) {
     TableDto tableDto =
         openHouseInternalRepository
             .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
     checkReplicaTable(tableDto);
     authorizationUtils.checkLockTablePrivilege(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
-    Policies policies = tableDto.getPolicies();
-    if (policies != null && policies.getLockState() != null && policies.getLockState().isLocked()) {
-      Policies policiesToSave;
-      // set lockState policy to null
-      policiesToSave = tableDto.getPolicies().toBuilder().lockState(null).build();
-      TableDto tableDtoToSave =
-          tableDto
-              .toBuilder()
-              .policies(policiesToSave)
-              .tableVersion(tableDto.getTableLocation())
-              .build();
-      saveTableDto(tableDtoToSave, Optional.of(tableDto));
+    return tableDto;
+  }
+
+  private Optional<LockState> findActiveLock(TableDto tableDto) {
+    return Optional.ofNullable(tableDto.getPolicies())
+        .map(Policies::getLockState)
+        .filter(LockState::isLocked);
+  }
+
+  private void clearLockState(TableDto tableDto) {
+    savePolicies(tableDto, tableDto.getPolicies().toBuilder().lockState(null).build());
+  }
+
+  private void savePolicies(TableDto tableDto, Policies policies) {
+    saveTableDto(
+        tableDto.toBuilder().policies(policies).tableVersion(tableDto.getTableLocation()).build(),
+        Optional.of(tableDto));
+  }
+
+  private void checkLockTableGeneration(TableDto tableDto, String expectedTableUUID) {
+    if (StringUtils.isBlank(expectedTableUUID)) {
+      throw new RequestValidationFailureException(
+          "expectedTableUUID is required for a lock operation with a structured reason");
     }
+    if (!expectedTableUUID.equals(tableDto.getTableUUID())) {
+      throw new AlreadyExistsException(
+          "Table",
+          tableDto.getTableUri(),
+          "Lock operation targets a different table generation",
+          null);
+    }
+  }
+
+  private AlreadyExistsException lockMismatch(TableDto tableDto) {
+    return new AlreadyExistsException(
+        "Lock",
+        tableDto.getTableUri(),
+        "Existing lock does not match the requested reason, owner, and table generation",
+        null);
   }
 
   @Override

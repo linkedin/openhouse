@@ -23,7 +23,7 @@ public class CreateUpdateLockRequestBody {
   @NotNull(message = "locked value cannot be null")
   boolean locked;
 
-  @Schema(description = "reason for creating/updating the lock on table")
+  @Schema(description = "Optional customer-facing message describing the lock.")
   String message;
 
   @Schema(
@@ -32,6 +32,12 @@ public class CreateUpdateLockRequestBody {
       nullable = true)
   @Builder.Default
   LockReason reason = LockReason.LEGACY;
+
+  @Schema(
+      description =
+          "Table UUID the lock pins. Required when reason names a structured reason such as "
+              + "TIER3_AUTO_CLEANUP.")
+  String expectedTableUUID;
 
   @Schema(
       description = "lock creation epoch time measured in UTC milliseconds for a table",

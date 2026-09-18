@@ -18,7 +18,7 @@ public class LockState {
   @Builder.Default
   boolean locked = false;
 
-  @Schema(description = "message for locking", example = "")
+  @Schema(description = "Customer-facing message describing the lock.", example = "")
   @Builder.Default
   String message = "Default";
 
@@ -28,6 +28,18 @@ public class LockState {
       nullable = true)
   @Builder.Default
   LockReason reason = LockReason.LEGACY;
+
+  @Schema(
+      description =
+          "Authenticated principal recorded when the lock carries a structured reason such as "
+              + "TIER3_AUTO_CLEANUP.")
+  String lockOwner;
+
+  @Schema(
+      description =
+          "Table UUID the lock pins, recorded when the lock carries a structured reason such as "
+              + "TIER3_AUTO_CLEANUP.")
+  String tableUUID;
 
   @Schema(
       description = "lock creation epoch time measured in UTC milliseconds for a table",

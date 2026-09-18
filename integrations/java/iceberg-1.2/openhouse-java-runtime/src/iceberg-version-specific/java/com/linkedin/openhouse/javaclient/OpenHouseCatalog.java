@@ -6,8 +6,10 @@ import static com.linkedin.openhouse.javaclient.OpenHouseTableOperations.*;
 import com.linkedin.openhouse.client.ssl.HttpConnectionStrategy;
 import com.linkedin.openhouse.client.ssl.TablesApiClientFactory;
 import com.linkedin.openhouse.javaclient.api.SupportsGrantRevoke;
+import com.linkedin.openhouse.javaclient.api.SupportsTableLocking;
 import com.linkedin.openhouse.javaclient.builder.ClusteringSpecBuilder;
 import com.linkedin.openhouse.javaclient.builder.TimePartitionSpecBuilder;
+import com.linkedin.openhouse.javaclient.exception.TableLockException;
 import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageException;
 import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.javaclient.mapper.Privileges;
@@ -26,6 +28,7 @@ import java.net.MalformedURLException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.net.ssl.SSLException;
@@ -71,7 +74,7 @@ import reactor.core.publisher.Mono;
  */
 @Slf4j
 public class OpenHouseCatalog extends BaseMetastoreCatalog
-    implements Configurable, SupportsNamespaces, SupportsGrantRevoke {
+    implements Configurable, SupportsNamespaces, SupportsGrantRevoke, SupportsTableLocking {
 
   private TableApi tableApi;
 
@@ -416,6 +419,27 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
   @Override
   public boolean namespaceExists(Namespace namespace) throws NoSuchNamespaceException {
     throw new UnsupportedOperationException("Checking if database exists is not supported");
+  }
+
+  @Override
+  public void lockTable(
+      TableIdentifier tableIdentifier, Optional<String> reason, Optional<String> message)
+      throws TableLockException {
+    log.info(
+        "Calling lockTable with identifier: {}, reason: {}, message present: {}",
+        tableIdentifier,
+        reason,
+        message.isPresent());
+    TableLockApiClient.lockTable(tableApi, tableIdentifier, reason, message);
+    log.debug("Calling lockTable succeeded");
+  }
+
+  @Override
+  public void unlockTable(TableIdentifier tableIdentifier, Optional<String> reason)
+      throws TableLockException {
+    log.info("Calling unlockTable with identifier: {}, reason: {}", tableIdentifier, reason);
+    TableLockApiClient.unlockTable(tableApi, tableIdentifier, reason);
+    log.debug("Calling unlockTable succeeded");
   }
 
   @Override
