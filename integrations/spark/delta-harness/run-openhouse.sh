@@ -12,7 +12,7 @@ export JAVA_HOME
 
 JAVA_VERSION="$("$JAVA_HOME/bin/java" -version 2>&1 | sed -n '1s/.*version "\([0-9][0-9]*\).*/\1/p')"
 if [[ "$JAVA_VERSION" != "17" ]]; then
-  echo "The delta harness requires JDK 17; $JAVA_HOME reports Java $JAVA_VERSION." >&2
+  echo "The Delta integration tests require JDK 17; $JAVA_HOME reports Java $JAVA_VERSION." >&2
   exit 2
 fi
 
