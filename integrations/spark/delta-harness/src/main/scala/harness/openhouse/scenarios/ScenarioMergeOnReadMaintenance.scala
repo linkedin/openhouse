@@ -313,7 +313,7 @@ trait ScenarioMergeOnReadMaintenance extends MergeOnReadTableFixtures {
       fileSystem: FileSystem): Path = {
     val orphanPath = qualified(
       fileSystem,
-      new Path(referencedDataFilePath(table).getParent, "harness-planted-orphan.parquet"))
+      new Path(referencedDataFilePath(table).getParent, "integration-test-planted-orphan.parquet"))
     val backdatedModificationTime =
       System.currentTimeMillis() - TimeUnit.DAYS.toMillis(orphanAgeDays)
 
@@ -398,8 +398,8 @@ trait ScenarioMergeOnReadMaintenance extends MergeOnReadTableFixtures {
     }
 
   /**
-   * The older_than cutoff for snapshot expiration. It is far ahead of any snapshot the harness commits, so every
-   * snapshot outside the retained one is inside the expiration window and the call has real work to do.
+   * The older_than cutoff for snapshot expiration. It is far ahead of any snapshot these integration tests commit, so
+   * every snapshot outside the retained one is inside the expiration window and the call has real work to do.
    */
   private val expirationCutoff = "2999-01-01 00:00:00"
 
