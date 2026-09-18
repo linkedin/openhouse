@@ -1,41 +1,47 @@
 # What the Delta harness tests
 
-The harness tests OpenHouse through observable outcomes. Each test case runs
-against every compatible prepared table. The prepared table includes its storage
-format.
+The harness tests observable end-user behavior. Each test case runs against
+compatible prepared tables, so the same operation is checked under different
+initial conditions and storage formats.
 
 ## Data representation
 
-Values written through Spark must retain their meaning when read through
-OpenHouse. The tests exercise ordinary scalar values, nulls, numeric limits,
-special floating-point values, binary data, dates, timestamps, Unicode text, and
-empty strings.
+The data-type tests require these values to survive a write and read without
+changing:
 
-The assertion is semantic: values read back must be equivalent to the values that
-were written. A storage format must not silently narrow, reinterpret, or discard
-them.
+| Test | Expected behavior |
+|---|---|
+| Scalar values | `bigint`, `int`, `double`, `decimal(10,2)`, `string`, `binary`, `date`, `timestamp`, and `timestamp_ntz` values read back exactly. Complete DML row assertions also cover `boolean`. |
+| Nulls | Every non-key scalar column accepts `NULL` and reads back as null. |
+| Floating-point values | `NaN` and positive infinity read back as the same special `double` values. |
+| Numeric limits | The maximum `bigint`, maximum `int`, and `99999999.99` in `decimal(10,2)` read back exactly. |
+| Strings | Unicode text, including Japanese characters and an emoji, and an empty string read back exactly. |
 
 ## Reads and table changes
 
-Reads must return the expected rows without changing the table. Appends,
-overwrites, deletes, updates, and merges must produce the complete expected row
-set and the expected snapshot change.
+Each operation has a concrete expected result:
 
-The tests verify both what changed and what did not change. A targeted update
-must preserve every untouched row and column. An overwrite must remove the prior
-contents rather than behave like an append. A merge must distinguish matched and
-unmatched rows according to its clauses.
+| Operation | Expected behavior |
+|---|---|
+| Projection | Reading the string column in key order returns the values from the complete table and leaves the rows and snapshot count unchanged. |
+| `INSERT INTO` | Appending two rows preserves every starting row and commits one new snapshot. |
+| `INSERT OVERWRITE` | Writing two rows replaces every starting row and commits one new snapshot. |
+| `DELETE` | Deleting keys below `2` removes only those rows and commits one new snapshot. |
+| `UPDATE` | Updating key `2` changes only its string value, preserves every other row and column, and commits one new snapshot. |
+| `MERGE` | A matched source row updates the string value for key `2`, an unmatched source row inserts key `7`, and the operation commits one new snapshot. |
 
 ## Invalid operations
 
-OpenHouse must reject statements that cannot be interpreted safely. The tests
-cover undeclared columns, nondeterministic row filters, incomplete inserts,
-conflicting merge assignments, and merge sources that match one target row more
-than once.
+Invalid operations must fail with a diagnostic that identifies the problem:
 
-A rejection is part of the product contract. The error must explain the invalid
-request, and operations that reach execution before failing must leave the table
-unchanged.
+| Operation | Expected behavior |
+|---|---|
+| `DELETE` with an unknown column | Analysis rejects the statement and names the missing column. |
+| `DELETE` with `rand()` in its predicate | Analysis rejects the nondeterministic predicate. |
+| `UPDATE` with `rand()` in its predicate | Analysis rejects the nondeterministic predicate. |
+| `INSERT INTO` with too few values | Analysis rejects the statement because data columns are missing. |
+| `MERGE` assigning one target column twice | Analysis rejects the conflicting assignments. |
+| `MERGE` matching two source rows to one target row | Execution reports the cardinality violation and preserves the complete table state. |
 
 ## Reuse across table states
 
