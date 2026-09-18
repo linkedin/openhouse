@@ -25,11 +25,11 @@ digraph DeltaIntegrationTestCoverage {
   ]
 
   table [
-    label="{Prepared Table|Initial table state|Schema and seed rows|Format, partitioning, properties, and history}"
+    label="{Prepared Table|---|Initial table state|Schema and seed rows|Format, partitioning, properties, and history}"
   ]
 
   test_case [
-    label="{Test Case|Action|Expected observable result}"
+    label="{Test Case|---|Action|Expected observable result}"
   ]
 
   compatibility [
@@ -39,17 +39,17 @@ digraph DeltaIntegrationTestCoverage {
   ]
 
   executable_set [
-    label="{Executable Test Set|Every compatible Prepared Table and Test Case pair}"
+    label="{Executable Test Set|---|Every compatible Prepared Table and Test Case pair}"
     fillcolor="#ddf4ff"
   ]
 
   local [
-    label="{Embedded OpenHouse|Local tests}"
+    label="{Embedded OpenHouse|---|Local tests}"
     fillcolor="#dafbe1"
   ]
 
   acceptance [
-    label="{li-openhouse|Airflow acceptance tests|Real clusters}"
+    label="{li-openhouse|---|Airflow acceptance tests|Real clusters}"
     fillcolor="#dafbe1"
   ]
 
