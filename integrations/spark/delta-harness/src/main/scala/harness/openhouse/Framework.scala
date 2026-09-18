@@ -13,8 +13,8 @@ import scala.annotation.tailrec
 import scala.reflect.{ClassTag, classTag}
 import scala.util.control.NonFatal
 
-// The harness defines typed, reusable table preparations and self-contained TestCase bodies. Each case gets a fresh table,
-// executes its preparation, runs its action and assertions, and drops the table during teardown.
+// The integration-test framework defines typed, reusable table preparations and self-contained TestCase bodies. Each
+// case gets a fresh table, executes its preparation, runs its action and assertions, and drops the table during teardown.
 
 /**
  * One catalog case: the ID that names it, the body that runs it, and its two skip policies.
