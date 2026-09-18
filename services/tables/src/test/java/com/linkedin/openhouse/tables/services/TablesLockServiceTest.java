@@ -28,7 +28,7 @@ import org.springframework.security.access.AccessDeniedException;
 
 class TablesLockServiceTest {
   private static final String UUID = "current-generation";
-  private static final String OWNER = "cleanup-service";
+  private static final String OWNER = "system-only-service";
   private TablesServiceImpl service;
   private TableDto table;
 
@@ -55,24 +55,24 @@ class TablesLockServiceTest {
   @ParameterizedTest
   @NullAndEmptySource
   @ValueSource(strings = {" ", "\t"})
-  void cleanupRequiresNonblankGeneration(String generation) {
+  void systemOnlyRequiresNonblankGeneration(String generation) {
     assertThrows(
         RequestValidationFailureException.class,
-        () -> service.createLock("db", "table", cleanupRequest(generation), OWNER));
+        () -> service.createLock("db", "table", systemOnlyRequest(generation), OWNER));
     verify(service.openHouseInternalRepository, never()).save(any());
   }
 
   @Test
-  void cleanupRejectsStaleGeneration() {
+  void systemOnlyRejectsStaleGeneration() {
     assertThrows(
         EntityConcurrentModificationException.class,
-        () -> service.createLock("db", "table", cleanupRequest("previous-generation"), OWNER));
+        () -> service.createLock("db", "table", systemOnlyRequest("previous-generation"), OWNER));
     verify(service.openHouseInternalRepository, never()).save(any());
   }
 
   @Test
-  void cleanupRecordsActingPrincipalAndCurrentGeneration() {
-    service.createLock("db", "table", cleanupRequest(UUID), OWNER);
+  void systemOnlyRecordsActingPrincipalAndCurrentGeneration() {
+    service.createLock("db", "table", systemOnlyRequest(UUID), OWNER);
     TableDto saved = savedTable();
     assertEquals(OWNER, saved.getPolicies().getLockState().getLockOwner());
     assertEquals(UUID, saved.getPolicies().getLockState().getTableUUID());
@@ -82,44 +82,44 @@ class TablesLockServiceTest {
   }
 
   @Test
-  void matchingCleanupRetryDoesNotRewriteMetadata() {
-    withLock(cleanupLock(OWNER, UUID));
-    service.createLock("db", "table", cleanupRequest(UUID), OWNER);
+  void matchingSystemOnlyRetryDoesNotRewriteMetadata() {
+    withLock(systemOnlyLock(OWNER, UUID));
+    service.createLock("db", "table", systemOnlyRequest(UUID), OWNER);
     verify(service.openHouseInternalRepository, never()).save(any());
     assertEquals("original message", table.getPolicies().getLockState().getMessage());
     assertEquals(123L, table.getPolicies().getLockState().getCreationTime());
   }
 
   @Test
-  void differentCleanupOwnerCannotReplaceActiveLock() {
-    withLock(cleanupLock("other-owner", UUID));
+  void differentSystemOnlyOwnerCannotReplaceActiveLock() {
+    withLock(systemOnlyLock("other-owner", UUID));
     assertThrows(
         EntityConcurrentModificationException.class,
-        () -> service.createLock("db", "table", cleanupRequest(UUID), OWNER));
+        () -> service.createLock("db", "table", systemOnlyRequest(UUID), OWNER));
     verify(service.openHouseInternalRepository, never()).save(any());
   }
 
   @Test
   void differentStoredGenerationCannotReplaceActiveLock() {
-    withLock(cleanupLock(OWNER, "previous-generation"));
+    withLock(systemOnlyLock(OWNER, "previous-generation"));
     assertThrows(
         EntityConcurrentModificationException.class,
-        () -> service.createLock("db", "table", cleanupRequest(UUID), OWNER));
+        () -> service.createLock("db", "table", systemOnlyRequest(UUID), OWNER));
     verify(service.openHouseInternalRepository, never()).save(any());
   }
 
   @Test
-  void cleanupCannotReplaceLegacyLock() {
+  void systemOnlyCannotReplaceLegacyLock() {
     withLock(LockState.builder().locked(true).reason(null).build());
     assertThrows(
         EntityConcurrentModificationException.class,
-        () -> service.createLock("db", "table", cleanupRequest(UUID), OWNER));
+        () -> service.createLock("db", "table", systemOnlyRequest(UUID), OWNER));
     verify(service.openHouseInternalRepository, never()).save(any());
   }
 
   @Test
-  void legacyCannotReplaceCleanupLock() {
-    withLock(cleanupLock(OWNER, UUID));
+  void legacyCannotReplaceSystemOnlyLock() {
+    withLock(systemOnlyLock(OWNER, UUID));
     assertThrows(
         EntityConcurrentModificationException.class,
         () -> service.createLock("db", "table", legacyRequest(), OWNER));
@@ -138,8 +138,8 @@ class TablesLockServiceTest {
   }
 
   @Test
-  void legacyDeleteRefusesCleanupIncludingPreOwnerLocks() {
-    withLock(LockState.builder().locked(true).reason(LockReason.TIER3_AUTO_CLEANUP).build());
+  void legacyDeleteRefusesSystemOnlyIncludingPreOwnerLocks() {
+    withLock(LockState.builder().locked(true).reason(LockReason.SYSTEM_ONLY).build());
     assertThrows(
         EntityConcurrentModificationException.class,
         () -> service.deleteLock("db", "table", OWNER));
@@ -166,7 +166,7 @@ class TablesLockServiceTest {
         .checkLockTablePrivilege(table, OWNER, Privileges.LOCK_ADMIN);
     assertThrows(
         AccessDeniedException.class,
-        () -> service.createLock("db", "table", cleanupRequest(UUID), OWNER));
+        () -> service.createLock("db", "table", systemOnlyRequest(UUID), OWNER));
     assertThrows(AccessDeniedException.class, () -> service.deleteLock("db", "table", OWNER));
     verify(service.openHouseInternalRepository, never()).save(any());
   }
@@ -176,7 +176,7 @@ class TablesLockServiceTest {
     table = table.toBuilder().tableType(TableType.REPLICA_TABLE).build();
     assertThrows(
         UnsupportedOperationException.class,
-        () -> service.createLock("db", "table", cleanupRequest(UUID), OWNER));
+        () -> service.createLock("db", "table", systemOnlyRequest(UUID), OWNER));
     assertThrows(
         UnsupportedOperationException.class, () -> service.deleteLock("db", "table", OWNER));
     verify(service.openHouseInternalRepository, never()).save(any());
@@ -187,49 +187,48 @@ class TablesLockServiceTest {
     when(service.openHouseInternalRepository.findById(any())).thenReturn(Optional.empty());
     assertThrows(
         NoSuchUserTableException.class,
-        () -> service.createLock("db", "table", cleanupRequest(UUID), OWNER));
+        () -> service.createLock("db", "table", systemOnlyRequest(UUID), OWNER));
     assertThrows(NoSuchUserTableException.class, () -> service.deleteLock("db", "table", OWNER));
     assertThrows(
         NoSuchUserTableException.class,
-        () -> service.deleteLock("db", "table", LockReason.TIER3_AUTO_CLEANUP, UUID, OWNER, OWNER));
+        () -> service.deleteLock("db", "table", LockReason.SYSTEM_ONLY, UUID, OWNER, OWNER));
     assertThrows(NoSuchUserTableException.class, () -> service.getLock("db", "table", OWNER));
   }
 
   @ParameterizedTest
   @CsvSource(
       value = {
-        "other-owner,current-generation", "cleanup-service,old-generation",
-        "NULL,current-generation", "cleanup-service,NULL"
+        "other-owner,current-generation", "system-only-service,old-generation",
+        "NULL,current-generation", "system-only-service,NULL"
       },
       nullValues = "NULL")
   void guardedUnlockRejectsStoredIdentityMismatch(String recordedOwner, String generation) {
-    withLock(cleanupLock(recordedOwner, generation));
+    withLock(systemOnlyLock(recordedOwner, generation));
     assertThrows(
         EntityConcurrentModificationException.class,
-        () -> service.deleteLock("db", "table", LockReason.TIER3_AUTO_CLEANUP, UUID, OWNER, OWNER));
+        () -> service.deleteLock("db", "table", LockReason.SYSTEM_ONLY, UUID, OWNER, OWNER));
     assertThrows(
         EntityConcurrentModificationException.class,
         () ->
             service.deleteLock(
-                "db", "table", LockReason.TIER3_AUTO_CLEANUP, UUID, "__UNRECORDED__", OWNER));
+                "db", "table", LockReason.SYSTEM_ONLY, UUID, "__UNRECORDED__", OWNER));
     verify(service.openHouseInternalRepository, never()).save(any());
   }
 
   @Test
   void guardedUnlockChecksCurrentGenerationBeforeInactiveRetry() {
-    withLock(LockState.builder().locked(false).reason(LockReason.TIER3_AUTO_CLEANUP).build());
+    withLock(LockState.builder().locked(false).reason(LockReason.SYSTEM_ONLY).build());
     assertThrows(
         EntityConcurrentModificationException.class,
-        () ->
-            service.deleteLock("db", "table", LockReason.TIER3_AUTO_CLEANUP, "old", OWNER, OWNER));
-    service.deleteLock("db", "table", LockReason.TIER3_AUTO_CLEANUP, UUID, OWNER, OWNER);
+        () -> service.deleteLock("db", "table", LockReason.SYSTEM_ONLY, "old", OWNER, OWNER));
+    service.deleteLock("db", "table", LockReason.SYSTEM_ONLY, UUID, OWNER, OWNER);
     verify(service.openHouseInternalRepository, never()).save(any());
   }
 
   @Test
   void guardedUnlockUsesRecordedOwnerNotActingAdminAndExistingMetadataVersion() {
-    withLock(cleanupLock(OWNER, UUID));
-    service.deleteLock("db", "table", LockReason.TIER3_AUTO_CLEANUP, UUID, OWNER, "another-admin");
+    withLock(systemOnlyLock(OWNER, UUID));
+    service.deleteLock("db", "table", LockReason.SYSTEM_ONLY, UUID, OWNER, "another-admin");
     TableDto saved = savedTable();
     assertNull(saved.getPolicies().getLockState());
     assertEquals(table.getTableLocation(), saved.getTableVersion());
@@ -239,23 +238,23 @@ class TablesLockServiceTest {
   }
 
   @Test
-  void preOwnerCleanupCannotBeClaimedByACreateRetry() {
-    withLock(cleanupLock(null, null));
+  void preOwnerSystemOnlyCannotBeClaimedByACreateRetry() {
+    withLock(systemOnlyLock(null, null));
     assertThrows(
         EntityConcurrentModificationException.class,
-        () -> service.createLock("db", "table", cleanupRequest(UUID), OWNER));
+        () -> service.createLock("db", "table", systemOnlyRequest(UUID), OWNER));
     verify(service.openHouseInternalRepository, never()).save(any());
   }
 
   @Test
   void guardedUnlockAndStatusPreserveAuthorizationChecks() {
-    withLock(cleanupLock(OWNER, UUID));
+    withLock(systemOnlyLock(OWNER, UUID));
     doThrow(new AccessDeniedException("denied"))
         .when(service.authorizationUtils)
         .checkLockTablePrivilege(table, OWNER, Privileges.LOCK_ADMIN);
     assertThrows(
         AccessDeniedException.class,
-        () -> service.deleteLock("db", "table", LockReason.TIER3_AUTO_CLEANUP, UUID, OWNER, OWNER));
+        () -> service.deleteLock("db", "table", LockReason.SYSTEM_ONLY, UUID, OWNER, OWNER));
     assertEquals(
         table.getPolicies().getLockState(), service.getLock("db", "table", OWNER).getLockState());
     verify(service.authorizationUtils)
@@ -269,18 +268,18 @@ class TablesLockServiceTest {
 
   @Test
   void guardedUnlockStillRefusesReplicas() {
-    withLock(cleanupLock(OWNER, UUID));
+    withLock(systemOnlyLock(OWNER, UUID));
     table = table.toBuilder().tableType(TableType.REPLICA_TABLE).build();
     assertThrows(
         UnsupportedOperationException.class,
-        () -> service.deleteLock("db", "table", LockReason.TIER3_AUTO_CLEANUP, UUID, OWNER, OWNER));
+        () -> service.deleteLock("db", "table", LockReason.SYSTEM_ONLY, UUID, OWNER, OWNER));
     verify(service.openHouseInternalRepository, never()).save(any());
   }
 
-  private CreateUpdateLockRequestBody cleanupRequest(String generation) {
+  private CreateUpdateLockRequestBody systemOnlyRequest(String generation) {
     return CreateUpdateLockRequestBody.builder()
         .locked(true)
-        .reason(LockReason.TIER3_AUTO_CLEANUP)
+        .reason(LockReason.SYSTEM_ONLY)
         .expectedTableUUID(generation)
         .message("retry message")
         .creationTime(456L)
@@ -291,10 +290,10 @@ class TablesLockServiceTest {
     return CreateUpdateLockRequestBody.builder().locked(true).message("updated legacy").build();
   }
 
-  private LockState cleanupLock(String owner, String generation) {
+  private LockState systemOnlyLock(String owner, String generation) {
     return LockState.builder()
         .locked(true)
-        .reason(LockReason.TIER3_AUTO_CLEANUP)
+        .reason(LockReason.SYSTEM_ONLY)
         .lockOwner(owner)
         .tableUUID(generation)
         .message("original message")

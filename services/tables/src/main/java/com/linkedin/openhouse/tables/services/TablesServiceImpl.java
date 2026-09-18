@@ -360,15 +360,15 @@ public class TablesServiceImpl implements TablesService {
     checkReplicaTable(tableDto);
     authorizationUtils.checkLockTablePrivilege(
         tableDto, tableCreatorUpdater, Privileges.LOCK_ADMIN);
-    boolean cleanup = createUpdateLockRequestBody.getReason() == LockReason.TIER3_AUTO_CLEANUP;
-    if (cleanup) {
+    boolean systemOnly = createUpdateLockRequestBody.getReason() == LockReason.SYSTEM_ONLY;
+    if (systemOnly) {
       checkExpectedTableUUID(tableDto, createUpdateLockRequestBody.getExpectedTableUUID());
       requireNonblank(tableCreatorUpdater, "actingPrincipal");
     }
     LockState existingLock =
         tableDto.getPolicies() == null ? null : tableDto.getPolicies().getLockState();
     if (isTableLocked(tableDto)
-        && (cleanup || existingLock.getReason() == LockReason.TIER3_AUTO_CLEANUP)) {
+        && (systemOnly || existingLock.getReason() == LockReason.SYSTEM_ONLY)) {
       if (existingLock.getReason() == createUpdateLockRequestBody.getReason()
           && Objects.equals(existingLock.getLockOwner(), tableCreatorUpdater)
           && Objects.equals(existingLock.getTableUUID(), tableDto.getTableUUID())) {
@@ -383,8 +383,8 @@ public class TablesServiceImpl implements TablesService {
             .locked(createUpdateLockRequestBody.isLocked())
             .message(createUpdateLockRequestBody.getMessage())
             .reason(createUpdateLockRequestBody.getReason())
-            .lockOwner(cleanup ? tableCreatorUpdater : null)
-            .tableUUID(cleanup ? tableDto.getTableUUID() : null)
+            .lockOwner(systemOnly ? tableCreatorUpdater : null)
+            .tableUUID(systemOnly ? tableDto.getTableUUID() : null)
             .expirationInDays(createUpdateLockRequestBody.getExpirationInDays())
             .creationTime(createUpdateLockRequestBody.getCreationTime())
             .build();
@@ -424,7 +424,8 @@ public class TablesServiceImpl implements TablesService {
     authorizationUtils.checkLockTablePrivilege(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
     if (isTableLocked(tableDto)
         && tableDto.getPolicies().getLockState().getReason() != LockReason.LEGACY) {
-      throw lockConflict(tableDto, "Use the reason-targeted unlock endpoint for a cleanup lock.");
+      throw lockConflict(
+          tableDto, "Use the reason-targeted unlock endpoint for a SYSTEM_ONLY lock.");
     }
     removeLock(tableDto);
   }
@@ -471,14 +472,14 @@ public class TablesServiceImpl implements TablesService {
     if (lock.getReason() != reason) {
       throw lockConflict(tableDto, "The active lock reason does not match.");
     }
-    // PR #726 could create cleanup locks without either identity field. Recovery must explicitly
+    // Locks created before lifecycle guards may omit both identity fields. Recovery must explicitly
     // acknowledge that state, and must not bypass either guard on an owned or partially owned lock.
-    boolean unrecordedCleanup =
-        reason == LockReason.TIER3_AUTO_CLEANUP
+    boolean unrecordedSystemOnly =
+        reason == LockReason.SYSTEM_ONLY
             && lock.getLockOwner() == null
             && lock.getTableUUID() == null
             && "__UNRECORDED__".equals(expectedLockOwner);
-    if (!unrecordedCleanup
+    if (!unrecordedSystemOnly
         && (!expectedLockOwner.equals(lock.getLockOwner())
             || !expectedTableUUID.equals(lock.getTableUUID()))) {
       throw lockConflict(

@@ -371,7 +371,7 @@ public class TablesController {
   @Operation(
       summary = "Create lock on Table",
       description =
-          "Create a lock with LOCK_ADMIN authorization. Cleanup locks require expectedTableUUID. "
+          "Create a lock with LOCK_ADMIN authorization. SYSTEM_ONLY locks require expectedTableUUID. "
               + "A matching reason, owner and generation retry leaves the active lock unchanged.",
       tags = {"Table"})
   @ApiResponses(
@@ -406,7 +406,7 @@ public class TablesController {
   @Operation(
       summary = "Delete lock on Table",
       description =
-          "Delete only a LEGACY lock with LOCK_ADMIN authorization. Cleanup locks require the reason-targeted endpoint.",
+          "Delete only a LEGACY lock with LOCK_ADMIN authorization. SYSTEM_ONLY locks require the reason-targeted endpoint.",
       tags = {"Table"})
   @ApiResponses(
       value = {
@@ -433,7 +433,7 @@ public class TablesController {
       summary = "Delete a lock by reason",
       description =
           "Requires LOCK_ADMIN and matching current table UUID, lock reason, recorded owner and generation. "
-              + "For pre-owner cleanup locks only, expectedLockOwner=__UNRECORDED__ explicitly permits "
+              + "For pre-owner SYSTEM_ONLY locks only, expectedLockOwner=__UNRECORDED__ explicitly permits "
               + "recovery when both stored owner and generation are absent. Use the legacy endpoint for LEGACY locks.",
       tags = {"Table"})
   @ApiResponses(
