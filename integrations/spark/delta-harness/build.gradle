@@ -4,11 +4,11 @@ plugins {
   id 'scala'
 }
 
-// The delta-harness behavioral matrix is published as a portable Scala library. This repository runs
-// it against the embedded catalog, and the LinkedIn acceptance tests supply a remote environment.
+// The Delta integration-test matrix is published as a portable Scala library. This repository runs it
+// against the embedded catalog, and the LinkedIn acceptance tests supply a remote environment.
 //
 // Only the portable scenario/framework sources are published. Env.scala boots the embedded OpenHouse
-// server and pulls in its test fixtures, and LocalRunner.scala carries the harness.Main launch class
+// server and pulls in its test fixtures, and LocalRunner.scala carries the `harness.Main` launch class
 // that drives it, so both are excluded from the published library and compiled in the local source
 // set. Runner.scala remains portable so its retry contract is exercised by the module tests.
 
@@ -43,7 +43,7 @@ dependencies {
   implementation "org.scala-lang:scala-library:${scalaLibVersion}"
 
   // The consumer provides the Spark, Iceberg, and OpenHouse runtime. The library jar carries only the
-  // harness classes.
+  // integration-test classes.
   compileOnly("org.apache.spark:spark-sql_2.12:${sparkVersion}") {
     exclude group: 'io.netty'
   }
@@ -54,7 +54,8 @@ dependencies {
   compileOnly(project(path: ':integrations:spark:spark-3.5:openhouse-spark-3.5-runtime_2.12', configuration: 'shadow'))
 
   // The catalog tests read Catalog contributions and cases without starting Spark. Their JVM still
-  // loads the harness signatures, so the compile-only harness dependencies must be present on the test classpath.
+  // loads the integration-test signatures, so the compile-only runtime dependencies must be present on the test
+  // classpath.
   testImplementation("org.apache.spark:spark-sql_2.12:${sparkVersion}") {
     exclude group: 'io.netty'
   }
@@ -98,7 +99,7 @@ configurations.localRuntimeClasspath {
     'com.fasterxml.jackson.module:jackson-module-scala_2.12:2.15.2')
 }
 
-def configureEmbeddedHarnessRun = { JavaExec task ->
+def configureEmbeddedIntegrationTestRun = { JavaExec task ->
   task.dependsOn localClasses
   task.classpath = sourceSets.local.runtimeClasspath
   task.mainClass = 'harness.Main'
@@ -113,20 +114,20 @@ def configureEmbeddedHarnessRun = { JavaExec task ->
 
 tasks.register('runOpenHouse', JavaExec) {
   group = 'verification'
-  description = 'Runs the delta harness against an embedded OpenHouse catalog.'
-  configureEmbeddedHarnessRun(delegate)
+  description = 'Runs the Delta integration tests against an embedded OpenHouse catalog.'
+  configureEmbeddedIntegrationTestRun(delegate)
 }
 
 def verifyOpenHouseFoundation = tasks.register('verifyOpenHouseFoundation', JavaExec) {
   group = 'verification'
   description = 'Runs the foundation scenarios against an embedded OpenHouse catalog.'
-  configureEmbeddedHarnessRun(delegate)
+  configureEmbeddedIntegrationTestRun(delegate)
   args '--catalog=foundation'
 }
 
 def verifyPortableJar = tasks.register('verifyPortableJar') {
   group = 'verification'
-  description = 'Checks that the published harness jar contains only portable entry points.'
+  description = 'Checks that the published integration-test jar contains only portable entry points.'
   dependsOn tasks.named('jar')
   doLast {
     def jarFile = tasks.named('jar').get().archiveFile.get().asFile
@@ -135,13 +136,13 @@ def verifyPortableJar = tasks.register('verifyPortableJar') {
     }
     ['harness/Plan.class', 'harness/Runner.class'].each { requiredEntry ->
       if (!entries.contains(requiredEntry)) {
-        throw new GradleException("Portable harness jar is missing ${requiredEntry}")
+        throw new GradleException("Portable integration-test jar is missing ${requiredEntry}")
       }
     }
     ['harness/Main.class', 'harness/Main$.class', 'harness/OpenHouseEnv.class', 'harness/OpenHouseEnv$.class']
       .each { embeddedEntry ->
         if (entries.contains(embeddedEntry)) {
-          throw new GradleException("Portable harness jar contains embedded-only ${embeddedEntry}")
+          throw new GradleException("Portable integration-test jar contains embedded-only ${embeddedEntry}")
         }
       }
   }
