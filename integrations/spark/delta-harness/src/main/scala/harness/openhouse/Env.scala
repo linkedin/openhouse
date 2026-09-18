@@ -43,7 +43,7 @@ object OpenHouseEnv {
       val token = authToken()
 
       val base = SparkSession.builder()
-        .appName("delta-harness-openhouse")
+        .appName("openhouse-delta-integration-tests")
         .master("local[2]")
         .config("spark.sql.extensions",
           "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions," +
