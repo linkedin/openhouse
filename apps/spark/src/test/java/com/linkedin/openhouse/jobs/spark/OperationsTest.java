@@ -68,7 +68,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       prepareTableWithRetentionAndSharingPolicies(ops, tableName, "1d", true);
       populateTable(ops, tableName, 3);
       populateTable(ops, tableName, 2, 2);
-      ops.runRetention(tableName, "ts", "", "day", 1, false, "", ZonedDateTime.now(), "");
+      ops.runRetention(tableName, "ts", "", "day", 1, false, "", ZonedDateTime.now(ZoneOffset.UTC));
       verifyRowCount(ops, tableName, 3);
       verifyPolicies(ops, tableName, 1, Retention.GranularityEnum.DAY, true);
     }
@@ -169,8 +169,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       String granularity) {
     prepareTableWithStringColumn(ops, tableName);
     populateTableWithStringColumn(ops, tableName, 3, dataFormats);
-    ops.runRetention(
-        tableName, column, pattern, granularity, 2, false, "", ZonedDateTime.now(), "");
+    ops.runRetention(tableName, column, pattern, granularity, 2, false, "", ZonedDateTime.now());
   }
 
   @Test
@@ -182,7 +181,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       List<Long> snapshots = getSnapshotIds(ops, tableName);
       // check if there are existing snapshots
       Assertions.assertTrue(snapshots.size() > 0);
-      ops.runRetention(tableName, "ts", "", "day", 2, false, "", ZonedDateTime.now(), "");
+      ops.runRetention(tableName, "ts", "", "day", 2, false, "", ZonedDateTime.now(ZoneOffset.UTC));
       verifyRowCount(ops, tableName, 4);
       List<Long> snapshotsAfter = getSnapshotIds(ops, tableName);
       Assertions.assertEquals(snapshots.size() + 1, snapshotsAfter.size());
@@ -228,7 +227,7 @@ public class OperationsTest extends OpenHouseSparkITest {
                   tableName, twoDayAgoDate, twoDayAgoHour, threeDayAgoDate, threeDayAgoHour));
       ZonedDateTime now = ZonedDateTime.now();
       ops.runRetention(
-          tableName, columnName, columnPattern, granularity, count, true, ".backup", now, "");
+          tableName, columnName, columnPattern, granularity, count, true, ".backup", now);
       // verify data_manifest.json
       Table table = ops.getTable(tableName);
       String manifestName = String.format("data_manifest_%d.json", now.toInstant().toEpochMilli());
@@ -295,9 +294,9 @@ public class OperationsTest extends OpenHouseSparkITest {
               String.format(
                   "insert into %s values ('b', cast('%s' as timestamp)), ('b', cast('%s' as timestamp))",
                   tableName, today, twoDayAgo));
-      ZonedDateTime now = ZonedDateTime.now();
+      ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
       ops.runRetention(
-          tableName, columnName, columnPattern, granularity, count, true, ".backup", now, "");
+          tableName, columnName, columnPattern, granularity, count, true, ".backup", now);
       // verify data_manifest.json
       Table table = ops.getTable(tableName);
       String manifestName = String.format("data_manifest_%d.json", now.toInstant().toEpochMilli());
@@ -345,8 +344,8 @@ public class OperationsTest extends OpenHouseSparkITest {
       ops.spark().sql(String.format("INSERT INTO %s VALUES %s", zonedTableName, fixtureRows));
       ops.spark().sql(String.format("INSERT INTO %s VALUES %s", utcTableName, fixtureRows));
 
-      ops.runRetention(zonedTableName, "ts", "", "day", 1, false, "", now, "America/Los_Angeles");
-      ops.runRetention(utcTableName, "ts", "", "day", 1, false, "", now, "");
+      ops.runRetention(zonedTableName, "ts", "", "day", 1, false, "", losAngelesNow);
+      ops.runRetention(utcTableName, "ts", "", "day", 1, false, "", now);
 
       Assertions.assertEquals(
           Arrays.asList("kept_by_both", "kept_only_by_los_angeles_zone"),
@@ -361,6 +360,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       throws Exception {
     final String tableName = "db.test_retention_zoned_native_timestamp_backup";
     ZonedDateTime now = ZonedDateTime.of(2024, 2, 1, 2, 0, 0, 0, ZoneOffset.UTC);
+    ZonedDateTime losAngelesNow = now.withZoneSameInstant(ZoneId.of("America/Los_Angeles"));
     OtelEmitter spyEmitter = Mockito.spy(otelEmitter);
     try (Operations ops = Operations.withCatalog(getSparkSession(), spyEmitter)) {
       prepareTable(ops, tableName, true);
@@ -374,9 +374,7 @@ public class OperationsTest extends OpenHouseSparkITest {
                   tableName));
 
       Assertions.assertDoesNotThrow(
-          () ->
-              ops.runRetention(
-                  tableName, "ts", "", "day", 1, true, ".backup", now, "America/Los_Angeles"));
+          () -> ops.runRetention(tableName, "ts", "", "day", 1, true, ".backup", losAngelesNow));
 
       Assertions.assertEquals(
           Arrays.asList("kept_by_both", "kept_only_by_los_angeles_zone"),
@@ -420,9 +418,8 @@ public class OperationsTest extends OpenHouseSparkITest {
           1,
           false,
           "",
-          now,
-          "America/Los_Angeles");
-      ops.runRetention(utcTableName, "datePartition", "yyyy-MM-dd", "day", 1, false, "", now, "");
+          now.withZoneSameInstant(ZoneId.of("America/Los_Angeles")));
+      ops.runRetention(utcTableName, "datePartition", "yyyy-MM-dd", "day", 1, false, "", now);
 
       Assertions.assertEquals(
           Arrays.asList("kept_by_both", "kept_only_by_los_angeles_zone"),
@@ -472,7 +469,7 @@ public class OperationsTest extends OpenHouseSparkITest {
               IllegalStateException.class,
               () ->
                   ops.runRetention(
-                      tableName, "time_col", "yyyy-MM-dd-HH", "day", 1, true, ".backup", now, ""));
+                      tableName, "time_col", "yyyy-MM-dd-HH", "day", 1, true, ".backup", now));
       Assertions.assertTrue(
           ex.getMessage().contains("metadata-only delete"),
           "Expected metadata-only delete error, got: " + ex.getMessage());

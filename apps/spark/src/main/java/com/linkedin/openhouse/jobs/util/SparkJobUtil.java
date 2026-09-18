@@ -2,7 +2,6 @@ package com.linkedin.openhouse.jobs.util;
 
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import java.io.IOException;
-import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -52,27 +51,25 @@ public final class SparkJobUtil {
       String columnPattern,
       String granularity,
       int count,
-      ZonedDateTime now,
-      String timeZone) {
-    ZonedDateTime clock =
-        StringUtils.isBlank(timeZone) ? now : now.withZoneSameInstant(ZoneId.of(timeZone));
+      ZonedDateTime now) {
     String predicate;
     if (!StringUtils.isBlank(columnPattern)) {
       predicate =
           String.format(
               RETENTION_CONDITION_WITH_PATTERN_TEMPLATE,
               columnName,
-              clock.toLocalDateTime(),
+              now.toLocalDateTime(),
               count,
               granularity,
               columnPattern);
-    } else if (StringUtils.isBlank(timeZone)) {
+    } else if (now.getZone().equals(ZoneOffset.UTC)) {
+      // A UTC retention clock matches Spark's session zone, so date_trunc reproduces today's SQL.
       predicate =
           String.format(
               RETENTION_CONDITION_TEMPLATE,
               columnName,
               granularity,
-              clock.toLocalDateTime(),
+              now.toLocalDateTime(),
               count,
               granularity);
     } else {
@@ -84,7 +81,7 @@ public final class SparkJobUtil {
                   : period == ChronoUnit.YEARS
                       ? time.toLocalDate().withDayOfYear(1).atStartOfDay(time.getZone())
                       : time.truncatedTo(period);
-      ZonedDateTime rangeStart = periodStart.apply(clock).minus(count, period);
+      ZonedDateTime rangeStart = periodStart.apply(now).minus(count, period);
       long micros =
           periodStart.apply(rangeStart.withZoneSameInstant(ZoneOffset.UTC)).toEpochSecond()
               * MICROS_PER_SECOND;
@@ -92,25 +89,18 @@ public final class SparkJobUtil {
     }
     String query = String.format("DELETE FROM %s WHERE %s", getQuotedFqtn(fqtn), predicate);
     log.info(
-        "Table: {}. columnName {}, columnPattern {}, granularity {}s, timeZone {}, retention query: {}",
+        "Table: {}. columnName {}, columnPattern {}, granularity {}s, retentionZone {}, retention query: {}",
         fqtn,
         columnName,
         columnPattern,
         granularity,
-        timeZone,
+        now.getZone(),
         query);
     return query;
   }
 
   public static Expression createDeleteFilter(
-      String columnName,
-      String columnPattern,
-      String granularity,
-      int count,
-      ZonedDateTime now,
-      String timeZone) {
-    ZonedDateTime clock =
-        StringUtils.isBlank(timeZone) ? now : now.withZoneSameInstant(ZoneId.of(timeZone));
+      String columnName, String columnPattern, String granularity, int count, ZonedDateTime now) {
     ChronoUnit period = convertGranularityToChrono(granularity.toUpperCase());
     if (StringUtils.isBlank(columnPattern)) {
       UnaryOperator<ZonedDateTime> periodStart =
@@ -120,7 +110,7 @@ public final class SparkJobUtil {
                   : period == ChronoUnit.YEARS
                       ? time.toLocalDate().withDayOfYear(1).atStartOfDay(time.getZone())
                       : time.truncatedTo(period);
-      ZonedDateTime rangeStart = periodStart.apply(clock).minus(count, period);
+      ZonedDateTime rangeStart = periodStart.apply(now).minus(count, period);
       long micros =
           periodStart.apply(rangeStart.withZoneSameInstant(ZoneOffset.UTC)).toEpochSecond()
               * MICROS_PER_SECOND;
@@ -131,7 +121,7 @@ public final class SparkJobUtil {
     // transition, and carries an offset for patterns that format one.
     String rangeStartLabel =
         DateTimeFormatter.ofPattern(columnPattern)
-            .format(clock.toOffsetDateTime().minus(count, period));
+            .format(now.toOffsetDateTime().minus(count, period));
     return Expressions.lessThan(columnName, rangeStartLabel);
   }
 

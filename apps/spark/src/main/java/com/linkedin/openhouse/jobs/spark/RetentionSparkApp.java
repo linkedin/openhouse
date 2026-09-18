@@ -5,6 +5,7 @@ import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
@@ -13,6 +14,7 @@ import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
+import org.apache.commons.lang.StringUtils;
 import org.apache.iceberg.Table;
 
 /**
@@ -59,7 +61,10 @@ public class RetentionSparkApp extends BaseTableSparkApp {
     boolean backupEnabled =
         Boolean.parseBoolean(
             table.properties().getOrDefault(AppConstants.BACKUP_ENABLED_KEY, "false"));
-    ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+    ZonedDateTime now =
+        StringUtils.isBlank(timeZone)
+            ? ZonedDateTime.now(ZoneOffset.UTC)
+            : ZonedDateTime.now(ZoneId.of(timeZone));
     log.info(
         "Retention app start for table {}, column {}, {}, ttl={} {}s, backupEnabled={}, backupDir={}, timeZone={}, ts={}",
         fqtn,
@@ -72,15 +77,7 @@ public class RetentionSparkApp extends BaseTableSparkApp {
         timeZone,
         now);
     ops.runRetention(
-        fqtn,
-        columnName,
-        columnPattern,
-        granularity,
-        count,
-        backupEnabled,
-        backupDir,
-        now,
-        timeZone);
+        fqtn, columnName, columnPattern, granularity, count, backupEnabled, backupDir, now);
   }
 
   public static void main(String[] args) {
