@@ -1,9 +1,8 @@
-# How the Delta harness generates tests
+# How integration tests are generated
 
 [TEST-COVERAGE.md](TEST-COVERAGE.md) lists the prepared tables, test cases, and
-expected behavior. The harness generates the executable test set by pairing each
-test case with every compatible prepared table. Each prepared table includes its
-storage format.
+expected behavior. The test generator pairs each test case with every compatible
+prepared table. Each prepared table includes its storage format.
 
 ![Coverage composition](COVERAGE-MODEL.svg)
 
@@ -27,7 +26,8 @@ table.
 
 ## Compatibility and the generated set
 
-The harness considers the matrix product of prepared tables and test cases:
+The test generator considers the matrix product of prepared tables and test
+cases:
 
 ```text
 Executable Test Set = compatible(Prepared Tables x Test Cases)
