@@ -41,6 +41,8 @@ dependencies {
   api 'org.springframework.security:spring-security-config:5.7.2'
   api 'org.springframework.boot:spring-boot-starter-webflux:2.7.8'
   implementation 'com.cronutils:cron-utils:9.2.0'
+  testImplementation project(':client:tableclient')
+  testImplementation 'org.openapitools:jackson-databind-nullable:0.2.1'
   testImplementation 'org.junit.jupiter:junit-jupiter-engine:' + junit_version
   testImplementation 'org.springframework.security:spring-security-test:5.7.3'
   testImplementation 'org.springframework:spring-context-support:5.3.18'

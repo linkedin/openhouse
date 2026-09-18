@@ -7,6 +7,7 @@ import com.linkedin.openhouse.gen.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.gen.tables.client.api.TableApi;
 import com.linkedin.openhouse.gen.tables.client.invoker.ApiClient;
 import com.linkedin.openhouse.gen.tables.client.model.IcebergSnapshotsRequestBody;
+import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientResponseException;
 import com.linkedin.openhouse.relocated.reactor.core.publisher.Mono;
 import java.io.IOException;
@@ -26,6 +27,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * This class tests out packaging done in :integrations:java:iceberg-1.2:openhouse-java-runtime. The
@@ -102,6 +106,41 @@ public class SmokeTest {
         expectedHeaderValue, mockTableService.takeRequest().getHeader(expectedHeader));
   }
 
+  @ParameterizedTest
+  @CsvSource(
+      value = {"SYSTEM,SYSTEM", "USER,USER", "system,SYSTEM", "uSeR,USER", "NULL,NULL"},
+      nullValues = "NULL")
+  public void testActionTypeHeader(String actionType, String expected) throws InterruptedException {
+    mockTableService.enqueue(
+        new MockResponse().setResponseCode(200).addHeader("Content-Type", "application/json"));
+    Map<String, String> properties = new HashMap<>();
+    properties.put(CatalogProperties.URI, url);
+    if (actionType != null) {
+      properties.put("action-type", actionType);
+    }
+    OpenHouseCatalog catalog = new OpenHouseCatalog();
+    catalog.initialize("openhouse", properties);
+    catalog.tableExists(TableIdentifier.of("db", "table"));
+    RecordedRequest request = mockTableService.takeRequest(5, TimeUnit.SECONDS);
+    Assertions.assertNotNull(request);
+    Assertions.assertEquals(expected, request.getHeader("X-OpenHouse-Action-Type"));
+    Assertions.assertNull(request.getHeader("X-OpenHouse-System-Action"));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"invalid", "", " SYSTEM ", "true", "false"})
+  public void testInvalidActionTypeRejected(String actionType) {
+    IllegalArgumentException failure =
+        Assertions.assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                new OpenHouseCatalog()
+                    .initialize(
+                        "openhouse",
+                        ImmutableMap.of(CatalogProperties.URI, url, "action-type", actionType)));
+    Assertions.assertEquals("action-type must be SYSTEM or USER", failure.getMessage());
+  }
+
   @Test
   public void testDatabaseApiInterfacesWorking() {
     mockTableService.enqueue(
@@ -155,6 +194,40 @@ public class SmokeTest {
     Assertions.assertThrows(
         NoSuchTableException.class,
         () -> openHouseCatalog.loadTable(TableIdentifier.of("db", "table")));
+  }
+
+  @ParameterizedTest
+  @CsvSource({"423,table", "400,bad-name", "404,missing_table"})
+  public void testCatalogSystemOnlyDenialIsDistinctFromNotFound(int status, String table) {
+    String message =
+        "Table db.table has a SYSTEM_ONLY lock: maintenance in progress. "
+            + "Use the reason-targeted OpenHouse unlock endpoint as an authorized lock administrator.";
+    for (int request = 0; request < 2; request++) {
+      mockTableService.enqueue(
+          new MockResponse()
+              .setResponseCode(status)
+              .setBody("{\"message\":\"" + message + "\"}")
+              .addHeader("Content-Type", "application/json"));
+    }
+    OpenHouseCatalog catalog = new OpenHouseCatalog();
+    catalog.initialize("openhouse", ImmutableMap.of(CatalogProperties.URI, url));
+    TableIdentifier id = TableIdentifier.of("db", table);
+    if (status == 423) {
+      WebClientResponseWithMessageException load =
+          Assertions.assertThrows(
+              WebClientResponseWithMessageException.class, () -> catalog.loadTable(id));
+      WebClientResponseWithMessageException exists =
+          Assertions.assertThrows(
+              WebClientResponseWithMessageException.class, () -> catalog.tableExists(id));
+      Assertions.assertEquals(423, load.getStatusCode());
+      Assertions.assertEquals(423, exists.getStatusCode());
+      Assertions.assertTrue(load.getMessage().contains(message));
+      Assertions.assertTrue(exists.getMessage().contains(message));
+    } else {
+      Assertions.assertThrows(NoSuchTableException.class, () -> catalog.loadTable(id));
+      Assertions.assertFalse(catalog.tableExists(id));
+    }
+    Assertions.assertEquals(2, mockTableService.getRequestCount());
   }
 
   @Test

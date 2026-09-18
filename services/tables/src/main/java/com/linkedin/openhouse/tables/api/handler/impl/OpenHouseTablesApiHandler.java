@@ -6,9 +6,11 @@ import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetLockResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
@@ -203,6 +205,30 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
     tablesApiValidator.validateGetTable(databaseId, tableId);
     tableService.deleteLock(databaseId, tableId, tableCreatorUpdator);
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
+  }
+
+  @Override
+  public ApiResponse<Void> deleteLock(
+      String databaseId,
+      String tableId,
+      LockReason reason,
+      String expectedTableUUID,
+      String expectedLockOwner,
+      String actingPrincipal) {
+    tablesApiValidator.validateGetTable(databaseId, tableId);
+    tableService.deleteLock(
+        databaseId, tableId, reason, expectedTableUUID, expectedLockOwner, actingPrincipal);
+    return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
+  }
+
+  @Override
+  public ApiResponse<GetLockResponseBody> getLock(
+      String databaseId, String tableId, String actingPrincipal) {
+    tablesApiValidator.validateGetTable(databaseId, tableId);
+    return ApiResponse.<GetLockResponseBody>builder()
+        .httpStatus(HttpStatus.OK)
+        .responseBody(tableService.getLock(databaseId, tableId, actingPrincipal))
+        .build();
   }
 
   @Override
