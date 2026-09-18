@@ -1,44 +1,61 @@
-# Delta harness capability matrix
+# How Delta harness coverage composes
 
-This matrix summarizes only behavior present in the executable catalog in the
-current checkout. The DML operation list is defined once, then the prepared-table
-table shows where those operations run. See [TEST-COVERAGE.md](TEST-COVERAGE.md)
-for the exact assertions.
+The harness separates **what OpenHouse should do** from **the table state where
+that behavior should hold**. A behavior contract is written once, then runs
+against every compatible prepared table and storage format.
 
-## Catalog totals
+![Coverage composition](COVERAGE-MODEL.svg)
 
-| Capability set | Added cases | Catalog total | Embedded result |
-|----------------|------------:|--------------:|-----------------|
-| Scalar values, DML, and rejected DML | 34 | 34 | 34 passed, 0 skipped, 0 failed |
+The [Graphviz source](COVERAGE-MODEL.dot) is kept beside the rendered diagram.
 
-## DML operations
+## Behavior contracts
 
-Every operation below runs on each compatible prepared table listed in the next
-section.
+A behavior contract describes an action and its observable result:
 
-| Operation | Cases | Observable contract |
-|-----------|------:|---------------------|
-| Projection | 2 | A selected column matches the complete table state, and the read changes neither rows nor snapshots. |
-| Append | 2 | Two rows are added, prepared rows remain unchanged, and one snapshot is committed. |
-| Full overwrite | 2 | Prepared rows are replaced by the expected rows, and one snapshot is committed. |
-| Predicate delete | 2 | Matching rows are removed, all other rows remain unchanged, and one snapshot is committed. |
-| Predicate update | 2 | Only the selected row and column change, and one snapshot is committed. |
-| Merge upsert | 2 | One row is updated, one row is inserted, all other rows remain unchanged, and one snapshot is committed. |
+- A read describes the rows and values returned without changing table state.
+- A write describes the complete rows, snapshots, and metadata that must exist
+  afterward.
+- A catalog operation describes the table identity, schema, properties, history,
+  or references that must be preserved or changed.
+- A rejected operation describes the error and the state that must remain
+  unchanged.
+
+The contract does not know how the table reached its starting state.
 
 ## Prepared tables
 
-| Prepared table | Formats | Initial state | Tests |
-|----------------|---------|---------------|-------|
-| Core unpartitioned table | Parquet, ORC | Three rows with long, integer, string, double, boolean, and timestamp-string columns. | All six DML operations and all six rejected-DML statements. |
-| Scalar-value table | Parquet, ORC | Three rows covering bigint, integer, double, decimal, string, binary, date, timestamp, and timestamp-without-time-zone columns. | Round trip, nulls, special floating-point values, numeric boundaries, Unicode, and empty strings. |
+A prepared table describes the starting state supplied to a behavior contract:
 
-## Rejected DML
+- Schema and seed rows.
+- Partitioning and write ordering.
+- Table properties and policies.
+- Existing snapshots, lineages, delete files, or references.
+- The storage format used to materialize the table.
 
-| Statement | Cases | Expected result |
-|-----------|------:|-----------------|
-| Delete using an undeclared column | 2 | Analysis fails and names the missing column. |
-| Delete using a nondeterministic predicate | 2 | Analysis fails and identifies the determinism requirement. |
-| Update using a nondeterministic predicate | 2 | Analysis fails and identifies the determinism requirement. |
-| Insert with too few values | 2 | Analysis fails because data columns are missing. |
-| Merge with duplicate target assignments | 2 | Analysis fails because one target column is assigned more than once. |
-| Merge with two source rows matching one target row | 2 | Execution reports the cardinality violation and leaves the table unchanged. |
+Prepared tables do not redefine the behavior. They make the same behavior face a
+different table state.
+
+## Compatibility
+
+Not every behavior applies to every table state. The harness records compatibility
+at the point where a behavior and prepared table are combined.
+
+Adding a behavior expands coverage across every existing compatible table. Adding
+a prepared table expands coverage across every existing behavior that should hold
+for that state. Adding a storage format repeats each compatible combination in the
+new format.
+
+This is the multiplication model: behavior contracts and prepared tables grow
+independently, while compatibility determines which combinations become
+executable tests.
+
+## Execution environments
+
+The generated test carries the same action and assertions into both environments:
+
+- Embedded OpenHouse provides hermetic local feedback.
+- The li-openhouse acceptance environment supplies the deployed catalog
+  connection and runtime dependencies.
+
+Environment adapters change how the test reaches OpenHouse. They do not change
+what the test means.

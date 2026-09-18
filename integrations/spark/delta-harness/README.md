@@ -47,7 +47,7 @@ HARNESS_PARALLELISM=1 \
   integrations/spark/delta-harness/run-openhouse.sh merge.upsert
 ```
 
-Run the fixed 34-case core catalog:
+Run the core catalog:
 
 ```bash
 ./gradlew --no-daemon \
@@ -84,7 +84,7 @@ test verifies that rows and snapshots remain unchanged.
 [TEST-COVERAGE.md](TEST-COVERAGE.md) describes the assertions made by the
 executable catalog in the current checkout.
 [CAPABILITY-MATRIX.md](CAPABILITY-MATRIX.md) shows the DML operations, prepared
-tables, added case counts, and validated result in the current catalog.
+tables, and the dimensions across which the tests run.
 
 ## Skipped tests
 
@@ -118,5 +118,5 @@ Describe the starting table, action, and expected outcome together so a reader
 can understand the test without consulting implementation terminology.
 
 For every coverage change, update [TEST-COVERAGE.md](TEST-COVERAGE.md) with the
-observable behavior and [CAPABILITY-MATRIX.md](CAPABILITY-MATRIX.md) with the
-number of added cases, new catalog total, and validated result.
+observable behavior and [CAPABILITY-MATRIX.md](CAPABILITY-MATRIX.md) with the new
+operation or prepared table.
