@@ -321,7 +321,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testRetentionWithNativeTimestampDailyPartitionHonorsLosAngelesBoundary()
+  public void testRetentionWithNativeTimestampDailyPartitionHonorsLosAngelesZone()
       throws Exception {
     final String zonedTableName = "db.test_retention_zoned_native_timestamp";
     final String utcTableName = "db.test_retention_utc_native_timestamp";
@@ -391,7 +391,7 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testRetentionWithStringDatePartitionHonorsLosAngelesBoundary() throws Exception {
+  public void testRetentionWithStringDatePartitionHonorsLosAngelesZone() throws Exception {
     final String zonedTableName = "db.test_retention_zoned_string_date";
     final String utcTableName = "db.test_retention_utc_string_date";
     ZonedDateTime now = ZonedDateTime.of(2024, 2, 1, 2, 0, 0, 0, ZoneOffset.UTC);
