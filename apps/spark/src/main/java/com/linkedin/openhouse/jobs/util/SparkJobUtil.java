@@ -25,6 +25,27 @@ public final class SparkJobUtil {
 
   private static final long MICROS_PER_SECOND = 1000L * 1000L;
 
+  // Native timestamp column, no zone: reproduces today's behavior. Spark truncates the retention
+  // clock in the session zone. Example (30-day daily): datepartition < date_trunc('DAY', timestamp
+  // '<now>' - INTERVAL 30 DAYs).
+  private static final String RETENTION_CONDITION_TEMPLATE =
+      "%s < date_trunc('%s', timestamp '%s' - INTERVAL %d %ss)";
+
+  // String-partitioned column: retention compares the formatted label lexicographically. Spark
+  // moves the retention clock (shifted to the zone when one is set) back count periods and formats
+  // it with the column pattern. Example: datepartition < date_format(timestamp '<now>' - INTERVAL
+  // 30 DAYs, 'yyyy-MM-dd').
+  private static final String RETENTION_CONDITION_WITH_PATTERN_TEMPLATE =
+      "%s < cast(date_format(timestamp '%s' - INTERVAL %s %ss, '%s') as string)";
+
+  // Native timestamp column with a zone: native time partitions are bucketed in UTC, so the range
+  // start is computed in the zone, floored to the UTC partition edge, and emitted as an absolute
+  // instant. The date_trunc template above cannot express this: feeding a zoned wall clock into a
+  // UTC truncation shifts the range start by the zone offset and, for a positive offset such as
+  // +05:30, moves it past now and deletes recent data.
+  private static final String RETENTION_CONDITION_ZONED_NATIVE_TEMPLATE =
+      "%s < timestamp_micros(%d)";
+
   public static String createDeleteStatement(
       String fqtn,
       String columnName,
@@ -33,15 +54,33 @@ public final class SparkJobUtil {
       int count,
       ZonedDateTime now,
       String timeZone) {
-    ZonedDateTime asOf = atRetentionZone(now, timeZone);
-    String predicate =
-        StringUtils.isBlank(columnPattern)
-            ? String.format(
-                "%s < timestamp_micros(%d)",
-                columnName, retentionRangeStartEpochMicros(asOf, granularity, count))
-            : String.format(
-                "%s < '%s'",
-                columnName, retentionRangeStartLabel(asOf, granularity, count, columnPattern));
+    ZonedDateTime clock = atRetentionZone(now, timeZone);
+    String predicate;
+    if (!StringUtils.isBlank(columnPattern)) {
+      predicate =
+          String.format(
+              RETENTION_CONDITION_WITH_PATTERN_TEMPLATE,
+              columnName,
+              clock.toLocalDateTime(),
+              count,
+              granularity,
+              columnPattern);
+    } else if (StringUtils.isBlank(timeZone)) {
+      predicate =
+          String.format(
+              RETENTION_CONDITION_TEMPLATE,
+              columnName,
+              granularity,
+              clock.toLocalDateTime(),
+              count,
+              granularity);
+    } else {
+      predicate =
+          String.format(
+              RETENTION_CONDITION_ZONED_NATIVE_TEMPLATE,
+              columnName,
+              retentionRangeStartEpochMicros(clock, granularity, count));
+    }
     String query = String.format("DELETE FROM %s WHERE %s", getQuotedFqtn(fqtn), predicate);
     log.info(
         "Table: {}. columnName {}, columnPattern {}, granularity {}s, timeZone {}, retention query: {}",
@@ -61,37 +100,28 @@ public final class SparkJobUtil {
       int count,
       ZonedDateTime now,
       String timeZone) {
-    ZonedDateTime asOf = atRetentionZone(now, timeZone);
+    ZonedDateTime clock = atRetentionZone(now, timeZone);
     if (StringUtils.isBlank(columnPattern)) {
       return Expressions.lessThan(
-          columnName, retentionRangeStartEpochMicros(asOf, granularity, count));
+          columnName, retentionRangeStartEpochMicros(clock, granularity, count));
     }
-    return Expressions.lessThan(
-        columnName, retentionRangeStartLabel(asOf, granularity, count, columnPattern));
+    ChronoUnit period = convertGranularityToChrono(granularity.toUpperCase());
+    // Subtract on the frozen wall clock (toOffsetDateTime keeps now's offset) so the label matches
+    // what Spark's date_format/INTERVAL produces in the statement, even across a daylight-saving
+    // transition, and carries an offset for patterns that format one.
+    String rangeStartLabel =
+        DateTimeFormatter.ofPattern(columnPattern)
+            .format(clock.toOffsetDateTime().minus(count, period));
+    return Expressions.lessThan(columnName, rangeStartLabel);
   }
 
   /**
    * The reference time expressed in the retention zone: the requested IANA zone id or fixed offset
    * when set, otherwise the zone the caller already chose for {@code now} (UTC in the retention
-   * app). The zone shifts the retention range; it never changes the shape of the emitted query.
+   * app).
    */
   private static ZonedDateTime atRetentionZone(ZonedDateTime now, String timeZone) {
     return StringUtils.isBlank(timeZone) ? now : now.withZoneSameInstant(ZoneId.of(timeZone));
-  }
-
-  /**
-   * The oldest label to keep for a string-partitioned column: the retention-zone wall clock moved
-   * back {@code count} periods and formatted with the column's pattern, carrying the zone offset so
-   * patterns that include an offset field format correctly. Rows whose label sorts before this are
-   * deleted; rows at or after it are kept. {@link #createDeleteStatement} and {@link
-   * #createDeleteFilter} both call this, so the executed delete and the Iceberg backup filter agree
-   * even across daylight-saving transitions.
-   */
-  private static String retentionRangeStartLabel(
-      ZonedDateTime asOf, String granularity, int count, String columnPattern) {
-    OffsetDateTime rangeStart =
-        asOf.toOffsetDateTime().minus(count, convertGranularityToChrono(granularity.toUpperCase()));
-    return DateTimeFormatter.ofPattern(columnPattern).format(rangeStart);
   }
 
   /**
