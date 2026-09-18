@@ -1,144 +1,73 @@
 # Delta harness test coverage
 
-This document describes the behavior tested by the catalog on the current branch.
-The documentation PR introduces the foundation description immediately after
-Harness core. Each capability PR fills only its own preallocated section, so the
-description grows with the executable catalog and sibling PRs edit disjoint blocks.
+This document describes only behavior exercised by the executable catalog in the
+current checkout. The core catalog contains 34 cases: 17 behavior contracts run
+against both Parquet and ORC. All 34 cases pass against the embedded OpenHouse
+catalog, with no skips.
 
-## Dependency graph
+## Scalar values
 
-```text
-main
-`-- Harness core (34)
-    `-- Test coverage documentation
-        |-- Standard DML
-        |   |-- RTAS
-        |   |   |-- Compatibility and streaming
-        |   |   |-- History
-        |   |   |-- Governance
-        |   |   |-- Maintenance and planning
-        |   |   |-- Catalog DDL
-        |   |   `-- Merge-on-read
-        |   |       `-- Branch and write-audit-publish
-        |   `-- DML state matrix
-        |-- Schema and types
-        |-- Catalog constraints
-        `-- Column defaults
-```
+Ten cases exercise five scalar-value contracts on an unpartitioned table in each
+file format.
 
-## Review links
+| Case family | Behavior asserted |
+|-------------|-------------------|
+| `types.roundtrip` | Seeded bigint, integer, double, decimal, string, binary, date, timestamp, and timestamp-without-time-zone values read back exactly. |
+| `types.nulls` | A row with every non-key value set to `NULL` reads back with all eight non-key columns null. |
+| `types.specialFloats` | Inserted `NaN` and positive infinity values retain their special floating-point semantics. |
+| `types.boundaries` | `Long.MaxValue`, `Int.MaxValue`, and `99999999.99` in `decimal(10,2)` read back unchanged. |
+| `types.unicodeAndEmpty` | A Unicode string and an empty string remain distinct and read back unchanged. |
 
-| Layer | Pull request |
-|---|---|
-| Harness core | [#741](https://github.com/linkedin/openhouse/pull/741) |
-| Test coverage documentation | [#742](https://github.com/linkedin/openhouse/pull/742) |
-| Standard DML | [#743](https://github.com/linkedin/openhouse/pull/743) |
-| RTAS | [#744](https://github.com/linkedin/openhouse/pull/744) |
-| DML state matrix | [#745](https://github.com/linkedin/openhouse/pull/745) |
-| Schema and types | [#746](https://github.com/linkedin/openhouse/pull/746) |
-| Catalog constraints | [#747](https://github.com/linkedin/openhouse/pull/747) |
-| Column defaults | [#748](https://github.com/linkedin/openhouse/pull/748) |
-| Compatibility and streaming | [#749](https://github.com/linkedin/openhouse/pull/749) |
-| History | [#750](https://github.com/linkedin/openhouse/pull/750) |
-| Governance | [#751](https://github.com/linkedin/openhouse/pull/751) |
-| Maintenance and planning | [#752](https://github.com/linkedin/openhouse/pull/752) |
-| Catalog DDL | [#753](https://github.com/linkedin/openhouse/pull/753) |
-| Merge-on-read | [#754](https://github.com/linkedin/openhouse/pull/754) |
-| Branch and write-audit-publish | [#755](https://github.com/linkedin/openhouse/pull/755) |
+## Reads and mutations
 
-## Foundation
+Twelve cases exercise six read or mutation contracts on the same seeded
+three-row table in each file format.
 
-The 34-case foundation demonstrates each catalog composition path and runs as part
-of Gradle `check`.
+| Case family | Behavior asserted |
+|-------------|-------------------|
+| `read.projection` | A projected string column agrees with the same column in the complete table state, and the read changes neither rows nor snapshots. |
+| `insert.into` | Two literal rows are appended, all prepared rows remain unchanged, and one snapshot is committed. |
+| `insert.overwrite` | The prepared rows are replaced by the two expected rows, and one snapshot is committed. |
+| `delete.byPredicate` | Rows below the predicate boundary are removed, every other row remains unchanged, and one snapshot is committed. |
+| `update.byPredicate` | Only the selected row and column change, every other value remains unchanged, and one snapshot is committed. |
+| `merge.upsert` | One matching row is updated, one unmatched row is inserted, every other row remains unchanged, and one snapshot is committed. |
 
-| Contribution | Cases | Behavior tested |
-|---|---:|---|
-| Data types | 10 | Long, integer, double, decimal, and string round trips; all-null rows; NaN and infinity; numeric boundaries; Unicode and empty strings. |
-| Core DML | 12 | Projection, insert, insert overwrite, predicate delete, predicate update, and merge upsert on Parquet and ORC. |
-| Rejected DML | 12 | Undeclared-column delete, nondeterministic delete and update predicates, short inserts, invalid merge assignments, and merge cardinality violations on Parquet and ORC. |
+## Rejected DML
 
-Successful mutations assert complete rows and snapshot deltas. Rejected mutations
-assert the exception type, diagnostic, and unchanged table state where the contract
-requires it.
+Twelve cases exercise six rejected-statement contracts on the seeded table in each
+file format.
 
-The Spark-free suite also tests deterministic catalog identity, late-bound data
-sources, ownership-gated cleanup, cleanup-failure suppression, retry boundaries,
-parallel result ordering, row generation, and the portable jar contents.
+| Case family | Behavior asserted |
+|-------------|-------------------|
+| `dmlValidation.nonExistentColumn` | A `DELETE` predicate that names an undeclared column fails with an analysis error that identifies the column. |
+| `dmlValidation.nonDeterministicDelete` | A `DELETE` with `rand()` in its predicate fails with an analysis error that identifies the determinism requirement. |
+| `dmlValidation.nonDeterministicUpdate` | An `UPDATE` with `rand()` in its predicate fails with an analysis error that identifies the determinism requirement. |
+| `dmlValidation.insertArity` | An `INSERT` with too few values fails with an analysis error about missing data columns. |
+| `dmlValidation.mergeConflictingUpdates` | A `MERGE` that assigns the same target column twice fails with a multiple-assignment analysis error. |
+| `dmlValidation.mergeCardinalityViolation` | A `MERGE` whose source matches one target row twice reports the cardinality violation and leaves rows and snapshots unchanged. |
 
-## Standard DML
+## Execution and lifecycle checks
 
-<!-- coverage:standard-dml:start -->
-_The Standard DML PR fills this section._
-<!-- coverage:standard-dml:end -->
+The Spark-free module tests verify behavior that protects the validity of every
+catalog result:
 
-## RTAS
-
-<!-- coverage:rtas:start -->
-_The RTAS PR fills this section._
-<!-- coverage:rtas:end -->
-
-## DML state matrix
-
-<!-- coverage:dml-state-matrix:start -->
-_The DML state matrix PR fills this section._
-<!-- coverage:dml-state-matrix:end -->
-
-## Schema and types
-
-<!-- coverage:schema-types:start -->
-_The Schema and types PR fills this section._
-<!-- coverage:schema-types:end -->
-
-## Catalog constraints
-
-<!-- coverage:catalog-constraints:start -->
-_The Catalog constraints PR fills this section._
-<!-- coverage:catalog-constraints:end -->
-
-## Column defaults
-
-<!-- coverage:column-defaults:start -->
-_The Column defaults PR fills this section._
-<!-- coverage:column-defaults:end -->
-
-## Compatibility and streaming
-
-<!-- coverage:compatibility-streaming:start -->
-_The Compatibility and streaming PR fills this section._
-<!-- coverage:compatibility-streaming:end -->
-
-## History
-
-<!-- coverage:history:start -->
-_The History PR fills this section._
-<!-- coverage:history:end -->
-
-## Governance
-
-<!-- coverage:governance:start -->
-_The Governance PR fills this section._
-<!-- coverage:governance:end -->
-
-## Maintenance and planning
-
-<!-- coverage:maintenance-planning:start -->
-_The Maintenance and planning PR fills this section._
-<!-- coverage:maintenance-planning:end -->
-
-## Catalog DDL
-
-<!-- coverage:catalog-ddl:start -->
-_The Catalog DDL PR fills this section._
-<!-- coverage:catalog-ddl:end -->
-
-## Merge-on-read
-
-<!-- coverage:merge-on-read:start -->
-_The Merge-on-read PR fills this section._
-<!-- coverage:merge-on-read:end -->
-
-## Branch and write-audit-publish
-
-<!-- coverage:branch-wap:start -->
-_The Branch and write-audit-publish PR fills this section._
-<!-- coverage:branch-wap:end -->
+- Catalog contribution order and all 34 case IDs are stable, and case IDs are
+  unique.
+- Table layouts read the configured data source when they execute, so an
+  environment adapter can select the deployed catalog without rebuilding the
+  case list.
+- `HARNESS_PARALLELISM` accepts positive integers, rejects invalid values, and
+  uses a safe fallback when the runtime reports no available processors.
+- Retries apply only to recognized transient failures while creating a fresh
+  Spark session. A failure after a case body starts, including cleanup failure,
+  is terminal.
+- Exception-cause traversal terminates for cyclic cause chains.
+- Cleanup runs only after the harness owns the table. A case failure remains
+  primary when cleanup also fails, while a cleanup failure after a successful
+  body is reported directly.
+- Generated table names remain unique under concurrent generation and counter
+  resets.
+- Core seed SQL and date rollover remain deterministic.
+- Gradle `check` verifies that the published jar contains the portable `Plan`
+  and `Runner` entry points and excludes the embedded launcher and server
+  environment.

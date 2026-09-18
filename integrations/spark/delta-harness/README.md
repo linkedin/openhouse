@@ -30,7 +30,7 @@ Pass case ID substrings through `--args` to select a smaller slice:
 ```
 
 Every supplied substring must occur in the case ID. With no filters,
-`runOpenHouse` runs the complete catalog on the current branch.
+`runOpenHouse` runs the complete catalog in the current checkout.
 
 The wrapper script performs the same run:
 
@@ -47,15 +47,15 @@ HARNESS_PARALLELISM=1 \
   integrations/spark/delta-harness/run-openhouse.sh merge.upsert
 ```
 
-Run the fixed 34-case foundation:
+Run the fixed 34-case core catalog:
 
 ```bash
 ./gradlew --no-daemon \
   :integrations:spark:openhouse-spark-delta-harness_2.12:verifyOpenHouseFoundation
 ```
 
-The module attaches that foundation run to Gradle `check`, so the framework's
-representative embedded behavior cannot drift unnoticed.
+The module attaches that core catalog run to Gradle `check`, so the representative
+embedded behavior cannot drift unnoticed.
 
 Run the Spark-free framework and catalog tests with:
 
@@ -92,7 +92,7 @@ OpenHouse services and configures Spark. `LocalRunner` filters the catalog, invo
 
 ### Table fixtures and behavioral scenarios
 
-`TableTestFixtures.scala` defines only the table primitives used by the foundation:
+`TableTestFixtures.scala` defines the table primitives used by the core catalog:
 
 - The typed core `Schema` and its `Column[T]` values.
 - Deterministic row generation.
@@ -100,7 +100,7 @@ OpenHouse services and configures Spark. `LocalRunner` filters the catalog, invo
 - Standard unpartitioned preparations.
 - The late-bound data source that adapters override before reading the catalog.
 
-Capability layers own their specialized starting states. A `Scenario*` trait
+Each capability owns its specialized starting states. A `Scenario*` trait
 contributes behavioral cases, and a `*TableFixtures` trait provides the table
 construction or prepared state those cases consume.
 
@@ -112,7 +112,7 @@ fail, the case failure remains primary and the cleanup failure is suppressed.
 
 `Catalog.scala` is the only catalog assembly point.
 
-`Catalog.foundationContributions` is the stable 34-case framework contract:
+`Catalog.foundationContributions` contains the stable 34-case core catalog:
 
 | Contribution | Cases | Purpose |
 |--------------|------:|---------|
@@ -120,8 +120,8 @@ fail, the case failure remains primary and the cleanup failure is suppressed.
 | `dmlCoreCases` | 12 | Six representative DML operations across Parquet and ORC. |
 | `dmlRejectionCases` | 12 | Rejected DML forms and their observable diagnostics. |
 
-`Catalog.extensionContributions` contains the additive capabilities owned by the
-current branch. A capability integrates at two explicit points:
+`Catalog.extensionContributions` contains additional behavior registered by the
+current checkout. A capability integrates at two explicit points:
 
 1. Mix its scenario trait into `Scenarios`.
 2. Register its named case list in `extensionContributions`.
@@ -133,19 +133,16 @@ starting Spark.
 `Plan` is the published facade used by adapters. It exposes the case type,
 constructor, catalog, IDs, and known-bug reason without duplicating catalog state.
 
-### Foundation and extensions
+### Test coverage
 
-The foundation is intentionally small. It demonstrates that the framework scales
-across generated values, successful mutations, and rejected mutations without
-making the root pull request carry the complete behavioral matrix.
+The core catalog exercises generated scalar values, successful reads and mutations,
+and rejected mutations. Additional scenarios extend the same catalog composition
+and execution contracts.
 
-See [TEST-COVERAGE.md](TEST-COVERAGE.md) for the behavior tested on each capability
-branch. The file begins with the foundation contract in this documentation layer,
-and each capability PR fills its own preallocated section.
-
-[CAPABILITY-MATRIX.md](CAPABILITY-MATRIX.md) records the planned full stack,
-parent relationships, case deltas, cumulative catalog sizes, and validated branch
-results.
+[TEST-COVERAGE.md](TEST-COVERAGE.md) describes the assertions made by the
+executable catalog in the current checkout.
+[CAPABILITY-MATRIX.md](CAPABILITY-MATRIX.md) provides a concise inventory of those
+tested product contracts and the supporting framework checks.
 
 ## Published boundary
 
@@ -188,9 +185,9 @@ Prefixes identify a meaningful starting-state transition. They are not inferred
 from case IDs. Scenario code explicitly chooses which operation lists are
 compatible with each preparation.
 
-`CaseCatalogTest` pins the exact ordered 34-case foundation and checks uniqueness
-across the complete composed catalog. Child branches can add cases without
-rewriting the root contract.
+`CaseCatalogTest` pins the exact ordered 34-case core catalog and checks uniqueness
+across the complete composed catalog. Additional capabilities can register cases
+without rewriting the core contract.
 
 ## Assertions
 
@@ -229,19 +226,18 @@ capability's section of [TEST-COVERAGE.md](TEST-COVERAGE.md).
 1. Add a scenario trait under `src/main/scala/harness/openhouse/scenarios/`.
 2. Keep its operations and assertions in that capability. Put specialized table
    construction and prepared states in a narrowly named `*TableFixtures` trait
-   owned by the same layer.
+   owned by the same capability.
 3. Mix the trait into `Scenarios`.
 4. Add one named case list to `Catalog.extensionContributions`.
 5. Add focused Spark-free tests when the capability changes framework behavior.
 6. Run Spotless, the module tests, and the complete local catalog.
-7. Fill the capability's preallocated section in
+7. Add the capability's observed behavior and assertions to
    [TEST-COVERAGE.md](TEST-COVERAGE.md).
-8. Record the layer and validated totals in
+8. Add the capability and validated catalog result to
    [CAPABILITY-MATRIX.md](CAPABILITY-MATRIX.md).
 
-Do not make one sibling depend on helpers owned by another sibling. Move a genuinely
-shared primitive into the parent, or keep a small capability-specific support trait
-in the layer that uses it.
+Keep capability-specific helpers with the scenario that consumes them. Move a
+primitive into shared fixtures only when multiple scenarios use it.
 
 ## Source map
 
@@ -253,10 +249,10 @@ Paths are relative to `integrations/spark/delta-harness/`.
 | `src/main/scala/harness/openhouse/Runner.scala` | Portable configuration, retry, parallel execution, and deterministic results. |
 | `src/main/scala/harness/openhouse/Env.scala` | Embedded OpenHouse and Spark wiring. |
 | `src/main/scala/harness/openhouse/LocalRunner.scala` | Local filtering, execution, and reporting. |
-| `src/main/scala/harness/openhouse/scenarios/TableTestFixtures.scala` | Foundation table shape, layouts, standard seed, and late-bound data source. |
-| `src/main/scala/harness/openhouse/scenarios/Catalog.scala` | Foundation, extensions, complete catalog, and `Plan` facade. |
-| `src/main/scala/harness/openhouse/scenarios/ScenarioCoreDml.scala` | Six representative operations in the 12-case foundation contribution. |
+| `src/main/scala/harness/openhouse/scenarios/TableTestFixtures.scala` | Core table shape, layouts, standard seed, and late-bound data source. |
+| `src/main/scala/harness/openhouse/scenarios/Catalog.scala` | Core contributions, extensions, complete catalog, and `Plan` facade. |
+| `src/main/scala/harness/openhouse/scenarios/ScenarioCoreDml.scala` | Six representative operations in the 12-case core DML contribution. |
 | `src/main/scala/harness/openhouse/scenarios/ScenarioDmlRejection.scala` | Rejected DML forms and unchanged-state assertions. |
-| `src/test/scala/harness/scenarios/CaseCatalogTest.scala` | Foundation inventory, catalog uniqueness, and data-source override checks. |
+| `src/test/scala/harness/scenarios/CaseCatalogTest.scala` | Core catalog inventory, catalog uniqueness, and data-source override checks. |
 | `src/test/scala/harness/framework/RunnerTest.scala` | Retry, terminal failure, configuration, cause traversal, and result behavior. |
 | `src/test/scala/harness/framework/TableLifecycleTest.scala` | Ownership and cleanup precedence. |
