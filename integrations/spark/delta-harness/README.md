@@ -130,8 +130,8 @@ current checkout. A capability integrates at two explicit points:
 `Catalog.cases` flattens them, and `Catalog.caseIds` exposes their stable IDs without
 starting Spark.
 
-`Plan` is the published facade used by adapters. It exposes the case type,
-constructor, catalog, IDs, and known-bug reason without duplicating catalog state.
+`Plan` exposes the case type, constructor, catalog, IDs, and known-bug reason to
+environment adapters without duplicating catalog state.
 
 ### Test coverage
 
@@ -141,71 +141,18 @@ and execution contracts.
 
 [TEST-COVERAGE.md](TEST-COVERAGE.md) describes the assertions made by the
 executable catalog in the current checkout.
-[CAPABILITY-MATRIX.md](CAPABILITY-MATRIX.md) provides a concise inventory of those
-tested product contracts and the supporting framework checks.
-
-## Published boundary
-
-The portable library publishes the framework, `Runner`, table fixtures, scenario
-traits, and `Catalog`. It excludes only the embedded environment and launcher:
-
-```groovy
-def embeddedOnlySources = [
-  'harness/openhouse/Env.scala',
-  'harness/openhouse/LocalRunner.scala'
-]
-```
-
-Spark, Iceberg, and the OpenHouse runtime are `compileOnly` dependencies of the
-published jar. A consumer supplies those dependencies and constructs its own
-`Ctx`.
-
-This boundary keeps retry policy and configuration parsing portable and directly
-testable while preventing the embedded OpenHouse server fixtures from leaking into
-the acceptance artifact. `verifyPortableJar`, which is attached to `check`, requires
-the published `Plan` and `Runner` classes and rejects the embedded `Main` and
-`OpenHouseEnv` classes.
-
-## Case identity
-
-A generated case ID combines an operation and a preparation label:
-
-```text
-<optional preparation prefix><operation> @ <preparation label>
-```
-
-Examples:
-
-```text
-read.projection @ parquet
-merge.upsert @ orc
-```
-
-Prefixes identify a meaningful starting-state transition. They are not inferred
-from case IDs. Scenario code explicitly chooses which operation lists are
-compatible with each preparation.
-
-`CaseCatalogTest` pins the exact ordered 34-case core catalog and checks uniqueness
-across the complete composed catalog. Additional capabilities can register cases
-without rewriting the core contract.
+[CAPABILITY-MATRIX.md](CAPABILITY-MATRIX.md) shows the DML operations, prepared
+tables, added case counts, and validated result in the current catalog.
 
 ## Assertions
 
-Mutation cases follow one structure:
+Each DML test starts with a named prepared table, records its rows and snapshot
+count, executes one SQL statement, and compares the complete resulting state with
+the expected rows and snapshot change.
 
-1. Capture the prepared state.
-2. Execute one operation.
-3. Read the resulting state.
-4. Assert the complete expected row set.
-5. Assert the expected snapshot delta and any relevant schema or metadata change.
-
-Preparations also validate their own immediate transitions. A failed seed,
-unexpected snapshot, or malformed starting state fails before the behavior under
-test runs.
-
-Rejection cases use `Check.intercept[E]`. They fail when the operation succeeds or
-throws the wrong type. Cases also assert the diagnostic and unchanged state when
-that state is part of the contract.
+Each rejected-statement test executes invalid SQL and verifies the exception type
+and diagnostic. Tests also verify unchanged table state when an invalid statement
+can reach execution after analysis.
 
 ## Skip policy
 

@@ -28,7 +28,7 @@ three-row table in each file format.
 | `read.projection` | A projected string column agrees with the same column in the complete table state, and the read changes neither rows nor snapshots. |
 | `insert.into` | Two literal rows are appended, all prepared rows remain unchanged, and one snapshot is committed. |
 | `insert.overwrite` | The prepared rows are replaced by the two expected rows, and one snapshot is committed. |
-| `delete.byPredicate` | Rows below the predicate boundary are removed, every other row remains unchanged, and one snapshot is committed. |
+| `delete.byPredicate` | Rows whose long key is below 2 are removed, every other row remains unchanged, and one snapshot is committed. |
 | `update.byPredicate` | Only the selected row and column change, every other value remains unchanged, and one snapshot is committed. |
 | `merge.upsert` | One matching row is updated, one unmatched row is inserted, every other row remains unchanged, and one snapshot is committed. |
 
@@ -45,29 +45,3 @@ file format.
 | `dmlValidation.insertArity` | An `INSERT` with too few values fails with an analysis error about missing data columns. |
 | `dmlValidation.mergeConflictingUpdates` | A `MERGE` that assigns the same target column twice fails with a multiple-assignment analysis error. |
 | `dmlValidation.mergeCardinalityViolation` | A `MERGE` whose source matches one target row twice reports the cardinality violation and leaves rows and snapshots unchanged. |
-
-## Execution and lifecycle checks
-
-The Spark-free module tests verify behavior that protects the validity of every
-catalog result:
-
-- Catalog contribution order and all 34 case IDs are stable, and case IDs are
-  unique.
-- Table layouts read the configured data source when they execute, so an
-  environment adapter can select the deployed catalog without rebuilding the
-  case list.
-- `HARNESS_PARALLELISM` accepts positive integers, rejects invalid values, and
-  uses a safe fallback when the runtime reports no available processors.
-- Retries apply only to recognized transient failures while creating a fresh
-  Spark session. A failure after a case body starts, including cleanup failure,
-  is terminal.
-- Exception-cause traversal terminates for cyclic cause chains.
-- Cleanup runs only after the harness owns the table. A case failure remains
-  primary when cleanup also fails, while a cleanup failure after a successful
-  body is reported directly.
-- Generated table names remain unique under concurrent generation and counter
-  resets.
-- Core seed SQL and date rollover remain deterministic.
-- Gradle `check` verifies that the published jar contains the portable `Plan`
-  and `Runner` entry points and excludes the embedded launcher and server
-  environment.
