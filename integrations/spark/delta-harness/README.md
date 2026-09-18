@@ -64,142 +64,59 @@ Run the Spark-free framework and catalog tests with:
   :integrations:spark:openhouse-spark-delta-harness_2.12:test
 ```
 
-## Architecture
+## How tests are structured
 
-The harness separates execution mechanics, reusable table preparations, behavior
-definitions, and catalog composition.
+Each test describes three things:
 
-### Framework
+1. The table state that exists before the test.
+2. The SQL query or statement under test.
+3. The complete rows, snapshots, metadata, or error expected afterward.
 
-`Framework.scala` defines:
+A DML operation is described once and runs against every compatible prepared
+table. Adding a partitioned, ordered, evolved, or otherwise specialized table
+therefore exercises the existing DML behavior without redefining it.
 
-- `Ctx`, the Spark session and namespace supplied by an environment adapter.
-- `TestCase`, one stable case ID and its `Ctx => Unit` body.
-- `TableTest` and `TablePreparation`, immutable preparation steps for a fresh table.
-- `PreparedTable`, the live table, typed schema, prepared rows, and snapshot count.
-- `DmlTestCase`, a reusable operation that can run on compatible preparations.
-- `Outcome`, retry classification, skip policy, and ownership-safe cleanup.
-
-`Runner.scala` contains the portable execution contract. It validates
-`HARNESS_PARALLELISM`, runs each case in a fresh Spark session, retries only
-transient connection failures while creating that session, and returns results in
-catalog order. Once a case body starts, every failure is terminal because the case
-may have changed observable table state.
-
-`Env.scala` and `LocalRunner.scala` are embedded-only. `Env` starts the local
-OpenHouse services and configures Spark. `LocalRunner` filters the catalog, invokes
-`Runner`, and prints the local result report.
-
-### Table fixtures and behavioral scenarios
-
-`TableTestFixtures.scala` defines the table primitives used by the core catalog:
-
-- The typed core `Schema` and its `Column[T]` values.
-- Deterministic row generation.
-- Parquet and ORC layouts.
-- Standard unpartitioned preparations.
-- The late-bound data source that adapters override before reading the catalog.
-
-Each capability owns its specialized starting states. A `Scenario*` trait
-contributes behavioral cases, and a `*TableFixtures` trait provides the table
-construction or prepared state those cases consume.
-
-Each case creates its own table. A preparation marks ownership only after `CREATE
-TABLE` succeeds. Cleanup drops only owned artifacts. If both a case and cleanup
-fail, the case failure remains primary and the cleanup failure is suppressed.
-
-### Catalog composition
-
-`Catalog.scala` is the only catalog assembly point.
-
-`Catalog.foundationContributions` contains the stable 34-case core catalog:
-
-| Contribution | Cases | Purpose |
-|--------------|------:|---------|
-| `dataTypeCases` | 10 | Scalar values, nulls, boundaries, special floating values, and strings. |
-| `dmlCoreCases` | 12 | Six representative DML operations across Parquet and ORC. |
-| `dmlRejectionCases` | 12 | Rejected DML forms and their observable diagnostics. |
-
-`Catalog.extensionContributions` contains additional behavior registered by the
-current checkout. A capability integrates at two explicit points:
-
-1. Mix its scenario trait into `Scenarios`.
-2. Register its named case list in `extensionContributions`.
-
-`Catalog.contributions` sorts named contributions for deterministic composition.
-`Catalog.cases` flattens them, and `Catalog.caseIds` exposes their stable IDs without
-starting Spark.
-
-`Plan` exposes the case type, constructor, catalog, IDs, and known-bug reason to
-environment adapters without duplicating catalog state.
-
-### Test coverage
-
-The core catalog exercises generated scalar values, successful reads and mutations,
-and rejected mutations. Additional scenarios extend the same catalog composition
-and execution contracts.
+Every test creates a fresh table, records its starting state, runs one behavior,
+and checks the complete observable result. Rejected statements also verify the
+error type and diagnostic. When an invalid statement can reach execution, the
+test verifies that rows and snapshots remain unchanged.
 
 [TEST-COVERAGE.md](TEST-COVERAGE.md) describes the assertions made by the
 executable catalog in the current checkout.
 [CAPABILITY-MATRIX.md](CAPABILITY-MATRIX.md) shows the DML operations, prepared
 tables, added case counts, and validated result in the current catalog.
 
-## Assertions
+## Skipped tests
 
-Each DML test starts with a named prepared table, records its rows and snapshot
-count, executes one SQL statement, and compares the complete resulting state with
-the expected rows and snapshot change.
+A test for a known product defect remains in the catalog with its intended
+assertion. It reports the defect as its skip reason until the product is fixed,
+then the same assertion becomes the regression test.
 
-Each rejected-statement test executes invalid SQL and verifies the exception type
-and diagnostic. Tests also verify unchanged table state when an invalid statement
-can reach execution after analysis.
+A test that depends on a service unavailable in the embedded environment is
+skipped only in the local run. The li-openhouse acceptance environment still
+runs the assertion.
 
-## Skip policy
+The coverage document records every skipped test and the behavior that remains
+to be validated.
 
-`knownBugReason` records a product defect while preserving the intended assertion.
-Removing the marker becomes the acceptance test for the fix.
+## Extend coverage
 
-`embeddedSkipReason` records a dependency that the local embedded server does not
-provide. The li-openhouse environment still runs the assertion.
+### Add a DML operation
 
-The two policies are independent. Product failures are not classified as embedded
-limitations, and missing local dependencies do not weaken product assertions.
+Describe the SQL statement and its complete expected result once. Add it to the
+operation group used by every compatible prepared table.
 
-Capability-specific known bugs and embedded limitations are recorded in the
-capability's section of [TEST-COVERAGE.md](TEST-COVERAGE.md).
+### Add a prepared table
 
-## Add a capability
+Describe the table's schema, partitioning, ordering, properties, and starting
+rows. Select the existing DML operations that apply to it. Those operations
+then run against the new table without duplicating their definitions.
 
-1. Add a scenario trait under `src/main/scala/harness/openhouse/scenarios/`.
-2. Keep its operations and assertions in that capability. Put specialized table
-   construction and prepared states in a narrowly named `*TableFixtures` trait
-   owned by the same capability.
-3. Mix the trait into `Scenarios`.
-4. Add one named case list to `Catalog.extensionContributions`.
-5. Add focused Spark-free tests when the capability changes framework behavior.
-6. Run Spotless, the module tests, and the complete local catalog.
-7. Add the capability's observed behavior and assertions to
-   [TEST-COVERAGE.md](TEST-COVERAGE.md).
-8. Add the capability and validated catalog result to
-   [CAPABILITY-MATRIX.md](CAPABILITY-MATRIX.md).
+### Add another behavior
 
-Keep capability-specific helpers with the scenario that consumes them. Move a
-primitive into shared fixtures only when multiple scenarios use it.
+Describe the starting table, action, and expected outcome together so a reader
+can understand the test without consulting implementation terminology.
 
-## Source map
-
-Paths are relative to `integrations/spark/delta-harness/`.
-
-| Path | Responsibility |
-|------|----------------|
-| `src/main/scala/harness/openhouse/Framework.scala` | Portable case, preparation, assertion, outcome, and lifecycle types. |
-| `src/main/scala/harness/openhouse/Runner.scala` | Portable configuration, retry, parallel execution, and deterministic results. |
-| `src/main/scala/harness/openhouse/Env.scala` | Embedded OpenHouse and Spark wiring. |
-| `src/main/scala/harness/openhouse/LocalRunner.scala` | Local filtering, execution, and reporting. |
-| `src/main/scala/harness/openhouse/scenarios/TableTestFixtures.scala` | Core table shape, layouts, standard seed, and late-bound data source. |
-| `src/main/scala/harness/openhouse/scenarios/Catalog.scala` | Core contributions, extensions, complete catalog, and `Plan` facade. |
-| `src/main/scala/harness/openhouse/scenarios/ScenarioCoreDml.scala` | Six representative operations in the 12-case core DML contribution. |
-| `src/main/scala/harness/openhouse/scenarios/ScenarioDmlRejection.scala` | Rejected DML forms and unchanged-state assertions. |
-| `src/test/scala/harness/scenarios/CaseCatalogTest.scala` | Core catalog inventory, catalog uniqueness, and data-source override checks. |
-| `src/test/scala/harness/framework/RunnerTest.scala` | Retry, terminal failure, configuration, cause traversal, and result behavior. |
-| `src/test/scala/harness/framework/TableLifecycleTest.scala` | Ownership and cleanup precedence. |
+For every coverage change, update [TEST-COVERAGE.md](TEST-COVERAGE.md) with the
+observable behavior and [CAPABILITY-MATRIX.md](CAPABILITY-MATRIX.md) with the
+number of added cases, new catalog total, and validated result.
