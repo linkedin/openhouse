@@ -1,151 +1,62 @@
-# Delta harness test coverage
+# What the Delta harness tests
 
-This document describes the behavior tested by the catalog on the current branch.
-The documentation PR introduces the foundation description immediately after
-Harness core. Each capability PR fills only its own preallocated section, so the
-description grows with the executable catalog and sibling PRs edit disjoint blocks.
+The harness describes OpenHouse behavior through observable outcomes rather than
+through implementation details or a test inventory. The same behavior is reused
+across compatible prepared tables and storage formats.
 
-## Dependency graph
+## Data representation
 
-```text
-main
-`-- Harness core (34)
-    `-- Test coverage documentation
-        |-- Standard DML
-        |   |-- RTAS
-        |   |   |-- Compatibility and streaming
-        |   |   |-- History
-        |   |   |-- Governance
-        |   |   |-- Maintenance and planning
-        |   |   |-- Catalog DDL
-        |   |   `-- Merge-on-read
-        |   |       `-- Branch and write-audit-publish
-        |   `-- DML state matrix
-        |-- Schema and types
-        |-- Catalog constraints
-        `-- Column defaults
-```
+Values written through Spark must retain their meaning when read through
+OpenHouse. The tests exercise ordinary scalar values, nulls, numeric limits,
+special floating-point values, binary data, dates, timestamps, Unicode text, and
+empty strings.
 
-## Review links
+The assertion is semantic: values read back must be equivalent to the values that
+were written. A storage format must not silently narrow, reinterpret, or discard
+them.
 
-| Layer | Pull request |
-|---|---|
-| Harness core | [#741](https://github.com/linkedin/openhouse/pull/741) |
-| Test coverage documentation | [#742](https://github.com/linkedin/openhouse/pull/742) |
-| Standard DML | [#743](https://github.com/linkedin/openhouse/pull/743) |
-| RTAS | [#744](https://github.com/linkedin/openhouse/pull/744) |
-| DML state matrix | [#745](https://github.com/linkedin/openhouse/pull/745) |
-| Schema and types | [#746](https://github.com/linkedin/openhouse/pull/746) |
-| Catalog constraints | [#747](https://github.com/linkedin/openhouse/pull/747) |
-| Column defaults | [#748](https://github.com/linkedin/openhouse/pull/748) |
-| Compatibility and streaming | [#749](https://github.com/linkedin/openhouse/pull/749) |
-| History | [#750](https://github.com/linkedin/openhouse/pull/750) |
-| Governance | [#751](https://github.com/linkedin/openhouse/pull/751) |
-| Maintenance and planning | [#752](https://github.com/linkedin/openhouse/pull/752) |
-| Catalog DDL | [#753](https://github.com/linkedin/openhouse/pull/753) |
-| Merge-on-read | [#754](https://github.com/linkedin/openhouse/pull/754) |
-| Branch and write-audit-publish | [#755](https://github.com/linkedin/openhouse/pull/755) |
+## Reads and table changes
 
-## Foundation
+Reads must return the expected rows without changing the table. Appends,
+overwrites, deletes, updates, and merges must produce the complete expected row
+set and the expected snapshot change.
 
-The 34-case foundation demonstrates each catalog composition path and runs as part
-of Gradle `check`.
+The tests verify both what changed and what did not change. A targeted update
+must preserve every untouched row and column. An overwrite must remove the prior
+contents rather than behave like an append. A merge must distinguish matched and
+unmatched rows according to its clauses.
 
-| Contribution | Cases | Behavior tested |
-|---|---:|---|
-| Data types | 10 | Long, integer, double, decimal, and string round trips; all-null rows; NaN and infinity; numeric boundaries; Unicode and empty strings. |
-| Core DML | 12 | Projection, insert, insert overwrite, predicate delete, predicate update, and merge upsert on Parquet and ORC. |
-| Rejected DML | 12 | Undeclared-column delete, nondeterministic delete and update predicates, short inserts, invalid merge assignments, and merge cardinality violations on Parquet and ORC. |
+## Invalid operations
 
-Successful mutations assert complete rows and snapshot deltas. Rejected mutations
-assert the exception type, diagnostic, and unchanged table state where the contract
-requires it.
+OpenHouse must reject statements that cannot be interpreted safely. The tests
+cover undeclared columns, nondeterministic row filters, incomplete inserts,
+conflicting merge assignments, and merge sources that match one target row more
+than once.
 
-The Spark-free suite also tests deterministic catalog identity, late-bound data
-sources, ownership-gated cleanup, cleanup-failure suppression, retry boundaries,
-parallel result ordering, row generation, and the portable jar contents.
+A rejection is part of the product contract. The error must explain the invalid
+request, and operations that reach execution before failing must leave the table
+unchanged.
+
+## Reuse across table states
+
+The read and DML contracts are independent of the table states where they run.
+As the suite adds partitioning, ordering, schema evolution, replacement lineage,
+delete files, references, or policies, compatible behavior contracts run again
+against those prepared tables.
+
+[How Delta harness coverage composes](CAPABILITY-MATRIX.md) explains that
+multiplication model and the role of the embedded and acceptance environments.
 
 ## Standard DML
 
-<!-- coverage:standard-dml:start -->
-This layer adds 96 cases for a 130-case catalog, all passing locally. It runs 48
-additional operations on Parquet and ORC across the canonical unpartitioned,
-null-containing, and date-partitioned preparations.
+The DML contract covers filtered reads; inserts from values, queries, and data
+frames; full-table and partition-scoped overwrites; deletes by predicates,
+subqueries, aliases, and whole-table conditions; updates by predicates,
+subqueries, expressions, aliases, multiple columns, partition moves, and null
+assignment; and merges with matched, unmatched, conditional, wildcard, common
+table expression, and set-operation sources.
 
-The catalog covers two reads, fourteen deletes, thirteen updates, sixteen merges,
-six inserts or overwrites, one null-string delete, and two partition-scoped
-overwrites when combined with the representative foundation operations. Each
-mutation asserts complete rows and the expected snapshot change.
-<!-- coverage:standard-dml:end -->
-
-## RTAS
-
-<!-- coverage:rtas:start -->
-_The RTAS PR fills this section._
-<!-- coverage:rtas:end -->
-
-## DML state matrix
-
-<!-- coverage:dml-state-matrix:start -->
-_The DML state matrix PR fills this section._
-<!-- coverage:dml-state-matrix:end -->
-
-## Schema and types
-
-<!-- coverage:schema-types:start -->
-_The Schema and types PR fills this section._
-<!-- coverage:schema-types:end -->
-
-## Catalog constraints
-
-<!-- coverage:catalog-constraints:start -->
-_The Catalog constraints PR fills this section._
-<!-- coverage:catalog-constraints:end -->
-
-## Column defaults
-
-<!-- coverage:column-defaults:start -->
-_The Column defaults PR fills this section._
-<!-- coverage:column-defaults:end -->
-
-## Compatibility and streaming
-
-<!-- coverage:compatibility-streaming:start -->
-_The Compatibility and streaming PR fills this section._
-<!-- coverage:compatibility-streaming:end -->
-
-## History
-
-<!-- coverage:history:start -->
-_The History PR fills this section._
-<!-- coverage:history:end -->
-
-## Governance
-
-<!-- coverage:governance:start -->
-_The Governance PR fills this section._
-<!-- coverage:governance:end -->
-
-## Maintenance and planning
-
-<!-- coverage:maintenance-planning:start -->
-_The Maintenance and planning PR fills this section._
-<!-- coverage:maintenance-planning:end -->
-
-## Catalog DDL
-
-<!-- coverage:catalog-ddl:start -->
-_The Catalog DDL PR fills this section._
-<!-- coverage:catalog-ddl:end -->
-
-## Merge-on-read
-
-<!-- coverage:merge-on-read:start -->
-_The Merge-on-read PR fills this section._
-<!-- coverage:merge-on-read:end -->
-
-## Branch and write-audit-publish
-
-<!-- coverage:branch-wap:start -->
-_The Branch and write-audit-publish PR fills this section._
-<!-- coverage:branch-wap:end -->
+Most operations run on the seeded unpartitioned table. A null-sensitive delete
+runs on the same table with an additional null value, while partition-scoped
+overwrites run on a date-partitioned table. Each compatible operation runs in
+Parquet and ORC with the same complete-row and snapshot assertions.
