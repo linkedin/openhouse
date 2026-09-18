@@ -36,7 +36,7 @@ case class SetRetentionPolicyExec(
   }
 
   /**
-   * Reject an invalid time zone at this boundary rather than persisting a policy the retention job
+   * Reject an invalid time zone here rather than persisting a policy the retention job
    * cannot resolve. A table owner supplies the zone as free text in the SQL statement.
    */
   private def validateTimeZone(tz: String): Unit = {

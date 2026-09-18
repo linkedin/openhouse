@@ -93,7 +93,8 @@ public class SetRetentionTimeZoneStatementTest {
 
   @Test
   public void testSetRetentionWithInvalidTimeZoneIsRejected() {
-    // An unresolvable zone is rejected at the SQL boundary rather than persisted, so the retention
+    // An unresolvable zone is rejected when the statement runs rather than persisted, so the
+    // retention
     // job never receives a policy it cannot evaluate.
     Assertions.assertThrows(
         Exception.class,
