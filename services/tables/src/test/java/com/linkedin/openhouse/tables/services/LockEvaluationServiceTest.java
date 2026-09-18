@@ -4,9 +4,9 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-import com.linkedin.openhouse.common.exception.CleanupLockAccessDeniedException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
+import com.linkedin.openhouse.common.exception.SystemOnlyLockAccessDeniedException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
@@ -107,10 +107,10 @@ class LockEvaluationServiceTest {
   @ParameterizedTest
   @CsvSource(
       value = {
-        "NONE,NULL,true,true", "NONE,true,true,true",
-        "LEGACY,NULL,true,false", "LEGACY,true,true,false",
-        "TIER3_AUTO_CLEANUP,NULL,false,false", "TIER3_AUTO_CLEANUP,false,false,false",
-        "TIER3_AUTO_CLEANUP,TrUe,true,true"
+        "NONE,NULL,true,true", "NONE,SYSTEM,true,true",
+        "LEGACY,NULL,true,false", "LEGACY,SYSTEM,true,false",
+        "SYSTEM_ONLY,NULL,false,false", "SYSTEM_ONLY,USER,false,false",
+        "SYSTEM_ONLY,SyStEm,true,true"
       },
       nullValues = "NULL")
   void readAndOrdinaryWriteMatrix(String reason, String header, boolean canRead, boolean canWrite) {
@@ -119,7 +119,7 @@ class LockEvaluationServiceTest {
     if (canRead) {
       assertSame(current, tables.getTable("db", "table", "owner"));
     } else {
-      assertCleanupDenial(
+      assertSystemOnlyDenial(
           assertThrows(
               UnsupportedClientOperationException.class,
               () -> tables.getTable("db", "table", "owner")));
@@ -130,8 +130,8 @@ class LockEvaluationServiceTest {
       assertSavedLocks(2);
     } else {
       Class<? extends UnsupportedClientOperationException> expected =
-          "TIER3_AUTO_CLEANUP".equals(reason)
-              ? CleanupLockAccessDeniedException.class
+          "SYSTEM_ONLY".equals(reason)
+              ? SystemOnlyLockAccessDeniedException.class
               : UnsupportedClientOperationException.class;
       assertThrowsExactly(expected, () -> tables.putTable(request(), "owner", false));
       assertThrowsExactly(expected, () -> snapshotWrite(false));
@@ -148,9 +148,9 @@ class LockEvaluationServiceTest {
     "rename,false",
     "rename,true"
   })
-  void cleanupReplacementAndRenameRequireDeclaration(String operation, boolean enabled) {
-    lock("TIER3_AUTO_CLEANUP");
-    declaration(Boolean.toString(enabled));
+  void systemOnlyReplacementAndRenameRequireDeclaration(String operation, boolean enabled) {
+    lock("SYSTEM_ONLY");
+    declaration(enabled ? "SYSTEM" : "USER");
     if (enabled) {
       write(operation);
       if ("rename".equals(operation)) {
@@ -159,7 +159,7 @@ class LockEvaluationServiceTest {
         assertSavedLocks(1);
       }
     } else {
-      assertCleanupDenial(
+      assertSystemOnlyDenial(
           assertThrows(UnsupportedClientOperationException.class, () -> write(operation)));
       verify(repository, never()).save(any());
       verify(repository, never()).rename(any(), any());
@@ -167,10 +167,10 @@ class LockEvaluationServiceTest {
   }
 
   @ParameterizedTest
-  @ValueSource(booleans = {false, true})
-  void cleanupDetailsNeverPrecedeReadOrWriteAuthorization(boolean enabled) {
-    lock("TIER3_AUTO_CLEANUP");
-    declaration(Boolean.toString(enabled));
+  @ValueSource(strings = {"USER", "SYSTEM", "invalid"})
+  void systemOnlyDetailsNeverPrecedeReadOrWriteAuthorization(String actionType) {
+    lock("SYSTEM_ONLY");
+    declaration(actionType);
     permissions.remove(Privileges.GET_TABLE_METADATA);
     permissions.remove(Privileges.UPDATE_TABLE_METADATA);
     assertThrows(AccessDeniedException.class, () -> tables.getTable("db", "table", "owner"));
@@ -183,9 +183,9 @@ class LockEvaluationServiceTest {
   }
 
   @Test
-  void cleanupSystemActionRequiresDataPermissionsNotLockAdmin() {
-    lock("TIER3_AUTO_CLEANUP");
-    declaration("true");
+  void systemOnlySystemActionRequiresDataPermissionsNotLockAdmin() {
+    lock("SYSTEM_ONLY");
+    declaration("SYSTEM");
     permissions.remove(Privileges.LOCK_ADMIN);
     assertSame(current, tables.getTable("db", "table", "owner"));
     tables.putTable(request(), "owner", false);
@@ -196,7 +196,7 @@ class LockEvaluationServiceTest {
   @Test
   void legacyDeclarationCannotBypassLockAdminOrWriteDenial() {
     lock("LEGACY");
-    declaration("true");
+    declaration("SYSTEM");
     permissions.remove(Privileges.LOCK_ADMIN);
     assertThrows(AccessDeniedException.class, () -> tables.getTable("db", "table", "owner"));
     assertThrows(UnsupportedClientOperationException.class, () -> write("tableReplace"));
@@ -205,10 +205,11 @@ class LockEvaluationServiceTest {
     verify(repository, never()).save(any());
   }
 
-  @Test
-  void invalidDeclarationIsRejectedOnlyWhenCleanupAccessIsEvaluated() {
-    lock("TIER3_AUTO_CLEANUP");
-    declaration("yes");
+  @ParameterizedTest
+  @ValueSource(strings = {"yes", "true", "false", "", " SYSTEM"})
+  void invalidDeclarationIsRejectedOnlyWhenSystemOnlyAccessIsEvaluated(String actionType) {
+    lock("SYSTEM_ONLY");
+    declaration(actionType);
     assertThrows(
         RequestValidationFailureException.class, () -> tables.getTable("db", "table", "owner"));
     assertThrows(
@@ -225,11 +226,10 @@ class LockEvaluationServiceTest {
             .toBuilder()
             .policies(
                 Policies.builder()
-                    .lockState(
-                        LockState.builder().locked(true).message("TIER3_AUTO_CLEANUP").build())
+                    .lockState(LockState.builder().locked(true).message("SYSTEM_ONLY").build())
                     .build())
             .build();
-    declaration("true");
+    declaration("SYSTEM");
     assertThrows(
         UnsupportedClientOperationException.class,
         () -> tables.putTable(request(), "owner", false));
@@ -239,10 +239,7 @@ class LockEvaluationServiceTest {
             .policies(
                 Policies.builder()
                     .lockState(
-                        LockState.builder()
-                            .locked(false)
-                            .reason(LockReason.TIER3_AUTO_CLEANUP)
-                            .build())
+                        LockState.builder().locked(false).reason(LockReason.SYSTEM_ONLY).build())
                     .build())
             .build();
     declaration(null);
@@ -253,10 +250,10 @@ class LockEvaluationServiceTest {
 
   @Test
   void statusGrantUnlockAndDropKeepTheirOwnControls() {
-    lock("TIER3_AUTO_CLEANUP");
+    lock("SYSTEM_ONLY");
     declaration(null);
     assertNotNull(tables.getLock("db", "table", "owner").getLockState());
-    declaration("true");
+    declaration("SYSTEM");
     assertThrows(
         UnsupportedClientOperationException.class,
         () ->
@@ -276,13 +273,11 @@ class LockEvaluationServiceTest {
         EntityConcurrentModificationException.class,
         () ->
             tables.deleteLock(
-                "db", "table", LockReason.TIER3_AUTO_CLEANUP, "uuid", "wrong-owner", "owner"));
+                "db", "table", LockReason.SYSTEM_ONLY, "uuid", "wrong-owner", "owner"));
     permissions.remove(Privileges.LOCK_ADMIN);
     assertThrows(
         AccessDeniedException.class,
-        () ->
-            tables.deleteLock(
-                "db", "table", LockReason.TIER3_AUTO_CLEANUP, "uuid", "owner", "owner"));
+        () -> tables.deleteLock("db", "table", LockReason.SYSTEM_ONLY, "uuid", "owner", "owner"));
     permissions.remove(Privileges.DELETE_TABLE);
     assertThrows(AccessDeniedException.class, () -> tables.deleteTable("db", "table", "owner"));
     verify(repository, never()).save(any());
@@ -299,7 +294,7 @@ class LockEvaluationServiceTest {
                     LockState.builder()
                         .locked(true)
                         .reason(LockReason.valueOf(reason))
-                        .message("eligible for cleanup")
+                        .message("maintenance in progress")
                         .lockOwner("owner")
                         .tableUUID("uuid")
                         .creationTime(123)
@@ -311,7 +306,7 @@ class LockEvaluationServiceTest {
   private void declaration(String value) {
     MockHttpServletRequest request = new MockHttpServletRequest();
     if (value != null) {
-      request.addHeader(TablesMvcConstants.HTTP_HEADER_SYSTEM_ACTION, value);
+      request.addHeader(TablesMvcConstants.HTTP_HEADER_ACTION_TYPE, value);
     }
     RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
   }
@@ -361,12 +356,11 @@ class LockEvaluationServiceTest {
     }
   }
 
-  private void assertCleanupDenial(UnsupportedClientOperationException exception) {
-    assertInstanceOf(CleanupLockAccessDeniedException.class, exception);
-    assertTrue(exception.getMessage().contains("TIER3_AUTO_CLEANUP"));
+  private void assertSystemOnlyDenial(UnsupportedClientOperationException exception) {
+    assertInstanceOf(SystemOnlyLockAccessDeniedException.class, exception);
+    assertTrue(exception.getMessage().contains("SYSTEM_ONLY"));
     assertTrue(exception.getMessage().contains("db.table"));
-    assertTrue(exception.getMessage().contains("eligible for cleanup"));
-    assertTrue(exception.getMessage().contains("Tier 2"));
-    assertTrue(exception.getMessage().contains("unlock"));
+    assertTrue(exception.getMessage().contains("maintenance in progress"));
+    assertTrue(exception.getMessage().contains("reason-targeted OpenHouse unlock"));
   }
 }

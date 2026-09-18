@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.model.BaseAuditEvent;
@@ -28,8 +29,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 @SpringBootTest
 @AutoConfigureMockMvc
 @WithMockUser(username = "testUser")
-class SystemActionAuditTest {
-  private static final String HEADER = "X-OpenHouse-System-Action";
+class ActionTypeAuditTest {
+  private static final String HEADER = "X-OpenHouse-Action-Type";
 
   @Autowired private MockMvc mvc;
   @MockBean private AuditHandler<ServiceAuditEvent> serviceAuditHandler;
@@ -38,14 +39,17 @@ class SystemActionAuditTest {
   @ParameterizedTest
   @CsvSource(
       value = {
-        "true,d200,200",
-        "false,d200,200",
+        "SYSTEM,d200,200",
+        "USER,d200,200",
         "NULL,d200,200",
-        "TrUe,d200,200",
-        "true,d404,404",
-        "false,d404,404",
+        "SyStEm,d200,200",
+        "SYSTEM,d404,404",
+        "USER,d404,404",
         "NULL,d404,404",
-        "invalid,d404,404"
+        "invalid,d404,404",
+        "invalid,d200,200",
+        "true,d200,200",
+        "false,d404,404"
       },
       nullValues = "NULL")
   void recordsDeclarationWithCallerAndTableContext(
@@ -79,14 +83,15 @@ class SystemActionAuditTest {
   @Test
   void requestAuditFailureDoesNotChangeSuccessfulResponse() throws Exception {
     doThrow(new IllegalStateException("audit unavailable")).when(serviceAuditHandler).audit(any());
-    mvc.perform(get("/v1/databases/d200/tables/tb1").header(HEADER, "true"))
+    mvc.perform(get("/v1/databases/d200/tables/tb1").header(HEADER, "SYSTEM"))
         .andExpect(status().isOk());
   }
 
   private static void assertDeclaration(BaseAuditEvent event, String expected) {
-    JsonElement declaration =
-        JsonParser.parseString(event.toJson()).getAsJsonObject().get("systemAction");
+    JsonObject json = JsonParser.parseString(event.toJson()).getAsJsonObject();
+    JsonElement declaration = json.get("actionType");
     assertNotNull(declaration);
+    assertFalse(json.has("systemAction"));
     if (expected == null) {
       assertTrue(declaration.isJsonNull());
     } else {

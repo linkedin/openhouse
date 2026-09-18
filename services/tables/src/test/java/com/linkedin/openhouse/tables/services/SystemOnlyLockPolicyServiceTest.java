@@ -35,12 +35,12 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
-class CleanupLockPolicyServiceTest {
+class SystemOnlyLockPolicyServiceTest {
   private OpenHouseInternalRepository repository;
   private TablesServiceImpl tables;
   private IcebergSnapshotsServiceImpl snapshots;
   private TableDto current;
-  private LockState cleanup;
+  private LockState systemOnly;
 
   @AfterEach
   void clearRequest() {
@@ -72,10 +72,10 @@ class CleanupLockPolicyServiceTest {
     snapshots.authorizationUtils = authorization;
     snapshots.tableUUIDGenerator = generator;
     snapshots.readBridgeStripProtection = protection;
-    cleanup =
+    systemOnly =
         LockState.builder()
             .locked(true)
-            .reason(LockReason.TIER3_AUTO_CLEANUP)
+            .reason(LockReason.SYSTEM_ONLY)
             .lockOwner("owner")
             .tableUUID("uuid")
             .message("original")
@@ -90,7 +90,7 @@ class CleanupLockPolicyServiceTest {
             .tableLocation("v1")
             .policies(
                 Policies.builder()
-                    .lockState(cleanup)
+                    .lockState(systemOnly)
                     .retention(Retention.builder().count(3).build())
                     .sharingEnabled(true)
                     .build())
@@ -101,10 +101,10 @@ class CleanupLockPolicyServiceTest {
 
   @ParameterizedTest
   @CsvSource({"false,false", "false,true", "true,false", "true,true"})
-  void genericCreateCannotSmuggleCleanup(boolean snapshotWrite, boolean staged) {
+  void genericCreateCannotSmuggleSystemOnly(boolean snapshotWrite, boolean staged) {
     current = null;
     CreateUpdateTableRequestBody request =
-        request(Policies.builder().lockState(cleanup).build())
+        request(Policies.builder().lockState(systemOnly).build())
             .toBuilder()
             .stageCreate(staged)
             .build();
@@ -114,12 +114,12 @@ class CleanupLockPolicyServiceTest {
 
   @ParameterizedTest
   @ValueSource(strings = {"reason", "owner", "generation", "message", "time", "locked"})
-  void stagedReplaceCannotChangeAnyCleanupLockField(String field) {
+  void stagedReplaceCannotChangeAnySystemOnlyLockField(String field) {
     enableSystemAction();
     LockState.LockStateBuilder changed =
         LockState.builder()
             .locked(true)
-            .reason(LockReason.TIER3_AUTO_CLEANUP)
+            .reason(LockReason.SYSTEM_ONLY)
             .lockOwner("owner")
             .tableUUID("uuid")
             .message("original")
@@ -154,12 +154,12 @@ class CleanupLockPolicyServiceTest {
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void stagedReplacePreservesCleanupWhenPoliciesOrLockOmitted(boolean omitPolicies) {
+  void stagedReplacePreservesSystemOnlyWhenPoliciesOrLockOmitted(boolean omitPolicies) {
     enableSystemAction();
     Policies policies = omitPolicies ? null : Policies.builder().sharingEnabled(true).build();
     write(false, request(policies).toBuilder().stageReplace(true).build());
     Policies saved = saved().getPolicies();
-    assertEquals(cleanup, saved.getLockState());
+    assertEquals(systemOnly, saved.getLockState());
     assertTrue(saved.isSharingEnabled());
     if (omitPolicies) {
       assertEquals(current.getPolicies().getRetention(), saved.getRetention());
@@ -167,32 +167,32 @@ class CleanupLockPolicyServiceTest {
   }
 
   @Test
-  void stagedReplaceAcceptsAnExactlyUnchangedCleanupState() {
+  void stagedReplaceAcceptsAnExactlyUnchangedSystemOnlyState() {
     enableSystemAction();
     write(false, request(current.getPolicies()).toBuilder().stageReplace(true).build());
-    assertEquals(cleanup, saved().getPolicies().getLockState());
+    assertEquals(systemOnly, saved().getPolicies().getLockState());
   }
 
   @ParameterizedTest
   @CsvSource({"false,false", "false,true", "true,false", "true,true"})
-  void ordinaryWritesPreserveOmittedInactiveCleanupMetadata(
+  void ordinaryWritesPreserveOmittedInactiveSystemOnlyMetadata(
       boolean snapshotWrite, boolean omitPolicies) {
-    cleanup =
+    systemOnly =
         LockState.builder()
             .locked(false)
-            .reason(LockReason.TIER3_AUTO_CLEANUP)
+            .reason(LockReason.SYSTEM_ONLY)
             .lockOwner("owner")
             .tableUUID("uuid")
             .build();
     current =
         current
             .toBuilder()
-            .policies(current.getPolicies().toBuilder().lockState(cleanup).build())
+            .policies(current.getPolicies().toBuilder().lockState(systemOnly).build())
             .build();
     write(
         snapshotWrite,
         request(omitPolicies ? null : Policies.builder().sharingEnabled(true).build()));
-    assertEquals(cleanup, saved().getPolicies().getLockState());
+    assertEquals(systemOnly, saved().getPolicies().getLockState());
     if (omitPolicies) {
       assertEquals(current.getPolicies(), saved().getPolicies());
     }
@@ -200,7 +200,7 @@ class CleanupLockPolicyServiceTest {
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void snapshotUpdatesAndReplaceCommitsCannotMutateCleanup(boolean replace) {
+  void snapshotUpdatesAndReplaceCommitsCannotMutateSystemOnly(boolean replace) {
     enableSystemAction();
     CreateUpdateTableRequestBody request =
         request(
@@ -216,16 +216,16 @@ class CleanupLockPolicyServiceTest {
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void cleanupCannotBeIntroducedThroughUpdate(boolean snapshotWrite) {
+  void systemOnlyCannotBeIntroducedThroughUpdate(boolean snapshotWrite) {
     current = current.toBuilder().policies(null).build();
     assertThrows(
         RequestValidationFailureException.class,
-        () -> write(snapshotWrite, request(Policies.builder().lockState(cleanup).build())));
+        () -> write(snapshotWrite, request(Policies.builder().lockState(systemOnly).build())));
     verify(repository, never()).save(any());
   }
 
   @Test
-  void cleanupSnapshotWriteWithoutDeclarationIsDenied() {
+  void systemOnlySnapshotWriteWithoutDeclarationIsDenied() {
     assertThrows(
         UnsupportedClientOperationException.class,
         () -> write(true, request(null).toBuilder().replaceCommit(true).build()));
@@ -244,7 +244,7 @@ class CleanupLockPolicyServiceTest {
 
   private void enableSystemAction() {
     MockHttpServletRequest request = new MockHttpServletRequest();
-    request.addHeader(TablesMvcConstants.HTTP_HEADER_SYSTEM_ACTION, "true");
+    request.addHeader(TablesMvcConstants.HTTP_HEADER_ACTION_TYPE, "SYSTEM");
     RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
   }
 

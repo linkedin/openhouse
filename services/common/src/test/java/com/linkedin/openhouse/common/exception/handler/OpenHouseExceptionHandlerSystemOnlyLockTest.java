@@ -3,7 +3,7 @@ package com.linkedin.openhouse.common.exception.handler;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.linkedin.openhouse.common.api.spec.ErrorResponseBody;
-import com.linkedin.openhouse.common.exception.CleanupLockAccessDeniedException;
+import com.linkedin.openhouse.common.exception.SystemOnlyLockAccessDeniedException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -12,19 +12,20 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
-class OpenHouseExceptionHandlerCleanupLockTest {
+class OpenHouseExceptionHandlerSystemOnlyLockTest {
   private static final String MESSAGE =
-      "Table db.table is locked for TIER3_AUTO_CLEANUP. Promote to Tier 2 or use reason-targeted unlock.";
+      "Table db.table has a SYSTEM_ONLY lock. Use the reason-targeted OpenHouse unlock endpoint as an authorized lock administrator.";
   private final OpenHouseExceptionHandler handler = new OpenHouseExceptionHandler();
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void cleanupDenialPreservesTheErrorBody(boolean withCause) {
-    CleanupLockAccessDeniedException exception = new CleanupLockAccessDeniedException(MESSAGE);
+  void systemOnlyDenialPreservesTheErrorBody(boolean withCause) {
+    SystemOnlyLockAccessDeniedException exception =
+        new SystemOnlyLockAccessDeniedException(MESSAGE);
     exception.setStackTrace(
         new StackTraceElement[] {
           new StackTraceElement(
-              "LockPolicyValidator", "checkCleanupAccess", "LockPolicyValidator.java", 1)
+              "LockPolicyValidator", "checkSystemOnlyAccess", "LockPolicyValidator.java", 1)
         });
     if (withCause) {
       IllegalStateException cause = new IllegalStateException("original cause");
