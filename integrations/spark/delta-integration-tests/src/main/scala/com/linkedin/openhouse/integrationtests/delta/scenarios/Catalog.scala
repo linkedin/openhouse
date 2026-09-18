@@ -1,4 +1,4 @@
-package harness
+package com.linkedin.openhouse.integrationtests.delta
 
 /**
  * Mixes every registered scenario with one shared fixture instance. A scenario becomes runnable when this object

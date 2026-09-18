@@ -1,19 +1,19 @@
-package harness
+package com.linkedin.openhouse.integrationtests.delta
 
 import scala.annotation.tailrec
 import scala.util.Try
 import scala.util.control.NonFatal
 
-final class HarnessConfigurationException(message: String) extends Exception(message)
+final class IntegrationTestConfigurationException(message: String) extends Exception(message)
 
-private[harness] object RunnerConfiguration {
+private[delta] object RunnerConfiguration {
   def parallelism(environment: Map[String, String], availableProcessors: Int): Int =
-    environment.get("HARNESS_PARALLELISM") match {
+    environment.get("DELTA_INTEGRATION_TEST_PARALLELISM") match {
       case None => math.max(1, availableProcessors)
       case Some(value) =>
         Try(value.toInt).toOption.filter(_ > 0).getOrElse(
-          throw new HarnessConfigurationException(
-            s"HARNESS_PARALLELISM must be a positive integer; received '$value'"))
+          throw new IntegrationTestConfigurationException(
+            s"DELTA_INTEGRATION_TEST_PARALLELISM must be a positive integer; received '$value'"))
     }
 }
 

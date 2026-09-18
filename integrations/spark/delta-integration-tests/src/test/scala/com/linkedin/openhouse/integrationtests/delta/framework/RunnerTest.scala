@@ -1,4 +1,4 @@
-package harness
+package com.linkedin.openhouse.integrationtests.delta
 
 import java.net.{ConnectException, SocketException, SocketTimeoutException}
 import java.util.concurrent.atomic.AtomicInteger
@@ -14,17 +14,17 @@ final class RunnerTest {
     assertEquals(1, RunnerConfiguration.parallelism(Map.empty, 0))
     assertEquals(
       4,
-      RunnerConfiguration.parallelism(Map("HARNESS_PARALLELISM" -> "4"), 8))
+      RunnerConfiguration.parallelism(Map("DELTA_INTEGRATION_TEST_PARALLELISM" -> "4"), 8))
 
     List("0", "-1", "many").foreach { value =>
       val failure = assertThrows(
-        classOf[HarnessConfigurationException],
+        classOf[IntegrationTestConfigurationException],
         () =>
           RunnerConfiguration.parallelism(
-            Map("HARNESS_PARALLELISM" -> value),
+            Map("DELTA_INTEGRATION_TEST_PARALLELISM" -> value),
             availableProcessors = 8))
       assertEquals(
-        s"HARNESS_PARALLELISM must be a positive integer; received '$value'",
+        s"DELTA_INTEGRATION_TEST_PARALLELISM must be a positive integer; received '$value'",
         failure.getMessage)
     }
   }

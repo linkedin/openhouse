@@ -1,4 +1,4 @@
-package harness
+package com.linkedin.openhouse.integrationtests.delta
 
 import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse}
 import org.junit.jupiter.api.Test

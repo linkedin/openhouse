@@ -1,4 +1,4 @@
-package harness
+package com.linkedin.openhouse.integrationtests.delta
 
 import java.math.BigDecimal
 import java.nio.charset.StandardCharsets

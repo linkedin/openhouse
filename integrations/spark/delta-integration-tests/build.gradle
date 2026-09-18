@@ -8,9 +8,10 @@ plugins {
 // against the embedded catalog, and the LinkedIn acceptance tests supply a remote environment.
 //
 // Only the portable scenario/framework sources are published. Env.scala boots the embedded OpenHouse
-// server and pulls in its test fixtures, and LocalRunner.scala carries the `harness.Main` launch class
-// that drives it, so both are excluded from the published library and compiled in the local source
-// set. Runner.scala remains portable so its retry contract is exercised by the module tests.
+// server and pulls in its test fixtures. LocalRunner.scala carries the
+// `com.linkedin.openhouse.integrationtests.delta.Main` launch class that drives it. Both are excluded
+// from the published library and compiled in the local source set. Runner.scala remains portable so
+// its retry contract is exercised by the module tests.
 
 ext {
   icebergVersion = rootProject.ext.iceberg_1_5_version
@@ -20,7 +21,10 @@ ext {
 
 // The embedded boot wiring and the local run loop. They are excluded from the portable library and
 // are the whole of the local source set.
-def embeddedOnlySources = ['harness/openhouse/Env.scala', 'harness/openhouse/LocalRunner.scala']
+def embeddedOnlySources = [
+  'com/linkedin/openhouse/integrationtests/delta/Env.scala',
+  'com/linkedin/openhouse/integrationtests/delta/LocalRunner.scala'
+]
 
 sourceSets {
   main {
@@ -102,7 +106,7 @@ configurations.localRuntimeClasspath {
 def configureEmbeddedIntegrationTestRun = { JavaExec task ->
   task.dependsOn localClasses
   task.classpath = sourceSets.local.runtimeClasspath
-  task.mainClass = 'harness.Main'
+  task.mainClass = 'com.linkedin.openhouse.integrationtests.delta.Main'
   if (JavaVersion.current() >= JavaVersion.VERSION_1_9) {
     task.jvmArgs(
       '--add-opens=java.base/java.nio=ALL-UNNAMED',
@@ -134,12 +138,18 @@ def verifyPortableJar = tasks.register('verifyPortableJar') {
     def entries = new java.util.zip.ZipFile(jarFile).withCloseable { archive ->
       archive.entries().collect { entry -> entry.name }.toSet()
     }
-    ['harness/Plan.class', 'harness/Runner.class'].each { requiredEntry ->
+    def packagePath = 'com/linkedin/openhouse/integrationtests/delta'
+    [packagePath + '/Plan.class', packagePath + '/Runner.class'].each { requiredEntry ->
       if (!entries.contains(requiredEntry)) {
         throw new GradleException("Portable integration-test jar is missing ${requiredEntry}")
       }
     }
-    ['harness/Main.class', 'harness/Main$.class', 'harness/OpenHouseEnv.class', 'harness/OpenHouseEnv$.class']
+    [
+      packagePath + '/Main.class',
+      packagePath + '/Main$.class',
+      packagePath + '/OpenHouseEnv.class',
+      packagePath + '/OpenHouseEnv$.class'
+    ]
       .each { embeddedEntry ->
         if (entries.contains(embeddedEntry)) {
           throw new GradleException("Portable integration-test jar contains embedded-only ${embeddedEntry}")

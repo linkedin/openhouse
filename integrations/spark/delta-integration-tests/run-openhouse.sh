@@ -19,10 +19,10 @@ fi
 cd "$REPO_ROOT"
 if (( $# == 0 )); then
   exec ./gradlew --no-daemon \
-    :integrations:spark:openhouse-spark-delta-harness_2.12:runOpenHouse
+    :integrations:spark:openhouse-spark-delta-integration-tests_2.12:runOpenHouse
 fi
 
 printf -v FILTERS ' %q' "$@"
 exec ./gradlew --no-daemon \
-  :integrations:spark:openhouse-spark-delta-harness_2.12:runOpenHouse \
+  :integrations:spark:openhouse-spark-delta-integration-tests_2.12:runOpenHouse \
   --args="${FILTERS# }"

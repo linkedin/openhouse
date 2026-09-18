@@ -1,4 +1,4 @@
-package harness
+package com.linkedin.openhouse.integrationtests.delta
 
 import org.apache.spark.sql.Row
 

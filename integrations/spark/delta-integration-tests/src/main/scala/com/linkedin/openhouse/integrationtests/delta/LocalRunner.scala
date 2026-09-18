@@ -1,10 +1,11 @@
-package harness
+package com.linkedin.openhouse.integrationtests.delta
 
 import java.util.concurrent.{Callable, Executors, TimeUnit}
 
 /**
- * The `harness.Main` launch class used by the embedded OpenHouse Gradle tasks. This file is compiled into the `local`
- * source set only, so the published portable library carries the catalog and retry policy without a launch loop.
+ * The `com.linkedin.openhouse.integrationtests.delta.Main` launch class used by the embedded OpenHouse Gradle tasks.
+ * This file is compiled into the `local` source set only, so the published portable library carries the catalog and
+ * retry policy without a launch loop.
  */
 object Main {
   private val FoundationCatalogArgument = "--catalog=foundation"
@@ -23,7 +24,7 @@ object Main {
         case List(FoundationCatalogArgument) =>
           Catalog.foundationContributions.flatMap { case (_, contribution) => contribution }
         case unsupported =>
-          throw new HarnessConfigurationException(
+          throw new IntegrationTestConfigurationException(
             s"supported catalog selection: $FoundationCatalogArgument; received ${unsupported.mkString(", ")}")
       }
       val cases = selectedCatalog.filter(testCase =>

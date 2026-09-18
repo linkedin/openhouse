@@ -1,4 +1,4 @@
-package harness
+package com.linkedin.openhouse.integrationtests.delta
 
 import org.apache.spark.sql.{Row, SparkSession}
 import java.math.{BigDecimal => JavaBigDecimal}
@@ -258,12 +258,12 @@ final case class PreparedTable[S <: Schema](
 }
 
 object PreparedTable {
-  private[harness] def currentRows[S <: Schema](spark: SparkSession, table: String, schema: S): Seq[Row] = {
+  private[delta] def currentRows[S <: Schema](spark: SparkSession, table: String, schema: S): Seq[Row] = {
     val columns = schema.columnNames.mkString(", ")
     spark.sql(s"SELECT $columns FROM $table ORDER BY ${schema.columnNames.head}").collect().toSeq
   }
 
-  private[harness] def snapshotCount(spark: SparkSession, table: String): Long =
+  private[delta] def snapshotCount(spark: SparkSession, table: String): Long =
     spark.sql(s"SELECT count(*) FROM $table.snapshots").collect()(0).getLong(0)
 }
 
@@ -339,7 +339,7 @@ final class TableTest[S <: Schema] private (val schema: S, val steps: Vector[Ste
 
 }
 
-private[harness] object OwnedTableLifecycle {
+private[delta] object OwnedTableLifecycle {
   /**
    * Runs `use`, then runs `cleanUp` on every outcome. A failure from `use` is the failure the caller sees, with a
    * cleanup failure attached to it as a suppressed exception. When `use` returns normally a cleanup failure is the
@@ -382,7 +382,7 @@ object TableTest {
   def apply[S <: Schema](schema: S): TableTest[S] = new TableTest(schema, Vector.empty)
   def seedCounter(value: Int): Unit = counter.set(value)
 
-  private[harness] def nextQualifiedTableName(namespace: String): String =
+  private[delta] def nextQualifiedTableName(namespace: String): String =
     s"$namespace.t_${UUID.randomUUID().toString.replace("-", "")}_${counter.incrementAndGet()}"
 }
 

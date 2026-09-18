@@ -1,4 +1,4 @@
-package harness
+package com.linkedin.openhouse.integrationtests.delta
 
 import java.util.concurrent.{Callable, Executors, TimeUnit}
 import org.junit.jupiter.api.Assertions.{assertEquals, assertSame, assertThrows}
