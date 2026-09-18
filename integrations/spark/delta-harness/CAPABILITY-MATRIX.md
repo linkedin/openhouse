@@ -36,7 +36,7 @@ Every result below comes from the complete embedded catalog on that branch.
 | Layer | Parent | Added cases | Catalog | Result | Branch |
 |-------|--------|------------:|--------:|--------|--------|
 | Core foundation | `main` | 34 | 34 | 34 passed | [`delta-harness-oss`][core] |
-| Test coverage documentation | Core | 0 | 34 | Documentation only | [`delta-harness-docs`][docs] |
+| Test coverage documentation | Core | 0 | 34 | Documentation only | [`delta-harness-coverage-docs`][docs] |
 | Standard DML | Test coverage documentation | 96 | 130 | 130 passed | [`delta-harness-standard-dml`][standard-dml] |
 | RTAS | Standard DML | 264 | 394 | 390 passed, 4 skipped | [`delta-harness-rtas`][rtas] |
 | DML state matrix | Standard DML | 428 | 558 | 554 passed, 4 skipped | [`delta-harness-standard-dml-state-matrix`][matrix] |
@@ -263,7 +263,7 @@ li-openhouse adapter must also prove:
 - Embedded skips run when the acceptance environment provides the missing service.
 
 [core]: https://github.com/linkedin/openhouse/tree/mkuchenbecker/delta-harness-oss
-[docs]: https://github.com/linkedin/openhouse/tree/mkuchenbecker/delta-harness-docs
+[docs]: https://github.com/linkedin/openhouse/tree/mkuchenbecker/delta-harness-coverage-docs
 [standard-dml]: https://github.com/linkedin/openhouse/tree/mkuchenbecker/delta-harness-standard-dml
 [rtas]: https://github.com/linkedin/openhouse/tree/mkuchenbecker/delta-harness-rtas
 [matrix]: https://github.com/linkedin/openhouse/tree/mkuchenbecker/delta-harness-standard-dml-state-matrix
