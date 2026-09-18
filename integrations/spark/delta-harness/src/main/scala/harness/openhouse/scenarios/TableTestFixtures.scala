@@ -35,8 +35,8 @@ trait TableTestFixtures {
   final case class Layout(label: String, create: String => String)
 
   /**
-   * Every file format the harness runs on. This is the single source for a format list, so every format-crossed family
-   * covers both columnar formats.
+   * Every file format covered by the integration tests. This is the single source for the format list, so every
+   * format-crossed family covers both columnar formats.
    */
   val fileFormats: List[String] = List("parquet", "orc")
 
