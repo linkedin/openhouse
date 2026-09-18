@@ -842,6 +842,56 @@ public class HtsRepositoryTest {
     assertThat(tablePage0.getTotalPages()).isEqualTo(2);
   }
 
+  @Test
+  public void testFiltersMatchKeysAcrossCase() {
+    String databaseId = "filter_case_db";
+    seedTypedRow(databaseId, "filter_case_table", EntityType.TABLE);
+    seedTypedRow(databaseId, "filter_case_other", EntityType.TABLE);
+
+    assertThat(
+            tableIds(
+                htsRepository.findAllTablesByFilters(
+                    databaseId.toUpperCase(), "FILTER_CASE_TABLE", null, null, null, null)))
+        .containsExactly("filter_case_table");
+
+    assertThat(
+            tableIds(
+                htsRepository.findAllByFilters(
+                    databaseId.toUpperCase(), "FILTER_CASE_TABLE", null, null, null, null)))
+        .containsExactly("filter_case_table");
+
+    assertThat(
+            Lists.newArrayList(
+                htsRepository.findAllTablesByFilters(
+                    databaseId.toUpperCase(), "NO_SUCH_TABLE", null, null, null, null)))
+        .isEmpty();
+  }
+
+  @Test
+  public void testPatternMatchesKeysAcrossCase() {
+    String databaseId = "like_case_db";
+    seedTypedRow(databaseId, "LikeCaseMixed", EntityType.TABLE);
+    seedTypedRow(databaseId, "OtherPrefixed", EntityType.TABLE);
+
+    assertThat(
+            tableIds(
+                htsRepository.findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
+                    databaseId.toUpperCase(), "likecase%")))
+        .containsExactly("LikeCaseMixed");
+
+    assertThat(
+            tableIds(
+                htsRepository.findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
+                    databaseId.toUpperCase(), "LIKECASE%")))
+        .containsExactly("LikeCaseMixed");
+
+    assertThat(
+            Lists.newArrayList(
+                htsRepository.findAllTablesByDatabaseIdAndTableIdLikeAllIgnoreCase(
+                    databaseId.toUpperCase(), "zzz%")))
+        .isEmpty();
+  }
+
   // ---------------------------------------------------------------------------------------------
   // view-scoped reads
   // ---------------------------------------------------------------------------------------------
