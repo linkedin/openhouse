@@ -32,6 +32,8 @@ statement
   | GRANT privilege ON grantableResource TO principal                                                  #grantStatement
   | REVOKE privilege ON grantableResource FROM principal                                               #revokeStatement
   | SHOW GRANTS ON grantableResource                                                                   #showGrantsStatement
+  | LOCK TABLE multipartIdentifier lockReasonClause?                                                    #lockTableStatement
+  | UNLOCK TABLE multipartIdentifier unlockReasonClause?                                                #unlockTableStatement
   ;
 
 multipartIdentifier
@@ -56,6 +58,23 @@ principal
     : identifier
     ;
 
+lockReasonClause
+    : WITH REASON lockReason lockMessageClause?
+    ;
+
+unlockReasonClause
+    : WITH REASON lockReason
+    ;
+
+lockMessageClause
+    : MESSAGE STRING
+    ;
+
+lockReason
+    : IDENTIFIER
+    | nonReserved
+    ;
+
 identifier
     : IDENTIFIER
     | quotedIdentifier
@@ -69,6 +88,7 @@ quotedIdentifier
 nonReserved
     : ALTER | TABLE | SET | POLICY | RETENTION | SHARING | REPLICATION | HISTORY
     | GRANT | REVOKE | ON | TO | SHOW | GRANTS | PATTERN | WHERE | COLUMN
+    | LOCK | UNLOCK | WITH | REASON | MESSAGE
     ;
 
 sharingPolicy
@@ -193,6 +213,11 @@ CREATE_TABLE: 'CREATE TABLE';
 DATABASE: 'DATABASE';
 SHOW: 'SHOW';
 GRANTS: 'GRANTS';
+LOCK: 'LOCK';
+UNLOCK: 'UNLOCK';
+WITH: 'WITH';
+REASON: 'REASON';
+MESSAGE: 'MESSAGE';
 PATTERN: 'PATTERN';
 DESTINATION: 'DESTINATION';
 INTERVAL: 'INTERVAL';
@@ -211,8 +236,8 @@ POSITIVE_INTEGER
     ;
 
 STRING
-    : '\'' ( ~('\''|'\\') | ('\\' .) )* '\''
-    | '"' ( ~('"'|'\\') | ('\\' .) )* '"'
+    : '\'' ( ~('\''|'\\') | ('\\' .) | ('\'' '\'') )* '\''
+    | '"' ( ~('"'|'\\') | ('\\' .) | ('"' '"') )* '"'
     ;
 
 IDENTIFIER

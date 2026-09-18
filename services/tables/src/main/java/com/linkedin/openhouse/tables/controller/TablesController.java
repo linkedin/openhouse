@@ -6,6 +6,7 @@ import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
@@ -368,15 +369,22 @@ public class TablesController {
 
   @Operation(
       summary = "Create lock on Table",
-      description = "Create lock on a table identified by databaseId and tableId",
+      description =
+          "Create a table lock using existing LOCK_ADMIN authorization. Reason LEGACY, which is "
+              + "also the value an omitted or null reason resolves to, keeps the existing "
+              + "unqualified lock behavior. A structured reason requires expectedTableUUID and "
+              + "records the acting principal as the lock owner. Repeating a structured request "
+              + "that matches the active lock leaves that lock in place, and any other active "
+              + "lock is kept and the request is rejected with 409.",
       tags = {"Table"})
   @ApiResponses(
       value = {
-        @ApiResponse(responseCode = "204", description = "lock PATCH: NO_CONTENT"),
+        @ApiResponse(responseCode = "201", description = "lock POST: CREATED"),
         @ApiResponse(responseCode = "400", description = "lock PATCH: BAD_REQUEST"),
         @ApiResponse(responseCode = "401", description = "lock PATCH: UNAUTHORIZED"),
         @ApiResponse(responseCode = "403", description = "lock PATCH: FORBIDDEN"),
-        @ApiResponse(responseCode = "404", description = "lock PATCH: TABLE_NOT_FOUND")
+        @ApiResponse(responseCode = "404", description = "lock PATCH: TABLE_NOT_FOUND"),
+        @ApiResponse(responseCode = "409", description = "Lock or table generation does not match")
       })
   @PostMapping(
       value = {"/v1/databases/{databaseId}/tables/{tableId}/lock"},
@@ -400,7 +408,9 @@ public class TablesController {
 
   @Operation(
       summary = "Delete lock on Table",
-      description = "Delete lock on a table identified by databaseId and tableId",
+      description =
+          "Delete the LEGACY lock on a table identified by databaseId and tableId. A lock carrying "
+              + "a structured reason is kept and the request is rejected with 409.",
       tags = {"Table"})
   @ApiResponses(
       value = {
@@ -408,7 +418,8 @@ public class TablesController {
         @ApiResponse(responseCode = "400", description = "lock PATCH: BAD_REQUEST"),
         @ApiResponse(responseCode = "401", description = "lock PATCH: UNAUTHORIZED"),
         @ApiResponse(responseCode = "403", description = "lock PATCH: FORBIDDEN"),
-        @ApiResponse(responseCode = "404", description = "lock PATCH: TABLE_NOT_FOUND")
+        @ApiResponse(responseCode = "404", description = "lock PATCH: TABLE_NOT_FOUND"),
+        @ApiResponse(responseCode = "409", description = "Active lock carries a structured reason")
       })
   @DeleteMapping(
       value = {"/v1/databases/{databaseId}/tables/{tableId}/lock"},
@@ -418,6 +429,47 @@ public class TablesController {
       @Parameter(description = "Table ID", required = true) @PathVariable String tableId) {
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
         tablesApiHandler.deleteLock(databaseId, tableId, extractAuthenticatedUserPrincipal());
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Delete a lock identified by its structured reason",
+      description =
+          "Delete only the lock matching reason, expectedTableUUID, and lockOwner. The reason must "
+              + "be a structured reason such as TIER3_AUTO_CLEANUP; LEGACY locks are removed "
+              + "through the unqualified delete route. Uses existing LOCK_ADMIN authorization.",
+      tags = {"Table"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "204", description = "lock DELETE: NO_CONTENT"),
+        @ApiResponse(responseCode = "400", description = "lock DELETE: BAD_REQUEST"),
+        @ApiResponse(responseCode = "401", description = "lock DELETE: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "403", description = "lock DELETE: FORBIDDEN"),
+        @ApiResponse(responseCode = "404", description = "lock DELETE: TABLE_NOT_FOUND"),
+        @ApiResponse(responseCode = "409", description = "Lock or table generation does not match")
+      })
+  @DeleteMapping(
+      value = {"/v1/databases/{databaseId}/tables/{tableId}/lock/{reason}"},
+      produces = {"application/json"})
+  public ResponseEntity<Void> deleteLockByReason(
+      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
+      @Parameter(description = "Table ID", required = true) @PathVariable String tableId,
+      @Parameter(description = "Structured reason identifying the lock", required = true)
+          @PathVariable
+          LockReason reason,
+      @Parameter(description = "Expected table UUID", required = true) @RequestParam
+          String expectedTableUUID,
+      @Parameter(description = "Recorded lock owner", required = true) @RequestParam
+          String lockOwner) {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
+        tablesApiHandler.deleteLock(
+            databaseId,
+            tableId,
+            extractAuthenticatedUserPrincipal(),
+            reason,
+            expectedTableUUID,
+            lockOwner);
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

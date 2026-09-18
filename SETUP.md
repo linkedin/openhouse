@@ -583,6 +583,38 @@ scala> spark.sql("SHOW GRANTS ON DATABASE openhouse.db.tb").show
 
 ```
 
+#### LOCK / UNLOCK
+
+Use the bare commands to manage the `LEGACY` lock, which is the behavior that shipped first:
+
+```scala
+scala> spark.sql("LOCK TABLE openhouse.db.tb").show
+scala> spark.sql("UNLOCK TABLE openhouse.db.tb").show
+```
+
+Use a structured reason for policy-aware locks. `TIER3_AUTO_CLEANUP` is the only reason a
+statement may name today. The optional message is customer-facing text, and enforcement stays the
+same for every reason.
+
+```scala
+scala> spark.sql("""
+  LOCK TABLE openhouse.db.tb
+  WITH REASON TIER3_AUTO_CLEANUP
+  MESSAGE 'This table is locked for cleanup'
+""").show
+
+scala> spark.sql("""
+  UNLOCK TABLE openhouse.db.tb
+  WITH REASON TIER3_AUTO_CLEANUP
+""").show
+```
+
+The reason on `UNLOCK` must match the active lock, along with the table generation and the
+principal recorded when the lock was taken. A bare `LOCK TABLE` or `UNLOCK TABLE` manages the
+`LEGACY` lock, so `LEGACY` is not a value a statement names: `WITH REASON LEGACY` is rejected
+before the statement reaches the service. Both commands use the existing table lock-admin
+authorization.
+
 ### Test through Livy
 
 Use the recipe in oh-hadoop-spark to start a spark cluster. In the root folder for the project you will find a script

@@ -1630,9 +1630,14 @@ public class TablesControllerTest {
   }
 
   @Test
-  public void lockReasonIsMetadataOnly() throws Exception {
-    RequestAndValidateHelper.createTableAndValidateResponse(
-        GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+  public void cleanupLockRequiresMatchingReasonOwnerAndGeneration() throws Exception {
+    String tableUUID =
+        JsonPath.read(
+            RequestAndValidateHelper.createTableAndValidateResponse(
+                    GET_TABLE_RESPONSE_BODY, mvc, storageManager)
+                .getResponse()
+                .getContentAsString(),
+            "$.tableUUID");
     String tablePath =
         ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
             + "/databases/"
@@ -1642,12 +1647,75 @@ public class TablesControllerTest {
     mvc.perform(
             MockMvcRequestBuilders.post(tablePath + "/lock")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"locked\":true,\"reason\":\"TIER3_AUTO_CLEANUP\"}"))
+                .content(
+                    "{\"locked\":true,\"reason\":\"TIER3_AUTO_CLEANUP\","
+                        + "\"message\":\"This table is locked for cleanup\","
+                        + "\"expectedTableUUID\":\""
+                        + tableUUID
+                        + "\"}"))
+        .andExpect(status().isCreated());
+    String lockOwner =
+        JsonPath.read(
+            mvc.perform(MockMvcRequestBuilders.get(tablePath))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.policies.lockState.reason").value("TIER3_AUTO_CLEANUP"))
+                .andExpect(
+                    jsonPath("$.policies.lockState.message")
+                        .value("This table is locked for cleanup"))
+                .andExpect(jsonPath("$.policies.lockState.tableUUID").value(tableUUID))
+                .andExpect(jsonPath("$.policies.lockState.lockOwner").isNotEmpty())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(),
+            "$.policies.lockState.lockOwner");
+    mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock"))
+        .andExpect(status().isConflict());
+    mvc.perform(
+            MockMvcRequestBuilders.delete(tablePath + "/lock/TIER3_AUTO_CLEANUP")
+                .param("expectedTableUUID", tableUUID)
+                .param("lockOwner", lockOwner))
+        .andExpect(status().isNoContent());
+    mvc.perform(MockMvcRequestBuilders.get(tablePath))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.policies.lockState").doesNotExist());
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+  }
+
+  @Test
+  public void reasonQualifiedUnlockRejectsLegacyReason() throws Exception {
+    String tableUUID =
+        JsonPath.read(
+            RequestAndValidateHelper.createTableAndValidateResponse(
+                    GET_TABLE_RESPONSE_BODY, mvc, storageManager)
+                .getResponse()
+                .getContentAsString(),
+            "$.tableUUID");
+    String tablePath =
+        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+            + "/databases/"
+            + GET_TABLE_RESPONSE_BODY.getDatabaseId()
+            + "/tables/"
+            + GET_TABLE_RESPONSE_BODY.getTableId();
+    mvc.perform(
+            MockMvcRequestBuilders.post(tablePath + "/lock")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"locked\":true,\"message\":\"setting lock\"}"))
         .andExpect(status().isCreated());
     mvc.perform(MockMvcRequestBuilders.get(tablePath))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.policies.lockState.reason").value("TIER3_AUTO_CLEANUP"));
-    mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock")).andExpect(status().isNoContent());
+        .andExpect(jsonPath("$.policies.lockState.reason").value("LEGACY"));
+
+    mvc.perform(
+            MockMvcRequestBuilders.delete(tablePath + "/lock/LEGACY")
+                .param("expectedTableUUID", tableUUID)
+                .param("lockOwner", GET_TABLE_RESPONSE_BODY.getTableCreator()))
+        .andExpect(status().isBadRequest());
+
+    mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock"))
+        .andExpect(status().isNoContent());
+    mvc.perform(MockMvcRequestBuilders.get(tablePath))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.policies.lockState").doesNotExist());
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }
 

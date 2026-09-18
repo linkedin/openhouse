@@ -4,6 +4,7 @@ import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.List;
@@ -153,14 +154,35 @@ public interface TablesService {
       String tableCreatorUpdator);
 
   /**
-   * Delete a table lock represented by databaseId and tableId if actingPrincipal has the right
-   * privilege.
+   * Delete the LEGACY lock on the table represented by databaseId and tableId if actingPrincipal
+   * has the right privilege. A lock carrying a structured reason stays in place and the request is
+   * rejected.
    *
    * @param databaseId
    * @param tableId
    * @param actingPrincipal
    */
   void deleteLock(String databaseId, String tableId, String actingPrincipal);
+
+  /**
+   * Delete the lock identified by reason, owner, and table generation if actingPrincipal has the
+   * existing lock-admin privilege. The reason must be a structured reason other than LEGACY; LEGACY
+   * locks are removed through the unqualified {@link #deleteLock(String, String, String)}.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param actingPrincipal
+   * @param reason
+   * @param expectedTableUUID
+   * @param lockOwner
+   */
+  void deleteLock(
+      String databaseId,
+      String tableId,
+      String actingPrincipal,
+      LockReason reason,
+      String expectedTableUUID,
+      String lockOwner);
 
   /**
    * Given a databaseId, return a paginated list of soft deleted {@link TableDto}s.
