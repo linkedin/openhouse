@@ -16,4 +16,5 @@ public class RetentionConfig {
   private final String columnPattern;
   private final Retention.GranularityEnum granularity;
   private final int count;
+  private final String timeZone;
 }

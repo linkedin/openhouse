@@ -6,6 +6,7 @@ import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.Arrays;
@@ -146,7 +147,8 @@ public class AppsTest extends OpenHouseSparkITest {
             "DAY",
             7,
             otelEmitter,
-            ".backup");
+            ".backup",
+            "");
 
     app.runInner(ops);
 
@@ -162,5 +164,43 @@ public class AppsTest extends OpenHouseSparkITest {
             Mockito.eq(".backup"),
             nowCaptor.capture());
     Assertions.assertEquals(ZoneOffset.UTC, nowCaptor.getValue().getZone());
+  }
+
+  @Test
+  public void testRetentionSparkAppPassesZonedNowToRunRetention() {
+    final String tableName = "db.test_retention_app_zoned";
+    Operations ops = Mockito.mock(Operations.class);
+    Table table = Mockito.mock(Table.class);
+    StateManager stateManagerMock = Mockito.mock(StateManager.class);
+    Mockito.when(ops.getTable(tableName)).thenReturn(table);
+    Mockito.when(table.properties()).thenReturn(Map.of(AppConstants.BACKUP_ENABLED_KEY, "true"));
+
+    RetentionSparkApp app =
+        new RetentionSparkApp(
+            "test-job-id",
+            stateManagerMock,
+            tableName,
+            "ts",
+            "yyyy-MM-dd-HH",
+            "DAY",
+            7,
+            otelEmitter,
+            ".backup",
+            "America/Los_Angeles");
+
+    app.runInner(ops);
+
+    ArgumentCaptor<ZonedDateTime> nowCaptor = ArgumentCaptor.forClass(ZonedDateTime.class);
+    Mockito.verify(ops)
+        .runRetention(
+            Mockito.eq(tableName),
+            Mockito.eq("ts"),
+            Mockito.eq("yyyy-MM-dd-HH"),
+            Mockito.eq("DAY"),
+            Mockito.eq(7),
+            Mockito.eq(true),
+            Mockito.eq(".backup"),
+            nowCaptor.capture());
+    Assertions.assertEquals(ZoneId.of("America/Los_Angeles"), nowCaptor.getValue().getZone());
   }
 }

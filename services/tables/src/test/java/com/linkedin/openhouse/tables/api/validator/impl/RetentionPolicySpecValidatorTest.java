@@ -39,6 +39,38 @@ class RetentionPolicySpecValidatorTest {
   }
 
   @Test
+  void testValidateTimeZone() {
+    // Valid IANA zone id
+    Assertions.assertTrue(
+        validator.validateTimeZoneIfPresent(
+            Retention.builder()
+                .count(1)
+                .granularity(TimePartitionSpec.Granularity.DAY)
+                .timeZone("America/Los_Angeles")
+                .build()));
+    // Valid fixed offset
+    Assertions.assertTrue(
+        validator.validateTimeZoneIfPresent(
+            Retention.builder()
+                .count(1)
+                .granularity(TimePartitionSpec.Granularity.DAY)
+                .timeZone("+05:30")
+                .build()));
+    // Absent zone defaults to UTC and is valid
+    Assertions.assertTrue(
+        validator.validateTimeZoneIfPresent(
+            Retention.builder().count(1).granularity(TimePartitionSpec.Granularity.DAY).build()));
+    // Unresolvable zone is rejected
+    Assertions.assertFalse(
+        validator.validateTimeZoneIfPresent(
+            Retention.builder()
+                .count(1)
+                .granularity(TimePartitionSpec.Granularity.DAY)
+                .timeZone("Not/AZone")
+                .build()));
+  }
+
+  @Test
   void testValidatePatternPositive() {
 
     // With pattern

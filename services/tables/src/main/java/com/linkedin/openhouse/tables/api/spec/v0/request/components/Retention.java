@@ -39,4 +39,11 @@ public class Retention {
           "Optional object to specify retention column in case where timestamp is represented as a string",
       example = "{columnName:datepartition, pattern: yyyy-MM-dd-HH}")
   RetentionColumnPattern columnPattern;
+
+  @Schema(
+      description =
+          "Retention is evaluated in this time zone, given as an IANA zone id such as "
+              + "America/Los_Angeles or a fixed offset such as +05:30. Defaults to UTC when absent.",
+      example = "America/Los_Angeles")
+  String timeZone;
 }

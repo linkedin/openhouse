@@ -5,6 +5,7 @@ import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
@@ -13,6 +14,7 @@ import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
+import org.apache.commons.lang.StringUtils;
 import org.apache.iceberg.Table;
 
 /**
@@ -31,6 +33,7 @@ public class RetentionSparkApp extends BaseTableSparkApp {
   private final String granularity;
   private final int count;
   private final String backupDir;
+  private final String timeZone;
 
   public RetentionSparkApp(
       String jobId,
@@ -41,13 +44,15 @@ public class RetentionSparkApp extends BaseTableSparkApp {
       String granularity,
       int count,
       OtelEmitter otelEmitter,
-      String backupDir) {
+      String backupDir,
+      String timeZone) {
     super(jobId, stateManager, fqtn, otelEmitter);
     this.columnName = columnName;
     this.columnPattern = columnPattern;
     this.granularity = granularity;
     this.count = count;
     this.backupDir = backupDir;
+    this.timeZone = timeZone;
   }
 
   @Override
@@ -56,9 +61,12 @@ public class RetentionSparkApp extends BaseTableSparkApp {
     boolean backupEnabled =
         Boolean.parseBoolean(
             table.properties().getOrDefault(AppConstants.BACKUP_ENABLED_KEY, "false"));
-    ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+    ZonedDateTime now =
+        StringUtils.isBlank(timeZone)
+            ? ZonedDateTime.now(ZoneOffset.UTC)
+            : ZonedDateTime.now(ZoneId.of(timeZone));
     log.info(
-        "Retention app start for table {}, column {}, {}, ttl={} {}s, backupEnabled={}, backupDir={}, ts={}",
+        "Retention app start for table {}, column {}, {}, ttl={} {}s, backupEnabled={}, backupDir={}, timeZone={}, ts={}",
         fqtn,
         columnName,
         columnPattern,
@@ -66,6 +74,7 @@ public class RetentionSparkApp extends BaseTableSparkApp {
         granularity,
         backupEnabled,
         backupDir,
+        timeZone,
         now);
     ops.runRetention(
         fqtn, columnName, columnPattern, granularity, count, backupEnabled, backupDir, now);
@@ -85,6 +94,12 @@ public class RetentionSparkApp extends BaseTableSparkApp {
     extraOptions.add(new Option("g", "granularity", true, "Granularity: day, week"));
     extraOptions.add(new Option("c", "count", true, "Retain last <count> <granularity>s"));
     extraOptions.add(new Option("b", "backupDir", true, "Backup directory for deleted data"));
+    extraOptions.add(
+        new Option(
+            "tz",
+            "timeZone",
+            true,
+            "Retention is evaluated in this optional IANA zone id or fixed offset; it defaults to UTC."));
     CommandLine cmdLine = createCommandLine(args, extraOptions);
     return new RetentionSparkApp(
         getJobId(cmdLine),
@@ -95,6 +110,7 @@ public class RetentionSparkApp extends BaseTableSparkApp {
         cmdLine.getOptionValue("granularity"),
         Integer.parseInt(cmdLine.getOptionValue("count")),
         otelEmitter,
-        cmdLine.getOptionValue("backupDir", ".backup"));
+        cmdLine.getOptionValue("backupDir", ".backup"),
+        cmdLine.getOptionValue("timeZone", ""));
   }
 }
