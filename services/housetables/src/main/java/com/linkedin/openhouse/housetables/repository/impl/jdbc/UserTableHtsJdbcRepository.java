@@ -42,8 +42,8 @@ public interface UserTableHtsJdbcRepository
   boolean existsByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(String databaseId, String tableId);
 
   String COMMON_FILTER_CLAUSES =
-      "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId)) AND "
-          + "(:tableId IS NULL OR lower(u.tableId) = lower(:tableId)) AND "
+      "(:databaseId IS NULL OR upper(u.databaseId) = upper(:databaseId)) AND "
+          + "(:tableId IS NULL OR upper(u.tableId) = upper(:tableId)) AND "
           + "(:tableVersion IS NULL OR u.version = :tableVersion) AND "
           + "(:metadataLocation IS NULL OR u.metadataLocation = :metadataLocation) AND "
           + "(:storageType IS NULL OR u.storageType = :storageType) AND "
@@ -68,8 +68,8 @@ public interface UserTableHtsJdbcRepository
   String VIEW_ROW_PREDICATE = "upper(u.entityType) = '" + VIEW + "'";
 
   String PATTERN_KEY_CLAUSES =
-      "lower(u.databaseId) = lower(:databaseId) AND "
-          + "lower(u.tableId) LIKE lower(:tableIdPattern)";
+      "upper(u.databaseId) = upper(:databaseId) AND "
+          + "upper(u.tableId) LIKE upper(:tableIdPattern)";
 
   /**
    * Table-scoped point read serving {@code getUserTable}, the single HTS endpoint behind every
@@ -79,8 +79,8 @@ public interface UserTableHtsJdbcRepository
    */
   @Query(
       "SELECT u FROM UserTableRow u WHERE "
-          + "lower(u.databaseId) = lower(:databaseId) AND "
-          + "lower(u.tableId) = lower(:tableId) AND "
+          + "upper(u.databaseId) = upper(:databaseId) AND "
+          + "upper(u.tableId) = upper(:tableId) AND "
           + TABLE_ROW_PREDICATE)
   Optional<UserTableRow> findTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
       @Param("databaseId") String databaseId, @Param("tableId") String tableId);
@@ -93,7 +93,7 @@ public interface UserTableHtsJdbcRepository
 
   @Query(
       "SELECT DISTINCT databaseId FROM UserTableRow u where "
-          + "(:databaseId IS NULL OR lower(u.databaseId) = lower(:databaseId))")
+          + "(:databaseId IS NULL OR upper(u.databaseId) = upper(:databaseId))")
   Page<String> findAllDistinctDatabaseIds(String databaseId, Pageable pageable);
 
   Page<UserTableRow> findAllByDatabaseIdAndTableIdLikeAllIgnoreCase(
@@ -176,8 +176,8 @@ public interface UserTableHtsJdbcRepository
 
   @Query(
       "SELECT u FROM UserTableRow u WHERE "
-          + "lower(u.databaseId) = lower(:databaseId) AND "
-          + "lower(u.tableId) = lower(:tableId) AND "
+          + "upper(u.databaseId) = upper(:databaseId) AND "
+          + "upper(u.tableId) = upper(:tableId) AND "
           + VIEW_ROW_PREDICATE)
   Optional<UserTableRow> findViewByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
       @Param("databaseId") String databaseId, @Param("tableId") String tableId);
@@ -225,8 +225,8 @@ public interface UserTableHtsJdbcRepository
   @Modifying(flushAutomatically = true, clearAutomatically = true)
   @Query(
       "DELETE FROM UserTableRow u WHERE "
-          + "lower(u.databaseId) = lower(:databaseId) AND "
-          + "lower(u.tableId) = lower(:tableId) AND "
+          + "upper(u.databaseId) = upper(:databaseId) AND "
+          + "upper(u.tableId) = upper(:tableId) AND "
           + TABLE_ROW_PREDICATE)
   int deleteTableByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
       @Param("databaseId") String databaseId, @Param("tableId") String tableId);
@@ -235,8 +235,8 @@ public interface UserTableHtsJdbcRepository
   @Modifying(flushAutomatically = true, clearAutomatically = true)
   @Query(
       "DELETE FROM UserTableRow u WHERE "
-          + "lower(u.databaseId) = lower(:databaseId) AND "
-          + "lower(u.tableId) = lower(:tableId) AND "
+          + "upper(u.databaseId) = upper(:databaseId) AND "
+          + "upper(u.tableId) = upper(:tableId) AND "
           + VIEW_ROW_PREDICATE)
   int deleteViewByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
       @Param("databaseId") String databaseId, @Param("tableId") String tableId);
@@ -317,8 +317,8 @@ public interface UserTableHtsJdbcRepository
           + "u.metadataLocation = :metadataLocation, "
           + "u.databaseId = :toDatabaseId, "
           + STAMP_TABLE_TYPE
-          + "WHERE lower(u.databaseId) = lower(:fromDatabaseId) "
-          + "AND lower(u.tableId) = lower(:fromTableId) AND "
+          + "WHERE upper(u.databaseId) = upper(:fromDatabaseId) "
+          + "AND upper(u.tableId) = upper(:fromTableId) AND "
           + TABLE_ROW_PREDICATE)
   int renameTableId(
       @Param("fromDatabaseId") String fromDatabaseId,
