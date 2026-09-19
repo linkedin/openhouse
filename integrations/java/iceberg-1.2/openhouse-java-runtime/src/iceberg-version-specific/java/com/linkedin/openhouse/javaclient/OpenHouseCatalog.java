@@ -1,5 +1,8 @@
 package com.linkedin.openhouse.javaclient;
 
+import static com.linkedin.openhouse.client.ssl.WebClientFactory.ACTION_TYPE_SYSTEM;
+import static com.linkedin.openhouse.client.ssl.WebClientFactory.ACTION_TYPE_USER;
+import static com.linkedin.openhouse.client.ssl.WebClientFactory.HTTP_HEADER_ACTION_TYPE;
 import static com.linkedin.openhouse.javaclient.OpenHouseTableOperations.*;
 
 import com.linkedin.openhouse.client.ssl.HttpConnectionStrategy;
@@ -24,6 +27,7 @@ import com.linkedin.openhouse.tables.client.model.UpdateAclPoliciesRequestBody;
 import java.net.MalformedURLException;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -104,6 +108,9 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
   public static final String CLIENT_VERSION = "client-version";
 
+  /** Opt-in request declaration; it does not grant privileges or bypass locks. */
+  public static final String ACTION_TYPE = "action-type";
+
   @Override
   public void initialize(String name, Map<String, String> properties) {
     this.name = name;
@@ -116,6 +123,12 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     String httpConnectionStrategy = properties.getOrDefault(HTTP_CONNECTION_STRATEGY, null);
     String clientName = properties.getOrDefault(CLIENT_NAME, null);
     String clientVersion = properties.getOrDefault(CLIENT_VERSION, null);
+    String actionType = properties.get(ACTION_TYPE);
+    Preconditions.checkArgument(
+        actionType == null
+            || ACTION_TYPE_SYSTEM.equalsIgnoreCase(actionType)
+            || ACTION_TYPE_USER.equalsIgnoreCase(actionType),
+        "action-type must be SYSTEM or USER");
     try {
       TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
       tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
@@ -128,6 +141,9 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     } catch (MalformedURLException | SSLException e) {
       throw new RuntimeException(
           "OpenHouse Catalog initialization failed: Failure while initializing ApiClient", e);
+    }
+    if (actionType != null) {
+      this.apiClient.addDefaultHeader(HTTP_HEADER_ACTION_TYPE, actionType.toUpperCase(Locale.ROOT));
     }
     this.tableApi = new TableApi(apiClient);
     this.snapshotApi = new SnapshotApi(apiClient);
