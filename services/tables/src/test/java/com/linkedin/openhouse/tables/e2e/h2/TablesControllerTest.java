@@ -23,7 +23,9 @@ import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitial
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
+import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
+import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
@@ -104,6 +106,8 @@ public class TablesControllerTest {
   @Autowired MockMvc mvc;
 
   @Autowired StorageManager storageManager;
+
+  @Autowired HouseTableRepository houseTablesRepository;
 
   @Captor private ArgumentCaptor<ServiceAuditEvent> argCaptorServiceAudit;
 
@@ -396,6 +400,54 @@ public class TablesControllerTest {
                         + "/databases/not_found/tables/not_found")
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isNotFound());
+  }
+
+  /** The user-visible half of the fix: a clean 409, not a commit-failed surprise. */
+  @Test
+  public void testCreateTableOverAViewIsAConflictNamingTheView() throws Exception {
+    String databaseId = GET_TABLE_RESPONSE_BODY.getDatabaseId();
+    String tableId = "held_by_a_view";
+    HouseTablePrimaryKey key =
+        HouseTablePrimaryKey.builder().databaseId(databaseId).tableId(tableId).build();
+    houseTablesRepository.saveView(
+        HouseTable.builder()
+            .databaseId(databaseId)
+            .tableId(tableId)
+            .tableLocation("/loc/" + tableId + "/00001-a.metadata.json")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .storageType("local")
+            .build());
+    HouseTable before = houseTablesRepository.findEntityById(key).get();
+
+    try {
+      mvc.perform(
+              MockMvcRequestBuilders.post(
+                      String.format(
+                          ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                              + "/databases/%s/tables/",
+                          databaseId))
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(
+                      buildCreateUpdateTableRequestBody(
+                              GET_TABLE_RESPONSE_BODY.toBuilder().tableId(tableId).build())
+                          .toJson())
+                  .accept(MediaType.APPLICATION_JSON))
+          .andExpect(status().isConflict())
+          .andExpect(
+              jsonPath("$.status", is(equalToIgnoringCase(HttpStatus.CONFLICT.getReasonPhrase()))))
+          .andExpect(
+              jsonPath(
+                  "$.message",
+                  is(equalTo(String.format("VIEW %s.%s already exists", databaseId, tableId)))));
+
+      HouseTable after = houseTablesRepository.findEntityById(key).get();
+      Assertions.assertEquals("VIEW", after.getEntityType());
+      Assertions.assertEquals(before.getTableLocation(), after.getTableLocation());
+    } finally {
+      if (houseTablesRepository.findEntityById(key).isPresent()) {
+        houseTablesRepository.deleteById(key);
+      }
+    }
   }
 
   @Test

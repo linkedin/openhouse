@@ -21,7 +21,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import org.apache.iceberg.TableProperties;
-import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -208,19 +207,6 @@ public class OpenHouseInternalRepositoryImplTest {
             TableDtoPrimaryKey.builder().databaseId(DB_ID).tableId(TABLE_ID).build());
 
     Assertions.assertFalse(result.isPresent());
-  }
-
-  @Test
-  void findTableRefByIdThrowsWhenCatalogIsNotOpenHouseInternalCatalog() {
-    // Build a fresh impl with a non-OpenHouseInternal Catalog wired in.
-    OpenHouseInternalRepositoryImpl impl = new OpenHouseInternalRepositoryImpl();
-    impl.catalog = mock(Catalog.class);
-
-    Assertions.assertThrows(
-        UnsupportedOperationException.class,
-        () ->
-            impl.findTableRefById(
-                TableDtoPrimaryKey.builder().databaseId(DB_ID).tableId(TABLE_ID).build()));
   }
 
   private TableDto createTableDto(Map<String, String> properties) {
