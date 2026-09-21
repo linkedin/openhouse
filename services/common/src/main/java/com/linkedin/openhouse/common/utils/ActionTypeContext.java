@@ -21,13 +21,13 @@ public final class ActionTypeContext {
 
   public static boolean isSystemAction() {
     String declaration = getDeclaration();
-    if (declaration == null || "USER".equalsIgnoreCase(declaration)) {
+    if (declaration == null) {
       return false;
     }
     if ("SYSTEM".equalsIgnoreCase(declaration)) {
       return true;
     }
     throw new RequestValidationFailureException(
-        HTTP_HEADER_ACTION_TYPE + " must be SYSTEM or USER when supplied.");
+        HTTP_HEADER_ACTION_TYPE + " must be SYSTEM when supplied.");
   }
 }
