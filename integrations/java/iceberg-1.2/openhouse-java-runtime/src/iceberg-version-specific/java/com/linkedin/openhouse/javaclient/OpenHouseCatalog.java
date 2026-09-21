@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.javaclient;
 
 import static com.linkedin.openhouse.client.ssl.WebClientFactory.ACTION_TYPE_SYSTEM;
-import static com.linkedin.openhouse.client.ssl.WebClientFactory.ACTION_TYPE_USER;
 import static com.linkedin.openhouse.client.ssl.WebClientFactory.HTTP_HEADER_ACTION_TYPE;
 import static com.linkedin.openhouse.javaclient.OpenHouseTableOperations.*;
 
@@ -108,7 +107,6 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
   public static final String CLIENT_VERSION = "client-version";
 
-  /** Opt-in request declaration; it does not grant privileges or bypass locks. */
   public static final String ACTION_TYPE = "action-type";
 
   @Override
@@ -125,10 +123,8 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     String clientVersion = properties.getOrDefault(CLIENT_VERSION, null);
     String actionType = properties.get(ACTION_TYPE);
     Preconditions.checkArgument(
-        actionType == null
-            || ACTION_TYPE_SYSTEM.equalsIgnoreCase(actionType)
-            || ACTION_TYPE_USER.equalsIgnoreCase(actionType),
-        "action-type must be SYSTEM or USER");
+        actionType == null || ACTION_TYPE_SYSTEM.equalsIgnoreCase(actionType),
+        "action-type must be SYSTEM when supplied");
     try {
       TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
       tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));

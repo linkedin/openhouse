@@ -107,9 +107,11 @@ class LockEvaluationServiceTest {
   @ParameterizedTest
   @CsvSource(
       value = {
-        "NONE,NULL,true,true", "NONE,SYSTEM,true,true",
-        "LEGACY,NULL,true,false", "LEGACY,SYSTEM,true,false",
-        "SYSTEM_ONLY,NULL,false,false", "SYSTEM_ONLY,USER,false,false",
+        "NONE,NULL,true,true",
+        "NONE,SYSTEM,true,true",
+        "LEGACY,NULL,true,false",
+        "LEGACY,SYSTEM,true,false",
+        "SYSTEM_ONLY,NULL,false,false",
         "SYSTEM_ONLY,SyStEm,true,true"
       },
       nullValues = "NULL")
@@ -150,7 +152,7 @@ class LockEvaluationServiceTest {
   })
   void systemOnlyReplacementAndRenameRequireDeclaration(String operation, boolean enabled) {
     lock("SYSTEM_ONLY");
-    declaration(enabled ? "SYSTEM" : "USER");
+    declaration(enabled ? "SYSTEM" : null);
     if (enabled) {
       write(operation);
       if ("rename".equals(operation)) {
@@ -206,7 +208,7 @@ class LockEvaluationServiceTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"yes", "true", "false", "", " SYSTEM"})
+  @ValueSource(strings = {"yes", "true", "false", "", " SYSTEM", "USER", "uSeR"})
   void invalidDeclarationIsRejectedOnlyWhenSystemOnlyAccessIsEvaluated(String actionType) {
     lock("SYSTEM_ONLY");
     declaration(actionType);
