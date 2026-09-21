@@ -1,16 +1,6 @@
-# The oh-only recipe with a real MySQL backing store in place of the in-memory H2.
-#
-# oh-only stays as it is: it is the documented least-resource quickstart, and keeping it
-# unchanged preserves coverage of the IN_MEMORY code path. This recipe exists so that CI,
-# and anyone debugging House Tables persistence, runs against the database the service
-# actually uses in production rather than H2's MySQL compatibility mode.
-#
-# services/housetables/ddl/*.sql is mounted into the MySQL image's initialisation
-# directory, which applies it in filename order before the server accepts connections and
-# therefore before House Tables starts. The service's own schema.sql is
-# CREATE TABLE IF NOT EXISTS, so it no-ops over the DDL-created tables and the application
-# then runs on exactly the schema those files describe. That makes every run of this recipe
-# a check that the recorded DDL is a working migration path, which nothing else verifies.
+# MySQL reconstructs the recorded DDL in filename order on a fresh data volume.
+# HTS waits for the final TCP server, not the socket-only initialization server,
+# so its CREATE TABLE IF NOT EXISTS bootstrap cannot race the recorded schema.
 version: "3.3"
 services:
   openhouse-tables:
@@ -31,8 +21,10 @@ services:
     volumes:
       - ./:/var/config/
     depends_on:
-      - prometheus
-      - mysql
+      prometheus:
+        condition: service_started
+      mysql:
+        condition: service_healthy
     environment:
       - HTS_DB_USER=oh_user
       - HTS_DB_PASSWORD=oh_password
@@ -43,6 +35,16 @@ services:
       service: mysql
     volumes:
       - ../../../../services/housetables/ddl:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          MYSQL_PWD="$${MYSQL_PASSWORD}" mysql --protocol=TCP -h 127.0.0.1
+          -u "$${MYSQL_USER}" "$${MYSQL_DATABASE}"
+          -e 'SELECT entity_type FROM user_table_row LIMIT 0'
+      interval: 5s
+      timeout: 5s
+      retries: 60
 
   prometheus:
     extends:

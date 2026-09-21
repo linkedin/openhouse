@@ -33,17 +33,18 @@ jobs:
         run: |
           echo "Waiting for openhouse-tables and openhouse-housetables..."
           for i in $(seq 1 60); do
-            tables_status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/v1/databases 2>&1 || echo "000")
-            hts_status=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8001/hts/tables/query" 2>&1 || echo "000")
+            tables_status=$(curl --connect-timeout 2 --max-time 3 -s -o /dev/null -w "%{http_code}" http://localhost:8000/v1/databases) || tables_status=000
+            hts_status=$(curl --connect-timeout 2 --max-time 3 -s -o /dev/null -w "%{http_code}" "http://localhost:8001/hts/tables/query") || hts_status=000
             echo "Poll $i: tables=$tables_status hts=$hts_status"
-            if [ "$tables_status" != "000" ] && [ "$hts_status" = "200" ]; then
-              echo "Services ready after $((i * 5))s"
+            if { [ "$tables_status" = "200" ] || [ "$tables_status" = "401" ]; } && [ "$hts_status" = "200" ]; then
+              echo "Services ready"
               exit 0
             fi
             sleep 5
           done
-          echo "Timed out waiting for services after 300s"
+          echo "Timed out waiting for services after 60 polls"
           docker compose -f infra/recipes/docker-compose/oh-only-mysql/docker-compose.yml ps
+          docker compose -f infra/recipes/docker-compose/oh-only-mysql/docker-compose.yml logs --tail=100
           exit 1
 
       - name: Set up Python
@@ -67,7 +68,7 @@ jobs:
           HTS_DB_USER: oh_user
           HTS_DB_PASSWORD: oh_password
           HTS_DB_NAME: oh_db
-        run: python scripts/python/hts_integration_test.py http://localhost:8001
+        run: python scripts/python/hts_integration_test.py http://localhost:8001 --require-database
 
       - name: Stop Docker Containers
         if: always()

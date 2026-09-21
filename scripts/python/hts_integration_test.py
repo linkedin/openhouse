@@ -8,14 +8,14 @@ binding and HTTP status codes as a client actually sees them.
 HTS is unauthenticated: there is no token argument and a request that omits a
 required parameter returns 400, never 401.
 
-The backing store is in-memory H2, wiped on container restart, so every test
-seeds its own rows under a database id unique to the run and deletes them again.
-That keeps the script re-runnable against a warm container.
+The backing store can be MySQL or in-memory H2. Every test seeds its own rows
+under a database id unique to the run and deletes them again, keeping the script
+re-runnable against a warm container.
 
 NOT EVERY CASE IS REACHABLE OVER HTTP. A legacy row whose
 ``user_table_row.entity_type`` column is NULL must resolve as a TABLE, but no
 request can create one: every write goes through
-``UserHouseTablesController.stampEntityType``, which stamps a non-null
+``HtsEntityTypeValidator.normalize``, which stamps a non-null
 discriminator at ingress, and the JPA converter refuses to persist a null.
 Those cases connect to the database directly, plant the row, and then assert
 through the deployed API. They also close the one thing an API read cannot
@@ -35,7 +35,9 @@ Connection settings come from ``HTS_DB_HOST``, ``HTS_DB_PORT``, ``HTS_DB_USER``,
 ``HTS_DB_PASSWORD`` and ``HTS_DB_NAME``, defaulting to the local docker-compose
 MySQL recipe. Tests that need a database skip with a clear message when none is
 reachable, and the closing summary reports passed and skipped separately so a
-skip never reads as a pass.
+skip never reads as a pass. CI passes ``--require-database`` so a missing driver
+or unreachable database fails the run instead. MySQL must be initialized from
+``services/housetables/ddl``; the schema check distinguishes it from schema.sql.
 
 Worth knowing when reading the restore cases: ``soft_deleted_user_table_row``
 has no ``entity_type`` column at all, so the discriminator is genuinely
@@ -47,8 +49,8 @@ solely because ``UserTablesMapper`` stamps one on::
     UserTableRow toUserTableRow(SoftDeletedUserTableRow softDeletedUserTableRow);
 """
 
+import argparse
 import os
-import sys
 import time
 import uuid
 
@@ -75,6 +77,7 @@ DB_SETTINGS = {
 RUN_ID = f'{int(time.time())}_{uuid.uuid4().hex[:8]}'
 
 HOST = DEFAULT_HOST
+REQUIRE_DATABASE = False
 
 
 class SkippedTest(Exception):
@@ -98,11 +101,16 @@ def database_connection():
     honest if a future check is ever written literal against literal.
     """
     if pymysql is None:
+        if REQUIRE_DATABASE:
+            raise RuntimeError("PyMySQL is required; install scripts/python/requirements.txt")
         return None
     try:
         connection = pymysql.connect(
             connect_timeout=5, autocommit=True, charset='utf8mb4', **DB_SETTINGS)
-    except Exception:  # pymysql raises several unrelated types on an absent server
+    except pymysql.err.OperationalError as error:
+        if REQUIRE_DATABASE:
+            raise
+        print(f"Database unavailable: {error}")
         return None
     with connection.cursor() as cursor:
         cursor.execute('SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci')
@@ -151,7 +159,7 @@ def plant_entity_type(connection, database: str, table: str, entity_type,
                       metadata_location: str = '/tmp/legacy.json') -> None:
     """Insert a row carrying an arbitrary discriminator, including NULL.
 
-    No HTTP request can produce these: ``stampEntityType`` sets a valid
+    No HTTP request can produce these: ``HtsEntityTypeValidator`` sets a valid
     discriminator at ingress and the JPA converter refuses anything else.
     """
     execute(
@@ -317,7 +325,9 @@ def delete_entity(kind: str, database: str, table: str) -> requests.Response:
 
 
 def query_entities(kind: str, database: str) -> list:
-    """GET /hts/{tables,views}/query -- the unpaginated ``results`` envelope."""
+    """List tables through the legacy route and views through their v1 route."""
+    if kind == 'views':
+        return query_entities_paginated(kind, database)
     response = requests.get(f'{HOST}/hts/{kind}/query', params={'databaseId': database})
     assert_status(response, 200, f"querying {kind} in {database}")
     body = response.json()
@@ -369,12 +379,61 @@ def table_ids(entities: list) -> set:
 def cleanup(database: str) -> None:
     """Drop everything this run created under ``database``, live and soft deleted."""
     for entity in query_entities('views', database):
-        delete_entity('views', database, entity['tableId'])
+        assert_status(delete_entity('views', database, entity['tableId']), 204,
+                      "cleaning up a view")
     for entity in query_entities('tables', database):
-        delete_entity('tables', database, entity['tableId'])
+        assert_status(delete_entity('tables', database, entity['tableId']), 204,
+                      "cleaning up a table")
     for entity in query_soft_deleted(database):
-        requests.delete(f'{HOST}/hts/tables/purge',
-                        params={'databaseId': database, 'tableId': entity['tableId']})
+        response = requests.delete(
+            f'{HOST}/hts/tables/purge',
+            params={'databaseId': database, 'tableId': entity['tableId']})
+        assert_status(response, 204, "cleaning up a soft-deleted table")
+
+
+def test_recorded_mysql_schema() -> None:
+    """Verify the recorded DDL ran before HTS's different bootstrap schema."""
+    with require_database() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT column_name, column_type, is_nullable, column_default "
+                "FROM information_schema.columns WHERE table_schema = DATABASE() "
+                "AND table_name = 'user_table_row' ORDER BY ordinal_position")
+            columns = cursor.fetchall()
+            assert [column[0] for column in columns] == [
+                'database_id', 'table_id', 'metadata_location', 'table_version',
+                'version', 'ETL_TS', 'deleted_ts', 'storage_type', 'creation_time',
+                'entity_type',
+            ], f"user_table_row must match the recorded DDL column order, got {columns}"
+            definitions = {name: (kind, nullable, default)
+                           for name, kind, nullable, default in columns}
+            for name in ('database_id', 'table_id'):
+                assert definitions[name] == ('varchar(255)', 'NO', None), definitions
+            assert definitions['metadata_location'] == ('varchar(255)', 'YES', None), definitions
+            assert definitions['version'] == ('bigint', 'YES', None), definitions
+            assert definitions['entity_type'] == ('varchar(128)', 'YES', None), definitions
+
+            cursor.execute(
+                "SELECT table_name, engine, table_collation FROM information_schema.tables "
+                "WHERE table_schema = DATABASE() "
+                "AND table_name IN ('user_table_row', 'soft_deleted_user_table_row')")
+            tables = cursor.fetchall()
+            assert set(tables) == {
+                ('user_table_row', 'InnoDB', 'utf8mb4_0900_ai_ci'),
+                ('soft_deleted_user_table_row', 'InnoDB', 'utf8mb4_0900_ai_ci'),
+            }, f"recorded table engines and collations differ: {tables}"
+
+            cursor.execute(
+                "SELECT column_name, expression FROM information_schema.statistics "
+                "WHERE table_schema = DATABASE() AND table_name = 'user_table_row' "
+                "AND index_name = 'idx_user_table_upper_db_table' ORDER BY seq_in_index")
+            index = [(column, expression.replace('`', '').lower() if expression else None)
+                     for column, expression in cursor.fetchall()]
+            assert index == [
+                (None, 'upper(database_id)'), (None, 'upper(table_id)'),
+                ('version', None), ('storage_type', None), ('creation_time', None),
+            ], f"recorded functional index differs: {index}"
+    print("MySQL uses the recorded DDL, including column order, collation and functional index")
 
 
 # --------------------------------------------------------------------------- #
@@ -539,14 +598,8 @@ def test_neutral_and_typed_endpoints_agree_on_existence() -> None:
     Java/SQL disagreement made directly observable over HTTP, with no SQL client
     needed to see it.
 
-    This is worth having over per-row status assertions because it is collation
-    robust. Under a PAD SPACE collation a trailing-space discriminator compares
-    equal to 'TABLE', both routes answer 200, and this assertion passes. Under
-    NO PAD the typed route's predicate misses, the two routes disagree, and this
-    assertion fails naming exactly the right bug. Per-row status codes encode one
-    collation's answers as literal constants and would all need rewriting if
-    production turns out to differ; this one states the property instead and
-    holds either way.
+    Well-formed rows must agree regardless of collation. Corrupt discriminators
+    are checked separately against the recorded utf8mb4_0900_ai_ci schema.
 
     ``kind`` is chosen per row deliberately. A view read through /hts/tables is a
     404 by design, so the typed route compared against must match the row's own
@@ -606,9 +659,9 @@ def test_query_endpoints_are_type_scoped() -> None:
 
         views = query_entities('views', database)
         assert table_ids(views) == {'v_vw'}, \
-            f"/hts/views/query must list VIEW rows only, got {table_ids(views)}"
+            f"/v1/hts/views/query must list VIEW rows only, got {table_ids(views)}"
         assert all(entity['entityType'] == 'VIEW' for entity in views), views
-        print("/hts/tables/query and /hts/views/query each list only their own type")
+        print("/hts/tables/query and /v1/hts/views/query each list only their own type")
     finally:
         cleanup(database)
 
@@ -627,6 +680,27 @@ def test_v1_query_returns_page_results() -> None:
         assert table_ids(tables) == {'t_tbl'}, \
             f"/v1/hts/tables/query must page TABLE rows only, got {table_ids(tables)}"
         print("/v1 query endpoints populate pageResults.content and stay type scoped")
+    finally:
+        cleanup(database)
+
+
+def test_mixed_case_identifiers_are_type_scoped() -> None:
+    database = database_id('MixedCase')
+    try:
+        create_table(database, 'TaBlE')
+        create_view(database, 'ViEw')
+        for kind, table in [('tables', 'TaBlE'), ('views', 'ViEw')]:
+            for route in ('entities', kind):
+                response = get_entity(route, database.upper(), table.lower())
+                assert_status(response, 200, f"mixed-case {route} point read")
+                assert response.json()['entity']['tableId'] == table, describe(response)
+            assert table_ids(query_entities(kind, database.upper())) == {table}
+            assert table_ids(query_entities_paginated(kind, database.upper())) == {table}
+            assert_status(delete_entity(kind, database.upper(), table.lower()), 204,
+                          f"mixed-case {kind} delete")
+            assert_status(get_entity('entities', database, table), 404,
+                          "mixed-case delete must remove the original row")
+        print("mixed-case point reads, listings and deletes preserve type scoping")
     finally:
         cleanup(database)
 
@@ -1005,7 +1079,7 @@ def test_legacy_null_entity_type_resolves_as_table() -> None:
 
         views = query_entities('views', database)
         assert table_ids(views) == set(), \
-            f"/hts/views/query must exclude a legacy NULL row, got {table_ids(views)}"
+            f"/v1/hts/views/query must exclude a legacy NULL row, got {table_ids(views)}"
 
         response = delete_entity('views', database, 't_legacy')
         assert_status(response, 404, "DELETE /hts/views on a legacy NULL row")
@@ -1129,7 +1203,7 @@ def test_corrupt_entity_type_values_split_into_two_failure_modes() -> None:
         # Collation limitation: this disagreement exists because
         # utf8mb4_0900_ai_ci is NO PAD, so 'TABLE ' fails the typed route's
         # predicate (404) while the neutral route still hydrates it (500). Under
-        # a PAD SPACE collation the same row would answer 200/200 and agree. The
+        # a PAD SPACE collation the same row would answer 500/500 and agree. The
         # column collation is pinned at the top of this test, so if that ever
         # changes this assertion fails and says so rather than quietly inverting.
         agree, neutral_state, typed_state, neutral, typed = endpoints_agree_on_existence(
@@ -1186,6 +1260,7 @@ def test_missing_required_parameters_are_bad_request() -> None:
 
 
 TESTS = [
+    test_recorded_mysql_schema,
     test_put_table_defaults_entity_type_to_table,
     test_put_view_sets_entity_type_view,
     test_put_lowercase_entity_type_is_normalized,
@@ -1197,6 +1272,7 @@ TESTS = [
     test_neutral_and_typed_endpoints_agree_on_existence,
     test_query_endpoints_are_type_scoped,
     test_v1_query_returns_page_results,
+    test_mixed_case_identifiers_are_type_scoped,
     test_update_requires_current_metadata_location,
     test_delete_table_is_table_scoped,
     test_delete_view_removes_only_the_view,
@@ -1213,11 +1289,13 @@ TESTS = [
 
 
 if __name__ == '__main__':
-    if len(sys.argv) > 2:
-        print("Usage: python hts_integration_test.py [host]")
-        sys.exit(1)
-    if len(sys.argv) == 2:
-        HOST = sys.argv[1].rstrip('/')
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('host', nargs='?', default=DEFAULT_HOST)
+    parser.add_argument('--require-database', action='store_true',
+                        help='fail instead of skipping database-backed tests')
+    args = parser.parse_args()
+    HOST = args.host.rstrip('/')
+    REQUIRE_DATABASE = args.require_database
 
     print(f"Running {len(TESTS)} HTS integration tests against {HOST} (run id {RUN_ID})")
     passed = 0

@@ -52,6 +52,43 @@ Recipes for setting up OpenHouse in local docker are available [here](infra/reci
 | Run OpenHouse Services on HDFS | `oh-hadoop` | Stores data on locally running Hadoop HDFS containers, with iceberg-backed database. |
 | Run OpenHouse Services on HDFS with Spark | `oh-hadoop-spark` | Stores data on locally running Hadoop HDFS containers, with MySQL database. Spark available for end to end testing. Most resource consuming. Starts Livy server. |
 
+### House Tables MySQL E2E tests
+
+Build and start the lightweight MySQL recipe, then run both HTTP suites:
+
+```bash
+./gradlew :services:housetables:bootJar :services:tables:bootJar
+docker compose -f infra/recipes/docker-compose/oh-only-mysql/docker-compose.yml up -d --build
+python3 -m pip install -r scripts/python/requirements.txt
+# Wait for http://localhost:8001/hts/tables/query to return 200 before running.
+python3 scripts/python/hts_integration_test.py http://localhost:8001 --require-database
+python3 scripts/python/integration_test.py tables-test-fixtures/tables-test-fixtures-iceberg-1.2/src/main/resources/dummy.token
+```
+
+MySQL applies `services/housetables/ddl/*.sql` in filename order **only on a fresh
+data volume**. House Tables waits until initialization finishes. The E2E suite
+checks the recorded live-table column layout, `utf8mb4_0900_ai_ci` collation and
+`idx_user_table_upper_db_table` functional index, so a stale volume or a database
+created from the service's different `schema.sql` bootstrap fails explicitly.
+The live and soft-deleted table DDL is production-verified; `job_row` and
+`table_toggle_rule` remain approximations as noted in the baseline.
+
+`--require-database` makes a missing PyMySQL dependency or failed database
+connection fatal (CI uses this mode). Without it, database-backed cases skip when
+the database is unreachable, allowing the HTTP cases to run against `oh-only`.
+Connection settings use `HTS_DB_HOST`, `HTS_DB_PORT`, `HTS_DB_USER`,
+`HTS_DB_PASSWORD` and `HTS_DB_NAME`; defaults match this recipe.
+View listings use `/v1/hts/views/query`; there is no legacy `/hts/views/query`.
+
+To stop this test deployment and remove **its disposable database**, run:
+
+```bash
+docker compose -f infra/recipes/docker-compose/oh-only-mysql/docker-compose.yml down -v
+```
+
+Use a fresh volume when rechecking DDL changes; restarting a container with its
+old volume does not reapply the SQL files.
+
 ## Manual Docker Compose (Advanced)
 
 If you prefer manual control over the build process:
