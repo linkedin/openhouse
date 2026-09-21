@@ -40,7 +40,7 @@ import scala.util.control.NonFatal
  * in 26 families, each family running in both columnar formats.
  */
 trait ScenarioRtas extends RtasTableFixtures {
-  this: ScenarioCoreDml with ScenarioDmlOperations with ChangelogSupport =>
+  this: ScenarioCoreDml with ScenarioDmlOperations with ChangelogFixtures =>
 
   /** Every replace case: the reusable DML operations on replaced tables first, then the replace contract. */
   lazy val rtasCases: List[TestCase] = rtasDmlCases ++ rtasContractCases
@@ -784,7 +784,7 @@ trait ScenarioRtas extends RtasTableFixtures {
    * A changelog view whose start snapshot sits before the replace is rejected with an IllegalArgumentException naming
    * the start snapshot as outside the current lineage, so a reader asking to span the replacement boundary is told
    * the range is unanswerable and reads the new lineage's changes only through a range inside it. The append that
-   * follows the replace comes from ChangelogSupport, so this case and the general changelog cases agree on what the
+   * follows the replace comes from ChangelogFixtures, so this case and the general changelog cases agree on what the
    * operation does.
    */
   private def changelogAcrossBoundaryCase(
@@ -792,7 +792,7 @@ trait ScenarioRtas extends RtasTableFixtures {
     preparation.test("rtas.changelog.acrossBoundaryRejected") { table =>
       val appendOperation = changelogOperations
         .find(_.name == "changelog.append")
-        .getOrElse(throw new AssertionError("ChangelogSupport defines the changelog.append operation"))
+        .getOrElse(throw new AssertionError("ChangelogFixtures defines the changelog.append operation"))
       val preReplaceSnapshotId = currentSnapshotId(table.spark, table.name)
       table.spark.sql(replaceWithKeysUpTo(table.name, 2))
       table.spark.sql(appendOperation.statement(table.name))

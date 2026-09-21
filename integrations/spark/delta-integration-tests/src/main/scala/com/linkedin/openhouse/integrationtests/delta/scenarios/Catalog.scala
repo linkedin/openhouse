@@ -15,7 +15,7 @@ object Scenarios
     with ScenarioStreaming
     with ScenarioTableEvolutionCompatibility
     with ScenarioWriterCompatibility
-    with ChangelogSupport
+    with ChangelogFixtures
 
 /**
  * The ordered case catalog. Each named contribution owns its scenario body, preparation, assertions, and case IDs.
