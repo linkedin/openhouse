@@ -5,7 +5,7 @@ import org.apache.spark.sql.SparkSession
 /**
  * Partition, lineage, metadata, and rename fixtures used by replace-table scenarios.
  */
-trait RtasTableFixtures extends DmlTableFixtures {
+trait RtasTableFixtures extends DmlTableFixtures with TableMetadataFixtures {
 
   /** One partitioning choice and the CREATE clause that applies it. */
   final case class Partitioning(label: String, clause: String)

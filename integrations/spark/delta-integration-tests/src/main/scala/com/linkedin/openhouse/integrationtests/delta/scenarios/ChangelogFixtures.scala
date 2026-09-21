@@ -1,7 +1,5 @@
 package com.linkedin.openhouse.integrationtests.delta
 
-import org.apache.spark.sql.SparkSession
-
 /**
  * One changelog operation: the name its case carries, the statement it runs against the prepared table, and the
  * change-type histogram the changelog view reports for the snapshot range that statement opened.
@@ -22,28 +20,7 @@ final case class ChangelogOperation(
  * replacement. The follow-up standard changelog scenario builds on the same operation definitions.
  */
 trait ChangelogFixtures {
-  this: TableTestFixtures =>
-
-  /** Snapshot identifiers in ancestry order, with the root snapshot first. */
-  protected def snapshotIds(spark: SparkSession, table: String): Seq[Long] = {
-    val rows = spark.sql(s"SELECT snapshot_id, parent_id FROM $table.snapshots").collect().toSeq
-    val snapshotIdSet = rows.map(_.getLong(0)).toSet
-    val childByParent = rows.collect {
-      case row if !row.isNullAt(1) => row.getLong(1) -> row.getLong(0)
-    }.toMap
-    val root = rows.collectFirst {
-      case row if row.isNullAt(1) || !snapshotIdSet.contains(row.getLong(1)) => row.getLong(0)
-    }.get
-
-    Iterator
-      .iterate(Option(root))(parent => parent.flatMap(childByParent.get))
-      .takeWhile(_.isDefined)
-      .flatten
-      .toList
-  }
-
-  protected def catalogRelativeTableName(table: String): String =
-    table.stripPrefix("openhouse.")
+  this: TableTestFixtures with TableMetadataFixtures =>
 
   /**
    * The five row-level operations whose change feed the catalog reports: an append, an INSERT OVERWRITE that drops one
