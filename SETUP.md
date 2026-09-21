@@ -58,6 +58,11 @@ For automatic setup, execution and cleanup, use
 `python3 scripts/python/run_local_e2e.py` (see the [README](README.md#running-the-local-docker-e2e-tests)).
 The following commands are for manual control of a persistent deployment.
 
+Both paths build Tables and House Tables and run only their two server-side HTTP
+suites (`integration_test.py` and `hts_integration_test.py`), not all E2E tests in
+the repository. Client SDK, Spark integration, other services' tests and Gradle
+unit test suites are not run.
+
 Build and start the lightweight MySQL recipe, then run both HTTP suites:
 
 ```bash

@@ -89,10 +89,20 @@ python3 scripts/python/run_local_e2e.py
 
 This builds the Tables and House Tables services, starts the MySQL-backed Docker
 recipe with a fresh database initialized from the recorded DDL, waits for
-readiness, and runs both existing E2E suites. Python test dependencies are
-installed in a temporary virtual environment. The deployment uses a unique
-Compose project and automatically assigned loopback ports, so existing local
-stacks can stay running.
+readiness, and runs these two **server-side HTTP E2E suites**:
+
+- `scripts/python/hts_integration_test.py`: House Tables API and MySQL persistence checks.
+- `scripts/python/integration_test.py`: Tables API create, read and delete checks.
+
+This is not a repository-wide E2E runner. It does not run client SDK tests,
+Spark integration tests, other services' tests, or the Gradle unit test suites.
+Client libraries needed to build the servers may be compiled as dependencies,
+but these tests exercise the servers directly over HTTP rather than through
+the repository's client SDKs.
+
+Python test dependencies are installed in a temporary virtual environment. The
+deployment uses a unique Compose project and automatically assigned loopback
+ports, so existing local stacks can stay running.
 
 The command returns nonzero and prints container logs on deployment/test failure.
 It removes its own containers and database afterward, including on Ctrl-C.
