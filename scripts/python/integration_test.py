@@ -1,12 +1,14 @@
+import os
 import requests
 import sys
 
 DATABASE_ID = "d3"
 TABLE_ID = "t1"
+HOST = os.environ.get('OPENHOUSE_TABLES_HOST', 'http://localhost:8000').rstrip('/')
 
 
 def test_create_table(token_str: str) -> None:
-    create_table_url = f'http://localhost:8000/v1/databases/{DATABASE_ID}/tables/'
+    create_table_url = f'{HOST}/v1/databases/{DATABASE_ID}/tables/'
     create_table_payload = {
         "tableId": TABLE_ID,
         "databaseId": DATABASE_ID,
@@ -33,21 +35,21 @@ def test_create_table(token_str: str) -> None:
     print("Table created successfully with response: ", response.json())
 
 def test_get_table(token_str: str) -> None:
-    get_table_url = f'http://localhost:8000/v1/databases/{DATABASE_ID}/tables/{TABLE_ID}'
+    get_table_url = f'{HOST}/v1/databases/{DATABASE_ID}/tables/{TABLE_ID}'
     headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token_str}'}
     response = requests.get(get_table_url, headers=headers)
     assert response.status_code == 200, f"Failed to get table: {response.status_code} {response.text}"
     print("Table retrieved successfully with response: ", response.json())
 
 def test_get_table_not_found(token_str: str) -> None:
-    get_table_url = f'http://localhost:8000/v1/databases/{DATABASE_ID}/tables/{TABLE_ID}'
+    get_table_url = f'{HOST}/v1/databases/{DATABASE_ID}/tables/{TABLE_ID}'
     headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token_str}'}
     response = requests.get(get_table_url, headers=headers)
     assert response.status_code == 404, f"Table found when expected to be not found: {response.status_code} {response.text}"
     print("Table not found as expected with response: ", response.status_code)
 
 def test_delete_table(token_str: str) -> None:
-    delete_table_url = f'http://localhost:8000/v1/databases/{DATABASE_ID}/tables/{TABLE_ID}'
+    delete_table_url = f'{HOST}/v1/databases/{DATABASE_ID}/tables/{TABLE_ID}'
     headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {token_str}'}
     response = requests.delete(delete_table_url, headers=headers)
     assert response.status_code == 204, f"Failed to delete table: {response.status_code} {response.text}"
@@ -78,4 +80,3 @@ if __name__ == '__main__':
     test_get_table_not_found(token_str)
     
     print("All tests passed successfully")
-

@@ -78,6 +78,27 @@ The quickest way to run OpenHouse locally:
 
 For detailed configuration options and testing instructions, see the [SETUP](SETUP.md) guide.
 
+### Running the local Docker E2E tests
+
+With JDK 17 (`JAVA_HOME` set), Python 3 with `venv` support, and Docker running
+with Compose **2.24.4 or newer**, run:
+
+```bash
+python3 scripts/python/run_local_e2e.py
+```
+
+This builds the Tables and House Tables services, starts the MySQL-backed Docker
+recipe with a fresh database initialized from the recorded DDL, waits for
+readiness, and runs both existing E2E suites. Python test dependencies are
+installed in a temporary virtual environment. The deployment uses a unique
+Compose project and automatically assigned loopback ports, so existing local
+stacks can stay running.
+
+The command returns nonzero and prints container logs on deployment/test failure.
+It removes its own containers and database afterward, including on Ctrl-C.
+It does not stop or delete other Docker projects. For manual setup and individual
+test commands, see [House Tables MySQL E2E tests](SETUP.md#house-tables-mysql-e2e-tests).
+
 ### Deploying OpenHouse to Kubernetes
 
 To deploy OpenHouse to Kubernetes, you can use the [DEPLOY](DEPLOY.md) guide. You would build the container images for

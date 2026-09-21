@@ -54,6 +54,10 @@ Recipes for setting up OpenHouse in local docker are available [here](infra/reci
 
 ### House Tables MySQL E2E tests
 
+For automatic setup, execution and cleanup, use
+`python3 scripts/python/run_local_e2e.py` (see the [README](README.md#running-the-local-docker-e2e-tests)).
+The following commands are for manual control of a persistent deployment.
+
 Build and start the lightweight MySQL recipe, then run both HTTP suites:
 
 ```bash
