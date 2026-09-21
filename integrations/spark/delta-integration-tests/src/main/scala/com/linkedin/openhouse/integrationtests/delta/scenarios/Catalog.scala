@@ -11,7 +11,7 @@ object Scenarios
     with ScenarioDmlOperations
     with ScenarioRtas
     with ScenarioMergeOnRead
-    with ChangelogSupport
+    with ChangelogFixtures
 
 /**
  * The ordered case catalog. Each named contribution owns its scenario body, preparation, assertions, and case IDs.
