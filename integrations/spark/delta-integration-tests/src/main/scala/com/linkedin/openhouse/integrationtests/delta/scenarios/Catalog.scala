@@ -13,7 +13,7 @@ object Scenarios
     with ScenarioMergeOnRead
     with ScenarioBranch
     with ScenarioWriteAuditPublish
-    with ChangelogSupport
+    with ChangelogFixtures
 
 /**
  * The ordered case catalog. Each named contribution owns its scenario body, preparation, assertions, and case IDs.
