@@ -107,7 +107,7 @@ public class SmokeTest {
 
   @ParameterizedTest
   @CsvSource(
-      value = {"SYSTEM,SYSTEM", "USER,USER", "system,SYSTEM", "uSeR,USER", "NULL,NULL"},
+      value = {"SYSTEM,SYSTEM", "system,SYSTEM", "NULL,NULL"},
       nullValues = "NULL")
   public void testActionTypeHeader(String actionType, String expected) throws InterruptedException {
     mockTableService.enqueue(
@@ -127,7 +127,7 @@ public class SmokeTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"invalid", "", " SYSTEM ", "true", "false"})
+  @ValueSource(strings = {"invalid", "", " SYSTEM ", "true", "false", "USER", "uSeR"})
   public void testInvalidActionTypeRejected(String actionType) {
     IllegalArgumentException failure =
         Assertions.assertThrows(
@@ -137,7 +137,7 @@ public class SmokeTest {
                     .initialize(
                         "openhouse",
                         ImmutableMap.of(CatalogProperties.URI, url, "action-type", actionType)));
-    Assertions.assertEquals("action-type must be SYSTEM or USER", failure.getMessage());
+    Assertions.assertEquals("action-type must be SYSTEM when supplied", failure.getMessage());
   }
 
   @Test

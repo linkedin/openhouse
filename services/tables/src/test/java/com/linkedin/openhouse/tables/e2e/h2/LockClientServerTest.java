@@ -103,7 +103,6 @@ class LockClientServerTest {
       value = {
         "SYSTEM,SYSTEM_ONLY,SYSTEM_ONLY",
         "SYSTEM,NULL,LEGACY",
-        "USER,NULL,LEGACY",
         "NULL,NULL,LEGACY",
         "NULL,LEGACY,LEGACY",
         "NULL,OMITTED,LEGACY"
