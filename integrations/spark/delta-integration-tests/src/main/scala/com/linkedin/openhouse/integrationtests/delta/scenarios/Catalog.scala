@@ -10,7 +10,7 @@ object Scenarios
     with ScenarioDmlRejection
     with ScenarioDmlOperations
     with ScenarioRtas
-    with ChangelogSupport
+    with ChangelogFixtures
     with ScenarioCompactionPlanning
     with ScenarioMaintenance
     with ScenarioMetadataTable
