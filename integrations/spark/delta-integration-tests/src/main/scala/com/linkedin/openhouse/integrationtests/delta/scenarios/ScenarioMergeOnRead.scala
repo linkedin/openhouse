@@ -32,7 +32,7 @@ package com.linkedin.openhouse.integrationtests.delta
  * contributes 52 in 26 families: 38 in the 19 families here and 14 in the 7 maintenance families.
  */
 trait ScenarioMergeOnRead extends ScenarioMergeOnReadMaintenance {
-  this: ScenarioCoreDml with ScenarioDmlOperations with ChangelogSupport =>
+  this: ScenarioCoreDml with ScenarioDmlOperations with ChangelogFixtures =>
 
   /** Every merge-on-read case: the reusable DML operations on merge-on-read tables, then the write-mode contract. */
   lazy val mergeOnReadCases: List[TestCase] =
