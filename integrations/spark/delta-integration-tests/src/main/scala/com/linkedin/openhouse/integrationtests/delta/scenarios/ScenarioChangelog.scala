@@ -7,20 +7,21 @@ import org.apache.spark.sql.SparkSession
  * Changelog: the row-level change feed `create_changelog_view` reports for a snapshot range, and what it reports once
  * the start of that range has been expired.
  *
- * Operations: the five reusable changelog operations `ChangelogSupport` owns (an append, an INSERT OVERWRITE that
+ * Operations: the five reusable changelog operations `ChangelogFixtures` owns (an append, an INSERT OVERWRITE that
  * drops one row, a row-level DELETE, an UPDATE, and a MERGE that updates one row and inserts another), each followed
  * by a changelog view opened at the seed snapshot; a changelog view over an append-only history with no start
  * snapshot; and a changelog view whose start point has been expired, named by snapshot id and by two timestamps.
  *
  * Preparation axes: in each of the two columnar formats, the standard seeded core table for the five operations and
  * for the expired-start family, and the two-snapshot core table for the append-only history family. The operations
- * are data `ChangelogSupport` holds, so this general scenario crosses them with the standard seeded table while the
+ * are data `ChangelogFixtures` holds, so this general scenario crosses them with the standard seeded table while the
  * replace-table layer crosses the same operations with its own replace preparations.
  *
  * Case families: three families contributing 14 cases, 10 operation cases, 2 append-only history cases and 2
  * expired-start cases.
  */
-trait ScenarioChangelog extends ChangelogSupport with HistoryTableFixtures {
+trait ScenarioChangelog extends HistoryTableFixtures {
+  this: ChangelogFixtures =>
 
   /** Every changelog case, one file format at a time. */
   lazy val changelogCases: List[TestCase] =
