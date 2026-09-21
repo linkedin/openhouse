@@ -108,7 +108,6 @@ class LockClientServerTest {
       value = {
         "SYSTEM,SYSTEM_ONLY,SYSTEM_ONLY",
         "SYSTEM,NULL,LEGACY",
-        "USER,NULL,LEGACY",
         "NULL,NULL,LEGACY",
         "NULL,LEGACY,LEGACY",
         "NULL,OMITTED,LEGACY"
@@ -162,8 +161,8 @@ class LockClientServerTest {
   @CsvSource(
       value = {
         "NULL,423",
-        "USER,423",
-        "uSeR,423",
+        "USER,400",
+        "uSeR,400",
         "SYSTEM,200",
         "sYsTeM,200",
         "invalid,400",

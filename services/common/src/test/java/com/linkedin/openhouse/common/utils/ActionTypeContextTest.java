@@ -23,14 +23,7 @@ class ActionTypeContextTest {
 
   @ParameterizedTest
   @CsvSource(
-      value = {
-        "NULL,false",
-        "SYSTEM,true",
-        "system,true",
-        "SyStEm,true",
-        "USER,false",
-        "UsEr,false"
-      },
+      value = {"NULL,false", "SYSTEM,true", "system,true", "SyStEm,true"},
       nullValues = "NULL")
   void evaluatesActionTypeWithoutChangingRawValue(String value, boolean systemAction) {
     request(value);
@@ -39,7 +32,8 @@ class ActionTypeContextTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"", " ", "yes", "1", "true", "false", " SYSTEM", "USER "})
+  @ValueSource(
+      strings = {"", " ", "yes", "1", "true", "false", " SYSTEM", "SYSTEM ", "USER", "UsEr"})
   void invalidSuppliedValuesRemainReadableButCannotEnableAccess(String value) {
     request(value);
     assertEquals(value, ActionTypeContext.getDeclaration());
