@@ -92,6 +92,16 @@ public class RetentionPolicySpecValidator extends PolicySpecValidator {
         errorField = "retention";
         return false;
       }
+      if (!validateTimeZoneScope(retention, timePartitioning)) {
+        failureMessage =
+            String.format(
+                "Retention time zone[%s] is only supported on a string retention column whose pattern"
+                    + " has no zone field; it is not allowed on the time-partitioned (native"
+                    + " timestamp) table[%s] or on a column pattern that already encodes a zone",
+                retention.getTimeZone(), tableUri);
+        errorField = "retention";
+        return false;
+      }
     }
 
     return true;
@@ -160,5 +170,30 @@ public class RetentionPolicySpecValidator extends PolicySpecValidator {
       return false;
     }
     return true;
+  }
+
+  /**
+   * A retention time zone is meaningful only for a string retention column whose pattern carries no
+   * zone of its own. Native timestamp columns store UTC instants, and a pattern that already
+   * formats a zone would double count, so both reject a declared zone. An absent or empty zone is
+   * always in scope.
+   */
+  protected boolean validateTimeZoneScope(Retention retention, TimePartitionSpec timePartitioning) {
+    String timeZone = retention.getTimeZone();
+    if (timeZone == null || timeZone.isEmpty()) {
+      return true;
+    }
+    if (timePartitioning != null) {
+      return false;
+    }
+    return retention.getColumnPattern() == null
+        || retention.getColumnPattern().getPattern() == null
+        || !patternEncodesZone(retention.getColumnPattern().getPattern());
+  }
+
+  /** True when the pattern contains a DateTimeFormatter zone or offset field outside a literal. */
+  protected boolean patternEncodesZone(String pattern) {
+    String withoutLiterals = pattern.replaceAll("'[^']*'", "");
+    return withoutLiterals.chars().anyMatch(c -> "VzOXxZ".indexOf(c) >= 0);
   }
 }

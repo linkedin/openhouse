@@ -2,13 +2,11 @@ package com.linkedin.openhouse.jobs.util;
 
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import java.io.IOException;
-import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
-import java.util.function.UnaryOperator;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
 import org.apache.hadoop.fs.FileStatus;
@@ -22,28 +20,18 @@ import org.apache.iceberg.expressions.Expressions;
 public final class SparkJobUtil {
   private SparkJobUtil() {}
 
-  private static final long MICROS_PER_SECOND = 1000L * 1000L;
-
-  // Native timestamp column, no zone: reproduces today's behavior. Spark truncates the retention
-  // clock in the session zone. Example (30-day daily): datepartition < date_trunc('DAY', timestamp
-  // '<now>' - INTERVAL 30 DAYs).
+  // Native timestamp column: retention truncates the clock to the granularity and moves it back
+  // count periods. Example (30-day daily): datepartition < date_trunc('DAY', timestamp '<now>' -
+  // INTERVAL 30 DAYs).
   private static final String RETENTION_CONDITION_TEMPLATE =
       "%s < date_trunc('%s', timestamp '%s' - INTERVAL %d %ss)";
 
-  // String-partitioned column: retention compares the formatted label lexicographically. Spark
-  // moves the retention clock (shifted to the zone when one is set) back count periods and formats
-  // it with the column pattern. Example: datepartition < date_format(timestamp '<now>' - INTERVAL
-  // 30 DAYs, 'yyyy-MM-dd').
+  // String-partitioned column: retention compares the formatted label lexicographically. The clock
+  // moves back count periods and is formatted with the column pattern. When a retention time zone
+  // is set, the clock arrives already in that zone, so the label reflects the local wall clock.
+  // Example: datepartition < date_format(timestamp '<now>' - INTERVAL 30 DAYs, 'yyyy-MM-dd').
   private static final String RETENTION_CONDITION_WITH_PATTERN_TEMPLATE =
       "%s < cast(date_format(timestamp '%s' - INTERVAL %s %ss, '%s') as string)";
-
-  // Native timestamp column with a zone: native time partitions are bucketed in UTC, so the range
-  // start is computed in the zone, floored to the UTC partition edge, and emitted as an absolute
-  // instant. The date_trunc template above cannot express this: feeding a zoned wall clock into a
-  // UTC truncation shifts the range start by the zone offset and, for a positive offset such as
-  // +05:30, moves it past now and deletes recent data.
-  private static final String RETENTION_CONDITION_ZONED_NATIVE_TEMPLATE =
-      "%s < timestamp_micros(%d)";
 
   public static String createDeleteStatement(
       String fqtn,
@@ -52,77 +40,56 @@ public final class SparkJobUtil {
       String granularity,
       int count,
       ZonedDateTime now) {
-    String predicate;
     if (!StringUtils.isBlank(columnPattern)) {
-      predicate =
+      String query =
           String.format(
-              RETENTION_CONDITION_WITH_PATTERN_TEMPLATE,
-              columnName,
-              now.toLocalDateTime(),
-              count,
-              granularity,
-              columnPattern);
-    } else if (now.getZone().equals(ZoneOffset.UTC)) {
-      // A UTC retention clock matches Spark's session zone, so date_trunc reproduces today's SQL.
-      predicate =
-          String.format(
-              RETENTION_CONDITION_TEMPLATE,
-              columnName,
-              granularity,
-              now.toLocalDateTime(),
-              count,
-              granularity);
+              "DELETE FROM %s WHERE %s",
+              getQuotedFqtn(fqtn),
+              String.format(
+                  RETENTION_CONDITION_WITH_PATTERN_TEMPLATE,
+                  columnName,
+                  now.toLocalDateTime(),
+                  count,
+                  granularity,
+                  columnPattern));
+      log.info(
+          "Table: {}. Column pattern: {}, columnName {}, granularity {}s, retention query: {}",
+          fqtn,
+          columnPattern,
+          columnName,
+          granularity,
+          query);
+      return query;
     } else {
-      ChronoUnit period = convertGranularityToChrono(granularity.toUpperCase());
-      UnaryOperator<ZonedDateTime> periodStart =
-          time ->
-              period == ChronoUnit.MONTHS
-                  ? time.toLocalDate().withDayOfMonth(1).atStartOfDay(time.getZone())
-                  : period == ChronoUnit.YEARS
-                      ? time.toLocalDate().withDayOfYear(1).atStartOfDay(time.getZone())
-                      : time.truncatedTo(period);
-      ZonedDateTime rangeStart = periodStart.apply(now).minus(count, period);
-      long micros =
-          periodStart.apply(rangeStart.withZoneSameInstant(ZoneOffset.UTC)).toEpochSecond()
-              * MICROS_PER_SECOND;
-      predicate = String.format(RETENTION_CONDITION_ZONED_NATIVE_TEMPLATE, columnName, micros);
+      String query =
+          String.format(
+              "DELETE FROM %s WHERE %s",
+              getQuotedFqtn(fqtn),
+              String.format(
+                  RETENTION_CONDITION_TEMPLATE,
+                  columnName,
+                  granularity,
+                  now.toLocalDateTime(),
+                  count,
+                  granularity));
+      log.info("Table: {}. No column pattern provided: deleteQuery: {}", fqtn, query);
+      return query;
     }
-    String query = String.format("DELETE FROM %s WHERE %s", getQuotedFqtn(fqtn), predicate);
-    log.info(
-        "Table: {}. columnName {}, columnPattern {}, granularity {}s, retentionZone {}, retention query: {}",
-        fqtn,
-        columnName,
-        columnPattern,
-        granularity,
-        now.getZone(),
-        query);
-    return query;
   }
 
   public static Expression createDeleteFilter(
       String columnName, String columnPattern, String granularity, int count, ZonedDateTime now) {
-    ChronoUnit period = convertGranularityToChrono(granularity.toUpperCase());
-    if (StringUtils.isBlank(columnPattern)) {
-      UnaryOperator<ZonedDateTime> periodStart =
-          time ->
-              period == ChronoUnit.MONTHS
-                  ? time.toLocalDate().withDayOfMonth(1).atStartOfDay(time.getZone())
-                  : period == ChronoUnit.YEARS
-                      ? time.toLocalDate().withDayOfYear(1).atStartOfDay(time.getZone())
-                      : time.truncatedTo(period);
-      ZonedDateTime rangeStart = periodStart.apply(now).minus(count, period);
-      long micros =
-          periodStart.apply(rangeStart.withZoneSameInstant(ZoneOffset.UTC)).toEpochSecond()
-              * MICROS_PER_SECOND;
-      return Expressions.lessThan(columnName, micros);
+    ChronoUnit timeUnitGranularity =
+        ChronoUnit.valueOf(convertGranularityToChrono(granularity.toUpperCase()).name());
+    ZonedDateTime cutoffDate = now.minus(timeUnitGranularity.getDuration().multipliedBy(count));
+    if (!StringUtils.isBlank(columnPattern)) {
+      String formattedCutoffDate = DateTimeFormatter.ofPattern(columnPattern).format(cutoffDate);
+      return Expressions.lessThan(columnName, formattedCutoffDate);
+    } else {
+      long formattedCutoffDate =
+          cutoffDate.truncatedTo(timeUnitGranularity).toEpochSecond() * 1000 * 1000; // microsecond
+      return Expressions.lessThan(columnName, formattedCutoffDate);
     }
-    // Subtract on the frozen wall clock (toOffsetDateTime keeps now's offset) so the label matches
-    // what Spark's date_format/INTERVAL produces in the statement, even across a daylight-saving
-    // transition, and carries an offset for patterns that format one.
-    String rangeStartLabel =
-        DateTimeFormatter.ofPattern(columnPattern)
-            .format(now.toOffsetDateTime().minus(count, period));
-    return Expressions.lessThan(columnName, rangeStartLabel);
   }
 
   public static String getQuotedFqtn(String fqtn) {

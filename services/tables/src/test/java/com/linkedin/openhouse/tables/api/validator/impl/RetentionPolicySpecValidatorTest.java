@@ -71,6 +71,90 @@ class RetentionPolicySpecValidatorTest {
   }
 
   @Test
+  void testValidateTimeZoneScope() {
+    TimePartitionSpec dayPartition =
+        TimePartitionSpec.builder()
+            .columnName("ts")
+            .granularity(TimePartitionSpec.Granularity.DAY)
+            .build();
+
+    // A zone on a time-partitioned (native timestamp) table is rejected: native timestamps are UTC.
+    Assertions.assertFalse(
+        validator.validateTimeZoneScope(
+            Retention.builder()
+                .count(1)
+                .granularity(TimePartitionSpec.Granularity.DAY)
+                .timeZone("America/Los_Angeles")
+                .build(),
+            dayPartition));
+
+    // A zone on a string pattern that already encodes a zone is rejected.
+    Assertions.assertFalse(
+        validator.validateTimeZoneScope(
+            Retention.builder()
+                .count(1)
+                .granularity(TimePartitionSpec.Granularity.DAY)
+                .columnPattern(
+                    RetentionColumnPattern.builder()
+                        .columnName("dp")
+                        .pattern("yyyy-MM-dd-HHZ")
+                        .build())
+                .timeZone("America/Los_Angeles")
+                .build(),
+            null));
+
+    // A zone on a string pattern with no zone field is accepted.
+    Assertions.assertTrue(
+        validator.validateTimeZoneScope(
+            Retention.builder()
+                .count(1)
+                .granularity(TimePartitionSpec.Granularity.DAY)
+                .columnPattern(
+                    RetentionColumnPattern.builder().columnName("dp").pattern("yyyy-MM-dd").build())
+                .timeZone("America/Los_Angeles")
+                .build(),
+            null));
+
+    // An absent zone is always in scope, native or string.
+    Assertions.assertTrue(
+        validator.validateTimeZoneScope(
+            Retention.builder().count(1).granularity(TimePartitionSpec.Granularity.DAY).build(),
+            dayPartition));
+  }
+
+  @Test
+  void testPatternEncodesZone() {
+    Assertions.assertFalse(validator.patternEncodesZone("yyyy-MM-dd"));
+    Assertions.assertFalse(validator.patternEncodesZone("yyyy-MM-dd-HH"));
+    Assertions.assertTrue(validator.patternEncodesZone("yyyy-MM-dd-HHZ"));
+    Assertions.assertTrue(validator.patternEncodesZone("yyyy-MM-dd'T'HH:mm:ssXXX"));
+    Assertions.assertTrue(validator.patternEncodesZone("yyyy-MM-dd VV"));
+    // A zone letter inside a quoted literal is text, not a zone field.
+    Assertions.assertFalse(validator.patternEncodesZone("yyyy-MM-dd'Z'"));
+  }
+
+  @Test
+  void testValidateRejectsTimeZoneOnTimePartitionedTable() {
+    Retention retention =
+        Retention.builder()
+            .count(1)
+            .granularity(TimePartitionSpec.Granularity.DAY)
+            .timeZone("America/Los_Angeles")
+            .build();
+    CreateUpdateTableRequestBody request =
+        CreateUpdateTableRequestBody.builder()
+            .policies(Policies.builder().retention(retention).build())
+            .schema(getSchemaJsonFromSchema(dummySchema))
+            .timePartitioning(
+                TimePartitionSpec.builder()
+                    .columnName("ts")
+                    .granularity(TimePartitionSpec.Granularity.DAY)
+                    .build())
+            .build();
+    Assertions.assertFalse(validator.validate(request, TableUri.builder().build()));
+  }
+
+  @Test
   void testValidatePatternPositive() {
 
     // With pattern
