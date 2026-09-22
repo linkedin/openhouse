@@ -64,3 +64,27 @@ DML Rejection Tests =
 
 [How integration tests are generated](CAPABILITY-MATRIX.md) explains how
 compatibility selects the prepared-table and test-case pairs in these equations.
+
+## Standard DML
+
+Standard DML uses seeded unpartitioned tables, tables containing a null value,
+and date-partitioned tables. Each prepared table is materialized in Parquet and
+ORC.
+
+```text
+Standard DML Tests =
+  compatible([Standard, Null-Containing, Date-Partitioned Prepared Tables]
+    x [Test Cases Below])
+```
+
+| Test case | Expected behavior |
+|---|---|
+| Filtered read | Predicates return exactly the matching rows and leave table state unchanged. |
+| Insert values | Literal rows append without changing existing rows. |
+| Insert query | Query results append with the target column mapping preserved. |
+| DataFrame write | Appended DataFrame rows match the input values and schema. |
+| Full-table overwrite | New rows replace the complete prior contents. |
+| Partition overwrite | New rows replace only the selected partition and preserve every other partition. |
+| Delete | Predicates, subqueries, aliases, and whole-table conditions remove exactly the selected rows. |
+| Update | Predicates, subqueries, expressions, aliases, multi-column assignments, partition moves, and null assignments change only the selected rows and columns. |
+| Merge | Matched, unmatched, conditional, wildcard, common-table-expression, and set-operation sources apply their clauses to the exact target rows. |
