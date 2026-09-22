@@ -72,21 +72,14 @@ class RetentionPolicySpecValidatorTest {
 
   @Test
   void testValidateTimeZoneScope() {
-    TimePartitionSpec dayPartition =
-        TimePartitionSpec.builder()
-            .columnName("ts")
-            .granularity(TimePartitionSpec.Granularity.DAY)
-            .build();
-
-    // A zone on a time-partitioned (native timestamp) table is rejected: native timestamps are UTC.
-    Assertions.assertFalse(
+    // A zone on a native timestamp column is accepted: it declares the column's wall-clock zone.
+    Assertions.assertTrue(
         validator.validateTimeZoneScope(
             Retention.builder()
                 .count(1)
                 .granularity(TimePartitionSpec.Granularity.DAY)
                 .timeZone("America/Los_Angeles")
-                .build(),
-            dayPartition));
+                .build()));
 
     // A zone on a string pattern that already encodes a zone is rejected.
     Assertions.assertFalse(
@@ -100,8 +93,7 @@ class RetentionPolicySpecValidatorTest {
                         .pattern("yyyy-MM-dd-HHZ")
                         .build())
                 .timeZone("America/Los_Angeles")
-                .build(),
-            null));
+                .build()));
 
     // A zone on a string pattern with no zone field is accepted.
     Assertions.assertTrue(
@@ -112,14 +104,12 @@ class RetentionPolicySpecValidatorTest {
                 .columnPattern(
                     RetentionColumnPattern.builder().columnName("dp").pattern("yyyy-MM-dd").build())
                 .timeZone("America/Los_Angeles")
-                .build(),
-            null));
+                .build()));
 
-    // An absent zone is always in scope, native or string.
+    // An absent zone is always in scope.
     Assertions.assertTrue(
         validator.validateTimeZoneScope(
-            Retention.builder().count(1).granularity(TimePartitionSpec.Granularity.DAY).build(),
-            dayPartition));
+            Retention.builder().count(1).granularity(TimePartitionSpec.Granularity.DAY).build()));
   }
 
   @Test
@@ -134,7 +124,7 @@ class RetentionPolicySpecValidatorTest {
   }
 
   @Test
-  void testValidateRejectsTimeZoneOnTimePartitionedTable() {
+  void testValidateAcceptsTimeZoneOnTimePartitionedTable() {
     Retention retention =
         Retention.builder()
             .count(1)
@@ -151,7 +141,7 @@ class RetentionPolicySpecValidatorTest {
                     .granularity(TimePartitionSpec.Granularity.DAY)
                     .build())
             .build();
-    Assertions.assertFalse(validator.validate(request, TableUri.builder().build()));
+    Assertions.assertTrue(validator.validate(request, TableUri.builder().build()));
   }
 
   @Test
