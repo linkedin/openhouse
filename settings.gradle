@@ -61,6 +61,7 @@ include ':tables-test-fixtures:tables-test-fixtures-iceberg-1.2'
 include ':tables-test-fixtures:tables-test-fixtures-iceberg-1.5'
 
 include ':cluster:configs'
+include ':cluster:database'
 include ':cluster:storage'
 include ':cluster:metrics'
 

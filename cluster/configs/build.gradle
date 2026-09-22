@@ -13,4 +13,5 @@ dependencies {
   api 'jakarta.validation:jakarta.validation-api:2.0.2'
   api 'org.springframework:spring-web:5.3.18'
   api 'org.springframework:spring-webmvc:5.3.18'
+  testRuntimeOnly 'org.yaml:snakeyaml:1.33'
 }

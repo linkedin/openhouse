@@ -21,11 +21,13 @@ cluster:
         previous-versions-max: 78
         delete-after-commit:
           enabled: true
+  metadata:
+    database:
+      url: <database-url>
   housetables:
     base-uri: "http://openhouse-housetables-service:8080"
     database:
       type: "MYSQL"
-      url: <database-url>
   security:
     token:
       interceptor:

@@ -40,6 +40,7 @@ dependencies {
   api project(':services:common')
   api project(':iceberg:openhouse:htscatalog')
   api project(':cluster:configs')
+  implementation project(':cluster:database')
   api project(':cluster:storage')
   api project(':cluster:metrics')
   implementation "com.github.spotbugs:spotbugs-annotations:4.8.1"
@@ -51,4 +52,3 @@ dependencies {
   implementation "org.jetbrains:annotations:16.0.3"
   testImplementation(testFixtures(project(':services:common')))
 }
-
