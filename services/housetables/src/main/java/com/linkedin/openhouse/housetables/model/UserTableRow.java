@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.housetables.model;
 
-import javax.persistence.Convert;
 import javax.persistence.Entity;
 import javax.persistence.Id;
 import javax.persistence.IdClass;
@@ -33,11 +32,4 @@ public class UserTableRow {
   String storageType;
 
   Long creationTime;
-
-  /**
-   * Nullable in the column so existing rows need no backfill; {@link EntityTypeConverter} resolves
-   * that null to {@link EntityType#TABLE} on read, so a row loaded from storage always has a type.
-   */
-  @Convert(converter = EntityTypeConverter.class)
-  EntityType entityType;
 }
