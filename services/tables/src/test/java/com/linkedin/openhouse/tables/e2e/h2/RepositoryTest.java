@@ -1236,6 +1236,11 @@ public class RepositoryTest {
     Assertions.assertEquals(
         renamedTable.get().getTableProperties().get("openhouse.tableUri"),
         "local-cluster.d1.t1_renamed");
+
+    // Leaving d1.t1_renamed behind would leak into other tests in this class, which share one
+    // Spring context.
+    openHouseInternalRepository.deleteById(
+        TableDtoPrimaryKey.builder().databaseId("d1").tableId("t1_renamed").build());
   }
 
   @Test
