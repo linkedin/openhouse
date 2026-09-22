@@ -6,6 +6,7 @@ import java.util.Map;
 import javax.persistence.Column;
 import javax.persistence.Entity;
 import javax.persistence.Id;
+import javax.persistence.Index;
 import javax.persistence.Table;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -27,7 +28,9 @@ import org.hibernate.annotations.TypeDef;
  */
 @TypeDef(name = "json", typeClass = JsonStringType.class)
 @Entity
-@Table(name = "table_stats")
+@Table(
+    name = "table_stats",
+    indexes = @Index(name = "idx_ts_updated_at", columnList = "updated_at"))
 @Getter
 @EqualsAndHashCode
 @Builder(toBuilder = true)
