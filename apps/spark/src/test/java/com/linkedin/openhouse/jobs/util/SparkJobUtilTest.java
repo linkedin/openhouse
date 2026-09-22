@@ -118,7 +118,7 @@ public class SparkJobUtilTest {
         () -> SparkJobUtil.createDeleteFilter("ts", "", "YEAR", 1, FIXED_UTC));
   }
 
-  // ---------- Zoned string columns: the added time zone ----------
+  // ---------- Zoned columns: the added time zone ----------
 
   @Test
   void zonedStringStatementUsesZoneWallClock() {
@@ -136,5 +136,15 @@ public class SparkJobUtilTest {
     UnboundPredicate<?> predicate =
         (UnboundPredicate<?>) SparkJobUtil.createDeleteFilter("dp", "yyyy-MM-dd", "DAY", 2, laNow);
     Assertions.assertEquals("2024-01-29", predicate.literal().value());
+  }
+
+  @Test
+  void zonedNativeStatementUsesZoneWallClock() {
+    // now is 2024-01-31T18:00 in America/Los_Angeles; the native date_trunc reads that zoned wall
+    // clock, so the cutoff is evaluated in the column's declared zone.
+    ZonedDateTime laNow = FIXED_UTC.withZoneSameInstant(ZoneId.of("America/Los_Angeles"));
+    Assertions.assertEquals(
+        "DELETE FROM `db`.`t` WHERE ts < date_trunc('day', timestamp '2024-01-31T18:00' - INTERVAL 2 days)",
+        SparkJobUtil.createDeleteStatement("db.t", "ts", "", "day", 2, laNow));
   }
 }

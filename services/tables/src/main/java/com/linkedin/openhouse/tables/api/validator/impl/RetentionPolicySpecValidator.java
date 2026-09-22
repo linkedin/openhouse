@@ -92,12 +92,11 @@ public class RetentionPolicySpecValidator extends PolicySpecValidator {
         errorField = "retention";
         return false;
       }
-      if (!validateTimeZoneScope(retention, timePartitioning)) {
+      if (!validateTimeZoneScope(retention)) {
         failureMessage =
             String.format(
-                "Retention time zone[%s] is only supported on a string retention column whose pattern"
-                    + " has no zone field; it is not allowed on the time-partitioned (native"
-                    + " timestamp) table[%s] or on a column pattern that already encodes a zone",
+                "Retention time zone[%s] is not allowed on a column pattern that already encodes a"
+                    + " zone; use a zone-free pattern for table[%s]",
                 retention.getTimeZone(), tableUri);
         errorField = "retention";
         return false;
@@ -173,18 +172,15 @@ public class RetentionPolicySpecValidator extends PolicySpecValidator {
   }
 
   /**
-   * A retention time zone is meaningful only for a string retention column whose pattern carries no
-   * zone of its own. Native timestamp columns store UTC instants, and a pattern that already
-   * formats a zone would double count, so both reject a declared zone. An absent or empty zone is
-   * always in scope.
+   * A retention time zone declares the wall-clock zone of the retention column's values, so it is
+   * accepted on a native timestamp column and on a string pattern with no zone of its own. It is
+   * rejected only when a string pattern already formats a zone, which would carry two zones. An
+   * absent or empty zone is always in scope.
    */
-  protected boolean validateTimeZoneScope(Retention retention, TimePartitionSpec timePartitioning) {
+  protected boolean validateTimeZoneScope(Retention retention) {
     String timeZone = retention.getTimeZone();
     if (timeZone == null || timeZone.isEmpty()) {
       return true;
-    }
-    if (timePartitioning != null) {
-      return false;
     }
     return retention.getColumnPattern() == null
         || retention.getColumnPattern().getPattern() == null
