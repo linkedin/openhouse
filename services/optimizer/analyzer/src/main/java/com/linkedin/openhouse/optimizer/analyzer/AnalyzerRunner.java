@@ -103,11 +103,7 @@ public class AnalyzerRunner {
    */
   public void analyzeIncremental(OperationTypeDto operationType) {
     OperationAnalyzer analyzer = resolveAnalyzer(operationType);
-    Instant watermark =
-        runStateRepo
-            .findById(operationType.name())
-            .map(AnalyzerRunStateRow::getWatermark)
-            .orElse(Instant.EPOCH);
+    Instant watermark = loadWatermark(operationType);
     Instant runStart = Instant.now();
 
     List<ChangedTableDto> changed =
@@ -135,11 +131,52 @@ public class AnalyzerRunner {
           changed.size());
     }
 
-    runStateRepo.save(
-        AnalyzerRunStateRow.builder()
-            .operationType(operationType.name())
-            .watermark(runStart)
-            .build());
+    persistWatermark(operationType, runStart);
+  }
+
+  /**
+   * Read the persisted watermark for {@code operationType}, defaulting to {@link Instant#EPOCH} on
+   * a missing row or a read failure. Falling back to EPOCH is safe: the scan just widens to "all
+   * rows", so no changed table is missed (at worst some already-handled tables are re-evaluated,
+   * which the downstream dedup absorbs).
+   */
+  private Instant loadWatermark(OperationTypeDto operationType) {
+    try {
+      return runStateRepo
+          .findById(operationType.name())
+          .map(AnalyzerRunStateRow::getWatermark)
+          .orElse(Instant.EPOCH);
+    } catch (Exception e) {
+      log.error(
+          "Failed to read analyzer watermark for {}; falling back to EPOCH (full re-scan): {}",
+          operationType,
+          e.toString(),
+          e);
+      return Instant.EPOCH;
+    }
+  }
+
+  /**
+   * Persist the advanced watermark, isolating failures. A failed watermark write is logged and
+   * swallowed: the next run simply re-scans from the previous (older) watermark, so nothing is
+   * missed — only redundant re-evaluation, which downstream dedup absorbs.
+   */
+  private void persistWatermark(OperationTypeDto operationType, Instant runStart) {
+    try {
+      runStateRepo.save(
+          AnalyzerRunStateRow.builder()
+              .operationType(operationType.name())
+              .watermark(runStart)
+              .build());
+    } catch (Exception e) {
+      log.error(
+          "Failed to persist analyzer watermark for {} at {}; next run will re-scan from the"
+              + " previous watermark: {}",
+          operationType,
+          runStart,
+          e.toString(),
+          e);
+    }
   }
 
   /**
