@@ -17,7 +17,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -276,6 +278,64 @@ class TableOperationsRepositoryTest {
 
     assertThat(repository.findById(pendingId)).isEmpty();
     assertThat(repository.findById(scheduledId)).isPresent();
+  }
+
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void updateBatchCommitsWithoutCallerTransaction() {
+    String id = UUID.randomUUID().toString();
+    Instant claimedAt = Instant.parse("2026-05-20T16:42:43Z");
+    try {
+      assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+      repository.save(pendingRow(id, "tbl_claim"));
+
+      assertThat(
+              repository.updateBatch(
+                  List.of(id),
+                  OperationStatus.PENDING,
+                  OperationStatus.SCHEDULING,
+                  Optional.of(claimedAt),
+                  Optional.empty()))
+          .isEqualTo(1);
+      TableOperationsRow claimed = repository.findById(id).orElseThrow();
+      assertThat(claimed.getStatus()).isEqualTo(OperationStatus.SCHEDULING);
+      assertThat(claimed.getScheduledAt()).isEqualTo(claimedAt);
+
+      assertThat(
+              repository.updateBatch(
+                  List.of(id),
+                  OperationStatus.SCHEDULING,
+                  OperationStatus.SCHEDULED,
+                  Optional.empty(),
+                  Optional.of("job-123")))
+          .isEqualTo(1);
+      TableOperationsRow scheduled = repository.findById(id).orElseThrow();
+      assertThat(scheduled.getStatus()).isEqualTo(OperationStatus.SCHEDULED);
+      assertThat(scheduled.getJobId()).isEqualTo("job-123");
+      assertThat(scheduled.getScheduledAt()).isEqualTo(claimedAt);
+      assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+    } finally {
+      repository.deleteAll(repository.findAllById(List.of(id)));
+    }
+  }
+
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void cancelCommitsWithoutCallerTransaction() {
+    String pendingId = UUID.randomUUID().toString();
+    String scheduledId = UUID.randomUUID().toString();
+    try {
+      assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+      repository.save(pendingRow(pendingId, "tbl_pending"));
+      repository.save(scheduledRow(scheduledId, "tbl_scheduled"));
+
+      assertThat(repository.cancel(List.of(pendingId, scheduledId))).isEqualTo(1);
+      assertThat(repository.findById(pendingId)).isEmpty();
+      assertThat(repository.findById(scheduledId)).isPresent();
+      assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+    } finally {
+      repository.deleteAll(repository.findAllById(List.of(pendingId, scheduledId)));
+    }
   }
 
   // --- helpers ---
