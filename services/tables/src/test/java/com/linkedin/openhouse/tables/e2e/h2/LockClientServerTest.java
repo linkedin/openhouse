@@ -12,7 +12,6 @@ import com.linkedin.openhouse.tables.client.api.TableApi;
 import com.linkedin.openhouse.tables.client.invoker.ApiClient;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
-import com.linkedin.openhouse.tables.client.model.GetLockResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.client.model.LockState;
@@ -64,11 +63,7 @@ class LockClientServerTest {
 
   @BeforeEach
   void createTable() throws Exception {
-    apiClient = new ApiClient();
-    apiClient.setBasePath("http://localhost:" + port);
-    apiClient.addDefaultHeader(
-        HttpHeaders.AUTHORIZATION,
-        "Bearer " + new DummySecurityJWT(GET_TABLE_RESPONSE_BODY.getTableCreator()).buildNoopJWT());
+    apiClient = createApiClient();
     tableApi = new TableApi(apiClient);
     CreateUpdateTableRequestBody request =
         apiClient
@@ -85,13 +80,6 @@ class LockClientServerTest {
   @AfterEach
   void deleteTable() {
     if (tableCreated) {
-      GetLockResponseBody status = tableApi.getLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
-      if (status.getLockState() != null
-          && status.getLockState().getReason() == LockState.ReasonEnum.SYSTEM_ONLY) {
-        tableApi.deleteLockByReasonV1(DATABASE_ID, TABLE_ID, "SYSTEM_ONLY").block(TIMEOUT);
-      } else {
-        tableApi.deleteLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
-      }
       tableApi.deleteTableV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
     }
   }
@@ -134,8 +122,13 @@ class LockClientServerTest {
     LockState lock = response.getBody().getPolicies().getLockState();
     assertTrue(lock.getLocked());
     assertEquals(expectedReason, lock.getReason().getValue());
-    GetLockResponseBody status = tableApi.getLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
-    assertEquals(lock, status.getLockState());
+    if ("SYSTEM_ONLY".equals(expectedReason)) {
+      tableApi.deleteLockByReasonV1(DATABASE_ID, TABLE_ID, expectedReason).block(TIMEOUT);
+    } else {
+      tableApi.deleteLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
+    }
+    assertNull(
+        tableApi.getTableV1(DATABASE_ID, TABLE_ID).block(TIMEOUT).getPolicies().getLockState());
   }
 
   @ParameterizedTest
@@ -151,7 +144,7 @@ class LockClientServerTest {
         "false,400"
       },
       nullValues = "NULL")
-  void systemOnlyReadAndWriteRoundTrip(String declaration, int expectedStatus) {
+  void systemOnlyReadAndWriteRoundTrip(String declaration, int expectedStatus) throws Exception {
     GetTableResponseBody current = tableApi.getTableV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
     tableApi
         .createLockV1(
@@ -165,8 +158,12 @@ class LockClientServerTest {
     if (declaration != null) {
       apiClient.addDefaultHeader(HTTP_HEADER_ACTION_TYPE, declaration);
     }
-    GetLockResponseBody status = tableApi.getLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
-    assertEquals(LockState.ReasonEnum.SYSTEM_ONLY, status.getLockState().getReason());
+    ApiClient inspectionClient = createApiClient();
+    inspectionClient.addDefaultHeader(HTTP_HEADER_ACTION_TYPE, "SYSTEM");
+    TableApi inspectionApi = new TableApi(inspectionClient);
+    LockState lock =
+        inspectionApi.getTableV1(DATABASE_ID, TABLE_ID).block(TIMEOUT).getPolicies().getLockState();
+    assertEquals(LockState.ReasonEnum.SYSTEM_ONLY, lock.getReason());
     SnapshotApi snapshotApi = new SnapshotApi(apiClient);
     if (expectedStatus == 200) {
       current = tableApi.getTableV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
@@ -175,13 +172,13 @@ class LockClientServerTest {
               .updateTableV1(DATABASE_ID, TABLE_ID, updateRequest(current, "metadata"))
               .block(TIMEOUT);
       assertEquals("metadata", current.getTableProperties().get("lock-evaluation-write"));
-      assertEquals(status.getLockState(), current.getPolicies().getLockState());
+      assertEquals(lock, current.getPolicies().getLockState());
       current =
           snapshotApi
               .putSnapshotsV1(DATABASE_ID, TABLE_ID, snapshotRequest(current, "snapshot"))
               .block(TIMEOUT);
       assertEquals("snapshot", current.getTableProperties().get("lock-evaluation-write"));
-      assertEquals(status.getLockState(), current.getPolicies().getLockState());
+      assertEquals(lock, current.getPolicies().getLockState());
       assertEquals(tableUUID, current.getTableUUID());
     } else {
       WebClientResponseException denied =
@@ -209,8 +206,24 @@ class LockClientServerTest {
               .getRawStatusCode());
     }
     assertEquals(
-        status.getLockState(),
-        tableApi.getLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT).getLockState());
+        lock,
+        inspectionApi
+            .getTableV1(DATABASE_ID, TABLE_ID)
+            .block(TIMEOUT)
+            .getPolicies()
+            .getLockState());
+    tableApi.deleteLockByReasonV1(DATABASE_ID, TABLE_ID, "SYSTEM_ONLY").block(TIMEOUT);
+    assertNull(
+        tableApi.getTableV1(DATABASE_ID, TABLE_ID).block(TIMEOUT).getPolicies().getLockState());
+  }
+
+  private ApiClient createApiClient() throws Exception {
+    ApiClient client = new ApiClient();
+    client.setBasePath("http://localhost:" + port);
+    client.addDefaultHeader(
+        HttpHeaders.AUTHORIZATION,
+        "Bearer " + new DummySecurityJWT(GET_TABLE_RESPONSE_BODY.getTableCreator()).buildNoopJWT());
+    return client;
   }
 
   private CreateUpdateTableRequestBody updateRequest(GetTableResponseBody current, String value) {
