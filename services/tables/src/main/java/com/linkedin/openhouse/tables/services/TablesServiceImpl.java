@@ -472,16 +472,8 @@ public class TablesServiceImpl implements TablesService {
     if (lock.getReason() != reason) {
       throw lockConflict(tableDto, "The active lock reason does not match.");
     }
-    // Locks created before lifecycle guards may omit both identity fields. Recovery must explicitly
-    // acknowledge that state, and must not bypass either guard on an owned or partially owned lock.
-    boolean unrecordedSystemOnly =
-        reason == LockReason.SYSTEM_ONLY
-            && lock.getLockOwner() == null
-            && lock.getTableUUID() == null
-            && "__UNRECORDED__".equals(expectedLockOwner);
-    if (!unrecordedSystemOnly
-        && (!expectedLockOwner.equals(lock.getLockOwner())
-            || !expectedTableUUID.equals(lock.getTableUUID()))) {
+    if (!expectedLockOwner.equals(lock.getLockOwner())
+        || !expectedTableUUID.equals(lock.getTableUUID())) {
       throw lockConflict(
           tableDto, "The active lock owner or recorded table generation does not match.");
     }

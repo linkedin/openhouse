@@ -433,8 +433,7 @@ public class TablesController {
       summary = "Delete a lock by reason",
       description =
           "Requires LOCK_ADMIN and matching current table UUID, lock reason, recorded owner and generation. "
-              + "For pre-owner SYSTEM_ONLY locks only, expectedLockOwner=__UNRECORDED__ explicitly permits "
-              + "recovery when both stored owner and generation are absent. Use the legacy endpoint for LEGACY locks.",
+              + "Use the legacy endpoint for LEGACY locks.",
       tags = {"Table"})
   @ApiResponses(
       value = {
