@@ -198,8 +198,11 @@ class TablesLockServiceTest {
   @ParameterizedTest
   @CsvSource(
       value = {
-        "other-owner,current-generation", "system-only-service,old-generation",
-        "NULL,current-generation", "system-only-service,NULL"
+        "other-owner,current-generation",
+        "system-only-service,old-generation",
+        "NULL,current-generation",
+        "system-only-service,NULL",
+        "NULL,NULL"
       },
       nullValues = "NULL")
   void guardedUnlockRejectsStoredIdentityMismatch(String recordedOwner, String generation) {
