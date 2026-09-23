@@ -17,7 +17,6 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesReques
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
-import com.linkedin.openhouse.tables.api.spec.v0.response.GetLockResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
@@ -462,28 +461,6 @@ public class TablesServiceImpl implements TablesService {
       throw lockConflict(tableDto, "The active lock reason does not match.");
     }
     removeLock(tableDto);
-  }
-
-  /**
-   * Read lock status without entering the data read path, so authorized callers can inspect a
-   * SYSTEM_ONLY lock without a system-action declaration.
-   *
-   * @param databaseId
-   * @param tableId
-   * @param actingPrincipal authenticated caller requiring GET_TABLE_METADATA permission
-   * @return active lock, or a null lock state when unlocked
-   */
-  @Override
-  public GetLockResponseBody getLock(String databaseId, String tableId, String actingPrincipal) {
-    TableDto tableDto =
-        openHouseInternalRepository
-            .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
-            .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
-    authorizationUtils.checkTablePrivilege(
-        tableDto, actingPrincipal, Privileges.GET_TABLE_METADATA);
-    return GetLockResponseBody.builder()
-        .lockState(isTableLocked(tableDto) ? tableDto.getPolicies().getLockState() : null)
-        .build();
   }
 
   private static EntityConcurrentModificationException lockConflict(

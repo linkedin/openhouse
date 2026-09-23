@@ -11,7 +11,6 @@ import com.linkedin.openhouse.tables.client.api.TableApi;
 import com.linkedin.openhouse.tables.client.invoker.ApiClient;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
-import com.linkedin.openhouse.tables.client.model.GetLockResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.LockState;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
@@ -79,13 +78,6 @@ class LockClientServerTest {
   @AfterEach
   void deleteTable() {
     if (tableCreated) {
-      GetLockResponseBody status = tableApi.getLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
-      if (status.getLockState() != null
-          && status.getLockState().getReason() == LockState.ReasonEnum.SYSTEM_ONLY) {
-        tableApi.deleteLockByReasonV1(DATABASE_ID, TABLE_ID, "SYSTEM_ONLY").block(TIMEOUT);
-      } else {
-        tableApi.deleteLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
-      }
       tableApi.deleteTableV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
     }
   }
@@ -128,8 +120,13 @@ class LockClientServerTest {
     LockState lock = response.getBody().getPolicies().getLockState();
     assertTrue(lock.getLocked());
     assertEquals(expectedReason, lock.getReason().getValue());
-    GetLockResponseBody status = tableApi.getLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
-    assertEquals(lock, status.getLockState());
+    if ("SYSTEM_ONLY".equals(expectedReason)) {
+      tableApi.deleteLockByReasonV1(DATABASE_ID, TABLE_ID, expectedReason).block(TIMEOUT);
+    } else {
+      tableApi.deleteLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
+    }
+    assertNull(
+        tableApi.getTableV1(DATABASE_ID, TABLE_ID).block(TIMEOUT).getPolicies().getLockState());
   }
 
   @TestConfiguration
