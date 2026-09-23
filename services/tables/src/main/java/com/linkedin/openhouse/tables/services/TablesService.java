@@ -5,7 +5,6 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequest
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
-import com.linkedin.openhouse.tables.api.spec.v0.response.GetLockResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.List;
@@ -174,16 +173,6 @@ public interface TablesService {
    * @param actingPrincipal authenticated caller requiring LOCK_ADMIN permission
    */
   void deleteLock(String databaseId, String tableId, LockReason reason, String actingPrincipal);
-
-  /**
-   * Read lock metadata with GET_TABLE_METADATA authorization, without the table data read path.
-   *
-   * @param databaseId
-   * @param tableId
-   * @param actingPrincipal authenticated caller requiring GET_TABLE_METADATA permission
-   * @return active lock, or a null lock state when unlocked
-   */
-  GetLockResponseBody getLock(String databaseId, String tableId, String actingPrincipal);
 
   /**
    * Given a databaseId, return a paginated list of soft deleted {@link TableDto}s.

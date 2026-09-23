@@ -157,7 +157,6 @@ class TablesLockServiceTest {
     assertThrows(
         NoSuchUserTableException.class,
         () -> service.deleteLock("db", "table", LockReason.SYSTEM_ONLY, OWNER));
-    assertThrows(NoSuchUserTableException.class, () -> service.getLock("db", "table", OWNER));
   }
 
   @Test
@@ -198,7 +197,7 @@ class TablesLockServiceTest {
   }
 
   @Test
-  void reasonTargetedUnlockAndStatusPreserveAuthorizationChecks() {
+  void reasonTargetedUnlockPreservesAuthorizationChecks() {
     withLock(systemOnlyLock());
     doThrow(new AccessDeniedException("denied"))
         .when(service.authorizationUtils)
@@ -206,14 +205,8 @@ class TablesLockServiceTest {
     assertThrows(
         AccessDeniedException.class,
         () -> service.deleteLock("db", "table", LockReason.SYSTEM_ONLY, OWNER));
-    assertEquals(
-        table.getPolicies().getLockState(), service.getLock("db", "table", OWNER).getLockState());
-    verify(service.authorizationUtils)
-        .checkTablePrivilege(table, OWNER, Privileges.GET_TABLE_METADATA);
-    doThrow(new AccessDeniedException("denied"))
-        .when(service.authorizationUtils)
-        .checkTablePrivilege(table, OWNER, Privileges.GET_TABLE_METADATA);
-    assertThrows(AccessDeniedException.class, () -> service.getLock("db", "table", OWNER));
+    verify(service.authorizationUtils).checkLockTablePrivilege(table, OWNER, Privileges.LOCK_ADMIN);
+    verifyNoMoreInteractions(service.authorizationUtils);
     verify(service.openHouseInternalRepository, never()).save(any());
   }
 

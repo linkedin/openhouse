@@ -10,7 +10,6 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
-import com.linkedin.openhouse.tables.api.spec.v0.response.GetLockResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import io.swagger.v3.oas.annotations.Operation;
@@ -453,32 +452,6 @@ public class TablesController {
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
         tablesApiHandler.deleteLock(
             databaseId, tableId, reason, extractAuthenticatedUserPrincipal());
-    return new ResponseEntity<>(
-        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
-  }
-
-  @Operation(
-      summary = "Get lock status",
-      description =
-          "Read the active lock using existing GET_TABLE_METADATA authorization, without exposing data or metadata locations.",
-      tags = {"Table"})
-  @ApiResponses(
-      value = {
-        @ApiResponse(responseCode = "200", description = "lock GET: OK"),
-        @ApiResponse(responseCode = "400", description = "lock GET: BAD_REQUEST"),
-        @ApiResponse(responseCode = "401", description = "lock GET: UNAUTHORIZED"),
-        @ApiResponse(responseCode = "403", description = "lock GET: FORBIDDEN"),
-        @ApiResponse(responseCode = "404", description = "lock GET: TABLE_NOT_FOUND")
-      })
-  @GetMapping(
-      value = {"/v1/databases/{databaseId}/tables/{tableId}/lock"},
-      produces = {"application/json"})
-  @Secured(value = Privileges.Privilege.GET_TABLE_METADATA)
-  public ResponseEntity<GetLockResponseBody> getLock(
-      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
-      @Parameter(description = "Table ID", required = true) @PathVariable String tableId) {
-    com.linkedin.openhouse.common.api.spec.ApiResponse<GetLockResponseBody> apiResponse =
-        tablesApiHandler.getLock(databaseId, tableId, extractAuthenticatedUserPrincipal());
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

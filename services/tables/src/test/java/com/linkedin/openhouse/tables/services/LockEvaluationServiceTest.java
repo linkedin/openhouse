@@ -216,7 +216,6 @@ class LockEvaluationServiceTest {
         RequestValidationFailureException.class, () -> tables.getTable("db", "table", "owner"));
     assertThrows(
         RequestValidationFailureException.class, () -> tables.putTable(request(), "owner", false));
-    assertNotNull(tables.getLock("db", "table", "owner").getLockState());
     lock("NONE");
     assertSame(current, tables.getTable("db", "table", "owner"));
   }
@@ -253,10 +252,8 @@ class LockEvaluationServiceTest {
   }
 
   @Test
-  void statusGrantUnlockAndDropKeepTheirOwnControls() {
+  void grantUnlockAndDropKeepTheirOwnControls() {
     lock("SYSTEM_ONLY");
-    declaration(null);
-    assertNotNull(tables.getLock("db", "table", "owner").getLockState());
     declaration("SYSTEM");
     assertThrows(
         UnsupportedClientOperationException.class,
