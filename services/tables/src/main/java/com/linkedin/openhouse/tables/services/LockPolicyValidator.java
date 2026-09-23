@@ -10,11 +10,12 @@ import com.linkedin.openhouse.tables.model.TableDto;
 final class LockPolicyValidator {
   private LockPolicyValidator() {}
 
+  /** Preserve active SYSTEM_ONLY locks and reject changes outside the lock lifecycle API. */
   static TableDto prepare(TableDto current, TableDto mapped) {
     LockState existing = lockState(current);
     LockState requested = lockState(mapped);
-    boolean existingSystemOnly = isSystemOnly(existing);
-    if ((existingSystemOnly || isSystemOnly(requested))
+    boolean existingSystemOnly = isActiveSystemOnly(existing);
+    if ((existingSystemOnly || isActiveSystemOnly(requested))
         && requested != null
         && !requested.equals(existing)) {
       throw new RequestValidationFailureException(
@@ -34,7 +35,7 @@ final class LockPolicyValidator {
     return table == null || table.getPolicies() == null ? null : table.getPolicies().getLockState();
   }
 
-  private static boolean isSystemOnly(LockState lock) {
-    return lock != null && lock.getReason() == LockReason.SYSTEM_ONLY;
+  private static boolean isActiveSystemOnly(LockState lock) {
+    return lock != null && lock.isLocked() && lock.getReason() == LockReason.SYSTEM_ONLY;
   }
 }

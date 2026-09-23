@@ -66,8 +66,6 @@ class SystemOnlyLockPolicyServiceTest {
         LockState.builder()
             .locked(true)
             .reason(LockReason.SYSTEM_ONLY)
-            .lockOwner("owner")
-            .tableUUID("uuid")
             .message("original")
             .creationTime(123)
             .build();
@@ -103,42 +101,18 @@ class SystemOnlyLockPolicyServiceTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"reason", "owner", "generation", "message", "time", "locked"})
+  @ValueSource(strings = {"reason", "message", "time", "locked"})
   void stagedReplaceCannotChangeAnySystemOnlyLockField(String field) {
     LockState changed;
     switch (field) {
       case "reason":
         changed = LockState.builder().locked(true).reason(LockReason.LEGACY).build();
         break;
-      case "owner":
-        changed =
-            LockState.builder()
-                .locked(true)
-                .reason(LockReason.SYSTEM_ONLY)
-                .lockOwner("other")
-                .tableUUID("uuid")
-                .message("original")
-                .creationTime(123)
-                .build();
-        break;
-      case "generation":
-        changed =
-            LockState.builder()
-                .locked(true)
-                .reason(LockReason.SYSTEM_ONLY)
-                .lockOwner("owner")
-                .tableUUID("other")
-                .message("original")
-                .creationTime(123)
-                .build();
-        break;
       case "message":
         changed =
             LockState.builder()
                 .locked(true)
                 .reason(LockReason.SYSTEM_ONLY)
-                .lockOwner("owner")
-                .tableUUID("uuid")
                 .message("changed")
                 .creationTime(123)
                 .build();
@@ -148,8 +122,6 @@ class SystemOnlyLockPolicyServiceTest {
             LockState.builder()
                 .locked(true)
                 .reason(LockReason.SYSTEM_ONLY)
-                .lockOwner("owner")
-                .tableUUID("uuid")
                 .message("original")
                 .creationTime(456)
                 .build();
@@ -159,8 +131,6 @@ class SystemOnlyLockPolicyServiceTest {
             LockState.builder()
                 .locked(false)
                 .reason(LockReason.SYSTEM_ONLY)
-                .lockOwner("owner")
-                .tableUUID("uuid")
                 .message("original")
                 .creationTime(123)
                 .build();
@@ -195,15 +165,9 @@ class SystemOnlyLockPolicyServiceTest {
 
   @ParameterizedTest
   @CsvSource({"false,false", "false,true", "true,false", "true,true"})
-  void ordinaryWritesPreserveOmittedInactiveSystemOnlyMetadata(
+  void inactiveSystemOnlyDoesNotAddPolicyPreservationRules(
       boolean snapshotWrite, boolean omitPolicies) {
-    systemOnly =
-        LockState.builder()
-            .locked(false)
-            .reason(LockReason.SYSTEM_ONLY)
-            .lockOwner("owner")
-            .tableUUID("uuid")
-            .build();
+    systemOnly = LockState.builder().locked(false).reason(LockReason.SYSTEM_ONLY).build();
     current =
         current
             .toBuilder()
@@ -212,10 +176,8 @@ class SystemOnlyLockPolicyServiceTest {
     write(
         snapshotWrite,
         request(omitPolicies ? null : Policies.builder().sharingEnabled(true).build()));
-    assertEquals(systemOnly, saved().getPolicies().getLockState());
-    if (omitPolicies) {
-      assertEquals(current.getPolicies(), saved().getPolicies());
-    }
+    Policies policies = saved().getPolicies();
+    assertNull(policies == null ? null : policies.getLockState());
   }
 
   @ParameterizedTest

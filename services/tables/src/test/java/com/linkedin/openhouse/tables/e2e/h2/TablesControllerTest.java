@@ -1632,11 +1632,9 @@ public class TablesControllerTest {
 
   @Test
   public void lockReasonIsMetadataOnly() throws Exception {
-    MvcResult created =
-        RequestAndValidateHelper.createTableAndValidateResponse(
-            GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+    RequestAndValidateHelper.createTableAndValidateResponse(
+        GET_TABLE_RESPONSE_BODY, mvc, storageManager);
     try {
-      String tableUUID = JsonPath.read(created.getResponse().getContentAsString(), "$.tableUUID");
       String tablePath =
           ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
               + "/databases/"
@@ -1646,24 +1644,15 @@ public class TablesControllerTest {
       mvc.perform(
               MockMvcRequestBuilders.post(tablePath + "/lock")
                   .contentType(MediaType.APPLICATION_JSON)
-                  .content(
-                      "{\"locked\":true,\"reason\":\"SYSTEM_ONLY\",\"expectedTableUUID\":\""
-                          + tableUUID
-                          + "\"}"))
+                  .content("{\"locked\":true,\"reason\":\"SYSTEM_ONLY\"}"))
           .andExpect(status().isCreated());
       mvc.perform(MockMvcRequestBuilders.get(tablePath))
           .andExpect(status().isOk())
           .andExpect(jsonPath("$.policies.lockState.reason").value("SYSTEM_ONLY"));
-      MvcResult lockStatus =
-          mvc.perform(MockMvcRequestBuilders.get(tablePath + "/lock"))
-              .andExpect(status().isOk())
-              .andReturn();
-      String owner =
-          JsonPath.read(lockStatus.getResponse().getContentAsString(), "$.lockState.lockOwner");
-      mvc.perform(
-              MockMvcRequestBuilders.delete(tablePath + "/lock/SYSTEM_ONLY")
-                  .param("expectedTableUUID", tableUUID)
-                  .param("expectedLockOwner", owner))
+      mvc.perform(MockMvcRequestBuilders.get(tablePath + "/lock"))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.lockState.reason").value("SYSTEM_ONLY"));
+      mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock/SYSTEM_ONLY"))
           .andExpect(status().isNoContent());
       mvc.perform(MockMvcRequestBuilders.get(tablePath))
           .andExpect(status().isOk())

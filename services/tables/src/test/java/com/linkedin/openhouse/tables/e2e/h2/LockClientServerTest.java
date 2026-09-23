@@ -55,7 +55,6 @@ class LockClientServerTest {
   private ApiClient apiClient;
   private TableApi tableApi;
   private boolean tableCreated;
-  private String tableUUID;
 
   @BeforeEach
   void createTable() throws Exception {
@@ -73,7 +72,7 @@ class LockClientServerTest {
                         GET_TABLE_RESPONSE_BODY.toBuilder().tableId(TABLE_ID).build())
                     .toJson(),
                 CreateUpdateTableRequestBody.class);
-    tableUUID = tableApi.createTableV1(DATABASE_ID, request).block(TIMEOUT).getTableUUID();
+    tableApi.createTableV1(DATABASE_ID, request).block(TIMEOUT);
     tableCreated = true;
   }
 
@@ -83,14 +82,7 @@ class LockClientServerTest {
       GetLockResponseBody status = tableApi.getLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
       if (status.getLockState() != null
           && status.getLockState().getReason() == LockState.ReasonEnum.SYSTEM_ONLY) {
-        tableApi
-            .deleteLockByReasonV1(
-                DATABASE_ID,
-                TABLE_ID,
-                "SYSTEM_ONLY",
-                status.getTableUUID(),
-                status.getLockState().getLockOwner())
-            .block(TIMEOUT);
+        tableApi.deleteLockByReasonV1(DATABASE_ID, TABLE_ID, "SYSTEM_ONLY").block(TIMEOUT);
       } else {
         tableApi.deleteLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
       }
@@ -121,10 +113,6 @@ class LockClientServerTest {
       request.reason(
           reason == null ? null : CreateUpdateLockRequestBody.ReasonEnum.fromValue(reason));
     }
-    if ("SYSTEM_ONLY".equals(reason)) {
-      request.expectedTableUUID(tableUUID);
-    }
-
     ResponseEntity<Void> created =
         tableApi.createLockV1WithHttpInfo(DATABASE_ID, TABLE_ID, request).block(TIMEOUT);
     assertNotNull(created);
@@ -141,15 +129,7 @@ class LockClientServerTest {
     assertTrue(lock.getLocked());
     assertEquals(expectedReason, lock.getReason().getValue());
     GetLockResponseBody status = tableApi.getLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
-    assertEquals(tableUUID, status.getTableUUID());
     assertEquals(lock, status.getLockState());
-    if ("SYSTEM_ONLY".equals(expectedReason)) {
-      assertEquals(GET_TABLE_RESPONSE_BODY.getTableCreator(), lock.getLockOwner());
-      assertEquals(tableUUID, lock.getTableUUID());
-    } else {
-      assertNull(lock.getLockOwner());
-      assertNull(lock.getTableUUID());
-    }
   }
 
   @TestConfiguration

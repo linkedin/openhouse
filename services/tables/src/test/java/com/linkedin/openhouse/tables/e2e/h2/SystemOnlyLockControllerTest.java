@@ -3,12 +3,12 @@ package com.linkedin.openhouse.tables.e2e.h2;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 import static org.hamcrest.Matchers.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-import com.jayway.jsonpath.JsonPath;
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor.DummySecurityJWT;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
@@ -30,7 +30,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -61,40 +60,51 @@ class SystemOnlyLockControllerTest {
   @Autowired private MockMvc mvc;
   @Autowired private OpenHouseInternalRepository repository;
   @MockBean private AuthorizationUtils authorizationUtils;
-  private String tableUUID;
 
   @BeforeEach
   void createTable() throws Exception {
     Map<String, String> properties = new HashMap<>(GET_TABLE_RESPONSE_BODY.getTableProperties());
     properties.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
-    String body =
-        mvc.perform(
-                auth(post("/v1/databases/" + DB + "/tables"))
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(
-                        buildCreateUpdateTableRequestBody(
-                                GET_TABLE_RESPONSE_BODY
-                                    .toBuilder()
-                                    .tableId(TABLE)
-                                    .tableProperties(properties)
-                                    .policies(
-                                        GET_TABLE_RESPONSE_BODY
-                                            .getPolicies()
-                                            .toBuilder()
-                                            .replication(null)
-                                            .build())
-                                    .build())
-                            .toJson()))
-            .andExpect(status().isCreated())
-            .andReturn()
-            .getResponse()
-            .getContentAsString();
-    tableUUID = JsonPath.read(body, "$.tableUUID");
+    mvc.perform(
+            auth(post("/v1/databases/" + DB + "/tables"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    buildCreateUpdateTableRequestBody(
+                            GET_TABLE_RESPONSE_BODY
+                                .toBuilder()
+                                .tableId(TABLE)
+                                .tableProperties(properties)
+                                .policies(
+                                    GET_TABLE_RESPONSE_BODY
+                                        .getPolicies()
+                                        .toBuilder()
+                                        .replication(null)
+                                        .build())
+                                .build())
+                        .toJson()))
+        .andExpect(status().isCreated());
   }
 
   @AfterEach
   void deleteTable() {
     repository.deleteById(KEY);
+  }
+
+  @Test
+  void systemOnlyCreationNeedsOnlyExistingLockFieldsAndReason() throws Exception {
+    mvc.perform(
+            auth(post(PATH + "/lock"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"locked\":true,\"reason\":\"SYSTEM_ONLY\"}"))
+        .andExpect(status().isCreated());
+  }
+
+  @Test
+  void systemOnlyUnlockNeedsOnlyReasonAndExistingAuthorization() throws Exception {
+    createSystemOnly();
+    mvc.perform(auth(delete(SYSTEM_ONLY_PATH))).andExpect(status().isNoContent());
+    verify(authorizationUtils, times(2))
+        .checkLockTablePrivilege(any(), eq(OWNER), eq(Privileges.LOCK_ADMIN));
   }
 
   @Test
@@ -105,12 +115,12 @@ class SystemOnlyLockControllerTest {
         .checkLockTablePrivilege(any(), any(), any());
     mvc.perform(auth(get(PATH + "/lock")))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$", aMapWithSize(2)))
-        .andExpect(jsonPath("$.tableUUID").value(tableUUID))
+        .andExpect(jsonPath("$", aMapWithSize(1)))
+        .andExpect(jsonPath("$.tableUUID").doesNotHaveJsonPath())
         .andExpect(jsonPath("$.lockState.locked").value(true))
         .andExpect(jsonPath("$.lockState.reason").value("SYSTEM_ONLY"))
-        .andExpect(jsonPath("$.lockState.lockOwner").value(OWNER))
-        .andExpect(jsonPath("$.lockState.tableUUID").value(tableUUID))
+        .andExpect(jsonPath("$.lockState.lockOwner").doesNotHaveJsonPath())
+        .andExpect(jsonPath("$.lockState.tableUUID").doesNotHaveJsonPath())
         .andExpect(jsonPath("$.tableLocation").doesNotExist())
         .andExpect(jsonPath("$.schema").doesNotExist());
     verify(authorizationUtils)
@@ -121,7 +131,6 @@ class SystemOnlyLockControllerTest {
   void inactiveStatusIsNullAndMissingTableIsNotFound() throws Exception {
     mvc.perform(auth(get(PATH + "/lock")))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.tableUUID").value(tableUUID))
         .andExpect(jsonPath("$.lockState").value(nullValue()));
     storeLock(LockState.builder().locked(false).build());
     mvc.perform(auth(get(PATH + "/lock")))
@@ -136,8 +145,7 @@ class SystemOnlyLockControllerTest {
     mvc.perform(auth(get(PATH + "/lock")))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.lockState.reason").value("LEGACY"))
-        .andExpect(jsonPath("$.lockState.message").value("Default"))
-        .andExpect(jsonPath("$.lockState.lockOwner").value(nullValue()));
+        .andExpect(jsonPath("$.lockState.message").value("Default"));
   }
 
   @Test
@@ -150,80 +158,44 @@ class SystemOnlyLockControllerTest {
     doThrow(new AccessDeniedException("denied"))
         .when(authorizationUtils)
         .checkLockTablePrivilege(any(), eq(OWNER), eq(Privileges.LOCK_ADMIN));
-    mvc.perform(unlock(tableUUID, OWNER)).andExpect(status().isForbidden());
+    mvc.perform(unlock()).andExpect(status().isForbidden());
   }
 
   @Test
-  void guardedUnlockWorksForAnotherLockAdminAndRetriesAreNoOps() throws Exception {
+  void reasonTargetedUnlockWorksForAnotherLockAdminAndRetriesAreNoOps() throws Exception {
     createSystemOnly();
     mvc.perform(auth(delete(PATH + "/lock"))).andExpect(status().isConflict());
     mvc.perform(
             delete(SYSTEM_ONLY_PATH)
-                .param("expectedTableUUID", tableUUID)
-                .param("expectedLockOwner", OWNER)
                 .header(
                     "Authorization",
                     "Bearer " + new DummySecurityJWT("another-admin").buildNoopJWT()))
         .andExpect(status().isNoContent());
     String location = repository.findById(KEY).get().getTableLocation();
-    mvc.perform(unlock(tableUUID, OWNER)).andExpect(status().isNoContent());
+    mvc.perform(unlock()).andExpect(status().isNoContent());
     assertEquals(location, repository.findById(KEY).get().getTableLocation());
-    mvc.perform(unlock("previous-generation", OWNER)).andExpect(status().isConflict());
   }
 
   @Test
-  void guardedUnlockRejectsWrongReasonOwnerOrGeneration() throws Exception {
+  void reasonTargetedUnlockRejectsWrongReason() throws Exception {
     createSystemOnly();
-    mvc.perform(unlock(tableUUID, "wrong-owner")).andExpect(status().isConflict());
-    mvc.perform(unlock("previous-generation", OWNER)).andExpect(status().isConflict());
-    mvc.perform(
-            auth(delete(PATH + "/lock/LEGACY"))
-                .param("expectedTableUUID", tableUUID)
-                .param("expectedLockOwner", OWNER))
-        .andExpect(status().isConflict());
-    mvc.perform(unlock(tableUUID, "__UNRECORDED__")).andExpect(status().isConflict());
-    mvc.perform(unlock(tableUUID, OWNER)).andExpect(status().isNoContent());
-  }
-
-  @ParameterizedTest
-  @CsvSource(
-      value = {"NULL,owner", "uuid,NULL", "'',owner", "uuid,''", "' ',owner", "uuid,' '"},
-      nullValues = "NULL")
-  void absentOrBlankGuardsAreBadRequests(String generation, String owner) throws Exception {
-    MockHttpServletRequestBuilder request = auth(delete(SYSTEM_ONLY_PATH));
-    if (generation != null) {
-      request.param("expectedTableUUID", generation);
-    }
-    if (owner != null) {
-      request.param("expectedLockOwner", owner);
-    }
-    mvc.perform(request).andExpect(status().isBadRequest());
+    mvc.perform(auth(delete(PATH + "/lock/LEGACY"))).andExpect(status().isConflict());
+    mvc.perform(unlock()).andExpect(status().isNoContent());
   }
 
   @Test
-  void malformedReasonAndMissingSystemOnlyGenerationAreBadRequests() throws Exception {
-    mvc.perform(
-            auth(delete(PATH + "/lock/UNKNOWN"))
-                .param("expectedTableUUID", tableUUID)
-                .param("expectedLockOwner", OWNER))
-        .andExpect(status().isBadRequest());
-    mvc.perform(
-            auth(post(PATH + "/lock"))
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"locked\":true,\"reason\":\"SYSTEM_ONLY\"}"))
-        .andExpect(status().isBadRequest());
+  void malformedReasonIsABadRequest() throws Exception {
+    mvc.perform(auth(delete(PATH + "/lock/UNKNOWN"))).andExpect(status().isBadRequest());
   }
 
   @Test
-  void missingLockIdentityCannotBypassGuardedUnlock() throws Exception {
+  void systemOnlyReasonCanBeUnlockedWithoutAdditionalMetadata() throws Exception {
     storeLock(LockState.builder().locked(true).reason(LockReason.SYSTEM_ONLY).build());
     mvc.perform(auth(delete(PATH + "/lock"))).andExpect(status().isConflict());
-    mvc.perform(unlock(tableUUID, OWNER)).andExpect(status().isConflict());
-    mvc.perform(unlock("previous-generation", "__UNRECORDED__")).andExpect(status().isConflict());
-    mvc.perform(unlock(tableUUID, "__UNRECORDED__")).andExpect(status().isConflict());
+    mvc.perform(unlock()).andExpect(status().isNoContent());
     mvc.perform(auth(get(PATH + "/lock")))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.lockState.locked").value(true));
+        .andExpect(jsonPath("$.lockState").value(nullValue()));
   }
 
   @ParameterizedTest
@@ -251,8 +223,8 @@ class SystemOnlyLockControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(request.toJson()))
         .andExpect(status().isCreated())
-        .andExpect(jsonPath("$.policies.lockState.lockOwner").value(OWNER))
-        .andExpect(jsonPath("$.policies.lockState.tableUUID").value(tableUUID));
+        .andExpect(jsonPath("$.policies.lockState.reason").value("SYSTEM_ONLY"))
+        .andExpect(jsonPath("$.policies.lockState.locked").value(true));
     assertEquals(current.getPolicies(), repository.findById(KEY).get().getPolicies());
   }
 
@@ -305,14 +277,8 @@ class SystemOnlyLockControllerTest {
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void ordinaryWritesCannotEraseOmittedSystemOnlyMetadata(boolean snapshotWrite) throws Exception {
-    storeLock(
-        LockState.builder()
-            .locked(false)
-            .reason(LockReason.SYSTEM_ONLY)
-            .lockOwner(OWNER)
-            .tableUUID(tableUUID)
-            .build());
+  void inactiveSystemOnlyUsesOrdinaryPolicyUpdates(boolean snapshotWrite) throws Exception {
+    storeLock(LockState.builder().locked(false).reason(LockReason.SYSTEM_ONLY).build());
     TableDto current = repository.findById(KEY).get();
     CreateUpdateTableRequestBody request =
         buildCreateUpdateTableRequestBody(current).toBuilder().policies(null).build();
@@ -321,7 +287,8 @@ class SystemOnlyLockControllerTest {
             ? put(PATH + "/iceberg/v2/snapshots").content(snapshots(request).toJson())
             : put(PATH).content(request.toJson());
     mvc.perform(auth(write).contentType(MediaType.APPLICATION_JSON)).andExpect(status().isOk());
-    assertEquals(current.getPolicies(), repository.findById(KEY).get().getPolicies());
+    Policies policies = repository.findById(KEY).get().getPolicies();
+    assertNull(policies == null ? null : policies.getLockState());
   }
 
   private IcebergSnapshotsRequestBody snapshots(CreateUpdateTableRequestBody request) {
@@ -336,10 +303,7 @@ class SystemOnlyLockControllerTest {
     mvc.perform(
             auth(post(PATH + "/lock"))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    "{\"locked\":true,\"reason\":\"SYSTEM_ONLY\",\"expectedTableUUID\":\""
-                        + tableUUID
-                        + "\",\"lockOwner\":\"spoofed-owner\"}"))
+                .content("{\"locked\":true,\"reason\":\"SYSTEM_ONLY\"}"))
         .andExpect(status().isCreated());
   }
 
@@ -355,10 +319,8 @@ class SystemOnlyLockControllerTest {
             .build());
   }
 
-  private MockHttpServletRequestBuilder unlock(String generation, String owner) throws Exception {
-    return auth(delete(SYSTEM_ONLY_PATH))
-        .param("expectedTableUUID", generation)
-        .param("expectedLockOwner", owner);
+  private MockHttpServletRequestBuilder unlock() throws Exception {
+    return auth(delete(SYSTEM_ONLY_PATH));
   }
 
   private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request)
