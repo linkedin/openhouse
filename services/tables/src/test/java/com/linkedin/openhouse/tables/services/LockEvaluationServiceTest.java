@@ -247,7 +247,9 @@ class LockEvaluationServiceTest {
     declaration(null);
     assertSame(current, tables.getTable("db", "table", "owner"));
     tables.putTable(request(), "owner", false);
-    assertSavedLocks(1);
+    ArgumentCaptor<TableDto> saved = ArgumentCaptor.forClass(TableDto.class);
+    verify(repository).save(saved.capture());
+    assertNull(saved.getValue().getPolicies());
   }
 
   @Test
@@ -273,13 +275,11 @@ class LockEvaluationServiceTest {
         () -> tables.deleteLock("db", "table", "owner"));
     assertThrows(
         EntityConcurrentModificationException.class,
-        () ->
-            tables.deleteLock(
-                "db", "table", LockReason.SYSTEM_ONLY, "uuid", "wrong-owner", "owner"));
+        () -> tables.deleteLock("db", "table", LockReason.LEGACY, "owner"));
     permissions.remove(Privileges.LOCK_ADMIN);
     assertThrows(
         AccessDeniedException.class,
-        () -> tables.deleteLock("db", "table", LockReason.SYSTEM_ONLY, "uuid", "owner", "owner"));
+        () -> tables.deleteLock("db", "table", LockReason.SYSTEM_ONLY, "owner"));
     permissions.remove(Privileges.DELETE_TABLE);
     assertThrows(AccessDeniedException.class, () -> tables.deleteTable("db", "table", "owner"));
     verify(repository, never()).save(any());
@@ -297,8 +297,6 @@ class LockEvaluationServiceTest {
                         .locked(true)
                         .reason(LockReason.valueOf(reason))
                         .message("maintenance in progress")
-                        .lockOwner("owner")
-                        .tableUUID("uuid")
                         .creationTime(123)
                         .build())
                 .build();

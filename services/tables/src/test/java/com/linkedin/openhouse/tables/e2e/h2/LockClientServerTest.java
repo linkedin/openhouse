@@ -88,14 +88,7 @@ class LockClientServerTest {
       GetLockResponseBody status = tableApi.getLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
       if (status.getLockState() != null
           && status.getLockState().getReason() == LockState.ReasonEnum.SYSTEM_ONLY) {
-        tableApi
-            .deleteLockByReasonV1(
-                DATABASE_ID,
-                TABLE_ID,
-                "SYSTEM_ONLY",
-                status.getTableUUID(),
-                status.getLockState().getLockOwner())
-            .block(TIMEOUT);
+        tableApi.deleteLockByReasonV1(DATABASE_ID, TABLE_ID, "SYSTEM_ONLY").block(TIMEOUT);
       } else {
         tableApi.deleteLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
       }
@@ -126,10 +119,6 @@ class LockClientServerTest {
       request.reason(
           reason == null ? null : CreateUpdateLockRequestBody.ReasonEnum.fromValue(reason));
     }
-    if ("SYSTEM_ONLY".equals(reason)) {
-      request.expectedTableUUID(tableUUID);
-    }
-
     ResponseEntity<Void> created =
         tableApi.createLockV1WithHttpInfo(DATABASE_ID, TABLE_ID, request).block(TIMEOUT);
     assertNotNull(created);
@@ -146,15 +135,7 @@ class LockClientServerTest {
     assertTrue(lock.getLocked());
     assertEquals(expectedReason, lock.getReason().getValue());
     GetLockResponseBody status = tableApi.getLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
-    assertEquals(tableUUID, status.getTableUUID());
     assertEquals(lock, status.getLockState());
-    if ("SYSTEM_ONLY".equals(expectedReason)) {
-      assertEquals(GET_TABLE_RESPONSE_BODY.getTableCreator(), lock.getLockOwner());
-      assertEquals(tableUUID, lock.getTableUUID());
-    } else {
-      assertNull(lock.getLockOwner());
-      assertNull(lock.getTableUUID());
-    }
   }
 
   @ParameterizedTest
@@ -179,14 +160,13 @@ class LockClientServerTest {
             new CreateUpdateLockRequestBody()
                 .locked(true)
                 .reason(CreateUpdateLockRequestBody.ReasonEnum.SYSTEM_ONLY)
-                .expectedTableUUID(tableUUID)
                 .message("maintenance in progress"))
         .block(TIMEOUT);
     if (declaration != null) {
       apiClient.addDefaultHeader(HTTP_HEADER_ACTION_TYPE, declaration);
     }
     GetLockResponseBody status = tableApi.getLockV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
-    assertEquals(tableUUID, status.getTableUUID());
+    assertEquals(LockState.ReasonEnum.SYSTEM_ONLY, status.getLockState().getReason());
     SnapshotApi snapshotApi = new SnapshotApi(apiClient);
     if (expectedStatus == 200) {
       current = tableApi.getTableV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);

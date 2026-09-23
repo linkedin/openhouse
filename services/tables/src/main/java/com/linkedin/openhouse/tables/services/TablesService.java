@@ -156,7 +156,7 @@ public interface TablesService {
 
   /**
    * Delete a table lock represented by databaseId and tableId if actingPrincipal has the right
-   * privilege. This unguarded overload only removes LEGACY locks.
+   * privilege. This overload only removes LEGACY locks.
    *
    * @param databaseId
    * @param tableId
@@ -165,23 +165,15 @@ public interface TablesService {
   void deleteLock(String databaseId, String tableId, String actingPrincipal);
 
   /**
-   * Remove a lock only when its reason, recorded owner and table generation match. An inactive lock
-   * is a no-op only when the expected current generation matches.
+   * Remove a lock only when its reason matches, using existing lock authorization. An inactive lock
+   * is a no-op.
    *
    * @param databaseId
    * @param tableId
    * @param reason expected lock reason
-   * @param expectedTableUUID expected current and recorded table generation
-   * @param expectedLockOwner expected recorded lock owner
    * @param actingPrincipal authenticated caller requiring LOCK_ADMIN permission
    */
-  void deleteLock(
-      String databaseId,
-      String tableId,
-      LockReason reason,
-      String expectedTableUUID,
-      String expectedLockOwner,
-      String actingPrincipal);
+  void deleteLock(String databaseId, String tableId, LockReason reason, String actingPrincipal);
 
   /**
    * Read lock metadata with GET_TABLE_METADATA authorization, without the table data read path.
@@ -189,7 +181,7 @@ public interface TablesService {
    * @param databaseId
    * @param tableId
    * @param actingPrincipal authenticated caller requiring GET_TABLE_METADATA permission
-   * @return current table generation and active lock, or a null lock state when unlocked
+   * @return active lock, or a null lock state when unlocked
    */
   GetLockResponseBody getLock(String databaseId, String tableId, String actingPrincipal);
 

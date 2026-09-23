@@ -40,12 +40,7 @@ public class MockTablesApiHandler implements TablesApiHandler {
 
   @Override
   public ApiResponse<Void> deleteLock(
-      String databaseId,
-      String tableId,
-      LockReason reason,
-      String expectedTableUUID,
-      String expectedLockOwner,
-      String actingPrincipal) {
+      String databaseId, String tableId, LockReason reason, String actingPrincipal) {
     return null;
   }
 

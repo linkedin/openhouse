@@ -9,10 +9,6 @@ import lombok.Value;
 @Builder
 @Value
 public class GetLockResponseBody {
-  @Schema(description = "Current table generation.")
-  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
-  private String tableUUID;
-
   @Schema(description = "Active lock, or null when the table is not locked.", nullable = true)
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private LockState lockState;
