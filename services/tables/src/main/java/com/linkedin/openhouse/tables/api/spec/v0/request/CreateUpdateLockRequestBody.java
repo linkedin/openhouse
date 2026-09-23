@@ -34,11 +34,6 @@ public class CreateUpdateLockRequestBody {
   LockReason reason;
 
   @Schema(
-      description = "Current table UUID, required when creating a SYSTEM_ONLY lock.",
-      nullable = true)
-  String expectedTableUUID;
-
-  @Schema(
       description = "lock creation epoch time measured in UTC milliseconds for a table",
       example = "1651002318265")
   @Builder.Default
