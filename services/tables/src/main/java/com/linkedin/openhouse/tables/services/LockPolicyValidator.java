@@ -27,6 +27,7 @@ final class LockPolicyValidator {
     }
   }
 
+  /** Apply legacy or SYSTEM_ONLY write restrictions after the caller's authorization succeeds. */
   static void checkWrite(TableDto table) {
     LockState lock = lockState(table);
     if (lock == null || !lock.isLocked()) {
@@ -43,6 +44,7 @@ final class LockPolicyValidator {
     }
   }
 
+  /** Preserve omitted SYSTEM_ONLY metadata and reject changes outside the lock lifecycle API. */
   static TableDto prepare(TableDto current, TableDto mapped) {
     LockState existing = lockState(current);
     LockState requested = lockState(mapped);
