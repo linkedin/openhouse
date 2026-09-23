@@ -16,7 +16,7 @@ final class LockPolicyValidator {
   /** Evaluate only after the caller's data-access authorization succeeds. */
   static void checkSystemOnlyAccess(TableDto table) {
     LockState lock = lockState(table);
-    if (isSystemOnly(lock) && lock.isLocked() && !ActionTypeContext.isSystemAction()) {
+    if (isActiveSystemOnly(lock) && !ActionTypeContext.isSystemAction()) {
       String message = lock.getMessage();
       String detail = message == null || message.trim().isEmpty() ? "" : ": " + message;
       throw new SystemOnlyLockAccessDeniedException(
@@ -33,7 +33,7 @@ final class LockPolicyValidator {
     if (lock == null || !lock.isLocked()) {
       return;
     }
-    if (isSystemOnly(lock)) {
+    if (isActiveSystemOnly(lock)) {
       checkSystemOnlyAccess(table);
     } else {
       throw new UnsupportedClientOperationException(
@@ -44,12 +44,12 @@ final class LockPolicyValidator {
     }
   }
 
-  /** Preserve omitted SYSTEM_ONLY metadata and reject changes outside the lock lifecycle API. */
+  /** Preserve active SYSTEM_ONLY locks and reject changes outside the lock lifecycle API. */
   static TableDto prepare(TableDto current, TableDto mapped) {
     LockState existing = lockState(current);
     LockState requested = lockState(mapped);
-    boolean existingSystemOnly = isSystemOnly(existing);
-    if ((existingSystemOnly || isSystemOnly(requested))
+    boolean existingSystemOnly = isActiveSystemOnly(existing);
+    if ((existingSystemOnly || isActiveSystemOnly(requested))
         && requested != null
         && !requested.equals(existing)) {
       throw new RequestValidationFailureException(
@@ -69,7 +69,7 @@ final class LockPolicyValidator {
     return table == null || table.getPolicies() == null ? null : table.getPolicies().getLockState();
   }
 
-  private static boolean isSystemOnly(LockState lock) {
-    return lock != null && lock.getReason() == LockReason.SYSTEM_ONLY;
+  private static boolean isActiveSystemOnly(LockState lock) {
+    return lock != null && lock.isLocked() && lock.getReason() == LockReason.SYSTEM_ONLY;
   }
 }

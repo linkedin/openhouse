@@ -33,7 +33,6 @@ import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
@@ -331,7 +330,7 @@ public class TablesServiceImpl implements TablesService {
   }
 
   /**
-   * Creates lock on a table if lock on table is not already set.
+   * Create or update a lock using existing authorization and matching SYSTEM_ONLY reasons.
    *
    * @param databaseId
    * @param tableId
@@ -352,21 +351,12 @@ public class TablesServiceImpl implements TablesService {
     authorizationUtils.checkLockTablePrivilege(
         tableDto, tableCreatorUpdater, Privileges.LOCK_ADMIN);
     boolean systemOnly = createUpdateLockRequestBody.getReason() == LockReason.SYSTEM_ONLY;
-    if (systemOnly) {
-      checkExpectedTableUUID(tableDto, createUpdateLockRequestBody.getExpectedTableUUID());
-      requireNonblank(tableCreatorUpdater, "actingPrincipal");
-    }
     LockState existingLock =
         tableDto.getPolicies() == null ? null : tableDto.getPolicies().getLockState();
     if (isTableLocked(tableDto)
-        && (systemOnly || existingLock.getReason() == LockReason.SYSTEM_ONLY)) {
-      if (existingLock.getReason() == createUpdateLockRequestBody.getReason()
-          && Objects.equals(existingLock.getLockOwner(), tableCreatorUpdater)
-          && Objects.equals(existingLock.getTableUUID(), tableDto.getTableUUID())) {
-        return;
-      }
-      throw lockConflict(
-          tableDto, "An active lock with a different reason, owner or generation exists.");
+        && (systemOnly || existingLock.getReason() == LockReason.SYSTEM_ONLY)
+        && existingLock.getReason() != createUpdateLockRequestBody.getReason()) {
+      throw lockConflict(tableDto, "An active lock with a different reason exists.");
     }
     // lock state from incoming request
     LockState lockState =
@@ -374,8 +364,6 @@ public class TablesServiceImpl implements TablesService {
             .locked(createUpdateLockRequestBody.isLocked())
             .message(createUpdateLockRequestBody.getMessage())
             .reason(createUpdateLockRequestBody.getReason())
-            .lockOwner(systemOnly ? tableCreatorUpdater : null)
-            .tableUUID(systemOnly ? tableDto.getTableUUID() : null)
             .expirationInDays(createUpdateLockRequestBody.getExpirationInDays())
             .creationTime(createUpdateLockRequestBody.getCreationTime())
             .build();
@@ -438,24 +426,16 @@ public class TablesServiceImpl implements TablesService {
   }
 
   /**
-   * Remove an active lock only when its reason, recorded owner and table generation match. Requests
-   * for an inactive lock still require the current table generation.
+   * Remove an active lock only when its reason matches, using existing lock authorization.
    *
    * @param databaseId
    * @param tableId
    * @param reason expected lock reason
-   * @param expectedTableUUID expected current and recorded table generation
-   * @param expectedLockOwner expected recorded lock owner
    * @param actingPrincipal authenticated caller requiring LOCK_ADMIN permission
    */
   @Override
   public void deleteLock(
-      String databaseId,
-      String tableId,
-      LockReason reason,
-      String expectedTableUUID,
-      String expectedLockOwner,
-      String actingPrincipal) {
+      String databaseId, String tableId, LockReason reason, String actingPrincipal) {
     TableDto tableDto =
         openHouseInternalRepository
             .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
@@ -465,19 +445,12 @@ public class TablesServiceImpl implements TablesService {
     if (reason == null) {
       throw new RequestValidationFailureException("reason is required.");
     }
-    requireNonblank(expectedLockOwner, "expectedLockOwner");
-    checkExpectedTableUUID(tableDto, expectedTableUUID);
     if (!isTableLocked(tableDto)) {
       return;
     }
     LockState lock = tableDto.getPolicies().getLockState();
     if (lock.getReason() != reason) {
       throw lockConflict(tableDto, "The active lock reason does not match.");
-    }
-    if (!expectedLockOwner.equals(lock.getLockOwner())
-        || !expectedTableUUID.equals(lock.getTableUUID())) {
-      throw lockConflict(
-          tableDto, "The active lock owner or recorded table generation does not match.");
     }
     removeLock(tableDto);
   }
@@ -489,7 +462,7 @@ public class TablesServiceImpl implements TablesService {
    * @param databaseId
    * @param tableId
    * @param actingPrincipal authenticated caller requiring GET_TABLE_METADATA permission
-   * @return current table generation and active lock, or a null lock state when unlocked
+   * @return active lock, or a null lock state when unlocked
    */
   @Override
   public GetLockResponseBody getLock(String databaseId, String tableId, String actingPrincipal) {
@@ -500,23 +473,8 @@ public class TablesServiceImpl implements TablesService {
     authorizationUtils.checkTablePrivilege(
         tableDto, actingPrincipal, Privileges.GET_TABLE_METADATA);
     return GetLockResponseBody.builder()
-        .tableUUID(tableDto.getTableUUID())
         .lockState(isTableLocked(tableDto) ? tableDto.getPolicies().getLockState() : null)
         .build();
-  }
-
-  private static void requireNonblank(String value, String field) {
-    if (value == null || value.trim().isEmpty()) {
-      throw new RequestValidationFailureException(field + " must be nonblank.");
-    }
-  }
-
-  private static void checkExpectedTableUUID(TableDto tableDto, String expectedTableUUID) {
-    requireNonblank(expectedTableUUID, "expectedTableUUID");
-    if (!expectedTableUUID.equals(tableDto.getTableUUID())) {
-      throw lockConflict(
-          tableDto, "expectedTableUUID does not match the current table generation.");
-    }
   }
 
   private static EntityConcurrentModificationException lockConflict(

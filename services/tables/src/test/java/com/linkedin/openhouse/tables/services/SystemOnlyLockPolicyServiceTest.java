@@ -76,8 +76,6 @@ class SystemOnlyLockPolicyServiceTest {
         LockState.builder()
             .locked(true)
             .reason(LockReason.SYSTEM_ONLY)
-            .lockOwner("owner")
-            .tableUUID("uuid")
             .message("original")
             .creationTime(123)
             .build();
@@ -113,26 +111,18 @@ class SystemOnlyLockPolicyServiceTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"reason", "owner", "generation", "message", "time", "locked"})
+  @ValueSource(strings = {"reason", "message", "time", "locked"})
   void stagedReplaceCannotChangeAnySystemOnlyLockField(String field) {
     enableSystemAction();
     LockState.LockStateBuilder changed =
         LockState.builder()
             .locked(true)
             .reason(LockReason.SYSTEM_ONLY)
-            .lockOwner("owner")
-            .tableUUID("uuid")
             .message("original")
             .creationTime(123);
     switch (field) {
       case "reason":
         changed.reason(LockReason.LEGACY);
-        break;
-      case "owner":
-        changed.lockOwner("other");
-        break;
-      case "generation":
-        changed.tableUUID("other");
         break;
       case "message":
         changed.message("changed");
@@ -175,15 +165,9 @@ class SystemOnlyLockPolicyServiceTest {
 
   @ParameterizedTest
   @CsvSource({"false,false", "false,true", "true,false", "true,true"})
-  void ordinaryWritesPreserveOmittedInactiveSystemOnlyMetadata(
+  void inactiveSystemOnlyDoesNotAddPolicyPreservationRules(
       boolean snapshotWrite, boolean omitPolicies) {
-    systemOnly =
-        LockState.builder()
-            .locked(false)
-            .reason(LockReason.SYSTEM_ONLY)
-            .lockOwner("owner")
-            .tableUUID("uuid")
-            .build();
+    systemOnly = LockState.builder().locked(false).reason(LockReason.SYSTEM_ONLY).build();
     current =
         current
             .toBuilder()
@@ -192,10 +176,8 @@ class SystemOnlyLockPolicyServiceTest {
     write(
         snapshotWrite,
         request(omitPolicies ? null : Policies.builder().sharingEnabled(true).build()));
-    assertEquals(systemOnly, saved().getPolicies().getLockState());
-    if (omitPolicies) {
-      assertEquals(current.getPolicies(), saved().getPolicies());
-    }
+    Policies policies = saved().getPolicies();
+    assertNull(policies == null ? null : policies.getLockState());
   }
 
   @ParameterizedTest

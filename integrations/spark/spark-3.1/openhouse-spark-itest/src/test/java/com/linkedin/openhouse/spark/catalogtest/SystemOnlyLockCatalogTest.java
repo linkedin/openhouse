@@ -3,7 +3,6 @@ package com.linkedin.openhouse.spark.catalogtest;
 import com.linkedin.openhouse.gen.tables.client.api.TableApi;
 import com.linkedin.openhouse.gen.tables.client.invoker.ApiClient;
 import com.linkedin.openhouse.gen.tables.client.model.CreateUpdateLockRequestBody;
-import com.linkedin.openhouse.gen.tables.client.model.GetLockResponseBody;
 import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientResponseException;
 import com.linkedin.openhouse.spark.OpenHouseCatalog;
@@ -35,7 +34,6 @@ class SystemOnlyLockCatalogTest extends OpenHouseSparkITest {
           id, new Schema(Types.NestedField.required(1, "id", Types.LongType.get())));
       Table loaded = catalog.loadTable(id);
       TableApi controls = controls(spark);
-      String uuid = controls.getTableV1(DATABASE, id.name()).block().getTableUUID();
       controls
           .createLockV1(
               DATABASE,
@@ -43,7 +41,6 @@ class SystemOnlyLockCatalogTest extends OpenHouseSparkITest {
               new CreateUpdateLockRequestBody()
                   .locked(true)
                   .reason(CreateUpdateLockRequestBody.ReasonEnum.SYSTEM_ONLY)
-                  .expectedTableUUID(uuid)
                   .message("maintenance in progress"))
           .block();
       try {
@@ -79,15 +76,7 @@ class SystemOnlyLockCatalogTest extends OpenHouseSparkITest {
         Assertions.assertDoesNotThrow(() -> maintenance.loadTable(id).refresh());
         Assertions.assertTrue(maintenance.tableExists(id));
       } finally {
-        GetLockResponseBody status = controls.getLockV1(DATABASE, id.name()).block();
-        controls
-            .deleteLockByReasonV1(
-                DATABASE,
-                id.name(),
-                "SYSTEM_ONLY",
-                status.getTableUUID(),
-                status.getLockState().getLockOwner())
-            .block();
+        controls.deleteLockByReasonV1(DATABASE, id.name(), "SYSTEM_ONLY").block();
         catalog.dropTable(id);
       }
     }
