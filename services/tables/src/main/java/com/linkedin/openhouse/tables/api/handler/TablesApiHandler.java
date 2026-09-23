@@ -8,7 +8,6 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
-import com.linkedin.openhouse.tables.api.spec.v0.response.GetLockResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import java.util.List;
 
@@ -187,17 +186,6 @@ public interface TablesApiHandler {
    */
   ApiResponse<Void> deleteLock(
       String databaseId, String tableId, LockReason reason, String actingPrincipal);
-
-  /**
-   * Read the active lock without exposing table data locations.
-   *
-   * @param databaseId
-   * @param tableId
-   * @param actingPrincipal authenticated caller requiring GET_TABLE_METADATA permission
-   * @return active lock, or a null lock state when unlocked
-   */
-  ApiResponse<GetLockResponseBody> getLock(
-      String databaseId, String tableId, String actingPrincipal);
 
   /**
    * Function to perform a paginated search on soft deleted tables in a given database ID, with

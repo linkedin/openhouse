@@ -108,53 +108,13 @@ class SystemOnlyLockControllerTest {
   }
 
   @Test
-  void statusIsMetadataOnlyAndDoesNotRequireLockAdmin() throws Exception {
+  void lockEndpointDoesNotExposeStatusRead() throws Exception {
+    mvc.perform(auth(get(PATH + "/lock"))).andExpect(status().isMethodNotAllowed());
+  }
+
+  @Test
+  void unlockKeepsExistingAuthorization() throws Exception {
     createSystemOnly();
-    doThrow(new AccessDeniedException("no lock admin"))
-        .when(authorizationUtils)
-        .checkLockTablePrivilege(any(), any(), any());
-    mvc.perform(auth(get(PATH + "/lock")))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$", aMapWithSize(1)))
-        .andExpect(jsonPath("$.tableUUID").doesNotHaveJsonPath())
-        .andExpect(jsonPath("$.lockState.locked").value(true))
-        .andExpect(jsonPath("$.lockState.reason").value("SYSTEM_ONLY"))
-        .andExpect(jsonPath("$.lockState.lockOwner").doesNotHaveJsonPath())
-        .andExpect(jsonPath("$.lockState.tableUUID").doesNotHaveJsonPath())
-        .andExpect(jsonPath("$.tableLocation").doesNotExist())
-        .andExpect(jsonPath("$.schema").doesNotExist());
-    verify(authorizationUtils)
-        .checkTablePrivilege(any(), eq(OWNER), eq(Privileges.GET_TABLE_METADATA));
-  }
-
-  @Test
-  void inactiveStatusIsNullAndMissingTableIsNotFound() throws Exception {
-    mvc.perform(auth(get(PATH + "/lock")))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.lockState").value(nullValue()));
-    storeLock(LockState.builder().locked(false).build());
-    mvc.perform(auth(get(PATH + "/lock")))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.lockState").value(nullValue()));
-    mvc.perform(auth(get(PATH + "_missing/lock"))).andExpect(status().isNotFound());
-  }
-
-  @Test
-  void statusPreservesLegacyDefaults() throws Exception {
-    storeLock(LockState.builder().locked(true).reason(null).build());
-    mvc.perform(auth(get(PATH + "/lock")))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.lockState.reason").value("LEGACY"))
-        .andExpect(jsonPath("$.lockState.message").value("Default"));
-  }
-
-  @Test
-  void statusAndUnlockKeepExistingAuthorization() throws Exception {
-    createSystemOnly();
-    doThrow(new AccessDeniedException("denied"))
-        .when(authorizationUtils)
-        .checkTablePrivilege(any(), eq(OWNER), eq(Privileges.GET_TABLE_METADATA));
-    mvc.perform(auth(get(PATH + "/lock"))).andExpect(status().isForbidden());
     doThrow(new AccessDeniedException("denied"))
         .when(authorizationUtils)
         .checkLockTablePrivilege(any(), eq(OWNER), eq(Privileges.LOCK_ADMIN));
@@ -193,9 +153,9 @@ class SystemOnlyLockControllerTest {
     storeLock(LockState.builder().locked(true).reason(LockReason.SYSTEM_ONLY).build());
     mvc.perform(auth(delete(PATH + "/lock"))).andExpect(status().isConflict());
     mvc.perform(unlock()).andExpect(status().isNoContent());
-    mvc.perform(auth(get(PATH + "/lock")))
+    mvc.perform(auth(get(PATH)))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.lockState").value(nullValue()));
+        .andExpect(jsonPath("$.policies.lockState").value(nullValue()));
   }
 
   @ParameterizedTest
