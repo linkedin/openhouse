@@ -407,8 +407,8 @@ public class TablesServiceImpl implements TablesService {
   }
 
   /**
-   * unlock the table by setting the lockState policy to null. Without a lock policy a table should
-   * be considered unlocked.
+   * Remove a LEGACY lock by setting the lockState policy to null. Reasoned locks require the
+   * reason-targeted overload.
    *
    * @param databaseId
    * @param tableId
@@ -446,6 +446,17 @@ public class TablesServiceImpl implements TablesService {
     }
   }
 
+  /**
+   * Remove an active lock only when its reason, recorded owner and table generation match. Requests
+   * for an inactive lock still require the current table generation.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param reason expected lock reason
+   * @param expectedTableUUID expected current and recorded table generation
+   * @param expectedLockOwner expected recorded lock owner
+   * @param actingPrincipal authenticated caller requiring LOCK_ADMIN permission
+   */
   @Override
   public void deleteLock(
       String databaseId,
@@ -480,6 +491,15 @@ public class TablesServiceImpl implements TablesService {
     removeLock(tableDto);
   }
 
+  /**
+   * Read lock status without entering the data read path, so authorized callers can inspect a
+   * SYSTEM_ONLY lock without a system-action declaration.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param actingPrincipal authenticated caller requiring GET_TABLE_METADATA permission
+   * @return current table generation and active lock, or a null lock state when unlocked
+   */
   @Override
   public GetLockResponseBody getLock(String databaseId, String tableId, String actingPrincipal) {
     TableDto tableDto =
