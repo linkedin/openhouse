@@ -19,6 +19,12 @@ public final class ActionTypeContext {
         : null;
   }
 
+  /**
+   * Evaluate the declaration only when an authorized operation encounters a SYSTEM_ONLY lock.
+   *
+   * @return true for SYSTEM (case-insensitive), false when the declaration is absent
+   * @throws RequestValidationFailureException when a supplied declaration is not SYSTEM
+   */
   public static boolean isSystemAction() {
     String declaration = getDeclaration();
     if (declaration == null) {

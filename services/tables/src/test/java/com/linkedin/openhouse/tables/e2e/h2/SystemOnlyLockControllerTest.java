@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.e2e.h2;
 import static com.linkedin.openhouse.tables.config.TablesMvcConstants.HTTP_HEADER_ACTION_TYPE;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 import static org.hamcrest.Matchers.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -167,8 +168,7 @@ class SystemOnlyLockControllerTest {
         .andExpect(status().isNoContent());
     String location = repository.findById(KEY).get().getTableLocation();
     mvc.perform(unlock(tableUUID, OWNER)).andExpect(status().isNoContent());
-    org.junit.jupiter.api.Assertions.assertEquals(
-        location, repository.findById(KEY).get().getTableLocation());
+    assertEquals(location, repository.findById(KEY).get().getTableLocation());
     mvc.perform(unlock("previous-generation", OWNER)).andExpect(status().isConflict());
   }
 
@@ -256,8 +256,7 @@ class SystemOnlyLockControllerTest {
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.policies.lockState.lockOwner").value(OWNER))
         .andExpect(jsonPath("$.policies.lockState.tableUUID").value(tableUUID));
-    org.junit.jupiter.api.Assertions.assertEquals(
-        current.getPolicies(), repository.findById(KEY).get().getPolicies());
+    assertEquals(current.getPolicies(), repository.findById(KEY).get().getPolicies());
   }
 
   @ParameterizedTest
@@ -279,8 +278,7 @@ class SystemOnlyLockControllerTest {
                 .content(snapshots(request).toJson()))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.message", containsString("SYSTEM_ONLY lock state")));
-    org.junit.jupiter.api.Assertions.assertEquals(
-        current.getPolicies(), repository.findById(KEY).get().getPolicies());
+    assertEquals(current.getPolicies(), repository.findById(KEY).get().getPolicies());
   }
 
   @ParameterizedTest
@@ -327,8 +325,7 @@ class SystemOnlyLockControllerTest {
             ? put(PATH + "/iceberg/v2/snapshots").content(snapshots(request).toJson())
             : put(PATH).content(request.toJson());
     mvc.perform(auth(write).contentType(MediaType.APPLICATION_JSON)).andExpect(status().isOk());
-    org.junit.jupiter.api.Assertions.assertEquals(
-        current.getPolicies(), repository.findById(KEY).get().getPolicies());
+    assertEquals(current.getPolicies(), repository.findById(KEY).get().getPolicies());
   }
 
   private IcebergSnapshotsRequestBody snapshots(CreateUpdateTableRequestBody request) {
