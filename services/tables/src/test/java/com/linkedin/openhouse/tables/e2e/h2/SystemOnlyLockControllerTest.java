@@ -216,13 +216,15 @@ class SystemOnlyLockControllerTest {
   }
 
   @Test
-  void preOwnerSystemOnlyHasExplicitGuardedRecovery() throws Exception {
+  void missingLockIdentityCannotBypassGuardedUnlock() throws Exception {
     storeLock(LockState.builder().locked(true).reason(LockReason.SYSTEM_ONLY).build());
     mvc.perform(auth(delete(PATH + "/lock"))).andExpect(status().isConflict());
     mvc.perform(unlock(tableUUID, OWNER)).andExpect(status().isConflict());
     mvc.perform(unlock("previous-generation", "__UNRECORDED__")).andExpect(status().isConflict());
-    mvc.perform(unlock(tableUUID, "__UNRECORDED__")).andExpect(status().isNoContent());
-    mvc.perform(unlock(tableUUID, "__UNRECORDED__")).andExpect(status().isNoContent());
+    mvc.perform(unlock(tableUUID, "__UNRECORDED__")).andExpect(status().isConflict());
+    mvc.perform(auth(get(PATH + "/lock")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.lockState.locked").value(true));
   }
 
   @ParameterizedTest
