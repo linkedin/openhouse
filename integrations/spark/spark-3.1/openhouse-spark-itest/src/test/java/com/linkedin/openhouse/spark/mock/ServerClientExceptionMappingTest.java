@@ -70,6 +70,8 @@ import org.junit.jupiter.api.Test;
  * RequestValidationFailureException        → 400  → o.a.iceberg.exceptions.NoSuchTableException                        → o.a.iceberg.exceptions.BadRequestException → cleans up uncommitted files
  * IllegalArgumentException                 → 400  → o.a.iceberg.exceptions.NoSuchTableException                        → o.a.iceberg.exceptions.BadRequestException → cleans up uncommitted files
  * InvalidTableMetadataException            → 500  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → o.a.iceberg.exceptions.CommitStateUnknownException → no cleanup
+ * UnprocessableEntityException             → 422  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → o.a.iceberg.exceptions.CommitStateUnknownException → no cleanup
+ * StorageDependencyUnavailableException    → 503  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → o.a.iceberg.exceptions.CommitStateUnknownException → no cleanup
  * IllegalStateException                    → 500  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → o.a.iceberg.exceptions.CommitStateUnknownException → no cleanup
  * Exception (generic)                      → 500  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → o.a.iceberg.exceptions.CommitStateUnknownException → no cleanup
  * EntityConcurrentModificationException    → 409  → c.l.openhouse.javaclient.exception.WebClientResponseWithMessageExc  → o.a.iceberg.exceptions.CommitFailedException → retries commit, cleans up if retries exhausted

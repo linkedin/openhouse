@@ -388,6 +388,8 @@ public class TablesControllerTest {
             new AbstractMap.SimpleEntry<>(
                 "invalidtablemetadataexception", HttpStatus.INTERNAL_SERVER_ERROR.value()),
             new AbstractMap.SimpleEntry<>(
+                "storagedependencyunavailableexception", HttpStatus.SERVICE_UNAVAILABLE.value()),
+            new AbstractMap.SimpleEntry<>(
                 "illegalstateexception", HttpStatus.INTERNAL_SERVER_ERROR.value()),
             new AbstractMap.SimpleEntry<>(
                 "authorizationserviceexception", HttpStatus.SERVICE_UNAVAILABLE.value()),
