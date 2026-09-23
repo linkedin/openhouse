@@ -176,6 +176,17 @@ public interface TablesApiHandler {
    */
   ApiResponse<Void> deleteLock(String databaseId, String tableId, String tableCreatorUpdator);
 
+  /**
+   * Remove a table lock only when its reason, recorded owner and table generation match.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param reason expected lock reason
+   * @param expectedTableUUID expected current and recorded table generation
+   * @param expectedLockOwner expected recorded lock owner
+   * @param actingPrincipal authenticated caller requiring LOCK_ADMIN permission
+   * @return empty body when the matching lock is removed or already inactive
+   */
   ApiResponse<Void> deleteLock(
       String databaseId,
       String tableId,
@@ -184,6 +195,14 @@ public interface TablesApiHandler {
       String expectedLockOwner,
       String actingPrincipal);
 
+  /**
+   * Read the current table generation and active lock without exposing table data locations.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param actingPrincipal authenticated caller requiring GET_TABLE_METADATA permission
+   * @return current table generation and active lock, or a null lock state when unlocked
+   */
   ApiResponse<GetLockResponseBody> getLock(
       String databaseId, String tableId, String actingPrincipal);
 

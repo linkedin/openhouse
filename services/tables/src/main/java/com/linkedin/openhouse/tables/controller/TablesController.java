@@ -445,14 +445,18 @@ public class TablesController {
         @ApiResponse(responseCode = "409", description = "Lock or generation conflict")
       })
   @DeleteMapping(
-      value = "/v1/databases/{databaseId}/tables/{tableId}/lock/{reason}",
-      produces = "application/json")
+      value = {"/v1/databases/{databaseId}/tables/{tableId}/lock/{reason}"},
+      produces = {"application/json"})
   public ResponseEntity<Void> deleteLockByReason(
-      @PathVariable String databaseId,
-      @PathVariable String tableId,
-      @PathVariable LockReason reason,
-      @RequestParam String expectedTableUUID,
-      @RequestParam String expectedLockOwner) {
+      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
+      @Parameter(description = "Table ID", required = true) @PathVariable String tableId,
+      @Parameter(description = "Expected lock reason", required = true) @PathVariable
+          LockReason reason,
+      @Parameter(description = "Expected current and recorded table generation", required = true)
+          @RequestParam
+          String expectedTableUUID,
+      @Parameter(description = "Expected recorded lock owner", required = true) @RequestParam
+          String expectedLockOwner) {
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
         tablesApiHandler.deleteLock(
             databaseId,
@@ -479,11 +483,12 @@ public class TablesController {
         @ApiResponse(responseCode = "404", description = "Table not found")
       })
   @GetMapping(
-      value = "/v1/databases/{databaseId}/tables/{tableId}/lock",
-      produces = "application/json")
+      value = {"/v1/databases/{databaseId}/tables/{tableId}/lock"},
+      produces = {"application/json"})
   @Secured(value = Privileges.Privilege.GET_TABLE_METADATA)
   public ResponseEntity<GetLockResponseBody> getLock(
-      @PathVariable String databaseId, @PathVariable String tableId) {
+      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
+      @Parameter(description = "Table ID", required = true) @PathVariable String tableId) {
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetLockResponseBody> apiResponse =
         tablesApiHandler.getLock(databaseId, tableId, extractAuthenticatedUserPrincipal());
     return new ResponseEntity<>(

@@ -164,7 +164,17 @@ public interface TablesService {
    */
   void deleteLock(String databaseId, String tableId, String actingPrincipal);
 
-  /** Remove a lock only when its reason, recorded owner and table generation match. */
+  /**
+   * Remove a lock only when its reason, recorded owner and table generation match. An inactive lock
+   * is a no-op only when the expected current generation matches.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param reason expected lock reason
+   * @param expectedTableUUID expected current and recorded table generation
+   * @param expectedLockOwner expected recorded lock owner
+   * @param actingPrincipal authenticated caller requiring LOCK_ADMIN permission
+   */
   void deleteLock(
       String databaseId,
       String tableId,
@@ -173,7 +183,14 @@ public interface TablesService {
       String expectedLockOwner,
       String actingPrincipal);
 
-  /** Read lock metadata with GET_TABLE_METADATA authorization, without the table data read path. */
+  /**
+   * Read lock metadata with GET_TABLE_METADATA authorization, without the table data read path.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param actingPrincipal authenticated caller requiring GET_TABLE_METADATA permission
+   * @return current table generation and active lock, or a null lock state when unlocked
+   */
   GetLockResponseBody getLock(String databaseId, String tableId, String actingPrincipal);
 
   /**
