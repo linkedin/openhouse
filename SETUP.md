@@ -620,22 +620,13 @@ services/jobs/src/test/http/.
 
 #### Snapshots expiration on system-only locked tables
 
-Before applying `SYSTEM_ONLY` locks, configure **both** request paths:
+Before applying `SYSTEM_ONLY` locks, enable both request paths (off by default):
 
-1. Run `JobsScheduler` with `--type SNAPSHOTS_EXPIRATION --systemAction`. The flag is off by default
-   and rejected for every other job type, including OFD. It enables the scheduler's own
-   `X-OpenHouse-Action-Type: SYSTEM` header for metadata discovery, including parallel fetching,
-   **before** Spark jobs launch. Keep the scheduler's existing `--tokenFile` authentication.
-2. Set `"spark.sql.catalog.openhouse.action-type": "SYSTEM"` in the SE job's `spark-properties`,
-   merging existing Spark defaults. The [local Hadoop/Spark recipe](infra/recipes/docker-compose/oh-hadoop-spark/jobs.yaml)
-   does this only for SE. The scheduler flag does not set this Spark property. Deploy an OpenHouse
-   catalog runtime that supports it, and preserve the job's catalog auth token and table-owner
-   proxy user; neither opt-in grants ACL permissions or bypasses legacy locks.
+1. Run `JobsScheduler` with `--type SNAPSHOTS_EXPIRATION --systemAction` for its metadata requests.
+2. Set `"spark.sql.catalog.openhouse.action-type": "SYSTEM"` in the SE job's `spark-properties`.
+   See the [local recipe](infra/recipes/docker-compose/oh-hadoop-spark/jobs.yaml); configure deployed jobs separately.
 
-Production job configuration is external: `OPENHOUSE_JOBS_CONFIG_PATH` selects the Jobs Service YAML,
-defaulting to `/var/config/jobs.yaml`. Changing this Docker recipe is **not** a production rollout.
-Validate both paths with the deployed scheduler and catalog before locking the cohort.
-Other maintenance jobs, cleanup orchestration, and replication rollout are outside this opt-in's scope.
+Keep existing authentication, ACLs, and table-owner impersonation; neither setting bypasses them.
 
 ### Test batched orphan file deletion through job-scheduler
 
