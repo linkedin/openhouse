@@ -635,9 +635,7 @@ Before applying `SYSTEM_ONLY` locks, configure **both** request paths:
 Production job configuration is external: `OPENHOUSE_JOBS_CONFIG_PATH` selects the Jobs Service YAML,
 defaulting to `/var/config/jobs.yaml`. Changing this Docker recipe is **not** a production rollout.
 Validate both paths with the deployed scheduler and catalog before locking the cohort.
-The actual Purger launcher/artifact is absent from this public checkout and remains deferred;
-OFD is not a substitute and its opt-in is also deferred. DLM/guarded DROP and replication rollout
-are separate work.
+Other maintenance jobs, cleanup orchestration, and replication rollout are outside this opt-in's scope.
 
 ### Test batched orphan file deletion through job-scheduler
 
