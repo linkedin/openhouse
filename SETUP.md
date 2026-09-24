@@ -59,7 +59,11 @@ reproduction. No staging access, service Docker image, Spark, or HTTP listener i
 For a Git worktree, add `-x CopyGitHooksTask`: the existing hook-copy task assumes `.git`
 is a directory. This excludes only hook installation, not tests. MySQL tests are tagged
 `mysql-index` and run **only** through `mysqlIndexTest`; ordinary unit runs do not start Docker.
-CI runners that require the database index contract should run both commands.
+GitHub Actions runs `mysqlIndexTest` explicitly after the normal Gradle build, before
+starting the separate Compose deployment suite. Testcontainers supplies its own disposable
+MySQL instance; the runner needs Docker, not a preinstalled MySQL server.
+The Python deployment suite uses `/v1/hts/views/query` and reads every page before cleanup;
+its offline helper tests and deployed multi-page regression also run in Actions.
 The image defaults to `mysql:8.4.11`; use `-PmysqlIndexImage=mysql:<version>` to check another
 supported MySQL 8 version.
 
