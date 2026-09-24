@@ -23,6 +23,9 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew clean build
 
+      - name: Run HouseTables MySQL Index Tests
+        run: ./gradlew :services:housetables:mysqlIndexTest
+
       # The MySQL-backed variant of oh-only. It costs one extra container and lets the
       # House Tables tests below reach the database directly, which is the only way to
       # cover a legacy NULL entity_type and to read the column back after a restore.
@@ -53,6 +56,9 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r scripts/python/requirements.txt
+
+      - name: Test HouseTables Deployment Helpers
+        run: python -m unittest discover -s scripts/python -p test_hts_integration_helpers.py -v
 
       - name: Run Integration Tests
         run: python scripts/python/integration_test.py ./tables-test-fixtures/tables-test-fixtures-iceberg-1.2/src/main/resources/dummy.token
