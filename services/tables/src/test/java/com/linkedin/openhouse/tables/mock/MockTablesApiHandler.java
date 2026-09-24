@@ -33,7 +33,10 @@ import org.springframework.stereotype.Component;
 public class MockTablesApiHandler implements TablesApiHandler {
   @Override
   public ApiResponse<Void> deleteLock(
-      String databaseId, String tableId, LockReason reason, String actingPrincipal) {
+      String databaseId,
+      String tableId,
+      LockReason reason,
+      String extractAuthenticatedUserPrincipal) {
     return null;
   }
 

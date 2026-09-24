@@ -208,9 +208,9 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
 
   @Override
   public ApiResponse<Void> deleteLock(
-      String databaseId, String tableId, LockReason reason, String actingPrincipal) {
+      String databaseId, String tableId, LockReason reason, String tableCreatorUpdator) {
     tablesApiValidator.validateGetTable(databaseId, tableId);
-    tableService.deleteLock(databaseId, tableId, reason, actingPrincipal);
+    tableService.deleteLock(databaseId, tableId, reason, tableCreatorUpdator);
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
   }
 
