@@ -11,7 +11,6 @@ import com.linkedin.openhouse.common.api.spec.ErrorResponseBody;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.common.audit.model.ServiceName;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
-import com.linkedin.openhouse.common.utils.ActionTypeContext;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import javax.servlet.http.HttpServletRequest;
@@ -47,6 +46,7 @@ public class ServiceAuditAspect {
       MetricsReporter.of(MetricsConstant.SERVICE_AUDIT);
 
   private static final String SESSION_ID = "session-id";
+  private static final String ACTION_TYPE = "X-OpenHouse-Action-Type";
 
   /**
    * Install the Around advice for all controller methods.
@@ -173,7 +173,7 @@ public class ServiceAuditAspect {
         .clusterName(clusterProperties.getClusterName())
         .serviceName(getServiceNameFromRequestURI(request.getRequestURI()))
         .user(extractAuthenticatedUserPrincipal())
-        .actionType(request.getHeader(ActionTypeContext.HTTP_HEADER_ACTION_TYPE))
+        .actionType(request.getHeader(ACTION_TYPE))
         .method(HttpMethod.valueOf(request.getMethod()))
         .uri(uriAndQueryString)
         .requestPayload(requestPayload)

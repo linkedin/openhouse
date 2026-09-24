@@ -6,7 +6,6 @@ import static com.linkedin.openhouse.common.security.AuthenticationUtils.extract
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.common.audit.AuditHandler;
-import com.linkedin.openhouse.common.utils.ActionTypeContext;
 import com.linkedin.openhouse.tables.api.handler.impl.OpenHouseTablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
@@ -19,6 +18,7 @@ import com.linkedin.openhouse.tables.audit.model.OperationStatus;
 import com.linkedin.openhouse.tables.audit.model.OperationType;
 import com.linkedin.openhouse.tables.audit.model.TableAuditEvent;
 import com.linkedin.openhouse.tables.config.InternalCatalogProperties;
+import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -38,6 +38,9 @@ import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 /**
  * Aspect class to support table operation auditing for all controllers. It enhances the ability of
@@ -661,10 +664,19 @@ public class TableAuditAspect {
             .toBuilder()
             .clusterName(clusterProperties.getClusterName())
             .user(extractAuthenticatedUserPrincipal())
-            .actionType(ActionTypeContext.getDeclaration())
+            .actionType(actionTypeDeclaration())
             .operationStatus(status)
             .currentTableRoot(currentTableRoot)
             .build();
     tableAuditHandler.audit(completeEvent);
+  }
+
+  private static String actionTypeDeclaration() {
+    RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
+    return attributes instanceof ServletRequestAttributes
+        ? ((ServletRequestAttributes) attributes)
+            .getRequest()
+            .getHeader(TablesMvcConstants.HTTP_HEADER_ACTION_TYPE)
+        : null;
   }
 }

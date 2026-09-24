@@ -2,11 +2,14 @@ package com.linkedin.openhouse.tables.services;
 
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.SystemOnlyLockAccessDeniedException;
-import com.linkedin.openhouse.common.utils.ActionTypeContext;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.model.TableDto;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 /** Enforces data-access lock rules and protects lock metadata outside the lifecycle API. */
 final class LockPolicyValidator {
@@ -15,7 +18,7 @@ final class LockPolicyValidator {
   /** Evaluate only after the caller's data-access authorization succeeds. */
   static void checkSystemOnlyAccess(TableDto table) {
     LockState lock = lockState(table);
-    if (isActiveSystemOnly(lock) && !ActionTypeContext.isSystemAction()) {
+    if (isActiveSystemOnly(lock) && !isSystemAction()) {
       String message = lock.getMessage();
       String detail = message == null || message.trim().isEmpty() ? "" : ": " + message;
       throw new SystemOnlyLockAccessDeniedException(
@@ -56,5 +59,24 @@ final class LockPolicyValidator {
 
   private static boolean isActiveSystemOnly(LockState lock) {
     return lock != null && lock.isLocked() && lock.getReason() == LockReason.SYSTEM_ONLY;
+  }
+
+  /** An absent declaration is not SYSTEM; any other supplied value is rejected. */
+  private static boolean isSystemAction() {
+    RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
+    String declaration =
+        attributes instanceof ServletRequestAttributes
+            ? ((ServletRequestAttributes) attributes)
+                .getRequest()
+                .getHeader(TablesMvcConstants.HTTP_HEADER_ACTION_TYPE)
+            : null;
+    if (declaration == null) {
+      return false;
+    }
+    if ("SYSTEM".equalsIgnoreCase(declaration)) {
+      return true;
+    }
+    throw new RequestValidationFailureException(
+        TablesMvcConstants.HTTP_HEADER_ACTION_TYPE + " must be SYSTEM when supplied.");
   }
 }

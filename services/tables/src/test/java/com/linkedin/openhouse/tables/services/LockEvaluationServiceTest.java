@@ -211,16 +211,27 @@ class LockEvaluationServiceTest {
     verify(repository, never()).save(any());
   }
 
-  @Test
-  void invalidDeclarationIsRejectedOnlyWhenSystemOnlyAccessIsEvaluated() {
+  @ParameterizedTest
+  @ValueSource(strings = {"", " SYSTEM", "USER"})
+  void invalidDeclarationIsRejectedOnlyWhenSystemOnlyAccessIsEvaluated(String value) {
     lock("SYSTEM_ONLY");
-    declaration("USER");
+    declaration(value);
     assertThrows(
         RequestValidationFailureException.class, () -> tables.getTable("db", "table", "owner"));
     assertThrows(
         RequestValidationFailureException.class, () -> tables.putTable(request(), "owner", false));
     lock("NONE");
     assertSame(current, tables.getTable("db", "table", "owner"));
+  }
+
+  @Test
+  void missingRequestContextIsNotSystemAction() {
+    lock("SYSTEM_ONLY");
+    RequestContextHolder.resetRequestAttributes();
+    assertSystemOnlyDenial(
+        assertThrows(
+            UnsupportedClientOperationException.class,
+            () -> tables.getTable("db", "table", "owner")));
   }
 
   @Test
