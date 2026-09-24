@@ -48,6 +48,7 @@ import org.testcontainers.containers.MySQLContainer;
 @SpringBootTest(
     classes = SpringH2HtsApplication.class,
     properties = {
+      "hts.index.capture-enabled=true",
       "spring.sql.init.mode=never",
       "spring.jpa.open-in-view=false",
       "spring.jpa.properties.hibernate.jdbc.batch_size=0",
@@ -91,6 +92,9 @@ class HtsMysqlIndexIntegrationTest {
   private JdbcTemplate jdbc;
 
   @TestConfiguration
+  @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+      name = "hts.index.capture-enabled",
+      havingValue = "true")
   static class CaptureConfiguration {
     @Bean
     static BeanPostProcessor explainDataSource() {
