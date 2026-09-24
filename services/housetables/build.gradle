@@ -50,5 +50,24 @@ dependencies {
   implementation "mysql:mysql-connector-java:8.+"
   implementation "org.jetbrains:annotations:16.0.3"
   testImplementation(testFixtures(project(':services:common')))
+  testImplementation 'org.testcontainers:mysql:1.19.8'
 }
 
+tasks.named('test') {
+  useJUnitPlatform {
+    excludeTags 'mysql-index'
+  }
+}
+
+tasks.register('mysqlIndexTest', Test) {
+  description = 'Checks actual HTS endpoint SQL plans against an isolated MySQL container'
+  group = 'verification'
+  testClassesDirs = sourceSets.test.output.classesDirs
+  classpath = sourceSets.test.runtimeClasspath
+  useJUnitPlatform {
+    includeTags 'mysql-index'
+  }
+  maxParallelForks = 1
+  systemProperty 'hts.index.reportDir', "${buildDir}/reports/mysql-index-plans"
+  systemProperty 'hts.index.mysqlImage', project.findProperty('mysqlIndexImage') ?: 'mysql:8.4.11'
+}
