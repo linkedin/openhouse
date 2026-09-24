@@ -71,8 +71,8 @@ services:
       - mysql
       - jaeger
     environment:
-      - HTS_DB_USER=oh_user
-      - HTS_DB_PASSWORD=oh_password
+      - OPENHOUSE_DB_USER=oh_user
+      - OPENHOUSE_DB_PASSWORD=oh_password
       - OTEL_SERVICE_NAME=openhouse-housetables
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf

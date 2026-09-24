@@ -12,7 +12,13 @@ import org.springframework.test.context.TestPropertySource;
 
 @SpringBootTest
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
-@TestPropertySource(properties = {"spring.datasource.hikari.maximum-pool-size=20"})
+@TestPropertySource(
+    properties = {
+      "cluster.housetables.database.type=MYSQL",
+      "cluster.metadata.database.url=jdbc:h2:mem:hts_config;MODE=MYSQL;DB_CLOSE_DELAY=-1",
+      "cluster.metadata.database.username=sa",
+      "spring.datasource.hikari.maximum-pool-size=20"
+    })
 public class HikariCpConfigTest {
 
   @Autowired private DataSource dataSource;
@@ -22,5 +28,7 @@ public class HikariCpConfigTest {
     Assertions.assertTrue(dataSource instanceof HikariDataSource);
     HikariDataSource hikariDataSource = (HikariDataSource) dataSource;
     Assertions.assertEquals(20, hikariDataSource.getMaximumPoolSize());
+    Assertions.assertEquals(
+        "jdbc:h2:mem:hts_config;MODE=MYSQL;DB_CLOSE_DELAY=-1", hikariDataSource.getJdbcUrl());
   }
 }

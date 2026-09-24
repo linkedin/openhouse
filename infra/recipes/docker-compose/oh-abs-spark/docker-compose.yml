@@ -53,8 +53,8 @@ services:
       - prometheus
       - mysql
     environment:
-      - HTS_DB_USER=oh_user
-      - HTS_DB_PASSWORD=oh_password
+      - OPENHOUSE_DB_USER=oh_user
+      - OPENHOUSE_DB_PASSWORD=oh_password
 
   prometheus:
     extends:

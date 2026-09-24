@@ -23,7 +23,7 @@ htsService:
   mysql:
     enabled: true
     secrets:
-      HTS_DB_USER: MYSQL_USER
-      HTS_DB_PASSWORD: MYSQL_PASSWORD
+      OPENHOUSE_DB_USER: MYSQL_USER
+      OPENHOUSE_DB_PASSWORD: MYSQL_PASSWORD
   command: "java -Xmx1024M -Xms128M -XX:NativeMemoryTracking=summary -cp housetables.jar -Dloader.main=com.linkedin.openhouse.HouseTablesSpringApplication org.springframework.boot.loader.PropertiesLauncher $APP_NAME.jar $@"
   appName: housetables-service

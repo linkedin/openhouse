@@ -58,33 +58,46 @@ public class ClusterProperties {
   @Value("${cluster.housetables.database.type:IN_MEMORY}")
   private String clusterHouseTablesDatabaseType;
 
-  @Value("${cluster.housetables.database.url:jdbc:h2:mem:htsdb;MODE=MYSQL;DB_CLOSE_DELAY=-1}")
-  private String clusterHouseTablesDatabaseUrl;
+  @Value("${cluster.metadata.database.url:${cluster.housetables.database.url:}}")
+  private String clusterMetadataDatabaseUrl;
 
-  @Value("${HTS_DB_USER:}")
-  private String clusterHouseTablesDatabaseUsername;
+  @Value("${cluster.metadata.database.username:${OPENHOUSE_DB_USER:${HTS_DB_USER:}}}")
+  private String clusterMetadataDatabaseUsername;
 
-  @Value("${HTS_DB_PASSWORD:}")
-  private String clusterHouseTablesDatabasePassword;
+  @Value("${cluster.metadata.database.password:${OPENHOUSE_DB_PASSWORD:${HTS_DB_PASSWORD:}}}")
+  private String clusterMetadataDatabasePassword;
 
   // MySQL SSL/Certificate configuration for certificate-based authentication
-  @Value("${cluster.housetables.database.cert-based-auth.enabled:false}")
-  private boolean clusterHouseTablesDatabaseCertBasedAuthEnabled;
+  @Value(
+      "${cluster.metadata.database.cert-based-auth.enabled:"
+          + "${cluster.housetables.database.cert-based-auth.enabled:false}}")
+  private boolean clusterMetadataDatabaseCertBasedAuthEnabled;
 
-  @Value("${cluster.housetables.database.cert-based-auth.ssl-mode:VERIFY_IDENTITY}")
-  private String clusterHouseTablesDatabaseCertBasedAuthSslMode;
+  @Value(
+      "${cluster.metadata.database.cert-based-auth.ssl-mode:"
+          + "${cluster.housetables.database.cert-based-auth.ssl-mode:VERIFY_IDENTITY}}")
+  private String clusterMetadataDatabaseCertBasedAuthSslMode;
 
-  @Value("${cluster.housetables.database.cert-based-auth.client-cert-keystore-url:#{null}}")
-  private String clusterHouseTablesDatabaseCertBasedAuthClientCertKeystoreUrl;
+  @Value(
+      "${cluster.metadata.database.cert-based-auth.client-cert-keystore-url:"
+          + "${cluster.housetables.database.cert-based-auth.client-cert-keystore-url:#{null}}}")
+  private String clusterMetadataDatabaseCertBasedAuthClientCertKeystoreUrl;
 
-  @Value("${cluster.housetables.database.cert-based-auth.client-cert-keystore-password:#{null}}")
-  private String clusterHouseTablesDatabaseCertBasedAuthClientCertKeystorePassword;
+  @Value(
+      "${cluster.metadata.database.cert-based-auth.client-cert-keystore-password:"
+          + "${cluster.housetables.database.cert-based-auth.client-cert-keystore-password:"
+          + "#{null}}}")
+  private String clusterMetadataDatabaseCertBasedAuthClientCertKeystorePassword;
 
-  @Value("${cluster.housetables.database.cert-based-auth.truststore-url:#{null}}")
-  private String clusterHouseTablesDatabaseCertBasedAuthTruststoreUrl;
+  @Value(
+      "${cluster.metadata.database.cert-based-auth.truststore-url:"
+          + "${cluster.housetables.database.cert-based-auth.truststore-url:#{null}}}")
+  private String clusterMetadataDatabaseCertBasedAuthTruststoreUrl;
 
-  @Value("${cluster.housetables.database.cert-based-auth.truststore-password:#{null}}")
-  private String clusterHouseTablesDatabaseCertBasedAuthTruststorePassword;
+  @Value(
+      "${cluster.metadata.database.cert-based-auth.truststore-password:"
+          + "${cluster.housetables.database.cert-based-auth.truststore-password:#{null}}}")
+  private String clusterMetadataDatabaseCertBasedAuthTruststorePassword;
 
   @Value("${cluster.security.token.interceptor.classname:#{null}}")
   private String clusterSecurityTokenInterceptorClassname;
@@ -99,4 +112,60 @@ public class ClusterProperties {
   // string
   @Value("${cluster.tables.allowed-client-name-values:}")
   private List<String> allowedClientNameValues;
+
+  /** @deprecated Use {@link #getClusterMetadataDatabaseUrl()}. */
+  @Deprecated
+  public String getClusterHouseTablesDatabaseUrl() {
+    return clusterMetadataDatabaseUrl;
+  }
+
+  /** @deprecated Use {@link #getClusterMetadataDatabaseUsername()}. */
+  @Deprecated
+  public String getClusterHouseTablesDatabaseUsername() {
+    return clusterMetadataDatabaseUsername;
+  }
+
+  /** @deprecated Use {@link #getClusterMetadataDatabasePassword()}. */
+  @Deprecated
+  public String getClusterHouseTablesDatabasePassword() {
+    return clusterMetadataDatabasePassword;
+  }
+
+  /** @deprecated Use {@link #isClusterMetadataDatabaseCertBasedAuthEnabled()}. */
+  @Deprecated
+  public boolean isClusterHouseTablesDatabaseCertBasedAuthEnabled() {
+    return clusterMetadataDatabaseCertBasedAuthEnabled;
+  }
+
+  /** @deprecated Use {@link #getClusterMetadataDatabaseCertBasedAuthSslMode()}. */
+  @Deprecated
+  public String getClusterHouseTablesDatabaseCertBasedAuthSslMode() {
+    return clusterMetadataDatabaseCertBasedAuthSslMode;
+  }
+
+  /** @deprecated Use {@link #getClusterMetadataDatabaseCertBasedAuthClientCertKeystoreUrl()}. */
+  @Deprecated
+  public String getClusterHouseTablesDatabaseCertBasedAuthClientCertKeystoreUrl() {
+    return clusterMetadataDatabaseCertBasedAuthClientCertKeystoreUrl;
+  }
+
+  /**
+   * @deprecated Use {@link #getClusterMetadataDatabaseCertBasedAuthClientCertKeystorePassword()}.
+   */
+  @Deprecated
+  public String getClusterHouseTablesDatabaseCertBasedAuthClientCertKeystorePassword() {
+    return clusterMetadataDatabaseCertBasedAuthClientCertKeystorePassword;
+  }
+
+  /** @deprecated Use {@link #getClusterMetadataDatabaseCertBasedAuthTruststoreUrl()}. */
+  @Deprecated
+  public String getClusterHouseTablesDatabaseCertBasedAuthTruststoreUrl() {
+    return clusterMetadataDatabaseCertBasedAuthTruststoreUrl;
+  }
+
+  /** @deprecated Use {@link #getClusterMetadataDatabaseCertBasedAuthTruststorePassword()}. */
+  @Deprecated
+  public String getClusterHouseTablesDatabaseCertBasedAuthTruststorePassword() {
+    return clusterMetadataDatabaseCertBasedAuthTruststorePassword;
+  }
 }

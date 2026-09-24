@@ -2,6 +2,8 @@ package com.linkedin.openhouse.optimizer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.linkedin.openhouse.cluster.configs.ClusterProperties;
+import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -17,9 +19,14 @@ import org.springframework.test.context.ActiveProfiles;
 class OptimizerServiceContextTest {
 
   @Autowired ApplicationContext context;
+  @Autowired ClusterProperties clusterProperties;
+  @Autowired HikariDataSource dataSource;
 
   @Test
   void contextLoads() {
     assertThat(context).isNotNull();
+    assertThat(dataSource.getJdbcUrl())
+        .isEqualTo(clusterProperties.getClusterMetadataDatabaseUrl());
+    assertThat(dataSource.getJdbcUrl()).startsWith("jdbc:h2:mem:optimizer_test");
   }
 }
