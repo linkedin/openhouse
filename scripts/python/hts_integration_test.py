@@ -317,7 +317,9 @@ def delete_entity(kind: str, database: str, table: str) -> requests.Response:
 
 
 def query_entities(kind: str, database: str) -> list:
-    """GET /hts/{tables,views}/query -- the unpaginated ``results`` envelope."""
+    """List tables through the legacy route, or views through their paginated API."""
+    if kind == 'views':
+        return query_entities_paginated(kind, database)
     response = requests.get(f'{HOST}/hts/{kind}/query', params={'databaseId': database})
     assert_status(response, 200, f"querying {kind} in {database}")
     body = response.json()
@@ -327,13 +329,25 @@ def query_entities(kind: str, database: str) -> list:
 
 
 def query_entities_paginated(kind: str, database: str) -> list:
-    """GET /v1/hts/{tables,views}/query -- the ``pageResults.content`` envelope."""
-    response = requests.get(f'{HOST}/v1/hts/{kind}/query', params={'databaseId': database})
-    assert_status(response, 200, f"paginated query of {kind} in {database}")
-    body = response.json()
-    assert body['results'] is None, \
-        f"paginated query must not populate results. {describe(response)}"
-    return body['pageResults']['content']
+    """Read all pages before callers mutate rows (especially during cleanup)."""
+    entities = []
+    page = 0
+    while True:
+        response = requests.get(
+            f'{HOST}/v1/hts/{kind}/query',
+            params={'databaseId': database, 'page': page, 'size': 50, 'sortBy': 'tableId'})
+        assert_status(response, 200, f"paginated query of {kind} in {database}, page {page}")
+        body = response.json()
+        assert body['results'] is None, \
+            f"paginated query must not populate results. {describe(response)}"
+        result = body['pageResults']
+        assert result['number'] == page, f"unexpected page number: {describe(response)}"
+        assert isinstance(result['last'], bool), f"missing last-page flag: {describe(response)}"
+        entities.extend(result['content'])
+        if result['last']:
+            return entities
+        assert result['content'], f"empty non-final page: {describe(response)}"
+        page += 1
 
 
 def query_soft_deleted(database: str, table: str = None) -> list:
@@ -606,9 +620,9 @@ def test_query_endpoints_are_type_scoped() -> None:
 
         views = query_entities('views', database)
         assert table_ids(views) == {'v_vw'}, \
-            f"/hts/views/query must list VIEW rows only, got {table_ids(views)}"
+            f"/v1/hts/views/query must list VIEW rows only, got {table_ids(views)}"
         assert all(entity['entityType'] == 'VIEW' for entity in views), views
-        print("/hts/tables/query and /hts/views/query each list only their own type")
+        print("/hts/tables/query and /v1/hts/views/query each list only their own type")
     finally:
         cleanup(database)
 
@@ -629,6 +643,22 @@ def test_v1_query_returns_page_results() -> None:
         print("/v1 query endpoints populate pageResults.content and stay type scoped")
     finally:
         cleanup(database)
+
+
+def test_view_pagination_and_cleanup_cover_multiple_pages() -> None:
+    database = database_id('view_pages')
+    expected = {f'v_{number:03d}' for number in range(51)}
+    try:
+        for table in sorted(expected):
+            create_view(database, table)
+        views = query_entities('views', database)
+        assert len(views) == len(expected) and table_ids(views) == expected, \
+            "view listing must include every page without duplicates"
+    finally:
+        cleanup(database)
+    assert query_entities('views', database) == [], \
+        "cleanup must delete views beyond the first page"
+    print("view listing and cleanup cover more than one page")
 
 
 # --------------------------------------------------------------------------- #
@@ -1005,7 +1035,7 @@ def test_legacy_null_entity_type_resolves_as_table() -> None:
 
         views = query_entities('views', database)
         assert table_ids(views) == set(), \
-            f"/hts/views/query must exclude a legacy NULL row, got {table_ids(views)}"
+            f"/v1/hts/views/query must exclude a legacy NULL row, got {table_ids(views)}"
 
         response = delete_entity('views', database, 't_legacy')
         assert_status(response, 404, "DELETE /hts/views on a legacy NULL row")
@@ -1197,6 +1227,7 @@ TESTS = [
     test_neutral_and_typed_endpoints_agree_on_existence,
     test_query_endpoints_are_type_scoped,
     test_v1_query_returns_page_results,
+    test_view_pagination_and_cleanup_cover_multiple_pages,
     test_update_requires_current_metadata_location,
     test_delete_table_is_table_scoped,
     test_delete_view_removes_only_the_view,
