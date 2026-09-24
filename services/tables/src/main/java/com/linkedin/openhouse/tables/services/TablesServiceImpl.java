@@ -358,6 +358,7 @@ public class TablesServiceImpl implements TablesService {
         LockState.builder()
             .locked(createUpdateLockRequestBody.isLocked())
             .message(createUpdateLockRequestBody.getMessage())
+            .reason(createUpdateLockRequestBody.getReason())
             .expirationInDays(createUpdateLockRequestBody.getExpirationInDays())
             .creationTime(createUpdateLockRequestBody.getCreationTime())
             .build();

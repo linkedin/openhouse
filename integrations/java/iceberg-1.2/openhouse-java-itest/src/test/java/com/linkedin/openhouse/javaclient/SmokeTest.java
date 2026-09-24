@@ -26,6 +26,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * This class tests out packaging done in :integrations:java:iceberg-1.2:openhouse-java-runtime. The
@@ -100,6 +103,41 @@ public class SmokeTest {
     openHouseCatalog.tableExists(TableIdentifier.of("db", "table"));
     Assertions.assertEquals(
         expectedHeaderValue, mockTableService.takeRequest().getHeader(expectedHeader));
+  }
+
+  @ParameterizedTest
+  @CsvSource(
+      value = {"SYSTEM,SYSTEM", "system,SYSTEM", "NULL,NULL"},
+      nullValues = "NULL")
+  public void testActionTypeHeader(String actionType, String expected) throws InterruptedException {
+    mockTableService.enqueue(
+        new MockResponse().setResponseCode(200).addHeader("Content-Type", "application/json"));
+    Map<String, String> properties = new HashMap<>();
+    properties.put(CatalogProperties.URI, url);
+    if (actionType != null) {
+      properties.put("action-type", actionType);
+    }
+    OpenHouseCatalog catalog = new OpenHouseCatalog();
+    catalog.initialize("openhouse", properties);
+    catalog.tableExists(TableIdentifier.of("db", "table"));
+    RecordedRequest request = mockTableService.takeRequest(5, TimeUnit.SECONDS);
+    Assertions.assertNotNull(request);
+    Assertions.assertEquals(expected, request.getHeader("X-OpenHouse-Action-Type"));
+    Assertions.assertNull(request.getHeader("X-OpenHouse-System-Action"));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"invalid", "", " SYSTEM ", "true", "false", "USER", "uSeR"})
+  public void testInvalidActionTypeRejected(String actionType) {
+    IllegalArgumentException failure =
+        Assertions.assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                new OpenHouseCatalog()
+                    .initialize(
+                        "openhouse",
+                        ImmutableMap.of(CatalogProperties.URI, url, "action-type", actionType)));
+    Assertions.assertEquals("action-type must be SYSTEM when supplied", failure.getMessage());
   }
 
   @Test
