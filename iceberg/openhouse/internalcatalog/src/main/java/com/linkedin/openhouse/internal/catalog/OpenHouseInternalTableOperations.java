@@ -312,9 +312,10 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
       abortIfWriterBaseDivergedFromCatalog(base, metadata);
 
-      failIfRetryUpdate(properties);
       restoreOverriddenProperties(properties);
       validateColumnDefaultProperty(base, properties);
+      // A rejected property change must not mark the unchanged table version as attempted.
+      failIfRetryUpdate(properties);
 
       properties.put(
           getCanonicalFieldName("tableVersion"),

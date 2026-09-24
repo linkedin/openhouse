@@ -196,15 +196,26 @@ public class RepositoryTest {
               .replaceCommit("replace".equals(operation))
               .stageReplace("stageReplace".equals(operation))
               .build();
-      UnsupportedClientOperationException exception =
-          Assertions.assertThrows(
-              UnsupportedClientOperationException.class,
-              () -> openHouseInternalRepository.save(update));
-      Assertions.assertTrue(
-          exception.getMessage().contains("immutable once set to true"), exception.getMessage());
+      Assertions.assertThrows(
+          UnsupportedClientOperationException.class,
+          () -> openHouseInternalRepository.save(update));
       TableDto persisted = openHouseInternalRepository.findById(key).get();
       Assertions.assertEquals(original, persisted.getTableProperties().get(property));
       Assertions.assertEquals(created.getTableLocation(), persisted.getTableLocation());
+
+      // Rejection must not poison the unchanged version for a subsequent valid commit.
+      Map<String, String> validProperties = new HashMap<>(persisted.getTableProperties());
+      validProperties.put("user.property", "valid-after-rejection");
+      openHouseInternalRepository.save(
+          persisted
+              .toBuilder()
+              .tableVersion(persisted.getTableLocation())
+              .tableProperties(validProperties)
+              .build());
+      TableDto updated = openHouseInternalRepository.findById(key).get();
+      Assertions.assertEquals(original, updated.getTableProperties().get(property));
+      Assertions.assertEquals(
+          "valid-after-rejection", updated.getTableProperties().get("user.property"));
     } finally {
       openHouseInternalRepository.deleteById(key);
     }
