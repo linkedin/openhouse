@@ -39,6 +39,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -228,6 +229,11 @@ class LockEvaluationServiceTest {
   void missingRequestContextIsNotSystemAction() {
     lock("SYSTEM_ONLY");
     RequestContextHolder.resetRequestAttributes();
+    assertSystemOnlyDenial(
+        assertThrows(
+            UnsupportedClientOperationException.class,
+            () -> tables.getTable("db", "table", "owner")));
+    RequestContextHolder.setRequestAttributes(mock(RequestAttributes.class));
     assertSystemOnlyDenial(
         assertThrows(
             UnsupportedClientOperationException.class,
