@@ -16,6 +16,7 @@ import com.linkedin.openhouse.tables.client.invoker.ApiClient;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.IcebergSnapshotsRequestBody;
+import com.linkedin.openhouse.tables.client.model.LockState;
 import com.linkedin.openhouse.tables.client.model.Policies;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -421,7 +422,9 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     try {
       JsonNode lockState = mapper.readTree(policiesString).path("lockState");
       if (lockState.path("locked").booleanValue()
-          && "SYSTEM_ONLY".equals(lockState.path("reason").textValue())) {
+          && LockState.ReasonEnum.SYSTEM_ONLY
+              .getValue()
+              .equals(lockState.path("reason").textValue())) {
         return mapper.readValue(policiesString, Policies.class);
       }
     } catch (IOException e) {

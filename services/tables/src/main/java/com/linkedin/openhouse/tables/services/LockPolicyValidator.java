@@ -73,10 +73,13 @@ final class LockPolicyValidator {
     if (declaration == null) {
       return false;
     }
-    if ("SYSTEM".equalsIgnoreCase(declaration)) {
+    if (TablesMvcConstants.ACTION_TYPE_SYSTEM.equalsIgnoreCase(declaration)) {
       return true;
     }
     throw new RequestValidationFailureException(
-        TablesMvcConstants.HTTP_HEADER_ACTION_TYPE + " must be SYSTEM when supplied.");
+        TablesMvcConstants.HTTP_HEADER_ACTION_TYPE
+            + " must be "
+            + TablesMvcConstants.ACTION_TYPE_SYSTEM
+            + " when supplied.");
   }
 }
