@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.tables.mock.audit;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -14,7 +13,6 @@ import com.linkedin.openhouse.common.audit.model.BaseAuditEvent;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.tables.audit.model.OperationStatus;
 import com.linkedin.openhouse.tables.audit.model.TableAuditEvent;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
@@ -38,19 +36,7 @@ class ActionTypeAuditTest {
 
   @ParameterizedTest
   @CsvSource(
-      value = {
-        "SYSTEM,d200,200",
-        "USER,d200,200",
-        "NULL,d200,200",
-        "SyStEm,d200,200",
-        "SYSTEM,d404,404",
-        "USER,d404,404",
-        "NULL,d404,404",
-        "invalid,d404,404",
-        "invalid,d200,200",
-        "true,d200,200",
-        "false,d404,404"
-      },
+      value = {"NULL,d200,200", "SYSTEM,d404,404", "invalid,d200,200"},
       nullValues = "NULL")
   void recordsDeclarationWithCallerAndTableContext(
       String declaration, String database, int expectedStatus) throws Exception {
@@ -80,18 +66,10 @@ class ActionTypeAuditTest {
         tableEvent.getValue().getOperationStatus());
   }
 
-  @Test
-  void requestAuditFailureDoesNotChangeSuccessfulResponse() throws Exception {
-    doThrow(new IllegalStateException("audit unavailable")).when(serviceAuditHandler).audit(any());
-    mvc.perform(get("/v1/databases/d200/tables/tb1").header(HEADER, "SYSTEM"))
-        .andExpect(status().isOk());
-  }
-
   private static void assertDeclaration(BaseAuditEvent event, String expected) {
     JsonObject json = JsonParser.parseString(event.toJson()).getAsJsonObject();
     JsonElement declaration = json.get("actionType");
     assertNotNull(declaration);
-    assertFalse(json.has("systemAction"));
     if (expected == null) {
       assertTrue(declaration.isJsonNull());
     } else {

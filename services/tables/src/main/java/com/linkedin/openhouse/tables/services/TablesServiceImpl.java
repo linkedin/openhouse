@@ -71,8 +71,8 @@ public class TablesServiceImpl implements TablesService {
         openHouseInternalRepository
             .findById(TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
-    if (isTableLocked(tableDto)
-        && tableDto.getPolicies().getLockState().getReason() != LockReason.SYSTEM_ONLY) {
+    // Restricts reading table to users with lock admin Privileges
+    if (LockPolicyValidator.isLegacyLocked(tableDto)) {
       authorizationUtils.checkLockTablePrivilege(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
     }
     authorizationUtils.checkTablePrivilege(
@@ -119,7 +119,7 @@ public class TablesServiceImpl implements TablesService {
     if (tableDto.isPresent() && createUpdateTableRequestBody.isStageReplace()) {
       authorizationUtils.checkTableWritePathPrivileges(
           tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
-      LockPolicyValidator.checkWrite(tableDto.get());
+      LockPolicyValidator.checkSystemOnlyAccess(tableDto.get());
     } else if (tableDto.isPresent()) {
       if (failOnExist) {
         throw new AlreadyExistsException("Table", String.format("%s.%s", databaseId, tableId));
@@ -128,10 +128,16 @@ public class TablesServiceImpl implements TablesService {
         throw new IllegalStateException(
             String.format("Staged Table %s.%s was illegally persisted", databaseId, tableId));
       }
+      checkIfLockPoliciesUpdated(tableDto.get(), createUpdateTableRequestBody);
+      if (LockPolicyValidator.isLegacyLocked(tableDto.get())) {
+        throw new UnsupportedClientOperationException(
+            UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,
+            String.format(
+                "Table %s.%s is in locked state and cannot be updated.", databaseId, tableId));
+      }
       authorizationUtils.checkTableWritePathPrivileges(
           tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
-      LockPolicyValidator.checkWrite(tableDto.get());
-      checkIfLockPoliciesUpdated(tableDto.get(), createUpdateTableRequestBody);
+      LockPolicyValidator.checkSystemOnlyAccess(tableDto.get());
 
       // An optimization to avoid persisting unchanged TableDto into HouseTable.
       if (!updateNeeded(tableDto.get(), createUpdateTableRequestBody)) {
@@ -205,8 +211,8 @@ public class TablesServiceImpl implements TablesService {
       TableDto tableDto, CreateUpdateTableRequestBody requestBody) {
     if (requestBody.getPolicies() != null
         && requestBody.getPolicies().getLockState() != null
-        && requestBody.getPolicies().getLockState().getReason() == LockReason.LEGACY
-        && requestBody.getPolicies().getLockState().isLocked() != isTableLocked(tableDto)) {
+        && requestBody.getPolicies().getLockState().isLocked()
+            != tableDto.getPolicies().getLockState().isLocked()) {
       throw new IllegalArgumentException(
           String.format(
               "Lock state cannot be updated for Table %s.%s",
@@ -259,12 +265,19 @@ public class TablesServiceImpl implements TablesService {
       throw new AlreadyExistsException("Table", targetedTableDto.get().getTableUri());
     }
 
+    if (LockPolicyValidator.isLegacyLocked(existingTableDto.get())) {
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,
+          String.format(
+              "Table %s.%s is in locked state and cannot be renamed.",
+              fromDatabaseId, fromTableId));
+    }
     // Rename involves both modifying an existing table and creating a new one
     authorizationUtils.checkDatabasePrivilege(
         fromDatabaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
     authorizationUtils.checkTableWritePathPrivileges(
         existingTableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
-    LockPolicyValidator.checkWrite(existingTableDto.get());
+    LockPolicyValidator.checkSystemOnlyAccess(existingTableDto.get());
 
     openHouseInternalRepository.rename(
         TableDtoPrimaryKey.builder().databaseId(fromDatabaseId).tableId(fromTableId).build(),
@@ -329,7 +342,7 @@ public class TablesServiceImpl implements TablesService {
   }
 
   /**
-   * Create or update a lock using existing authorization and matching SYSTEM_ONLY reasons.
+   * Creates lock on a table if lock on table is not already set.
    *
    * @param databaseId
    * @param tableId
@@ -349,14 +362,6 @@ public class TablesServiceImpl implements TablesService {
     checkReplicaTable(tableDto);
     authorizationUtils.checkLockTablePrivilege(
         tableDto, tableCreatorUpdater, Privileges.LOCK_ADMIN);
-    boolean systemOnly = createUpdateLockRequestBody.getReason() == LockReason.SYSTEM_ONLY;
-    LockState existingLock =
-        tableDto.getPolicies() == null ? null : tableDto.getPolicies().getLockState();
-    if (isTableLocked(tableDto)
-        && (systemOnly || existingLock.getReason() == LockReason.SYSTEM_ONLY)
-        && existingLock.getReason() != createUpdateLockRequestBody.getReason()) {
-      throw lockConflict(tableDto, "An active lock with a different reason exists.");
-    }
     // lock state from incoming request
     LockState lockState =
         LockState.builder()
@@ -367,6 +372,18 @@ public class TablesServiceImpl implements TablesService {
             .creationTime(createUpdateLockRequestBody.getCreationTime())
             .build();
     if (createUpdateLockRequestBody.isLocked()) {
+      if (isTableLocked(tableDto)) {
+        boolean systemOnly = createUpdateLockRequestBody.getReason() == LockReason.SYSTEM_ONLY;
+        LockReason existingReason = tableDto.getPolicies().getLockState().getReason();
+        if ((systemOnly || existingReason == LockReason.SYSTEM_ONLY)
+            && existingReason != createUpdateLockRequestBody.getReason()) {
+          throw lockConflict(tableDto, "An active lock with a different reason exists.");
+        }
+        if (systemOnly) {
+          // A matching SYSTEM_ONLY lock already exists; retries must not replace it.
+          return;
+        }
+      }
       Policies policies = tableDto.getPolicies();
       Policies policiesToSave;
       if (policies != null) {
@@ -441,9 +458,6 @@ public class TablesServiceImpl implements TablesService {
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
     checkReplicaTable(tableDto);
     authorizationUtils.checkLockTablePrivilege(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
-    if (reason == null) {
-      throw new RequestValidationFailureException("reason is required.");
-    }
     if (!isTableLocked(tableDto)) {
       return;
     }

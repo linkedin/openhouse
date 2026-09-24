@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.javaclient;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -10,10 +12,12 @@ import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageEx
 import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
+import com.linkedin.openhouse.tables.client.invoker.ApiClient;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.client.model.Policies;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -398,9 +402,30 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
         Gson gson = new GsonBuilder().setPrettyPrinting().create();
         return gson.fromJson(policiesString, Policies.class);
       } catch (JsonParseException e) {
+        Policies systemOnlyPolicies = toActiveSystemOnlyPoliciesObject(policiesString);
+        if (systemOnlyPolicies != null) {
+          return systemOnlyPolicies;
+        }
         throw new JsonParseException(
             "OpenHouse: Cannot convert policies string to policies object");
       }
+    }
+    return null;
+  }
+
+  /**
+   * Gson cannot bind the generated nullable lock reason; SYSTEM_ONLY writes still need policies.
+   */
+  private static Policies toActiveSystemOnlyPoliciesObject(String policiesString) {
+    ObjectMapper mapper = ApiClient.createDefaultObjectMapper(ApiClient.createDefaultDateFormat());
+    try {
+      JsonNode lockState = mapper.readTree(policiesString).path("lockState");
+      if (lockState.path("locked").booleanValue()
+          && "SYSTEM_ONLY".equals(lockState.path("reason").textValue())) {
+        return mapper.readValue(policiesString, Policies.class);
+      }
+    } catch (IOException e) {
+      // Keep the existing parse failure.
     }
     return null;
   }

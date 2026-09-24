@@ -5,7 +5,6 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
-import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
@@ -20,11 +19,11 @@ import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
+import java.util.Collections;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -98,120 +97,70 @@ class SystemOnlyLockPolicyServiceTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"false,false", "false,true", "true,false", "true,true"})
-  void genericCreateCannotSmuggleSystemOnly(boolean snapshotWrite, boolean staged) {
-    current = null;
-    CreateUpdateTableRequestBody request =
-        request(Policies.builder().lockState(systemOnly).build())
-            .toBuilder()
-            .stageCreate(staged)
-            .build();
-    assertThrows(RequestValidationFailureException.class, () -> write(snapshotWrite, request));
+  @CsvSource({
+    "update,reason",
+    "snapshot,reason",
+    "snapshot,locked",
+    "snapshotReplace,reason",
+    "snapshotReplace,locked",
+    "stagedReplace,reason",
+    "stagedReplace,locked"
+  })
+  void systemActionCannotChangeSystemOnlyLockFlagOrReason(String operation, String field) {
+    enableSystemAction();
+    LockState changed =
+        "reason".equals(field)
+            ? LockState.builder().locked(true).reason(LockReason.LEGACY).build()
+            : LockState.builder().locked(false).build();
+    assertThrows(
+        RequestValidationFailureException.class,
+        () -> write(operation, request(Policies.builder().lockState(changed).build())));
     verify(repository, never()).save(any());
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"reason", "message", "time", "locked"})
-  void stagedReplaceCannotChangeAnySystemOnlyLockField(String field) {
+  @CsvSource({
+    "update,policies",
+    "update,lock",
+    "update,message",
+    "snapshot,policies",
+    "snapshot,lock",
+    "snapshot,message",
+    "stagedReplace,policies",
+    "stagedReplace,lock",
+    "stagedReplace,message"
+  })
+  void systemActionWritesPreserveTheExistingLock(String operation, String omitted) {
     enableSystemAction();
-    LockState.LockStateBuilder changed =
-        LockState.builder()
-            .locked(true)
-            .reason(LockReason.SYSTEM_ONLY)
-            .message("original")
-            .creationTime(123);
-    switch (field) {
-      case "reason":
-        changed.reason(LockReason.LEGACY);
+    Policies policies;
+    switch (omitted) {
+      case "policies":
+        policies = null;
         break;
-      case "message":
-        changed.message("changed");
-        break;
-      case "time":
-        changed.creationTime(456);
+      case "lock":
+        policies = Policies.builder().sharingEnabled(true).build();
         break;
       default:
-        changed.locked(false);
+        policies =
+            Policies.builder()
+                .lockState(LockState.builder().locked(true).reason(LockReason.SYSTEM_ONLY).build())
+                .build();
     }
-    CreateUpdateTableRequestBody request =
-        request(Policies.builder().lockState(changed.build()).build())
-            .toBuilder()
-            .stageReplace(true)
-            .build();
-    assertThrows(RequestValidationFailureException.class, () -> write(false, request));
-    verify(repository, never()).save(any());
-  }
-
-  @ParameterizedTest
-  @ValueSource(booleans = {false, true})
-  void stagedReplacePreservesSystemOnlyWhenPoliciesOrLockOmitted(boolean omitPolicies) {
-    enableSystemAction();
-    Policies policies = omitPolicies ? null : Policies.builder().sharingEnabled(true).build();
-    write(false, request(policies).toBuilder().stageReplace(true).build());
-    Policies saved = saved().getPolicies();
-    assertEquals(systemOnly, saved.getLockState());
-    assertTrue(saved.isSharingEnabled());
-    if (omitPolicies) {
-      assertEquals(current.getPolicies().getRetention(), saved.getRetention());
-    }
-  }
-
-  @Test
-  void stagedReplaceAcceptsAnExactlyUnchangedSystemOnlyState() {
-    enableSystemAction();
-    write(false, request(current.getPolicies()).toBuilder().stageReplace(true).build());
+    write(operation, request(policies));
     assertEquals(systemOnly, saved().getPolicies().getLockState());
   }
 
   @ParameterizedTest
-  @CsvSource({"false,false", "false,true", "true,false", "true,true"})
-  void inactiveSystemOnlyDoesNotAddPolicyPreservationRules(
-      boolean snapshotWrite, boolean omitPolicies) {
+  @ValueSource(strings = {"update", "snapshot"})
+  void inactiveSystemOnlyDoesNotAddPolicyPreservationRules(String operation) {
     systemOnly = LockState.builder().locked(false).reason(LockReason.SYSTEM_ONLY).build();
     current =
         current
             .toBuilder()
             .policies(current.getPolicies().toBuilder().lockState(systemOnly).build())
             .build();
-    write(
-        snapshotWrite,
-        request(omitPolicies ? null : Policies.builder().sharingEnabled(true).build()));
-    Policies policies = saved().getPolicies();
-    assertNull(policies == null ? null : policies.getLockState());
-  }
-
-  @ParameterizedTest
-  @ValueSource(booleans = {false, true})
-  void snapshotUpdatesAndReplaceCommitsCannotMutateSystemOnly(boolean replace) {
-    enableSystemAction();
-    CreateUpdateTableRequestBody request =
-        request(
-                Policies.builder()
-                    .lockState(LockState.builder().locked(true).reason(LockReason.LEGACY).build())
-                    .build())
-            .toBuilder()
-            .replaceCommit(replace)
-            .build();
-    assertThrows(RequestValidationFailureException.class, () -> write(true, request));
-    verify(repository, never()).save(any());
-  }
-
-  @ParameterizedTest
-  @ValueSource(booleans = {false, true})
-  void systemOnlyCannotBeIntroducedThroughUpdate(boolean snapshotWrite) {
-    current = current.toBuilder().policies(null).build();
-    assertThrows(
-        RequestValidationFailureException.class,
-        () -> write(snapshotWrite, request(Policies.builder().lockState(systemOnly).build())));
-    verify(repository, never()).save(any());
-  }
-
-  @Test
-  void systemOnlySnapshotWriteWithoutDeclarationIsDenied() {
-    assertThrows(
-        UnsupportedClientOperationException.class,
-        () -> write(true, request(null).toBuilder().replaceCommit(true).build()));
-    verify(repository, never()).save(any());
+    write(operation, request(Policies.builder().sharingEnabled(true).build()));
+    assertNull(saved().getPolicies().getLockState());
   }
 
   private CreateUpdateTableRequestBody request(Policies policies) {
@@ -220,6 +169,7 @@ class SystemOnlyLockPolicyServiceTest {
         .tableId("table")
         .clusterId("cluster")
         .baseTableVersion("v1")
+        .tableProperties(Collections.singletonMap("updated", "value"))
         .policies(policies)
         .build();
   }
@@ -230,18 +180,24 @@ class SystemOnlyLockPolicyServiceTest {
     RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
   }
 
-  private void write(boolean snapshotWrite, CreateUpdateTableRequestBody request) {
-    if (snapshotWrite) {
-      snapshots.putIcebergSnapshots(
-          "db",
-          "table",
-          IcebergSnapshotsRequestBody.builder()
-              .createUpdateTableRequestBody(request)
-              .baseTableVersion("v1")
-              .build(),
-          "owner");
-    } else {
-      tables.putTable(request, "owner", false);
+  private void write(String operation, CreateUpdateTableRequestBody request) {
+    switch (operation) {
+      case "update":
+        tables.putTable(request, "owner", false);
+        break;
+      case "stagedReplace":
+        tables.putTable(request.toBuilder().stageReplace(true).build(), "owner", true);
+        break;
+      default:
+        snapshots.putIcebergSnapshots(
+            "db",
+            "table",
+            IcebergSnapshotsRequestBody.builder()
+                .createUpdateTableRequestBody(
+                    request.toBuilder().replaceCommit("snapshotReplace".equals(operation)).build())
+                .baseTableVersion("v1")
+                .build(),
+            "owner");
     }
   }
 

@@ -2,7 +2,6 @@ package com.linkedin.openhouse.tables.services;
 
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.SystemOnlyLockAccessDeniedException;
-import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.common.utils.ActionTypeContext;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
@@ -27,42 +26,28 @@ final class LockPolicyValidator {
     }
   }
 
-  /** Apply legacy or SYSTEM_ONLY write restrictions after the caller's authorization succeeds. */
-  static void checkWrite(TableDto table) {
+  /** Whether the table has an active lock that keeps the historical locked-table behavior. */
+  static boolean isLegacyLocked(TableDto table) {
     LockState lock = lockState(table);
-    if (lock == null || !lock.isLocked()) {
-      return;
-    }
-    if (isActiveSystemOnly(lock)) {
-      checkSystemOnlyAccess(table);
-    } else {
-      throw new UnsupportedClientOperationException(
-          UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,
-          String.format(
-              "Table %s.%s is in locked state and cannot be written to",
-              table.getDatabaseId(), table.getTableId()));
-    }
+    return lock != null && lock.isLocked() && lock.getReason() != LockReason.SYSTEM_ONLY;
   }
 
-  /** Preserve active SYSTEM_ONLY locks and reject changes outside the lock lifecycle API. */
+  /** Preserve an active SYSTEM_ONLY lock; only the lock lifecycle API may change it. */
   static TableDto prepare(TableDto current, TableDto mapped) {
     LockState existing = lockState(current);
+    if (!isActiveSystemOnly(existing)) {
+      return mapped;
+    }
     LockState requested = lockState(mapped);
-    boolean existingSystemOnly = isActiveSystemOnly(existing);
-    if ((existingSystemOnly || isActiveSystemOnly(requested))
-        && requested != null
-        && !requested.equals(existing)) {
+    if (requested != null
+        && (!requested.isLocked() || requested.getReason() != LockReason.SYSTEM_ONLY)) {
       throw new RequestValidationFailureException(
           "SYSTEM_ONLY lock state can only be changed through the lock lifecycle API.");
     }
-    if (existingSystemOnly && requested == null) {
-      // Ordinary updates replace policies wholesale; omission must not erase the lock or, when
-      // the entire policy object is omitted, unrelated policies.
-      Policies policies =
-          mapped.getPolicies() == null ? current.getPolicies() : mapped.getPolicies();
-      return mapped.toBuilder().policies(policies.toBuilder().lockState(existing).build()).build();
-    }
-    return mapped;
+    // Ordinary updates replace policies wholesale; omission must not erase the lock.
+    Policies policies =
+        mapped.getPolicies() == null ? Policies.builder().build() : mapped.getPolicies();
+    return mapped.toBuilder().policies(policies.toBuilder().lockState(existing).build()).build();
   }
 
   private static LockState lockState(TableDto table) {

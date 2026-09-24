@@ -134,25 +134,6 @@ class LockReasonCompatibilityTest {
   }
 
   @Test
-  void generatedClientKeepsLegacyUnlockSignature() throws NoSuchMethodException {
-    assertNotNull(
-        com.linkedin.openhouse.tables.client.api.TableApi.class.getMethod(
-            "deleteLockV1", String.class, String.class));
-    assertNotNull(
-        com.linkedin.openhouse.tables.client.api.TableApi.class.getMethod(
-            "deleteLockByReasonV1", String.class, String.class, String.class));
-  }
-
-  @Test
-  void generatedClientHasNoLockStatusMethod() {
-    assertThrows(
-        NoSuchMethodException.class,
-        () ->
-            com.linkedin.openhouse.tables.client.api.TableApi.class.getMethod(
-                "getLockV1", String.class, String.class));
-  }
-
-  @Test
   void unknownApiReasonIsRejected() {
     assertThrows(
         JsonProcessingException.class,

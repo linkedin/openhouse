@@ -369,18 +369,15 @@ public class TablesController {
 
   @Operation(
       summary = "Create lock on Table",
-      description =
-          "Create or update a lock with existing LOCK_ADMIN authorization. "
-              + "A lock reason mismatch involving SYSTEM_ONLY is rejected.",
+      description = "Create lock on a table identified by databaseId and tableId",
       tags = {"Table"})
   @ApiResponses(
       value = {
-        @ApiResponse(responseCode = "201", description = "lock POST: CREATED"),
-        @ApiResponse(responseCode = "400", description = "lock POST: BAD_REQUEST"),
-        @ApiResponse(responseCode = "401", description = "lock POST: UNAUTHORIZED"),
-        @ApiResponse(responseCode = "403", description = "lock POST: FORBIDDEN"),
-        @ApiResponse(responseCode = "404", description = "lock POST: TABLE_NOT_FOUND"),
-        @ApiResponse(responseCode = "409", description = "lock POST: REASON_CONFLICT")
+        @ApiResponse(responseCode = "204", description = "lock PATCH: NO_CONTENT"),
+        @ApiResponse(responseCode = "400", description = "lock PATCH: BAD_REQUEST"),
+        @ApiResponse(responseCode = "401", description = "lock PATCH: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "403", description = "lock PATCH: FORBIDDEN"),
+        @ApiResponse(responseCode = "404", description = "lock PATCH: TABLE_NOT_FOUND")
       })
   @PostMapping(
       value = {"/v1/databases/{databaseId}/tables/{tableId}/lock"},
@@ -404,17 +401,15 @@ public class TablesController {
 
   @Operation(
       summary = "Delete lock on Table",
-      description =
-          "Delete only a LEGACY lock with LOCK_ADMIN authorization. SYSTEM_ONLY locks require the reason-targeted endpoint.",
+      description = "Delete lock on a table identified by databaseId and tableId",
       tags = {"Table"})
   @ApiResponses(
       value = {
-        @ApiResponse(responseCode = "204", description = "lock DELETE: NO_CONTENT"),
-        @ApiResponse(responseCode = "400", description = "lock DELETE: BAD_REQUEST"),
-        @ApiResponse(responseCode = "401", description = "lock DELETE: UNAUTHORIZED"),
-        @ApiResponse(responseCode = "403", description = "lock DELETE: FORBIDDEN"),
-        @ApiResponse(responseCode = "404", description = "lock DELETE: TABLE_NOT_FOUND"),
-        @ApiResponse(responseCode = "409", description = "lock DELETE: REASON_CONFLICT")
+        @ApiResponse(responseCode = "204", description = "lock PATCH: NO_CONTENT"),
+        @ApiResponse(responseCode = "400", description = "lock PATCH: BAD_REQUEST"),
+        @ApiResponse(responseCode = "401", description = "lock PATCH: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "403", description = "lock PATCH: FORBIDDEN"),
+        @ApiResponse(responseCode = "404", description = "lock PATCH: TABLE_NOT_FOUND")
       })
   @DeleteMapping(
       value = {"/v1/databases/{databaseId}/tables/{tableId}/lock"},

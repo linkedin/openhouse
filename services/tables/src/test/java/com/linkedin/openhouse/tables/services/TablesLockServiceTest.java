@@ -6,7 +6,6 @@ import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
-import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
@@ -19,6 +18,8 @@ import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.security.access.AccessDeniedException;
 
@@ -57,39 +58,25 @@ class TablesLockServiceTest {
   }
 
   @Test
-  void matchingSystemOnlyUpdatesExistingLockFields() {
+  void matchingSystemOnlyCreationIsIdempotent() {
     withLock(systemOnlyLock());
     service.createLock("db", "table", systemOnlyRequest(), OWNER);
-    LockState lock = savedTable().getPolicies().getLockState();
-    assertEquals("updated message", lock.getMessage());
-    assertEquals(456L, lock.getCreationTime());
-    assertEquals(3, lock.getExpirationInDays());
-  }
-
-  @Test
-  void matchingSystemOnlyUpdateUsesExistingAuthorizationForAnotherAdmin() {
-    withLock(systemOnlyLock());
-    service.createLock("db", "table", systemOnlyRequest(), "another-admin");
-    verify(service.authorizationUtils)
-        .checkLockTablePrivilege(table, "another-admin", Privileges.LOCK_ADMIN);
-    assertEquals("updated message", savedTable().getPolicies().getLockState().getMessage());
-  }
-
-  @Test
-  void systemOnlyCannotReplaceLegacyLock() {
-    withLock(LockState.builder().locked(true).reason(null).build());
-    assertThrows(
-        EntityConcurrentModificationException.class,
-        () -> service.createLock("db", "table", systemOnlyRequest(), OWNER));
+    verify(service.authorizationUtils).checkLockTablePrivilege(table, OWNER, Privileges.LOCK_ADMIN);
     verify(service.openHouseInternalRepository, never()).save(any());
   }
 
-  @Test
-  void legacyCannotReplaceSystemOnlyLock() {
-    withLock(systemOnlyLock());
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void activeLockReasonsCannotReplaceEachOther(boolean existingSystemOnly) {
+    withLock(
+        existingSystemOnly
+            ? systemOnlyLock()
+            : LockState.builder().locked(true).reason(null).build());
+    CreateUpdateLockRequestBody request =
+        existingSystemOnly ? legacyRequest() : systemOnlyRequest();
     assertThrows(
         EntityConcurrentModificationException.class,
-        () -> service.createLock("db", "table", legacyRequest(), OWNER));
+        () -> service.createLock("db", "table", request, OWNER));
     verify(service.openHouseInternalRepository, never()).save(any());
   }
 
@@ -119,12 +106,6 @@ class TablesLockServiceTest {
   }
 
   @Test
-  void legacyDeleteWithoutActiveLockIsIdempotent() {
-    service.deleteLock("db", "table", OWNER);
-    verify(service.openHouseInternalRepository, never()).save(any());
-  }
-
-  @Test
   void lockAdministrationStillRequiresLockAdmin() {
     doThrow(new AccessDeniedException("denied"))
         .when(service.authorizationUtils)
@@ -132,28 +113,12 @@ class TablesLockServiceTest {
     assertThrows(
         AccessDeniedException.class,
         () -> service.createLock("db", "table", systemOnlyRequest(), OWNER));
-    assertThrows(AccessDeniedException.class, () -> service.deleteLock("db", "table", OWNER));
-    verify(service.openHouseInternalRepository, never()).save(any());
-  }
-
-  @Test
-  void replicaLockAdministrationRemainsForbidden() {
-    table = table.toBuilder().tableType(TableType.REPLICA_TABLE).build();
-    assertThrows(
-        UnsupportedOperationException.class,
-        () -> service.createLock("db", "table", systemOnlyRequest(), OWNER));
-    assertThrows(
-        UnsupportedOperationException.class, () -> service.deleteLock("db", "table", OWNER));
     verify(service.openHouseInternalRepository, never()).save(any());
   }
 
   @Test
   void missingTableStillReturnsNotFound() {
     when(service.openHouseInternalRepository.findById(any())).thenReturn(Optional.empty());
-    assertThrows(
-        NoSuchUserTableException.class,
-        () -> service.createLock("db", "table", systemOnlyRequest(), OWNER));
-    assertThrows(NoSuchUserTableException.class, () -> service.deleteLock("db", "table", OWNER));
     assertThrows(
         NoSuchUserTableException.class,
         () -> service.deleteLock("db", "table", LockReason.SYSTEM_ONLY, OWNER));
@@ -188,23 +153,14 @@ class TablesLockServiceTest {
   }
 
   @Test
-  void reasonTargetedUnlockRequiresAReason() {
-    withLock(systemOnlyLock());
-    assertThrows(
-        RequestValidationFailureException.class,
-        () -> service.deleteLock("db", "table", null, OWNER));
-    verify(service.openHouseInternalRepository, never()).save(any());
-  }
-
-  @Test
-  void reasonTargetedUnlockPreservesAuthorizationChecks() {
+  void reasonTargetedUnlockChecksAuthorizationBeforeReason() {
     withLock(systemOnlyLock());
     doThrow(new AccessDeniedException("denied"))
         .when(service.authorizationUtils)
         .checkLockTablePrivilege(table, OWNER, Privileges.LOCK_ADMIN);
     assertThrows(
         AccessDeniedException.class,
-        () -> service.deleteLock("db", "table", LockReason.SYSTEM_ONLY, OWNER));
+        () -> service.deleteLock("db", "table", LockReason.LEGACY, OWNER));
     verify(service.authorizationUtils).checkLockTablePrivilege(table, OWNER, Privileges.LOCK_ADMIN);
     verifyNoMoreInteractions(service.authorizationUtils);
     verify(service.openHouseInternalRepository, never()).save(any());

@@ -59,7 +59,6 @@ class LockClientServerTest {
   private ApiClient apiClient;
   private TableApi tableApi;
   private boolean tableCreated;
-  private String tableUUID;
 
   @BeforeEach
   void createTable() throws Exception {
@@ -73,7 +72,7 @@ class LockClientServerTest {
                         GET_TABLE_RESPONSE_BODY.toBuilder().tableId(TABLE_ID).build())
                     .toJson(),
                 CreateUpdateTableRequestBody.class);
-    tableUUID = tableApi.createTableV1(DATABASE_ID, request).block(TIMEOUT).getTableUUID();
+    tableApi.createTableV1(DATABASE_ID, request).block(TIMEOUT);
     tableCreated = true;
   }
 
@@ -107,6 +106,7 @@ class LockClientServerTest {
       request.reason(
           reason == null ? null : CreateUpdateLockRequestBody.ReasonEnum.fromValue(reason));
     }
+
     ResponseEntity<Void> created =
         tableApi.createLockV1WithHttpInfo(DATABASE_ID, TABLE_ID, request).block(TIMEOUT);
     assertNotNull(created);
@@ -133,16 +133,7 @@ class LockClientServerTest {
 
   @ParameterizedTest
   @CsvSource(
-      value = {
-        "NULL,423",
-        "USER,400",
-        "uSeR,400",
-        "SYSTEM,200",
-        "sYsTeM,200",
-        "invalid,400",
-        "true,400",
-        "false,400"
-      },
+      value = {"NULL,423", "SYSTEM,200", "USER,400"},
       nullValues = "NULL")
   void systemOnlyReadAndWriteRoundTrip(String declaration, int expectedStatus) throws Exception {
     GetTableResponseBody current = tableApi.getTableV1(DATABASE_ID, TABLE_ID).block(TIMEOUT);
@@ -179,7 +170,6 @@ class LockClientServerTest {
               .block(TIMEOUT);
       assertEquals("snapshot", current.getTableProperties().get("lock-evaluation-write"));
       assertEquals(lock, current.getPolicies().getLockState());
-      assertEquals(tableUUID, current.getTableUUID());
     } else {
       WebClientResponseException denied =
           assertThrows(

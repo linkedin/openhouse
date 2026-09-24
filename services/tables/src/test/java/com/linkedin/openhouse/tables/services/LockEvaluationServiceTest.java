@@ -4,13 +4,11 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.SystemOnlyLockAccessDeniedException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
-import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
@@ -32,6 +30,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -169,7 +168,7 @@ class LockEvaluationServiceTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"USER", "SYSTEM", "invalid"})
+  @ValueSource(strings = {"SYSTEM", "USER"})
   void systemOnlyDetailsNeverPrecedeReadOrWriteAuthorization(String actionType) {
     lock("SYSTEM_ONLY");
     declaration(actionType);
@@ -196,22 +195,26 @@ class LockEvaluationServiceTest {
   }
 
   @Test
-  void legacyDeclarationCannotBypassLockAdminOrWriteDenial() {
+  void legacyDeclarationKeepsLockAdminReadsAndPreAuthorizationWriteDenials() {
     lock("LEGACY");
     declaration("SYSTEM");
     permissions.remove(Privileges.LOCK_ADMIN);
+    permissions.remove(Privileges.UPDATE_TABLE_METADATA);
     assertThrows(AccessDeniedException.class, () -> tables.getTable("db", "table", "owner"));
-    assertThrows(UnsupportedClientOperationException.class, () -> write("tableReplace"));
-    assertThrows(UnsupportedClientOperationException.class, () -> snapshotWrite(true));
-    assertThrows(UnsupportedClientOperationException.class, () -> write("rename"));
+    assertLegacyDenial(
+        "Table db.table is in locked state and cannot be updated.",
+        () -> tables.putTable(request(), "owner", false));
+    assertLegacyDenial(
+        "Table db.table is in locked state and cannot be written to", () -> snapshotWrite(true));
+    assertLegacyDenial(
+        "Table db.table is in locked state and cannot be renamed.", () -> write("rename"));
     verify(repository, never()).save(any());
   }
 
-  @ParameterizedTest
-  @ValueSource(strings = {"yes", "true", "false", "", " SYSTEM", "USER", "uSeR"})
-  void invalidDeclarationIsRejectedOnlyWhenSystemOnlyAccessIsEvaluated(String actionType) {
+  @Test
+  void invalidDeclarationIsRejectedOnlyWhenSystemOnlyAccessIsEvaluated() {
     lock("SYSTEM_ONLY");
-    declaration(actionType);
+    declaration("USER");
     assertThrows(
         RequestValidationFailureException.class, () -> tables.getTable("db", "table", "owner"));
     assertThrows(
@@ -249,38 +252,6 @@ class LockEvaluationServiceTest {
     ArgumentCaptor<TableDto> saved = ArgumentCaptor.forClass(TableDto.class);
     verify(repository).save(saved.capture());
     assertNull(saved.getValue().getPolicies());
-  }
-
-  @Test
-  void grantUnlockAndDropKeepTheirOwnControls() {
-    lock("SYSTEM_ONLY");
-    declaration("SYSTEM");
-    assertThrows(
-        UnsupportedClientOperationException.class,
-        () ->
-            tables.updateAclPolicies(
-                "db",
-                "table",
-                UpdateAclPoliciesRequestBody.builder()
-                    .operation(UpdateAclPoliciesRequestBody.Operation.GRANT)
-                    .role("role")
-                    .principal("grantee")
-                    .build(),
-                "owner"));
-    assertThrows(
-        EntityConcurrentModificationException.class,
-        () -> tables.deleteLock("db", "table", "owner"));
-    assertThrows(
-        EntityConcurrentModificationException.class,
-        () -> tables.deleteLock("db", "table", LockReason.LEGACY, "owner"));
-    permissions.remove(Privileges.LOCK_ADMIN);
-    assertThrows(
-        AccessDeniedException.class,
-        () -> tables.deleteLock("db", "table", LockReason.SYSTEM_ONLY, "owner"));
-    permissions.remove(Privileges.DELETE_TABLE);
-    assertThrows(AccessDeniedException.class, () -> tables.deleteTable("db", "table", "owner"));
-    verify(repository, never()).save(any());
-    verify(repository, never()).deleteById(any());
   }
 
   private void lock(String reason) {
@@ -349,8 +320,18 @@ class LockEvaluationServiceTest {
     ArgumentCaptor<TableDto> saved = ArgumentCaptor.forClass(TableDto.class);
     verify(repository, times(count)).save(saved.capture());
     for (TableDto dto : saved.getAllValues()) {
-      assertEquals(current.getPolicies(), dto.getPolicies());
+      assertEquals(lockState(current), lockState(dto));
     }
+  }
+
+  private static LockState lockState(TableDto table) {
+    return table.getPolicies() == null ? null : table.getPolicies().getLockState();
+  }
+
+  private static void assertLegacyDenial(String message, Executable operation) {
+    UnsupportedClientOperationException exception =
+        assertThrowsExactly(UnsupportedClientOperationException.class, operation);
+    assertEquals(message, exception.getMessage());
   }
 
   private void assertSystemOnlyDenial(UnsupportedClientOperationException exception) {

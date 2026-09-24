@@ -1653,6 +1653,10 @@ public class TablesControllerTest {
       mvc.perform(MockMvcRequestBuilders.get(tablePath).header(HTTP_HEADER_ACTION_TYPE, "SYSTEM"))
           .andExpect(status().isOk())
           .andExpect(jsonPath("$.policies.lockState.reason").value("SYSTEM_ONLY"));
+      mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock"))
+          .andExpect(status().isConflict());
+      mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock/UNKNOWN"))
+          .andExpect(status().isBadRequest());
       mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock/SYSTEM_ONLY"))
           .andExpect(status().isNoContent());
       mvc.perform(MockMvcRequestBuilders.get(tablePath))
