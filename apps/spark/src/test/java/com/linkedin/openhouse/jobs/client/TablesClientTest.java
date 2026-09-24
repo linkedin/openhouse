@@ -24,7 +24,10 @@ import com.linkedin.openhouse.tables.client.model.ReplicationConfig;
 import com.linkedin.openhouse.tables.client.model.Retention;
 import com.linkedin.openhouse.tables.client.model.RetentionColumnPattern;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
+import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -72,6 +75,36 @@ public class TablesClientTest {
   private TablesClient client;
   private DatabaseApi dbApiMock;
   private StorageClient storageClient;
+
+  @Test
+  void testSystemActionHeaderIsSentOnlyWhenRequested() throws IOException {
+    List<String> declarations = Collections.synchronizedList(new ArrayList<>());
+    HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+    server.createContext(
+        "/v1/databases",
+        exchange -> {
+          declarations.add(exchange.getRequestHeaders().getFirst("X-OpenHouse-Action-Type"));
+          byte[] body = "{\"results\":[]}".getBytes(StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().add("Content-Type", "application/json");
+          exchange.sendResponseHeaders(200, body.length);
+          exchange.getResponseBody().write(body);
+          exchange.close();
+        });
+    server.start();
+    try {
+      TablesClientFactory factory =
+          new TablesClientFactory(
+              "http://localhost:" + server.getAddress().getPort(),
+              DatabaseTableFilter.of(".*", ".*", 0),
+              "token",
+              null);
+      factory.create(true).getDatabases();
+      factory.create().getDatabases();
+    } finally {
+      server.stop(0);
+    }
+    Assertions.assertEquals(Arrays.asList("SYSTEM", null), declarations);
+  }
 
   @BeforeEach
   void setup() {

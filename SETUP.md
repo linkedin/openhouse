@@ -618,6 +618,15 @@ docker compose --profile with_jobs_scheduler run openhouse-jobs-scheduler - \
 > Try HTTP plugin in IntelliJ to trigger /jobs service local endpoint in local mode by running HTTP scripts in
 services/jobs/src/test/http/.
 
+#### Snapshots expiration on system-only locked tables
+
+Tables with a `SYSTEM_ONLY` lock allow reads and writes only from requests declared as `SYSTEM`. To run snapshots expiration on them, enable both settings (off by default):
+
+1. Run `JobsScheduler` with `--type SNAPSHOTS_EXPIRATION --systemAction` for its tables-service requests.
+2. Set `"spark.sql.catalog.openhouse.action-type": "SYSTEM"` in the SE job's Spark properties. The scheduler flag does not configure Spark.
+
+Neither setting bypasses authentication or ACLs.
+
 ### Test batched orphan file deletion through job-scheduler
 
 The batched OFD scheduler runs orphan-files-deletion across multiple tables in a single Spark job, bin-packed per database. Builds on top of the table you created in [Test through Spark-shell](#test-through-spark-shell).
