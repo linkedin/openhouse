@@ -53,6 +53,13 @@ class SystemOnlyLockCatalogTest extends OpenHouseSparkITest {
         Assertions.assertTrue(failure.getMessage().contains("SYSTEM_ONLY"));
         Assertions.assertTrue(failure.getMessage().contains(id.toString()));
         Assertions.assertTrue(failure.getMessage().contains("reason-targeted OpenHouse unlock"));
+        // Spark SQL loads the table before dropping it. Spark's catalog hasn't cached this table,
+        // so the undeclared DROP TABLE reaches the server and gets 423.
+        WebClientResponseWithMessageException dropFailure =
+            Assertions.assertThrows(
+                WebClientResponseWithMessageException.class,
+                () -> spark.sql("DROP TABLE openhouse." + id).collect());
+        Assertions.assertEquals(423, dropFailure.getStatusCode());
         LockState lock = lock(inspection, id);
 
         Map<String, String> properties = new HashMap<>(catalog.properties());
@@ -82,6 +89,7 @@ class SystemOnlyLockCatalogTest extends OpenHouseSparkITest {
         Assertions.assertNotNull(expired.snapshot(secondSnapshot));
       } finally {
         controls.deleteLockByReasonV1(DATABASE, id.name(), "SYSTEM_ONLY").block();
+        // Catalog.dropTable calls DELETE without loading the table, unlike Spark SQL DROP TABLE.
         catalog.dropTable(id);
       }
     }

@@ -11,7 +11,18 @@ import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
-/** Enforces data-access lock rules and protects lock metadata outside the lifecycle API. */
+/**
+ * Enforces data-access lock rules and protects lock metadata outside the lifecycle API.
+ *
+ * <p>This is not a security control. {@code X-OpenHouse-Action-Type: SYSTEM} is self-declared and
+ * is not tied to an authenticated identity; it grants nothing beyond existing ACLs. A SYSTEM_ONLY
+ * lock blocks ordinary access so table owners notice and act, which helps prevent unintentional
+ * deletion.
+ *
+ * <p>DROP is not lock-checked. Spark SQL {@code DROP TABLE} loads the table first, so an undeclared
+ * request gets 423 when that load reaches the server. A catalog cache hit skips the load, so this
+ * does not guarantee that the table can't be dropped.
+ */
 final class LockPolicyValidator {
   private LockPolicyValidator() {}
 
