@@ -181,11 +181,11 @@ public interface TablesApiHandler {
    * @param databaseId
    * @param tableId
    * @param reason expected lock reason
-   * @param actingPrincipal authenticated caller requiring LOCK_ADMIN permission
+   * @param tableCreatorUpdator authenticated caller requiring LOCK_ADMIN permission
    * @return empty body when the matching lock is removed or already inactive
    */
   ApiResponse<Void> deleteLock(
-      String databaseId, String tableId, LockReason reason, String actingPrincipal);
+      String databaseId, String tableId, LockReason reason, String tableCreatorUpdator);
 
   /**
    * Function to perform a paginated search on soft deleted tables in a given database ID, with
