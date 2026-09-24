@@ -20,46 +20,39 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class IcebergSnapshotsRequestBody {
 
-  @Schema(description = "Base Table Version", example = "Base table version to apply the change to")
+  @Schema(description = "Expected base metadata version for the entire atomic transaction")
   @NotEmpty(message = "baseTableVersion cannot be empty")
   private String baseTableVersion;
 
-  @Schema(description = "List of json serialized snapshots to put")
+  @Schema(description = "Legacy full snapshot state; ignored when updates is present")
   private List<String> jsonSnapshots;
 
   @Schema(
       description =
-          "Map of branch name to json serialized SnapshotRef. "
-              + "Key is the branch name, and value is the SnapshotRef.")
+          "Legacy full snapshot-ref state; ignored when updates is present. "
+              + "Key is the ref name, and value is the JSON-serialized SnapshotRef.")
   private Map<String, String> snapshotRefs;
 
   /**
-   * The deltas this commit applies, as Iceberg REST {@code CommitTableRequest.updates[]}.
+   * One atomic transaction of ordered Iceberg REST {@code TableUpdate} objects.
    *
-   * <p>Each element is one {@code TableUpdate} object (discriminated by {@code action}: {@code
-   * add-snapshot}, {@code set-snapshot-ref}, {@code remove-snapshot-ref}, …). The wire type is an
-   * array of objects, not an array of JSON strings, so this field <em>is</em> {@code updates[]} —
-   * same name, same item shape. Convergence is then dropping {@link #jsonSnapshots}/{@link
-   * #snapshotRefs}/{@link #baseTableVersion} and adding {@code requirements[]}, not a rename or a
-   * type change.
+   * <p>When present, every action is validated and applied in order against {@link
+   * #baseTableVersion}, and the resulting metadata is published once. Multiple refs and repeated
+   * changes to the same ref are preserved. Unknown or invalid actions reject the whole request. An
+   * empty list is an explicit transaction with no Iceberg mutations, not a legacy request.
    *
-   * <p>Unlike the full-state fields — which force the server to rediscover what changed by diffing
-   * — this field states the change. A {@code CREATE BRANCH b} that commits no snapshot appears as a
-   * single {@code set-snapshot-ref} naming {@code b}.
-   *
-   * <p>Optional and advisory in this release: table metadata is still built from {@code
-   * jsonSnapshots}/{@code snapshotRefs}, and clients predating this field omit it. Consumers must
-   * tolerate null/empty and must not fail the commit on an unknown or unparseable action. When this
-   * field becomes authoritative, the REST rule applies: unknown updates MUST 400.
+   * <p>Absent/null retains the legacy full-state protocol. The OpenHouse envelope still supplies
+   * governance policies and table identity; its schema/properties and the full-state snapshot
+   * fields do not replace mutations supplied here.
    */
   @ArraySchema(
       arraySchema =
           @Schema(
               description =
-                  "Optional. Iceberg REST CommitTableRequest.updates[]: TableUpdate objects "
-                      + "for the deltas this commit applies. Advisory only: table metadata is "
-                      + "still built from jsonSnapshots/snapshotRefs. Older clients omit this "
-                      + "field. When this field becomes authoritative, unknown updates MUST 400."),
+                  "Optional ordered Iceberg REST TableUpdate objects. When present, all actions "
+                      + "are authoritative and commit atomically against baseTableVersion. "
+                      + "Invalid or unsupported actions reject the whole transaction. "
+                      + "Absent/null selects legacy full-state handling; an empty array does not."),
       schema =
           @Schema(
               type = "object",

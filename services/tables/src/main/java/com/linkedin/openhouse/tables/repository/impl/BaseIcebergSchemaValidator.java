@@ -73,11 +73,7 @@ public class BaseIcebergSchemaValidator implements SchemaValidator {
                     rebuilt.add(original);
                   } else {
                     rebuilt.add(
-                        original.isOptional()
-                            ? Types.NestedField.optional(
-                                original.fieldId(), name, type, original.doc())
-                            : Types.NestedField.required(
-                                original.fieldId(), name, type, original.doc()));
+                        Types.NestedField.from(original).withName(name).ofType(type).build());
                   }
                 }
                 return Types.StructType.of(rebuilt);

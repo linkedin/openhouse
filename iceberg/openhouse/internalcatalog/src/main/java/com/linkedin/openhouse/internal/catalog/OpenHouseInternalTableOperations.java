@@ -42,7 +42,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.iceberg.BaseMetastoreTableOperations;
@@ -70,7 +69,6 @@ import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.base.Objects;
 
-@AllArgsConstructor
 @Slf4j
 public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperations {
 
@@ -87,6 +85,35 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   FileIOManager fileIOManager;
 
   TableMetadataCache tableMetadataCache;
+
+  private TableMetadata committingMetadata;
+
+  public OpenHouseInternalTableOperations(
+      HouseTableRepository houseTableRepository,
+      FileIO fileIO,
+      HouseTableMapper houseTableMapper,
+      TableIdentifier tableIdentifier,
+      MetricsReporter metricsReporter,
+      FileIOManager fileIOManager,
+      TableMetadataCache tableMetadataCache) {
+    this.houseTableRepository = houseTableRepository;
+    this.fileIO = fileIO;
+    this.houseTableMapper = houseTableMapper;
+    this.tableIdentifier = tableIdentifier;
+    this.metricsReporter = metricsReporter;
+    this.fileIOManager = fileIOManager;
+    this.tableMetadataCache = tableMetadataCache;
+  }
+
+  /**
+   * Publish once and return exactly that commit's metadata, not a subsequently refreshed head. A
+   * failed or indeterminate publication throws and never exposes a successful result.
+   */
+  public TableMetadata commitAndGetMetadata(TableMetadata base, TableMetadata metadata) {
+    committingMetadata = null;
+    commit(base, metadata);
+    return base == metadata ? base : committingMetadata;
+  }
 
   private static final Gson GSON = new Gson();
 
@@ -353,7 +380,13 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         metadataToCommit = builder.build();
       }
 
-      final TableMetadata updatedMtDataRef = metadataToCommit;
+      // Cache and return the persisted version, not a pending builder with accumulated changes.
+      final TableMetadata updatedMtDataRef =
+          TableMetadata.buildFrom(metadataToCommit)
+              .discardChanges()
+              .withMetadataLocation(newMetadataLocation)
+              .build();
+      committingMetadata = updatedMtDataRef;
       Tracer tracer = GlobalOpenTelemetry.getTracer("openhouse-tables");
       Span writeSpan = tracer.spanBuilder("IcebergTableOps.writeMetadata").startSpan();
       long metadataUpdateStartTime = System.currentTimeMillis();

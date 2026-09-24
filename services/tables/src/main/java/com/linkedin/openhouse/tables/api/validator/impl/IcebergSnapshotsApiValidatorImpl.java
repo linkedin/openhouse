@@ -45,6 +45,7 @@ public class IcebergSnapshotsApiValidatorImpl implements IcebergSnapshotsApiVali
           tableId,
           icebergSnapshotsRequestBody.getBaseTableVersion(),
           icebergSnapshotsRequestBody.getCreateUpdateTableRequestBody(),
+          icebergSnapshotsRequestBody.getUpdates() != null,
           validationFailures);
     }
 
@@ -59,6 +60,7 @@ public class IcebergSnapshotsApiValidatorImpl implements IcebergSnapshotsApiVali
       String tableId,
       String baseTableVersion,
       CreateUpdateTableRequestBody requestBody,
+      boolean authoritative,
       List<String> validationFailures) {
     if (requestBody == null) {
       validationFailures.add("Empty metadata body in Snapshot API is not allowed");
@@ -85,7 +87,10 @@ public class IcebergSnapshotsApiValidatorImpl implements IcebergSnapshotsApiVali
               + "Please consider use OpenHouse supported library to avoid such.");
     }
 
-    if (baseTableVersion.equals(INITIAL_TABLE_VERSION)) {
+    if (authoritative) {
+      // Schema/spec/policy checks run against the actual resulting metadata in the repository.
+      tablesApiValidator.validateCommitEnvelope(clusterId, databaseId, tableId, requestBody);
+    } else if (baseTableVersion.equals(INITIAL_TABLE_VERSION)) {
       tablesApiValidator.validateCreateTable(clusterId, databaseId, requestBody);
     } else {
       tablesApiValidator.validateUpdateTable(clusterId, databaseId, tableId, requestBody);

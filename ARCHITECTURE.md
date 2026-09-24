@@ -51,6 +51,36 @@ file on storage. In case of Iceberg tables, the service writes all the Openhouse
 table's root metadata json file. The service then writes the location of this root metadata to the House Table Service
 through an atomic compare version and swap version and file location.
 
+##### Ordered Iceberg transactions
+
+`PUT /v1/databases/{databaseId}/tables/{tableId}/iceberg/v2/snapshots` accepts an optional
+`updates` array of Iceberg REST `TableUpdate` objects. A present array is authoritative: the service
+validates the entire list against `baseTableVersion`, applies it in order, and publishes the resulting
+metadata through one House Table compare-and-swap. Multiple branches, repeated movements of the same
+ref, snapshot additions, schema/property changes, and ref removals remain one transaction.
+
+Invalid or unsupported actions reject the whole transaction with HTTP 400. A stale base or publication
+conflict returns HTTP 409; the server does not replay a precomputed batch against a newer head. Clients
+must refresh and rebuild their transaction. Staged creation carries complete initialization, including
+an explicit initial format version; replacement is explicitly marked rather than inferred from a
+combined schema and snapshot change.
+
+When `updates` is present, `jsonSnapshots` and `snapshotRefs` do not drive the commit. An empty array is
+not a fallback to those fields. Absent/null `updates` retains the legacy full-state protocol. The
+OpenHouse envelope still supplies identity and governance policies; policies are checked against the
+actual resulting schema, and update actions cannot change server-owned identity or storage location.
+
+Successful commit audit events contain ordered `refChanges`, with the original update index, action,
+ref name, and before/after ref state (snapshot ID, branch/tag type, and retention settings). Repeated
+changes and removals are preserved even when a ref finishes at its starting snapshot. These are steps
+within one atomic transaction, not independently published commits. Failed events do not claim
+committed ref changes. Main-snapshot audit fields continue to describe the final main ref; the internal
+commit result is not exposed in the HTTP response.
+
+Low-level mutations do not uniquely identify a high-level command: rollback and fast-forward
+cherry-pick can both be a `set-snapshot-ref`. Audit reports their actual effects rather than guessing
+command names.
+
 ### House Table Service
 
 House Table Service is a RESTful service designed to provide a key-value API for storing and retrieving

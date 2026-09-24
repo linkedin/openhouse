@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SchemaParser;
+import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 
@@ -12,6 +14,24 @@ public class BaseIcebergSchemaValidatorTest {
   private static final BaseIcebergSchemaValidator VALIDATOR = new BaseIcebergSchemaValidator();
 
   // ===== normalizeSchemaCasingToTable =====
+
+  @Test
+  void normalizedSchemaRetainsNumericDefaultsForReaders() {
+    Schema table = new Schema(Types.NestedField.optional(1, "Amount", Types.DoubleType.get()));
+    Schema write =
+        new Schema(
+            Types.NestedField.optional("amount")
+                .withId(1)
+                .ofType(Types.DoubleType.get())
+                .withInitialDefault(Expressions.lit(1.0d))
+                .withWriteDefault(Expressions.lit(2.0d))
+                .build());
+    Schema normalized = BaseIcebergSchemaValidator.normalizeSchemaCasingToTable(write, table);
+    Schema readBack = SchemaParser.fromJson(SchemaParser.toJson(normalized));
+    assertEquals("Amount", readBack.findField(1).name());
+    assertEquals(1.0d, readBack.findField(1).initialDefault());
+    assertEquals(2.0d, readBack.findField(1).writeDefault());
+  }
 
   @Test
   void normalizeSchemaCasingToTable_noChange_whenCasingAlreadyMatches() {

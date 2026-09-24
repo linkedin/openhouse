@@ -3,10 +3,10 @@ package com.linkedin.openhouse.tables.audit;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
 import static com.linkedin.openhouse.common.security.AuthenticationUtils.extractAuthenticatedUserPrincipal;
 
-import com.google.gson.Gson;
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.common.audit.AuditHandler;
+import com.linkedin.openhouse.internal.catalog.model.MetadataUpdateResult;
 import com.linkedin.openhouse.tables.api.handler.impl.OpenHouseTablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
@@ -29,8 +29,6 @@ import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.iceberg.MetadataUpdate;
-import org.apache.iceberg.MetadataUpdateParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotParser;
 import org.apache.iceberg.SnapshotRef;
@@ -49,18 +47,6 @@ import org.springframework.stereotype.Component;
 @Aspect
 @Component
 public class TableAuditAspect {
-
-  /**
-   * The {@code type} discriminator the Iceberg REST spec assigns to branch refs in a {@code
-   * set-snapshot-ref} action (the alternative being {@code tag}). Iceberg's {@code SnapshotRefType}
-   * enum is package-private, so the spec's wire value is matched directly.
-   */
-  private static final String BRANCH_REF_TYPE = "branch";
-
-  /**
-   * Re-serializes a bound {@code TableUpdate} object so {@code MetadataUpdateParser} can read it.
-   */
-  private static final Gson TABLE_UPDATE_GSON = new Gson();
 
   @Autowired private ClusterProperties clusterProperties;
 
@@ -411,18 +397,29 @@ public class TableAuditAspect {
     extractSnapshotInfo(icebergSnapshotRequestBody, eventBuilder);
     try {
       result = (ApiResponse<GetTableResponseBody>) point.proceed();
+      TableAuditEvent.TableAuditEventBuilder committedEventBuilder =
+          eventBuilder.build().toBuilder();
+      MetadataUpdateResult commitResult = result.getResponseBody().getCommitResult();
+      if (commitResult != null) {
+        Snapshot currentSnapshot = commitResult.getMetadata().currentSnapshot();
+        committedEventBuilder
+            .refChanges(commitResult.getRefChanges())
+            .currentSnapshotId(currentSnapshot == null ? null : currentSnapshot.snapshotId())
+            .currentSnapshotTimestampMs(
+                currentSnapshot == null ? null : currentSnapshot.timestampMillis());
+      }
       // Read tableProperties from the response, not the request body: OpenHouse mutates
       // properties server-side during commit (e.g. openhouse.tableVersion,
       // openhouse.lastModifiedTime), and the audit event should reflect the committed state.
       TableAuditEvent event =
-          eventBuilder
+          committedEventBuilder
               .auditedTableProperties(
                   filterTableProperties(result.getResponseBody().getTableProperties()))
               .build();
       buildAndSendEvent(
           event, OperationStatus.SUCCESS, result.getResponseBody().getTableLocation());
     } catch (Throwable t) {
-      // On failure there is no committed state to read from, so tableProperties stays null.
+      // Failed events retain legacy request snapshot info, but never claim committed mutations.
       buildAndSendEvent(eventBuilder.build(), OperationStatus.FAILED, null);
       throw t;
     }
@@ -430,7 +427,7 @@ public class TableAuditAspect {
   }
 
   /**
-   * Extracts snapshot ID, timestamp, and branch ref name from the request body.
+   * Extracts legacy main snapshot information from the request body.
    *
    * <p>currentSnapshotId and currentSnapshotTimestampMs track the main branch ref for backwards
    * compatibility. They are null when main is absent from snapshotRefs.
@@ -442,9 +439,7 @@ public class TableAuditAspect {
       Map<String, String> snapshotRefs = requestBody.getSnapshotRefs();
       List<String> jsonSnapshots = requestBody.getJsonSnapshots();
 
-      extractBranchRefName(requestBody, eventBuilder);
-
-      if (snapshotRefs == null || jsonSnapshots == null || jsonSnapshots.isEmpty()) {
+      if (snapshotRefs == null) {
         return;
       }
 
@@ -456,6 +451,9 @@ public class TableAuditAspect {
       }
       long mainSnapshotId = SnapshotRefParser.fromJson(mainRefJson).snapshotId();
       eventBuilder.currentSnapshotId(mainSnapshotId);
+      if (jsonSnapshots == null || jsonSnapshots.isEmpty()) {
+        return;
+      }
 
       String mainSnapshotIdStr = Long.toString(mainSnapshotId);
       for (int i = jsonSnapshots.size() - 1; i >= 0; i--) {
@@ -472,52 +470,6 @@ public class TableAuditAspect {
     } catch (Exception e) {
       // Snapshot extraction is best-effort; don't fail the audit event
       log.warn("Failed to extract snapshot info for audit event", e);
-    }
-  }
-
-  /**
-   * Sets branchRefName from the commit's Iceberg REST spec {@code TableUpdate} actions.
-   *
-   * <p>The client sends the deltas it applied, so the branch that was written is stated outright by
-   * a {@code set-snapshot-ref} action rather than inferred. This matters most for operations that
-   * commit no snapshot at all: {@code CREATE BRANCH b} produces a lone {@code set-snapshot-ref}
-   * naming {@code b}, where the resulting table state is indistinguishable from a no-op on main.
-   *
-   * <p>Only branch-typed refs qualify; a {@code CREATE TAG} carries {@code type: tag} and is
-   * correctly ignored. When several branches move in one commit the first is reported, matching the
-   * order the client applied them.
-   *
-   * <p>Clients predating {@code updates} omit it, in which case branchRefName is left unset. The
-   * previous behavior guessed by matching refs against the last snapshot in the list, which
-   * returned an arbitrary branch whenever two refs shared a snapshot — exactly what {@code CREATE
-   * BRANCH} produces. An absent field is preferable to a coin-flip one in an audit log.
-   *
-   * <p>Unknown or unparseable actions are skipped today because the field is advisory. When {@code
-   * updates} becomes the commit, those MUST 400 per the REST spec.
-   */
-  private void extractBranchRefName(
-      IcebergSnapshotsRequestBody requestBody,
-      TableAuditEvent.TableAuditEventBuilder eventBuilder) {
-    List<Map<String, Object>> updates = requestBody.getUpdates();
-    if (updates == null || updates.isEmpty()) {
-      return;
-    }
-    for (Map<String, Object> updateObject : updates) {
-      MetadataUpdate update;
-      try {
-        update = MetadataUpdateParser.fromJson(TABLE_UPDATE_GSON.toJson(updateObject));
-      } catch (Exception e) {
-        // A single unparseable action must not hide the rest of the commit's updates.
-        log.debug("Skipping unparseable metadata update in audit extraction", e);
-        continue;
-      }
-      if (update instanceof MetadataUpdate.SetSnapshotRef) {
-        MetadataUpdate.SetSnapshotRef setSnapshotRef = (MetadataUpdate.SetSnapshotRef) update;
-        if (BRANCH_REF_TYPE.equalsIgnoreCase(setSnapshotRef.type())) {
-          eventBuilder.branchRefName(setSnapshotRef.name());
-          return;
-        }
-      }
     }
   }
 

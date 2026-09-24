@@ -61,6 +61,61 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
   @Autowired private HistoryPolicySpecValidator historyPolicySpecValidator;
 
   @Override
+  public void validateCommitEnvelope(
+      String clusterId,
+      String databaseId,
+      String tableId,
+      CreateUpdateTableRequestBody requestBody) {
+    List<String> failures = validateEnvelope(clusterId, databaseId, tableId, requestBody);
+    if (!failures.isEmpty()) {
+      throw new RequestValidationFailureException(failures);
+    }
+  }
+
+  @Override
+  public void validateSchema(String schemaJson) {
+    List<String> failures = new ArrayList<>();
+    validateNoDuplicateColumns(schemaJson, failures)
+        .filter(schema -> schema.columns().isEmpty())
+        .ifPresent(schema -> failures.add("schema must contain at least one column"));
+    if (!failures.isEmpty()) {
+      throw new RequestValidationFailureException(failures);
+    }
+  }
+
+  private List<String> validateEnvelope(
+      String clusterId,
+      String databaseId,
+      String tableId,
+      CreateUpdateTableRequestBody requestBody) {
+    List<String> failures = new ArrayList<>();
+    for (ConstraintViolation<CreateUpdateTableRequestBody> violation :
+        validator.validate(requestBody)) {
+      failures.add(
+          String.format("%s : %s", ApiValidatorUtil.getField(violation), violation.getMessage()));
+    }
+    if (!clusterId.equals(requestBody.getClusterId())) {
+      failures.add(
+          String.format(
+              "clusterId : provided %s, doesn't match with the server cluster %s",
+              requestBody.getClusterId(), clusterId));
+    }
+    if (!databaseId.equals(requestBody.getDatabaseId())) {
+      failures.add(
+          String.format(
+              "databaseId : provided %s, doesn't match with the RequestBody %s",
+              databaseId, requestBody.getDatabaseId()));
+    }
+    if (!java.util.Objects.equals(tableId, requestBody.getTableId())) {
+      failures.add(
+          String.format(
+              "tableId : provided %s, doesn't match with the RequestBody %s",
+              tableId, requestBody.getTableId()));
+    }
+    return failures;
+  }
+
+  @Override
   public void validateGetTable(String databaseId, String tableId) {
     List<String> validationFailures = new ArrayList<>();
     validateDatabaseId(databaseId, validationFailures);
@@ -108,24 +163,12 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
       String clusterId,
       String databaseId,
       CreateUpdateTableRequestBody createUpdateTableRequestBody) {
-    List<String> validationFailures = new ArrayList<>();
-    for (ConstraintViolation<CreateUpdateTableRequestBody> violation :
-        validator.validate(createUpdateTableRequestBody)) {
-      validationFailures.add(
-          String.format("%s : %s", ApiValidatorUtil.getField(violation), violation.getMessage()));
-    }
-    if (!createUpdateTableRequestBody.getClusterId().equals(clusterId)) {
-      validationFailures.add(
-          String.format(
-              "clusterId : provided %s, doesn't match with the server cluster %s",
-              createUpdateTableRequestBody.getClusterId(), clusterId));
-    }
-    if (!createUpdateTableRequestBody.getDatabaseId().equals(databaseId)) {
-      validationFailures.add(
-          String.format(
-              "databaseId : provided %s, doesn't match with the RequestBody %s",
-              databaseId, createUpdateTableRequestBody.getDatabaseId()));
-    }
+    List<String> validationFailures =
+        validateEnvelope(
+            clusterId,
+            databaseId,
+            createUpdateTableRequestBody.getTableId(),
+            createUpdateTableRequestBody);
     if (createUpdateTableRequestBody.getSchema() != null) {
       validateNoDuplicateColumns(createUpdateTableRequestBody.getSchema(), validationFailures)
           .filter(schema -> schema.columns().isEmpty())
@@ -243,30 +286,8 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
       String databaseId,
       String tableId,
       CreateUpdateTableRequestBody createUpdateTableRequestBody) {
-    List<String> validationFailures = new ArrayList<>();
-    for (ConstraintViolation<CreateUpdateTableRequestBody> violation :
-        validator.validate(createUpdateTableRequestBody)) {
-      validationFailures.add(
-          String.format("%s : %s", ApiValidatorUtil.getField(violation), violation.getMessage()));
-    }
-    if (!createUpdateTableRequestBody.getClusterId().equals(clusterId)) {
-      validationFailures.add(
-          String.format(
-              "clusterId : provided %s, doesnt match with the server cluster %s",
-              createUpdateTableRequestBody.getClusterId(), clusterId));
-    }
-    if (!createUpdateTableRequestBody.getDatabaseId().equals(databaseId)) {
-      validationFailures.add(
-          String.format(
-              "databaseId : provided %s, doesn't match with the RequestBody %s",
-              databaseId, createUpdateTableRequestBody.getDatabaseId()));
-    }
-    if (!createUpdateTableRequestBody.getTableId().equals(tableId)) {
-      validationFailures.add(
-          String.format(
-              "tableId : provided %s, doesn't match with the RequestBody %s",
-              tableId, createUpdateTableRequestBody.getTableId()));
-    }
+    List<String> validationFailures =
+        validateEnvelope(clusterId, databaseId, tableId, createUpdateTableRequestBody);
     if (createUpdateTableRequestBody.getSchema() != null) {
       validateNoDuplicateColumns(createUpdateTableRequestBody.getSchema(), validationFailures)
           .filter(schema -> schema.columns().isEmpty())

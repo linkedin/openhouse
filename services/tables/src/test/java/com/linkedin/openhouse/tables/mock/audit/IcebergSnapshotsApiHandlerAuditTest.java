@@ -17,6 +17,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mockito;
@@ -126,166 +128,38 @@ public class IcebergSnapshotsApiHandlerAuditTest {
     // failure
     assertEquals(2151407017102313398L, actualEvent.getCurrentSnapshotId().longValue());
     assertEquals(1669126937912L, actualEvent.getCurrentSnapshotTimestampMs().longValue());
+    assertNull(actualEvent.getRefChanges());
   }
 
   @Test
-  public void testPutIcebergSnapshotsMainCommitSetsBranchRefNameToMain() throws Exception {
-    mvc.perform(
-        MockMvcRequestBuilders.put(
-                String.format(
-                    CURRENT_MAJOR_VERSION_PREFIX
-                        + "/databases/d200/tables/tb1/iceberg/v2/snapshots"))
-            .accept(MediaType.APPLICATION_JSON)
-            .contentType(MediaType.APPLICATION_JSON)
-            .content(RequestConstants.TEST_ICEBERG_SNAPSHOTS_REQUEST_BODY.toJson()));
-    Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
-    assertEquals("main", argCaptor.getValue().getBranchRefName());
+  public void testMockedCommitDoesNotInventTransitionsFromRequest() throws Exception {
+    // This MockMvc context uses a handler fixture, not the transaction executor. Request updates
+    // alone are not proof of committed ref transitions.
+    TableAuditEvent event = putSnapshots(RequestConstants.TEST_ICEBERG_SNAPSHOTS_REQUEST_BODY);
+    assertNull(event.getRefChanges());
+    assertEquals(HEAD_SNAPSHOT_ID, event.getCurrentSnapshotId().longValue());
   }
 
-  @Test
-  public void testPutIcebergSnapshotsNamedBranchCommitSetsBranchRefName() throws Exception {
-    // Realistic named-branch commit: main ref exists but its snapshot is NOT in jsonSnapshots
-    // (main didn't advance). Only the feature branch got a new snapshot.
-    String newSnapshotJson =
-        "{\n"
-            + "  \"snapshot-id\" : 999,\n"
-            + "  \"timestamp-ms\" : 5000,\n"
-            + "  \"summary\" : {\"operation\": \"append\"},\n"
-            + "  \"manifest-list\" : \"/tmp/feature.avro\",\n"
-            + "  \"schema-id\" : 0\n"
-            + "}";
-    Map<String, String> refs = new HashMap<>();
-    refs.put("main", "{\"snapshot-id\":100,\"type\":\"branch\"}"); // main stayed at old snapshot
-    refs.put("feature", "{\"snapshot-id\":999,\"type\":\"branch\"}"); // feature got new snapshot
-
-    IcebergSnapshotsRequestBody requestBody =
-        IcebergSnapshotsRequestBody.builder()
-            .baseTableVersion("v1")
-            .jsonSnapshots(Collections.singletonList(newSnapshotJson))
-            .snapshotRefs(refs)
-            .updates(Collections.singletonList(setSnapshotRef("feature", 999L, "branch")))
-            .createUpdateTableRequestBody(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY)
-            .build();
-
-    mvc.perform(
-        MockMvcRequestBuilders.put(
-                String.format(
-                    CURRENT_MAJOR_VERSION_PREFIX
-                        + "/databases/d200/tables/tb1/iceberg/v2/snapshots"))
-            .accept(MediaType.APPLICATION_JSON)
-            .contentType(MediaType.APPLICATION_JSON)
-            .content(requestBody.toJson()));
-    Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
-    TableAuditEvent actualEvent = argCaptor.getValue();
-    assertEquals("feature", actualEvent.getBranchRefName());
-    // main didn't advance, so currentSnapshotId is main's old snapshot and timestamp is null
-    assertEquals(100L, actualEvent.getCurrentSnapshotId().longValue());
-    assertNull(actualEvent.getCurrentSnapshotTimestampMs());
-  }
-
-  /**
-   * {@code ALTER TABLE t CREATE BRANCH b} on a table that already has snapshots. This is the case
-   * the resulting table state cannot express: the ref is created at the current head and no
-   * snapshot is committed, so main and b are indistinguishable in {@code snapshotRefs} — both point
-   * at the same, already-existing snapshot. The commit's {@code set-snapshot-ref} action names b
-   * outright.
-   */
-  @Test
-  public void testPutIcebergSnapshotsCreateBranchAtHeadReportsNewBranchNotMain() throws Exception {
-    Map<String, String> refs = new HashMap<>();
-    refs.put("main", TEST_HEAD_SNAPSHOT_REF_JSON);
-    refs.put("b", TEST_HEAD_SNAPSHOT_REF_JSON); // same snapshot as main
-
-    IcebergSnapshotsRequestBody requestBody =
-        IcebergSnapshotsRequestBody.builder()
-            .baseTableVersion("v1")
-            .jsonSnapshots(Collections.singletonList(RequestConstants.TEST_ICEBERG_SNAPSHOT_JSON))
-            .snapshotRefs(refs)
-            .updates(Collections.singletonList(setSnapshotRef("b", HEAD_SNAPSHOT_ID, "branch")))
-            .createUpdateTableRequestBody(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY)
-            .build();
-
-    assertEquals("b", putSnapshots(requestBody).getBranchRefName());
-  }
-
-  /**
-   * The same tie, with the ref map ordered so "main" is encountered first. Under the previous
-   * snapshot-matching heuristic the answer depended on {@link HashMap} iteration order and could
-   * flip between runs; keyed off the commit's declared updates it is fixed.
-   */
-  @Test
-  public void testPutIcebergSnapshotsCreateBranchIsDeterministicRegardlessOfRefOrder()
+  @ParameterizedTest
+  @NullAndEmptySource
+  public void testLegacyMainSnapshotIdSurvivesMissingSnapshots(java.util.List<String> snapshots)
       throws Exception {
-    Map<String, String> refs = new LinkedHashMap<>();
-    refs.put("main", TEST_HEAD_SNAPSHOT_REF_JSON);
-    refs.put("aaa_sorts_first", TEST_HEAD_SNAPSHOT_REF_JSON);
-    refs.put("zzz_sorts_last", TEST_HEAD_SNAPSHOT_REF_JSON);
-
     IcebergSnapshotsRequestBody requestBody =
         IcebergSnapshotsRequestBody.builder()
             .baseTableVersion("v1")
-            .jsonSnapshots(Collections.singletonList(RequestConstants.TEST_ICEBERG_SNAPSHOT_JSON))
-            .snapshotRefs(refs)
-            .updates(
-                Collections.singletonList(
-                    setSnapshotRef("zzz_sorts_last", HEAD_SNAPSHOT_ID, "branch")))
-            .createUpdateTableRequestBody(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY)
-            .build();
-
-    assertEquals("zzz_sorts_last", putSnapshots(requestBody).getBranchRefName());
-  }
-
-  /**
-   * {@code CREATE TAG} carries {@code "type": "tag"}. A tag is not a branch, so branchRefName stays
-   * null rather than reporting a tag name in a field documented as a branch.
-   */
-  @Test
-  public void testPutIcebergSnapshotsTagCommitLeavesBranchRefNameNull() throws Exception {
-    Map<String, String> refs = new HashMap<>();
-    refs.put("main", TEST_HEAD_SNAPSHOT_REF_JSON);
-    refs.put("v1_release", "{\"snapshot-id\":" + HEAD_SNAPSHOT_ID + ",\"type\":\"tag\"}");
-
-    IcebergSnapshotsRequestBody requestBody =
-        IcebergSnapshotsRequestBody.builder()
-            .baseTableVersion("v1")
-            .jsonSnapshots(Collections.singletonList(RequestConstants.TEST_ICEBERG_SNAPSHOT_JSON))
-            .snapshotRefs(refs)
-            .updates(
-                Collections.singletonList(setSnapshotRef("v1_release", HEAD_SNAPSHOT_ID, "tag")))
-            .createUpdateTableRequestBody(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY)
-            .build();
-
-    TableAuditEvent actualEvent = putSnapshots(requestBody);
-    assertNull(actualEvent.getBranchRefName());
-    // The tag commit does not move main, but main's snapshot info is still reported.
-    assertEquals(HEAD_SNAPSHOT_ID, actualEvent.getCurrentSnapshotId().longValue());
-  }
-
-  /**
-   * {@code DROP BRANCH b} removes a ref and commits nothing. No branch was written, so
-   * branchRefName stays null; {@code remove-snapshot-ref} is deliberately not treated as a write.
-   */
-  @Test
-  public void testPutIcebergSnapshotsDropBranchLeavesBranchRefNameNull() throws Exception {
-    IcebergSnapshotsRequestBody requestBody =
-        IcebergSnapshotsRequestBody.builder()
-            .baseTableVersion("v1")
-            .jsonSnapshots(Collections.singletonList(RequestConstants.TEST_ICEBERG_SNAPSHOT_JSON))
+            .jsonSnapshots(snapshots)
             .snapshotRefs(Collections.singletonMap("main", TEST_HEAD_SNAPSHOT_REF_JSON))
-            .updates(Collections.singletonList(removeSnapshotRef("b")))
             .createUpdateTableRequestBody(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY)
             .build();
 
-    assertNull(putSnapshots(requestBody).getBranchRefName());
+    TableAuditEvent event = putSnapshots(requestBody);
+    assertEquals(HEAD_SNAPSHOT_ID, event.getCurrentSnapshotId().longValue());
+    assertNull(event.getCurrentSnapshotTimestampMs());
+    assertNull(event.getRefChanges());
   }
 
-  /**
-   * Clients predating {@code updates} omit it. branchRefName is then left unset rather than guessed
-   * — an absent audit field beats one that is wrong on ties.
-   */
   @Test
-  public void testPutIcebergSnapshotsWithoutMetadataUpdatesLeavesBranchRefNameNull()
-      throws Exception {
+  public void testLegacyRequestPreservesSnapshotInfoWithoutInventingTransitions() throws Exception {
     IcebergSnapshotsRequestBody legacyRequestBody =
         IcebergSnapshotsRequestBody.builder()
             .baseTableVersion("v1")
@@ -295,7 +169,7 @@ public class IcebergSnapshotsApiHandlerAuditTest {
             .build();
 
     TableAuditEvent actualEvent = putSnapshots(legacyRequestBody);
-    assertNull(actualEvent.getBranchRefName());
+    assertNull(actualEvent.getRefChanges());
     // Everything else on the legacy path is unaffected.
     assertEquals(HEAD_SNAPSHOT_ID, actualEvent.getCurrentSnapshotId().longValue());
     assertEquals(1669126937912L, actualEvent.getCurrentSnapshotTimestampMs().longValue());
@@ -328,33 +202,8 @@ public class IcebergSnapshotsApiHandlerAuditTest {
     assertFalse(updates.get(0).get("snapshot-id").isTextual());
   }
 
-  /**
-   * An unknown {@code action} must not hide the well-formed ones around it. Invalid JSON is a
-   * request-binding 400 (the field is an object array, not stringified JSON) and is not skipped
-   * here.
-   */
   @Test
-  public void testPutIcebergSnapshotsSkipsUnparseableMetadataUpdate() throws Exception {
-    IcebergSnapshotsRequestBody requestBody =
-        IcebergSnapshotsRequestBody.builder()
-            .baseTableVersion("v1")
-            .jsonSnapshots(Collections.singletonList(RequestConstants.TEST_ICEBERG_SNAPSHOT_JSON))
-            .snapshotRefs(Collections.singletonMap("main", TEST_HEAD_SNAPSHOT_REF_JSON))
-            .updates(
-                Arrays.asList(
-                    unknownAction("not-a-real-action"),
-                    setSnapshotRef("feature", HEAD_SNAPSHOT_ID, "branch")))
-            .createUpdateTableRequestBody(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY)
-            .build();
-
-    assertEquals("feature", putSnapshots(requestBody).getBranchRefName());
-  }
-
-  @Test
-  public void testPutIcebergSnapshotsBranchOnlyCommitLeavesSnapshotInfoNull() throws Exception {
-    // Simulate a branch-only commit where main is absent from snapshotRefs entirely.
-    // currentSnapshotId / currentSnapshotTimestampMs are null (no main), but branchRefName
-    // is still populated from the ref that received the new snapshot.
+  public void testLegacyBranchOnlyCommitLeavesMainSnapshotInfoNull() throws Exception {
     IcebergSnapshotsRequestBody branchOnlyRequestBody =
         IcebergSnapshotsRequestBody.builder()
             .baseTableVersion("v1")
@@ -362,8 +211,6 @@ public class IcebergSnapshotsApiHandlerAuditTest {
             .snapshotRefs(
                 Collections.singletonMap(
                     "my_branch", "{\"snapshot-id\":2151407017102313398,\"type\":\"branch\"}"))
-            .updates(
-                Collections.singletonList(setSnapshotRef("my_branch", HEAD_SNAPSHOT_ID, "branch")))
             .createUpdateTableRequestBody(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY)
             .build();
 
@@ -377,7 +224,7 @@ public class IcebergSnapshotsApiHandlerAuditTest {
             .content(branchOnlyRequestBody.toJson()));
     Mockito.verify(tableAuditHandler, atLeastOnce()).audit(argCaptor.capture());
     TableAuditEvent actualEvent = argCaptor.getValue();
-    assertEquals("my_branch", actualEvent.getBranchRefName());
+    assertNull(actualEvent.getRefChanges());
     assertNull(actualEvent.getCurrentSnapshotId());
     assertNull(actualEvent.getCurrentSnapshotTimestampMs());
   }
@@ -413,7 +260,6 @@ public class IcebergSnapshotsApiHandlerAuditTest {
             .baseTableVersion("v1")
             .jsonSnapshots(Arrays.asList(olderSnapshotJson, newerSnapshotJson))
             .snapshotRefs(refs)
-            .updates(Collections.singletonList(setSnapshotRef("feature", 200L, "branch")))
             .createUpdateTableRequestBody(RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY)
             .build();
 
@@ -429,8 +275,7 @@ public class IcebergSnapshotsApiHandlerAuditTest {
     TableAuditEvent actualEvent = argCaptor.getValue();
     assertEquals(100L, actualEvent.getCurrentSnapshotId().longValue());
     assertEquals(1000L, actualEvent.getCurrentSnapshotTimestampMs().longValue());
-    // The commit declared it moved feature; main is untouched despite sharing the ref map.
-    assertEquals("feature", actualEvent.getBranchRefName());
+    assertNull(actualEvent.getRefChanges());
   }
 
   /** The snapshot id carried by {@link RequestConstants#TEST_ICEBERG_SNAPSHOT_JSON}. */
@@ -446,19 +291,6 @@ public class IcebergSnapshotsApiHandlerAuditTest {
     update.put("ref-name", refName);
     update.put("snapshot-id", snapshotId);
     update.put("type", type);
-    return update;
-  }
-
-  private static Map<String, Object> removeSnapshotRef(String refName) {
-    Map<String, Object> update = new LinkedHashMap<>();
-    update.put("action", "remove-snapshot-ref");
-    update.put("ref-name", refName);
-    return update;
-  }
-
-  private static Map<String, Object> unknownAction(String action) {
-    Map<String, Object> update = new LinkedHashMap<>();
-    update.put("action", action);
     return update;
   }
 

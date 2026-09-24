@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.model;
 
+import com.linkedin.openhouse.internal.catalog.model.MetadataUpdateResult;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
@@ -16,6 +17,7 @@ import javax.persistence.ElementCollection;
 import javax.persistence.Entity;
 import javax.persistence.Id;
 import javax.persistence.IdClass;
+import javax.persistence.Transient;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -69,6 +71,12 @@ public class TableDto {
   @ElementCollection private List<String> jsonSnapshots;
 
   @ElementCollection private Map<String, String> snapshotRefs;
+
+  /** Null selects the legacy full-state path; a present list is one ordered transaction. */
+  @Transient private transient List<Map<String, Object>> updates;
+
+  /** Internal result of this successful commit, never persisted as table state. */
+  @Transient private transient MetadataUpdateResult commitResult;
 
   @Convert(converter = PoliciesSpecConverter.class)
   private Policies policies;

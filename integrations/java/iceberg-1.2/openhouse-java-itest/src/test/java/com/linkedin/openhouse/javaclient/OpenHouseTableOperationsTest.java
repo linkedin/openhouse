@@ -21,18 +21,14 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.apache.commons.compress.utils.Lists;
 import org.apache.iceberg.Schema;
-import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.FileIO;
-import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -77,59 +73,42 @@ public class OpenHouseTableOperationsTest {
     TableMetadata metadata = mock(TableMetadata.class);
     TableMetadata base = mock(TableMetadata.class);
 
-    // ensure the metadata-comparison triggers
-    Schema mockSchemaX = mock(Schema.class);
-    Schema mockSchemaY = mock(Schema.class);
-    when(metadata.schema()).thenReturn(mockSchemaX);
-    when(base.schema()).thenReturn(mockSchemaY);
-    Map<String, String> propsBase = ImmutableMap.of();
-    Map<String, String> propsMeta = ImmutableMap.of("a", "b");
-    when(metadata.properties()).thenReturn(propsMeta);
-    when(base.properties()).thenReturn(propsBase);
-
-    // ensure this is not a snapshot change
-    List<Snapshot> snapshotList = Lists.newArrayList();
-    when(metadata.snapshots()).thenReturn(snapshotList);
-    when(base.snapshots()).thenReturn(snapshotList);
-
-    // Ensure tableApi throw expected exception
-
-    when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
+    when(mockSnapshotApi.putSnapshotsV1(anyString(), anyString(), any()))
         .thenReturn(Mono.error(mock(WebClientResponseException.ServiceUnavailable.class)));
     Assertions.assertThrows(
         CommitStateUnknownException.class, () -> openHouseTableOperations.doCommit(base, metadata));
-    when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
+    when(mockSnapshotApi.putSnapshotsV1(anyString(), anyString(), any()))
         .thenReturn(Mono.error(mock(WebClientResponseException.GatewayTimeout.class)));
     Assertions.assertThrows(
         CommitStateUnknownException.class, () -> openHouseTableOperations.doCommit(base, metadata));
-    when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
+    when(mockSnapshotApi.putSnapshotsV1(anyString(), anyString(), any()))
         .thenReturn(Mono.error(mock(WebClientResponseException.NotFound.class)));
     Assertions.assertThrows(
         NoSuchTableException.class, () -> openHouseTableOperations.doCommit(base, metadata));
-    when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
+    when(mockSnapshotApi.putSnapshotsV1(anyString(), anyString(), any()))
         .thenReturn(Mono.error(mock(WebClientResponseException.InternalServerError.class)));
     Assertions.assertThrows(
         CommitStateUnknownException.class, () -> openHouseTableOperations.doCommit(base, metadata));
-    when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
+    when(mockSnapshotApi.putSnapshotsV1(anyString(), anyString(), any()))
         .thenReturn(Mono.error(mock(WebClientResponseException.NotImplemented.class)));
     Assertions.assertThrows(
         WebClientWithMessageException.class,
         () -> openHouseTableOperations.doCommit(base, metadata));
-    when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
+    when(mockSnapshotApi.putSnapshotsV1(anyString(), anyString(), any()))
         .thenReturn(Mono.error(mock(WebClientRequestException.class)));
     Assertions.assertThrows(
         CommitStateUnknownException.class, () -> openHouseTableOperations.doCommit(base, metadata));
     WebClientResponseException exception40x =
         mock(WebClientResponseException.MethodNotAllowed.class);
     when(exception40x.getStatusCode()).thenReturn(HttpStatus.METHOD_NOT_ALLOWED);
-    when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
+    when(mockSnapshotApi.putSnapshotsV1(anyString(), anyString(), any()))
         .thenReturn(Mono.error(exception40x));
     Assertions.assertThrows(
         WebClientWithMessageException.class,
         () -> openHouseTableOperations.doCommit(base, metadata));
     WebClientResponseException exception50x = mock(WebClientResponseException.BadGateway.class);
     when(exception50x.getStatusCode()).thenReturn(HttpStatus.BAD_GATEWAY);
-    when(mockTableApi.updateTableV1(anyString(), anyString(), any()))
+    when(mockSnapshotApi.putSnapshotsV1(anyString(), anyString(), any()))
         .thenReturn(Mono.error(exception50x));
     Assertions.assertThrows(
         CommitStateUnknownException.class, () -> openHouseTableOperations.doCommit(base, metadata));
@@ -148,24 +127,8 @@ public class OpenHouseTableOperationsTest {
     TableMetadata metadata = mock(TableMetadata.class);
     TableMetadata base = mock(TableMetadata.class);
 
-    // ensure the metadata-comparison triggers
-    Schema mockSchemaX = mock(Schema.class);
-    Schema mockSchemaY = mock(Schema.class);
-    when(metadata.schema()).thenReturn(mockSchemaX);
-    when(base.schema()).thenReturn(mockSchemaY);
-    Map<String, String> propsBase = ImmutableMap.of();
-    Map<String, String> propsMeta = ImmutableMap.of("a", "b");
-    when(metadata.properties()).thenReturn(propsMeta);
-    when(base.properties()).thenReturn(propsBase);
-
-    // ensure this is a snapshot change
-    List<Snapshot> snapshotList = Lists.newArrayList();
-    List<Snapshot> snapshotList1 = Lists.newArrayList();
-    when(metadata.snapshots()).thenReturn(snapshotList);
-    when(base.snapshots()).thenReturn(snapshotList1);
-
     // Simulates a long-running operation
-    when(mockTableApi.updateTableV1(anyString(), anyString(), any())).thenReturn(Mono.never());
+    when(mockSnapshotApi.putSnapshotsV1(anyString(), anyString(), any())).thenReturn(Mono.never());
 
     // Interrupt the current thread before calling .block()
     // When .block() is called on response mono from snapshotApi, it detects that the thread is

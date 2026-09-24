@@ -1,28 +1,29 @@
 package com.linkedin.openhouse.javaclient;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectReader;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
-import com.google.gson.JsonParser;
-import com.google.gson.JsonPrimitive;
 import com.linkedin.openhouse.javaclient.builder.ClusteringSpecBuilder;
 import com.linkedin.openhouse.javaclient.builder.TimePartitionSpecBuilder;
 import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageException;
 import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
+import com.linkedin.openhouse.tables.client.invoker.ApiClient;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.client.model.Policies;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -77,6 +78,35 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
    */
   private final AtomicReference<Map<String, String>> config = new AtomicReference<>();
 
+  // Replacement deltas are tied to the base used for staging, not a later transaction refresh.
+  private final AtomicReference<TableMetadata> replacementBase = new AtomicReference<>();
+
+  // Parsed staging metadata has no changes; retain initialization separately from user deltas.
+  private final AtomicReference<List<MetadataUpdate>> createUpdates = new AtomicReference<>();
+
+  void beginCreate(TableMetadata staged, Map<String, String> properties) {
+    List<MetadataUpdate> updates = new ArrayList<>();
+    // This is initial-version selection, not an upgrade from the client's default format.
+    updates.add(new MetadataUpdate.UpgradeFormatVersion(staged.formatVersion()));
+    updates.add(new MetadataUpdate.AssignUUID(staged.uuid()));
+    staged
+        .schemas()
+        .forEach(
+            schema -> updates.add(new MetadataUpdate.AddSchema(schema, staged.lastColumnId())));
+    updates.add(new MetadataUpdate.SetCurrentSchema(staged.currentSchemaId()));
+    staged.specs().forEach(spec -> updates.add(new MetadataUpdate.AddPartitionSpec(spec)));
+    updates.add(new MetadataUpdate.SetDefaultPartitionSpec(staged.defaultSpecId()));
+    staged.sortOrders().forEach(order -> updates.add(new MetadataUpdate.AddSortOrder(order)));
+    updates.add(new MetadataUpdate.SetDefaultSortOrder(staged.defaultSortOrderId()));
+    updates.add(new MetadataUpdate.SetLocation(staged.location()));
+    updates.add(new MetadataUpdate.SetProperties(properties));
+    createUpdates.set(Collections.unmodifiableList(updates));
+  }
+
+  void beginReplace(TableMetadata base) {
+    replacementBase.set(base);
+  }
+
   /**
    * The server-stamped per-table client config from the last {@code doRefresh}, or {@code null}
    * when absent. Subclasses read it to gate read-time behavior.
@@ -95,12 +125,16 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     return fileIO;
   }
 
-  private static final String UPDATED_OPENHOUSE_POLICY_KEY = "updated.openhouse.policy";
+  static final String UPDATED_OPENHOUSE_POLICY_KEY = "updated.openhouse.policy";
   private static final String OPENHOUSE_TABLE_TYPE_KEY = "openhouse.tableType";
   private static final String OPENHOUSE_CLUSTER_ID_KEY = "openhouse.clusterId";
   private static final String OPENHOUSE_IS_TABLE_REPLICATED_KEY = "openhouse.isTableReplicated";
-  private static final String POLICIES_KEY = "policies";
+  static final String POLICIES_KEY = "policies";
   static final String INITIAL_TABLE_VERSION = "INITIAL_VERSION";
+
+  private static final ObjectReader TABLE_UPDATE_READER =
+      ApiClient.createDefaultObjectMapper(null)
+          .readerFor(new TypeReference<Map<String, Object>>() {});
 
   @Override
   public void doRefresh() {
@@ -146,17 +180,21 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   @Override
   public void doCommit(TableMetadata base, TableMetadata metadata) {
     log.info("Calling doCommit for table: {}", tableName());
-    boolean metadataUpdated = isMetadataUpdated(base, metadata);
-    boolean snapshotsUpdated = areSnapshotsUpdated(base, metadata);
+    List<Map<String, Object>> updates = serializeCommitUpdates(metadata);
+    TableMetadata stagedBase = replacementBase.get();
+    if (stagedBase != null
+        && (base == null
+            || !Objects.equals(stagedBase.metadataFileLocation(), base.metadataFileLocation()))) {
+      throw new CommitFailedException("Cannot replace table: metadata changed after staging");
+    }
     try {
-      if (metadataUpdated && snapshotsUpdated && base != null) {
-        // Only CTAS and RTAS can update both metadata and snapshots at the same time.
-        // When the table exists, it will be a replace commit operation.
-        putSnapshotsForReplace(base, metadata);
-      } else if (snapshotsUpdated) {
-        putSnapshots(base, metadata);
-      } else if (metadataUpdated) {
-        createUpdateTable(base, metadata);
+      if (base == null && metadata.location() == null) {
+        // Plain CREATE TABLE has no server-assigned location yet. Staged CTAS already has one.
+        createUpdateTable(null, metadata);
+      } else {
+        CreateUpdateTableRequestBody request = constructMetadataRequestBody(base, metadata);
+        request.replaceCommit(stagedBase != null);
+        commitSnapshots(base, metadata, request, updates);
       }
     } catch (RuntimeException e) {
       if (e.getCause() instanceof InterruptedException) {
@@ -170,18 +208,10 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
         throw e;
       }
     }
+    // Staging intent applies only to the transaction that just published successfully.
+    createUpdates.set(null);
+    replacementBase.set(null);
     log.debug("Calling doCommit succeeded");
-  }
-
-  private Boolean isMetadataUpdated(TableMetadata base, TableMetadata metadata) {
-    if (base == null) {
-      return true;
-    } else {
-      return !base.schema().sameSchema(metadata.schema())
-          || !base.properties().equals(metadata.properties())
-          || !base.spec().equals(metadata.spec())
-          || !base.sortOrder().equals(metadata.sortOrder());
-    }
   }
 
   /**
@@ -227,13 +257,12 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
             .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)));
     createUpdateTableRequestBody.setSortOrder(SortOrderParser.toJson(metadata.sortOrder()));
     // set tableType from incoming metadata to createUpdateTableRequestBody
-    if (metadata.properties() != null
-        && metadata.properties().containsKey(OPENHOUSE_TABLE_TYPE_KEY)) {
+    if (metadata.properties().containsKey(OPENHOUSE_TABLE_TYPE_KEY)) {
       createUpdateTableRequestBody.setTableType(getTableType(base, metadata));
     }
     // TODO: consider allowing this for any table type, not just replica tables
     if (isMultiSchemaUpdateCommit(base, metadata)
-        && getTableType(base, metadata)
+        && createUpdateTableRequestBody.getTableType()
             == CreateUpdateTableRequestBody.TableTypeEnum.REPLICA_TABLE) {
       List<String> newIntermediateSchemas = new ArrayList<>();
       int startSchemaId = base == null ? 0 : base.currentSchemaId() + 1;
@@ -345,14 +374,6 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     return null;
   }
 
-  protected boolean areSnapshotsUpdated(TableMetadata base, TableMetadata newMetadata) {
-    if (base == null) {
-      return !newMetadata.snapshots().isEmpty();
-    }
-    return !base.snapshots().equals(newMetadata.snapshots())
-        || !base.refs().equals(newMetadata.refs());
-  }
-
   protected boolean isMultiSchemaUpdateCommit(TableMetadata base, TableMetadata newMetadata) {
     return (base == null && newMetadata.currentSchemaId() > 0)
         || (base != null && newMetadata.currentSchemaId() > base.currentSchemaId() + 1);
@@ -369,7 +390,8 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   private void commitSnapshots(
       TableMetadata base,
       TableMetadata newMetadata,
-      CreateUpdateTableRequestBody createUpdateTableRequestBody) {
+      CreateUpdateTableRequestBody createUpdateTableRequestBody,
+      List<Map<String, Object>> updates) {
     IcebergSnapshotsRequestBody icebergSnapshotsRequestBody = new IcebergSnapshotsRequestBody();
     icebergSnapshotsRequestBody.baseTableVersion(
         base == null ? INITIAL_TABLE_VERSION : base.metadataFileLocation());
@@ -380,7 +402,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
             .collect(
                 Collectors.toMap(Map.Entry::getKey, e -> SnapshotRefParser.toJson(e.getValue()))));
     icebergSnapshotsRequestBody.createUpdateTableRequestBody(createUpdateTableRequestBody);
-    icebergSnapshotsRequestBody.updates(serializeMetadataUpdates(newMetadata));
+    icebergSnapshotsRequestBody.updates(updates);
 
     snapshotApi
         .putSnapshotsV1(
@@ -396,6 +418,22 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
         .block();
   }
 
+  private List<Map<String, Object>> serializeCommitUpdates(TableMetadata metadata) {
+    List<MetadataUpdate> initialization = createUpdates.get();
+    if (initialization == null) {
+      return serializeMetadataUpdates(metadata);
+    }
+    List<Map<String, Object>> serialized =
+        new ArrayList<>(initialization.size() + metadata.changes().size());
+    for (MetadataUpdate update : initialization) {
+      serialized.add(tableUpdateObject(MetadataUpdateParser.toJson(update)));
+    }
+    for (MetadataUpdate update : metadata.changes()) {
+      serialized.add(tableUpdateObject(MetadataUpdateParser.toJson(update)));
+    }
+    return serialized;
+  }
+
   /**
    * The deltas this commit applies, as Iceberg REST {@code CommitTableRequest.updates[]} items.
    *
@@ -408,106 +446,30 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
    * set-snapshot-ref} naming {@code b}, which no amount of inspecting the resulting snapshot list
    * can recover.
    *
-   * <p>Advisory only today: the server still builds metadata from the full-state fields, so this
-   * method returns null rather than failing the commit. When {@code updates} becomes authoritative,
-   * unknown actions MUST 400 per the REST spec — do not keep this skip.
-   *
-   * @return spec-shaped update objects, or null when there is nothing trustworthy to report
+   * <p>The list is authoritative: every action is serialized in order, an empty list remains empty,
+   * and an unrecognized action fails the entire commit before any HTTP request is sent.
    */
   @VisibleForTesting
   static List<Map<String, Object>> serializeMetadataUpdates(TableMetadata newMetadata) {
-    try {
-      List<MetadataUpdate> changes = newMetadata.changes();
-      if (changes == null || changes.isEmpty()) {
-        return null;
-      }
-      List<Map<String, Object>> serialized = new ArrayList<>(changes.size());
-      for (MetadataUpdate change : changes) {
-        // MetadataUpdateParser rejects update types it does not recognize. Skip those rather than
-        // dropping the whole list, so one unknown action cannot blind the rest.
-        try {
-          serialized.add(tableUpdateObject(MetadataUpdateParser.toJson(change)));
-        } catch (RuntimeException e) {
-          log.debug("Skipping unserializable metadata update {}", change.getClass().getName(), e);
-        }
-      }
-      return serialized.isEmpty() ? null : serialized;
-    } catch (RuntimeException e) {
-      log.warn("Failed to serialize metadata updates; omitting from commit request", e);
-      return null;
+    List<MetadataUpdate> changes = newMetadata.changes();
+    List<Map<String, Object>> serialized = new ArrayList<>(changes.size());
+    for (MetadataUpdate change : changes) {
+      serialized.add(tableUpdateObject(MetadataUpdateParser.toJson(change)));
     }
+    return serialized;
   }
 
   /**
-   * Turns {@link MetadataUpdateParser} JSON into a plain object graph so Jackson writes a JSON
-   * object. Gson {@code fromJson(..., Map.class)} would coerce every number to {@code Double} and
-   * emit {@code 42.0} / lose large snapshot ids; integral values stay {@link Long} here.
+   * Parses canonical Iceberg JSON with the same Jackson mapper used by the HTTP client. JSON
+   * integers remain exact and floating-point tokens (including 1.0) remain floating point.
    */
   @VisibleForTesting
   static Map<String, Object> tableUpdateObject(String json) {
-    return jsonObjectToPlain(new JsonParser().parse(json).getAsJsonObject());
-  }
-
-  private static Map<String, Object> jsonObjectToPlain(JsonObject object) {
-    Map<String, Object> map = new LinkedHashMap<>();
-    for (Map.Entry<String, JsonElement> entry : object.entrySet()) {
-      map.put(entry.getKey(), jsonValueToPlain(entry.getValue()));
+    try {
+      return TABLE_UPDATE_READER.readValue(json);
+    } catch (IOException e) {
+      throw new UncheckedIOException("Cannot serialize metadata update", e);
     }
-    return map;
-  }
-
-  private static Object jsonValueToPlain(JsonElement element) {
-    if (element == null || element.isJsonNull()) {
-      return null;
-    }
-    if (element.isJsonObject()) {
-      return jsonObjectToPlain(element.getAsJsonObject());
-    }
-    if (element.isJsonArray()) {
-      JsonArray array = element.getAsJsonArray();
-      List<Object> values = new ArrayList<>(array.size());
-      for (JsonElement item : array) {
-        values.add(jsonValueToPlain(item));
-      }
-      return values;
-    }
-    JsonPrimitive primitive = element.getAsJsonPrimitive();
-    if (primitive.isBoolean()) {
-      return primitive.getAsBoolean();
-    }
-    if (primitive.isNumber()) {
-      try {
-        return primitive.getAsBigDecimal().toBigIntegerExact().longValue();
-      } catch (ArithmeticException notIntegral) {
-        return primitive.getAsDouble();
-      }
-    }
-    return primitive.getAsString();
-  }
-
-  /**
-   * A wrapper for a remote REST call to put snapshot.
-   *
-   * @param base the metadata before the snapshot was created
-   * @param newMetadata metadata containing a new snapshot
-   */
-  private void putSnapshots(TableMetadata base, TableMetadata newMetadata) {
-    CreateUpdateTableRequestBody createUpdateTableRequestBody =
-        constructMetadataRequestBody(base, newMetadata);
-    commitSnapshots(base, newMetadata, createUpdateTableRequestBody);
-  }
-
-  /**
-   * A wrapper for a remote REST call to put snapshot for a replace table operation.
-   *
-   * @param base the metadata before the snapshot was created
-   * @param newMetadata metadata containing a new snapshot
-   */
-  private void putSnapshotsForReplace(TableMetadata base, TableMetadata newMetadata) {
-    CreateUpdateTableRequestBody createUpdateTableRequestBody =
-        constructMetadataRequestBody(base, newMetadata);
-    createUpdateTableRequestBody.replaceCommit(true);
-    commitSnapshots(base, newMetadata, createUpdateTableRequestBody);
   }
 
   static Mono<GetTableResponseBody> handleCreateUpdateHttpError(

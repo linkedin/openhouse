@@ -73,6 +73,8 @@ public interface TablesMapper {
     @Mapping(source = "requestBody.sortOrder", target = "sortOrder"),
     @Mapping(target = "lastModifiedTime", ignore = true),
     @Mapping(target = "creationTime", ignore = true),
+    @Mapping(target = "updates", ignore = true),
+    @Mapping(target = "commitResult", ignore = true),
   })
   TableDto toTableDto(TableDto tableDto, CreateUpdateTableRequestBody requestBody);
 
@@ -90,6 +92,8 @@ public interface TablesMapper {
     @Mapping(source = "tableDto.clusterId", target = "clusterId"),
     @Mapping(source = "requestBody.jsonSnapshots", target = "jsonSnapshots"),
     @Mapping(source = "requestBody.snapshotRefs", target = "snapshotRefs"),
+    @Mapping(source = "requestBody.updates", target = "updates"),
+    @Mapping(target = "commitResult", ignore = true),
     @Mapping(
         source = "requestBody.baseTableVersion",
         target = "tableVersion"), /* store base version to check later */

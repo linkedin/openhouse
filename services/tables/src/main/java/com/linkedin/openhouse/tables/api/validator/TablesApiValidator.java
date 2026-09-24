@@ -7,6 +7,16 @@ import java.util.List;
 
 public interface TablesApiValidator {
 
+  /** Validate routing, identity, and structural fields before applying authoritative updates. */
+  void validateCommitEnvelope(
+      String clusterId,
+      String databaseId,
+      String tableId,
+      CreateUpdateTableRequestBody requestBody);
+
+  /** Validate each schema introduced by an ordered transaction, including historical schemas. */
+  void validateSchema(String schemaJson);
+
   /**
    * Function to validate a request to get Table Resource for a given databaseId and tableId
    *

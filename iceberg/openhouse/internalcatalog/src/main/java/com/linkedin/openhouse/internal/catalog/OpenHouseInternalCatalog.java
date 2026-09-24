@@ -83,6 +83,14 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
         tableMetadataCache);
   }
 
+  /** Open one commit context so validation and publication use the same loaded base. */
+  public OpenHouseInternalTableOperations newCommitOperations(TableIdentifier tableIdentifier) {
+    if (!isValidIdentifier(tableIdentifier)) {
+      throw new IllegalArgumentException("Invalid table identifier: " + tableIdentifier);
+    }
+    return (OpenHouseInternalTableOperations) newTableOps(tableIdentifier);
+  }
+
   @Override
   protected boolean isValidIdentifier(TableIdentifier tableIdentifier) {
     return tableIdentifier != null && NamespaceUtil.isTableNamespace(tableIdentifier.namespace());

@@ -1,7 +1,9 @@
 package com.linkedin.openhouse.tables.audit.model;
 
 import com.linkedin.openhouse.common.audit.model.BaseAuditEvent;
+import com.linkedin.openhouse.internal.catalog.model.SnapshotRefChange;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -42,7 +44,8 @@ public class TableAuditEvent extends BaseAuditEvent {
 
   private Long currentSnapshotTimestampMs;
 
-  private String branchRefName;
+  /** Ordered ref transitions from a successfully published metadata transaction. */
+  private List<SnapshotRefChange> refChanges;
 
   /** Allowlisted subset of table properties at commit time, not the full property map. */
   private Map<String, String> auditedTableProperties;

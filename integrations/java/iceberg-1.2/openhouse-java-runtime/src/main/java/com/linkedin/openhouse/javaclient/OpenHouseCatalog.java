@@ -23,6 +23,7 @@ import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.UpdateAclPoliciesRequestBody;
 import java.net.MalformedURLException;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -42,6 +43,7 @@ import org.apache.iceberg.SortOrderParser;
 import org.apache.iceberg.StaticTableOperations;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.Transactions;
 import org.apache.iceberg.catalog.Namespace;
@@ -56,6 +58,7 @@ import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.relocated.com.google.common.collect.ImmutableSet;
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -103,6 +106,19 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
   public static final String CLIENT_NAME = "client-name";
 
   public static final String CLIENT_VERSION = "client-version";
+
+  private static final Set<String> STAGING_TRANSPORT_PROPERTIES =
+      ImmutableSet.of(
+          "client.table.schema",
+          "evolved.table.schema",
+          "newIntermediateSchemas",
+          "snapshotsJsonToBePut",
+          "snapshotsRefs",
+          "sortOrder",
+          "isStageCreate",
+          "isStageReplace",
+          "isReplaceCommit",
+          "commitKey");
 
   @Override
   public void initialize(String name, Map<String, String> properties) {
@@ -546,8 +562,8 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
    * OpenHouseTableBuilder#createTransaction()} and {@link
    * OpenHouseTableBuilder#createOrReplaceTransaction()}
    *
-   * <p>Overridden behavior is only for CTAS statements, which is, OpenHouseService is contacted
-   * with stage=true, and its returned metadata is used for further data processing.
+   * <p>CTAS and RTAS contact OpenHouseService to stage server-assigned metadata, then retain its
+   * canonical initialization changes for the eventual atomic transaction commit.
    */
   private final class OpenHouseTableBuilder extends BaseMetastoreCatalogTableBuilder {
     private final TableIdentifier identifier;
@@ -615,11 +631,13 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
      */
     @Override
     public Transaction replaceTransaction() {
-      TableOperations ops = newTableOps(this.identifier);
-      if (ops.current() == null) {
+      OpenHouseTableOperations ops = (OpenHouseTableOperations) newTableOps(this.identifier);
+      TableMetadata base = ops.current();
+      if (base == null) {
         throw new NoSuchTableException("Table does not exist: %s", new Object[] {this.identifier});
       }
-      TableMetadata metadata = replaceStagedMetadata(ops);
+      TableMetadata metadata = replaceStagedMetadata(base);
+      ops.beginReplace(base);
       return Transactions.replaceTableTransaction(this.identifier.toString(), ops, metadata);
     }
 
@@ -630,12 +648,13 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
      */
     @Override
     public Transaction createTransaction() {
-      TableOperations ops = newTableOps(this.identifier);
+      OpenHouseTableOperations ops = (OpenHouseTableOperations) newTableOps(this.identifier);
       if (ops.current() != null) {
         throw new AlreadyExistsException(
             "Table already exists: %s", new Object[] {this.identifier});
       } else {
         TableMetadata metadata = createStagedMetadata();
+        ops.beginCreate(metadata, stagedCommitProperties(metadata, false));
         return Transactions.createTableTransaction(this.identifier.toString(), ops, metadata);
       }
     }
@@ -666,16 +685,18 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
                           createUpdateTableRequestBody.getTableId()))
               .mapNotNull(GetTableResponseBody::getTableLocation)
               .block();
+      // Keep the staging file as the transaction base, including its original IDs and defaults.
+      // Its initialization actions are carried separately by the table operations.
       return new StaticTableOperations(tableLocation, fileIO).refresh();
     }
 
-    private TableMetadata replaceStagedMetadata(TableOperations ops) {
+    private TableMetadata replaceStagedMetadata(TableMetadata base) {
       CreateUpdateTableRequestBody createUpdateTableRequestBody =
           new CreateUpdateTableRequestBody();
       createUpdateTableRequestBody.setTableId(identifier.name());
       createUpdateTableRequestBody.setDatabaseId(identifier.namespace().toString());
       createUpdateTableRequestBody.setClusterId(cluster);
-      createUpdateTableRequestBody.setBaseTableVersion(ops.current().metadataFileLocation());
+      createUpdateTableRequestBody.setBaseTableVersion(base.metadataFileLocation());
       createUpdateTableRequestBody.setSchema(SchemaParser.toJson(schema, false));
       createUpdateTableRequestBody.setTimePartitioning(
           TimePartitionSpecBuilder.builderFor(schema, spec).build());
@@ -697,7 +718,39 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
                           createUpdateTableRequestBody.getTableId()))
               .mapNotNull(GetTableResponseBody::getTableLocation)
               .block();
-      return new StaticTableOperations(tableLocation, fileIO).refresh();
+      TableMetadata staged = new StaticTableOperations(tableLocation, fileIO).refresh();
+      Map<String, String> replacementProperties = stagedCommitProperties(staged, true);
+      replacementProperties.put(
+          TableProperties.FORMAT_VERSION, Integer.toString(staged.formatVersion()));
+      // A replacement is a delta from the persisted table, not from the staging file. Iceberg
+      // preserves historical snapshots/refs while resetting main and assigning compatible IDs.
+      return base.buildReplacement(
+          staged.schema(),
+          staged.spec(),
+          staged.sortOrder(),
+          staged.location(),
+          replacementProperties);
+    }
+
+    private Map<String, String> stagedCommitProperties(TableMetadata staged, boolean replace) {
+      Map<String, String> properties = new HashMap<>();
+      staged
+          .properties()
+          .forEach(
+              (key, value) -> {
+                if (!STAGING_TRANSPORT_PROPERTIES.contains(key)
+                    && (!replace || (!key.startsWith("openhouse.") && !POLICIES_KEY.equals(key)))) {
+                  properties.put(key, value);
+                }
+              });
+      // Replacement inherits protected values from its persisted base and governs staged policy
+      // changes through the envelope. Creation retains staged governance inputs for the server's
+      // existing creation-policy and identity-stamping path.
+      String policies = staged.properties().get(POLICIES_KEY);
+      if (replace && policies != null) {
+        properties.put(UPDATED_OPENHOUSE_POLICY_KEY, policies);
+      }
+      return properties;
     }
   }
 

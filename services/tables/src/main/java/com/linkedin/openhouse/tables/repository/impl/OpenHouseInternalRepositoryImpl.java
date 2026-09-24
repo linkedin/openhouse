@@ -20,11 +20,16 @@ import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
+import com.linkedin.openhouse.internal.catalog.OpenHouseInternalTableOperations;
 import com.linkedin.openhouse.internal.catalog.SnapshotsUtil;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
+import com.linkedin.openhouse.internal.catalog.model.MetadataUpdateResult;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
+import com.linkedin.openhouse.internal.catalog.utils.MetadataUpdateCommit;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PartitionSpecMapper;
@@ -38,9 +43,11 @@ import com.linkedin.openhouse.tables.repository.SchemaValidator;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -55,7 +62,9 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.SortOrderParser;
+import org.apache.iceberg.StaticTableOperations;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.Transaction;
@@ -63,6 +72,7 @@ import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -108,10 +118,15 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   @Autowired PreservedKeyChecker preservedKeyChecker;
 
+  @Autowired private TablesApiValidator tablesApiValidator;
+
   @WithSpan("InternalRepository.save")
   @Timed(metricKey = MetricsConstant.REPO_TABLE_SAVE_TIME)
   @Override
   public TableDto save(TableDto tableDto) {
+    if (tableDto.getUpdates() != null) {
+      return saveMetadataUpdates(tableDto);
+    }
     long startTime = System.currentTimeMillis();
     TableIdentifier tableIdentifier =
         TableIdentifier.of(tableDto.getDatabaseId(), tableDto.getTableId());
@@ -219,6 +234,226 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     }
     return convertToTableDto(
         table, fileIOManager, partitionSpecMapper, policiesMapper, tableTypeMapper);
+  }
+
+  /** Execute the complete client transaction without the legacy full-state reconstruction. */
+  private TableDto saveMetadataUpdates(TableDto request) {
+    if (request.isStageCreate() || request.isStageReplace()) {
+      throw new BadRequestException("Staging is not supported in an authoritative commit request");
+    }
+    if (!(catalog instanceof OpenHouseInternalCatalog)) {
+      throw new UnsupportedOperationException(
+          "Ordered metadata commits require OpenHouseInternalCatalog");
+    }
+    TableIdentifier identifier = TableIdentifier.of(request.getDatabaseId(), request.getTableId());
+    OpenHouseInternalTableOperations operations =
+        ((OpenHouseInternalCatalog) catalog).newCommitOperations(identifier);
+    TableMetadata base = operations.current();
+    String name = "openhouse." + identifier;
+    Table existing =
+        base == null ? null : new BaseTable(new StaticTableOperations(base, operations.io()), name);
+
+    // Check every authoritative transaction, including replace and replication. Never rebase a
+    // precomputed update list onto a newer head; the client must refresh and rebuild the whole
+    // list.
+    versionCheck(existing, request);
+    boolean normalizeSchema =
+        base != null
+            && !request.isReplaceCommit()
+            && !SchemaValidationUtil.hasDuplicateCaseInsensitiveColumnNames(base.schema());
+    MetadataUpdateResult applied =
+        MetadataUpdateCommit.apply(
+            base,
+            request.getUpdates(),
+            schema -> {
+              Schema normalized =
+                  normalizeSchema
+                      ? BaseIcebergSchemaValidator.normalizeSchemaCasingToTable(
+                          schema, base.schema())
+                      : schema;
+              tablesApiValidator.validateSchema(SchemaParser.toJson(normalized));
+              if (base != null && !request.isReplaceCommit()) {
+                schemaValidator.validateWriteSchema(
+                    base.schema(), normalized, request.getTableUri());
+              }
+              return normalized;
+            });
+    TableMetadata candidate = applied.getMetadata();
+    validateUpdateProperties(base, candidate);
+    if (base != null && base.uuid() != null && !base.uuid().equals(candidate.uuid())) {
+      throw new BadRequestException("Changing an existing table UUID is not supported");
+    }
+    Table candidateTable =
+        new BaseTable(new StaticTableOperations(candidate, operations.io()), name);
+    TableDto effective =
+        request
+            .toBuilder()
+            .schema(SchemaParser.toJson(candidate.schema()))
+            .tableProperties(candidate.properties())
+            .timePartitioning(partitionSpecMapper.toTimePartitionSpec(candidateTable))
+            .clustering(partitionSpecMapper.toClusteringSpec(candidateTable))
+            .sortOrder(SortOrderParser.toJson(candidate.sortOrder()))
+            .jsonSnapshots(null)
+            .snapshotRefs(null)
+            .newIntermediateSchemas(null)
+            .updates(null)
+            .commitResult(null)
+            .build();
+    validateMetadataCandidate(effective, base == null);
+
+    if (base == null) {
+      if (request.isReplaceCommit()) {
+        throw new CommitFailedException(
+            "Cannot replace a table that no longer exists: %s", identifier);
+      }
+      tablePolicyManager.managePoliciesOnCreateIfNeeded(effective);
+      Map<String, String> properties = computePropsForTableCreation(effective);
+      String location =
+          storageSelector
+              .selectStorage(request.getDatabaseId(), request.getTableId())
+              .allocateTableLocation(
+                  request.getDatabaseId(),
+                  request.getTableId(),
+                  request.getTableUUID(),
+                  request.getTableCreator(),
+                  properties);
+      if (!Objects.equals(location, candidate.location())) {
+        throw new BadRequestException("Create updates must use the server-assigned table location");
+      }
+      // The staged client already received the cluster's format default. An explicit upgrade in
+      // this transaction must not be reset by creation's default-property expansion.
+      properties.remove(TableProperties.FORMAT_VERSION);
+      removeCommitTransportProperties(properties);
+      properties.remove("updated.openhouse.policy");
+      candidate = candidate.replaceProperties(properties);
+    } else {
+      if (!Objects.equals(base.location(), candidate.location())) {
+        throw new BadRequestException(
+            "Changing the server-assigned table location is not supported");
+      }
+      // Replication's legacy eligibility exceptions do not authorize canonical mutations of
+      // server-owned identity or policy properties. Reject the entire transaction instead.
+      checkIfPreservedTblPropsModified(effective, existing);
+      checkIfTableTypeModified(effective, existing);
+      if (request.isReplaceCommit()) {
+        validateReplaceTable(identifier);
+      } else {
+        updateEligibilityCheck(existing, effective);
+        if (!base.schema().sameSchema(candidate.schema())) {
+          schemaValidator.validateWriteSchema(
+              base.schema(), candidate.schema(), request.getTableUri());
+        }
+      }
+
+      // Keep governance hooks, but stage them in memory. This transaction is never separately
+      // published; its properties are part of the single metadata CAS below.
+      BaseTransaction governance =
+          (BaseTransaction)
+              new BaseTable(new StaticTableOperations(candidate, operations.io()), name)
+                  .newTransaction();
+      UpdateProperties policyUpdates = governance.updateProperties();
+      boolean policiesUpdated =
+          tablePolicyManager.managePoliciesOnUpdateIfNeeded(
+              policyUpdates, effective, candidate.properties());
+      boolean tableTypeAdded = checkIfTableTypeAdded(policyUpdates, candidate.properties());
+      if (policiesUpdated || tableTypeAdded) {
+        policyUpdates.commit();
+        candidate = governance.currentMetadata();
+      }
+      if (candidate != base) {
+        Map<String, String> properties = new HashMap<>(candidate.properties());
+        removeCommitTransportProperties(properties);
+        properties.remove("updated.openhouse.policy");
+        candidate = candidate.replaceProperties(properties);
+        candidate =
+            TableMetadata.buildFrom(candidate)
+                .setProperties(
+                    java.util.Collections.singletonMap(COMMIT_KEY, request.getTableVersion()))
+                .build();
+      }
+    }
+
+    TableMetadata committed = operations.commitAndGetMetadata(base, candidate);
+    Table committedTable =
+        new BaseTable(new StaticTableOperations(committed, operations.io()), name);
+    MetadataUpdateResult result =
+        MetadataUpdateResult.builder()
+            .metadata(committed)
+            .refChanges(applied.getRefChanges())
+            .build();
+    if (candidate != base) {
+      meterRegistry
+          .counter(
+              base == null
+                  ? MetricsConstant.REPO_TABLE_CREATED_CTR
+                  : MetricsConstant.REPO_TABLE_UPDATED_CTR)
+          .increment();
+    }
+    return convertToTableDto(
+            committedTable, fileIOManager, partitionSpecMapper, policiesMapper, tableTypeMapper)
+        .toBuilder()
+        .commitResult(result)
+        .build();
+  }
+
+  /** Validate governance against the schema/spec that the update list actually produced. */
+  private void validateMetadataCandidate(TableDto effective, boolean create) {
+    CreateUpdateTableRequestBody body =
+        CreateUpdateTableRequestBody.builder()
+            .databaseId(effective.getDatabaseId())
+            .tableId(effective.getTableId())
+            .clusterId(clusterProperties.getClusterName())
+            .baseTableVersion(effective.getTableVersion())
+            .schema(effective.getSchema())
+            .timePartitioning(effective.getTimePartitioning())
+            .clustering(effective.getClustering())
+            .sortOrder(effective.getSortOrder())
+            .tableProperties(effective.getTableProperties())
+            .policies(effective.getPolicies())
+            .tableType(effective.getTableType())
+            .replaceCommit(effective.isReplaceCommit())
+            .build();
+    if (create) {
+      tablesApiValidator.validateCreateTable(
+          clusterProperties.getClusterName(), effective.getDatabaseId(), body);
+    } else {
+      tablesApiValidator.validateUpdateTable(
+          clusterProperties.getClusterName(),
+          effective.getDatabaseId(),
+          effective.getTableId(),
+          body);
+    }
+  }
+
+  /** Client properties must never activate the catalog's internal legacy transport protocol. */
+  private void validateUpdateProperties(TableMetadata base, TableMetadata candidate) {
+    for (Map.Entry<String, String> property : candidate.properties().entrySet()) {
+      if ((isCommitTransportProperty(property.getKey())
+              || TableProperties.RESERVED_PROPERTIES.contains(property.getKey()))
+          && (base == null
+              || !Objects.equals(base.properties().get(property.getKey()), property.getValue()))) {
+        throw new BadRequestException("Cannot set internal commit property: %s", property.getKey());
+      }
+    }
+  }
+
+  private static boolean isCommitTransportProperty(String key) {
+    return SNAPSHOTS_JSON_KEY.equals(key)
+        || SNAPSHOTS_REFS_KEY.equals(key)
+        || INTERMEDIATE_SCHEMAS_KEY.equals(key)
+        || EVOLVED_SCHEMA_KEY.equals(key)
+        || "client.table.schema".equals(key)
+        || SORT_ORDER_KEY.equals(key)
+        || COMMIT_KEY.equals(key)
+        || IS_STAGE_CREATE_KEY.equals(key)
+        || IS_STAGE_REPLACE_KEY.equals(key)
+        || IS_REPLACE_COMMIT_KEY.equals(key)
+        || key.startsWith(TRANSIENT_RESTORE_PREFIX)
+        || key.startsWith(TRANSIENT_ADDED_PREFIX);
+  }
+
+  private static void removeCommitTransportProperties(Map<String, String> properties) {
+    properties.keySet().removeIf(OpenHouseInternalRepositoryImpl::isCommitTransportProperty);
   }
 
   protected Table createTable(

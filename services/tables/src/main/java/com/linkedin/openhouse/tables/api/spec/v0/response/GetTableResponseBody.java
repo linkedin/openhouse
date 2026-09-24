@@ -1,7 +1,9 @@
 package com.linkedin.openhouse.tables.api.spec.v0.response;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.gson.Gson;
+import com.linkedin.openhouse.internal.catalog.model.MetadataUpdateResult;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
@@ -116,6 +118,11 @@ public class GetTableResponseBody {
               + "(e.g. `openhouse.read-bridge`). Distinct from the table-governance `policies` object.")
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private Map<String, String> config;
+
+  /** Internal committed state for audit; never serialized onto the API wire. */
+  @JsonIgnore
+  @Schema(hidden = true)
+  private transient MetadataUpdateResult commitResult;
 
   public String toJson() {
     return new Gson().toJson(this);

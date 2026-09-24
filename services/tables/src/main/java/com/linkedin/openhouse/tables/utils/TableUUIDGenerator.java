@@ -64,6 +64,11 @@ public class TableUUIDGenerator {
    * @return UUID
    */
   public UUID generateUUID(IcebergSnapshotsRequestBody icebergSnapshotsRequestBody) {
+    if (icebergSnapshotsRequestBody.getUpdates() != null) {
+      // The full-state snapshot fields are not authoritative on this path. Staging supplied
+      // the server-assigned OpenHouse identity in the governance envelope.
+      return generateUUID(icebergSnapshotsRequestBody.getCreateUpdateTableRequestBody());
+    }
     return extractUUIDFromRequestBody(icebergSnapshotsRequestBody)
         .orElseGet(
             () -> generateUUID(icebergSnapshotsRequestBody.getCreateUpdateTableRequestBody()));

@@ -1,10 +1,17 @@
 package com.linkedin.openhouse.javaclient;
 
+import static org.mockito.Mockito.*;
+
+import com.linkedin.openhouse.gen.tables.client.api.SnapshotApi;
+import com.linkedin.openhouse.gen.tables.client.api.TableApi;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.JsonNode;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.ObjectMapper;
+import java.math.BigInteger;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import org.apache.iceberg.MetadataUpdate;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
@@ -12,18 +19,16 @@ import org.apache.iceberg.SnapshotParser;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * Verifies that {@link OpenHouseTableOperations#serializeMetadataUpdates} emits Iceberg REST spec
- * {@code TableUpdate} objects for the operations OpenHouse commits, and in particular that a
- * ref-only operation is distinguishable from a data write.
- *
- * <p>These assertions are the load-bearing premise of the audit path: the server can only report
- * which branch a commit wrote because the client states it here. Items are objects, not JSON
- * strings, so the request field is {@code CommitTableRequest.updates[]}.
+ * Verifies the authoritative Iceberg REST action sequence and lossless JSON numeric tokens sent by
+ * the client, including actions that cannot be reconstructed from the final ref state.
  */
 public class OpenHouseTableOperationsMetadataUpdatesTest {
 
@@ -91,9 +96,7 @@ public class OpenHouseTableOperationsMetadataUpdatesTest {
     Assertions.assertEquals("feature_a", update.get("ref-name").asText());
     Assertions.assertEquals("branch", update.get("type").asText());
     Assertions.assertEquals(42L, update.get("snapshot-id").asLong());
-    Assertions.assertTrue(
-        updates.get(0).get("snapshot-id") instanceof Long,
-        "integral snapshot-id must stay Long so the wire is 42, not 42.0");
+    Assertions.assertTrue(update.get("snapshot-id").isIntegralNumber());
   }
 
   /** A tag carries {@code type: tag}, so consumers can tell it apart from a branch. */
@@ -188,15 +191,11 @@ public class OpenHouseTableOperationsMetadataUpdatesTest {
     Assertions.assertTrue(sawBranchRef, "append must report the branch it moved");
   }
 
-  /**
-   * Metadata read straight off disk carries no changes. The field is omitted entirely rather than
-   * reported as an empty list, so consumers see "not stated" rather than "nothing happened".
-   */
   @Test
-  public void testMetadataWithNoChangesYieldsNull() {
-    TableMetadata noChanges =
-        TableMetadata.buildFrom(tableWithOneSnapshot()).discardChanges().build();
-    Assertions.assertNull(OpenHouseTableOperations.serializeMetadataUpdates(noChanges));
+  public void testMetadataWithNoChangesYieldsEmptyAuthoritativeList() {
+    Assertions.assertEquals(
+        Collections.emptyList(),
+        OpenHouseTableOperations.serializeMetadataUpdates(tableWithOneSnapshot()));
   }
 
   /**
@@ -212,7 +211,81 @@ public class OpenHouseTableOperationsMetadataUpdatesTest {
                 + "\"snapshot-id\":"
                 + snapshotId
                 + ",\"type\":\"branch\"}");
-    Assertions.assertEquals(snapshotId, update.get("snapshot-id"));
-    Assertions.assertTrue(update.get("snapshot-id") instanceof Long);
+    Assertions.assertEquals(snapshotId, asNode(update).get("snapshot-id").longValue());
+    Assertions.assertTrue(asNode(update).get("snapshot-id").isIntegralNumber());
+  }
+
+  @Test
+  public void testNumericDefaultsKeepFloatingPointTokensAndUnboundedIntegers() {
+    JsonNode update =
+        asNode(
+            OpenHouseTableOperations.tableUpdateObject(
+                "{\"action\":\"add-schema\",\"schema\":{\"type\":\"struct\",\"fields\":["
+                    + "{\"id\":1,\"name\":\"value\",\"type\":\"double\",\"required\":false,"
+                    + "\"initial-default\":1.0,\"write-default\":1.0}]},"
+                    + "\"large-integer\":9223372036854775808}"));
+    JsonNode field = update.get("schema").get("fields").get(0);
+    Assertions.assertTrue(field.get("initial-default").isFloatingPointNumber());
+    Assertions.assertTrue(field.get("write-default").isFloatingPointNumber());
+    Assertions.assertEquals(1.0, field.get("initial-default").doubleValue());
+    Assertions.assertEquals(
+        new BigInteger("9223372036854775808"), update.get("large-integer").bigIntegerValue());
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  public void testUnknownActionRejectsWholeCommitBeforeHttp(boolean stagedCreate) {
+    TableMetadata metadata = mock(TableMetadata.class);
+    when(metadata.changes())
+        .thenReturn(
+            Arrays.asList(
+                new MetadataUpdate.RemoveSnapshotRef("branch"), mock(MetadataUpdate.class)));
+    TableApi tableApi = mock(TableApi.class);
+    SnapshotApi snapshotApi = mock(SnapshotApi.class);
+    OpenHouseTableOperations operations =
+        OpenHouseTableOperations.builder()
+            .tableIdentifier(TableIdentifier.of("db", "table"))
+            .tableApi(tableApi)
+            .snapshotApi(snapshotApi)
+            .build();
+    if (stagedCreate) {
+      TableMetadata staged =
+          TableMetadata.newTableMetadata(
+              SCHEMA,
+              PartitionSpec.unpartitioned(),
+              SortOrder.unsorted(),
+              "/tmp/staged",
+              Collections.emptyMap());
+      operations.beginCreate(staged, staged.properties());
+    }
+
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> operations.doCommit(stagedCreate ? null : tableWithOneSnapshot(), metadata));
+    verifyNoInteractions(tableApi, snapshotApi);
+  }
+
+  @Test
+  public void testRepeatedRefChangesRemainOrderedEvenWhenFinalStateIsUnchanged() {
+    TableMetadata base = tableWithOneSnapshot();
+    TableMetadata changes =
+        TableMetadata.buildFrom(base)
+            .setRef("branch", SnapshotRef.branchBuilder(42L).build())
+            .removeRef("branch")
+            .setRef("tag", SnapshotRef.tagBuilder(42L).build())
+            .removeRef("tag")
+            .build();
+
+    List<Map<String, Object>> updates = OpenHouseTableOperations.serializeMetadataUpdates(changes);
+    Assertions.assertEquals(base.refs(), changes.refs());
+    Assertions.assertEquals(4, updates.size());
+    Assertions.assertEquals("set-snapshot-ref", updates.get(0).get("action"));
+    Assertions.assertEquals("branch", updates.get(0).get("ref-name"));
+    Assertions.assertEquals("remove-snapshot-ref", updates.get(1).get("action"));
+    Assertions.assertEquals("branch", updates.get(1).get("ref-name"));
+    Assertions.assertEquals("set-snapshot-ref", updates.get(2).get("action"));
+    Assertions.assertEquals("tag", updates.get(2).get("ref-name"));
+    Assertions.assertEquals("remove-snapshot-ref", updates.get(3).get("action"));
+    Assertions.assertEquals("tag", updates.get(3).get("ref-name"));
   }
 }
