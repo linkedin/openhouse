@@ -19,40 +19,17 @@ import org.apache.iceberg.expressions.Expressions;
 @Slf4j
 public final class SparkJobUtil {
   private SparkJobUtil() {}
-  /*
-  Example:
-  Table: test_retention with retentionConfig:
-    "retention":{
-           "count": 30,
-           "granularity": "DAY",
-           "columnPattern": null }}
-  Partitioned by time on datePartition column
-  Query: datePartition < date_trunc('DAY', current_timestamp() - INTERVAL 30 DAYs)"
-  */
+
+  // Native timestamp column: retention truncates the clock to the granularity and moves it back
+  // count periods. Example (30-day daily): datepartition < date_trunc('DAY', timestamp '<now>' -
+  // INTERVAL 30 DAYs).
   private static final String RETENTION_CONDITION_TEMPLATE =
       "%s < date_trunc('%s', timestamp '%s' - INTERVAL %d %ss)";
 
-  /*
-   A mismatch between data and pattern provided results in the datasets being filtered from deletion.
-   Reason: to_date parsing returns null if it fails to parse date as per pattern.
-   example:
-   table: test_retention with retentionConfig:
-     "retention":{
-          "count": 30,
-          "granularity": "DAY",
-          "columnPattern":{
-              "columnName": "datePartition",
-              "pattern":"yyyy-MM-dd"}}
-   Data in 'datePartition' column:
-    Case1: "2024-01-01"
-      query:  to_date(substring(datePartition, 0, CHAR_LENGTH('yyyy-MM-dd')), 'yyyy-MM-dd') <
-              date_trunc('DAY', current_timestamp() - INTERVAL 30 DAYs)"
-      result: record will be deleted
-    Case2: "2024-01.01"
-      query:  to_date(substring(datePartition, 0, CHAR_LENGTH('yyyy-MM-dd')), 'yyyy-MM-dd') <
-              date_trunc('DAY', current_timestamp() - INTERVAL 3 DAYs)"
-      result: records will be filtered from deletion
-  */
+  // String-partitioned column: retention compares the formatted label lexicographically. The clock
+  // moves back count periods and is formatted with the column pattern. When a retention time zone
+  // is set, the clock arrives already in that zone, so the label reflects the local wall clock.
+  // Example: datepartition < date_format(timestamp '<now>' - INTERVAL 30 DAYs, 'yyyy-MM-dd').
   private static final String RETENTION_CONDITION_WITH_PATTERN_TEMPLATE =
       "%s < cast(date_format(timestamp '%s' - INTERVAL %s %ss, '%s') as string)";
 
@@ -76,7 +53,7 @@ public final class SparkJobUtil {
                   granularity,
                   columnPattern));
       log.info(
-          "Table: {}. Column pattern: {}, columnName {}, granularity {}s, " + "retention query: {}",
+          "Table: {}. Column pattern: {}, columnName {}, granularity {}s, retention query: {}",
           fqtn,
           columnPattern,
           columnName,

@@ -55,6 +55,10 @@ public class TableRetentionTask extends TableOperationTask<TableMetadata> {
       jobArgs.add("--columnPattern");
       jobArgs.add(config.getColumnPattern());
     }
+    if (!StringUtils.isBlank(config.getTimeZone())) {
+      jobArgs.add("--timeZone");
+      jobArgs.add(config.getTimeZone());
+    }
     return jobArgs;
   }
 

@@ -39,6 +39,112 @@ class RetentionPolicySpecValidatorTest {
   }
 
   @Test
+  void testValidateTimeZone() {
+    // Valid IANA zone id
+    Assertions.assertTrue(
+        validator.validateTimeZoneIfPresent(
+            Retention.builder()
+                .count(1)
+                .granularity(TimePartitionSpec.Granularity.DAY)
+                .timeZone("America/Los_Angeles")
+                .build()));
+    // Valid fixed offset
+    Assertions.assertTrue(
+        validator.validateTimeZoneIfPresent(
+            Retention.builder()
+                .count(1)
+                .granularity(TimePartitionSpec.Granularity.DAY)
+                .timeZone("+05:30")
+                .build()));
+    // Absent zone defaults to UTC and is valid
+    Assertions.assertTrue(
+        validator.validateTimeZoneIfPresent(
+            Retention.builder().count(1).granularity(TimePartitionSpec.Granularity.DAY).build()));
+    // Unresolvable zone is rejected
+    Assertions.assertFalse(
+        validator.validateTimeZoneIfPresent(
+            Retention.builder()
+                .count(1)
+                .granularity(TimePartitionSpec.Granularity.DAY)
+                .timeZone("Not/AZone")
+                .build()));
+  }
+
+  @Test
+  void testValidateTimeZoneScope() {
+    // A zone on a native timestamp column is accepted: it declares the column's wall-clock zone.
+    Assertions.assertTrue(
+        validator.validateTimeZoneScope(
+            Retention.builder()
+                .count(1)
+                .granularity(TimePartitionSpec.Granularity.DAY)
+                .timeZone("America/Los_Angeles")
+                .build()));
+
+    // A zone on a string pattern that already encodes a zone is rejected.
+    Assertions.assertFalse(
+        validator.validateTimeZoneScope(
+            Retention.builder()
+                .count(1)
+                .granularity(TimePartitionSpec.Granularity.DAY)
+                .columnPattern(
+                    RetentionColumnPattern.builder()
+                        .columnName("dp")
+                        .pattern("yyyy-MM-dd-HHZ")
+                        .build())
+                .timeZone("America/Los_Angeles")
+                .build()));
+
+    // A zone on a string pattern with no zone field is accepted.
+    Assertions.assertTrue(
+        validator.validateTimeZoneScope(
+            Retention.builder()
+                .count(1)
+                .granularity(TimePartitionSpec.Granularity.DAY)
+                .columnPattern(
+                    RetentionColumnPattern.builder().columnName("dp").pattern("yyyy-MM-dd").build())
+                .timeZone("America/Los_Angeles")
+                .build()));
+
+    // An absent zone is always in scope.
+    Assertions.assertTrue(
+        validator.validateTimeZoneScope(
+            Retention.builder().count(1).granularity(TimePartitionSpec.Granularity.DAY).build()));
+  }
+
+  @Test
+  void testPatternEncodesZone() {
+    Assertions.assertFalse(validator.patternEncodesZone("yyyy-MM-dd"));
+    Assertions.assertFalse(validator.patternEncodesZone("yyyy-MM-dd-HH"));
+    Assertions.assertTrue(validator.patternEncodesZone("yyyy-MM-dd-HHZ"));
+    Assertions.assertTrue(validator.patternEncodesZone("yyyy-MM-dd'T'HH:mm:ssXXX"));
+    Assertions.assertTrue(validator.patternEncodesZone("yyyy-MM-dd VV"));
+    // A zone letter inside a quoted literal is text, not a zone field.
+    Assertions.assertFalse(validator.patternEncodesZone("yyyy-MM-dd'Z'"));
+  }
+
+  @Test
+  void testValidateAcceptsTimeZoneOnTimePartitionedTable() {
+    Retention retention =
+        Retention.builder()
+            .count(1)
+            .granularity(TimePartitionSpec.Granularity.DAY)
+            .timeZone("America/Los_Angeles")
+            .build();
+    CreateUpdateTableRequestBody request =
+        CreateUpdateTableRequestBody.builder()
+            .policies(Policies.builder().retention(retention).build())
+            .schema(getSchemaJsonFromSchema(dummySchema))
+            .timePartitioning(
+                TimePartitionSpec.builder()
+                    .columnName("ts")
+                    .granularity(TimePartitionSpec.Granularity.DAY)
+                    .build())
+            .build();
+    Assertions.assertTrue(validator.validate(request, TableUri.builder().build()));
+  }
+
+  @Test
   void testValidatePatternPositive() {
 
     // With pattern

@@ -7,6 +7,8 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.common.DefaultColumnPattern;
+import java.time.DateTimeException;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import lombok.extern.slf4j.Slf4j;
@@ -82,6 +84,23 @@ public class RetentionPolicySpecValidator extends PolicySpecValidator {
                 tableUri);
         return false;
       }
+      if (!validateTimeZoneIfPresent(retention)) {
+        failureMessage =
+            String.format(
+                "Provided retention time zone[%s] is not a valid IANA zone id or fixed offset for the table[%s]",
+                retention.getTimeZone(), tableUri);
+        errorField = "retention";
+        return false;
+      }
+      if (!validateTimeZoneScope(retention)) {
+        failureMessage =
+            String.format(
+                "Retention time zone[%s] is not allowed on a column pattern that already encodes a"
+                    + " zone; use a zone-free pattern for table[%s]",
+                retention.getTimeZone(), tableUri);
+        errorField = "retention";
+        return false;
+      }
     }
 
     return true;
@@ -131,5 +150,46 @@ public class RetentionPolicySpecValidator extends PolicySpecValidator {
     }
 
     return true;
+  }
+
+  /**
+   * Validate that the retention time zone, when present, is a value {@link ZoneId} can resolve: an
+   * IANA zone id such as {@code America/Los_Angeles} or a fixed offset such as {@code +05:30}. An
+   * absent or empty time zone means UTC and is valid.
+   */
+  protected boolean validateTimeZoneIfPresent(Retention retention) {
+    String timeZone = retention.getTimeZone();
+    if (timeZone == null || timeZone.isEmpty()) {
+      return true;
+    }
+    try {
+      ZoneId.of(timeZone);
+    } catch (DateTimeException dateTimeException) {
+      log.warn("The retention time zone {} cannot be resolved to a valid zone", timeZone);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * A retention time zone declares the wall-clock zone of the retention column's values, so it is
+   * accepted on a native timestamp column and on a string pattern with no zone of its own. It is
+   * rejected only when a string pattern already formats a zone, which would carry two zones. An
+   * absent or empty zone is always in scope.
+   */
+  protected boolean validateTimeZoneScope(Retention retention) {
+    String timeZone = retention.getTimeZone();
+    if (timeZone == null || timeZone.isEmpty()) {
+      return true;
+    }
+    return retention.getColumnPattern() == null
+        || retention.getColumnPattern().getPattern() == null
+        || !patternEncodesZone(retention.getColumnPattern().getPattern());
+  }
+
+  /** True when the pattern contains a DateTimeFormatter zone or offset field outside a literal. */
+  protected boolean patternEncodesZone(String pattern) {
+    String withoutLiterals = pattern.replaceAll("'[^']*'", "");
+    return withoutLiterals.chars().anyMatch(c -> "VzOXxZ".indexOf(c) >= 0);
   }
 }
