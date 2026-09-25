@@ -7,6 +7,7 @@ import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Assertions;
@@ -94,6 +95,43 @@ public class RtasPolicyPreservationTest extends OpenHouseSparkITest {
           before.getHistory().getMaxAge(),
           after.getHistory().getMaxAge(),
           "RTAS changed the history policy");
+
+      spark.sql("DROP TABLE IF EXISTS " + table);
+    }
+  }
+
+  @Test
+  public void testRtasFailsWhenRetentionColumnIsDropped() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      String table = "openhouse.dbRtasPolicy.retentionColumnDropped";
+      spark.sql("DROP TABLE IF EXISTS " + table);
+      spark.sql("CREATE TABLE " + table + " (id bigint, name string) USING iceberg");
+      spark.sql("INSERT INTO " + table + " VALUES (1, '2024-01-01'), (2, '2024-01-02')");
+      spark.sql(
+          "ALTER TABLE "
+              + table
+              + " SET POLICY (RETENTION = 30d ON COLUMN name WHERE pattern = 'yyyy-MM-dd')");
+      spark.sql("ALTER TABLE " + table + " SET TBLPROPERTIES ('replace.enabled'='true')");
+
+      // The replace drops the column the retention policy depends on. Because policies are carried
+      // forward across a replace, the resulting table would have an unsatisfiable retention policy,
+      // so the replace must be rejected upfront rather than after the write.
+      BadRequestException exception =
+          Assertions.assertThrows(
+              BadRequestException.class,
+              () ->
+                  spark.sql(
+                      "REPLACE TABLE " + table + " USING iceberg AS SELECT id FROM " + table));
+      Assertions.assertTrue(
+          exception.getMessage().contains("retention policy is incompatible with the new schema"),
+          "Expected an incompatible-retention error but got: " + exception.getMessage());
+
+      // The rejected replace must leave the table untouched.
+      Policies after = getPolicies(spark, table);
+      Assertions.assertNotNull(
+          after.getRetention(), "a rejected RTAS must not change the table's retention policy");
+      Assertions.assertEquals(
+          2, spark.sql("SELECT * FROM " + table).collectAsList().size(), "data was replaced");
 
       spark.sql("DROP TABLE IF EXISTS " + table);
     }
