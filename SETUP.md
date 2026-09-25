@@ -45,8 +45,8 @@ This single command:
 
 The HTS index tests live in
 `services/housetables/src/test/java/com/linkedin/openhouse/housetables/index`.
-They test the **current checkout**, not the historical service image used by the Python load
-reproduction. No staging access, service Docker image, Spark, or HTTP listener is needed.
+They test the **current checkout** against real MySQL. Unlike the Python deployment suite,
+they need no service Docker image or HTTP listener. Neither suite needs staging access or Spark.
 
 ```bash
 # Java 17; fast unit contracts, controller dispatch, and plan-detector tests (no Docker).
@@ -62,7 +62,7 @@ is a directory. This excludes only hook installation, not tests. MySQL tests are
 GitHub Actions runs `mysqlIndexTest` explicitly after the normal Gradle build, before
 starting the separate Compose deployment suite. Testcontainers supplies its own disposable
 MySQL instance; the runner needs Docker, not a preinstalled MySQL server.
-The Python deployment suite uses `/v1/hts/views/query` and reads every page before cleanup;
+The Python deployment suite uses `/v1/hts/views/query` and reads every view page before cleanup;
 its offline helper tests and deployed multi-page regression also run in Actions.
 The image defaults to `mysql:8.4.11`; use `-PmysqlIndexImage=mysql:<version>` to check another
 supported MySQL 8 version.
@@ -97,7 +97,8 @@ features each have 100 rules.
 Every mapped HTS controller route must appear in the shared scenario inventory; the unit
 test fails when an endpoint is added without an explicit policy. Unit tests also verify
 controller key/parameter forwarding with mocked handlers, derived case-insensitive key
-predicates, explicit JPQL key-function compatibility, and job-key lookup dispatch.
+predicates and explicit JPQL key-function compatibility. The soft-delete query guards and
+job-ID dispatch guard are currently deferred as detailed below.
 They cannot establish optimizer behavior; the MySQL suite supplies that evidence.
 
 | Endpoint | Selective access contract / tested variants |
@@ -105,17 +106,17 @@ They cannot establish optimizer behavior; the MySQL suite supplies that evidence
 | `GET /hts/tables` | Mixed-case composite-key lookup |
 | `GET /hts/tables/query` | Database, exact table, prefix and leading-wildcard patterns; database enumeration exempt |
 | `GET /v1/hts/tables/query` | Same variants, including forced count queries |
-| `GET /hts/tables/querySoftDeleted` | Database with/without table and expiry filter; page and count |
+| `GET /hts/tables/querySoftDeleted` | Database with/without table and expiry filter; page and count (plan checks deferred) |
 | `PUT /hts/tables` | Create/update lookups plus actual update |
-| `DELETE /hts/tables` | Lookup, derived-delete lookup and physical delete |
+| `DELETE /hts/tables` | Conditional table-scoped delete |
 | `DELETE /v1/hts/tables` | Hard and soft-delete branches, including write-side lookups |
-| `PATCH /hts/tables/rename` | Existence check and actual rename UPDATE |
-| `PUT /hts/tables/restore` | Live-key conflict lookup, deleted-version lookup/delete and restore |
-| `DELETE /hts/tables/purge` | Both all-versions and expiry-bounded deletes |
+| `PATCH /hts/tables/rename` | Conditional rename UPDATE checks source existence/type without a separate precheck |
+| `PUT /hts/tables/restore` | Live-key conflict lookup, deleted-version lookup/delete and restore (plan checks deferred) |
+| `DELETE /hts/tables/purge` | Both all-versions and expiry-bounded deletes (plan checks deferred) |
 | `GET /hts/jobs` | Primary-key lookup |
 | `PUT /hts/jobs` | Create/update existence/merge lookups and actual update |
 | `DELETE /hts/jobs` | Existence, lookup and actual delete |
-| `GET /hts/jobs/query` | Job-ID filter must be selective; full/state-only listing exempt (no state index) |
+| `GET /hts/jobs/query` | Job-ID plan check deferred; full/state-only listing exempt (no state index) |
 | `GET /hts/togglestatuses` | Feature-prefix index lookup before wildcard rules are evaluated in memory |
 | `GET /hts/entities` | Neutral point lookup for table and view rows |
 | `GET /hts/views` | View-scoped point lookup |
@@ -123,7 +124,7 @@ They cannot establish optimizer behavior; the MySQL suite supplies that evidence
 | `PUT /hts/views` | Create/update lookups and actual update |
 | `DELETE /hts/views` | View-scoped lookup and delete |
 
-The five entity/view routes exist in both A/B revisions, but not reverted main. Their scenarios
+The five entity/view routes exist in both A/B revisions, but not the reverted `f36f0333` baseline. Their scenarios
 are enabled when that controller API is present; the inventory guard still requires exact
 coverage of every discovered route. View scenarios mark the selected database's 100 rows
 as views inside the rolled-back test transaction. All other rows retain legacy NULL type.
@@ -190,7 +191,7 @@ from the now-verified live-table fix and are now explicitly deferred as describe
 not treated as valid indexed behavior.
 
 After those deferrals, validation on the same combined-fix commit passes all **77 active unit
-cases** and **37 active MySQL cases/controls**. The older broken commit and reverted main
+cases** and **37 active MySQL cases/controls**. The older broken commit and reverted `f36f0333` baseline
 still contain live-table access defects; those checks have not been disabled.
 
 Detailed SQL, bindings, plans, fixture DDL, and version are saved under
