@@ -8,15 +8,16 @@ binding and HTTP status codes as a client actually sees them.
 HTS is unauthenticated: there is no token argument and a request that omits a
 required parameter returns 400, never 401.
 
-The backing store is in-memory H2, wiped on container restart, so every test
-seeds its own rows under a database id unique to the run and deletes them again.
-That keeps the script re-runnable against a warm container.
+CI runs against MySQL in Docker, initialized from services/housetables/ddl.
+Each test seeds rows under a database id unique to the run and deletes them
+afterward, keeping the suite re-runnable against a warm deployment. API-only
+cases can also run against an H2-backed HTS deployment.
 
 NOT EVERY CASE IS REACHABLE OVER HTTP. A legacy row whose
 ``user_table_row.entity_type`` column is NULL must resolve as a TABLE, but no
-request can create one: every write goes through
-``UserHouseTablesController.stampEntityType``, which stamps a non-null
-discriminator at ingress, and the JPA converter refuses to persist a null.
+table/view PUT can create one: ``HtsEntityTypeValidator.normalize`` stamps the
+route's non-null discriminator at ingress, and the JPA converter rejects null
+writes. Restore supplies TABLE through ``UserTablesMapper`` instead.
 Those cases connect to the database directly, plant the row, and then assert
 through the deployed API. They also close the one thing an API read cannot
 prove: ``EntityTypeConverter`` resolves a stored NULL to TABLE on read, so a
@@ -25,23 +26,24 @@ stored NULL. Only a column read tells those apart.
 
 Whether that is possible depends on how the deployment is configured:
 
-* ``database.type: IN_MEMORY`` -- H2 inside the HTS JVM heap, with no TCP
-  listener and no console. Genuinely unreachable, and the database-backed tests
-  below skip.
-* ``database.type: MYSQL`` -- reachable, and closer to production. The
-  database-backed tests run.
+* ``database.type: IN_MEMORY`` -- H2 inside the HTS JVM heap. The direct-database
+  helpers cannot connect to it.
+* ``database.type: MYSQL`` -- the direct-database helpers can connect when
+  PyMySQL and matching connection settings are available.
 
 Connection settings come from ``HTS_DB_HOST``, ``HTS_DB_PORT``, ``HTS_DB_USER``,
 ``HTS_DB_PASSWORD`` and ``HTS_DB_NAME``, defaulting to the local docker-compose
-MySQL recipe. Tests that need a database skip with a clear message when none is
-reachable, and the closing summary reports passed and skipped separately so a
-skip never reads as a pass.
+MySQL recipe. The helpers do not detect the service's database type: settings
+must point to that same service's MySQL store, not an unrelated database.
+Database-backed cases skip when PyMySQL is absent or connection setup fails;
+the final summary reports those skips separately. CI configures MySQL access
+so these cases can run rather than skip.
 
 Worth knowing when reading the restore cases: ``soft_deleted_user_table_row``
 has no ``entity_type`` column at all, so the discriminator is genuinely
 destroyed on soft delete, and ``UserTablesServiceImpl.restoreUserTable``
-rebuilds a live row from that column-less source. It does not write a NULL back
-solely because ``UserTablesMapper`` stamps one on::
+rebuilds a live row from that column-less source. ``UserTablesMapper`` supplies
+TABLE, and the converter rejects a missing stamp at write time::
 
     @Mapping(target = "entityType", expression = "java(EntityType.TABLE)")
     UserTableRow toUserTableRow(SoftDeletedUserTableRow softDeletedUserTableRow);
@@ -82,20 +84,17 @@ class SkippedTest(Exception):
 
 
 def database_connection():
-    """A connection to the HTS backing store, or None when there isn't one.
+    """    A MySQL connection using HTS_DB_*, or None if the driver/connect step fails.
 
-    An IN_MEMORY deployment has no reachable database and that is not a failure,
-    so this reports absence rather than raising.
+    This does not discover or verify the service's backing store. The caller
+    must provide the matching MySQL settings; an embedded H2 store cannot be
+    reached through this helper.
 
-    The character set is pinned deliberately. A connection that negotiates
-    latin1_swedish_ci compares under PAD SPACE semantics, so an ad hoc
-    ``SELECT 'TABLE ' = 'TABLE'`` reports true there and false under utf8mb4.
-    Queries below compare the column against a literal, and MySQL's coercibility
-    rules make the column's own utf8mb4_0900_ai_ci govern that shape, so they are
-    not actually sensitive to it -- but a bare ``docker exec ... mysql`` session
-    used to check the same thing by hand very much is, and that has already
-    produced a confidently wrong answer twice. Pinning here keeps the script
-    honest if a future check is ever written literal against literal.
+    SET NAMES pins utf8mb4_0900_ai_ci (NO PAD), not merely a character set.
+    For example, ``SELECT 'TABLE ' = 'TABLE'`` is false with that collation
+    but true with a PAD SPACE collation such as latin1_swedish_ci. Comparisons
+    against the entity_type column use that column's collation, which the
+    corruption test verifies separately.
     """
     if pymysql is None:
         return None
@@ -151,8 +150,8 @@ def plant_entity_type(connection, database: str, table: str, entity_type,
                       metadata_location: str = '/tmp/legacy.json') -> None:
     """Insert a row carrying an arbitrary discriminator, including NULL.
 
-    No HTTP request can produce these: ``stampEntityType`` sets a valid
-    discriminator at ingress and the JPA converter refuses anything else.
+    Table/view PUTs cannot produce these: ``HtsEntityTypeValidator.normalize``
+    stamps a valid discriminator, and the JPA converter rejects null writes.
     """
     execute(
         connection,
@@ -274,9 +273,9 @@ def existence_state(response: requests.Response) -> str:
     confident answer and defeat the comparison this feeds: map 500 to ``ABSENT``
     and a 404/500 row reads as agreement, which is precisely the disagreement
     worth catching; map it to ``EXISTS`` and a 200/500 row does the same. Kept
-    distinct, a 500 agrees only with another 500, which is the honest reading --
-    both endpoints reached the converter and failed identically, so there is no
-    disagreement between them, only a corrupt row.
+    distinct, two errors agree only at the error-state level. That alone does
+    not establish a shared cause; the corruption tests separately check the
+    converter diagnostic.
     """
     if response.status_code == 200:
         return EXISTS
@@ -381,7 +380,11 @@ def table_ids(entities: list) -> set:
 
 
 def cleanup(database: str) -> None:
-    """Drop everything this run created under ``database``, live and soft deleted."""
+    """Remove this suite's rows from its run-scoped database.
+
+    View cleanup collects all pages before deleting. Soft-delete cleanup reads
+    one page, sufficient for these fixtures; it is not a general bulk cleanup.
+    """
     for entity in query_entities('views', database):
         delete_entity('views', database, entity['tableId'])
     for entity in query_entities('tables', database):
@@ -553,14 +556,10 @@ def test_neutral_and_typed_endpoints_agree_on_existence() -> None:
     Java/SQL disagreement made directly observable over HTTP, with no SQL client
     needed to see it.
 
-    This is worth having over per-row status assertions because it is collation
-    robust. Under a PAD SPACE collation a trailing-space discriminator compares
-    equal to 'TABLE', both routes answer 200, and this assertion passes. Under
-    NO PAD the typed route's predicate misses, the two routes disagree, and this
-    assertion fails naming exactly the right bug. Per-row status codes encode one
-    collation's answers as literal constants and would all need rewriting if
-    production turns out to differ; this one states the property instead and
-    holds either way.
+    This test uses only well-formed rows. Corrupt values require separate
+    assertions because SQL collation and Java parsing need not agree: a
+    trailing-space discriminator is rejected by the Java enum parser even if
+    a PAD SPACE collation lets it through the typed SQL predicate.
 
     ``kind`` is chosen per row deliberately. A view read through /hts/tables is a
     404 by design, so the typed route compared against must match the row's own
@@ -809,29 +808,16 @@ def test_rename_onto_occupied_destination_conflicts() -> None:
 # --------------------------------------------------------------------------- #
 
 def test_restore_stamps_the_table_discriminator() -> None:
-    """The highest-value case in this file.
+    """Verify restore persists TABLE rather than relying on the NULL read default.
 
-    ``soft_deleted_user_table_row`` has no ``entity_type`` column, so the
-    discriminator is destroyed on soft delete and the wire projection is
-    genuinely null. Restore rebuilds the live row from that column-less source
-    and only ends up with a TABLE because ``UserTablesMapper`` stamps one back
-    on. This test is the deployment-level guard on that stamp.
+    The soft-deleted store has no discriminator column. Restore maps that row
+    to a live TABLE through UserTablesMapper; the current converter would reject
+    a missing stamp rather than persist NULL. The raw-column assertion also
+    protects against a future write path allowing NULL, since a subsequent API
+    read would resolve that NULL to TABLE and hide the storage error.
 
-    The assertion that matters is the one on the column, and it has to be. An
-    API-level check is very nearly worthless here: ``EntityTypeConverter``
-    resolves a stored NULL to TABLE on read, so ``entityType == "TABLE"`` in a
-    response is true whether the column holds 'TABLE' or NULL. Such a check
-    would sail straight through the exact regression it exists to catch -- drop
-    the ``@Mapping`` line in a refactor, restore starts persisting NULL, and the
-    response still says TABLE. The response assertions below are kept, but only
-    as a secondary check.
-
-    This is the same tautology that made ``HtsRepositoryTest`` grow its
-    ``readRawEntityType`` helper. Do not "simplify" this back to the API check.
-
-    Needs a database, so it skips on an IN_MEMORY deployment. Restore's
-    API-visible behaviour stays covered there by
-    ``test_soft_delete_restore_and_purge_lifecycle``.
+    Requires a matching MySQL connection. API-visible restore behavior is
+    separately covered by test_soft_delete_restore_and_purge_lifecycle.
     """
     connection = require_database()
     database = database_id('restore_discriminator')
@@ -868,9 +854,8 @@ def test_restore_stamps_the_table_discriminator() -> None:
         # The assertion this test exists for.
         stored, is_null = read_entity_type_column(connection, database, 't_sd')
         assert is_null == 0, \
-            "restore must not leave a NULL discriminator: the soft deleted store has no " \
-            "entity_type column, so only the UserTablesMapper stamp prevents one, and a " \
-            "NULL would still read back as TABLE through EntityTypeConverter"
+            "restore must store TABLE explicitly, not rely on EntityTypeConverter's " \
+            "legacy NULL-to-TABLE read default"
         assert stored == 'TABLE', \
             f"restore must persist the literal string TABLE, got {stored!r}"
 
@@ -1001,8 +986,7 @@ def test_legacy_null_entity_type_resolves_as_table() -> None:
     delete predicate is a separate code path from the read predicate and carries
     its own null arm. If either is ever "simplified" to a plain
     ``entity_type = 'TABLE'`` equality, every pre-existing legacy table becomes
-    invisible or undeletable -- exactly the regression this branch's commit
-    message warns against. Nothing else covers it at deployment level.
+    invisible or undeletable. This test checks both paths against the deployment.
 
     The row is planted with raw SQL because ingress stamping means no request can
     produce a NULL discriminator.
@@ -1056,7 +1040,7 @@ def test_legacy_null_entity_type_resolves_as_table() -> None:
 def test_corrupt_entity_type_values_split_into_two_failure_modes() -> None:
     """A corrupt discriminator fails in one of two quite different ways.
 
-    The read predicate compares against 'TABLE' under the column's collation, so
+    The read predicate compares UPPER(entity_type) against 'TABLE' under the column's collation, so
     the collation decides which corrupt values are even seen:
 
     * Values the collation calls *equal* to 'TABLE' pass the predicate and reach
@@ -1064,9 +1048,9 @@ def test_corrupt_entity_type_values_split_into_two_failure_modes() -> None:
       utf8mb4_0900_ai_ci that includes accented forms such as 'TABLE' with an
       acute accent, because the collation is accent insensitive.
     * Everything else fails the predicate, so the row is never selected and the
-      typed API reports 404. Trailing and leading spaces land here because
-      utf8mb4_0900_ai_ci is a NO PAD collation; so do the empty string and an
-      all-spaces value. Such a row is invisible to the typed routes, but it is
+      typed API reports 404. NO PAD makes trailing spaces significant; leading
+      spaces, the empty string and an all-spaces value also fail the predicate.
+      Such a row is invisible to the typed routes, but it is
       not benign: the neutral /hts/entities read carries no type predicate, so
       it hydrates the row and fails the same way an accented value does.
 
@@ -1159,7 +1143,8 @@ def test_corrupt_entity_type_values_split_into_two_failure_modes() -> None:
         # Collation limitation: this disagreement exists because
         # utf8mb4_0900_ai_ci is NO PAD, so 'TABLE ' fails the typed route's
         # predicate (404) while the neutral route still hydrates it (500). Under
-        # a PAD SPACE collation the same row would answer 200/200 and agree. The
+        # a PAD SPACE collation both routes would reach the converter and answer
+        # 500: EntityType.fromName does not trim the stored value. The
         # column collation is pinned at the top of this test, so if that ever
         # changes this assertion fails and says so rather than quietly inverting.
         agree, neutral_state, typed_state, neutral, typed = endpoints_agree_on_existence(

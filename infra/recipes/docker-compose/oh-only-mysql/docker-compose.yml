@@ -6,11 +6,11 @@
 # actually uses in production rather than H2's MySQL compatibility mode.
 #
 # services/housetables/ddl/*.sql is mounted into the MySQL image's initialisation
-# directory, which applies it in filename order before the server accepts connections and
-# therefore before House Tables starts. The service's own schema.sql is
-# CREATE TABLE IF NOT EXISTS, so it no-ops over the DDL-created tables and the application
-# then runs on exactly the schema those files describe. That makes every run of this recipe
-# a check that the recorded DDL is a working migration path, which nothing else verifies.
+# directory, which applies it in filename order when initializing an empty data directory,
+# before MySQL accepts normal TCP connections. depends_on orders container startup but does
+# not wait for database readiness; CI polls the HTS endpoint before running tests.
+# The service's CREATE TABLE IF NOT EXISTS schema.sql leaves these DDL-created tables intact.
+# The separate mysqlIndexTest suite also validates a pinned copy of the DDL in Testcontainers.
 version: "3.3"
 services:
   openhouse-tables:
