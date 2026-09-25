@@ -237,9 +237,10 @@ public class OpenHouseTableOperationsTest {
   @ValueSource(
       strings = {
         "{\"lockState\": {\"locked\": true, \"reason\": \"LEGACY\"}}",
-        "{\"lockState\": {\"locked\": false, \"reason\": \"SYSTEM_ONLY\"}}"
+        "{\"lockState\": {\"locked\": false, \"reason\": \"SYSTEM_ONLY\"}}",
+        "{\"lockState\": {\"locked\": true, \"reason\": \"SYSTEM_ONLY\""
       })
-  public void testOtherLockReasonsKeepTheExistingParseFailure(String policiesString) {
+  public void testOtherOrMalformedLockPoliciesKeepTheExistingParseFailure(String policiesString) {
     RuntimeException failure =
         Assertions.assertThrows(RuntimeException.class, () -> buildUpdatedPolicies(policiesString));
     Assertions.assertEquals(

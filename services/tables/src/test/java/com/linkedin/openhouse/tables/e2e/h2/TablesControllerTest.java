@@ -1646,6 +1646,16 @@ public class TablesControllerTest {
                   .contentType(MediaType.APPLICATION_JSON)
                   .content("{\"locked\":true,\"reason\":\"SYSTEM_ONLY\"}"))
           .andExpect(status().isCreated());
+      mvc.perform(
+              MockMvcRequestBuilders.post(tablePath + "/lock")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content("{\"locked\":true,\"reason\":\"SYSTEM_ONLY\"}"))
+          .andExpect(status().isCreated());
+      mvc.perform(
+              MockMvcRequestBuilders.post(tablePath + "/lock")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content("{\"locked\":true}"))
+          .andExpect(status().isConflict());
       mvc.perform(MockMvcRequestBuilders.get(tablePath))
           .andExpect(status().isLocked())
           .andExpect(jsonPath("$.message", containsString("SYSTEM_ONLY")))
@@ -1657,6 +1667,8 @@ public class TablesControllerTest {
           .andExpect(status().isConflict());
       mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock/UNKNOWN"))
           .andExpect(status().isBadRequest());
+      mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock/LEGACY"))
+          .andExpect(status().isConflict());
       mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock/SYSTEM_ONLY"))
           .andExpect(status().isNoContent());
       mvc.perform(MockMvcRequestBuilders.get(tablePath))
@@ -1665,6 +1677,26 @@ public class TablesControllerTest {
     } finally {
       RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
     }
+  }
+
+  @Test
+  public void systemOnlyLockDoesNotBlockDrop() throws Exception {
+    RequestAndValidateHelper.createTableAndValidateResponse(
+        GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+    String tablePath =
+        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+            + "/databases/"
+            + GET_TABLE_RESPONSE_BODY.getDatabaseId()
+            + "/tables/"
+            + GET_TABLE_RESPONSE_BODY.getTableId();
+    mvc.perform(
+            MockMvcRequestBuilders.post(tablePath + "/lock")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"locked\":true,\"reason\":\"SYSTEM_ONLY\"}"))
+        .andExpect(status().isCreated());
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+    mvc.perform(MockMvcRequestBuilders.get(tablePath).header(HTTP_HEADER_ACTION_TYPE, "SYSTEM"))
+        .andExpect(status().isNotFound());
   }
 
   @Test

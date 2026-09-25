@@ -37,6 +37,11 @@ class SystemOnlyLockCatalogTest extends OpenHouseSparkITest {
       long secondSnapshot = table.currentSnapshot().snapshotId();
       TableApi controls = controls(spark, false);
       TableApi inspection = controls(spark, true);
+      Map<String, String> properties = new HashMap<>(catalog.properties());
+      properties.put("action-type", "SYSTEM");
+      OpenHouseCatalog maintenance = new OpenHouseCatalog();
+      maintenance.setConf(spark.sparkContext().hadoopConfiguration());
+      maintenance.initialize("maintenance", properties);
       controls
           .createLockV1(
               DATABASE,
@@ -62,11 +67,6 @@ class SystemOnlyLockCatalogTest extends OpenHouseSparkITest {
         Assertions.assertEquals(423, dropFailure.getStatusCode());
         LockState lock = lock(inspection, id);
 
-        Map<String, String> properties = new HashMap<>(catalog.properties());
-        properties.put("action-type", "SYSTEM");
-        OpenHouseCatalog maintenance = new OpenHouseCatalog();
-        maintenance.setConf(spark.sparkContext().hadoopConfiguration());
-        maintenance.initialize("maintenance", properties);
         maintenance
             .loadTable(id)
             .updateProperties()
@@ -87,10 +87,17 @@ class SystemOnlyLockCatalogTest extends OpenHouseSparkITest {
             expired.properties().get(TableProperties.MAX_REF_AGE_MS));
         Assertions.assertNull(expired.snapshot(firstSnapshot));
         Assertions.assertNotNull(expired.snapshot(secondSnapshot));
+
+        // Unlike Spark SQL DROP TABLE, Catalog.dropTable calls DELETE without loading the table,
+        // so the lock doesn't block it.
+        Assertions.assertTrue(catalog.dropTable(id));
+        Assertions.assertFalse(maintenance.tableExists(id));
       } finally {
-        controls.deleteLockByReasonV1(DATABASE, id.name(), "SYSTEM_ONLY").block();
-        // Catalog.dropTable calls DELETE without loading the table, unlike Spark SQL DROP TABLE.
-        catalog.dropTable(id);
+        // Unlocks first so cleanup after a failure doesn't depend on the locked drop above.
+        if (maintenance.tableExists(id)) {
+          controls.deleteLockByReasonV1(DATABASE, id.name(), "SYSTEM_ONLY").block();
+          catalog.dropTable(id);
+        }
       }
     }
   }

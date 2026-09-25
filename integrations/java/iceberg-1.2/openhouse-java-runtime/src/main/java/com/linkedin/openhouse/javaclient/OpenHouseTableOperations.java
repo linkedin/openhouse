@@ -425,10 +425,12 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
           && LockState.ReasonEnum.SYSTEM_ONLY
               .getValue()
               .equals(lockState.path("reason").textValue())) {
+        log.debug("OpenHouse: Parsing policies with an active SYSTEM_ONLY lock");
         return mapper.readValue(policiesString, Policies.class);
       }
     } catch (IOException e) {
-      // Keep the existing parse failure.
+      // The caller still throws the existing parse failure.
+      log.warn("OpenHouse: Cannot parse policies string", e);
     }
     return null;
   }
