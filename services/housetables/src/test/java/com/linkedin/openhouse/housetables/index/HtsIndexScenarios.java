@@ -244,7 +244,7 @@ final class HtsIndexScenarios {
             .param("databaseId", DB)
             .param("tableId", TABLE)
             .param("featureId", "Feature042"));
-    // The pre-fix and combined-fix revisions both expose these routes; reverted main does not.
+    // Both A/B revisions expose these routes; the reverted f36f0333 baseline does not.
     if (Arrays.stream(
             com.linkedin.openhouse.housetables.controller.UserHouseTablesController.class
                 .getDeclaredMethods())
