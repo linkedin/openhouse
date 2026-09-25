@@ -15,6 +15,7 @@ import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.ResourceGatedByToggledOnFeatureException;
+import com.linkedin.openhouse.common.exception.SystemOnlyLockAccessDeniedException;
 import com.linkedin.openhouse.common.exception.UnprocessableEntityException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import io.swagger.v3.oas.annotations.Hidden;
@@ -272,10 +273,14 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
   @ExceptionHandler(UnsupportedClientOperationException.class)
   protected ResponseEntity<ErrorResponseBody> handleUnsupportedClientOperationException(
       UnsupportedClientOperationException unsupportedClientOperationException) {
+    HttpStatus status =
+        unsupportedClientOperationException instanceof SystemOnlyLockAccessDeniedException
+            ? HttpStatus.LOCKED
+            : HttpStatus.BAD_REQUEST;
     ErrorResponseBody errorResponseBody =
         ErrorResponseBody.builder()
-            .status(HttpStatus.BAD_REQUEST)
-            .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
+            .status(status)
+            .error(status.getReasonPhrase())
             .message(unsupportedClientOperationException.getMessage())
             .stacktrace(getAbbreviatedStackTrace(unsupportedClientOperationException))
             .cause(getExceptionCause(unsupportedClientOperationException))

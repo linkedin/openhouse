@@ -6,6 +6,7 @@ import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
@@ -418,6 +419,34 @@ public class TablesController {
       @Parameter(description = "Table ID", required = true) @PathVariable String tableId) {
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
         tablesApiHandler.deleteLock(databaseId, tableId, extractAuthenticatedUserPrincipal());
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Delete a lock by reason",
+      description = "Requires existing LOCK_ADMIN authorization and a matching active lock reason.",
+      tags = {"Table"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "204", description = "lock DELETE: NO_CONTENT"),
+        @ApiResponse(responseCode = "400", description = "lock DELETE: BAD_REQUEST"),
+        @ApiResponse(responseCode = "401", description = "lock DELETE: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "403", description = "lock DELETE: FORBIDDEN"),
+        @ApiResponse(responseCode = "404", description = "lock DELETE: TABLE_NOT_FOUND"),
+        @ApiResponse(responseCode = "409", description = "lock DELETE: REASON_CONFLICT")
+      })
+  @DeleteMapping(
+      value = {"/v1/databases/{databaseId}/tables/{tableId}/lock/{reason}"},
+      produces = {"application/json"})
+  public ResponseEntity<Void> deleteLockByReason(
+      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
+      @Parameter(description = "Table ID", required = true) @PathVariable String tableId,
+      @Parameter(description = "Expected lock reason", required = true) @PathVariable
+          LockReason reason) {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
+        tablesApiHandler.deleteLock(
+            databaseId, tableId, reason, extractAuthenticatedUserPrincipal());
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

@@ -4,6 +4,7 @@ import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
@@ -173,6 +174,18 @@ public interface TablesApiHandler {
    * @return empty body on successful delete
    */
   ApiResponse<Void> deleteLock(String databaseId, String tableId, String tableCreatorUpdator);
+
+  /**
+   * Remove a table lock only when its reason matches, using existing lock authorization.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param reason expected lock reason
+   * @param tableCreatorUpdator authenticated caller requiring LOCK_ADMIN permission
+   * @return empty body when the matching lock is removed or already inactive
+   */
+  ApiResponse<Void> deleteLock(
+      String databaseId, String tableId, LockReason reason, String tableCreatorUpdator);
 
   /**
    * Function to perform a paginated search on soft deleted tables in a given database ID, with

@@ -9,6 +9,7 @@ import com.linkedin.openhouse.gen.tables.client.model.CreateUpdateTableRequestBo
 import com.linkedin.openhouse.gen.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.gen.tables.client.model.History;
 import com.linkedin.openhouse.gen.tables.client.model.IcebergSnapshotsRequestBody;
+import com.linkedin.openhouse.gen.tables.client.model.LockState;
 import com.linkedin.openhouse.gen.tables.client.model.Policies;
 import com.linkedin.openhouse.gen.tables.client.model.PolicyTag;
 import com.linkedin.openhouse.gen.tables.client.model.Retention;
@@ -51,6 +52,8 @@ import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.Tasks;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
 public class OpenHouseTableOperationsTest {
@@ -217,6 +220,39 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertEquals(1, updatedPolicies.getRetention().getCount());
     Assertions.assertEquals(
         Retention.GranularityEnum.DAY, updatedPolicies.getRetention().getGranularity());
+  }
+
+  @Test
+  public void testActiveSystemOnlyLockPoliciesAreReadable() {
+    Policies policies =
+        buildUpdatedPolicies(
+            "{\"retention\": {\"count\": \"1\", \"granularity\": \"DAY\"}, "
+                + "\"lockState\": {\"locked\": true, \"reason\": \"SYSTEM_ONLY\"}}");
+    Assertions.assertEquals(1, policies.getRetention().getCount());
+    Assertions.assertTrue(policies.getLockState().getLocked());
+    Assertions.assertEquals(LockState.ReasonEnum.SYSTEM_ONLY, policies.getLockState().getReason());
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "{\"lockState\": {\"locked\": true, \"reason\": \"LEGACY\"}}",
+        "{\"lockState\": {\"locked\": false, \"reason\": \"SYSTEM_ONLY\"}}",
+        "{\"lockState\": {\"locked\": true, \"reason\": \"SYSTEM_ONLY\""
+      })
+  public void testOtherOrMalformedLockPoliciesKeepTheExistingParseFailure(String policiesString) {
+    RuntimeException failure =
+        Assertions.assertThrows(RuntimeException.class, () -> buildUpdatedPolicies(policiesString));
+    Assertions.assertEquals(
+        "OpenHouse: Cannot convert policies string to policies object", failure.getMessage());
+  }
+
+  private static Policies buildUpdatedPolicies(String policiesString) {
+    TableMetadata metadata = mock(TableMetadata.class);
+    when(metadata.properties()).thenReturn(Collections.singletonMap("policies", policiesString));
+    OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
+    when(openHouseTableOperations.buildUpdatedPolicies(metadata)).thenCallRealMethod();
+    return openHouseTableOperations.buildUpdatedPolicies(metadata);
   }
 
   @Test
