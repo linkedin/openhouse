@@ -444,7 +444,7 @@ class HtsMysqlIndexIntegrationTest {
         controls.put(operation + "-" + function, wrapped);
       }
     }
-    // CI collation, not a functional index, supplies case-insensitive matching.
+    // Case-insensitive collation, not a functional index, supplies the matching semantics.
     assertThat(
             jdbc.queryForObject(
                 "SELECT COUNT(*) FROM soft_deleted_user_table_row WHERE database_id=? AND table_id=?",
