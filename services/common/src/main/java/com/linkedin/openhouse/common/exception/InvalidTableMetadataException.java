@@ -5,9 +5,8 @@ package com.linkedin.openhouse.common.exception;
  * metadata, treated as an OpenHouse implementation defect and surfaced as a {@code 500}.
  *
  * <p>Do NOT use this for conditions with a known classification: transient I/O failures use {@link
- * StorageDependencyUnavailableException} (503), and confirmed permanent corruption (missing
- * metadata/manifest file, Iceberg invariant violation, or malformed metadata) uses {@link
- * UnprocessableEntityException} (422).
+ * StorageDependencyUnavailableException} (503). Metadata corruption preserves the original
+ * exception and is surfaced as HTTP 500.
  */
 public class InvalidTableMetadataException extends RuntimeException {
 
