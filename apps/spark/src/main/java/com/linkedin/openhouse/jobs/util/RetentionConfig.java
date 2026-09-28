@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.jobs.util;
 
 import com.linkedin.openhouse.tables.client.model.Retention;
+import java.util.Optional;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
@@ -16,5 +17,5 @@ public class RetentionConfig {
   private final String columnPattern;
   private final Retention.GranularityEnum granularity;
   private final int count;
-  private final String timeZone;
+  @Builder.Default private final Optional<String> timeZone = Optional.empty();
 }

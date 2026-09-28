@@ -203,4 +203,41 @@ public class AppsTest extends OpenHouseSparkITest {
             nowCaptor.capture());
     Assertions.assertEquals(ZoneId.of("America/Los_Angeles"), nowCaptor.getValue().getZone());
   }
+
+  @Test
+  public void testRetentionSparkAppRejectsInvalidTimeZone() {
+    final String tableName = "db.test_retention_app_invalid_zone";
+    Operations ops = Mockito.mock(Operations.class);
+    Table table = Mockito.mock(Table.class);
+    StateManager stateManagerMock = Mockito.mock(StateManager.class);
+    Mockito.when(ops.getTable(tableName)).thenReturn(table);
+    Mockito.when(table.properties()).thenReturn(Map.of(AppConstants.BACKUP_ENABLED_KEY, "true"));
+
+    RetentionSparkApp app =
+        new RetentionSparkApp(
+            "test-job-id",
+            stateManagerMock,
+            tableName,
+            "ts",
+            "yyyy-MM-dd-HH",
+            "DAY",
+            7,
+            otelEmitter,
+            ".backup",
+            "Not/AZone");
+
+    IllegalArgumentException thrown =
+        Assertions.assertThrows(IllegalArgumentException.class, () -> app.runInner(ops));
+    Assertions.assertTrue(thrown.getMessage().contains("Invalid --timeZone 'Not/AZone'"));
+    Mockito.verify(ops, Mockito.never())
+        .runRetention(
+            Mockito.any(),
+            Mockito.any(),
+            Mockito.any(),
+            Mockito.any(),
+            Mockito.anyInt(),
+            Mockito.anyBoolean(),
+            Mockito.any(),
+            Mockito.any());
+  }
 }

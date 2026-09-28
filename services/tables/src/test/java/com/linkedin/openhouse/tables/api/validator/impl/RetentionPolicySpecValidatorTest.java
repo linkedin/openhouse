@@ -95,6 +95,20 @@ class RetentionPolicySpecValidatorTest {
                 .timeZone("America/Los_Angeles")
                 .build()));
 
+    // A zone on a string pattern that encodes a generic zone name (v) is rejected.
+    Assertions.assertFalse(
+        validator.validateTimeZoneScope(
+            Retention.builder()
+                .count(1)
+                .granularity(TimePartitionSpec.Granularity.DAY)
+                .columnPattern(
+                    RetentionColumnPattern.builder()
+                        .columnName("dp")
+                        .pattern("yyyy-MM-dd v")
+                        .build())
+                .timeZone("America/Los_Angeles")
+                .build()));
+
     // A zone on a string pattern with no zone field is accepted.
     Assertions.assertTrue(
         validator.validateTimeZoneScope(
@@ -119,6 +133,9 @@ class RetentionPolicySpecValidatorTest {
     Assertions.assertTrue(validator.patternEncodesZone("yyyy-MM-dd-HHZ"));
     Assertions.assertTrue(validator.patternEncodesZone("yyyy-MM-dd'T'HH:mm:ssXXX"));
     Assertions.assertTrue(validator.patternEncodesZone("yyyy-MM-dd VV"));
+    // Lower-case v is the generic time-zone name, which main's letter set missed.
+    Assertions.assertTrue(validator.patternEncodesZone("yyyy-MM-dd v"));
+    Assertions.assertTrue(validator.patternEncodesZone("yyyy-MM-dd vvvv"));
     // A zone letter inside a quoted literal is text, not a zone field.
     Assertions.assertFalse(validator.patternEncodesZone("yyyy-MM-dd'Z'"));
   }

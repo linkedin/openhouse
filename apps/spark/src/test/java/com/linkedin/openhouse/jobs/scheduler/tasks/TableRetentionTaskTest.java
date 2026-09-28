@@ -6,6 +6,7 @@ import com.linkedin.openhouse.jobs.util.RetentionConfig;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
 import com.linkedin.openhouse.tables.client.model.Retention;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Assertions;
@@ -81,6 +82,36 @@ public class TableRetentionTaskTest {
                 retentionGranularity.getValue(),
                 "--count",
                 String.valueOf(count))
+            .collect(Collectors.toList());
+    Assertions.assertEquals(expectedArgs, tableRetentionTask.getArgs());
+  }
+
+  @Test
+  void testRetentionJobArgsForTableWithTimeZone() {
+    TableRetentionTask tableRetentionTask =
+        new TableRetentionTask(jobsClient, tablesClient, tableMetadata);
+    String columnName = "testColumnName";
+    int count = 1;
+    Retention.GranularityEnum retentionGranularity = Retention.GranularityEnum.DAY;
+    RetentionConfig retentionConfigMock = Mockito.mock(RetentionConfig.class);
+    Mockito.when(retentionConfigMock.getColumnPattern()).thenReturn("");
+    Mockito.when(retentionConfigMock.getColumnName()).thenReturn(columnName);
+    Mockito.when(retentionConfigMock.getGranularity()).thenReturn(retentionGranularity);
+    Mockito.when(retentionConfigMock.getCount()).thenReturn(count);
+    Mockito.when(retentionConfigMock.getTimeZone()).thenReturn(Optional.of("America/Los_Angeles"));
+    Mockito.when(tableMetadata.getRetentionConfig()).thenReturn(retentionConfigMock);
+    List<String> expectedArgs =
+        Stream.of(
+                "--tableName",
+                tableMetadata.fqtn(),
+                "--columnName",
+                columnName,
+                "--granularity",
+                retentionGranularity.getValue(),
+                "--count",
+                String.valueOf(count),
+                "--timeZone",
+                "America/Los_Angeles")
             .collect(Collectors.toList());
     Assertions.assertEquals(expectedArgs, tableRetentionTask.getArgs());
   }

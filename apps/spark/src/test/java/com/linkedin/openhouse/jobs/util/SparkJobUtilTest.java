@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.jobs.util;
 
 import java.time.DateTimeException;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -11,8 +12,10 @@ import org.junit.jupiter.api.Test;
 /**
  * Retention SQL is a query over partition values: it deletes {@code col < truncate(now,
  * granularity) - count periods}, exclusive. The regression tests lock in the no-zone delete SQL and
- * filter that ship on main and must not change. The zoned-string tests cover the added time zone,
- * which is valid only on a string-pattern column.
+ * filter that ship on main and must not change. The zoned tests cover the added retention time
+ * zone, which is accepted on a native timestamp column and on a zone-free string pattern; for a
+ * zoned native column the DELETE statement and the Iceberg backup filter resolve to the same
+ * instant.
  */
 public class SparkJobUtilTest {
 
@@ -139,12 +142,59 @@ public class SparkJobUtilTest {
   }
 
   @Test
-  void zonedNativeStatementUsesZoneWallClock() {
-    // now is 2024-01-31T18:00 in America/Los_Angeles; the native date_trunc reads that zoned wall
-    // clock, so the cutoff is evaluated in the column's declared zone.
+  void zonedNativeStatementUsesLocalDateEdge() {
+    // now is 2024-01-31T18:00 in America/Los_Angeles; keeping two days cuts at the start of
+    // 2024-01-29 in Los Angeles. Rendered for the UTC session that start-of-day is
+    // 2024-01-29T08:00,
+    // the same instant the backup filter uses.
     ZonedDateTime laNow = FIXED_UTC.withZoneSameInstant(ZoneId.of("America/Los_Angeles"));
     Assertions.assertEquals(
-        "DELETE FROM `db`.`t` WHERE ts < date_trunc('day', timestamp '2024-01-31T18:00' - INTERVAL 2 days)",
+        "DELETE FROM `db`.`t` WHERE ts < timestamp '2024-01-29T08:00'",
         SparkJobUtil.createDeleteStatement("db.t", "ts", "", "day", 2, laNow));
+    assertStatementMatchesFilter("day", 2, laNow);
+  }
+
+  @Test
+  void zonedNativeStatementEastOfUtcUsesLocalDateEdge() {
+    // +05:30 is east of UTC. now is 2024-02-01T07:30+05:30, today is 2024-02-01 locally, so keeping
+    // one day cuts at the start of 2024-01-31 local = 2024-01-30T18:30Z. The naive main SQL dropped
+    // the offset and cut at 2024-01-31T00:00Z, deleting part of local 2024-01-31 that should stay.
+    ZonedDateTime istNow = FIXED_UTC.withZoneSameInstant(ZoneOffset.ofHoursMinutes(5, 30));
+    Assertions.assertEquals(
+        "DELETE FROM `db`.`t` WHERE ts < timestamp '2024-01-30T18:30'",
+        SparkJobUtil.createDeleteStatement("db.t", "ts", "", "DAY", 1, istNow));
+    assertStatementMatchesFilter("DAY", 1, istNow);
+  }
+
+  @Test
+  void zonedNativeStatementAgreesWithFilterAcrossSpringForward() {
+    // Spring-forward in America/Los_Angeles is 2024-03-10; stepping two days back from 2024-03-11
+    // crosses it, and the statement and filter still resolve to the same instant.
+    ZonedDateTime laNow =
+        ZonedDateTime.of(2024, 3, 11, 12, 0, 0, 0, ZoneId.of("America/Los_Angeles"));
+    assertStatementMatchesFilter("DAY", 2, laNow);
+  }
+
+  @Test
+  void zonedNativeStatementAgreesWithFilterAcrossFallBack() {
+    // Fall-back in America/Los_Angeles is 2024-11-03; stepping two days back from 2024-11-04
+    // crosses
+    // it, and the statement and filter still resolve to the same instant.
+    ZonedDateTime laNow =
+        ZonedDateTime.of(2024, 11, 4, 12, 0, 0, 0, ZoneId.of("America/Los_Angeles"));
+    assertStatementMatchesFilter("DAY", 2, laNow);
+  }
+
+  private static void assertStatementMatchesFilter(
+      String granularity, int count, ZonedDateTime now) {
+    String statement =
+        SparkJobUtil.createDeleteStatement("db.t", "ts", "", granularity, count, now);
+    UnboundPredicate<?> filter =
+        (UnboundPredicate<?>) SparkJobUtil.createDeleteFilter("ts", "", granularity, count, now);
+    String literal =
+        statement.substring(statement.indexOf("timestamp '") + 11, statement.lastIndexOf('\''));
+    long statementMicros = LocalDateTime.parse(literal).toEpochSecond(ZoneOffset.UTC) * 1_000_000L;
+    long filterMicros = ((Number) filter.literal().value()).longValue();
+    Assertions.assertEquals(filterMicros, statementMicros);
   }
 }

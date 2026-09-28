@@ -187,9 +187,14 @@ public class RetentionPolicySpecValidator extends PolicySpecValidator {
         || !patternEncodesZone(retention.getColumnPattern().getPattern());
   }
 
+  // DateTimeFormatter zone and offset pattern letters: V and v zone id and generic name, z zone
+  // name, O localized offset, X x Z numeric offset. A retention time zone plus any of these is two
+  // zones on one policy.
+  private static final String ZONE_PATTERN_LETTERS = "VvzOXxZ";
+
   /** True when the pattern contains a DateTimeFormatter zone or offset field outside a literal. */
   protected boolean patternEncodesZone(String pattern) {
     String withoutLiterals = pattern.replaceAll("'[^']*'", "");
-    return withoutLiterals.chars().anyMatch(c -> "VzOXxZ".indexOf(c) >= 0);
+    return withoutLiterals.chars().anyMatch(c -> ZONE_PATTERN_LETTERS.indexOf(c) >= 0);
   }
 }

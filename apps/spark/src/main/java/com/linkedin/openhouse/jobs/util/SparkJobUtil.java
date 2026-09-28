@@ -2,6 +2,7 @@ package com.linkedin.openhouse.jobs.util;
 
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import java.io.IOException;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
@@ -19,19 +20,47 @@ import org.apache.iceberg.expressions.Expressions;
 @Slf4j
 public final class SparkJobUtil {
   private SparkJobUtil() {}
-
-  // Native timestamp column: retention truncates the clock to the granularity and moves it back
-  // count periods. Example (30-day daily): datepartition < date_trunc('DAY', timestamp '<now>' -
-  // INTERVAL 30 DAYs).
+  /*
+  Example:
+  Table: test_retention with retentionConfig:
+    "retention":{
+           "count": 30,
+           "granularity": "DAY",
+           "columnPattern": null }}
+  Partitioned by time on datePartition column
+  Query: datePartition < date_trunc('DAY', current_timestamp() - INTERVAL 30 DAYs)"
+  */
   private static final String RETENTION_CONDITION_TEMPLATE =
       "%s < date_trunc('%s', timestamp '%s' - INTERVAL %d %ss)";
 
-  // String-partitioned column: retention compares the formatted label lexicographically. The clock
-  // moves back count periods and is formatted with the column pattern. When a retention time zone
-  // is set, the clock arrives already in that zone, so the label reflects the local wall clock.
-  // Example: datepartition < date_format(timestamp '<now>' - INTERVAL 30 DAYs, 'yyyy-MM-dd').
+  /*
+   A mismatch between data and pattern provided results in the datasets being filtered from deletion.
+   Reason: to_date parsing returns null if it fails to parse date as per pattern.
+   example:
+   table: test_retention with retentionConfig:
+     "retention":{
+          "count": 30,
+          "granularity": "DAY",
+          "columnPattern":{
+              "columnName": "datePartition",
+              "pattern":"yyyy-MM-dd"}}
+   Data in 'datePartition' column:
+    Case1: "2024-01-01"
+      query:  to_date(substring(datePartition, 0, CHAR_LENGTH('yyyy-MM-dd')), 'yyyy-MM-dd') <
+              date_trunc('DAY', current_timestamp() - INTERVAL 30 DAYs)"
+      result: record will be deleted
+    Case2: "2024-01.01"
+      query:  to_date(substring(datePartition, 0, CHAR_LENGTH('yyyy-MM-dd')), 'yyyy-MM-dd') <
+              date_trunc('DAY', current_timestamp() - INTERVAL 3 DAYs)"
+      result: records will be filtered from deletion
+  */
   private static final String RETENTION_CONDITION_WITH_PATTERN_TEMPLATE =
       "%s < cast(date_format(timestamp '%s' - INTERVAL %s %ss, '%s') as string)";
+
+  // Native timestamp column with a retention time zone: the cutoff is the start of the local day
+  // count periods back (see nativeZonedCutoff), the same instant the backup filter uses, so the
+  // DELETE removes whole local days and the two paths agree.
+  private static final String RETENTION_CONDITION_NATIVE_ZONED_TEMPLATE = "%s < timestamp '%s'";
 
   public static String createDeleteStatement(
       String fqtn,
@@ -53,7 +82,7 @@ public final class SparkJobUtil {
                   granularity,
                   columnPattern));
       log.info(
-          "Table: {}. Column pattern: {}, columnName {}, granularity {}s, retention query: {}",
+          "Table: {}. Column pattern: {}, columnName {}, granularity {}s, " + "retention query: {}",
           fqtn,
           columnPattern,
           columnName,
@@ -61,17 +90,26 @@ public final class SparkJobUtil {
           query);
       return query;
     } else {
-      String query =
-          String.format(
-              "DELETE FROM %s WHERE %s",
-              getQuotedFqtn(fqtn),
-              String.format(
-                  RETENTION_CONDITION_TEMPLATE,
-                  columnName,
-                  granularity,
-                  now.toLocalDateTime(),
-                  count,
-                  granularity));
+      String condition;
+      if (now.getOffset().getTotalSeconds() == 0) {
+        condition =
+            String.format(
+                RETENTION_CONDITION_TEMPLATE,
+                columnName,
+                granularity,
+                now.toLocalDateTime(),
+                count,
+                granularity);
+      } else {
+        condition =
+            String.format(
+                RETENTION_CONDITION_NATIVE_ZONED_TEMPLATE,
+                columnName,
+                nativeZonedCutoff(granularity, count, now)
+                    .withZoneSameInstant(ZoneOffset.UTC)
+                    .toLocalDateTime());
+      }
+      String query = String.format("DELETE FROM %s WHERE %s", getQuotedFqtn(fqtn), condition);
       log.info("Table: {}. No column pattern provided: deleteQuery: {}", fqtn, query);
       return query;
     }
@@ -79,15 +117,15 @@ public final class SparkJobUtil {
 
   public static Expression createDeleteFilter(
       String columnName, String columnPattern, String granularity, int count, ZonedDateTime now) {
-    ChronoUnit timeUnitGranularity =
-        ChronoUnit.valueOf(convertGranularityToChrono(granularity.toUpperCase()).name());
-    ZonedDateTime cutoffDate = now.minus(timeUnitGranularity.getDuration().multipliedBy(count));
     if (!StringUtils.isBlank(columnPattern)) {
+      ChronoUnit timeUnitGranularity =
+          ChronoUnit.valueOf(convertGranularityToChrono(granularity.toUpperCase()).name());
+      ZonedDateTime cutoffDate = now.minus(timeUnitGranularity.getDuration().multipliedBy(count));
       String formattedCutoffDate = DateTimeFormatter.ofPattern(columnPattern).format(cutoffDate);
       return Expressions.lessThan(columnName, formattedCutoffDate);
     } else {
       long formattedCutoffDate =
-          cutoffDate.truncatedTo(timeUnitGranularity).toEpochSecond() * 1000 * 1000; // microsecond
+          TimeUnit.SECONDS.toMicros(nativeZonedCutoff(granularity, count, now).toEpochSecond());
       return Expressions.lessThan(columnName, formattedCutoffDate);
     }
   }
@@ -123,5 +161,12 @@ public final class SparkJobUtil {
       }
     }
     return ChronoUnit.valueOf(granularity);
+  }
+
+  private static ZonedDateTime nativeZonedCutoff(String granularity, int count, ZonedDateTime now) {
+    ChronoUnit granularityUnit =
+        ChronoUnit.valueOf(convertGranularityToChrono(granularity.toUpperCase()).name());
+    return now.minus(granularityUnit.getDuration().multipliedBy(count))
+        .truncatedTo(granularityUnit);
   }
 }

@@ -361,6 +361,115 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
+  public void testRetentionWithNativeTimestampHonorsLosAngelesZone() throws Exception {
+    final String zonedTableName = "db.test_retention_zoned_native_ts";
+    final String utcTableName = "db.test_retention_utc_native_ts";
+    // now is 2024-02-01T02:00Z, keeping one day. In Los Angeles today is 2024-01-31, so the cut is
+    // the start of 2024-01-30 local (2024-01-30T08:00Z); in UTC today is 2024-02-01, so the cut is
+    // 2024-01-31T00:00Z. Each deletes whole days, measured in its own zone.
+    ZonedDateTime now = ZonedDateTime.of(2024, 2, 1, 2, 0, 0, 0, ZoneOffset.UTC);
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, zonedTableName, true);
+      prepareTable(ops, utcTableName, true);
+      // before_la_midnight is 2024-01-29 in Los Angeles but 2024-01-30 in UTC. The zoned run
+      // deletes it because its local day is older than the cut; the naive main SQL kept it.
+      String fixtureRows =
+          "('older_than_both', cast('2024-01-29 12:00:00' as timestamp)), "
+              + "('before_la_midnight', cast('2024-01-30 04:00:00' as timestamp)), "
+              + "('kept_only_by_la_zone', cast('2024-01-30 12:00:00' as timestamp)), "
+              + "('kept_by_both', cast('2024-01-31 12:00:00' as timestamp))";
+      ops.spark().sql(String.format("INSERT INTO %s VALUES %s", zonedTableName, fixtureRows));
+      ops.spark().sql(String.format("INSERT INTO %s VALUES %s", utcTableName, fixtureRows));
+
+      ops.runRetention(
+          zonedTableName,
+          "ts",
+          "",
+          "day",
+          1,
+          false,
+          "",
+          now.withZoneSameInstant(ZoneId.of("America/Los_Angeles")));
+      ops.runRetention(utcTableName, "ts", "", "day", 1, false, "", now);
+
+      Assertions.assertEquals(
+          Arrays.asList("kept_by_both", "kept_only_by_la_zone"),
+          collectSortedDataValues(ops, zonedTableName));
+      Assertions.assertEquals(
+          Arrays.asList("kept_by_both"), collectSortedDataValues(ops, utcTableName));
+    }
+  }
+
+  @Test
+  public void testRetentionWithNativeTimestampEastOfUtcKeepsCurrentLocalDay() throws Exception {
+    final String tableName = "db.test_retention_zoned_native_east";
+    // +05:30 at a run of 2024-02-01T02:00Z. Locally today is 2024-02-01, so keeping one day cuts at
+    // the start of 2024-01-31 local = 2024-01-30T18:30Z. kept_boundary_day is early on 2024-01-31
+    // local, which the cut keeps; the naive main SQL cut at 2024-01-31T00:00Z and deleted it.
+    ZonedDateTime now =
+        ZonedDateTime.of(2024, 2, 1, 2, 0, 0, 0, ZoneOffset.UTC)
+            .withZoneSameInstant(ZoneOffset.ofHoursMinutes(5, 30));
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName, true);
+      String fixtureRows =
+          "('older_than_cutoff', cast('2024-01-29 06:00:00' as timestamp)), "
+              + "('kept_boundary_day', cast('2024-01-30 20:30:00' as timestamp)), "
+              + "('kept_today', cast('2024-01-31 20:30:00' as timestamp))";
+      ops.spark().sql(String.format("INSERT INTO %s VALUES %s", tableName, fixtureRows));
+
+      ops.runRetention(tableName, "ts", "", "day", 1, false, "", now);
+
+      Assertions.assertEquals(
+          Arrays.asList("kept_boundary_day", "kept_today"),
+          collectSortedDataValues(ops, tableName));
+    }
+  }
+
+  @Test
+  public void testRetentionWithBackupOnNativeTimestampHonorsZone() throws Exception {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      String tableName = "db.test_retention_backup_zoned_native";
+      prepareTable(ops, tableName, true);
+      // Two files in a partition older than the cutoff, plus one row kept after it.
+      ops.spark()
+          .sql(
+              String.format(
+                  "insert into %s values ('old', cast('2024-01-28 12:00:00' as timestamp))",
+                  tableName));
+      ops.spark()
+          .sql(
+              String.format(
+                  "insert into %s values ('old', cast('2024-01-28 12:00:00' as timestamp))",
+                  tableName));
+      ops.spark()
+          .sql(
+              String.format(
+                  "insert into %s values ('kept', cast('2024-01-31 12:00:00' as timestamp))",
+                  tableName));
+      ZonedDateTime now =
+          ZonedDateTime.of(2024, 2, 1, 2, 0, 0, 0, ZoneOffset.UTC)
+              .withZoneSameInstant(ZoneId.of("America/Los_Angeles"));
+      // Backup-enabled zoned native retention completes without a residual failure because the
+      // DELETE statement and the backup filter resolve to the same instant.
+      ops.runRetention(tableName, "ts", "", "day", 1, true, ".backup", now);
+
+      Table table = ops.getTable(tableName);
+      String manifestName = String.format("data_manifest_%d.json", now.toInstant().toEpochMilli());
+      Path manifestPath =
+          new Path(
+              String.format(
+                  "%s/.backup/data/ts_day=2024-01-28/%s", table.location(), manifestName));
+      Assertions.assertTrue(ops.fs().exists(manifestPath));
+      try (InputStream in = ops.fs().open(manifestPath);
+          InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
+        JsonObject jsonObject = JsonParser.parseReader(reader).getAsJsonObject();
+        Assertions.assertEquals(2, jsonObject.get("file_count").getAsInt());
+      }
+      Assertions.assertEquals(Arrays.asList("kept"), collectSortedDataValues(ops, tableName));
+    }
+  }
+
+  @Test
   public void testRetentionWithBackupFailsWhenColumnPatternMismatchesPartition() throws Exception {
     final String tableName = "db.test_retention_backup_pattern_mismatch";
     OtelEmitter spyEmitter = Mockito.spy(otelEmitter);

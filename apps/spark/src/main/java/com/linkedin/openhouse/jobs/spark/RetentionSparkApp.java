@@ -5,6 +5,7 @@ import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
+import java.time.DateTimeException;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -64,7 +65,7 @@ public class RetentionSparkApp extends BaseTableSparkApp {
     ZonedDateTime now =
         StringUtils.isBlank(timeZone)
             ? ZonedDateTime.now(ZoneOffset.UTC)
-            : ZonedDateTime.now(ZoneId.of(timeZone));
+            : ZonedDateTime.now(parseTimeZone(timeZone));
     log.info(
         "Retention app start for table {}, column {}, {}, ttl={} {}s, backupEnabled={}, backupDir={}, timeZone={}, ts={}",
         fqtn,
@@ -78,6 +79,18 @@ public class RetentionSparkApp extends BaseTableSparkApp {
         now);
     ops.runRetention(
         fqtn, columnName, columnPattern, granularity, count, backupEnabled, backupDir, now);
+  }
+
+  private static ZoneId parseTimeZone(String timeZone) {
+    try {
+      return ZoneId.of(timeZone);
+    } catch (DateTimeException cause) {
+      throw new IllegalArgumentException(
+          "Invalid --timeZone '"
+              + timeZone
+              + "': expected an IANA zone id such as America/Los_Angeles or a fixed offset such as +05:30",
+          cause);
+    }
   }
 
   public static void main(String[] args) {
