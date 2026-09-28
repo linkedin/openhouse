@@ -88,8 +88,8 @@ public class DoRefreshTest {
   /**
    * Verifies that server-side 5xx errors surface as WebClientWithMessageException on the client
    * side during doRefresh (the client must NOT swallow them — users must see the real error instead
-   * of "Table does not exist"). Corrupt metadata maps to 422 and transient storage to 503; a 500
-   * now represents an unexpected OpenHouse implementation defect.
+   * of "Table does not exist"). Corrupt metadata and unexpected failures map to 500; transient
+   * storage failures map to 503.
    */
   @Test
   public void testServerErrorSurfacedOnRefresh() {

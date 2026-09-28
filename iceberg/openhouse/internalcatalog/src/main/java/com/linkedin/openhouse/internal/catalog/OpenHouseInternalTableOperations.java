@@ -13,8 +13,8 @@ import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.hdfs.HdfsStorageClient;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
+import com.linkedin.openhouse.common.exception.MetadataRefreshFailureContext;
 import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableException;
-import com.linkedin.openhouse.common.exception.UnprocessableEntityException;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
@@ -210,18 +210,17 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
   /**
    * Classifies a failure encountered while reading a table's Iceberg metadata so the API returns an
-   * accurate status instead of a blanket {@code 500} {@link InvalidTableMetadataException}. See
-   * BDP-108628.
+   * specific exception while preserving HTTP 500 for corrupt stored metadata.
    *
    * <p>Classification is by exception TYPE (walking the cause chain), never by parsing exception
    * messages, so it stays stable across Iceberg/Hadoop versions and locales.
    *
    * <ul>
-   *   <li>{@link UnprocessableEntityException} (422) — persistent, caller-actionable corruption: a
-   *       missing metadata/manifest file ({@link NotFoundException}/{@link FileNotFoundException} =
-   *       dangling pointer), an Iceberg invariant violation ({@link ValidationException}), or
-   *       malformed metadata surfaced by the Iceberg parser as an {@link IllegalArgumentException}/
-   *       {@link IllegalStateException}. The table is permanently corrupted (repair or drop it).
+   *   <li>Original exception (500) — stored metadata corruption: a missing metadata/manifest file
+   *       ({@link NotFoundException}/{@link FileNotFoundException} = dangling pointer), an Iceberg
+   *       invariant violation ({@link ValidationException}), or malformed metadata surfaced by the
+   *       Iceberg parser as an {@link IllegalArgumentException}/ {@link IllegalStateException}. The
+   *       table is permanently corrupted (repair or drop it).
    *   <li>{@link StorageDependencyUnavailableException} (503) — a transient storage-dependency
    *       failure: any other I/O error (Iceberg {@link ServiceUnavailableException}/{@link
    *       RuntimeIOException}, a {@link UncheckedIOException}, or an {@link IOException} subtype
@@ -236,31 +235,15 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     final String databaseId = tableIdentifier.namespace().toString();
     final String tableId = tableIdentifier.name();
 
-    // 422: the metadata/manifest file is genuinely missing (dangling pointer). Checked before the
+    // 500: the metadata/manifest file is genuinely missing (dangling pointer). Checked before the
     // generic I/O branch because FileNotFoundException is itself an IOException.
     if (hasCauseOfType(e, NotFoundException.class)
         || hasCauseOfType(e, FileNotFoundException.class)) {
-      return logClassifiedFailure(
-          databaseId,
-          tableId,
-          "PERSISTENT_DANGLING_METADATA_POINTER (422)",
-          false,
-          corruptTableMetadata(
-              databaseId,
-              tableId,
-              "the referenced metadata or manifest file does not exist (dangling metadata pointer)",
-              e),
-          e);
+      return rethrowMetadataFailure(e, "PERSISTENT_DANGLING_METADATA_POINTER");
     }
-    // 422: Iceberg invariant violation (e.g. snapshot-log/timestamp ordering).
+    // 500: Iceberg invariant violation (e.g. snapshot-log/timestamp ordering).
     if (hasCauseOfType(e, ValidationException.class)) {
-      return logClassifiedFailure(
-          databaseId,
-          tableId,
-          "SEMANTIC_METADATA_CORRUPTION (422)",
-          false,
-          corruptTableMetadata(databaseId, tableId, rootCauseMessage(e), e),
-          e);
+      return rethrowMetadataFailure(e, "SEMANTIC_METADATA_CORRUPTION");
     }
     // 503: any other I/O failure is a transient storage-dependency problem. Timeout / connection /
     // NameNode standby all extend IOException; Iceberg wraps I/O as ServiceUnavailableException or
@@ -277,18 +260,12 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           new StorageDependencyUnavailableException(databaseId, tableId, rootCauseMessage(e), e),
           e);
     }
-    // 422: the Iceberg parser rejects malformed/inconsistent metadata with an
+    // 500: the Iceberg parser rejects malformed/inconsistent metadata with an
     // IllegalArgumentException/IllegalStateException (e.g. a missing schema/spec id, or a name that
     // is not a valid metadata file). In this metadata-load path these are corruption.
     if (hasCauseOfType(e, IllegalArgumentException.class)
         || hasCauseOfType(e, IllegalStateException.class)) {
-      return logClassifiedFailure(
-          databaseId,
-          tableId,
-          "MALFORMED_METADATA (422)",
-          false,
-          corruptTableMetadata(databaseId, tableId, rootCauseMessage(e), e),
-          e);
+      return rethrowMetadataFailure(e, "MALFORMED_METADATA");
     }
     // 500: unexpected/uncategorized -> OpenHouse implementation defect.
     return logClassifiedFailure(
@@ -300,17 +277,16 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         e);
   }
 
-  /**
-   * Builds a 422 {@link UnprocessableEntityException} for a permanently corrupt table, so the
-   * caller is told the table must be repaired or dropped (retrying will not help).
-   */
-  private static UnprocessableEntityException corruptTableMetadata(
-      String databaseId, String tableId, String reason, Throwable cause) {
-    return new UnprocessableEntityException(
-        String.format(
-            "Table %s.%s is permanently corrupted and must be repaired or dropped: %s",
-            databaseId, tableId, reason),
-        cause);
+  // Iceberg's refresh API cannot declare checked exceptions; preserve the original throwable.
+  @lombok.SneakyThrows
+  private RuntimeException rethrowMetadataFailure(Throwable failure, String category) {
+    MetadataRefreshFailureContext.mark(failure);
+    log.error(
+        "Metadata refresh failure for table {} classified as {} (500)",
+        tableIdentifier,
+        category,
+        failure);
+    throw failure;
   }
 
   /**

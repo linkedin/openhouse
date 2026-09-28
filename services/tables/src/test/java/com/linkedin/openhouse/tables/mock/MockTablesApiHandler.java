@@ -5,6 +5,7 @@ import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
+import com.linkedin.openhouse.common.exception.MetadataRefreshFailureContext;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
@@ -326,6 +327,7 @@ public class MockTablesApiHandler implements TablesApiHandler {
     }
   }
 
+  @lombok.SneakyThrows
   private void throwTableException(String tableId) {
     switch (tableId) {
       case "entityconcurrentmodificationexception":
@@ -354,6 +356,21 @@ public class MockTablesApiHandler implements TablesApiHandler {
       case "invalidtablemetadataexception":
         throw new InvalidTableMetadataException(
             "testDb", "testTable", "corrupt metadata", new RuntimeException());
+      case "metadataillegalargumentexception":
+        IllegalArgumentException metadataFailure =
+            new IllegalArgumentException("Invalid stored schema");
+        MetadataRefreshFailureContext.mark(metadataFailure);
+        throw metadataFailure;
+      case "unrelatedillegalargumentexception":
+        MetadataRefreshFailureContext.mark(
+            new IllegalArgumentException("Previously handled metadata failure"));
+        throw new IllegalArgumentException("Invalid caller input");
+      case "metadatafilenotfoundexception":
+        throw new java.io.FileNotFoundException("Missing metadata");
+      case "metadatanotfoundexception":
+        throw new org.apache.iceberg.exceptions.NotFoundException("Missing metadata");
+      case "metadatavalidationexception":
+        throw new org.apache.iceberg.exceptions.ValidationException("Inconsistent metadata");
       case "storagedependencyunavailableexception":
         throw new StorageDependencyUnavailableException(
             "testDb", "testTable", "transient storage failure", new RuntimeException());

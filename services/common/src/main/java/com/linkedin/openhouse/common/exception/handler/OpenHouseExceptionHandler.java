@@ -9,6 +9,7 @@ import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.common.exception.JobEngineException;
 import com.linkedin.openhouse.common.exception.JobStateConflictException;
+import com.linkedin.openhouse.common.exception.MetadataRefreshFailureContext;
 import com.linkedin.openhouse.common.exception.NoSuchEntityException;
 import com.linkedin.openhouse.common.exception.NoSuchJobException;
 import com.linkedin.openhouse.common.exception.NoSuchSoftDeletedUserTableException;
@@ -304,14 +305,6 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
   @ExceptionHandler(InvalidTableMetadataException.class)
   protected ResponseEntity<ErrorResponseBody> handleInvalidTableMetadataException(
       InvalidTableMetadataException invalidTableMetadataException) {
-    // Reserved for uncategorized/unexpected metadata-load failures -> 500
-    // Confirmed permanent corruption is surfaced as 422 via
-    // UnprocessableEntityException, and transient I/O as 503 via
-    // StorageDependencyUnavailableException.
-    // Reserved for uncategorized/unexpected metadata-load failures -> 500
-    // Confirmed permanent corruption is surfaced as 422 via
-    // UnprocessableEntityException, and transient I/O as 503 via
-    // StorageDependencyUnavailableException.
     ErrorResponseBody errorResponseBody =
         ErrorResponseBody.builder()
             .status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -435,6 +428,9 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
   @ExceptionHandler(IllegalArgumentException.class)
   protected ResponseEntity<ErrorResponseBody> handleIllegalArgumentException(
       IllegalArgumentException illegalArgumentException) {
+    if (MetadataRefreshFailureContext.matches(illegalArgumentException)) {
+      return handleGenericException(illegalArgumentException);
+    }
     ErrorResponseBody errorResponseBody =
         ErrorResponseBody.builder()
             .status(HttpStatus.BAD_REQUEST)
