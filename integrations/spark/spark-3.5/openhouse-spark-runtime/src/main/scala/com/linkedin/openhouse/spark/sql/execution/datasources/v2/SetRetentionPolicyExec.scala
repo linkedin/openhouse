@@ -21,7 +21,10 @@ case class SetRetentionPolicyExec(
   override lazy val output: Seq[Attribute] = Nil
 
   override protected def run(): Seq[InternalRow] = {
-    timeZone.foreach(SetRetentionPolicyExec.validateTimeZone)
+    timeZone.foreach { tz =>
+      SetRetentionPolicyExec.validateTimeZone(tz)
+      SetRetentionPolicyExec.rejectZoneEncodingPattern(colPattern)
+    }
     catalog.loadTable(ident) match {
       case iceberg: SparkTable if iceberg.table().properties().containsKey("openhouse.tableId") =>
         iceberg.table().updateProperties()
@@ -65,6 +68,39 @@ object SetRetentionPolicyExec {
           s"Invalid retention time zone '$tz': expected an IANA zone id such as America/Los_Angeles or a fixed offset such as +05:30",
           cause)
     }
+  }
+
+  // DateTimeFormatter zone and offset pattern letters: V and v zone id and generic name, z zone
+  // name, O localized offset, X x Z numeric offset. This mirrors the service validator's set.
+  private val ZONE_PATTERN_LETTERS = "VvzOXxZ"
+
+  /**
+   * Rejects a column pattern that already encodes a time zone when the statement also sets a policy
+   * time zone, so one policy never carries two zones. The pattern arrives as the quoted SQL token,
+   * so its surrounding quotes are removed before the check; the service validator cannot see the
+   * zone field through those quotes, which is why the statement enforces it here.
+   *
+   * @throws java.lang.IllegalArgumentException if the pattern encodes a zone field.
+   */
+  @throws[IllegalArgumentException]("if the column pattern already encodes a time zone")
+  private def rejectZoneEncodingPattern(colPattern: Option[String]): Unit =
+    colPattern
+      .map(unquote)
+      .filter(patternEncodesZone)
+      .foreach { pattern =>
+        throw new IllegalArgumentException(
+          s"Retention column pattern '$pattern' already encodes a time zone, so it cannot be " +
+            "combined with WITH TIMEZONE; remove the zone field from the pattern or drop WITH TIMEZONE")
+      }
+
+  private def unquote(text: String): String =
+    if (text.length >= 2 && text.startsWith("'") && text.endsWith("'"))
+      text.substring(1, text.length - 1)
+    else text
+
+  private def patternEncodesZone(pattern: String): Boolean = {
+    val withoutLiterals = pattern.replaceAll("'[^']*'", "")
+    withoutLiterals.exists(character => ZONE_PATTERN_LETTERS.indexOf(character.toInt) >= 0)
   }
 
   /**
