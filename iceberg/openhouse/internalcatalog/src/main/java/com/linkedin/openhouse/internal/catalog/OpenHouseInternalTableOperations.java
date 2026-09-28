@@ -261,7 +261,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           databaseId,
           tableId,
           "TRANSIENT_STORAGE_DEPENDENCY_FAILURE (503)",
-          false,
           new StorageDependencyUnavailableException(databaseId, tableId, rootCauseMessage(e), e),
           e);
     }
@@ -277,7 +276,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         databaseId,
         tableId,
         "OPENHOUSE_IMPLEMENTATION_DEFECT (500)",
-        true,
         new InvalidTableMetadataException(databaseId, tableId, rootCauseMessage(e), e),
         e);
   }
@@ -302,18 +300,15 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       String databaseId,
       String tableId,
       String category,
-      boolean serverError,
       RuntimeException classified,
       Throwable original) {
-    String message =
-        "Classified metadata refresh failure for table {}.{} as [{}]; returning {}. Original exception:";
-    if (serverError) {
-      log.error(
-          message, databaseId, tableId, category, classified.getClass().getSimpleName(), original);
-    } else {
-      log.warn(
-          message, databaseId, tableId, category, classified.getClass().getSimpleName(), original);
-    }
+    log.error(
+        "Classified metadata refresh failure for table {}.{} as [{}]; returning {}. Original exception:",
+        databaseId,
+        tableId,
+        category,
+        classified.getClass().getSimpleName(),
+        original);
     return classified;
   }
 
