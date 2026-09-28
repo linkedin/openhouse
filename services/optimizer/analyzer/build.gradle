@@ -19,7 +19,7 @@ jar {
 dependencies {
   // api: the analyzer's public types (e.g. OperationAnalyzer's signature, OperationTypeDto) come
   // from :services:optimizer, so consumers of this library see them on their compile classpath.
-  api project(':services:optimizer')
+  api project(':services:optimizer:optimizer-common')
   implementation 'org.springframework.boot:spring-boot-starter:2.7.8'
   implementation 'org.springframework.boot:spring-boot-starter-webflux:2.7.8'
   implementation 'org.springframework.boot:spring-boot-starter-data-jpa:2.7.8'
