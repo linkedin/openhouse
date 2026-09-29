@@ -47,6 +47,7 @@ public class ServiceAuditAspect {
       MetricsReporter.of(MetricsConstant.SERVICE_AUDIT);
 
   private static final String SESSION_ID = "session-id";
+  private static final String ACTION_TYPE = "X-OpenHouse-Action-Type";
 
   /**
    * Install the Around advice for all controller methods.
@@ -176,6 +177,7 @@ public class ServiceAuditAspect {
         .clusterName(clusterProperties.getClusterName())
         .serviceName(getServiceNameFromRequestURI(request.getRequestURI()))
         .user(extractAuthenticatedUserPrincipal())
+        .actionType(request.getHeader(ACTION_TYPE))
         .method(HttpMethod.valueOf(request.getMethod()))
         .uri(uriAndQueryString)
         .requestPayload(requestPayload)
