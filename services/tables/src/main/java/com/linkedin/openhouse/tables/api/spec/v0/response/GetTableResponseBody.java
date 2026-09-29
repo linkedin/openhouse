@@ -113,7 +113,8 @@ public class GetTableResponseBody {
               + "`LoadTableResponse.config` convention: a string map the server controls at runtime "
               + "without a client re-roll. READ_ONLY and advisory — absent/empty means today's "
               + "behavior; clients ignore keys they do not understand. Keys are vendor-namespaced "
-              + "(e.g. `openhouse.read-bridge`). Distinct from the table-governance `policies` object.")
+              + "(e.g. `openhouse.read-bridge`). Returned by GET only; create and update responses "
+              + "omit it. Distinct from the table-governance `policies` object.")
   @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private Map<String, String> config;
 

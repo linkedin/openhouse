@@ -24,7 +24,6 @@ import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
-import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
@@ -170,11 +169,7 @@ public class TablesServiceImpl implements TablesService {
                         .build()),
             createUpdateTableRequestBody);
     tableDtoToSave = LockPolicyValidator.prepare(tableDto.orElse(null), tableDtoToSave);
-    try {
-      tableDtoToSave = readBridgeStripProtection.prepare(tableDto.orElse(null), tableDtoToSave);
-    } catch (ColumnDefaultException e) {
-      throw e.toUnsupportedClient();
-    }
+    tableDtoToSave = readBridgeStripProtection.prepare(tableDto.orElse(null), tableDtoToSave);
     return saveTableDto(tableDtoToSave, tableDto);
   }
 

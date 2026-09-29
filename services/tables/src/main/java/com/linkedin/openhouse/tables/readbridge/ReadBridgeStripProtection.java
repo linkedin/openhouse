@@ -4,6 +4,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.linkedin.openhouse.common.exception.DependencyUnavailableException;
+import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
+import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -60,15 +63,19 @@ public class ReadBridgeStripProtection {
    * incoming} so overlays cannot land in Iceberg metadata. Ramp-off still strips. Returns {@code
    * incoming} unchanged when there is nothing to check or drop.
    *
-   * @throws ColumnDefaultException Type 1, Type 2, or unusable
+   * @throws UnsupportedClientOperationException Type 1, Type 2, or a default {@code incoming}
+   *     declares that cannot be applied: the request is at fault
+   * @throws TableConfigUnavailableException if a default {@code existing} declares cannot be
+   *     applied: the stored table is at fault, not the request
+   * @throws DependencyUnavailableException if the ramp lookup cannot answer
    */
-  public TableDto prepare(TableDto existing, TableDto incoming) throws ColumnDefaultException {
+  public TableDto prepare(TableDto existing, TableDto incoming) {
     if (incoming == null) {
       return incoming;
     }
     Map<Integer, String> previousStamped =
-        existing == null ? Collections.emptyMap() : resolver.stampedColumnDefaults(existing);
-    Map<Integer, String> incomingStamped = resolver.stampedColumnDefaults(incoming);
+        existing == null ? Collections.emptyMap() : resolver.storedColumnDefaults(existing);
+    Map<Integer, String> incomingStamped = resolver.incomingColumnDefaults(incoming);
     if (existing != null) {
       rejectRemovedDefaults(previousStamped, incomingStamped, incoming);
       rejectUnawareRewrite(previousStamped, incoming);
@@ -81,8 +88,9 @@ public class ReadBridgeStripProtection {
    * — there is no default to protect.
    */
   private void rejectRemovedDefaults(
-      Map<Integer, String> previousStamped, Map<Integer, String> incomingStamped, TableDto incoming)
-      throws ColumnDefaultException {
+      Map<Integer, String> previousStamped,
+      Map<Integer, String> incomingStamped,
+      TableDto incoming) {
     if (previousStamped.isEmpty() || !resolver.isRampedForCommit(incoming)) {
       return;
     }
@@ -90,8 +98,8 @@ public class ReadBridgeStripProtection {
     Set<Integer> remaining = fieldIds(schema);
     for (Integer fieldId : previousStamped.keySet()) {
       if (remaining.contains(fieldId) && !incomingStamped.containsKey(fieldId)) {
-        throw new ColumnDefaultException(
-            ColumnDefaultException.Operation.REMOVED,
+        throw new UnsupportedClientOperationException(
+            UnsupportedClientOperationException.Operation.COLUMN_DEFAULT_REMOVED,
             String.format(
                 "COLUMN_DEFAULT_REMOVED: %s.%s still has a column default on %s. This commit"
                     + " omitted it. Retry from Spark 3.1 or Spark 3.5 using the jars on the"
@@ -105,8 +113,7 @@ public class ReadBridgeStripProtection {
    * Type 2: overwrite/replace must send {@code initial-default} equal to the stamp. That handshake
    * is trust, not proof the files were rewritten. Appends are not rewrites.
    */
-  private void rejectUnawareRewrite(Map<Integer, String> previousStamped, TableDto incoming)
-      throws ColumnDefaultException {
+  private void rejectUnawareRewrite(Map<Integer, String> previousStamped, TableDto incoming) {
     if (previousStamped.isEmpty() || !isRewrite(incoming)) {
       return;
     }
@@ -118,8 +125,8 @@ public class ReadBridgeStripProtection {
       }
       JsonNode actual = initialDefault(schema, stamp.getKey());
       if (!tree(stamp.getValue(), incoming).equals(actual)) {
-        throw new ColumnDefaultException(
-            ColumnDefaultException.Operation.REWRITE,
+        throw new UnsupportedClientOperationException(
+            UnsupportedClientOperationException.Operation.COLUMN_DEFAULT_REWRITE,
             String.format(
                 "COLUMN_DEFAULT_REWRITE: %s.%s still has a column default on %s. This"
                     + " overwrite/replace did not send a matching initial-default. Retry from"
@@ -133,7 +140,7 @@ public class ReadBridgeStripProtection {
     }
   }
 
-  private TableDto stripInitialDefaults(TableDto incoming) throws ColumnDefaultException {
+  private TableDto stripInitialDefaults(TableDto incoming) {
     String schema = strip(incoming.getSchema(), incoming);
     List<String> intermediates = strip(incoming.getNewIntermediateSchemas(), incoming);
     if (Objects.equals(schema, incoming.getSchema())
@@ -148,7 +155,7 @@ public class ReadBridgeStripProtection {
    * overwrite is therefore missed. Fix with #669 deltas, not a ref-map diff:
    * https://github.com/linkedin/openhouse/issues/693
    */
-  private boolean isRewrite(TableDto incoming) throws ColumnDefaultException {
+  private boolean isRewrite(TableDto incoming) {
     if (incoming.isReplaceCommit() || incoming.isStageReplace()) {
       return true;
     }
@@ -160,8 +167,7 @@ public class ReadBridgeStripProtection {
     return DataOperations.OVERWRITE.equals(operation) || DataOperations.REPLACE.equals(operation);
   }
 
-  private static Snapshot currentSnapshot(TableDto incoming, List<String> jsonSnapshots)
-      throws ColumnDefaultException {
+  private static Snapshot currentSnapshot(TableDto incoming, List<String> jsonSnapshots) {
     Long mainId = mainSnapshotId(incoming);
     if (mainId != null) {
       for (String json : jsonSnapshots) {
@@ -170,13 +176,12 @@ public class ReadBridgeStripProtection {
           return snapshot;
         }
       }
-      throw ColumnDefaultException.unusable(
-          incoming, "main-branch snapshot is missing from the request", null);
+      throw unusable(incoming, "main-branch snapshot is missing from the request", null);
     }
     return snapshot(jsonSnapshots.get(jsonSnapshots.size() - 1), incoming);
   }
 
-  private static Long mainSnapshotId(TableDto incoming) throws ColumnDefaultException {
+  private static Long mainSnapshotId(TableDto incoming) {
     Map<String, String> snapshotRefs = incoming.getSnapshotRefs();
     if (snapshotRefs == null) {
       return null;
@@ -188,18 +193,18 @@ public class ReadBridgeStripProtection {
     try {
       return SnapshotRefParser.fromJson(main).snapshotId();
     } catch (RuntimeException e) {
-      throw ColumnDefaultException.unusable(incoming, "unreadable snapshot ref", e);
+      throw unusable(incoming, "unreadable snapshot ref", e);
     }
   }
 
-  private static Snapshot snapshot(String json, TableDto incoming) throws ColumnDefaultException {
+  private static Snapshot snapshot(String json, TableDto incoming) {
     if (json == null || json.isEmpty()) {
-      throw ColumnDefaultException.unusable(incoming, "unreadable snapshot", null);
+      throw unusable(incoming, "unreadable snapshot", null);
     }
     try {
       return SnapshotParser.fromJson(json);
     } catch (RuntimeException e) {
-      throw ColumnDefaultException.unusable(incoming, "unreadable snapshot", e);
+      throw unusable(incoming, "unreadable snapshot", e);
     }
   }
 
@@ -207,7 +212,7 @@ public class ReadBridgeStripProtection {
    * Drop every {@code initial-default} so a handshake, a ramp-off leftover, or an unstamped writer
    * default cannot land in Iceberg metadata.
    */
-  private static String strip(String schemaJson, TableDto incoming) throws ColumnDefaultException {
+  private static String strip(String schemaJson, TableDto incoming) {
     if (schemaJson == null || schemaJson.isEmpty()) {
       return schemaJson;
     }
@@ -225,13 +230,11 @@ public class ReadBridgeStripProtection {
     try {
       return MAPPER.writeValueAsString(root);
     } catch (JsonProcessingException e) {
-      throw ColumnDefaultException.unusable(
-          incoming, "failed to strip initial-default from schema", e);
+      throw unusable(incoming, "failed to strip initial-default from schema", e);
     }
   }
 
-  private static List<String> strip(List<String> schemas, TableDto incoming)
-      throws ColumnDefaultException {
+  private static List<String> strip(List<String> schemas, TableDto incoming) {
     if (schemas == null || schemas.isEmpty()) {
       return schemas;
     }
@@ -282,14 +285,32 @@ public class ReadBridgeStripProtection {
     return found == null ? Collections.emptyList() : found;
   }
 
-  private static JsonNode tree(String json, TableDto incoming) throws ColumnDefaultException {
+  private static JsonNode tree(String json, TableDto incoming) {
     if (json == null || json.isEmpty()) {
-      throw ColumnDefaultException.unusable(incoming, "unreadable json", null);
+      throw unusable(incoming, "unreadable json", null);
     }
     try {
       return MAPPER.readTree(json);
     } catch (JsonProcessingException e) {
-      throw ColumnDefaultException.unusable(incoming, "unreadable json", e);
+      throw unusable(incoming, "unreadable json", e);
     }
+  }
+
+  /** Request data this protection cannot read: the request is at fault. */
+  private static UnsupportedClientOperationException unusable(
+      TableDto incoming, String reason, Throwable cause) {
+    UnsupportedClientOperationException rejected =
+        new UnsupportedClientOperationException(
+            UnsupportedClientOperationException.Operation.COLUMN_DEFAULT_UNUSABLE,
+            String.format(
+                "COLUMN_DEFAULT_UNUSABLE: OpenHouse could not validate column defaults on %s.%s"
+                    + " (metadata %s). Cause: %s. Contact the OpenHouse team with the Spark"
+                    + " application logs.",
+                incoming.getDatabaseId(),
+                incoming.getTableId(),
+                incoming.getTableLocation(),
+                reason));
+    rejected.initCause(cause);
+    return rejected;
   }
 }

@@ -14,6 +14,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.IntNode;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
+import com.linkedin.openhouse.common.exception.DependencyUnavailableException;
+import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
+import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.tables.api.handler.impl.OpenHouseTablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
@@ -78,82 +81,83 @@ public class ReadBridgeConfigResolverTest {
   }
 
   /**
-   * The ramp lookup is a blocking HouseTables call, and this is the table-load path — a path
-   * toggles are not otherwise on. A HouseTables outage must degrade bridging, not fail reads. Sound
-   * only because not bridging is exactly today's behavior; a capability where ignoring is unsafe
-   * (deletion vectors) would have to fail the read instead.
+   * The ramp lookup is a blocking HouseTables call on the table-load and commit paths. An outage
+   * fails reads and writes as itself (503): serving the table without its defaults would silently
+   * read NULL, and calling it an unusable default would blame the table for an outage.
    */
   @Test
-  public void testToggleLookupFailureDegradesInsteadOfFailingTheRead() {
-    TableFeatureToggle exploding =
+  public void testRampLookupOutageFailsReadsAndWritesAsItself() {
+    DependencyUnavailableException outage =
+        new DependencyUnavailableException("housetables is down", new IllegalStateException());
+    TableFeatureToggle down =
         new TableFeatureToggle() {
           @Override
           public boolean isFeatureActivated(String databaseId, String tableId, String featureId) {
-            throw new IllegalStateException("housetables is down");
+            throw outage;
           }
         };
+    ReadBridgeConfigResolver resolver = new ReadBridgeConfigResolver(oneDefault(), down);
+    TableDto table = TableDto.builder().databaseId("db").tableId("tbl").build();
 
-    Map<String, String> config =
-        new ReadBridgeConfigResolver(oneDefault(), exploding)
-            .resolve(TableDto.builder().databaseId("db").tableId("tbl").build());
-
-    Assertions.assertTrue(config.isEmpty());
+    Assertions.assertSame(
+        outage,
+        Assertions.assertThrows(
+            DependencyUnavailableException.class, () -> resolver.resolve(table)));
+    Assertions.assertSame(
+        outage,
+        Assertions.assertThrows(
+            DependencyUnavailableException.class, () -> resolver.incomingColumnDefaults(table)));
   }
 
   /**
-   * A buggy deployment source must not 500 GET. Not bridging is today's NULL, same as a toggle
-   * outage.
+   * A buggy deployment source fails reads and writes rather than dropping every default, and as
+   * itself: a server bug is neither the table's fault nor the request's.
    */
   @Test
-  public void testSourceFailureDegradesInsteadOfFailingTheRead() {
-    ColumnDefaultsSource exploding =
-        tableDto -> {
-          throw new IllegalStateException("encoder exploded");
-        };
+  public void testSourceBugFailsReadsAndWritesAsItself() {
+    IllegalStateException bug = new IllegalStateException("encoder exploded");
+    ReadBridgeConfigResolver resolver =
+        resolverFor(
+            tableDto -> {
+              throw bug;
+            });
+    TableDto table = TableDto.builder().databaseId("db").tableId("tbl").build();
 
-    Map<String, String> config =
-        resolverFor(exploding).resolve(TableDto.builder().databaseId("db").tableId("tbl").build());
-
-    Assertions.assertTrue(config.isEmpty());
-  }
-
-  /** Write path must not commit when the source cannot answer. */
-  @Test
-  public void testWritePathSourceFailureFailsClosed() {
-    ColumnDefaultsSource exploding =
-        tableDto -> {
-          throw new IllegalStateException("encoder exploded");
-        };
-
-    ColumnDefaultException thrown =
+    Assertions.assertSame(
+        bug, Assertions.assertThrows(IllegalStateException.class, () -> resolver.resolve(table)));
+    Assertions.assertSame(
+        bug,
         Assertions.assertThrows(
-            ColumnDefaultException.class,
-            () ->
-                resolverFor(exploding)
-                    .stampedColumnDefaults(
-                        TableDto.builder().databaseId("db").tableId("tbl").build()));
-    Assertions.assertEquals(ColumnDefaultException.Operation.UNUSABLE, thrown.getOperation());
-    Assertions.assertTrue(
-        thrown.toUnsupportedClient().getMessage().contains("COLUMN_DEFAULT_UNUSABLE"));
-    Assertions.assertTrue(thrown.getMessage().contains("db.tbl"));
+            IllegalStateException.class, () -> resolver.incomingColumnDefaults(table)));
   }
 
-  /** Write path must not commit when the ramp lookup cannot answer. */
+  /**
+   * A default the source cannot apply is the stored table's fault on GET (500) and the request's
+   * fault for a table a write sends (400). Either way the source's own failure and message reach
+   * the caller.
+   */
   @Test
-  public void testWritePathToggleFailureFailsClosed() {
-    TableFeatureToggle exploding =
-        new TableFeatureToggle() {
-          @Override
-          public boolean isFeatureActivated(String databaseId, String tableId, String featureId) {
-            throw new IllegalStateException("housetables is down");
-          }
-        };
+  public void testUnusableDefaultIsBlamedOnTheTableThatDeclaresIt() {
+    TableDto table = TableDto.builder().databaseId("db").tableId("tbl").build();
+    ColumnDefaultException reported =
+        new ColumnDefaultException("column country: default is not a long");
+    ReadBridgeConfigResolver resolver =
+        resolverFor(
+            tableDto -> {
+              throw reported;
+            });
 
-    Assertions.assertThrows(
-        ColumnDefaultException.class,
-        () ->
-            new ReadBridgeConfigResolver(oneDefault(), exploding)
-                .stampedColumnDefaults(TableDto.builder().databaseId("db").tableId("tbl").build()));
+    TableConfigUnavailableException onGet =
+        Assertions.assertThrows(
+            TableConfigUnavailableException.class, () -> resolver.resolve(table));
+    Assertions.assertSame(reported, onGet.getCause());
+    Assertions.assertEquals(reported.getMessage(), onGet.getMessage());
+    UnsupportedClientOperationException onWrite =
+        Assertions.assertThrows(
+            UnsupportedClientOperationException.class,
+            () -> resolver.incomingColumnDefaults(table));
+    Assertions.assertSame(reported, onWrite.getCause());
+    Assertions.assertEquals(reported.getMessage(), onWrite.getMessage());
   }
 
   /** Gate 3: a table the ramp has not activated is not bridged, and its source is never asked. */
@@ -203,7 +207,7 @@ public class ReadBridgeConfigResolverTest {
    * the same as {@link ColumnDefaultsSource#NONE}: the toggle ran and the source was asked.
    */
   @Test
-  public void testEmptyWhenSourceReturnsNoDefaults() {
+  public void testEmptyWhenSourceReturnsNoDefaults() throws ColumnDefaultException {
     ColumnDefaultsSource emptySource = mock(ColumnDefaultsSource.class);
     when(emptySource.defaults(any())).thenReturn(Collections.emptyMap());
 
