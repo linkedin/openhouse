@@ -70,9 +70,9 @@ public class AuthorizationUtils {
    * existing ACLs. A SYSTEM_ONLY lock blocks ordinary access so table owners notice and act, which
    * helps prevent unintentional deletion.
    *
-   * <p>DROP is not lock-checked. Spark SQL {@code DROP TABLE} loads the table first, so an
-   * undeclared request gets 423 when that load reaches the server. A catalog cache hit skips the
-   * load, so this does not guarantee that the table can't be dropped.
+   * <p>DROP is not lock-checked. Spark SQL {@code DROP TABLE} loads the table first, so with the
+   * default handler an undeclared request gets 423 when that load reaches the server. A catalog
+   * cache hit skips the load, so this does not guarantee that the table can't be dropped.
    *
    * @param tableDto
    * @param actingPrincipal
