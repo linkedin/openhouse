@@ -236,7 +236,7 @@ class LockEvaluationServiceTest {
   @Test
   void handlerMakesTheFinalSystemOnlyDecision() {
     lock("SYSTEM_ONLY");
-    declaration("SYSTEM");
+    declaration("system");
     when(handler.checkSystemOnlyLockAccess(any(), any(), any())).thenReturn(false);
     List<Executable> operations =
         Arrays.asList(

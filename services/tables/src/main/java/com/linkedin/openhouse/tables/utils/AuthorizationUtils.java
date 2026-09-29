@@ -94,7 +94,10 @@ public class AuthorizationUtils {
     }
   }
 
-  /** An absent declaration is null; any supplied value other than SYSTEM is rejected. */
+  /**
+   * Returns ACTION_TYPE_SYSTEM for a SYSTEM declaration in any case, or null if there is no
+   * declaration or request. Any other supplied value is rejected.
+   */
   private static String actionTypeDeclaration() {
     RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
     String declaration =
@@ -103,9 +106,11 @@ public class AuthorizationUtils {
                 .getRequest()
                 .getHeader(TablesMvcConstants.HTTP_HEADER_ACTION_TYPE)
             : null;
-    if (declaration == null
-        || TablesMvcConstants.ACTION_TYPE_SYSTEM.equalsIgnoreCase(declaration)) {
-      return declaration;
+    if (declaration == null) {
+      return null;
+    }
+    if (TablesMvcConstants.ACTION_TYPE_SYSTEM.equalsIgnoreCase(declaration)) {
+      return TablesMvcConstants.ACTION_TYPE_SYSTEM;
     }
     throw new RequestValidationFailureException(
         TablesMvcConstants.HTTP_HEADER_ACTION_TYPE

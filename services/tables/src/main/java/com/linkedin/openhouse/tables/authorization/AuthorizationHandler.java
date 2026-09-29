@@ -51,7 +51,9 @@ public interface AuthorizationHandler {
    *
    * @param principal
    * @param tableDto
-   * @param actionType the request's {@code X-OpenHouse-Action-Type} value, or null if absent
+   * @param actionType {@link TablesMvcConstants#ACTION_TYPE_SYSTEM} if the request declares {@code
+   *     X-OpenHouse-Action-Type: SYSTEM} in any case, or null if it declares nothing or is not an
+   *     HTTP request. Other values are rejected before this call.
    * @return true if access is allowed
    */
   default boolean checkSystemOnlyLockAccess(
