@@ -1,14 +1,22 @@
 package com.linkedin.openhouse.tables.utils;
 
+import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
+import com.linkedin.openhouse.common.exception.SystemOnlyLockAccessDeniedException;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.common.TableType;
+import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.TableDto;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 /** Utility class for authorization related operations. */
 @Slf4j
@@ -50,6 +58,60 @@ public class AuthorizationUtils {
               "Operation on table %s.%s failed as user %s is unauthorized to act on Locked table",
               tableDto.getDatabaseId(), tableDto.getTableId(), actingPrincipal));
     }
+  }
+
+  /**
+   * Throws SystemOnlyLockAccessDeniedException if tableDto has an active SYSTEM_ONLY lock and
+   * {@link AuthorizationHandler#checkSystemOnlyLockAccess} denies actingPrincipal. Call it only
+   * after the operation's privilege check succeeds.
+   *
+   * <p>With the default handler this is not a security control. {@code X-OpenHouse-Action-Type:
+   * SYSTEM} is self-declared and is not tied to an authenticated identity; it grants nothing beyond
+   * existing ACLs. A SYSTEM_ONLY lock blocks ordinary access so table owners notice and act, which
+   * helps prevent unintentional deletion.
+   *
+   * <p>DROP is not lock-checked. Spark SQL {@code DROP TABLE} loads the table first, so an
+   * undeclared request gets 423 when that load reaches the server. A catalog cache hit skips the
+   * load, so this does not guarantee that the table can't be dropped.
+   *
+   * @param tableDto
+   * @param actingPrincipal
+   */
+  public void checkSystemOnlyLockAccess(TableDto tableDto, String actingPrincipal) {
+    LockState lock = tableDto.getPolicies() == null ? null : tableDto.getPolicies().getLockState();
+    if (lock == null || !lock.isLocked() || lock.getReason() != LockReason.SYSTEM_ONLY) {
+      return;
+    }
+    if (!authorizationHandler.checkSystemOnlyLockAccess(
+        actingPrincipal, tableDto, actionTypeDeclaration())) {
+      String message = lock.getMessage();
+      String detail = message == null || message.trim().isEmpty() ? "" : ": " + message;
+      throw new SystemOnlyLockAccessDeniedException(
+          String.format(
+              "Table %s.%s has a SYSTEM_ONLY lock%s. Use the reason-targeted OpenHouse unlock endpoint "
+                  + "as an authorized lock administrator.",
+              tableDto.getDatabaseId(), tableDto.getTableId(), detail));
+    }
+  }
+
+  /** An absent declaration is null; any supplied value other than SYSTEM is rejected. */
+  private static String actionTypeDeclaration() {
+    RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
+    String declaration =
+        attributes instanceof ServletRequestAttributes
+            ? ((ServletRequestAttributes) attributes)
+                .getRequest()
+                .getHeader(TablesMvcConstants.HTTP_HEADER_ACTION_TYPE)
+            : null;
+    if (declaration == null
+        || TablesMvcConstants.ACTION_TYPE_SYSTEM.equalsIgnoreCase(declaration)) {
+      return declaration;
+    }
+    throw new RequestValidationFailureException(
+        TablesMvcConstants.HTTP_HEADER_ACTION_TYPE
+            + " must be "
+            + TablesMvcConstants.ACTION_TYPE_SYSTEM
+            + " when supplied.");
   }
 
   /**

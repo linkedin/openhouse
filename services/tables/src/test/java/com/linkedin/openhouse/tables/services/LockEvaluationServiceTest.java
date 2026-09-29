@@ -24,8 +24,10 @@ import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,17 +51,19 @@ class LockEvaluationServiceTest {
   private IcebergSnapshotsServiceImpl snapshots;
   private TableDto current;
   private EnumSet<Privileges> permissions;
+  private AuthorizationHandler handler;
 
   @BeforeEach
   void setUp() throws Exception {
     RequestContextHolder.resetRequestAttributes();
     permissions = EnumSet.allOf(Privileges.class);
     permissions.remove(Privileges.SYSTEM_ADMIN);
-    AuthorizationHandler handler = mock(AuthorizationHandler.class);
+    handler = mock(AuthorizationHandler.class);
     when(handler.checkAccessDecision(anyString(), any(TableDto.class), any()))
         .thenAnswer(invocation -> permissions.contains(invocation.getArgument(2)));
     when(handler.checkAccessDecision(anyString(), any(DatabaseDto.class), any()))
         .thenAnswer(invocation -> permissions.contains(invocation.getArgument(2)));
+    when(handler.checkSystemOnlyLockAccess(any(), any(), any())).thenCallRealMethod();
     AuthorizationUtils authorization = new AuthorizationUtils();
     ReflectionTestUtils.setField(authorization, "authorizationHandler", handler);
     TablesMapper mapper = Mappers.getMapper(TablesMapper.class);
@@ -138,6 +142,9 @@ class LockEvaluationServiceTest {
       assertThrowsExactly(expected, () -> tables.putTable(request(), "owner", false));
       assertThrowsExactly(expected, () -> snapshotWrite(false));
       verify(repository, never()).save(any());
+    }
+    if (!"SYSTEM_ONLY".equals(reason)) {
+      verify(handler, never()).checkSystemOnlyLockAccess(any(), any(), any());
     }
   }
 
@@ -221,7 +228,33 @@ class LockEvaluationServiceTest {
         RequestValidationFailureException.class, () -> tables.getTable("db", "table", "owner"));
     assertThrows(
         RequestValidationFailureException.class, () -> tables.putTable(request(), "owner", false));
+    verify(handler, never()).checkSystemOnlyLockAccess(any(), any(), any());
     lock("NONE");
+    assertSame(current, tables.getTable("db", "table", "owner"));
+  }
+
+  @Test
+  void handlerMakesTheFinalSystemOnlyDecision() {
+    lock("SYSTEM_ONLY");
+    declaration("SYSTEM");
+    when(handler.checkSystemOnlyLockAccess(any(), any(), any())).thenReturn(false);
+    List<Executable> operations =
+        Arrays.asList(
+            () -> tables.getTable("db", "table", "owner"),
+            () -> tables.putTable(request(), "owner", false),
+            () -> snapshotWrite(false),
+            () -> write("tableReplace"),
+            () -> write("snapshotReplace"),
+            () -> write("rename"));
+    for (Executable operation : operations) {
+      assertSystemOnlyDenial(assertThrows(UnsupportedClientOperationException.class, operation));
+    }
+    verify(handler, times(operations.size())).checkSystemOnlyLockAccess("owner", current, "SYSTEM");
+    verify(repository, never()).save(any());
+    verify(repository, never()).rename(any(), any());
+
+    declaration(null);
+    when(handler.checkSystemOnlyLockAccess("owner", current, null)).thenReturn(true);
     assertSame(current, tables.getTable("db", "table", "owner"));
   }
 

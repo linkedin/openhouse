@@ -81,7 +81,7 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
       }
       authorizationUtils.checkTableWritePathPrivileges(
           tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
-      LockPolicyValidator.checkSystemOnlyAccess(tableDto.get());
+      authorizationUtils.checkSystemOnlyLockAccess(tableDto.get(), tableCreatorUpdater);
     } else {
       authorizationUtils.checkDatabasePrivilege(
           databaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
