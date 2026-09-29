@@ -13,19 +13,24 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.IntNode;
 import com.fasterxml.jackson.databind.node.TextNode;
+import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.tables.api.handler.impl.OpenHouseTablesApiHandler;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException.Reason;
 import com.linkedin.openhouse.tables.services.TablesService;
 import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.util.Pair;
 import org.springframework.test.util.ReflectionTestUtils;
 
 public class ReadBridgeConfigResolverTest {
@@ -67,7 +72,7 @@ public class ReadBridgeConfigResolverTest {
 
   /** Gate 1: no deployment-supplied source => inert, and crucially no toggle lookup at all. */
   @Test
-  public void testInertAndSkipsToggleWhenNoSourceSupplied() {
+  public void testInertAndSkipsToggleWhenNoSourceSupplied() throws ColumnDefaultException {
     TableFeatureToggle toggle = mock(TableFeatureToggle.class);
     ReadBridgeConfigResolver resolver =
         new ReadBridgeConfigResolver(ColumnDefaultsSource.NONE, toggle);
@@ -78,13 +83,11 @@ public class ReadBridgeConfigResolverTest {
   }
 
   /**
-   * The ramp lookup is a blocking HouseTables call, and this is the table-load path — a path
-   * toggles are not otherwise on. A HouseTables outage must degrade bridging, not fail reads. Sound
-   * only because not bridging is exactly today's behavior; a capability where ignoring is unsafe
-   * (deletion vectors) would have to fail the read instead.
+   * The ramp lookup is a blocking HouseTables call on the table-load path. An outage fails the
+   * read: serving the table without its defaults would silently read NULL.
    */
   @Test
-  public void testToggleLookupFailureDegradesInsteadOfFailingTheRead() {
+  public void testToggleLookupFailureFailsTheRead() {
     TableFeatureToggle exploding =
         new TableFeatureToggle() {
           @Override
@@ -93,28 +96,85 @@ public class ReadBridgeConfigResolverTest {
           }
         };
 
-    Map<String, String> config =
-        new ReadBridgeConfigResolver(oneDefault(), exploding)
-            .resolve(TableDto.builder().databaseId("db").tableId("tbl").build());
-
-    Assertions.assertTrue(config.isEmpty());
+    ColumnDefaultException thrown =
+        Assertions.assertThrows(
+            ColumnDefaultException.class,
+            () ->
+                new ReadBridgeConfigResolver(oneDefault(), exploding)
+                    .resolve(TableDto.builder().databaseId("db").tableId("tbl").build()));
+    Assertions.assertEquals(ColumnDefaultException.Operation.UNUSABLE, thrown.getOperation());
+    Assertions.assertTrue(thrown.getMessage().contains("db.tbl"));
   }
 
-  /**
-   * A buggy deployment source must not 500 GET. Not bridging is today's NULL, same as a toggle
-   * outage.
-   */
+  /** A buggy deployment source fails the read rather than dropping every default. */
   @Test
-  public void testSourceFailureDegradesInsteadOfFailingTheRead() {
+  public void testSourceFailureFailsTheRead() {
     ColumnDefaultsSource exploding =
         tableDto -> {
           throw new IllegalStateException("encoder exploded");
         };
 
-    Map<String, String> config =
-        resolverFor(exploding).resolve(TableDto.builder().databaseId("db").tableId("tbl").build());
+    ColumnDefaultException thrown =
+        Assertions.assertThrows(
+            ColumnDefaultException.class,
+            () ->
+                resolverFor(exploding)
+                    .resolve(TableDto.builder().databaseId("db").tableId("tbl").build()));
+    Assertions.assertEquals(ColumnDefaultException.Operation.UNUSABLE, thrown.getOperation());
+    Assertions.assertTrue(thrown.getMessage().contains("encoder exploded"));
+  }
 
-    Assertions.assertTrue(config.isEmpty());
+  /** Reads and writes surface the source's own failure, with its reason and column context. */
+  @Test
+  public void testSourceReportedFailureReachesReadAndWritePathsUnchanged() {
+    TableDto table = TableDto.builder().databaseId("db").tableId("tbl").build();
+    ColumnDefaultException reported =
+        new ColumnDefaultException(
+            Reason.TYPE_MISMATCH, table, 5, "country", "string", "long", null);
+    ColumnDefaultsSource source =
+        tableDto -> {
+          throw reported;
+        };
+    ReadBridgeConfigResolver resolver = resolverFor(source);
+
+    Assertions.assertSame(
+        reported,
+        Assertions.assertThrows(ColumnDefaultException.class, () -> resolver.resolve(table)));
+    Assertions.assertSame(
+        reported,
+        Assertions.assertThrows(
+            ColumnDefaultException.class, () -> resolver.stampedColumnDefaults(table)));
+    Assertions.assertEquals(ColumnDefaultException.Operation.UNUSABLE, reported.getOperation());
+    Assertions.assertTrue(
+        reported.getMessage().contains("db.tbl (TYPE_MISMATCH, column country, field ID 5"));
+  }
+
+  /**
+   * A source may fail before it has table context; building the failure must not mask its cause.
+   */
+  @Test
+  public void testSourceFailureWithoutTableContextKeepsItsCause() {
+    NullPointerException cause = new NullPointerException("no table");
+
+    ColumnDefaultException failure = new ColumnDefaultException(Reason.INTERNAL, null, cause);
+
+    Assertions.assertEquals(Reason.INTERNAL, failure.getReason());
+    Assertions.assertSame(cause, failure.getCause());
+  }
+
+  /** A null entry is a declared default the source failed to supply, not an absent one. */
+  @Test
+  public void testNullDefaultEntryFailsInsteadOfDroppingIt() {
+    Map<Integer, JsonNode> withNull = new HashMap<>();
+    withNull.put(5, null);
+
+    ColumnDefaultException thrown =
+        Assertions.assertThrows(
+            ColumnDefaultException.class,
+            () ->
+                resolverFor(tableDto -> withNull)
+                    .resolve(TableDto.builder().databaseId("db").tableId("tbl").build()));
+    Assertions.assertEquals(ColumnDefaultException.Operation.UNUSABLE, thrown.getOperation());
   }
 
   /** Write path must not commit when the source cannot answer. */
@@ -158,7 +218,7 @@ public class ReadBridgeConfigResolverTest {
 
   /** Gate 3: a table the ramp has not activated is not bridged, and its source is never asked. */
   @Test
-  public void testUnrampedTableIsNotBridgedAndSourceNotConsulted() {
+  public void testUnrampedTableIsNotBridgedAndSourceNotConsulted() throws ColumnDefaultException {
     ColumnDefaultsSource source = mock(ColumnDefaultsSource.class);
     TableFeatureToggle allOff =
         new TableFeatureToggle() {
@@ -178,7 +238,7 @@ public class ReadBridgeConfigResolverTest {
 
   /** The self-service property opts a table in even when the server-managed ramp says no. */
   @Test
-  public void testTablePropertyOptsInOverServerToggle() {
+  public void testTablePropertyOptsInOverServerToggle() throws ColumnDefaultException {
     // CALLS_REAL_METHODS so the override-honoring default reads the table property; stub the
     // server-side form so an accidental HTS call would return false.
     TableFeatureToggle toggle = mock(TableFeatureToggle.class, CALLS_REAL_METHODS);
@@ -194,7 +254,7 @@ public class ReadBridgeConfigResolverTest {
 
   /** ...and opts it out even when the server-managed ramp says yes. */
   @Test
-  public void testTablePropertyOptsOutOverServerToggle() {
+  public void testTablePropertyOptsOutOverServerToggle() throws ColumnDefaultException {
     Assertions.assertTrue(resolverFor(oneDefault()).resolve(tableWithOverride("false")).isEmpty());
   }
 
@@ -203,7 +263,7 @@ public class ReadBridgeConfigResolverTest {
    * the same as {@link ColumnDefaultsSource#NONE}: the toggle ran and the source was asked.
    */
   @Test
-  public void testEmptyWhenSourceReturnsNoDefaults() {
+  public void testEmptyWhenSourceReturnsNoDefaults() throws ColumnDefaultException {
     ColumnDefaultsSource emptySource = mock(ColumnDefaultsSource.class);
     when(emptySource.defaults(any())).thenReturn(Collections.emptyMap());
 
@@ -253,12 +313,12 @@ public class ReadBridgeConfigResolverTest {
   }
 
   @Test
-  public void testEmptyWhenNoColumnDefaults() {
+  public void testEmptyWhenNoColumnDefaults() throws ColumnDefaultException {
     Assertions.assertTrue(resolverFor(NONE).resolve(mock(TableDto.class)).isEmpty());
   }
 
   @Test
-  public void testStampsColumnDefaultEntry() {
+  public void testStampsColumnDefaultEntry() throws ColumnDefaultException {
     ColumnDefaultsSource source = tableDto -> Collections.singletonMap(5, TextNode.valueOf("US"));
     Map<String, String> config = resolverFor(source).resolve(mock(TableDto.class));
     // value is the single-value JSON for the default ("US" -> "\"US\"").
@@ -266,7 +326,7 @@ public class ReadBridgeConfigResolverTest {
   }
 
   @Test
-  public void testStampsAllColumnDefaultsAsSeparateEntries() {
+  public void testStampsAllColumnDefaultsAsSeparateEntries() throws ColumnDefaultException {
     ColumnDefaultsSource source =
         tableDto -> {
           Map<Integer, JsonNode> defaults = new LinkedHashMap<>();
@@ -282,7 +342,7 @@ public class ReadBridgeConfigResolverTest {
 
   /** getTable stamps the resolver's config onto the response body. */
   @Test
-  public void testGetTableStampsResolvedConfig() {
+  public void testGetTableStampsResolvedConfig() throws ColumnDefaultException {
     TablesService tableService = mock(TablesService.class);
     TablesMapper tablesMapper = mock(TablesMapper.class);
     ReadBridgeConfigResolver resolver = mock(ReadBridgeConfigResolver.class);
@@ -318,6 +378,56 @@ public class ReadBridgeConfigResolverTest {
     ApiResponse<GetTableResponseBody> response = handler.getTable("db", "tbl", "principal");
 
     Assertions.assertTrue(response.getResponseBody().getConfig().isEmpty());
+  }
+
+  /** Unusable stored defaults fail GET as a server error; 400 would read as a missing table. */
+  @Test
+  public void testGetTableFailsAsServerErrorWhenDefaultsAreUnusable()
+      throws ColumnDefaultException {
+    TablesService tableService = mock(TablesService.class);
+    TablesMapper tablesMapper = mock(TablesMapper.class);
+    ReadBridgeConfigResolver resolver = mock(ReadBridgeConfigResolver.class);
+    TableDto tableDto = TableDto.builder().databaseId("db").tableId("tbl").build();
+    when(tableService.getTable("db", "tbl", "principal")).thenReturn(tableDto);
+    when(tablesMapper.toGetTableResponseBody(tableDto))
+        .thenReturn(GetTableResponseBody.builder().tableId("tbl").databaseId("db").build());
+    ColumnDefaultException unusable =
+        new ColumnDefaultException(Reason.INVALID_VALUE, tableDto, null);
+    when(resolver.resolve(tableDto)).thenThrow(unusable);
+
+    IllegalStateException thrown =
+        Assertions.assertThrows(
+            IllegalStateException.class,
+            () ->
+                handlerWith(tableService, tablesMapper, resolver)
+                    .getTable("db", "tbl", "principal"));
+
+    Assertions.assertSame(unusable, thrown.getCause());
+    Assertions.assertEquals(unusable.getMessage(), thrown.getMessage());
+  }
+
+  /**
+   * Create and update responses never consult the resolver: a lookup after the commit could turn a
+   * committed write into an error. Clients load config from GET.
+   */
+  @Test
+  public void testWriteResponsesDoNotResolveConfigAfterCommit() {
+    TablesService tableService = mock(TablesService.class);
+    TablesMapper tablesMapper = mock(TablesMapper.class);
+    ReadBridgeConfigResolver resolver = mock(ReadBridgeConfigResolver.class);
+    TableDto saved = TableDto.builder().databaseId("db").tableId("tbl").build();
+    when(tableService.putTable(any(), any(), any())).thenReturn(Pair.of(saved, true));
+    when(tablesMapper.toGetTableResponseBody(saved))
+        .thenReturn(GetTableResponseBody.builder().tableId("tbl").databaseId("db").build());
+    OpenHouseTablesApiHandler handler = handlerWith(tableService, tablesMapper, resolver);
+    ReflectionTestUtils.setField(handler, "clusterProperties", mock(ClusterProperties.class));
+    CreateUpdateTableRequestBody request = CreateUpdateTableRequestBody.builder().build();
+
+    Assertions.assertNull(
+        handler.createTable("db", request, "principal").getResponseBody().getConfig());
+    Assertions.assertNull(
+        handler.updateTable("db", "tbl", request, "principal").getResponseBody().getConfig());
+    verifyNoInteractions(resolver);
   }
 
   private OpenHouseTablesApiHandler handlerWith(

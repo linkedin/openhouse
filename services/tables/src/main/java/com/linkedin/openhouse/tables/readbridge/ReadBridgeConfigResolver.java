@@ -7,13 +7,11 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
-import lombok.extern.slf4j.Slf4j;
 
 /**
  * Stamps per-table {@code config} for read-bridge capabilities. Owns policy (feature id, ramp,
  * keys); deployments supply data via {@link ColumnDefaultsSource}.
  */
-@Slf4j
 public class ReadBridgeConfigResolver {
 
   /** Capability id; also names {@code <id>.enabled} and the config key prefix below. */
@@ -33,8 +31,13 @@ public class ReadBridgeConfigResolver {
     this.featureToggle = Objects.requireNonNull(featureToggle, "featureToggle");
   }
 
-  /** Merges independently gated capabilities; empty when nothing is bridged. */
-  public Map<String, String> resolve(TableDto tableDto) {
+  /**
+   * Merges independently gated capabilities; empty when nothing is bridged. A failing source or
+   * ramp lookup fails the read: omitting defaults would silently read NULL.
+   *
+   * @throws ColumnDefaultException if the source or ramp lookup cannot answer
+   */
+  public Map<String, String> resolve(TableDto tableDto) throws ColumnDefaultException {
     Objects.requireNonNull(tableDto, "tableDto");
     Map<String, String> config = new HashMap<>();
     config.putAll(columnDefaultConfig(tableDto));
@@ -42,9 +45,9 @@ public class ReadBridgeConfigResolver {
   }
 
   /**
-   * Write-path stamps, keyed by Iceberg field-id. Empty when there is no source or the table is not
-   * ramped. Toggle or source failure throws — the write path fail-closes; {@link #resolve} does
-   * not.
+   * Stamps keyed by Iceberg field-id. Empty when there is no source or the table is not ramped.
+   * Toggle or source failures propagate on both reads and writes; source-reported failures keep
+   * their reason and column context.
    *
    * @throws ColumnDefaultException if the source or ramp lookup cannot answer
    */
@@ -73,18 +76,8 @@ public class ReadBridgeConfigResolver {
     }
   }
 
-  private Map<String, String> columnDefaultConfig(TableDto tableDto) {
-    Map<Integer, String> byId;
-    try {
-      byId = columnDefaultsByFieldId(tableDto);
-    } catch (RuntimeException e) {
-      log.warn(
-          "read-bridge: column-defaults lookup failed for {}.{}; treating as not bridged",
-          tableDto.getDatabaseId(),
-          tableDto.getTableId(),
-          e);
-      return Collections.emptyMap();
-    }
+  private Map<String, String> columnDefaultConfig(TableDto tableDto) throws ColumnDefaultException {
+    Map<Integer, String> byId = stampedColumnDefaults(tableDto);
     if (byId.isEmpty()) {
       return Collections.emptyMap();
     }
@@ -93,7 +86,8 @@ public class ReadBridgeConfigResolver {
     return config;
   }
 
-  private Map<Integer, String> columnDefaultsByFieldId(TableDto tableDto) {
+  private Map<Integer, String> columnDefaultsByFieldId(TableDto tableDto)
+      throws ColumnDefaultException {
     if (columnDefaultsSource == ColumnDefaultsSource.NONE) {
       return Collections.emptyMap();
     }
@@ -105,19 +99,19 @@ public class ReadBridgeConfigResolver {
       return Collections.emptyMap();
     }
     Map<Integer, String> byId = new HashMap<>();
+    // A null entry would silently drop a declared default.
     columnDefaults.forEach(
-        (fieldId, value) -> {
-          if (fieldId != null && value != null) {
-            byId.put(fieldId, value.toString());
-          }
-        });
+        (fieldId, value) ->
+            byId.put(
+                Objects.requireNonNull(fieldId, "Column-default field id is null"),
+                Objects.requireNonNull(value, "Column-default value is null").toString()));
     return byId;
   }
 
   /**
    * Uses {@link TableFeatureToggle#isFeatureActivatedWithOverride} so {@code
-   * read-bridge.column-default.enabled} can opt in/out without HTS. GET fail-opens on lookup
-   * errors: not bridging equals today's NULL reads. The write path fail-closes instead.
+   * read-bridge.column-default.enabled} can opt in/out without HTS. A lookup failure fails the read
+   * or write rather than silently omitting defaults.
    */
   private boolean isColumnDefaultRamped(TableDto tableDto) {
     if (columnDefaultsSource == ColumnDefaultsSource.NONE) {
