@@ -38,6 +38,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -59,6 +60,7 @@ import org.apache.iceberg.SortDirection;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.common.DynFields;
 import org.apache.iceberg.exceptions.BadRequestException;
@@ -81,6 +83,7 @@ import org.mockito.MockitoAnnotations;
 
 public class OpenHouseInternalTableOperationsTest {
   private static final String TEST_LOCATION = "test_location";
+  private static final String SEVEN_DAYS_MS = String.valueOf(TimeUnit.DAYS.toMillis(7));
   private static final TableIdentifier TEST_TABLE_IDENTIFIER =
       TableIdentifier.of("test_db", "test_table");
   private static final TableMetadata BASE_TABLE_METADATA =
@@ -184,10 +187,8 @@ public class OpenHouseInternalTableOperationsTest {
       Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
 
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
-      Assertions.assertEquals(
-          4,
-          updatedProperties
-              .size()); /*write.parquet.compression-codec, location, lastModifiedTime, version*/
+      Assertions.assertFalse(updatedProperties.containsKey(CatalogConstants.SNAPSHOTS_JSON_KEY));
+      Assertions.assertFalse(updatedProperties.containsKey(CatalogConstants.SNAPSHOTS_REFS_KEY));
       Assertions.assertEquals(
           "INITIAL_VERSION", updatedProperties.get(getCanonicalFieldName("tableVersion")));
       Assertions.assertTrue(updatedProperties.containsKey(getCanonicalFieldName("tableLocation")));
@@ -315,10 +316,8 @@ public class OpenHouseInternalTableOperationsTest {
       Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
 
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
-      Assertions.assertEquals(
-          4,
-          updatedProperties
-              .size()); /*write.parquet.compression-codec, location, lastModifiedTime, version*/
+      Assertions.assertFalse(updatedProperties.containsKey(CatalogConstants.SNAPSHOTS_JSON_KEY));
+      Assertions.assertFalse(updatedProperties.containsKey(CatalogConstants.SNAPSHOTS_REFS_KEY));
       Assertions.assertEquals(
           TEST_LOCATION, updatedProperties.get(getCanonicalFieldName("tableVersion")));
 
@@ -641,10 +640,8 @@ public class OpenHouseInternalTableOperationsTest {
       Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
 
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
-      Assertions.assertEquals(
-          4,
-          updatedProperties
-              .size()); /*write.parquet.compression-codec, location, lastModifiedTime, version*/
+      Assertions.assertFalse(updatedProperties.containsKey(CatalogConstants.SNAPSHOTS_JSON_KEY));
+      Assertions.assertFalse(updatedProperties.containsKey(CatalogConstants.SNAPSHOTS_REFS_KEY));
       Assertions.assertEquals(
           TEST_LOCATION, updatedProperties.get(getCanonicalFieldName("tableVersion")));
 
@@ -837,6 +834,93 @@ public class OpenHouseInternalTableOperationsTest {
             openHouseInternalTableOperations.doCommit(
                 metadataWithSnapshots, metadataWithSnapshotsDeleted),
         "Should throw exception when trying to delete referenced snapshots");
+  }
+
+  /** Tables created without the property, or committed before OpenHouse owned it, get 7 days. */
+  @Test
+  void testDoCommitStampsMissingMaxRefAge() {
+    Assertions.assertEquals(SEVEN_DAYS_MS, committedMaxRefAge(null, BASE_TABLE_METADATA));
+    Assertions.assertEquals(
+        SEVEN_DAYS_MS,
+        committedMaxRefAge(
+            BASE_TABLE_METADATA,
+            BASE_TABLE_METADATA.replaceProperties(ImmutableMap.of("random", "value"))));
+  }
+
+  /** A commit may set any value in (0, 7 days], both bounds included. */
+  @Test
+  void testDoCommitAcceptsMaxRefAgeWithinLimit() {
+    TableMetadata oneMs = withMaxRefAge(BASE_TABLE_METADATA, "1");
+    Assertions.assertEquals("1", committedMaxRefAge(BASE_TABLE_METADATA, oneMs));
+    Assertions.assertEquals(
+        SEVEN_DAYS_MS, committedMaxRefAge(oneMs, withMaxRefAge(oneMs, SEVEN_DAYS_MS)));
+  }
+
+  /** A commit that sets a value outside (0, 7 days] is a bad request and persists nothing. */
+  @Test
+  void testDoCommitRejectsMaxRefAgeOutsideLimit() {
+    for (String maxRefAgeMs :
+        Arrays.asList("0", String.valueOf(TimeUnit.DAYS.toMillis(7) + 1), "7 days")) {
+      TableMetadata metadata = withMaxRefAge(BASE_TABLE_METADATA, maxRefAgeMs);
+      try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+          Mockito.mockStatic(TableMetadataParser.class)) {
+        Assertions.assertThrows(
+            BadRequestException.class,
+            () -> openHouseInternalTableOperations.doCommit(BASE_TABLE_METADATA, metadata),
+            maxRefAgeMs);
+      }
+    }
+    Mockito.verify(mockHouseTableRepository, Mockito.never()).save(Mockito.any());
+  }
+
+  /** A rejected commit leaves its base usable: the corrected commit on the same base lands. */
+  @Test
+  void testDoCommitAfterRejectedMaxRefAgeSucceedsOnSameBase() {
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    properties.put(CatalogConstants.COMMIT_KEY, "/base/" + UUID.randomUUID() + ".metadata.json");
+    TableMetadata writerMetadata = BASE_TABLE_METADATA.replaceProperties(properties);
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      Assertions.assertThrows(
+          BadRequestException.class,
+          () ->
+              openHouseInternalTableOperations.doCommit(
+                  BASE_TABLE_METADATA,
+                  withMaxRefAge(writerMetadata, String.valueOf(TimeUnit.DAYS.toMillis(14)))));
+    }
+    Assertions.assertEquals(
+        "1", committedMaxRefAge(BASE_TABLE_METADATA, withMaxRefAge(writerMetadata, "1")));
+  }
+
+  /**
+   * An out-of-bound value the table already held is brought into bound by an unrelated commit
+   * instead of failing it.
+   */
+  @Test
+  void testDoCommitBoundsCommittedMaxRefAgeOutsideLimit() {
+    TableMetadata base =
+        withMaxRefAge(BASE_TABLE_METADATA, String.valueOf(TimeUnit.DAYS.toMillis(30)));
+    Map<String, String> properties = new HashMap<>(base.properties());
+    properties.put("random", "value");
+    Assertions.assertEquals(
+        SEVEN_DAYS_MS, committedMaxRefAge(base, base.replaceProperties(properties)));
+  }
+
+  private static TableMetadata withMaxRefAge(TableMetadata metadata, String maxRefAgeMs) {
+    Map<String, String> properties = new HashMap<>(metadata.properties());
+    properties.put(TableProperties.MAX_REF_AGE_MS, maxRefAgeMs);
+    return metadata.replaceProperties(properties);
+  }
+
+  /** Commits {@code metadata} over {@code base} and returns the persisted max-ref-age. */
+  private String committedMaxRefAge(TableMetadata base, TableMetadata metadata) {
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      openHouseInternalTableOperations.doCommit(base, metadata);
+    }
+    Mockito.verify(mockHouseTableMapper, Mockito.atLeastOnce())
+        .toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
+    return tblMetadataCaptor.getValue().properties().get(TableProperties.MAX_REF_AGE_MS);
   }
 
   /**

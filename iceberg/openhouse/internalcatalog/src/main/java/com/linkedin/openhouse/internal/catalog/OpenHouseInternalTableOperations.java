@@ -135,6 +135,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   private static final Cache<String, Integer> CACHE =
       CacheBuilder.newBuilder().expireAfterWrite(5, TimeUnit.MINUTES).maximumSize(1000).build();
 
+  /** Upper bound, and value OpenHouse stamps, for {@link TableProperties#MAX_REF_AGE_MS}. */
+  private static final long MAX_REF_AGE_MS_LIMIT = TimeUnit.DAYS.toMillis(7);
+
   @Override
   protected String tableName() {
     return this.tableIdentifier.toString();
@@ -310,6 +313,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       Map<String, String> properties = new HashMap<>(metadata.properties());
 
       abortIfWriterBaseDivergedFromCatalog(base, metadata);
+      enforceMaxRefAge(base, properties);
 
       failIfRetryUpdate(properties);
       restoreOverriddenProperties(properties);
@@ -726,6 +730,51 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       // concurrency issue
       // it throw AlreadyExistsException and will not trigger retry.
       metricsReporter.count(InternalCatalogMetricsConstant.MISSING_COMMIT_KEY);
+    }
+  }
+
+  /**
+   * OpenHouse owns {@link TableProperties#MAX_REF_AGE_MS}: every committed table carries a value in
+   * (0, 7 days], so snapshot expiration drops branches and tags whose head snapshot is older than
+   * that. A missing value becomes seven days. A commit that sets an out-of-bound value is rejected;
+   * an out-of-bound value the table already held becomes seven days instead of failing an unrelated
+   * commit.
+   *
+   * <p>Must run before failIfRetryUpdate: a rejected commit must not mark its base version as seen,
+   * or every later commit on that base fails as a stale retry until the cache entry expires.
+   *
+   * @throws IllegalArgumentException when the commit sets an out-of-bound value
+   */
+  private void enforceMaxRefAge(TableMetadata base, Map<String, String> properties) {
+    String requested = properties.get(TableProperties.MAX_REF_AGE_MS);
+    if (requested != null && isWithinMaxRefAgeLimit(requested)) {
+      return;
+    }
+    if (requested != null) {
+      String committed =
+          base == null ? null : base.properties().get(TableProperties.MAX_REF_AGE_MS);
+      if (!requested.equals(committed)) {
+        throw new IllegalArgumentException(
+            String.format(
+                "%s must be a positive number of milliseconds no greater than %d (7 days)",
+                TableProperties.MAX_REF_AGE_MS, MAX_REF_AGE_MS_LIMIT));
+      }
+      log.info(
+          "Replacing out-of-bound {}={} with {} for table {}",
+          TableProperties.MAX_REF_AGE_MS,
+          requested,
+          MAX_REF_AGE_MS_LIMIT,
+          tableIdentifier);
+    }
+    properties.put(TableProperties.MAX_REF_AGE_MS, String.valueOf(MAX_REF_AGE_MS_LIMIT));
+  }
+
+  private static boolean isWithinMaxRefAgeLimit(String maxRefAgeMs) {
+    try {
+      long value = Long.parseLong(maxRefAgeMs);
+      return value > 0 && value <= MAX_REF_AGE_MS_LIMIT;
+    } catch (NumberFormatException e) {
+      return false;
     }
   }
 
