@@ -21,8 +21,13 @@ import com.linkedin.openhouse.jobs.scheduler.tasks.TableStatsCollectionTask;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
+import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -286,6 +291,36 @@ public class JobsSchedulerTest {
     if (jobsScheduler.getStatusExecutors() != null) {
       jobsScheduler.getStatusExecutors().shutdownNow();
     }
+  }
+
+  @Test
+  void testSystemActionOptionDeclaresTablesClientRequests() throws IOException {
+    List<String> declarations = Collections.synchronizedList(new ArrayList<>());
+    HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+    server.createContext(
+        "/v1/databases",
+        exchange -> {
+          declarations.add(exchange.getRequestHeaders().getFirst("X-OpenHouse-Action-Type"));
+          byte[] body = "{\"results\":[]}".getBytes(StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().add("Content-Type", "application/json");
+          exchange.sendResponseHeaders(200, body.length);
+          exchange.getResponseBody().write(body);
+          exchange.close();
+        });
+    server.start();
+    try {
+      String url = "http://localhost:" + server.getAddress().getPort();
+      String[] args = {
+        "--tablesURL", url, "--jobsURL", url, "--type", "SNAPSHOTS_EXPIRATION", "--cluster", "c"
+      };
+      JobsScheduler.createTablesClient(JobsScheduler.parseArgs(args)).getDatabases();
+      String[] systemArgs = Arrays.copyOf(args, args.length + 1);
+      systemArgs[args.length] = "--systemAction";
+      JobsScheduler.createTablesClient(JobsScheduler.parseArgs(systemArgs)).getDatabases();
+    } finally {
+      server.stop(0);
+    }
+    Assertions.assertEquals(Arrays.asList(null, "SYSTEM"), declarations);
   }
 
   @Test

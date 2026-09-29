@@ -189,8 +189,7 @@ public class JobsScheduler {
     CommandLine cmdLine = parseArgs(args);
     JobConf.JobTypeEnum operationType = getOperationJobType(cmdLine);
     Class<? extends OperationTask> operationTaskCls = getOperationTaskCls(operationType.toString());
-    TablesClientFactory tablesClientFactory = getTablesClientFactory(cmdLine);
-    TablesClient tablesClient = tablesClientFactory.create(cmdLine.hasOption("systemAction"));
+    TablesClient tablesClient = createTablesClient(cmdLine);
     JobsClientFactory jobsClientFactory = getJobsClientFactory(cmdLine);
     JobsClient jobsClient = jobsClientFactory.create();
     Properties properties = getAdditionalProperties(cmdLine);
@@ -719,6 +718,11 @@ public class JobsScheduler {
     } catch (IOException e) {
       throw new RuntimeException(String.format("Could not read token file %s", tokenFilename), e);
     }
+  }
+
+  @VisibleForTesting
+  static TablesClient createTablesClient(CommandLine cmdLine) {
+    return getTablesClientFactory(cmdLine).create(cmdLine.hasOption("systemAction"));
   }
 
   protected static TablesClientFactory getTablesClientFactory(CommandLine cmdLine) {

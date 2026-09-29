@@ -235,6 +235,7 @@ class LockEvaluationServiceTest {
 
   @Test
   void handlerMakesTheFinalSystemOnlyDecision() {
+    current = current.toBuilder().tableCreator("creator").build();
     lock("SYSTEM_ONLY");
     declaration("system");
     when(handler.checkSystemOnlyLockAccess(any(), any(), any())).thenReturn(false);

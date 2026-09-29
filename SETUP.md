@@ -620,7 +620,7 @@ services/jobs/src/test/http/.
 
 #### Snapshots expiration on system-only locked tables
 
-Tables with a `SYSTEM_ONLY` lock allow reads and writes only from requests declared as `SYSTEM`. To run snapshots expiration on them, enable both settings (off by default):
+With the default `AuthorizationHandler`, tables with a `SYSTEM_ONLY` lock allow reads and writes only from requests declared as `SYSTEM`; a custom handler can override `checkSystemOnlyLockAccess`. To run snapshots expiration on them, enable both settings (off by default):
 
 1. Run `JobsScheduler` with `--type SNAPSHOTS_EXPIRATION --systemAction` for its tables-service requests.
 2. Set `"spark.sql.catalog.openhouse.action-type": "SYSTEM"` in the SE job's Spark properties. The scheduler flag does not configure Spark.

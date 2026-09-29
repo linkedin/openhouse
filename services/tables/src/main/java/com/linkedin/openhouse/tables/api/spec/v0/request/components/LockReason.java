@@ -5,8 +5,8 @@ public enum LockReason {
   /** An active lock without a more specific classification. */
   LEGACY,
   /**
-   * Restricts ordinary reads and writes while permitting system-declared operations subject to
-   * existing authorization.
+   * Restricts ordinary reads and writes. The default AuthorizationHandler permits system-declared
+   * operations subject to existing authorization.
    */
   SYSTEM_ONLY
 }
