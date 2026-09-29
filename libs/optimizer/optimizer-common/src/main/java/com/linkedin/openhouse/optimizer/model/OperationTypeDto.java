@@ -8,7 +8,10 @@ package com.linkedin.openhouse.optimizer.model;
 public enum OperationTypeDto {
 
   /** Removes orphaned data files no longer referenced by table metadata. */
-  ORPHAN_FILES_DELETION;
+  ORPHAN_FILES_DELETION,
+
+  /** Collects per-table snapshot/size statistics used to drive optimizer decisions. */
+  TABLE_STATS_COLLECTION;
 
   /** Convert to the DB-layer counterpart. */
   public com.linkedin.openhouse.optimizer.db.OperationType toDb() {
