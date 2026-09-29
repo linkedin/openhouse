@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.tables.mock.controller;
 
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
+import static com.linkedin.openhouse.common.audit.ServiceAuditPayloadRedactor.REDACTED_VALUE;
 import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX;
 import static com.linkedin.openhouse.tables.model.ServiceAuditModelConstants.EXCLUDE_FIELDS;
 import static com.linkedin.openhouse.tables.model.ServiceAuditModelConstants.SERVICE_AUDIT_EVENT_CREATE_TABLE_FAILED;
@@ -13,23 +14,29 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.CachingRequestBodyFilter;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.common.exception.handler.OpenHouseExceptionHandler;
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
+import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.controller.TablesController;
+import com.linkedin.openhouse.tables.controller.ViewsController;
 import com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities;
 import com.linkedin.openhouse.tables.mock.RequestConstants;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
+import com.linkedin.openhouse.tables.model.ViewModelConstants;
 import java.io.IOException;
 import java.text.ParseException;
 import java.util.*;
 import javax.servlet.Filter;
 import javax.servlet.http.HttpServletRequest;
 import org.codehaus.jettison.json.JSONException;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,11 +47,15 @@ import org.mockito.internal.matchers.apachecommons.ReflectionEquals;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -52,6 +63,16 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 @SpringBootTest
 @ContextConfiguration(initializers = AuthorizationPropertiesInitializer.class)
 public class TablesControllerTest {
+
+  /**
+   * A table schema carrying a marker that appears nowhere else, so {@link
+   * #tableCreateAuditPayloadStillCarriesItsSchemaUnredacted()} fails loudly if the value is ever
+   * scrubbed rather than passing on a coincidence.
+   */
+  private static final String TABLE_SCHEMA_WITH_MARKER =
+      "{\"type\": \"struct\", \"schema-id\": 0, \"fields\": ["
+          + "{\"id\": 1, \"required\": true, \"name\": \"table_schema_marker_column\","
+          + " \"type\": \"string\"}]}";
 
   private MockMvc mvc;
 
@@ -62,6 +83,8 @@ public class TablesControllerTest {
   private String invalidAccessToken;
 
   @Autowired private TablesController tablesController;
+
+  @Autowired private ViewsController viewsController;
 
   @Autowired private OpenHouseExceptionHandler openHouseExceptionHandler;
 
@@ -122,6 +145,173 @@ public class TablesControllerTest {
                 .accept(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + jwtAccessToken))
         .andExpect(status().isNotFound());
+  }
+
+  /** Table search keeps numeric paging; a local handler avoids the shared mock's null response. */
+  @Test
+  public void v2TablePaginationStillBindsNumericPageAndSerializesPageMetadata() throws Exception {
+    TablesApiHandler localHandler = Mockito.mock(TablesApiHandler.class);
+    Page<GetTableResponseBody> page =
+        new PageImpl<>(Collections.singletonList(GET_TABLE_RESPONSE_BODY), PageRequest.of(1, 2), 7);
+    Mockito.when(
+            localHandler.searchTables(
+                Mockito.anyString(),
+                Mockito.anyInt(),
+                Mockito.anyInt(),
+                Mockito.any(),
+                Mockito.any(),
+                Mockito.any()))
+        .thenReturn(
+            ApiResponse.<GetAllTablesResponseBody>builder()
+                .httpStatus(HttpStatus.OK)
+                .responseBody(GetAllTablesResponseBody.builder().pageResults(page).build())
+                .build());
+
+    TablesController localController = new TablesController();
+    ReflectionTestUtils.setField(localController, "tablesApiHandler", localHandler);
+    MockMvc localMvc =
+        MockMvcBuilders.standaloneSetup(localController)
+            .setControllerAdvice(openHouseExceptionHandler)
+            .addInterceptors(new DummyTokenInterceptor())
+            .build();
+
+    localMvc
+        .perform(
+            MockMvcRequestBuilders.post("/v2/databases/d200/tables/search")
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath(
+                "$.pageResults.content[0].tableId",
+                Matchers.is(GET_TABLE_RESPONSE_BODY.getTableId())))
+        .andExpect(jsonPath("$.pageResults.number", Matchers.is(1)))
+        .andExpect(jsonPath("$.pageResults.size", Matchers.is(2)))
+        .andExpect(jsonPath("$.pageResults.totalElements", Matchers.is(7)))
+        .andExpect(jsonPath("$.pageResults.pageable.offset", Matchers.is(2)));
+    Mockito.verify(localHandler).searchTables("d200", 0, 50, null, null, "DUMMY_ANONYMOUS_USER");
+
+    localMvc
+        .perform(
+            MockMvcRequestBuilders.post("/v2/databases/d200/tables/search")
+                .param("page", "2")
+                .param("size", "10")
+                .param("sortBy", "tableId")
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isOk());
+    Mockito.verify(localHandler)
+        .searchTables("d200", 2, 10, "tableId", null, "DUMMY_ANONYMOUS_USER");
+  }
+
+  /**
+   * Adding {@link ViewsController} must not change how a v1 table request is routed. Views now
+   * mount under the same {@code /v1/databases/{databaseId}/} prefix as tables and are told apart
+   * only by the {@code tables} vs {@code views} path segment, so this is the assertion that pins
+   * that disambiguation. Both controllers are registered in one dispatcher here, which is the only
+   * arrangement in which the new mappings could shadow or collide with the existing ones, and each
+   * assertion checks the response body, so it fails if a request reaches the wrong handler rather
+   * than merely returning a plausible status.
+   *
+   * <p>This <b>partially</b> satisfies the acceptance criterion. It proves the v1 table route is
+   * unchanged and that the sibling v1 views route reaches the views handler. It cannot prove the
+   * other half, that a real view's name returns 404 from the table route, because no view is
+   * persisted in this PR and the server has no way to tell a view's name from a missing table until
+   * the M2 {@code entityType} discriminator and the table-only read filter land. A test claiming
+   * that today would pass for the wrong reason.
+   */
+  @Test
+  public void v1TableAndViewRoutesResolveToTheirOwnHandlers() throws Exception {
+    MockMvc mvcWithBothControllers =
+        MockMvcBuilders.standaloneSetup(tablesController, viewsController)
+            .setControllerAdvice(openHouseExceptionHandler)
+            .addInterceptors(new DummyTokenInterceptor())
+            .addFilter(new CachingRequestBodyFilter())
+            .build();
+
+    // A view-like name on the v1 table route still reaches the tables handler.
+    mvcWithBothControllers
+        .perform(
+            MockMvcRequestBuilders.get(
+                    CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/tables/my_view")
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isOk())
+        .andExpect(content().json(RequestConstants.TEST_GET_TABLE_RESPONSE_BODY.toJson()));
+
+    // A table literally named "views" is still a table: the views mapping must not capture it from
+    // the tableId position under the shared prefix.
+    mvcWithBothControllers
+        .perform(
+            MockMvcRequestBuilders.get(
+                    CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/tables/views")
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isOk())
+        .andExpect(content().json(RequestConstants.TEST_GET_TABLE_RESPONSE_BODY.toJson()));
+
+    // The same name under the sibling views segment reaches the views handler instead.
+    mvcWithBothControllers
+        .perform(
+            MockMvcRequestBuilders.get(
+                    CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/views/my_view")
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isOk())
+        .andExpect(content().json(ViewModelConstants.pointerResponse().toJson()));
+
+    // View and table collection routes remain distinct.
+    mvcWithBothControllers
+        .perform(
+            MockMvcRequestBuilders.get(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/views")
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.results[0].viewId", Matchers.is("my_view")));
+
+    // The v1 table route is otherwise unchanged, including its not-found behaviour.
+    mvcWithBothControllers
+        .perform(
+            MockMvcRequestBuilders.get(
+                    CURRENT_MAJOR_VERSION_PREFIX + "/databases/d404/tables/my_view")
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isNotFound());
+  }
+
+  /**
+   * Regression pin for {@link com.linkedin.openhouse.tables.audit.ViewRequestPayloadRedactor}.
+   * {@code CreateUpdateTableRequestBody} also carries a {@code schema}, so a redactor keyed on the
+   * field name alone would silently start scrubbing table audit events, which is not what the views
+   * change is allowed to do. The view redactor is scoped by request URI instead, and this asserts
+   * that a v1 table create still audits its schema verbatim.
+   */
+  @Test
+  public void tableCreateAuditPayloadStillCarriesItsSchemaUnredacted() throws Exception {
+    CreateUpdateTableRequestBody requestBody =
+        RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY
+            .toBuilder()
+            .schema(TABLE_SCHEMA_WITH_MARKER)
+            .build();
+
+    mvc.perform(
+        MockMvcRequestBuilders.post(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/tables")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(requestBody.toJson())
+            .accept(MediaType.APPLICATION_JSON)
+            .header("Authorization", "Bearer " + jwtAccessToken));
+
+    Mockito.verify(serviceAuditHandler, Mockito.atLeastOnce()).audit(argCaptor.capture());
+    ServiceAuditEvent actualEvent = argCaptor.getValue();
+    JsonObject payload = actualEvent.getRequestPayload().getAsJsonObject();
+
+    Assertions.assertEquals(
+        TABLE_SCHEMA_WITH_MARKER,
+        payload.get("schema").getAsString(),
+        "A table create must audit its schema exactly as it was sent.");
+    Assertions.assertFalse(
+        actualEvent.getRequestPayload().toString().contains(REDACTED_VALUE),
+        "Nothing in a table request payload may be redacted by the views change.");
   }
 
   @Test
