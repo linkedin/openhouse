@@ -18,10 +18,13 @@ import io.opentelemetry.api.common.Attributes;
 import java.io.IOException;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -41,7 +44,10 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.ManageSnapshots;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
@@ -58,6 +64,7 @@ import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.apache.iceberg.spark.actions.SparkActions;
+import org.apache.iceberg.util.SnapshotUtil;
 import org.apache.spark.sql.SparkSession;
 import scala.collection.JavaConverters;
 
@@ -329,7 +336,9 @@ public final class Operations implements AutoCloseable {
 
   /**
    * Expire snapshots with backup support. Main orchestration method that delegates to helper
-   * methods based on deleteFiles flag.
+   * methods based on deleteFiles flag. Non-main branches that have left the maxAge window are
+   * removed first (see {@link #expireBranchesOlderThan}), so the expiration that follows can expire
+   * their snapshots.
    */
   public ExpireSnapshots.Result expireSnapshots(
       Table table,
@@ -355,6 +364,7 @@ public final class Operations implements AutoCloseable {
     long expireBeforeTimestampMs =
         System.currentTimeMillis()
             - timeUnitGranularity.getDuration().multipliedBy(maxAge).toMillis();
+    expireBranchesOlderThan(table, expireBeforeTimestampMs);
 
     log.info(
         "Expiring snapshots for table: {} older than {}ms with deleteFiles={}, backupDir={}",
@@ -382,6 +392,83 @@ public final class Operations implements AutoCloseable {
     }
 
     return result;
+  }
+
+  /**
+   * Remove non-main branches whose history has left the table's history window, so the snapshot
+   * expiration that follows can expire their snapshots. A branch is removed when:
+   *
+   * <ul>
+   *   <li>the latest snapshot it shares with main is older than the cutoff;
+   *   <li>it no longer shares a snapshot with main because expiration removed the history in
+   *       between; or
+   *   <li>it never shared history with main (for example, it was written before main had a
+   *       snapshot) and its first snapshot is older than the cutoff.
+   * </ul>
+   *
+   * <p>Main and tags are never removed here.
+   */
+  @VisibleForTesting
+  static void expireBranchesOlderThan(Table table, long expireBeforeTimestampMs) {
+    boolean hasBranches =
+        table.refs().entrySet().stream()
+            .anyMatch(e -> e.getValue().isBranch() && !SnapshotRef.MAIN_BRANCH.equals(e.getKey()));
+    if (!hasBranches) {
+      return;
+    }
+
+    Set<Long> mainAncestors = new HashSet<>();
+    for (Snapshot snapshot : SnapshotUtil.currentAncestors(table)) {
+      mainAncestors.add(snapshot.snapshotId());
+    }
+
+    List<String> branchesToRemove = new ArrayList<>();
+    for (Map.Entry<String, SnapshotRef> entry : table.refs().entrySet()) {
+      String branch = entry.getKey();
+      SnapshotRef ref = entry.getValue();
+      if (!ref.isBranch() || SnapshotRef.MAIN_BRANCH.equals(branch)) {
+        continue;
+      }
+      String reason = branchExpirationReason(table, ref, mainAncestors, expireBeforeTimestampMs);
+      if (reason != null) {
+        log.info("Expiring branch {} on table {}: {}", branch, table, reason);
+        branchesToRemove.add(branch);
+      }
+    }
+
+    // Live refs pin snapshots, so commit their removal before expiring snapshots.
+    if (!branchesToRemove.isEmpty()) {
+      ManageSnapshots updates = table.manageSnapshots();
+      branchesToRemove.forEach(updates::removeBranch);
+      updates.commit();
+    }
+  }
+
+  /** Returns why a branch should be removed, or null to keep it. */
+  private static String branchExpirationReason(
+      Table table, SnapshotRef ref, Set<Long> mainAncestors, long expireBeforeTimestampMs) {
+    Snapshot oldest = null;
+    for (Snapshot ancestor : SnapshotUtil.ancestorsOf(ref.snapshotId(), table::snapshot)) {
+      if (mainAncestors.contains(ancestor.snapshotId())) {
+        return ancestor.timestampMillis() < expireBeforeTimestampMs
+            ? String.format(
+                "it split from main at snapshot %d (%dms), before the cutoff %dms",
+                ancestor.snapshotId(), ancestor.timestampMillis(), expireBeforeTimestampMs)
+            : null;
+      }
+      oldest = ancestor;
+    }
+    if (oldest.parentId() != null) {
+      return String.format(
+          "its history no longer reaches main: parent %d of snapshot %d has expired",
+          oldest.parentId(), oldest.snapshotId());
+    }
+    return oldest.timestampMillis() < expireBeforeTimestampMs
+        ? String.format(
+            "it never shared history with main and its first snapshot %d (%dms) is before the"
+                + " cutoff %dms",
+            oldest.snapshotId(), oldest.timestampMillis(), expireBeforeTimestampMs)
+        : null;
   }
 
   /**
