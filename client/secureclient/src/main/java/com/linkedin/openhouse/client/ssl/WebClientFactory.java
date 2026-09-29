@@ -27,6 +27,8 @@ public abstract class WebClientFactory {
   private static final String SESSION_ID = "session-id";
 
   public static final String HTTP_HEADER_CLIENT_NAME = "X-Client-Name";
+  public static final String HTTP_HEADER_ACTION_TYPE = "X-OpenHouse-Action-Type";
+  public static final String ACTION_TYPE_SYSTEM = "SYSTEM";
   // Product token advertised in the User-Agent header so the server can observe the client version.
   // The resulting header looks like "openhouse-java-client/1.5.2".
   public static final String USER_AGENT_CLIENT_PRODUCT = "openhouse-java-client";
