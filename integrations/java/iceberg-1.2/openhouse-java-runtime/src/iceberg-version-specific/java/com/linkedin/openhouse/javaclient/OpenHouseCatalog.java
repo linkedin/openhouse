@@ -125,6 +125,11 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     Preconditions.checkArgument(
         actionType == null || ACTION_TYPE_SYSTEM.equalsIgnoreCase(actionType),
         "action-type must be SYSTEM when supplied");
+    String skipClientCheck =
+        properties.getOrDefault("dangerously-skip-minimum-client-jar-check", "false");
+    Preconditions.checkArgument(
+        "true".equalsIgnoreCase(skipClientCheck) || "false".equalsIgnoreCase(skipClientCheck),
+        "dangerously-skip-minimum-client-jar-check must be true or false");
     try {
       TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
       tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
@@ -140,6 +145,13 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     }
     if (actionType != null) {
       this.apiClient.addDefaultHeader(HTTP_HEADER_ACTION_TYPE, actionType.toUpperCase(Locale.ROOT));
+    }
+    if (Boolean.parseBoolean(skipClientCheck)) {
+      this.apiClient.addDefaultHeader(
+          "X-OpenHouse-Dangerously-Skip-Minimum-Client-Jar-Check", "true");
+      log.warn(
+          "Client compatibility checks disabled for {}; incorrect reads or writes may result",
+          name);
     }
     this.tableApi = new TableApi(apiClient);
     this.snapshotApi = new SnapshotApi(apiClient);
