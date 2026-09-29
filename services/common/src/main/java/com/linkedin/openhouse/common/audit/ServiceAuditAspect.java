@@ -11,6 +11,7 @@ import com.linkedin.openhouse.common.api.spec.ErrorResponseBody;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.common.audit.model.ServiceName;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import javax.servlet.http.HttpServletRequest;
@@ -46,16 +47,20 @@ public class ServiceAuditAspect {
       MetricsReporter.of(MetricsConstant.SERVICE_AUDIT);
 
   private static final String SESSION_ID = "session-id";
+  private static final String ACTION_TYPE = "X-OpenHouse-Action-Type";
 
   /**
    * Install the Around advice for all controller methods.
    *
    * @param point The controller method being enhanced
+   * @param apiResponses The controller method's annotation, bound by type so that relocating
+   *     io.swagger (as the shaded test fixtures do) updates the pointcut with it
    * @return Result of the controller method
    * @throws Throwable Any exception during execution of the controller method
    */
-  @Around("execution(@(io.swagger.v3.oas.annotations.responses.ApiResponses) * *(..))")
-  protected Object auditSuccessfulRequests(ProceedingJoinPoint point) throws Throwable {
+  @Around(value = "@annotation(apiResponses)", argNames = "point,apiResponses")
+  protected Object auditSuccessfulRequests(ProceedingJoinPoint point, ApiResponses apiResponses)
+      throws Throwable {
     Object result = null;
     try {
       result = point.proceed();
@@ -172,6 +177,7 @@ public class ServiceAuditAspect {
         .clusterName(clusterProperties.getClusterName())
         .serviceName(getServiceNameFromRequestURI(request.getRequestURI()))
         .user(extractAuthenticatedUserPrincipal())
+        .actionType(request.getHeader(ACTION_TYPE))
         .method(HttpMethod.valueOf(request.getMethod()))
         .uri(uriAndQueryString)
         .requestPayload(requestPayload)
