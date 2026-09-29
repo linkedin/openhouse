@@ -14,8 +14,9 @@ openApi {
   customBootRun {
     args = [
       "--server.port=8003",
-      "--spring.datasource.url=jdbc:h2:mem:codegen;MODE=MYSQL;DB_CLOSE_DELAY=-1",
-      "--spring.datasource.driver-class-name=org.h2.Driver",
+      "--cluster.optimizer.database.url=jdbc:h2:mem:codegen;MODE=MYSQL;DB_CLOSE_DELAY=-1",
+      "--cluster.optimizer.database.type=IN_MEMORY",
+      "--cluster.optimizer.database.cert-based-auth.enabled=false",
       "--spring.datasource.username=sa",
       "--spring.datasource.password=",
       "--spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect",
@@ -26,6 +27,7 @@ openApi {
 }
 
 dependencies {
+  implementation project(':cluster:configs')
   implementation 'org.springframework.boot:spring-boot-starter-data-jpa:2.7.8'
   implementation 'com.vladmihalcea:hibernate-types-55:2.21.1'
   implementation 'org.springframework.boot:spring-boot-starter-web:2.7.8'
