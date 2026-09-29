@@ -42,7 +42,7 @@ jobs:
           latest_tag=$(git describe --tags --abbrev=0 "$GITHUB_SHA")
           semVer=${latest_tag:1} # Remove the first character ('v')
           if [[ "$GITHUB_REF" == "refs/heads/rufan-linkedin-combine-entitytype-and-index-fix" ]]; then
-            semVer="${semVer}-pr763.${GITHUB_SHA}.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"
+            semVer="${semVer}-pr763-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           fi
           echo "semVer=${semVer}" >> "$GITHUB_OUTPUT"
 
