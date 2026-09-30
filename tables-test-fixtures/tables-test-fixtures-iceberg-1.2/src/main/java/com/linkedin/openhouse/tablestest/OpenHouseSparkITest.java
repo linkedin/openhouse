@@ -115,16 +115,6 @@ public class OpenHouseSparkITest {
     return URI.create(LOCALHOST + openHouseLocalServer.getPort());
   }
 
-  /**
-   * Rewrites a table's committed metadata without {@code key}, bypassing tables-service, as for a
-   * table committed before tables-service started setting that property.
-   */
-  protected static void removeCommittedTableProperty(String databaseId, String tableId, String key)
-      throws Exception {
-    startOpenHouseLocalServer();
-    openHouseLocalServer.removeCommittedProperty(databaseId, tableId, key);
-  }
-
   protected Catalog getOpenHouseCatalog(SparkSession spark) {
     final Map<String, String> catalogProperties = new HashMap<>();
     final String catalogPropertyPrefix = "spark.sql.catalog.openhouse.";

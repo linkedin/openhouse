@@ -1,20 +1,6 @@
 package com.linkedin.openhouse.tablestest;
 
-import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.getCanonicalFieldName;
-
-import com.linkedin.openhouse.internal.catalog.model.HouseTable;
-import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
-import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
-import org.apache.iceberg.HasTableOperations;
-import org.apache.iceberg.TableMetadata;
-import org.apache.iceberg.TableMetadataParser;
-import org.apache.iceberg.TableOperations;
-import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.web.context.WebServerApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -89,37 +75,6 @@ public class OpenHouseLocalServer {
     } catch (Error e) {
       org.apache.catalina.webresources.TomcatURLStreamHandlerFactory.disable();
     }
-  }
-
-  /**
-   * Rewrites a table's committed metadata without {@code key}, bypassing tables-service, as for a
-   * table committed before tables-service started setting that property. Test support only.
-   */
-  public synchronized void removeCommittedProperty(String databaseId, String tableId, String key) {
-    TableOperations ops =
-        ((HasTableOperations)
-                appContext
-                    .getBean(Catalog.class)
-                    .loadTable(TableIdentifier.of(databaseId, tableId)))
-            .operations();
-    TableMetadata committed = ops.current();
-    String location =
-        committed
-            .metadataFileLocation()
-            .replace(".metadata.json", "-" + UUID.randomUUID() + ".metadata.json");
-    Map<String, String> properties = new HashMap<>(committed.properties());
-    properties.remove(key);
-    properties.put(getCanonicalFieldName("tableLocation"), location);
-    TableMetadataParser.write(
-        committed.replaceProperties(properties), ops.io().newOutputFile(location));
-
-    HouseTableRepository houseTables = appContext.getBean(HouseTableRepository.class);
-    HouseTable row =
-        houseTables
-            .findById(
-                HouseTablePrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
-            .orElseThrow(() -> new IllegalArgumentException(databaseId + "." + tableId));
-    houseTables.save(row.toBuilder().tableLocation(location).build());
   }
 
   /**
