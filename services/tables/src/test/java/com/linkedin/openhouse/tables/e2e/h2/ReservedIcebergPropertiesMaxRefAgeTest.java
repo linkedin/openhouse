@@ -16,6 +16,7 @@ import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInit
 import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.TableMetadata;
@@ -44,7 +45,8 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 /**
  * history.expire.max-ref-age-ms where Iceberg table properties are reserved, as with li-openhouse's
  * {@code LiPreservedKeyChecker}: clients cannot write the property, so tables-service alone has to
- * put it on new tables and on tables created before it owned the property.
+ * put it on new tables and on tables created before it owned the property. Tables live in this
+ * class's own database under random names, so it can run alongside other tests or itself.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -56,6 +58,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 @Import(ReservedIcebergPropertiesMaxRefAgeTest.ReservedIcebergProperties.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class ReservedIcebergPropertiesMaxRefAgeTest {
+  private static final String DATABASE = "d_reserved_iceberg_properties";
   private static final String MAX_REF_AGE = TableProperties.MAX_REF_AGE_MS;
   private static final String SEVEN_DAYS = String.valueOf(TimeUnit.DAYS.toMillis(7));
   private static final String TABLES_URL =
@@ -82,14 +85,14 @@ class ReservedIcebergPropertiesMaxRefAgeTest {
     Map<String, String> requested = new HashMap<>(GET_TABLE_RESPONSE_BODY.getTableProperties());
     requested.put(MAX_REF_AGE, String.valueOf(TimeUnit.DAYS.toMillis(14)));
 
-    table = create("max_ref_age_create", requested);
+    table = create("create", requested);
 
     Assertions.assertEquals(SEVEN_DAYS, table.getTableProperties().get(MAX_REF_AGE));
   }
 
   @Test
   void tableWithoutMaxRefAgeGetsItFromItsNextCommit() throws Exception {
-    create("max_ref_age_backfill", GET_TABLE_RESPONSE_BODY.getTableProperties());
+    create("backfill", GET_TABLE_RESPONSE_BODY.getTableProperties());
     table = removeMaxRefAgeFromCommittedMetadata(table);
     Assertions.assertNull(table.getTableProperties().get(MAX_REF_AGE));
 
@@ -105,11 +108,16 @@ class ReservedIcebergPropertiesMaxRefAgeTest {
     Assertions.assertEquals(SEVEN_DAYS, table.getTableProperties().get(MAX_REF_AGE));
   }
 
-  /** Creates the table and records it for {@link #dropTable()}. */
-  private GetTableResponseBody create(String tableId, Map<String, String> properties)
+  /** Creates a table with a random name and records it for {@link #dropTable()}. */
+  private GetTableResponseBody create(String name, Map<String, String> properties)
       throws Exception {
     GetTableResponseBody request =
-        GET_TABLE_RESPONSE_BODY.toBuilder().tableId(tableId).tableProperties(properties).build();
+        GET_TABLE_RESPONSE_BODY
+            .toBuilder()
+            .databaseId(DATABASE)
+            .tableId(name + "_" + UUID.randomUUID().toString().replace("-", ""))
+            .tableProperties(properties)
+            .build();
     MvcResult result =
         mvc.perform(
                 MockMvcRequestBuilders.post(String.format(TABLES_URL, request.getDatabaseId()))
