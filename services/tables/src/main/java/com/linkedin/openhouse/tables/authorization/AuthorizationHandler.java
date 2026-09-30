@@ -42,18 +42,12 @@ public interface AuthorizationHandler {
   boolean checkAccessDecision(String principal, TableDto tableDto, Privileges privilege);
 
   /**
-   * Method to check if principal may read or write tableDto while it has an active SYSTEM_ONLY
-   * lock. It is called only after principal passes the operation's privilege check. Lock lifecycle,
-   * DROP and ACL operations don't call it.
-   *
-   * <p>The default allows requests declared as {@code SYSTEM}. Implementations can override it to
-   * add their own checks, for example on principal.
+   * Method to check if principal may access tableDto under an active SYSTEM_ONLY lock. The default
+   * allows requests declared as SYSTEM.
    *
    * @param principal
    * @param tableDto
-   * @param actionType {@link TablesMvcConstants#ACTION_TYPE_SYSTEM} if the request declares {@code
-   *     X-OpenHouse-Action-Type: SYSTEM} in any case, or null if it declares nothing or is not an
-   *     HTTP request. Other values are rejected before this call.
+   * @param actionType {@link TablesMvcConstants#ACTION_TYPE_SYSTEM} if declared, otherwise null
    * @return true if access is allowed
    */
   default boolean checkSystemOnlyLockAccess(
