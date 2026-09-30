@@ -114,7 +114,7 @@ shadowJar {
   }
 }
 
-test {
+tasks.withType(Test).configureEach {
   if (JavaVersion.current() >= JavaVersion.VERSION_1_9) {
     jvmArgs \
             '--add-opens=java.base/java.nio=ALL-UNNAMED',
@@ -122,4 +122,33 @@ test {
         '--add-opens=java.base/sun.util.calendar=ALL-UNNAMED',
         '--add-exports=java.base/sun.util.calendar=ALL-UNNAMED'
   }
+}
+
+// Snapshot expiration against an embedded tables-service that reserves Iceberg table properties, as
+// li-openhouse does, so a job that writes one from the client fails here (see #708). The embedded
+// server is a singleton per JVM, so these tests run in their own task.
+def reservedIcebergPropertiesOnlyTest =
+    'com.linkedin.openhouse.jobs.spark.ReservedIcebergPropertiesSnapshotsExpirationTest'
+
+tasks.named('test') {
+  filter {
+    excludeTestsMatching reservedIcebergPropertiesOnlyTest
+  }
+}
+
+def testWithReservedIcebergProperties = tasks.register('testWithReservedIcebergProperties', Test) {
+  description = 'Runs snapshot expiration tests with Iceberg table properties reserved.'
+  group = 'verification'
+  testClassesDirs = sourceSets.test.output.classesDirs
+  classpath = sourceSets.test.runtimeClasspath
+  useJUnitPlatform()
+  systemProperty 'openhouse.test.reserved-iceberg-properties', 'true'
+  filter {
+    includeTestsMatching reservedIcebergPropertiesOnlyTest
+    includeTestsMatching 'com.linkedin.openhouse.jobs.spark.OperationsTest.testSnapshotsExpiration*'
+  }
+}
+
+tasks.named('check') {
+  dependsOn testWithReservedIcebergProperties
 }

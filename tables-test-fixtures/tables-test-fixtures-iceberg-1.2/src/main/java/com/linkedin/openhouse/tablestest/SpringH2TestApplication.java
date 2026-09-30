@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tablestest;
 
+import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.apache.hadoop.fs.Path;
@@ -7,6 +8,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.actuate.autoconfigure.security.servlet.ManagementWebSecurityAutoConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -44,6 +46,13 @@ import org.springframework.context.annotation.Primary;
     exclude = {SecurityAutoConfiguration.class, ManagementWebSecurityAutoConfiguration.class})
 public class SpringH2TestApplication {
 
+  /**
+   * Set to {@code true} to reserve Iceberg table properties as li-openhouse does, so tests catch
+   * clients (such as maintenance jobs) that write them.
+   */
+  public static final String RESERVED_ICEBERG_PROPERTIES =
+      "openhouse.test.reserved-iceberg-properties";
+
   public static void main(String[] args) {
     SpringApplication.run(SpringH2TestApplication.class, args);
   }
@@ -59,5 +68,12 @@ public class SpringH2TestApplication {
     return pathSupplier -> {
       // This is a no-op Consumer. It does nothing with the supplied Path.
     };
+  }
+
+  @Bean
+  @Primary
+  @ConditionalOnProperty(name = RESERVED_ICEBERG_PROPERTIES, havingValue = "true")
+  PreservedKeyChecker icebergPropertiesPreservedKeyChecker() {
+    return new IcebergPropertiesPreservedKeyChecker();
   }
 }
