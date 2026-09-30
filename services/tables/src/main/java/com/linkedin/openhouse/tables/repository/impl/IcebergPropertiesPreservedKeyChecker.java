@@ -1,6 +1,5 @@
-package com.linkedin.openhouse.tablestest;
+package com.linkedin.openhouse.tables.repository.impl;
 
-import com.linkedin.openhouse.tables.repository.impl.BasePreservedKeyChecker;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
@@ -11,22 +10,16 @@ import java.util.stream.Collectors;
 import org.apache.iceberg.TableProperties;
 
 /**
- * Mirrors li-openhouse's {@code LiPreservedKeyChecker}, which reserves Iceberg's {@link
- * TableProperties} on top of {@code openhouse.*} and {@code policies}: clients cannot add, alter or
- * drop an Iceberg table property outside {@link #CLIENT_WRITABLE}, and table creation drops them.
- * OSS otherwise runs {@link BasePreservedKeyChecker}, where a client-side write of an Iceberg
- * property, such as the snapshot-expiration backfill of {@code history.expire.max-ref-age-ms} in
- * #708, passes tests and then fails in that deployment.
+ * Preserves Iceberg's {@link TableProperties} on top of the keys {@link BasePreservedKeyChecker}
+ * preserves: clients cannot add, alter or drop them, and table creation drops them. Clients can
+ * still set the properties in {@code CLIENT_WRITABLE}.
  *
- * <p>{@link SpringH2TestApplication} uses it when {@value
- * SpringH2TestApplication#RESERVED_ICEBERG_PROPERTIES} is {@code true}.
+ * <p>Tables-service uses it when {@code cluster.tables.preserved-iceberg-properties.enabled} is
+ * {@code true}. A deployment that registers its own primary {@code PreservedKeyChecker} can extend
+ * it instead.
  */
 public class IcebergPropertiesPreservedKeyChecker extends BasePreservedKeyChecker {
 
-  /**
-   * {@code LiPreservedKeyChecker}'s allowlist. It also allows {@code
-   * write.delete-file-replication}, which not every Iceberg version defines.
-   */
   private static final Set<String> CLIENT_WRITABLE =
       Collections.unmodifiableSet(
           new HashSet<>(
@@ -35,6 +28,7 @@ public class IcebergPropertiesPreservedKeyChecker extends BasePreservedKeyChecke
                   TableProperties.WRITE_AUDIT_PUBLISH_ENABLED,
                   TableProperties.WRITE_DISTRIBUTION_MODE,
                   TableProperties.WRITE_TARGET_FILE_SIZE_BYTES,
+                  TableProperties.DELETE_FILE_REPLICATION,
                   TableProperties.METADATA_PREVIOUS_VERSIONS_MAX,
                   TableProperties.SPARK_WRITE_ACCEPT_ANY_SCHEMA)));
 

@@ -14,11 +14,11 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
- * Snapshot expiration where Iceberg table properties are reserved, as li-openhouse's {@code
- * LiPreservedKeyChecker} does. Runs only in the {@code testWithReservedIcebergProperties} task,
- * whose embedded tables-service uses {@code IcebergPropertiesPreservedKeyChecker}. #708's snapshot
- * expiration failed here: it wrote history.expire.max-ref-age-ms from the client on tables without
- * it.
+ * Snapshot expiration where Iceberg table properties are preserved, as at LinkedIn. Runs only in
+ * the {@code testWithReservedIcebergProperties} task, whose embedded tables-service sets {@code
+ * cluster.tables.preserved-iceberg-properties.enabled} and so uses {@code
+ * IcebergPropertiesPreservedKeyChecker}. #708's snapshot expiration failed here: it wrote
+ * history.expire.max-ref-age-ms from the client on tables without it.
  */
 public class ReservedIcebergPropertiesSnapshotsExpirationTest extends OpenHouseSparkITest {
   private static final String DATABASE = "db_reserved_iceberg_properties";

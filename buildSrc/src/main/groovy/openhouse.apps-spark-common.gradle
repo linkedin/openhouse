@@ -124,7 +124,8 @@ tasks.withType(Test).configureEach {
   }
 }
 
-// Snapshot expiration against an embedded tables-service that reserves Iceberg table properties, as
+// Snapshot expiration against an embedded tables-service with
+// cluster.tables.preserved-iceberg-properties.enabled, which preserves Iceberg table properties as
 // li-openhouse does, so a job that writes one from the client fails here (see #708). The embedded
 // server is a singleton per JVM, so these tests run in their own task.
 def reservedIcebergPropertiesOnlyTest =
@@ -142,7 +143,7 @@ def testWithReservedIcebergProperties = tasks.register('testWithReservedIcebergP
   testClassesDirs = sourceSets.test.output.classesDirs
   classpath = sourceSets.test.runtimeClasspath
   useJUnitPlatform()
-  systemProperty 'openhouse.test.reserved-iceberg-properties', 'true'
+  systemProperty 'cluster.tables.preserved-iceberg-properties.enabled', 'true'
   filter {
     includeTestsMatching reservedIcebergPropertiesOnlyTest
     includeTestsMatching 'com.linkedin.openhouse.jobs.spark.OperationsTest.testSnapshotsExpiration*'

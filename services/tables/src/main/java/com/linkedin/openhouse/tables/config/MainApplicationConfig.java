@@ -11,6 +11,8 @@ import com.linkedin.openhouse.common.provider.HttpConnectionPoolProviderConfig;
 import com.linkedin.openhouse.housetables.client.api.ToggleStatusApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
+import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
+import com.linkedin.openhouse.tables.repository.impl.IcebergPropertiesPreservedKeyChecker;
 import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tag;
@@ -36,8 +38,10 @@ import org.springdoc.core.customizers.OpenApiCustomiser;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.autoconfigure.metrics.MeterRegistryCustomizer;
 import org.springframework.boot.actuate.metrics.web.servlet.WebMvcTagsContributor;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.netty.http.client.HttpClient;
@@ -150,6 +154,18 @@ public class MainApplicationConfig extends BaseApplicationConfig {
             "Failed to secure paths included in provided snapshot, ", ioe);
       }
     };
+  }
+
+  /**
+   * Also preserves Iceberg's table properties; see {@link IcebergPropertiesPreservedKeyChecker}.
+   */
+  @Bean
+  @Primary
+  @ConditionalOnProperty(
+      value = "cluster.tables.preserved-iceberg-properties.enabled",
+      havingValue = "true")
+  PreservedKeyChecker icebergPropertiesPreservedKeyChecker() {
+    return new IcebergPropertiesPreservedKeyChecker();
   }
 
   /**
