@@ -134,10 +134,32 @@ public class AppsTest extends OpenHouseSparkITest {
 
   @Test
   public void testSnapshotsExpirationSparkAppMaintainsSystemOnlyLockedTable() throws Exception {
+    assertFinalStateOnSystemOnlyLockedTable(
+        "test_se_system_only_lock",
+        (jobId, stateManager, fqtn) ->
+            new SnapshotsExpirationSparkApp(
+                jobId, stateManager, fqtn, 0, "", 1, false, ".backup", otelEmitter),
+        JobState.SUCCEEDED);
+  }
+
+  @Test
+  public void testTableStatsCollectionSparkAppIsDeniedOnSystemOnlyLockedTable() throws Exception {
+    assertFinalStateOnSystemOnlyLockedTable(
+        "test_stats_system_only_lock",
+        (jobId, stateManager, fqtn) ->
+            new TableStatsCollectionSparkApp(jobId, stateManager, fqtn, otelEmitter),
+        JobState.FAILED);
+  }
+
+  private interface AppFactory {
+    BaseSparkApp create(String jobId, StateManager stateManager, String fqtn);
+  }
+
+  private void assertFinalStateOnSystemOnlyLockedTable(
+      String tableName, AppFactory appFactory, JobState expectedState) throws Exception {
     final String database = "db";
-    final String tableName = "test_se_system_only_lock";
     final String fqtn = database + "." + tableName;
-    final String jobId = "test-se-system-only-lock";
+    final String jobId = "job-" + tableName;
     SparkSession spark = getSparkSession();
     spark.sql(String.format("CREATE TABLE openhouse.%s (id int)", fqtn));
     TableApi controls = controls(spark);
@@ -157,11 +179,9 @@ public class AppsTest extends OpenHouseSparkITest {
       SparkSession.setActiveSession(spark.newSession());
       StateManager stateManagerMock = Mockito.mock(StateManager.class);
 
-      new SnapshotsExpirationSparkApp(
-              jobId, stateManagerMock, fqtn, 0, "", 1, false, ".backup", otelEmitter)
-          .run();
+      appFactory.create(jobId, stateManagerMock, fqtn).run();
 
-      Mockito.verify(stateManagerMock).updateState(jobId, JobState.SUCCEEDED);
+      Mockito.verify(stateManagerMock).updateState(jobId, expectedState);
     } finally {
       SparkSession.clearActiveSession();
       controls.deleteLockByReasonV1(database, tableName, "SYSTEM_ONLY").block();
