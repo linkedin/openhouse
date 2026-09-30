@@ -190,7 +190,9 @@ public class JobsScheduler {
     JobConf.JobTypeEnum operationType = getOperationJobType(cmdLine);
     Class<? extends OperationTask> operationTaskCls = getOperationTaskCls(operationType.toString());
     TablesClientFactory tablesClientFactory = getTablesClientFactory(cmdLine);
-    TablesClient tablesClient = tablesClientFactory.create(cmdLine.hasOption("systemAction"));
+    // Snapshots expiration maintains every table, including tables with a SYSTEM_ONLY lock.
+    TablesClient tablesClient =
+        tablesClientFactory.create(operationType == JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION);
     JobsClientFactory jobsClientFactory = getJobsClientFactory(cmdLine);
     JobsClient jobsClient = jobsClientFactory.create();
     Properties properties = getAdditionalProperties(cmdLine);
@@ -480,13 +482,6 @@ public class JobsScheduler {
             .hasArg()
             .longOpt("type")
             .desc(String.format("Scheduler job type: %s", SUPPORTED_OPERATIONS_STRING))
-            .build());
-    options.addOption(
-        Option.builder(null)
-            .required(false)
-            .hasArg(false)
-            .longOpt("systemAction")
-            .desc("Declare scheduler tables-service requests with action type SYSTEM")
             .build());
     options.addOption(
         Option.builder(null).required().hasArg().longOpt("cluster").desc("Cluster id").build());
