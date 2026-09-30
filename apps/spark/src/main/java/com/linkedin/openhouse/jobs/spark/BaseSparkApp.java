@@ -49,7 +49,12 @@ public abstract class BaseSparkApp extends BaseApp {
     }
   }
 
-  /** Adds app-specific configuration before the session and its catalog are created. */
+  /**
+   * Adds app-specific configuration to the builder that {@link #run()} uses. If {@code
+   * getOrCreate()} returns an existing session, a catalog that session has already loaded keeps its
+   * previous configuration. The jobs service launches each app as its own Spark application, so its
+   * catalogs are created with this configuration.
+   */
   protected SparkSession.Builder configureSession(SparkSession.Builder builder) {
     return builder;
   }
