@@ -6,7 +6,7 @@ plugins {
 dependencies {
   // api: bin-packing types reference TableOperationDto / TableStatsDto, which consumers need on
   // their compile classpath.
-  api project(':services:optimizer-common')
+  api project(':libs:optimizer:optimizer-common')
   api 'org.slf4j:slf4j-api:1.7.36'
 }
 
