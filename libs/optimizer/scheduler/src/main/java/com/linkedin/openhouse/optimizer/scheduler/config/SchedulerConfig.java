@@ -40,6 +40,13 @@ public class SchedulerConfig {
    * Orphan files deletion: a {@link FirstFitDecreasingBinPacker} over {@link TotalFilesBinItem}.
    * Cost scales with file count — per-file list, manifest joins, and delete calls dominate
    * independent of file size.
+   *
+   * <p>Table stats collection: a {@link FirstFitDecreasingBinPacker} over {@link
+   * TotalFilesBinItem}. Its Spark cost is driven by metadata cardinality — the job scans the
+   * manifests, files, and all_entries metadata tables and collects them to the driver, so work
+   * scales with file count, not table byte size (a few huge files are cheap; millions of tiny files
+   * are expensive). Many low-file tables share one job (up to {@code max-tables-per-bin}, default
+   * 25), while any table with more than {@code max-files-per-bin} files lands in a job of its own.
    */
   @Bean
   public SchedulerRunner schedulerRunner(
@@ -48,7 +55,9 @@ public class SchedulerConfig {
       JobsServiceClient jobsClient,
       @Value("${optimizer.scheduler.results-endpoint}") String resultsEndpoint,
       @Value("${optimizer.scheduler.ofd.max-files-per-bin}") long ofdMaxFilesPerBin,
-      @Value("${optimizer.scheduler.ofd.max-tables-per-bin}") int ofdMaxTablesPerBin) {
+      @Value("${optimizer.scheduler.ofd.max-tables-per-bin}") int ofdMaxTablesPerBin,
+      @Value("${optimizer.scheduler.stats.max-files-per-bin}") long statsMaxFilesPerBin,
+      @Value("${optimizer.scheduler.stats.max-tables-per-bin}") int statsMaxTablesPerBin) {
     return new SchedulerRunner(operationsRepo, statsRepo, jobsClient, resultsEndpoint)
         .registerOperation(
             OperationTypeDto.ORPHAN_FILES_DELETION,
@@ -56,6 +65,13 @@ public class SchedulerConfig {
                 .binItemSupplier(TotalFilesBinItem::new)
                 .maxWeightPerBin(ofdMaxFilesPerBin)
                 .maxItemsPerBin(ofdMaxTablesPerBin)
+                .build())
+        .registerOperation(
+            OperationTypeDto.TABLE_STATS_COLLECTION,
+            FirstFitDecreasingBinPacker.<TotalFilesBinItem>builder()
+                .binItemSupplier(TotalFilesBinItem::new)
+                .maxWeightPerBin(statsMaxFilesPerBin)
+                .maxItemsPerBin(statsMaxTablesPerBin)
                 .build());
   }
 }
