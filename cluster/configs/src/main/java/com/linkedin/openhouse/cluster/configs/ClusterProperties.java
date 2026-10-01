@@ -99,4 +99,7 @@ public class ClusterProperties {
   // string
   @Value("${cluster.tables.allowed-client-name-values:}")
   private List<String> allowedClientNameValues;
+
+  @Value("${cluster.tables.iceberg-rest.enabled:false}")
+  private boolean clusterTablesIcebergRestEnabled;
 }
