@@ -80,7 +80,8 @@ public class ViewsControllerErrorSanitizationTest {
         .andExpect(content().string(not(containsString("schema={secret}"))))
         .andExpect(content().string(not(containsString("metadata-token"))))
         .andExpect(content().string(not(containsString("page-secret"))))
-        .andExpect(content().string(not(containsString("stacktrace"))))
+        .andExpect(jsonPath("$.cause").doesNotExist())
+        .andExpect(jsonPath("$.stacktrace").doesNotExist())
         .andExpect(content().string(not(containsString("RuntimeException"))));
 
     verify(viewsService)

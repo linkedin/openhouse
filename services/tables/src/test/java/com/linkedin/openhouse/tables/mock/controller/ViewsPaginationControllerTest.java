@@ -79,8 +79,6 @@ public class ViewsPaginationControllerTest {
 
   @Autowired private OpenHouseExceptionHandler openHouseExceptionHandler;
 
-  @Autowired private ViewsDisabledService viewsDisabledService;
-
   private ViewsService viewsService;
 
   private MockMvc mvc;
@@ -505,12 +503,12 @@ public class ViewsPaginationControllerTest {
         .andExpect(jsonPath("$.results").doesNotExist());
   }
 
-  // The registered service is still disabled
+  // The disabled stub, registered only in runtimes without the Iceberg view API
 
   /** Valid read and write requests both reach the disabled service rather than failing earlier. */
   @Test
-  public void theRegisteredServiceStillReportsViewsDisabled() throws Exception {
-    MockMvc disabled = standaloneMvcBackedBy(viewsDisabledService);
+  public void theDisabledServiceStubReportsViewsDisabled() throws Exception {
+    MockMvc disabled = standaloneMvcBackedBy(new ViewsDisabledService());
 
     disabled
         .perform(listRequest())
