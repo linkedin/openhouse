@@ -73,6 +73,9 @@ public class UnlockTableStatementTest {
     setup();
     spark.sql("--comment\rALTER --comment\rTABLE openhouse.db.table UNLOCK");
     assertUnlocked("db.table", null);
+    setup();
+    spark.sql("ALTER TABLE openhouse.db.`a/*` UNLOCK /* comment */");
+    assertUnlocked("db.a/*", null);
   }
 
   @Test
