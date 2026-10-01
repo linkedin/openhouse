@@ -44,7 +44,7 @@ public class AuthorizationInterceptor implements AuthorizationManager<MethodInvo
     } catch (AuthenticationCredentialsNotFoundException exception) {
       return new AuthorizationDecision(false);
     }
-    if (!authentication.isAuthenticated()) {
+    if (authentication == null || !authentication.isAuthenticated()) {
       return new AuthorizationDecision(false);
     }
 
@@ -61,6 +61,14 @@ public class AuthorizationInterceptor implements AuthorizationManager<MethodInvo
       return new AuthorizationDecision(true);
     }
     String[] privileges = ((Secured) securedAnnotation.get()).value();
+
+    // AUTHENTICATED is a route guard only: authentication (checked above) is sufficient and no
+    // resource privilege is consulted, even if every other declared privilege were present too.
+    // This holds durably, independent of whether a later PR completes resource-privilege
+    // enforcement for the other privileges below.
+    if (privileges.length == 1 && Privileges.Privilege.AUTHENTICATED.equals(privileges[0])) {
+      return new AuthorizationDecision(true);
+    }
 
     // Now from the method parameters retrieve databaseId and tableId.
     String databaseId = null;

@@ -83,7 +83,7 @@ public class ViewsController {
   @GetMapping(
       value = {"/v1/databases/{databaseId}/views/{viewId}"},
       produces = {"application/json"})
-  @Secured(value = Privileges.Privilege.SELECT)
+  @Secured(value = Privileges.Privilege.AUTHENTICATED)
   public ResponseEntity<GetViewResponseBody> getView(
       @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
       @Parameter(description = "View ID", required = true) @PathVariable String viewId) {
@@ -122,7 +122,7 @@ public class ViewsController {
   @GetMapping(
       value = {"/v1/databases/{databaseId}/views"},
       produces = {"application/json"})
-  @Secured(value = Privileges.Privilege.LIST_VIEW)
+  @Secured(value = Privileges.Privilege.AUTHENTICATED)
   public ResponseEntity<GetAllViewsResponseBody> getAllViews(
       @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
       @Parameter(
@@ -215,7 +215,7 @@ public class ViewsController {
       value = {"/v1/databases/{databaseId}/views"},
       produces = {"application/json"},
       consumes = {"application/json"})
-  @Secured(value = Privileges.Privilege.CREATE_VIEW)
+  @Secured(value = Privileges.Privilege.AUTHENTICATED)
   public ResponseEntity<GetViewResponseBody> createView(
       @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
       @Parameter(
@@ -267,7 +267,7 @@ public class ViewsController {
       value = {"/v1/databases/{databaseId}/views/{viewId}"},
       produces = {"application/json"},
       consumes = {"application/json"})
-  @Secured(value = Privileges.Privilege.UPDATE_VIEW_METADATA)
+  @Secured(value = Privileges.Privilege.AUTHENTICATED)
   public ResponseEntity<GetViewResponseBody> updateView(
       @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
       @Parameter(description = "View ID", required = true) @PathVariable String viewId,
@@ -314,7 +314,7 @@ public class ViewsController {
   @DeleteMapping(
       value = {"/v1/databases/{databaseId}/views/{viewId}"},
       produces = {"application/json"})
-  @Secured(value = Privileges.Privilege.DELETE_VIEW)
+  @Secured(value = Privileges.Privilege.AUTHENTICATED)
   public ResponseEntity<Void> deleteView(
       @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
       @Parameter(description = "View ID", required = true) @PathVariable String viewId) {
