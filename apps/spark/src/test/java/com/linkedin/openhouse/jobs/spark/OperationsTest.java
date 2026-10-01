@@ -67,7 +67,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       prepareTableWithRetentionAndSharingPolicies(ops, tableName, "1d", true);
       populateTable(ops, tableName, 3);
       populateTable(ops, tableName, 2, 2);
-      ops.runRetention(tableName, "ts", "", "day", 1, false, "", ZonedDateTime.now());
+      ops.runRetention(tableName, "ts", "", "day", 1, false, "", ZonedDateTime.now(ZoneOffset.UTC));
       verifyRowCount(ops, tableName, 3);
       verifyPolicies(ops, tableName, 1, Retention.GranularityEnum.DAY, true);
     }
@@ -168,7 +168,8 @@ public class OperationsTest extends OpenHouseSparkITest {
       String granularity) {
     prepareTableWithStringColumn(ops, tableName);
     populateTableWithStringColumn(ops, tableName, 3, dataFormats);
-    ops.runRetention(tableName, column, pattern, granularity, 2, false, "", ZonedDateTime.now());
+    ops.runRetention(
+        tableName, column, pattern, granularity, 2, false, "", ZonedDateTime.now(ZoneOffset.UTC));
   }
 
   @Test
@@ -180,7 +181,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       List<Long> snapshots = getSnapshotIds(ops, tableName);
       // check if there are existing snapshots
       Assertions.assertTrue(snapshots.size() > 0);
-      ops.runRetention(tableName, "ts", "", "day", 2, false, "", ZonedDateTime.now());
+      ops.runRetention(tableName, "ts", "", "day", 2, false, "", ZonedDateTime.now(ZoneOffset.UTC));
       verifyRowCount(ops, tableName, 4);
       List<Long> snapshotsAfter = getSnapshotIds(ops, tableName);
       Assertions.assertEquals(snapshots.size() + 1, snapshotsAfter.size());
@@ -198,12 +199,14 @@ public class OperationsTest extends OpenHouseSparkITest {
       int count = 1;
       // prepare data
       DateTimeFormatter formatter = DateTimeFormatter.ofPattern(columnPattern);
-      String twoDayAgoHour = formatter.format(ZonedDateTime.now().minusDays(2));
+      String twoDayAgoHour = formatter.format(ZonedDateTime.now(ZoneOffset.UTC).minusDays(2));
       String twoDayAgoDate =
-          formatter.format(ZonedDateTime.now().minusDays(2).truncatedTo(ChronoUnit.DAYS));
-      String threeDayAgoHour = formatter.format(ZonedDateTime.now().minusDays(3));
+          formatter.format(
+              ZonedDateTime.now(ZoneOffset.UTC).minusDays(2).truncatedTo(ChronoUnit.DAYS));
+      String threeDayAgoHour = formatter.format(ZonedDateTime.now(ZoneOffset.UTC).minusDays(3));
       String threeDayAgoDate =
-          formatter.format(ZonedDateTime.now().minusDays(3).truncatedTo(ChronoUnit.DAYS));
+          formatter.format(
+              ZonedDateTime.now(ZoneOffset.UTC).minusDays(3).truncatedTo(ChronoUnit.DAYS));
       ops.spark()
           .sql(
               String.format(
@@ -224,7 +227,7 @@ public class OperationsTest extends OpenHouseSparkITest {
               String.format(
                   "insert into %s values ('b', '%s', '%s', 0), ('b', '%s', '%s', 0)",
                   tableName, twoDayAgoDate, twoDayAgoHour, threeDayAgoDate, threeDayAgoHour));
-      ZonedDateTime now = ZonedDateTime.now();
+      ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
       ops.runRetention(
           tableName, columnName, columnPattern, granularity, count, true, ".backup", now);
       // verify data_manifest.json
@@ -276,8 +279,8 @@ public class OperationsTest extends OpenHouseSparkITest {
       int count = 1;
       // prepare data
       DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-      String today = formatter.format(ZonedDateTime.now());
-      String twoDayAgo = formatter.format(ZonedDateTime.now().minusDays(2));
+      String today = formatter.format(ZonedDateTime.now(ZoneOffset.UTC));
+      String twoDayAgo = formatter.format(ZonedDateTime.now(ZoneOffset.UTC).minusDays(2));
       ops.spark()
           .sql(
               String.format(
@@ -293,7 +296,7 @@ public class OperationsTest extends OpenHouseSparkITest {
               String.format(
                   "insert into %s values ('b', cast('%s' as timestamp)), ('b', cast('%s' as timestamp))",
                   tableName, today, twoDayAgo));
-      ZonedDateTime now = ZonedDateTime.now();
+      ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
       ops.runRetention(
           tableName, columnName, columnPattern, granularity, count, true, ".backup", now);
       // verify data_manifest.json
