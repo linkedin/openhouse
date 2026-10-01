@@ -45,6 +45,32 @@ to call out the issue it is addressing. If there is no issue, please create one 
 
 Please refer to our [Pull Request Template](.github/pull_request_template.md) for our policy on what we expect.
 
+### Pull Request Size
+
+Review time is the scarcest resource on this project, so each pull request should be reviewable in one sitting:
+
+- **One purpose per PR.** If you cannot describe the change in one sentence, split it.
+- **At most 400 counted lines**, i.e. added + deleted lines of hand-written, non-test code. Tests, docs, lockfiles,
+  binary files, deleted files, `vendor/` directories, paths marked `linguist-generated` or `linguist-vendored` in
+  `.gitattributes`, and low-risk paths (below) don't count.
+- **At most 2 walls of code**, where a wall is a run of 50+ consecutive new lines.
+- **Mechanical changes go first, in their own PR.** Refactors, renames, formatting, and dependency bumps land ahead of
+  the behavior change, and the description says how they were produced so reviewers can skim them.
+- **Low-risk code gets a lighter review.** Code that no deployment runs (prototypes, load tests, local tooling) can be
+  large without costing review quality. Maintainers mark such paths `review-risk=low` in `.gitattributes`: the check
+  doesn't count them, and reviewers skim them for blast radius (secrets, endpoints, cost, shared CI). Keep low-risk
+  and production changes in separate PRs.
+
+The `PR size` check enforces the limits. Run it locally with
+`python3 .github/scripts/pr_size_check.py --base upstream/main`. To split a large change:
+
+- **From a fork:** open the PRs one at a time in dependency order, and list the plan in the first PR's description.
+- **With push access to this repository:** use [stacked pull requests](https://gh.io/stacks). `gh stack` creates a
+  chain of small PRs that are reviewed one layer at a time and merge in one step.
+
+If a PR truly cannot be split, add a "Why this can't be split" section to its description and ask a maintainer to add
+the `size-exception` label.
+
 ### Types of Contributions
 
 [1] Bug Fixes (#bug): Create a new issue with a tag `bug` and add details like show [here](.github/ISSUE_TEMPLATE/bug_report_template.yaml). 
