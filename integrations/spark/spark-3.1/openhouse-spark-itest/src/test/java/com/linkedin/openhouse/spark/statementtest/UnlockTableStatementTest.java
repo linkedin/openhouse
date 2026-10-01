@@ -45,12 +45,16 @@ public class UnlockTableStatementTest {
   @Test
   public void testUnlockReasonIgnoresDefaultLocale() {
     Locale defaultLocale = Locale.getDefault();
+    Locale displayLocale = Locale.getDefault(Locale.Category.DISPLAY);
+    Locale formatLocale = Locale.getDefault(Locale.Category.FORMAT);
     Locale.setDefault(new Locale("tr", "TR"));
     try {
       spark.sql("ALTER TABLE openhouse.db.table UNLOCK REASON tier3_auto_cleanup");
       assertUnlocked("db.table", "TIER3_AUTO_CLEANUP");
     } finally {
       Locale.setDefault(defaultLocale);
+      Locale.setDefault(Locale.Category.DISPLAY, displayLocale);
+      Locale.setDefault(Locale.Category.FORMAT, formatLocale);
     }
   }
 
