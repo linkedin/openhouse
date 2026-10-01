@@ -20,6 +20,8 @@ case class UnlockTableExec(
     IcebergCatalogMapper.toIcebergCatalog(catalog) match {
       case unlockableCatalog: SupportsUnlock =>
         unlockableCatalog.unlockTable(Spark3Util.identifierToTableIdentifier(ident), reason.orNull)
+        // Drop the cached table so this session does not keep showing the removed lock.
+        catalog.invalidateTable(ident)
       case _ =>
         throw new UnsupportedOperationException(s"Catalog '${catalog.name()}' does not support UNLOCK")
     }

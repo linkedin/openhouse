@@ -12,7 +12,8 @@ public interface SupportsUnlock {
    * <p>can be converted into following parameters
    *
    * @param tableIdentifier identifier for the table, ex: db.table
-   * @param reason expected lock reason, ex: SYSTEM_ONLY; null removes only a legacy lock
+   * @param reason exact name of the active lock reason, ex: SYSTEM_ONLY; null removes only a legacy
+   *     lock; a blank reason is rejected
    */
   void unlockTable(TableIdentifier tableIdentifier, String reason);
 }

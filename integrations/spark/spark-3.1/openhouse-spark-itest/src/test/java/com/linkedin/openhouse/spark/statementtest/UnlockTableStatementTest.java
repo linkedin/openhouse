@@ -4,6 +4,7 @@ import com.linkedin.openhouse.javaclient.api.SupportsUnlock;
 import com.linkedin.openhouse.spark.sql.catalyst.parser.extensions.OpenhouseParseException;
 import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.UnlockTable;
 import java.nio.file.Files;
+import java.util.Collections;
 import lombok.SneakyThrows;
 import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -60,9 +61,31 @@ public class UnlockTableStatementTest {
   }
 
   @Test
+  public void testUnlockSpacedAndCommentedIdentifiers() {
+    spark.sql("ALTER TABLE openhouse . db . table UNLOCK");
+    assertUnlocked("db.table", null);
+    setup();
+    spark.sql("ALTER TABLE openhouse./* comment */db.table UNLOCK--comment");
+    assertUnlocked("db.table", null);
+  }
+
+  @Test
   public void testUnlockKeepsEscapedBackticks() {
     spark.sql("ALTER TABLE openhouse.db.`ta``ble` UNLOCK REASON `SYSTEM``ONLY`");
     assertUnlocked("db.ta`ble", "SYSTEM`ONLY");
+  }
+
+  @Test
+  public void testLongQuotedIdentifiers() throws ParseException {
+    String name = String.join("", Collections.nCopies(10000, "a``"));
+    Assertions.assertFalse(
+        spark
+                .sessionState()
+                .sqlParser()
+                .parsePlan("ALTER TABLE openhouse.db.`" + name + "` SET TBLPROPERTIES ('k' = 'v')")
+            instanceof UnlockTable);
+    spark.sql("ALTER TABLE openhouse.db.`" + name + "` UNLOCK");
+    assertUnlocked("db." + name.replace("``", "`"), null);
   }
 
   @Test

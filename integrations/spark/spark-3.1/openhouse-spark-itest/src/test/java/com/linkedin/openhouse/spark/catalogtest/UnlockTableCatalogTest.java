@@ -10,6 +10,7 @@ import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Assertions;
@@ -42,12 +43,24 @@ class UnlockTableCatalogTest extends OpenHouseSparkITest {
         Assertions.assertNotNull(catalog.loadTable(id));
 
         lock(controls, id, null);
+        Assertions.assertTrue(policiesProperty(spark, table).contains("LEGACY"));
         assertUnlockFails(
             spark, "ALTER TABLE " + table + " UNLOCK REASON SYSTEM_ONLY", 409, "does not match");
-        assertUnlockFails(spark, "ALTER TABLE " + table + " UNLOCK REASON UNKNOWN", 400, "");
+        assertUnlockFails(spark, "ALTER TABLE " + table + " UNLOCK REASON UNKNOWN", 400, null);
+        for (String reason : new String[] {"``", "` `"}) {
+          Assertions.assertThrows(
+              IllegalArgumentException.class,
+              () -> spark.sql("ALTER TABLE " + table + " UNLOCK REASON " + reason));
+        }
+        Assertions.assertThrows(
+            ValidationException.class,
+            () ->
+                spark.sql("ALTER TABLE openhouse." + DATABASE + ".extra." + id.name() + " UNLOCK"));
         Assertions.assertEquals(LockState.ReasonEnum.LEGACY, lockState(controls, id).getReason());
         spark.sql("ALTER TABLE " + table + " UNLOCK");
         Assertions.assertNull(lockState(controls, id));
+        // The session must not keep showing the removed lock.
+        Assertions.assertFalse(policiesProperty(spark, table).contains("LEGACY"));
 
         // Unlocking an unlocked table is a no-op.
         spark.sql("ALTER TABLE " + table + " UNLOCK");
@@ -70,7 +83,17 @@ class UnlockTableCatalogTest extends OpenHouseSparkITest {
     WebClientResponseWithMessageException failure =
         Assertions.assertThrows(WebClientResponseWithMessageException.class, () -> spark.sql(sql));
     Assertions.assertEquals(status, failure.getStatusCode(), failure.getMessage());
-    Assertions.assertTrue(failure.getMessage().contains(message), failure.getMessage());
+    if (message != null) {
+      Assertions.assertTrue(failure.getMessage().contains(message), failure.getMessage());
+    }
+  }
+
+  private static String policiesProperty(SparkSession spark, String table) {
+    return spark
+        .sql("SHOW TBLPROPERTIES " + table + " ('policies')")
+        .collectAsList()
+        .get(0)
+        .getString(1);
   }
 
   private static void lock(

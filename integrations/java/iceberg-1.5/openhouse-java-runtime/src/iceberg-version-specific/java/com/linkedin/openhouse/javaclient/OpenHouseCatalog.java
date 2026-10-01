@@ -585,6 +585,8 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
   @Override
   public void unlockTable(TableIdentifier tableIdentifier, String reason) {
     log.info("Calling unlockTable with identifier: {}, reason: {}", tableIdentifier, reason);
+    Preconditions.checkArgument(
+        reason == null || !reason.trim().isEmpty(), "Lock reason must not be blank");
     if (tableIdentifier.namespace().levels().length > 1) {
       throw new ValidationException(
           "Input namespace has more than one levels "

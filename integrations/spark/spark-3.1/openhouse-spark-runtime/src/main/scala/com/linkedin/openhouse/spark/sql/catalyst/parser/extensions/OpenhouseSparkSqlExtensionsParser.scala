@@ -16,9 +16,6 @@ import java.util.Locale
 
 class OpenhouseSparkSqlExtensionsParser (delegate: ParserInterface) extends ParserInterface {
   private lazy val astBuilder = new OpenhouseSqlExtensionsAstBuilder(delegate)
-  // ALTER TABLE <multipart identifier> UNLOCK ..., where each identifier part is plain or backquoted.
-  private val unlockTableCommand =
-    """alter table (`([^`]|``)*`|[^\s`.]+)(\.(`([^`]|``)*`|[^\s`.]+))* unlock( .*)?""".r
 
   override def parsePlan(sqlText: String): LogicalPlan = {
     if (isOpenhouseCommand(sqlText)) {
@@ -76,8 +73,25 @@ class OpenhouseSparkSqlExtensionsParser (delegate: ParserInterface) extends Pars
       normalized.startsWith("grant") ||
       normalized.startsWith("revoke") ||
       normalized.startsWith("show grants") ||
-      unlockTableCommand.pattern.matcher(normalized).matches()
+      (normalized.startsWith("alter table") && isUnlockTableCommand(sqlText))
 
+  }
+
+  // Matches ALTER TABLE <part> ('.' <part>)* UNLOCK, where each identifier part is one token.
+  private def isUnlockTableCommand(sqlText: String): Boolean = {
+    val lexer = new OpenhouseSqlExtensionsLexer(new UpperCaseCharStream(CharStreams.fromString(sqlText)))
+    lexer.removeErrorListeners()
+    val tokens = Iterator.continually(lexer.nextToken()).filter(_.getChannel == Token.DEFAULT_CHANNEL)
+    tokens.next().getType == OpenhouseSqlExtensionsLexer.ALTER &&
+      tokens.next().getType == OpenhouseSqlExtensionsLexer.TABLE && {
+        tokens.next()
+        var token = tokens.next()
+        while (token.getText == ".") {
+          tokens.next()
+          token = tokens.next()
+        }
+        token.getType == OpenhouseSqlExtensionsLexer.UNLOCK
+      }
   }
 
   protected def parse[T](command: String)(toResult: OpenhouseSqlExtensionsParser => T): T = {
