@@ -133,7 +133,10 @@ public class ViewsController {
       @Parameter(description = "Maximum number of views to return")
           @RequestParam(name = "size", required = false, defaultValue = "50")
           int size,
-      @Parameter(description = "Optional single field to sort the results by")
+      @Parameter(
+              description =
+                  "Field to sort results by. Only \"viewId\" is supported (case-insensitive);"
+                      + " omit for the default sort. Any other value is rejected with 400.")
           @RequestParam(name = "sortBy", required = false)
           String sortBy,
       HttpServletRequest request) {
