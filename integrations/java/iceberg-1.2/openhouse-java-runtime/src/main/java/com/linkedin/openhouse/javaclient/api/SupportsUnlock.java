@@ -12,7 +12,7 @@ public interface SupportsUnlock {
    * <p>can be converted into following parameters
    *
    * @param tableIdentifier identifier for the table, ex: db.table
-   * @param reason ex: SYSTEM_ONLY; null removes only a legacy lock; blank is rejected
+   * @param reason upper case, ex: SYSTEM_ONLY; null removes only a legacy lock; blank is rejected
    */
   void unlockTable(TableIdentifier tableIdentifier, String reason);
 }

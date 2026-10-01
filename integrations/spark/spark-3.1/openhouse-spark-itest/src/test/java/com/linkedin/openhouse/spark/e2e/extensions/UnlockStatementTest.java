@@ -26,8 +26,10 @@ public class UnlockStatementTest {
             return new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST);
           }
         });
-    Assertions.assertThrows(
-        WebClientRequestWithMessageException.class,
-        () -> spark.sql("ALTER TABLE openhouse.dunlock.t1 UNLOCK"));
+    WebClientRequestWithMessageException failure =
+        Assertions.assertThrows(
+            WebClientRequestWithMessageException.class,
+            () -> spark.sql("ALTER TABLE openhouse.dunlock.t1 UNLOCK"));
+    Assertions.assertTrue(failure.getMessage().contains("Connection prematurely closed"));
   }
 }

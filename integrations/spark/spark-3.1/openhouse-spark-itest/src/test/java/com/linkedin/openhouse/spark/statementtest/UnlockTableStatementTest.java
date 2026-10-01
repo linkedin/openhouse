@@ -5,6 +5,7 @@ import com.linkedin.openhouse.spark.sql.catalyst.parser.extensions.OpenhousePars
 import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.UnlockTable;
 import java.nio.file.Files;
 import java.util.Collections;
+import java.util.Locale;
 import lombok.SneakyThrows;
 import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -39,6 +40,18 @@ public class UnlockTableStatementTest {
   public void testUnlockLowerCase() {
     spark.sql("alter table openhouse.db.table unlock reason system_only");
     assertUnlocked("db.table", "SYSTEM_ONLY");
+  }
+
+  @Test
+  public void testUnlockReasonIgnoresDefaultLocale() {
+    Locale defaultLocale = Locale.getDefault();
+    Locale.setDefault(new Locale("tr", "TR"));
+    try {
+      spark.sql("ALTER TABLE openhouse.db.table UNLOCK REASON tier3_auto_cleanup");
+      assertUnlocked("db.table", "TIER3_AUTO_CLEANUP");
+    } finally {
+      Locale.setDefault(defaultLocale);
+    }
   }
 
   @Test

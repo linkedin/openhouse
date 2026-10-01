@@ -62,6 +62,10 @@ class UnlockTableCatalogTest extends OpenHouseSparkITest {
         // The session must not keep showing the removed lock.
         Assertions.assertFalse(policiesProperty(spark, table).contains("LEGACY"));
 
+        lock(controls, id, null);
+        spark.sql("ALTER TABLE " + table + " UNLOCK REASON legacy");
+        Assertions.assertNull(lockState(controls, id));
+
         // Unlocking an unlocked table is a no-op.
         spark.sql("ALTER TABLE " + table + " UNLOCK");
         spark.sql("ALTER TABLE " + table + " UNLOCK REASON SYSTEM_ONLY");
