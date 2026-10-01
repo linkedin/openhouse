@@ -13,6 +13,7 @@ import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.hdfs.HdfsStorageClient;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
+import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
@@ -41,6 +42,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BinaryOperator;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
@@ -134,6 +136,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
   private static final Cache<String, Integer> CACHE =
       CacheBuilder.newBuilder().expireAfterWrite(5, TimeUnit.MINUTES).maximumSize(1000).build();
+
+  /** Upper bound, and value OpenHouse stamps, for {@link TableProperties#MAX_REF_AGE_MS}. */
+  private static final long MAX_REF_AGE_MS_LIMIT = TimeUnit.DAYS.toMillis(7);
 
   @Override
   protected String tableName() {
@@ -311,8 +316,10 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
       abortIfWriterBaseDivergedFromCatalog(base, metadata);
 
-      failIfRetryUpdate(properties);
       restoreOverriddenProperties(properties);
+      enforcePropertyRules(base, properties);
+      // A rejected property change must not mark the unchanged table version as attempted.
+      failIfRetryUpdate(properties);
 
       properties.put(
           getCanonicalFieldName("tableVersion"),
@@ -487,7 +494,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         throw new CommitFailedException(e);
       }
       throw new BadRequestException(e, e.getMessage());
-    } catch (CommitFailedException e) {
+    } catch (CommitFailedException | UnsupportedClientOperationException e) {
       throw e;
     } catch (HouseTableCallerException
         | HouseTableNotFoundException
@@ -532,6 +539,74 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         default:
           break; /*should never happen, kept to silence SpotBugs*/
       }
+    }
+  }
+
+  /**
+   * Applies OpenHouse's table property rules to the properties a commit will persist. doCommit runs
+   * it on every commit path (create, replace, update, snapshot put, replication and rename),
+   * including paths that skip repository-level property checks. Each rule sees the value committed
+   * on {@code base} and the value this commit leaves, and returns the value to persist or rejects
+   * the commit with {@link UnsupportedClientOperationException}.
+   *
+   * <p>Runs after restoreOverriddenProperties, so rules see the values that will be persisted, and
+   * before failIfRetryUpdate, so a rejected commit does not mark its base version as attempted.
+   */
+  private void enforcePropertyRules(TableMetadata base, Map<String, String> properties) {
+    enforcePropertyRule(base, properties, TableProperties.MAX_REF_AGE_MS, this::boundMaxRefAge);
+  }
+
+  /**
+   * Sets {@code key} to {@code rule.apply(committed, requested)}, where either argument is null
+   * when the property is absent; a null result removes the key.
+   */
+  private static void enforcePropertyRule(
+      TableMetadata base, Map<String, String> properties, String key, BinaryOperator<String> rule) {
+    String committed = base == null ? null : base.properties().get(key);
+    String persisted = rule.apply(committed, properties.get(key));
+    if (persisted == null) {
+      properties.remove(key);
+    } else {
+      properties.put(key, persisted);
+    }
+  }
+
+  /**
+   * Keeps {@link TableProperties#MAX_REF_AGE_MS} in (0, 7 days], so snapshot expiration drops
+   * branches and tags whose head snapshot is older than that. A missing value becomes seven days. A
+   * commit that sets an out-of-bound value is rejected; an out-of-bound value the table already
+   * held becomes seven days instead of failing an unrelated commit.
+   */
+  private String boundMaxRefAge(String committed, String requested) {
+    if (requested == null) {
+      return String.valueOf(MAX_REF_AGE_MS_LIMIT);
+    }
+    if (isWithinMaxRefAgeLimit(requested)) {
+      return requested;
+    }
+    if (!requested.equals(committed)) {
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.ALTER_RESERVED_TBLPROPS,
+          String.format(
+              "Table property %s on table %s must be a positive number of milliseconds no greater"
+                  + " than %d (7 days).",
+              TableProperties.MAX_REF_AGE_MS, tableIdentifier, MAX_REF_AGE_MS_LIMIT));
+    }
+    log.info(
+        "Replacing out-of-bound {}={} with {} for table {}",
+        TableProperties.MAX_REF_AGE_MS,
+        requested,
+        MAX_REF_AGE_MS_LIMIT,
+        tableIdentifier);
+    return String.valueOf(MAX_REF_AGE_MS_LIMIT);
+  }
+
+  private static boolean isWithinMaxRefAgeLimit(String maxRefAgeMs) {
+    try {
+      long value = Long.parseLong(maxRefAgeMs);
+      return value > 0 && value <= MAX_REF_AGE_MS_LIMIT;
+    } catch (NumberFormatException e) {
+      return false;
     }
   }
 
