@@ -2,6 +2,7 @@ package com.linkedin.openhouse.jobs.client;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.linkedin.openhouse.client.ssl.TablesApiClientFactory;
+import com.linkedin.openhouse.client.ssl.WebClientFactory;
 import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
 import com.linkedin.openhouse.jobs.util.RetryUtil;
@@ -25,10 +26,14 @@ public class TablesClientFactory {
   protected final FsStorageProvider fsStorageProvider;
 
   public TablesClient create() {
-    return create(RetryUtil.getTablesApiRetryTemplate());
+    return create(false);
   }
 
-  private TablesClient create(RetryTemplate retryTemplate) {
+  public TablesClient create(boolean systemAction) {
+    return create(RetryUtil.getTablesApiRetryTemplate(), systemAction);
+  }
+
+  private TablesClient create(RetryTemplate retryTemplate, boolean systemAction) {
     ApiClient client = null;
     try {
       client = TablesApiClientFactory.getInstance().createApiClient(basePath, token, null);
@@ -37,6 +42,10 @@ public class TablesClientFactory {
           "Tables Client initialization failed: Failure while initializing ApiClient", e);
     }
     client.setBasePath(basePath);
+    if (systemAction) {
+      client.addDefaultHeader(
+          WebClientFactory.HTTP_HEADER_ACTION_TYPE, WebClientFactory.ACTION_TYPE_SYSTEM);
+    }
     return create(retryTemplate, new TableApi(client), new DatabaseApi(client));
   }
 

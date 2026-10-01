@@ -190,7 +190,9 @@ public class JobsScheduler {
     JobConf.JobTypeEnum operationType = getOperationJobType(cmdLine);
     Class<? extends OperationTask> operationTaskCls = getOperationTaskCls(operationType.toString());
     TablesClientFactory tablesClientFactory = getTablesClientFactory(cmdLine);
-    TablesClient tablesClient = tablesClientFactory.create();
+    // Snapshots expiration maintains every table, including tables with a SYSTEM_ONLY lock.
+    TablesClient tablesClient =
+        tablesClientFactory.create(operationType == JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION);
     JobsClientFactory jobsClientFactory = getJobsClientFactory(cmdLine);
     JobsClient jobsClient = jobsClientFactory.create();
     Properties properties = getAdditionalProperties(cmdLine);

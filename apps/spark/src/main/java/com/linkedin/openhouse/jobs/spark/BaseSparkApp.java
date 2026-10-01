@@ -35,7 +35,8 @@ public abstract class BaseSparkApp extends BaseApp {
     boolean isSuccess = true;
     try (Operations ops =
         Operations.withCatalog(
-            SparkSession.builder().appName(className).getOrCreate(), otelEmitter)) {
+            configureSession(SparkSession.builder().appName(className)).getOrCreate(),
+            otelEmitter)) {
       log.info("Session created");
       onStarted();
       runInner(ops);
@@ -46,6 +47,11 @@ public abstract class BaseSparkApp extends BaseApp {
     } finally {
       onFinished(isSuccess);
     }
+  }
+
+  /** Customizes the session builder; catalogs already loaded by an existing session ignore it. */
+  protected SparkSession.Builder configureSession(SparkSession.Builder builder) {
+    return builder;
   }
 
   /**
