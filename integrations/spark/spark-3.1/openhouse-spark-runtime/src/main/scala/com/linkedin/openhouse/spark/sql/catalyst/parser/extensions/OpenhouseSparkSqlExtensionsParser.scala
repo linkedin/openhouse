@@ -77,8 +77,7 @@ class OpenhouseSparkSqlExtensionsParser (delegate: ParserInterface) extends Pars
 
   }
 
-  // Matches ALTER TABLE <part> ('.' <part>)* UNLOCK, where each identifier part is one token.
-  // The substring check skips lexing statements that cannot contain UNLOCK.
+  // Matches ALTER TABLE <name> UNLOCK; the substring check avoids lexing other statements.
   private def isUnlockTableCommand(sqlText: String): Boolean = {
     sqlText.toLowerCase(Locale.ROOT).contains("unlock") && {
       val lexer = new OpenhouseSqlExtensionsLexer(new UpperCaseCharStream(CharStreams.fromString(sqlText)))

@@ -584,7 +584,8 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
 
   @Override
   public void unlockTable(TableIdentifier tableIdentifier, String reason) {
-    log.info("Calling unlockTable with identifier: {}, reason: {}", tableIdentifier, reason);
+    log.info(
+        "Calling unlockTable with identifier: {}, reason: {}", tableIdentifier.toString(), reason);
     Preconditions.checkArgument(
         reason == null || !reason.trim().isEmpty(), "Lock reason must not be blank");
     if (tableIdentifier.namespace().levels().length > 1) {

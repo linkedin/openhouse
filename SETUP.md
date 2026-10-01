@@ -585,10 +585,9 @@ scala> spark.sql("SHOW GRANTS ON DATABASE openhouse.db.tb").show
 
 #### UNLOCK
 
-A user with lock-admin privilege on the table can remove its lock without loading the table. Without `REASON`, only a
-legacy lock is removed. With `REASON` (`LEGACY` or `SYSTEM_ONLY`, case-insensitive), the active lock must have that
-reason. If the lock does not match, the command fails with 409; an unknown reason fails with 400; a blank reason is
-rejected before calling the server. The lock stays in all three cases. Unlocking a table without a lock does nothing.
+A lock admin can remove a table's lock without loading the table. Without `REASON`, only a legacy lock is removed.
+With `REASON` (`LEGACY` or `SYSTEM_ONLY`, case-insensitive), the lock must have that reason. A mismatched, unknown, or
+blank reason fails and leaves the lock. Unlocking a table without a lock does nothing.
 
 ```
 scala> spark.sql("ALTER TABLE openhouse.db.tb UNLOCK").show
