@@ -16,6 +16,9 @@ import java.util.Locale
 
 class OpenhouseSparkSqlExtensionsParser (delegate: ParserInterface) extends ParserInterface {
   private lazy val astBuilder = new OpenhouseSqlExtensionsAstBuilder(delegate)
+  // ALTER TABLE <multipart identifier> UNLOCK ..., where each identifier part is plain or backquoted.
+  private val unlockTableCommand =
+    """alter table (`([^`]|``)*`|[^\s`.]+)(\.(`([^`]|``)*`|[^\s`.]+))* unlock( .*)?""".r
 
   override def parsePlan(sqlText: String): LogicalPlan = {
     if (isOpenhouseCommand(sqlText)) {
@@ -72,7 +75,8 @@ class OpenhouseSparkSqlExtensionsParser (delegate: ParserInterface) extends Pars
         normalized.contains("set tag"))) ||
       normalized.startsWith("grant") ||
       normalized.startsWith("revoke") ||
-      normalized.startsWith("show grants")
+      normalized.startsWith("show grants") ||
+      unlockTableCommand.pattern.matcher(normalized).matches()
 
   }
 
