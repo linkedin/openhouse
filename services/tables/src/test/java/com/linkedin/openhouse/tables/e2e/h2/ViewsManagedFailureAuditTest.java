@@ -24,6 +24,7 @@ import com.linkedin.openhouse.tables.exception.ViewExceptionHandler;
 import com.linkedin.openhouse.tables.mock.audit.AuditEventInspection;
 import com.linkedin.openhouse.tables.mock.logging.Log4j2LogCapture;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
+import com.linkedin.openhouse.tables.model.ViewDto;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalViewRepository;
 import com.linkedin.openhouse.tables.repository.ViewCommitOutcome;
@@ -34,6 +35,7 @@ import com.linkedin.openhouse.tables.services.ViewPageTokenCodec;
 import com.linkedin.openhouse.tables.services.ViewPaginationAdapter;
 import com.linkedin.openhouse.tables.services.ViewsFeatureGate;
 import java.lang.reflect.Method;
+import java.net.URI;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
@@ -49,6 +51,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Bean;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
@@ -524,6 +528,118 @@ public class ViewsManagedFailureAuditTest {
     verify(viewRepository, never()).searchViews(any(), any());
     AuditEventInspection.assertNoSensitiveProperties(captureServiceAudit(), SECRETS);
     verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
+  }
+
+  /**
+   * Servlet binding percent-decodes parameter names, so {@code %70ageToken} binds as {@code
+   * pageToken}. The continuation must reach the backend, yet the request audit must not keep it.
+   */
+  @Test
+  public void percentEncodedPageTokenNameIsRedactedFromSuccessfulListAudit() throws Exception {
+    String token =
+        new ViewPageTokenCodec()
+            .encode(
+                new ViewPageCursor(
+                    ViewModelConstants.DATABASE_ID,
+                    "viewId",
+                    ViewPaginationAdapter.DEFAULT_SOURCE_PAGE_SIZE,
+                    3,
+                    0));
+    when(viewRepository.searchViews(any(), any()))
+        .thenAnswer(
+            invocation ->
+                new PageImpl<ViewDto>(
+                    Collections.emptyList(), invocation.<Pageable>getArgument(1), 0));
+
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      MvcResult result =
+          mvc.perform(
+                  MockMvcRequestBuilders.get(
+                          URI.create(
+                              VIEWS_PATH + "?%70ageToken=" + token + "&sortBy=viewId&size=1"))
+                      .accept(MediaType.APPLICATION_JSON)
+                      .header("Authorization", "Bearer " + jwtAccessToken))
+              .andExpect(status().isOk())
+              .andReturn();
+
+      assertFalse(result.getResponse().getContentAsString().contains(token));
+      assertFalse(logs.renderedEvents().contains(token), logs.renderedEvents());
+    }
+    ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+    verify(viewRepository).searchViews(any(), pageable.capture());
+    assertEquals(
+        3, pageable.getValue().getPageNumber(), "The encoded name must bind as the continuation.");
+    ServiceAuditEvent event = captureServiceAudit();
+    AuditEventInspection.assertNoSensitiveProperties(event, token);
+    assertTrue(String.valueOf(event.getUri()).contains("size=1"), event.getUri());
+    verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
+  }
+
+  @Test
+  public void mixedLiteralAndEncodedDuplicatePageTokensAreRedactedFromFailureAudit()
+      throws Exception {
+    String literal = SECRET_PAGE_TOKEN + "-literal";
+    String encoded = SECRET_PAGE_TOKEN + "-encoded";
+
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      MvcResult result =
+          expectNoCauseOrStacktrace(
+                  mvc.perform(
+                      MockMvcRequestBuilders.get(
+                              URI.create(
+                                  VIEWS_PATH
+                                      + "?pageToken="
+                                      + literal
+                                      + "&sortBy=viewId&%70ageToken="
+                                      + encoded))
+                          .accept(MediaType.APPLICATION_JSON)
+                          .header("Authorization", "Bearer " + jwtAccessToken)))
+              .andExpect(status().isBadRequest())
+              .andReturn();
+
+      assertNoSensitive(result.getResponse().getContentAsString(), logs.renderedEvents());
+    }
+    verify(viewRepository, never()).searchViews(any(), any());
+    ServiceAuditEvent event = captureServiceAudit();
+    AuditEventInspection.assertNoSensitiveProperties(event, SECRETS);
+    assertTrue(String.valueOf(event.getUri()).contains("sortBy=viewId"), event.getUri());
+    verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
+  }
+
+  /**
+   * A syntactically valid body whose representations is an object fails Jackson binding, but the
+   * request audit still parses it; its SQL must not reach any surface.
+   */
+  @Test
+  public void objectShapedRepresentationsSqlNeverReachesAuditWireOrLogs() throws Exception {
+    String body =
+        "{\"databaseId\":\""
+            + ViewModelConstants.DATABASE_ID
+            + "\",\"viewId\":\""
+            + ViewModelConstants.VIEW_ID
+            + "\",\"schema\":\""
+            + SECRET_SCHEMA
+            + "\",\"representations\":{\"type\":\"sql\",\"dialect\":\"spark\",\"sql\":\""
+            + SECRET_SQL
+            + "\"}}";
+
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      MvcResult result =
+          expectNoCauseOrStacktrace(
+                  mvc.perform(
+                      MockMvcRequestBuilders.post(VIEWS_PATH)
+                          .contentType(MediaType.APPLICATION_JSON)
+                          .content(body)
+                          .accept(MediaType.APPLICATION_JSON)
+                          .header("Authorization", "Bearer " + jwtAccessToken)))
+              .andExpect(status().isBadRequest())
+              .andReturn();
+
+      assertNoSensitive(result.getResponse().getContentAsString(), logs.renderedEvents());
+    }
+    AuditEventInspection.assertNoSensitiveProperties(captureServiceAudit(), SECRETS);
+    verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
+    Mockito.verifyNoInteractions(viewRepository, opaHandler);
   }
 
   private static ResultActions expectNoCauseOrStacktrace(ResultActions actions) throws Exception {

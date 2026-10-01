@@ -519,6 +519,38 @@ public class ViewsServiceImplTest {
   }
 
   @Test
+  public void dropOfAViewThatDisappearsAfterCaptureIsNoSuchViewWithOneAttempt() {
+    existingEnabledDatabase();
+    PreparedViewOperation prepared = PreparedViewOperation.view(capturedViewRow());
+    when(viewRepository.prepareDelete(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID))
+        .thenReturn(prepared);
+    when(privilegeMapper.forDelete()).thenReturn(Privileges.DELETE_TABLE);
+    org.mockito.Mockito.doThrow(
+            new ViewApiException(
+                ViewErrorCode.NO_SUCH_VIEW,
+                "No such view: "
+                    + ViewModelConstants.DATABASE_ID
+                    + "."
+                    + ViewModelConstants.VIEW_ID))
+        .when(viewRepository)
+        .deleteById(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID);
+
+    ViewApiException thrown =
+        assertThrows(
+            ViewApiException.class,
+            () ->
+                service.deleteView(
+                    ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL));
+
+    assertEquals(ViewErrorCode.NO_SUCH_VIEW, thrown.getErrorCode());
+    assertEquals(HttpStatus.NOT_FOUND, thrown.getHttpStatus());
+    verify(viewRepository, times(1))
+        .deleteById(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID);
+    verify(viewRepository, times(1))
+        .prepareDelete(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID);
+  }
+
+  @Test
   public void deniedDropDoesNotCaptureOrMutate() {
     existingEnabledDatabase();
     when(privilegeMapper.forDelete()).thenReturn(Privileges.DELETE_TABLE);

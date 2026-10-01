@@ -265,6 +265,47 @@ public class ViewsServiceH2IntegrationTest {
     }
   }
 
+  /**
+   * HTS database identity is case-insensitive, so a mixed-case alias of the seeded {@code
+   * my_database} route database must be recognized as existing.
+   */
+  @Test
+  public void mixedCaseRouteAliasOfASeededDatabaseIsRecognizedAsExisting() throws Exception {
+    String routeAlias = "My_Database";
+    org.mockito.Mockito.when(viewsFeatureGate.isEnabled(routeAlias)).thenReturn(true);
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/v1/databases/" + routeAlias + "/views")
+                .accept(MediaType.APPLICATION_JSON)
+                .param("sortBy", "viewId")
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isOk());
+  }
+
+  /** A default namespace naming the seeded database in another case also names an existing one. */
+  @Test
+  public void mixedCaseDefaultNamespaceAliasOfASeededDatabaseIsRecognizedAsExisting()
+      throws Exception {
+    String viewId = "case_alias_namespace_view";
+    try {
+      mvc.perform(
+              MockMvcRequestBuilders.post(VIEWS_PATH)
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(
+                      ViewModelConstants.createRequestWithoutBaseVersion()
+                          .toBuilder()
+                          .viewId(viewId)
+                          .defaultNamespace(java.util.Collections.singletonList("MY_DATABASE"))
+                          .build()
+                          .toJson())
+                  .accept(MediaType.APPLICATION_JSON)
+                  .header("Authorization", "Bearer " + jwtAccessToken))
+          .andExpect(status().isCreated());
+    } finally {
+      deleteViewIfPresent(viewId);
+    }
+  }
+
   @Test
   public void configuredTokenInterceptorRejectsMissingCredentialsBeforeViewService()
       throws Exception {

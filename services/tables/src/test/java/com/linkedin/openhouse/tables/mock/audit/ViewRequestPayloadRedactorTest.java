@@ -168,4 +168,30 @@ public class ViewRequestPayloadRedactorTest {
         redacted.get("schema").getAsString(),
         "A malformed representations field must not stop the schema from being redacted.");
   }
+
+  /**
+   * Jackson rejects these representation shapes, but the request audit still parses the body, so a
+   * sensitive representations subtree must not survive in any shape. Failing closed (throwing, so
+   * the audit drops the payload) is equally acceptable.
+   */
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "{\"representations\": {\"sql\": \"SQL_SECRET\"}, \"schema\": \"SCHEMA_SECRET\"}",
+        "{\"representations\": {\"type\": \"sql\", \"sql\": \"SQL_SECRET\"},"
+            + " \"schema\": \"SCHEMA_SECRET\", \"viewId\": \"v\"}",
+        "{\"representations\": \"SQL_SECRET\", \"schema\": \"SCHEMA_SECRET\"}"
+      })
+  public void malformedRepresentationsShapesNeverRetainSql(String body) {
+    JsonElement redacted;
+    try {
+      redacted = redactor.redact(JsonParser.parseString(body));
+    } catch (RuntimeException failClosed) {
+      return;
+    }
+
+    String rendered = redacted.toString();
+    Assertions.assertFalse(rendered.contains("SQL_SECRET"), rendered);
+    Assertions.assertFalse(rendered.contains("SCHEMA_SECRET"), rendered);
+  }
 }

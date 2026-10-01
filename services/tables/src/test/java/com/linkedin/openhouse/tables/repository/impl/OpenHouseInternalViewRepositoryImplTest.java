@@ -301,6 +301,33 @@ public class OpenHouseInternalViewRepositoryImplTest {
     verify(houseTableRepository, never()).findViewById(any(HouseTablePrimaryKey.class));
   }
 
+  /**
+   * The engine's name-based drop returns false when, after the service's typed capture, the name
+   * became absent or now holds a table. That is the ordinary NO_SUCH_VIEW outcome, with one attempt
+   * and no refresh, not a server fault.
+   */
+  @Test
+  public void dropThatFindsNoViewAfterCaptureIsNoSuchViewWithOneAttemptAndNoRefresh() {
+    HouseTableRepository houseTableRepository = Mockito.mock(HouseTableRepository.class);
+    ViewCommitEngine engine = Mockito.mock(ViewCommitEngine.class);
+    when(engine.dropView(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID))
+        .thenReturn(false);
+    OpenHouseInternalViewRepositoryImpl repository =
+        newRepository(houseTableRepository, engine, Mockito.mock(StorageSelector.class));
+
+    com.linkedin.openhouse.tables.exception.ViewApiException thrown =
+        org.junit.jupiter.api.Assertions.assertThrows(
+            com.linkedin.openhouse.tables.exception.ViewApiException.class,
+            () ->
+                repository.deleteById(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID));
+
+    assertEquals(
+        com.linkedin.openhouse.tables.exception.ViewErrorCode.NO_SUCH_VIEW, thrown.getErrorCode());
+    assertEquals(org.springframework.http.HttpStatus.NOT_FOUND, thrown.getHttpStatus());
+    verify(engine, times(1)).dropView(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID);
+    Mockito.verifyNoInteractions(houseTableRepository);
+  }
+
   private static ViewCommitResult committedResult() {
     return ViewCommitResult.builder()
         .pointer(
