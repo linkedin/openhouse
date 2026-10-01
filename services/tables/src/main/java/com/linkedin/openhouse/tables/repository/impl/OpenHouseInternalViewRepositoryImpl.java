@@ -176,12 +176,12 @@ public class OpenHouseInternalViewRepositoryImpl implements OpenHouseInternalVie
   public void deleteById(String databaseId, String viewId) {
     boolean dropped = viewCommitEngine.dropView(databaseId, viewId);
     if (!dropped) {
-      throw new IllegalStateException(
-          "View "
-              + databaseId
-              + "."
-              + viewId
-              + " was not found at delete time despite being present at capture time");
+      // A permitted concurrent writer dropped this view (or replaced it with a differently-typed
+      // occupant) between this operation's capture and the one attempt the frozen name-based
+      // engine makes here: no refresh, no retry, no new UUID-conditional-delete contract. The key
+      // no longer names a view, which is exactly the existing typed NO_SUCH_VIEW contract
+      // findById already uses for the same observation, not a server fault.
+      throw noSuchView(databaseId, viewId);
     }
   }
 

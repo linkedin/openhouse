@@ -57,7 +57,14 @@ public class ViewPaginationAdapter {
             ? new ViewPageCursor(databaseId, canonicalSort, sourcePageSize, 0, 0)
             : decodeAndValidate(pageToken, databaseId, canonicalSort);
 
-    List<ViewDto> results = new ArrayList<>(size);
+    // Not new ArrayList<>(size): size is an uncapped caller-supplied wire value (the approved
+    // contract accepts any positive int, including Integer.MAX_VALUE), but no single source page
+    // ever contributes more than sourcePageSize rows, so a capacity request proportional to size
+    // rather than to rows actually available can reserve enormous, mostly-wasted heap for a small
+    // or empty result. Starting at the default capacity and letting the list grow (amortized O(1)
+    // per add, same as any other unbounded accumulation in this codebase) scales with rows
+    // actually returned instead.
+    List<ViewDto> results = new ArrayList<>();
     int pageIndex = cursor.getSourcePageIndex();
     int offset = cursor.getOffset();
     int advances = 0;

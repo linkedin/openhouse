@@ -73,6 +73,14 @@ public class ViewRequestPayloadRedactor implements ServiceAuditPayloadRedactor {
           representation.getAsJsonObject().add(SQL_FIELD, new JsonPrimitive(REDACTED_VALUE));
         }
       }
+    } else if (representations != null) {
+      // A well-formed request never reaches here (representations is always an array), but the
+      // aspect audits whatever JSON the caller actually sent, including a malformed body Jackson
+      // would reject at validation. A representations value of any other shape — an object with a
+      // bare sql field, a string, or anything else — cannot be interpreted element-by-element, so
+      // the entire field is replaced rather than left to carry an unredacted sql value in some
+      // shape the array branch above does not recognize.
+      redacted.add(REPRESENTATIONS_FIELD, new JsonPrimitive(REDACTED_VALUE));
     }
     return redacted;
   }

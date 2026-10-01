@@ -18,6 +18,7 @@ import com.linkedin.openhouse.tables.repository.ViewCommitOutcome;
 import com.linkedin.openhouse.tables.repository.impl.PreparedViewOperation;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
@@ -250,17 +251,21 @@ public class ViewsServiceImpl implements ViewsService {
   }
 
   private void requireDatabasesExist(String databaseId, List<String> defaultNamespace) {
+    // HTS identity is case-insensitive (the gate's own probe canonicalizes with Locale.ROOT for
+    // the same reason), so a route or defaultNamespace alias that differs only in case from a
+    // seeded database id names the same existing database, not a missing one.
     Set<String> existingDatabaseIds =
         databasesService.getAllDatabases().stream()
             .map(DatabaseDto::getDatabaseId)
+            .map(id -> id.toLowerCase(Locale.ROOT))
             .collect(Collectors.toSet());
-    if (!existingDatabaseIds.contains(databaseId)) {
+    if (!existingDatabaseIds.contains(databaseId.toLowerCase(Locale.ROOT))) {
       throw new ViewApiException(
           ViewErrorCode.DATABASE_NOT_FOUND, "Database not found: " + databaseId);
     }
     if (defaultNamespace != null) {
       for (String namespaceDatabaseId : defaultNamespace) {
-        if (!existingDatabaseIds.contains(namespaceDatabaseId)) {
+        if (!existingDatabaseIds.contains(namespaceDatabaseId.toLowerCase(Locale.ROOT))) {
           throw new ViewApiException(
               ViewErrorCode.DATABASE_NOT_FOUND, "Database not found: " + namespaceDatabaseId);
         }
