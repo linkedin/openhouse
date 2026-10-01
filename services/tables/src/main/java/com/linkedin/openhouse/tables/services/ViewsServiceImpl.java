@@ -66,9 +66,9 @@ public class ViewsServiceImpl implements ViewsService {
 
   @Override
   public ViewDto getView(String databaseId, String viewId, String actingPrincipal) {
-    requireEnabled(databaseId);
-    requireDatabasesExist(databaseId, null);
     try {
+      requireEnabled(databaseId);
+      requireDatabasesExist(databaseId, null);
       return withClusterId(viewRepository.findById(databaseId, viewId));
     } catch (ViewApiException e) {
       throw e;
@@ -80,9 +80,9 @@ public class ViewsServiceImpl implements ViewsService {
   @Override
   public ViewListResult getAllViews(
       String databaseId, String pageToken, int size, String sortBy, String actingPrincipal) {
-    requireEnabled(databaseId);
-    requireDatabasesExist(databaseId, null);
     try {
+      requireEnabled(databaseId);
+      requireDatabasesExist(databaseId, null);
       return paginationAdapter.list(databaseId, pageToken, size, sortBy);
     } catch (ViewApiException e) {
       throw e;
@@ -97,15 +97,18 @@ public class ViewsServiceImpl implements ViewsService {
     String databaseId = requestBody.getDatabaseId();
     String viewId = requestBody.getViewId();
     String sourceDialect = requestBody.getSourceDialect();
-    requireEnabled(databaseId);
-    requireDatabasesExist(databaseId, requestBody.getDefaultNamespace());
-
-    PreparedViewOperation prepared = viewRepository.prepareWrite(databaseId, viewId);
-    boolean viewAlreadyExists = prepared.getViewBaseRow().isPresent();
-    Privileges privilege =
-        failOnExist ? privilegeMapper.forCreate() : privilegeMapper.forPut(viewAlreadyExists);
-
+    // May stay null if the gate/database check fails before a capture is ever taken; the audit
+    // dispatch below null-guards this for exactly that pre-capture case.
+    PreparedViewOperation prepared = null;
+    ViewCommitOutcome outcome;
     try {
+      requireEnabled(databaseId);
+      requireDatabasesExist(databaseId, requestBody.getDefaultNamespace());
+
+      prepared = viewRepository.prepareWrite(databaseId, viewId);
+      boolean viewAlreadyExists = prepared.getViewBaseRow().isPresent();
+      Privileges privilege =
+          failOnExist ? privilegeMapper.forCreate() : privilegeMapper.forPut(viewAlreadyExists);
       authorizationUtils.checkDatabasePrivilege(databaseId, actingPrincipal, privilege);
 
       boolean occupantIsTable = prepared.getOccupantRow().isPresent() && !viewAlreadyExists;
@@ -126,37 +129,40 @@ public class ViewsServiceImpl implements ViewsService {
 
       admissionService.admit(requestBody);
 
-      ViewCommitOutcome outcome =
+      outcome =
           viewAlreadyExists
               ? viewRepository.commitReplace(requestBody, prepared, actingPrincipal)
               : viewRepository.commitCreate(requestBody, prepared, actingPrincipal);
-
-      viewOperationAuditEmitter.emitSuccess(prepared, outcome, actingPrincipal, sourceDialect);
-      return Pair.of(withClusterId(outcome.getDto()), outcome.isCreated());
     } catch (RuntimeException e) {
       throw handleWriteFailure(e, prepared, databaseId, viewId, actingPrincipal, sourceDialect);
     }
+    // Outside the try: once commit/deleteById returns, SUCCESS is terminal and a subsequent audit-
+    // delivery failure must never re-enter the FAILED branch above or retry the already-
+    // acknowledged mutation (F5).
+    viewOperationAuditEmitter.emitSuccess(prepared, outcome, actingPrincipal, sourceDialect);
+    return Pair.of(withClusterId(outcome.getDto()), outcome.isCreated());
   }
 
   @Override
   public void deleteView(String databaseId, String viewId, String actingPrincipal) {
-    requireEnabled(databaseId);
-    requireDatabasesExist(databaseId, null);
-
-    Privileges privilege = privilegeMapper.forDelete();
-    authorizationUtils.checkDatabasePrivilege(databaseId, actingPrincipal, privilege);
-
-    PreparedViewOperation prepared = viewRepository.prepareDelete(databaseId, viewId);
+    PreparedViewOperation prepared = null;
     try {
+      requireEnabled(databaseId);
+      requireDatabasesExist(databaseId, null);
+
+      Privileges privilege = privilegeMapper.forDelete();
+      authorizationUtils.checkDatabasePrivilege(databaseId, actingPrincipal, privilege);
+
+      prepared = viewRepository.prepareDelete(databaseId, viewId);
       if (!prepared.getViewBaseRow().isPresent()) {
         throw new ViewApiException(
             ViewErrorCode.NO_SUCH_VIEW, "No such view: " + databaseId + "." + viewId);
       }
       viewRepository.deleteById(databaseId, viewId);
-      viewOperationAuditEmitter.emitSuccess(prepared, null, actingPrincipal, null);
     } catch (RuntimeException e) {
       throw handleWriteFailure(e, prepared, databaseId, viewId, actingPrincipal, null);
     }
+    viewOperationAuditEmitter.emitSuccess(prepared, null, actingPrincipal, null);
   }
 
   private void checkBaseVersion(
@@ -195,7 +201,11 @@ public class ViewsServiceImpl implements ViewsService {
       String viewId,
       String actingPrincipal,
       String sourceDialect) {
-    PreparedViewOperation preparedForAudit = prepared.withRequestedIdentity(databaseId, viewId);
+    // A gate/database/capture failure (or a denied authorization check) leaves prepared null: no
+    // row was ever captured, so audit identity falls back to the request's own identifiers.
+    PreparedViewOperation preparedForAudit =
+        (prepared == null ? PreparedViewOperation.observedAbsence() : prepared)
+            .withRequestedIdentity(databaseId, viewId);
     if (e instanceof CommitStateUnknownException) {
       viewOperationAuditEmitter.emitUnknown(
           preparedForAudit, null, actingPrincipal, sourceDialect, e);
@@ -222,6 +232,13 @@ public class ViewsServiceImpl implements ViewsService {
     if (e instanceof CommitFailedException) {
       return new ViewApiException(
           ViewErrorCode.CONCURRENT_VIEW_MODIFICATION, "Concurrent view modification", e);
+    }
+    if (e instanceof HouseTableRepositoryStateUnknownException) {
+      // A known precommit transient (e.g. a prepare-time HTS outage), distinct from an
+      // unacknowledged publication (CommitStateUnknownException, handled separately above):
+      // driven by exception type only, never by matching a message.
+      return new ViewApiException(
+          ViewErrorCode.VIEW_SERVICE_UNAVAILABLE, "View service unavailable", e);
     }
     // engine BadRequestException (trusted server input), HouseTableCallerException, corrupt-row
     // IllegalStateException, and any other unexpected failure are server faults (comment #1):

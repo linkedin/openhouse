@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Namespace;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -98,6 +99,7 @@ public class OpenHouseInternalViewRepositoryImpl implements OpenHouseInternalVie
         houseTableRepository
             .findViewById(primaryKey(databaseId, viewId))
             .orElseThrow(() -> noSuchView(databaseId, viewId));
+    requireCompletePersistedPointer(viewRow);
     return toPointerDto(viewRow);
   }
 
@@ -144,7 +146,7 @@ public class OpenHouseInternalViewRepositoryImpl implements OpenHouseInternalVie
 
     ViewCommitResult result = viewCommitEngine.commit(intent);
     return ViewCommitOutcome.builder()
-        .dto(toCommittedDto(databaseId, viewId, result))
+        .dto(toCommittedDto(databaseId, viewId, actingPrincipal, result))
         .committedViewUuid(result.getViewUuid())
         .created(result.isCreated())
         .build();
@@ -166,7 +168,9 @@ public class OpenHouseInternalViewRepositoryImpl implements OpenHouseInternalVie
 
     ViewCommitResult result = viewCommitEngine.commit(intent);
     return ViewCommitOutcome.builder()
-        .dto(toCommittedDto(databaseId, viewId, result))
+        .dto(
+            toCommittedDto(
+                databaseId, viewId, prepared.getViewBaseRow().get().getTableCreator(), result))
         .committedViewUuid(result.getViewUuid())
         .created(result.isCreated())
         .build();
@@ -229,13 +233,16 @@ public class OpenHouseInternalViewRepositoryImpl implements OpenHouseInternalVie
     return Namespace.of(defaultNamespace.toArray(new String[0]));
   }
 
-  private static ViewDto toCommittedDto(String databaseId, String viewId, ViewCommitResult result) {
+  private static ViewDto toCommittedDto(
+      String databaseId, String viewId, String creator, ViewCommitResult result) {
     ViewPointer pointer = result.getPointer();
     return ViewDto.builder()
         .databaseId(databaseId)
         .viewId(viewId)
         .metadataLocation(pointer.getMetadataLocation())
         .viewVersion(pointer.getMetadataLocation())
+        .viewCreator(creator)
+        .creationTime(pointer.getCreationTime())
         .lastModifiedTime(result.getLastModifiedTime())
         .build();
   }
@@ -250,6 +257,19 @@ public class OpenHouseInternalViewRepositoryImpl implements OpenHouseInternalVie
         .creationTime(row.getCreationTime())
         .lastModifiedTime(row.getLastModifiedTime())
         .build();
+  }
+
+  /**
+   * A valid persisted VIEW row always carries both facts; requiring both is this completeness
+   * invariant, not an optional new field. Corrupt persisted metadata is a sanitized server fault
+   * (plan-approved contract), never reinterpreted as absence &mdash; this loads no view metadata,
+   * only the already-fetched HTS row.
+   */
+  private static void requireCompletePersistedPointer(HouseTable row) {
+    if (StringUtils.isBlank(row.getTableLocation()) || StringUtils.isBlank(row.getStorageType())) {
+      throw new IllegalStateException(
+          "Corrupt view pointer for " + row.getDatabaseId() + "." + row.getTableId());
+    }
   }
 
   private static HouseTablePrimaryKey primaryKey(String databaseId, String viewId) {

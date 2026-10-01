@@ -30,6 +30,14 @@ public class ViewAuditEvent extends BaseAuditEvent {
 
   private String sourceDialect;
 
+  /**
+   * Correlation identifier joining this operation event to the request-level {@code
+   * ServiceAuditEvent} for the same call: the same inbound {@code session-id} header, read once per
+   * request. Internal only &mdash; never serialized to the wire; null when the header was absent or
+   * no request context was bound (e.g. a unit test constructing this directly).
+   */
+  private String sessionId;
+
   private OperationStatus operationStatus;
 
   /** The view's identity, from the prepared capture or the committed outcome. */

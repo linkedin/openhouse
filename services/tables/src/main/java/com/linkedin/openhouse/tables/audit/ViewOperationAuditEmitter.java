@@ -1,14 +1,20 @@
 package com.linkedin.openhouse.tables.audit;
 
+import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.common.audit.AuditHandler;
+import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.tables.audit.model.OperationStatus;
 import com.linkedin.openhouse.tables.audit.model.ViewAuditEvent;
 import com.linkedin.openhouse.tables.repository.ViewCommitOutcome;
 import com.linkedin.openhouse.tables.repository.impl.PreparedViewOperation;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.stereotype.Component;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 /**
  * Service-boundary operation-audit emitter (plan &sect;10, R4). Emitted directly from {@code
@@ -21,9 +27,18 @@ import org.springframework.stereotype.Component;
  * was found. Nothing is fabricated for a field whose source was never reached (an ambiguous create
  * from observed absence has no identity and no new pointer, and none is invented here).
  */
+@Slf4j
 @Component
 @ConditionalOnClass(name = "org.apache.iceberg.view.ViewMetadata")
 public class ViewOperationAuditEmitter {
+
+  private static final MetricsReporter METRICS_REPORTER =
+      MetricsReporter.of(MetricsConstant.SERVICE_AUDIT);
+
+  /**
+   * Matches {@code ServiceAuditAspect.SESSION_ID}: the same inbound header, one source of truth.
+   */
+  private static final String SESSION_ID_HEADER = "session-id";
 
   private final AuditHandler<ViewAuditEvent> auditHandler;
 
@@ -38,7 +53,7 @@ public class ViewOperationAuditEmitter {
       ViewCommitOutcome outcome,
       String actingPrincipal,
       String sourceDialect) {
-    auditHandler.audit(
+    auditSafely(
         baseBuilder(prepared, outcome, actingPrincipal, sourceDialect)
             .operationStatus(OperationStatus.SUCCESS)
             .build());
@@ -55,7 +70,7 @@ public class ViewOperationAuditEmitter {
       String actingPrincipal,
       String sourceDialect,
       Throwable cause) {
-    auditHandler.audit(
+    auditSafely(
         baseBuilder(prepared, outcome, actingPrincipal, sourceDialect)
             .operationStatus(OperationStatus.UNKNOWN)
             .build());
@@ -64,10 +79,33 @@ public class ViewOperationAuditEmitter {
   /** Emits a FAILED event for a write rejected before (or without) a commit outcome. */
   public void emitFailed(
       PreparedViewOperation prepared, String actingPrincipal, String sourceDialect) {
-    auditHandler.audit(
+    auditSafely(
         baseBuilder(prepared, null, actingPrincipal, sourceDialect)
             .operationStatus(OperationStatus.FAILED)
             .build());
+  }
+
+  /**
+   * Delivers through the same safe-reporting shape {@code ServiceAuditAspect} uses for its own
+   * audit call, so no emission (success/failed/unknown) can throw back into the service or the
+   * caller: one attempt, no retry, never silent (a fixed line is logged and a metric incremented).
+   *
+   * <p>Deliberate redaction deviation from {@code ServiceAuditAspect}: that aspect logs its caught
+   * exception; this event may carry {@code sql}/{@code schema}/CAS-token context (plan
+   * &sect;10/D4), so neither the throwable, its message, nor a stacktrace is logged here &mdash;
+   * only the safe enum status and the opaque correlation id are.
+   */
+  private void auditSafely(ViewAuditEvent event) {
+    try {
+      auditHandler.audit(event);
+    } catch (Exception redactedCause) {
+      log.error(
+          "View operation audit emission failed; status={} sessionId={} (cause suppressed for"
+              + " redaction)",
+          event.getOperationStatus(),
+          event.getSessionId());
+      METRICS_REPORTER.count(MetricsConstant.FAILED_SERVICE_AUDIT);
+    }
   }
 
   private ViewAuditEvent.ViewAuditEventBuilder baseBuilder(
@@ -91,8 +129,24 @@ public class ViewOperationAuditEmitter {
         .viewName(viewName)
         .user(actingPrincipal)
         .sourceDialect(sourceDialect)
+        .sessionId(currentSessionId())
         .viewUUID(viewUuid)
         .oldMetadataLocation(oldPointer)
         .newMetadataLocation(newPointer);
+  }
+
+  /**
+   * Reads the same inbound {@code session-id} header {@code ServiceAuditAspect} does, from the
+   * request-bound context on the same request thread the emitter is always called from
+   * (synchronously, inside the controller&rarr;service call), for success, early-failure, and
+   * UNKNOWN alike. No new header, no generated id, no injected dependency: a unit context with no
+   * bound request simply yields null, never a failure.
+   */
+  private static String currentSessionId() {
+    RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
+    if (attributes instanceof ServletRequestAttributes) {
+      return ((ServletRequestAttributes) attributes).getRequest().getHeader(SESSION_ID_HEADER);
+    }
+    return null;
   }
 }
