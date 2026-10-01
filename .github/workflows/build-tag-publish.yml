@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - rufan-linkedin-combine-entitytype-and-index-fix # Temporary Maven-only test publishing
 
 permissions:
   contents: write  # For git tagging
@@ -35,19 +34,16 @@ jobs:
           DRY_RUN: false # if true, will not push tag
           INITIAL_VERSION: 0.5.0 # if no tags, will use this version
 
-      - name: Determine publication version
+      - name: Get the latest tag
         id: get_tag
-        if: ${{ success() && github.repository == 'linkedin/openhouse' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/rufan-linkedin-combine-entitytype-and-index-fix') }}
+        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
         run: |
-          latest_tag=$(git describe --tags --abbrev=0 "$GITHUB_SHA")
+          latest_tag=$(git describe --tags --abbrev=0 main)
           semVer=${latest_tag:1} # Remove the first character ('v')
-          if [[ "$GITHUB_REF" == "refs/heads/rufan-linkedin-combine-entitytype-and-index-fix" ]]; then
-            semVer="${semVer}-pr763-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          fi
           echo "semVer=${semVer}" >> "$GITHUB_OUTPUT"
 
       - name: Publish with Gradle
-        if: ${{ success() && github.repository == 'linkedin/openhouse' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/rufan-linkedin-combine-entitytype-and-index-fix') }}
+        if: ${{ success() && github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
         env:
           JFROG_USERNAME: ${{ secrets.JFROG_USERNAME }}
           JFROG_PASSWORD: ${{ secrets.JFROG_PASSWORD }}
@@ -87,7 +83,6 @@ jobs:
 
   build-publish-python:
     name: Build and Publish Python
-    if: ${{ github.ref == 'refs/heads/main' && github.repository == 'linkedin/openhouse' }}
     runs-on: ubuntu-latest
     needs: tag-publish-gradle
     steps:
