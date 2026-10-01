@@ -306,6 +306,108 @@ public class ViewsServiceH2IntegrationTest {
     }
   }
 
+  /**
+   * POST/PUT item responses carry the same creator and creation time a later GET returns: the
+   * creator is the creating principal and survives replacement by another principal; the creation
+   * time is set at create and preserved by changed and no-op replacements.
+   */
+  @Test
+  public void writeResponsesCarryCreatorAndCreationTimeMatchingSubsequentGet() throws Exception {
+    String viewId = "creator_time_view";
+    String creator = "DUMMY_ANONYMOUS_USER";
+    String replacer = "second-view-writer";
+    String replacerToken = new DummyTokenInterceptor.DummySecurityJWT(replacer).buildNoopJWT();
+    String viewPath = VIEWS_PATH + "/" + viewId;
+    try {
+      MvcResult create =
+          mvc.perform(
+                  MockMvcRequestBuilders.post(VIEWS_PATH)
+                      .contentType(MediaType.APPLICATION_JSON)
+                      .content(
+                          ViewModelConstants.createRequestWithoutBaseVersion()
+                              .toBuilder()
+                              .viewId(viewId)
+                              .build()
+                              .toJson())
+                      .accept(MediaType.APPLICATION_JSON)
+                      .header("Authorization", "Bearer " + jwtAccessToken))
+              .andExpect(status().isCreated())
+              .andExpect(jsonPath("$.viewCreator").value(creator))
+              .andReturn();
+      long createdAt = readLong(create, "$.creationTime");
+      org.junit.jupiter.api.Assertions.assertTrue(createdAt > 0, "creationTime must be set");
+      assertGetMatches(viewPath, creator, createdAt);
+
+      String base = com.jayway.jsonpath.JsonPath.read(responseBody(create), "$.metadataLocation");
+      com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody changed =
+          ViewModelConstants.fullyPopulatedRequest()
+              .toBuilder()
+              .viewId(viewId)
+              .representations(
+                  java.util.Collections.singletonList(
+                      com.linkedin.openhouse.tables.api.spec.v0.request.components
+                          .ViewRepresentation.builder()
+                          .type("sql")
+                          .dialect(ViewModelConstants.SOURCE_DIALECT)
+                          .sql("SELECT id FROM my_database.my_table")
+                          .build()))
+              .build();
+      MvcResult replace =
+          mvc.perform(
+                  MockMvcRequestBuilders.put(viewPath)
+                      .contentType(MediaType.APPLICATION_JSON)
+                      .content(changed.toBuilder().baseMetadataLocation(base).build().toJson())
+                      .accept(MediaType.APPLICATION_JSON)
+                      .header("Authorization", "Bearer " + replacerToken))
+              .andExpect(status().isOk())
+              .andExpect(jsonPath("$.viewCreator").value(creator))
+              .andReturn();
+      String replaced =
+          com.jayway.jsonpath.JsonPath.read(responseBody(replace), "$.metadataLocation");
+      org.junit.jupiter.api.Assertions.assertNotEquals(base, replaced);
+      org.junit.jupiter.api.Assertions.assertEquals(createdAt, readLong(replace, "$.creationTime"));
+      assertGetMatches(viewPath, creator, createdAt);
+
+      MvcResult noOp =
+          mvc.perform(
+                  MockMvcRequestBuilders.put(viewPath)
+                      .contentType(MediaType.APPLICATION_JSON)
+                      .content(changed.toBuilder().baseMetadataLocation(replaced).build().toJson())
+                      .accept(MediaType.APPLICATION_JSON)
+                      .header("Authorization", "Bearer " + replacerToken))
+              .andExpect(status().isOk())
+              .andExpect(jsonPath("$.metadataLocation").value(replaced))
+              .andExpect(jsonPath("$.viewCreator").value(creator))
+              .andReturn();
+      org.junit.jupiter.api.Assertions.assertEquals(createdAt, readLong(noOp, "$.creationTime"));
+      assertGetMatches(viewPath, creator, createdAt);
+    } finally {
+      deleteViewIfPresent(viewId);
+    }
+  }
+
+  private void assertGetMatches(String viewPath, String creator, long creationTime)
+      throws Exception {
+    MvcResult get =
+        mvc.perform(
+                MockMvcRequestBuilders.get(viewPath)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .header("Authorization", "Bearer " + jwtAccessToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.viewCreator").value(creator))
+            .andReturn();
+    org.junit.jupiter.api.Assertions.assertEquals(creationTime, readLong(get, "$.creationTime"));
+  }
+
+  private static String responseBody(MvcResult result) throws Exception {
+    return result.getResponse().getContentAsString();
+  }
+
+  private static long readLong(MvcResult result, String path) throws Exception {
+    Number value = com.jayway.jsonpath.JsonPath.read(responseBody(result), path);
+    return value.longValue();
+  }
+
   @Test
   public void configuredTokenInterceptorRejectsMissingCredentialsBeforeViewService()
       throws Exception {

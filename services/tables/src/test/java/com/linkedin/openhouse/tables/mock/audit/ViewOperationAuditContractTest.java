@@ -105,6 +105,55 @@ public class ViewOperationAuditContractTest {
     assertNull(event.getNewMetadataLocation(), "A drop publishes no new pointer.");
   }
 
+  /** Delivery failures are reported safely; no emission may throw back into the service. */
+  @Test
+  public void sinkFailuresNeverEscapeAnyEmission() {
+    @SuppressWarnings("unchecked")
+    AuditHandler<ViewAuditEvent> auditHandler = mock(AuditHandler.class);
+    org.mockito.Mockito.doThrow(new IllegalStateException("sink down"))
+        .when(auditHandler)
+        .audit(org.mockito.ArgumentMatchers.any(ViewAuditEvent.class));
+    ViewOperationAuditEmitter emitter = new ViewOperationAuditEmitter(auditHandler);
+    PreparedViewOperation prepared = PreparedViewOperation.view(capturedRow());
+
+    org.junit.jupiter.api.Assertions.assertDoesNotThrow(
+        () ->
+            emitter.emitSuccess(
+                prepared,
+                outcome(COMMITTED_POINTER, "view-uuid", false),
+                ACTING_PRINCIPAL,
+                ViewModelConstants.SOURCE_DIALECT));
+    org.junit.jupiter.api.Assertions.assertDoesNotThrow(
+        () -> emitter.emitFailed(prepared, ACTING_PRINCIPAL, ViewModelConstants.SOURCE_DIALECT));
+    org.junit.jupiter.api.Assertions.assertDoesNotThrow(
+        () ->
+            emitter.emitUnknown(
+                prepared,
+                null,
+                ACTING_PRINCIPAL,
+                ViewModelConstants.SOURCE_DIALECT,
+                new RuntimeException("ambiguous")));
+    verify(auditHandler, times(3)).audit(org.mockito.ArgumentMatchers.any(ViewAuditEvent.class));
+  }
+
+  /** Outside an HTTP request there is no inbound session-id, as for the request audit. */
+  @Test
+  public void eventsOutsideARequestHaveNoSessionId() {
+    org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+    @SuppressWarnings("unchecked")
+    AuditHandler<ViewAuditEvent> auditHandler = mock(AuditHandler.class);
+    ViewOperationAuditEmitter emitter = new ViewOperationAuditEmitter(auditHandler);
+
+    emitter.emitFailed(
+        PreparedViewOperation.view(capturedRow()),
+        ACTING_PRINCIPAL,
+        ViewModelConstants.SOURCE_DIALECT);
+
+    ViewAuditEvent event = captureSingle(auditHandler);
+    AuditEventInspection.assertHasProperty(event, "sessionId");
+    assertNull(AuditEventInspection.properties(event).get("sessionId"));
+  }
+
   private static final String ACTING_PRINCIPAL = "alice";
   private static final String COMMITTED_POINTER =
       "file:/warehouse/my_database/my_view/metadata/00002-committed.metadata.json";

@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.e2e.h2;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -14,8 +15,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
+import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import com.linkedin.openhouse.tables.audit.model.OperationStatus;
 import com.linkedin.openhouse.tables.audit.model.ViewAuditEvent;
 import com.linkedin.openhouse.tables.authorization.OpaHandler;
@@ -34,6 +37,8 @@ import com.linkedin.openhouse.tables.services.ViewPageCursor;
 import com.linkedin.openhouse.tables.services.ViewPageTokenCodec;
 import com.linkedin.openhouse.tables.services.ViewPaginationAdapter;
 import com.linkedin.openhouse.tables.services.ViewsFeatureGate;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Metrics;
 import java.lang.reflect.Method;
 import java.net.URI;
 import java.util.Arrays;
@@ -91,6 +96,8 @@ public class ViewsManagedFailureAuditTest {
     SECRET_SQL, SECRET_SCHEMA, SECRET_BASE, SECRET_PAGE_TOKEN
   };
   private static final String CAPTURED_UUID = "view-uuid";
+  private static final String SESSION_ID_HEADER = "session-id";
+  private static final String SINK_FAILURE = "operation-audit-sink-failure-marker";
   private static final String SIZE_BINDING_MESSAGE = "size : must be an integer";
   private static final String[] BINDING_PARSER_DETAILS = {
     "NumberFormatException", "For input string", "Failed to convert", "java.lang"
@@ -640,6 +647,379 @@ public class ViewsManagedFailureAuditTest {
     AuditEventInspection.assertNoSensitiveProperties(captureServiceAudit(), SECRETS);
     verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
     Mockito.verifyNoInteractions(viewRepository, opaHandler);
+  }
+
+  // --- F4: every service-entered write failure emits exactly one FAILED operation event ---
+
+  @Test
+  public void disabledWriteEmitsOneFailedOperationAuditWithRequestIdentityOnly() throws Exception {
+    when(viewsFeatureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(false);
+
+    mvc.perform(withToken(postView())).andExpect(status().isNotFound());
+
+    assertEarlyFailedOperationAudit();
+    verify(viewRepository, never()).prepareWrite(any(), any());
+    Mockito.verifyNoInteractions(opaHandler);
+  }
+
+  @Test
+  public void missingDatabaseWriteEmitsOneFailedOperationAuditWithRequestIdentityOnly()
+      throws Exception {
+    when(databasesService.getAllDatabases()).thenReturn(Collections.emptyList());
+
+    mvc.perform(withToken(postView())).andExpect(status().isNotFound());
+
+    assertEarlyFailedOperationAudit();
+    verify(viewRepository, never()).prepareWrite(any(), any());
+    Mockito.verifyNoInteractions(opaHandler);
+  }
+
+  @Test
+  public void deniedDropEmitsOneFailedOperationAuditBeforeAnyCapture() throws Exception {
+    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(false);
+
+    mvc.perform(withToken(deleteView())).andExpect(status().isForbidden());
+
+    assertEarlyFailedOperationAudit();
+    verify(viewRepository, never()).prepareDelete(any(), any());
+    verify(viewRepository, never()).deleteById(any(), any());
+  }
+
+  @Test
+  public void prepareWriteOutageIsTypedUnavailableWithOneFailedOperationAudit() throws Exception {
+    when(viewRepository.prepareWrite(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID))
+        .thenThrow(
+            new HouseTableRepositoryStateUnknownException(
+                SECRET_SQL, new RuntimeException(SECRET_BASE)));
+
+    assertPrecommitOutage(withToken(postView()));
+    verify(viewRepository, never()).commitCreate(any(), any(), any());
+    Mockito.verifyNoInteractions(opaHandler);
+  }
+
+  @Test
+  public void prepareDeleteOutageIsTypedUnavailableWithOneFailedOperationAudit() throws Exception {
+    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
+    when(viewRepository.prepareDelete(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID))
+        .thenThrow(
+            new HouseTableRepositoryStateUnknownException(
+                SECRET_SQL, new RuntimeException(SECRET_BASE)));
+
+    assertPrecommitOutage(withToken(deleteView()));
+    verify(viewRepository, never()).deleteById(any(), any());
+  }
+
+  /**
+   * A transient failure while probing the database for a read is a typed 503, not a residual 500.
+   */
+  @Test
+  public void databaseProbeOutageOnReadsIsTypedUnavailableWithoutOperationAudit() throws Exception {
+    when(databasesService.getAllDatabases())
+        .thenThrow(
+            new HouseTableRepositoryStateUnknownException(
+                SECRET_SQL, new RuntimeException(SECRET_BASE)));
+
+    assertReadProbeOutage();
+  }
+
+  @Test
+  public void gateProbeOutageOnReadsIsTypedUnavailableWithoutOperationAudit() throws Exception {
+    when(viewsFeatureGate.isEnabled(ViewModelConstants.DATABASE_ID))
+        .thenThrow(
+            new HouseTableRepositoryStateUnknownException(
+                SECRET_SQL, new RuntimeException(SECRET_BASE)));
+
+    assertReadProbeOutage();
+  }
+
+  private void assertReadProbeOutage() throws Exception {
+    assertReadProbeFailure(503);
+  }
+
+  private void assertReadProbeFailure(int expectedStatus) throws Exception {
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      for (String path : new String[] {VIEW_PATH, VIEWS_PATH}) {
+        MvcResult result =
+            expectNoCauseOrStacktrace(
+                    mvc.perform(
+                        withToken(
+                            MockMvcRequestBuilders.get(path).accept(MediaType.APPLICATION_JSON))))
+                .andReturn();
+        assertEquals(expectedStatus, result.getResponse().getStatus(), path);
+        assertNoSensitive(result.getResponse().getContentAsString());
+      }
+      assertNoSensitive(logs.renderedEvents());
+    }
+    verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
+    verify(viewRepository, never()).findById(any(), any());
+    verify(viewRepository, never()).searchViews(any(), any());
+  }
+
+  // Only the typed state-unknown failure is transient (503); any other failure is a 500 fault.
+
+  @Test
+  public void genericPrepareWriteFailureIsInternal500WithOneFailedOperationAudit()
+      throws Exception {
+    when(viewRepository.prepareWrite(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID))
+        .thenThrow(new IllegalStateException(SECRET_SQL, new RuntimeException(SECRET_BASE)));
+
+    assertPrecommitFailure(withToken(postView()), 500);
+    verify(viewRepository, never()).commitCreate(any(), any(), any());
+  }
+
+  @Test
+  public void genericPrepareDeleteFailureIsInternal500WithOneFailedOperationAudit()
+      throws Exception {
+    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
+    when(viewRepository.prepareDelete(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID))
+        .thenThrow(new IllegalStateException(SECRET_SQL, new RuntimeException(SECRET_BASE)));
+
+    assertPrecommitFailure(withToken(deleteView()), 500);
+    verify(viewRepository, never()).deleteById(any(), any());
+  }
+
+  @Test
+  public void genericDatabaseProbeFailureOnReadsIsInternal500WithoutOperationAudit()
+      throws Exception {
+    when(databasesService.getAllDatabases())
+        .thenThrow(new IllegalStateException(SECRET_SQL, new RuntimeException(SECRET_BASE)));
+
+    assertReadProbeFailure(500);
+  }
+
+  @Test
+  public void genericGateProbeFailureOnReadsIsInternal500WithoutOperationAudit() throws Exception {
+    when(viewsFeatureGate.isEnabled(ViewModelConstants.DATABASE_ID))
+        .thenThrow(new IllegalStateException(SECRET_SQL, new RuntimeException(SECRET_BASE)));
+
+    assertReadProbeFailure(500);
+  }
+
+  @Test
+  public void disabledReadsStayWithoutOperationAudit() throws Exception {
+    when(viewsFeatureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(false);
+
+    mvc.perform(withToken(MockMvcRequestBuilders.get(VIEW_PATH).accept(MediaType.APPLICATION_JSON)))
+        .andExpect(status().isNotFound());
+    mvc.perform(
+            withToken(MockMvcRequestBuilders.get(VIEWS_PATH).accept(MediaType.APPLICATION_JSON)))
+        .andExpect(status().isNotFound());
+
+    verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
+  }
+
+  private void assertPrecommitOutage(
+      org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request)
+      throws Exception {
+    assertPrecommitFailure(request, 503);
+  }
+
+  private void assertPrecommitFailure(
+      org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request,
+      int expectedStatus)
+      throws Exception {
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      MvcResult result = expectNoCauseOrStacktrace(mvc.perform(request)).andReturn();
+      assertEquals(expectedStatus, result.getResponse().getStatus());
+
+      assertNoSensitive(result.getResponse().getContentAsString(), logs.renderedEvents());
+    }
+    ViewAuditEvent event = assertEarlyFailedOperationAudit();
+    assertNotEquals(
+        OperationStatus.UNKNOWN,
+        event.getOperationStatus(),
+        "A failure before any publication is known, not ambiguous.");
+  }
+
+  private ViewAuditEvent assertEarlyFailedOperationAudit() {
+    AuditEventInspection.assertNoSensitiveProperties(captureServiceAudit(), SECRETS);
+    ViewAuditEvent event = captureViewAudit();
+    assertEquals(OperationStatus.FAILED, event.getOperationStatus());
+    assertEquals(ViewModelConstants.DATABASE_ID, event.getDatabaseName());
+    assertEquals(ViewModelConstants.VIEW_ID, event.getViewName());
+    assertEquals(PRINCIPAL, event.getUser());
+    assertNull(event.getViewUUID(), "No capture was reached, so no identity exists.");
+    assertNull(event.getOldMetadataLocation());
+    assertNull(event.getNewMetadataLocation());
+    AuditEventInspection.assertNoSensitiveProperties(event, SECRETS);
+    return event;
+  }
+
+  // --- F5: audit delivery failure after an acknowledged commit stays a success ---
+
+  @Test
+  public void auditSinkFailureAfterAcknowledgedCreateStillReturnsCreated() throws Exception {
+    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
+    when(viewRepository.commitCreate(any(), any(), any()))
+        .thenReturn(ViewsManagedAuthMatrixBase.createdOutcome());
+
+    assertSinkFailureKeepsSuccess(withToken(postView()), 201);
+    verify(viewRepository, times(1)).commitCreate(any(), any(), any());
+  }
+
+  @Test
+  public void auditSinkFailureAfterAcknowledgedReplaceStillReturnsOk() throws Exception {
+    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
+    when(viewRepository.prepareWrite(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID))
+        .thenReturn(PreparedViewOperation.view(ViewsManagedAuthMatrixBase.viewRow()));
+    when(viewRepository.commitReplace(any(), any(), any()))
+        .thenReturn(ViewsManagedAuthMatrixBase.replacedOutcome());
+
+    assertSinkFailureKeepsSuccess(
+        withToken(
+            MockMvcRequestBuilders.put(VIEW_PATH)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(ViewModelConstants.fullyPopulatedRequest().toJson())
+                .accept(MediaType.APPLICATION_JSON)),
+        200);
+    verify(viewRepository, times(1)).commitReplace(any(), any(), any());
+  }
+
+  @Test
+  public void auditSinkFailureAfterAcknowledgedDropStillReturnsNoContent() throws Exception {
+    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
+    when(viewRepository.prepareDelete(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID))
+        .thenReturn(PreparedViewOperation.view(ViewsManagedAuthMatrixBase.viewRow()));
+
+    assertSinkFailureKeepsSuccess(withToken(deleteView()), 204);
+    verify(viewRepository, times(1))
+        .deleteById(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID);
+  }
+
+  private void assertSinkFailureKeepsSuccess(
+      org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request,
+      int expectedStatus)
+      throws Exception {
+    assertFalse(
+        Metrics.globalRegistry.getRegistries().isEmpty(),
+        "Precondition: a meter registry backs the global registry in this context.");
+    Mockito.doThrow(
+            new IllegalStateException(
+                SINK_FAILURE + " " + SECRET_SQL,
+                new RuntimeException(SECRET_SCHEMA + " " + SECRET_BASE + " " + SECRET_PAGE_TOKEN)))
+        .when(viewAuditHandler)
+        .audit(any(ViewAuditEvent.class));
+    double failedAuditsBefore = failedServiceAuditCount();
+
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      MvcResult result = mvc.perform(request).andReturn();
+
+      assertEquals(expectedStatus, result.getResponse().getStatus());
+      String renderedLogs = logs.renderedEvents();
+      assertNoSensitive(result.getResponse().getContentAsString(), renderedLogs);
+      assertFalse(result.getResponse().getContentAsString().contains(SINK_FAILURE));
+      assertFalse(
+          renderedLogs.contains(SINK_FAILURE),
+          "The sink failure is reported without its raw message or throwable: " + renderedLogs);
+      assertFalse(
+          renderedLogs.contains("java.lang.IllegalStateException"),
+          "No raw exception or stack trace is logged: " + renderedLogs);
+    }
+
+    ViewAuditEvent attempted = captureViewAudit();
+    assertEquals(
+        OperationStatus.SUCCESS,
+        attempted.getOperationStatus(),
+        "Exactly one operation event is attempted, and it is the acknowledged SUCCESS.");
+    assertEquals(
+        failedAuditsBefore + 1,
+        failedServiceAuditCount(),
+        "The delivery failure is reported through the existing failed-audit metric.");
+    assertEquals(expectedStatus, captureServiceAudit().getStatusCode());
+  }
+
+  private static double failedServiceAuditCount() {
+    Counter counter =
+        Metrics.globalRegistry
+            .find(MetricsConstant.SERVICE_AUDIT + "_" + MetricsConstant.FAILED_SERVICE_AUDIT)
+            .counter();
+    return counter == null ? 0.0 : counter.count();
+  }
+
+  // --- F10: the operation event carries the request's existing correlation identifier ---
+
+  @Test
+  public void successfulCreateOperationAuditCarriesTheRequestSessionId() throws Exception {
+    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
+    when(viewRepository.commitCreate(any(), any(), any()))
+        .thenReturn(ViewsManagedAuthMatrixBase.createdOutcome());
+    String sessionId = "view-session-success";
+
+    mvc.perform(withToken(postView()).header(SESSION_ID_HEADER, sessionId))
+        .andExpect(status().isCreated());
+
+    assertCorrelated(sessionId, OperationStatus.SUCCESS);
+  }
+
+  @Test
+  public void earlyFailedOperationAuditCarriesTheRequestSessionId() throws Exception {
+    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(false);
+    String sessionId = "view-session-denied-drop";
+
+    mvc.perform(withToken(deleteView()).header(SESSION_ID_HEADER, sessionId))
+        .andExpect(status().isForbidden());
+
+    assertCorrelated(sessionId, OperationStatus.FAILED);
+  }
+
+  @Test
+  public void unknownOperationAuditCarriesTheRequestSessionId() throws Exception {
+    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
+    when(viewRepository.commitCreate(any(), any(), any()))
+        .thenThrow(new CommitStateUnknownException(new RuntimeException("ambiguous")));
+    String sessionId = "view-session-unknown";
+
+    mvc.perform(withToken(postView()).header(SESSION_ID_HEADER, sessionId))
+        .andExpect(status().isServiceUnavailable());
+
+    assertCorrelated(sessionId, OperationStatus.UNKNOWN);
+  }
+
+  /** A correlation id from one request must not carry over to the next request on the thread. */
+  @Test
+  public void sessionIdDoesNotLeakIntoALaterRequestWithoutTheHeader() throws Exception {
+    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
+    when(viewRepository.commitCreate(any(), any(), any()))
+        .thenReturn(ViewsManagedAuthMatrixBase.createdOutcome());
+
+    mvc.perform(withToken(postView()).header(SESSION_ID_HEADER, "view-session-first"))
+        .andExpect(status().isCreated());
+    Mockito.clearInvocations(serviceAuditHandler, viewAuditHandler);
+    mvc.perform(withToken(postView())).andExpect(status().isCreated());
+
+    ServiceAuditEvent serviceEvent = captureServiceAudit();
+    ViewAuditEvent viewEvent = captureViewAudit();
+    AuditEventInspection.assertHasProperty(viewEvent, "sessionId");
+    assertNull(serviceEvent.getSessionId());
+    assertNull(AuditEventInspection.properties(viewEvent).get("sessionId"));
+  }
+
+  private void assertCorrelated(String sessionId, OperationStatus expectedStatus) {
+    ServiceAuditEvent serviceEvent = captureServiceAudit();
+    ViewAuditEvent viewEvent = captureViewAudit();
+    assertEquals(expectedStatus, viewEvent.getOperationStatus());
+    assertEquals(sessionId, serviceEvent.getSessionId());
+    AuditEventInspection.assertHasProperty(viewEvent, "sessionId");
+    assertEquals(
+        serviceEvent.getSessionId(), AuditEventInspection.properties(viewEvent).get("sessionId"));
+  }
+
+  private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder withToken(
+      org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder builder) {
+    return builder.header("Authorization", "Bearer " + jwtAccessToken);
+  }
+
+  private static org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder
+      postView() {
+    return MockMvcRequestBuilders.post(VIEWS_PATH)
+        .contentType(MediaType.APPLICATION_JSON)
+        .content(ViewModelConstants.createRequestWithoutBaseVersion().toJson())
+        .accept(MediaType.APPLICATION_JSON);
+  }
+
+  private static org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder
+      deleteView() {
+    return MockMvcRequestBuilders.delete(VIEW_PATH).accept(MediaType.APPLICATION_JSON);
   }
 
   private static ResultActions expectNoCauseOrStacktrace(ResultActions actions) throws Exception {

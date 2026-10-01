@@ -551,6 +551,189 @@ public class ViewsServiceImplTest {
   }
 
   @Test
+  public void databaseProbeOutageOnReadsIsTypedUnavailableWithCauseAndNoAudit() {
+    when(featureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(true);
+    HouseTableRepositoryStateUnknownException outage =
+        new HouseTableRepositoryStateUnknownException("down", new RuntimeException("503"));
+    when(databasesService.getAllDatabases()).thenThrow(outage);
+
+    ViewApiException get =
+        assertThrows(
+            ViewApiException.class,
+            () ->
+                service.getView(
+                    ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL));
+    ViewApiException list =
+        assertThrows(
+            ViewApiException.class,
+            () ->
+                service.getAllViews(
+                    ViewModelConstants.DATABASE_ID, null, 50, "viewId", ACTING_PRINCIPAL));
+
+    for (ViewApiException thrown : new ViewApiException[] {get, list}) {
+      assertEquals(ViewErrorCode.VIEW_SERVICE_UNAVAILABLE, thrown.getErrorCode());
+      assertEquals(HttpStatus.SERVICE_UNAVAILABLE, thrown.getHttpStatus());
+      assertSame(outage, thrown.getCause());
+    }
+    verifyNoInteractions(viewOperationAuditEmitter, viewRepository);
+  }
+
+  @Test
+  public void genericPrepareFailuresAreInternalErrorsAuditedAsFailed() {
+    existingEnabledDatabase();
+    when(privilegeMapper.forDelete()).thenReturn(Privileges.DELETE_TABLE);
+    IllegalStateException writeFault = new IllegalStateException("prepare write fault");
+    IllegalStateException deleteFault = new IllegalStateException("prepare delete fault");
+    when(viewRepository.prepareWrite(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID))
+        .thenThrow(writeFault);
+    when(viewRepository.prepareDelete(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID))
+        .thenThrow(deleteFault);
+
+    ViewApiException write =
+        assertThrows(
+            ViewApiException.class,
+            () ->
+                service.putView(
+                    ViewModelConstants.createRequestWithoutBaseVersion(), ACTING_PRINCIPAL, true));
+    ViewApiException delete =
+        assertThrows(
+            ViewApiException.class,
+            () ->
+                service.deleteView(
+                    ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL));
+
+    assertEquals(ViewErrorCode.INTERNAL_VIEW_ERROR, write.getErrorCode());
+    assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, write.getHttpStatus());
+    assertSame(writeFault, write.getCause());
+    assertEquals(ViewErrorCode.INTERNAL_VIEW_ERROR, delete.getErrorCode());
+    assertSame(deleteFault, delete.getCause());
+    verify(viewOperationAuditEmitter, times(2))
+        .emitFailed(any(), org.mockito.ArgumentMatchers.eq(ACTING_PRINCIPAL), any());
+    verify(viewOperationAuditEmitter, never()).emitUnknown(any(), any(), any(), any(), any());
+  }
+
+  @Test
+  public void genericDatabaseProbeFailureOnReadsIsInternalErrorWithCauseAndNoAudit() {
+    when(featureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(true);
+    IllegalStateException fault = new IllegalStateException("probe fault");
+    when(databasesService.getAllDatabases()).thenThrow(fault);
+
+    ViewApiException get =
+        assertThrows(
+            ViewApiException.class,
+            () ->
+                service.getView(
+                    ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL));
+    ViewApiException list =
+        assertThrows(
+            ViewApiException.class,
+            () ->
+                service.getAllViews(
+                    ViewModelConstants.DATABASE_ID, null, 50, "viewId", ACTING_PRINCIPAL));
+
+    for (ViewApiException thrown : new ViewApiException[] {get, list}) {
+      assertEquals(ViewErrorCode.INTERNAL_VIEW_ERROR, thrown.getErrorCode());
+      assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, thrown.getHttpStatus());
+      assertSame(fault, thrown.getCause());
+    }
+    verifyNoInteractions(viewOperationAuditEmitter, viewRepository);
+  }
+
+  @Test
+  public void prepareWriteOutageIsTypedUnavailableAndAuditedAsFailedNotUnknown() {
+    existingEnabledDatabase();
+    HouseTableRepositoryStateUnknownException outage =
+        new HouseTableRepositoryStateUnknownException("down", new RuntimeException("503"));
+    when(viewRepository.prepareWrite(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID))
+        .thenThrow(outage);
+
+    ViewApiException thrown =
+        assertThrows(
+            ViewApiException.class,
+            () ->
+                service.putView(
+                    ViewModelConstants.createRequestWithoutBaseVersion(), ACTING_PRINCIPAL, true));
+
+    assertEquals(ViewErrorCode.VIEW_SERVICE_UNAVAILABLE, thrown.getErrorCode());
+    assertEquals(HttpStatus.SERVICE_UNAVAILABLE, thrown.getHttpStatus());
+    assertSame(outage, thrown.getCause());
+    verify(viewOperationAuditEmitter, times(1))
+        .emitFailed(any(), org.mockito.ArgumentMatchers.eq(ACTING_PRINCIPAL), any());
+    verify(viewOperationAuditEmitter, never()).emitUnknown(any(), any(), any(), any(), any());
+    verify(viewOperationAuditEmitter, never()).emitSuccess(any(), any(), any(), any());
+    verify(viewRepository, never()).commitCreate(any(), any(), any());
+  }
+
+  @Test
+  public void prepareDeleteOutageIsTypedUnavailableAndAuditedAsFailedNotUnknown() {
+    existingEnabledDatabase();
+    when(privilegeMapper.forDelete()).thenReturn(Privileges.DELETE_TABLE);
+    HouseTableRepositoryStateUnknownException outage =
+        new HouseTableRepositoryStateUnknownException("down", new RuntimeException("503"));
+    when(viewRepository.prepareDelete(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID))
+        .thenThrow(outage);
+
+    ViewApiException thrown =
+        assertThrows(
+            ViewApiException.class,
+            () ->
+                service.deleteView(
+                    ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL));
+
+    assertEquals(ViewErrorCode.VIEW_SERVICE_UNAVAILABLE, thrown.getErrorCode());
+    assertSame(outage, thrown.getCause());
+    verify(viewOperationAuditEmitter, times(1))
+        .emitFailed(any(), org.mockito.ArgumentMatchers.eq(ACTING_PRINCIPAL), any());
+    verify(viewOperationAuditEmitter, never()).emitUnknown(any(), any(), any(), any(), any());
+    verify(viewRepository, never()).deleteById(any(), any());
+  }
+
+  @Test
+  public void disabledAndMissingDatabaseWritesAreAuditedAsFailedWithoutCapture() {
+    when(featureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(false);
+    assertEquals(
+        ViewErrorCode.VIEWS_DISABLED,
+        assertThrows(
+                ViewApiException.class,
+                () ->
+                    service.putView(
+                        ViewModelConstants.createRequestWithoutBaseVersion(),
+                        ACTING_PRINCIPAL,
+                        true))
+            .getErrorCode());
+    assertEquals(
+        ViewErrorCode.VIEWS_DISABLED,
+        assertThrows(
+                ViewApiException.class,
+                () ->
+                    service.deleteView(
+                        ViewModelConstants.DATABASE_ID,
+                        ViewModelConstants.VIEW_ID,
+                        ACTING_PRINCIPAL))
+            .getErrorCode());
+    verify(viewOperationAuditEmitter, times(2))
+        .emitFailed(any(), org.mockito.ArgumentMatchers.eq(ACTING_PRINCIPAL), any());
+
+    clearInvocations(viewOperationAuditEmitter);
+    when(featureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(true);
+    when(databasesService.getAllDatabases()).thenReturn(Collections.emptyList());
+    assertEquals(
+        ViewErrorCode.DATABASE_NOT_FOUND,
+        assertThrows(
+                ViewApiException.class,
+                () ->
+                    service.putView(
+                        ViewModelConstants.createRequestWithoutBaseVersion(),
+                        ACTING_PRINCIPAL,
+                        true))
+            .getErrorCode());
+    verify(viewOperationAuditEmitter, times(1))
+        .emitFailed(any(), org.mockito.ArgumentMatchers.eq(ACTING_PRINCIPAL), any());
+    verify(viewRepository, never()).prepareWrite(any(), any());
+    verify(viewRepository, never()).prepareDelete(any(), any());
+  }
+
+  @Test
   public void deniedDropDoesNotCaptureOrMutate() {
     existingEnabledDatabase();
     when(privilegeMapper.forDelete()).thenReturn(Privileges.DELETE_TABLE);
