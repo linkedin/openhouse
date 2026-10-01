@@ -67,6 +67,7 @@ public class ViewRequestPayloadRedactorTest {
     JsonElement payload =
         JsonParser.parseString(
             "{\"viewId\": \"my_view\", \"databaseId\": \"my_database\","
+                + " \"baseMetadataLocation\": \"file:/secret/base-token.metadata.json\","
                 + " \"schema\": \"secret schema\","
                 + " \"representations\": ["
                 + "{\"type\": \"sql\", \"sql\": \"secret sql one\", \"dialect\": \"spark\"},"
@@ -77,6 +78,10 @@ public class ViewRequestPayloadRedactorTest {
 
     Assertions.assertEquals(
         ServiceAuditPayloadRedactor.REDACTED_VALUE, redacted.get("schema").getAsString());
+    Assertions.assertEquals(
+        ServiceAuditPayloadRedactor.REDACTED_VALUE,
+        redacted.get("baseMetadataLocation").getAsString(),
+        "The write CAS token is as sensitive as schema and SQL and must not be retained.");
     JsonArray representations = redacted.getAsJsonArray("representations");
     for (JsonElement representation : representations) {
       Assertions.assertEquals(
@@ -85,6 +90,7 @@ public class ViewRequestPayloadRedactorTest {
           "Every representation is redacted, not only the first.");
     }
     Assertions.assertFalse(redacted.toString().contains("secret"));
+    Assertions.assertFalse(redacted.toString().contains("base-token"));
 
     // Identifiers and dialect metadata survive.
     Assertions.assertEquals("my_view", redacted.get("viewId").getAsString());

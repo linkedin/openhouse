@@ -318,6 +318,28 @@ public class HouseTableViewRepositoryImplTest {
   }
 
   @Test
+  public void findAllViewsByDatabaseIdSerializesFixedPageAndTableIdSort()
+      throws InterruptedException {
+    enqueueViewPage(Collections.singletonList(viewUserTable("VIEW")), 1, 2, 3L);
+
+    Pageable pageable = PageRequest.of(1, 2, Sort.by("tableId"));
+    Page<HouseTable> page = htsRepo.findAllViewsByDatabaseId(VIEW_DB, pageable);
+
+    RecordedRequest request = nextRequest();
+    Assertions.assertEquals("GET", request.getMethod());
+    Assertions.assertEquals("/v1/hts/views/query", request.getRequestUrl().encodedPath());
+    assertThat(request.getRequestUrl().queryParameterValues("databaseId"))
+        .isEqualTo(Collections.singletonList(VIEW_DB));
+    assertThat(request.getRequestUrl().queryParameterValues("page"))
+        .isEqualTo(Collections.singletonList("1"));
+    assertThat(request.getRequestUrl().queryParameterValues("size"))
+        .isEqualTo(Collections.singletonList("2"));
+    assertThat(request.getRequestUrl().queryParameterValues("sortBy"))
+        .isEqualTo(Collections.singletonList("tableId"));
+    Assertions.assertEquals(1, page.getContent().size());
+  }
+
+  @Test
   public void saveViewPutsToTheTypedViewRouteDeclaringTheViewEntityType()
       throws InterruptedException {
     enqueueEntity(201, viewUserTable("VIEW"));
