@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
+import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -19,9 +20,11 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.CommitFailedException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -196,6 +199,48 @@ public class OpenHouseInternalRepositoryImplTest {
         () ->
             impl.findTableRefById(
                 TableDtoPrimaryKey.builder().databaseId(DB_ID).tableId(TABLE_ID).build()));
+  }
+
+  @Test
+  void concurrentCreationConflictsBeforeInspectingMissingReservedProperties() {
+    Table existing = mock(Table.class);
+    when(existing.properties())
+        .thenReturn(
+            Map.of(
+                "openhouse.clusterId", "local",
+                "openhouse.tableType", "PRIMARY_TABLE",
+                "openhouse.tableLocation", "/db/table/00001.metadata.json"));
+    TableDto creation =
+        createTableDto(Map.of())
+            .toBuilder()
+            .tableVersion(ValidatorConstants.INITIAL_TABLE_VERSION)
+            .build();
+
+    Assertions.assertThrows(
+        CommitFailedException.class,
+        () -> openHouseInternalRepository.updateEligibilityCheck(existing, creation));
+  }
+
+  @Test
+  void concurrentCreationConflictsForReplicaWhileReplicationUpdatesRemainAllowed() {
+    Table existing = mock(Table.class);
+    when(existing.properties())
+        .thenReturn(
+            Map.of(
+                "openhouse.clusterId", "local",
+                "openhouse.tableType", "REPLICA_TABLE",
+                "openhouse.tableLocation", "/db/table/00001.metadata.json"));
+    TableDto update =
+        createTableDto(
+            Map.of("openhouse.clusterId", "remote", "openhouse.tableType", "PRIMARY_TABLE"));
+
+    Assertions.assertDoesNotThrow(
+        () -> openHouseInternalRepository.updateEligibilityCheck(existing, update));
+    TableDto creation =
+        update.toBuilder().tableVersion(ValidatorConstants.INITIAL_TABLE_VERSION).build();
+    Assertions.assertThrows(
+        CommitFailedException.class,
+        () -> openHouseInternalRepository.updateEligibilityCheck(existing, creation));
   }
 
   private TableDto createTableDto(Map<String, String> properties) {
