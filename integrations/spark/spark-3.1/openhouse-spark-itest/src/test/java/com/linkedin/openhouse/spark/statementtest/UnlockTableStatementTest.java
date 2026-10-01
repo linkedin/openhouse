@@ -60,6 +60,12 @@ public class UnlockTableStatementTest {
   }
 
   @Test
+  public void testUnlockKeepsEscapedBackticks() {
+    spark.sql("ALTER TABLE openhouse.db.`ta``ble` UNLOCK REASON `SYSTEM``ONLY`");
+    assertUnlocked("db.ta`ble", "SYSTEM`ONLY");
+  }
+
+  @Test
   public void testUnlockSyntaxErrors() {
     Assertions.assertThrows(
         OpenhouseParseException.class,

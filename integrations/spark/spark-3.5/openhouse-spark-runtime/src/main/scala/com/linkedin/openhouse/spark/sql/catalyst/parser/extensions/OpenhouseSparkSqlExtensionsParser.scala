@@ -141,6 +141,7 @@ class OpenhouseParseException(
 case object OpenhouseSqlExtensionsPostProcessor extends OpenhouseSqlExtensionsBaseListener {
   override def exitQuotedIdentifier(ctx: QuotedIdentifierContext): Unit = {
     val token = ctx.BACKQUOTED_IDENTIFIER.getSymbol().asInstanceOf[CommonToken]
-    token.setText(token.getText.replace("`", ""))
+    val text = token.getText
+    token.setText(text.substring(1, text.length - 1).replace("``", "`"))
   }
 }
