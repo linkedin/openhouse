@@ -47,6 +47,8 @@ import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
 
 @SpringBootTest(classes = SpringH2Application.class)
 @AutoConfigureMockMvc
@@ -63,6 +65,7 @@ public class ViewsServiceH2IntegrationTest {
   private static final String VIEW_PATH = VIEWS_PATH + "/" + ViewModelConstants.VIEW_ID;
 
   @Autowired private MockMvc mvc;
+  @Autowired private WebApplicationContext webApplicationContext;
   @Autowired private ClusterProperties clusterProperties;
   @Autowired private StorageManager storageManager;
   @Autowired private OpenHouseInternalRepository openHouseInternalRepository;
@@ -265,7 +268,16 @@ public class ViewsServiceH2IntegrationTest {
   @Test
   public void configuredTokenInterceptorRejectsMissingCredentialsBeforeViewService()
       throws Exception {
-    mvc.perform(MockMvcRequestBuilders.get(VIEW_PATH).accept(MediaType.APPLICATION_JSON))
+    // The auto-configured MockMvc inherits a valid default token from MockMvcBuilderConfig, so
+    // prove both a truly absent header (client without that default) and an empty override.
+    MockMvcBuilders.webAppContextSetup(webApplicationContext)
+        .build()
+        .perform(MockMvcRequestBuilders.get(VIEW_PATH).accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isUnauthorized());
+    mvc.perform(
+            MockMvcRequestBuilders.get(VIEW_PATH)
+                .header("Authorization", "")
+                .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isUnauthorized());
   }
 

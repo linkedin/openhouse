@@ -98,7 +98,11 @@ public class ViewsManagedFailureAuditTest {
   @MockBean private DatabasesService databasesService;
   @MockBean private OpenHouseInternalViewRepository viewRepository;
   @MockBean private OpaHandler opaHandler;
-  @MockBean private AuditHandler<ServiceAuditEvent> serviceAuditHandler;
+  // SpringH2Application defines bean "serviceAuditHandler" and the scanned DummyServiceAuditHandler
+  // is a second candidate; ServiceAuditAspect injects by that field name, so replace that bean.
+  @MockBean(name = "serviceAuditHandler")
+  private AuditHandler<ServiceAuditEvent> serviceAuditHandler;
+
   @MockBean private AuditHandler<ViewAuditEvent> viewAuditHandler;
 
   private String jwtAccessToken;

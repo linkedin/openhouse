@@ -54,6 +54,8 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.HandlerExecutionChain;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import org.springframework.web.util.ServletRequestPathUtils;
@@ -70,6 +72,8 @@ abstract class ViewsManagedAuthMatrixBase {
   static final String VIEW_PATH = VIEWS_PATH + "/" + ViewModelConstants.VIEW_ID;
 
   @Autowired MockMvc mvc;
+
+  @Autowired WebApplicationContext webApplicationContext;
 
   @Autowired
   @Qualifier("requestMappingHandlerMapping")
@@ -125,6 +129,34 @@ abstract class ViewsManagedAuthMatrixBase {
     SecurityContextHolder.getContext()
         .setAuthentication(
             new UsernamePasswordAuthenticationToken(user, "unused", user.getAuthorities()));
+  }
+
+  /**
+   * The scanned {@code MockMvcBuilderConfig} adds a valid default Authorization header to every
+   * request of the auto-configured {@link #mvc}. This client is built from the same web context
+   * (same handler mappings and interceptors) without that customizer, so a request can carry no
+   * Authorization header at all.
+   */
+  MockMvc mvcWithoutDefaultCredentials() {
+    return MockMvcBuilders.webAppContextSetup(webApplicationContext).build();
+  }
+
+  /** Overrides the inherited default token with an empty Authorization header. */
+  static MockHttpServletRequestBuilder withoutCredentials(MockHttpServletRequestBuilder builder) {
+    return builder.header("Authorization", "");
+  }
+
+  /**
+   * Absent and empty credentials are both rejected by the token interceptor for reads and writes.
+   */
+  void assertMissingCredentialsAreUnauthorized() throws Exception {
+    MockMvc withoutDefault = mvcWithoutDefaultCredentials();
+    withoutDefault.perform(getView()).andExpect(status().isUnauthorized());
+    withoutDefault.perform(listViews()).andExpect(status().isUnauthorized());
+    withoutDefault.perform(postView()).andExpect(status().isUnauthorized());
+    mvc.perform(withoutCredentials(getView())).andExpect(status().isUnauthorized());
+    mvc.perform(withoutCredentials(listViews())).andExpect(status().isUnauthorized());
+    mvc.perform(withoutCredentials(postView())).andExpect(status().isUnauthorized());
   }
 
   MockHttpServletRequestBuilder withToken(MockHttpServletRequestBuilder builder) {
@@ -277,9 +309,7 @@ class ViewsManagedAuthMatrixTokenAndMethodSecurityTest extends ViewsManagedAuthM
   void missingTokenIsRejectedWith401ForReadAndWriteBeforeOpaOrService() throws Exception {
     assertTrue(tokenInterceptorInstalled(), "A1 context must install the token interceptor");
 
-    mvc.perform(getView()).andExpect(status().isUnauthorized());
-    mvc.perform(listViews()).andExpect(status().isUnauthorized());
-    mvc.perform(postView()).andExpect(status().isUnauthorized());
+    assertMissingCredentialsAreUnauthorized();
 
     assertNoOpaInteractions();
     verify(viewRepository, never()).prepareWrite(any(), any());
@@ -366,10 +396,11 @@ class ViewsManagedAuthMatrixTokenOnlyTest extends ViewsManagedAuthMatrixBase {
       throws Exception {
     assertTrue(tokenInterceptorInstalled(), "A1 context must install the token interceptor");
 
-    mvc.perform(getView()).andExpect(status().isUnauthorized());
+    assertMissingCredentialsAreUnauthorized();
     mvc.perform(getView().header("Authorization", "Bearer not-a-jwt"))
         .andExpect(status().isUnauthorized());
-    mvc.perform(postView()).andExpect(status().isUnauthorized());
+    mvc.perform(postView().header("Authorization", "Bearer not-a-jwt"))
+        .andExpect(status().isUnauthorized());
 
     assertNoOpaInteractions();
     verify(viewRepository, never()).prepareWrite(any(), any());
@@ -408,9 +439,9 @@ class ViewsManagedAuthMatrixMethodSecurityOnlyTest extends ViewsManagedAuthMatri
   void unauthenticatedReadAndWriteAreForbiddenWithoutOpaOrMutation() throws Exception {
     assertFalse(tokenInterceptorInstalled(), "A0 context must not install a token interceptor");
 
-    mvc.perform(getView()).andExpect(status().isForbidden());
-    mvc.perform(listViews()).andExpect(status().isForbidden());
-    mvc.perform(postView()).andExpect(status().isForbidden());
+    mvc.perform(withoutCredentials(getView())).andExpect(status().isForbidden());
+    mvc.perform(withoutCredentials(listViews())).andExpect(status().isForbidden());
+    mvc.perform(withoutCredentials(postView())).andExpect(status().isForbidden());
 
     assertNoOpaInteractions();
     verify(viewRepository, never()).prepareWrite(any(), any());
@@ -451,13 +482,13 @@ class ViewsManagedAuthMatrixBothOffTest extends ViewsManagedAuthMatrixBase {
   void developmentModeHasNoAuthenticationGateForReads() throws Exception {
     assertFalse(tokenInterceptorInstalled(), "A0 context must not install a token interceptor");
 
-    assertReadsSucceed(getView(), listViews());
+    assertReadsSucceed(withoutCredentials(getView()), withoutCredentials(listViews()));
     assertNoOpaInteractions();
   }
 
   @Test
   void developmentModeWriteReachesServiceWithoutOpaWhenOpaIsNotConfigured() throws Exception {
-    mvc.perform(postView()).andExpect(status().isCreated());
+    mvc.perform(withoutCredentials(postView())).andExpect(status().isCreated());
 
     assertNoOpaInteractions();
     verify(viewRepository).commitCreate(any(), any(), any());
