@@ -4,6 +4,7 @@ import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.List;
@@ -154,13 +155,24 @@ public interface TablesService {
 
   /**
    * Delete a table lock represented by databaseId and tableId if actingPrincipal has the right
-   * privilege.
+   * privilege. This overload only removes LEGACY locks.
    *
    * @param databaseId
    * @param tableId
    * @param actingPrincipal
    */
   void deleteLock(String databaseId, String tableId, String actingPrincipal);
+
+  /**
+   * Remove a lock only when its reason matches, using existing lock authorization. An inactive lock
+   * is a no-op.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param reason expected lock reason
+   * @param actingPrincipal authenticated caller requiring LOCK_ADMIN permission
+   */
+  void deleteLock(String databaseId, String tableId, LockReason reason, String actingPrincipal);
 
   /**
    * Given a databaseId, return a paginated list of soft deleted {@link TableDto}s.
