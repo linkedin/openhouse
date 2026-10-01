@@ -142,10 +142,11 @@ public class ViewsDualStorageH2IntegrationTest {
     Assertions.assertEquals(createdRoot, viewRoot(replaced.getTableLocation()));
   }
 
+  /** View metadata files live directly under the allocated root, with no metadata/ directory. */
   private static String viewRoot(String metadataLocation) {
-    int metadataDirectory = metadataLocation.lastIndexOf("/metadata/");
-    Assertions.assertTrue(metadataDirectory > 0, metadataLocation);
-    return metadataLocation.substring(0, metadataDirectory);
+    int lastSlash = metadataLocation.lastIndexOf('/');
+    Assertions.assertTrue(lastSlash > 0, metadataLocation);
+    return metadataLocation.substring(0, lastSlash);
   }
 
   private void ensureDatabaseExists(String databaseId) {
