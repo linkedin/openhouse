@@ -24,6 +24,7 @@ import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultClientGate;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultPolicyBypass;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
@@ -58,6 +59,9 @@ public class TablesServiceImpl implements TablesService {
   @Autowired TableUUIDGenerator tableUUIDGenerator;
 
   @Autowired ReadBridgeStripProtection readBridgeStripProtection;
+
+  @Autowired ColumnDefaultClientGate columnDefaultClientGate;
+
   /**
    * Lookup a table by databaseId and tableId in OpenHouse's Internal Catalog.
    *
@@ -79,6 +83,7 @@ public class TablesServiceImpl implements TablesService {
     authorizationUtils.checkTablePrivilege(
         tableDto, actingPrincipal, Privileges.GET_TABLE_METADATA);
     LockPolicyValidator.checkSystemOnlyAccess(tableDto);
+    columnDefaultClientGate.check(tableDto, null);
     return tableDto;
   }
 
@@ -100,7 +105,11 @@ public class TablesServiceImpl implements TablesService {
           databaseId, actingPrincipal, Privileges.GET_TABLE_METADATA);
     }
     Pageable pageable = createPageable(page, size, sortBy, null);
-    return openHouseInternalRepository.searchTables(databaseId, pageable, fields);
+    Page<TableDto> tables = openHouseInternalRepository.searchTables(databaseId, pageable, fields);
+    if (fields != null && fields.contains("tableLocation")) {
+      tables.forEach(table -> getTable(table.getDatabaseId(), table.getTableId(), actingPrincipal));
+    }
+    return tables;
   }
 
   @WithSpan("TablesService.putTable")
@@ -140,14 +149,18 @@ public class TablesServiceImpl implements TablesService {
           tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
       LockPolicyValidator.checkSystemOnlyAccess(tableDto.get());
 
-      // An optimization to avoid persisting unchanged TableDto into HouseTable.
-      if (!updateNeeded(tableDto.get(), createUpdateTableRequestBody)) {
-        return Pair.of(tableDto.get(), /*creation didn't occur*/ false);
-      }
     } else {
       // Check if table creator has the privilege to create a table in this DB.
       authorizationUtils.checkDatabasePrivilege(
           databaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
+    }
+    columnDefaultClientGate.check(
+        tableDto.orElse(null), createUpdateTableRequestBody.getTableProperties());
+    // Even a no-op update must pass client admission.
+    if (tableDto.isPresent()
+        && !createUpdateTableRequestBody.isStageReplace()
+        && !updateNeeded(tableDto.get(), createUpdateTableRequestBody)) {
+      return Pair.of(tableDto.get(), /*creation didn't occur*/ false);
     }
 
     // FIXME: save method redundantly issue existence check after findById is called above
