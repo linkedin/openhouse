@@ -583,6 +583,17 @@ scala> spark.sql("SHOW GRANTS ON DATABASE openhouse.db.tb").show
 
 ```
 
+#### UNLOCK
+
+A lock admin can remove a table's lock without loading the table. Without `REASON`, only a legacy lock is removed.
+With `REASON` (`LEGACY` or `SYSTEM_ONLY`, case-insensitive), the lock must have that reason. A mismatched, unknown, or
+blank reason fails and leaves the lock. Unlocking a table without a lock does nothing.
+
+```
+scala> spark.sql("ALTER TABLE openhouse.db.tb UNLOCK").show
+scala> spark.sql("ALTER TABLE openhouse.db.tb UNLOCK REASON SYSTEM_ONLY").show
+```
+
 ### Test through Livy
 
 Use the recipe in oh-hadoop-spark to start a spark cluster. In the root folder for the project you will find a script

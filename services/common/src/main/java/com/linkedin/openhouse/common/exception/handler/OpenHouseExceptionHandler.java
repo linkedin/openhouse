@@ -10,6 +10,7 @@ import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.common.exception.JobEngineException;
 import com.linkedin.openhouse.common.exception.JobStateConflictException;
+import com.linkedin.openhouse.common.exception.LockConflictException;
 import com.linkedin.openhouse.common.exception.NoSuchEntityException;
 import com.linkedin.openhouse.common.exception.NoSuchJobException;
 import com.linkedin.openhouse.common.exception.NoSuchSoftDeletedUserTableException;
@@ -23,9 +24,11 @@ import com.linkedin.openhouse.common.exception.UnsupportedClientOperationExcepti
 import io.swagger.v3.oas.annotations.Hidden;
 import java.util.Arrays;
 import java.util.NoSuchElementException;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.springframework.beans.TypeMismatchException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -36,6 +39,7 @@ import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
@@ -153,6 +157,32 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
     return new ResponseEntity<>(errorResponseBody, errorResponseBody.getStatus());
   }
 
+  /** Lists accepted values for an invalid enum parameter. */
+  @Override
+  protected ResponseEntity<Object> handleTypeMismatch(
+      TypeMismatchException ex, HttpHeaders headers, HttpStatus status, WebRequest request) {
+    Class<?> type = ex.getRequiredType();
+    if (!(ex instanceof MethodArgumentTypeMismatchException) || type == null || !type.isEnum()) {
+      return super.handleTypeMismatch(ex, headers, status, request);
+    }
+    String expected =
+        Arrays.stream(type.getEnumConstants())
+            .map(value -> ((Enum<?>) value).name())
+            .collect(Collectors.joining(", "));
+    ErrorResponseBody errorResponseBody =
+        ErrorResponseBody.builder()
+            .status(status)
+            .error(status.getReasonPhrase())
+            .message(
+                String.format(
+                    "Invalid %s '%s'. Expected one of: %s.",
+                    ((MethodArgumentTypeMismatchException) ex).getName(), ex.getValue(), expected))
+            .stacktrace(getAbbreviatedStackTrace(ex))
+            .cause(getExceptionCause(ex))
+            .build();
+    return new ResponseEntity<>(errorResponseBody, status);
+  }
+
   @Hidden
   @ExceptionHandler(EntityConcurrentModificationException.class)
   protected ResponseEntity<ErrorResponseBody> handleEntityConflict(
@@ -196,6 +226,20 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
             .message(cme.getMessage())
             .stacktrace(getAbbreviatedStackTrace(cme))
             .cause(getExceptionCause(cme))
+            .build();
+    return buildResponseEntity(errorResponseBody);
+  }
+
+  @Hidden
+  @ExceptionHandler(LockConflictException.class)
+  protected ResponseEntity<ErrorResponseBody> handleLockConflict(LockConflictException e) {
+    ErrorResponseBody errorResponseBody =
+        ErrorResponseBody.builder()
+            .status(HttpStatus.CONFLICT)
+            .error(HttpStatus.CONFLICT.getReasonPhrase())
+            .message(e.getMessage())
+            .stacktrace(getAbbreviatedStackTrace(e))
+            .cause(getExceptionCause(e))
             .build();
     return buildResponseEntity(errorResponseBody);
   }

@@ -124,6 +124,12 @@ public class GrantRevokeStatementTest {
   }
 
   @Test
+  public void testGrantKeepsEscapedBackticks() {
+    spark.sql("GRANT SELECT ON TABLE openhouse.db.`ta``ble` TO `sra``ikar`");
+    assertPlanValid(true, "TABLE", "db.ta`ble", "SELECT", "sra`ikar");
+  }
+
+  @Test
   public void testSimpleGrantDatabase() {
     for (String privilege : ImmutableList.of("CREATE TABLE")) {
       spark.sql(String.format("GRANT %s ON DATABASE openhouse.db TO sraikar", privilege));
