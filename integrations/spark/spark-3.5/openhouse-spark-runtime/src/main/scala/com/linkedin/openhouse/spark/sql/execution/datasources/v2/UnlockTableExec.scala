@@ -16,11 +16,11 @@ case class UnlockTableExec(
   override lazy val output: Seq[Attribute] = Nil
 
   override protected def run(): Seq[InternalRow] = {
-    // Calls the catalog directly because loading a locked table can fail.
+    // Skips loading, which fails on a SYSTEM_ONLY lock.
     IcebergCatalogMapper.toIcebergCatalog(catalog) match {
       case unlockableCatalog: SupportsUnlock =>
         unlockableCatalog.unlockTable(Spark3Util.identifierToTableIdentifier(ident), reason.orNull)
-        // Drop the cached table so this session no longer shows the lock.
+        // Clear the session's cached lock.
         catalog.invalidateTable(ident)
       case _ =>
         throw new UnsupportedOperationException(s"Catalog '${catalog.name()}' does not support UNLOCK")

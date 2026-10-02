@@ -64,7 +64,7 @@ class UnlockTableCatalogTest extends OpenHouseSparkITest {
               IllegalArgumentException.class,
               () -> spark.sql("ALTER TABLE " + table + " UNLOCK REASON " + reason));
         }
-        // A proxy that merges "//" or normalizes "." or ".." segments could turn lock into a drop.
+        // A normalizing proxy could turn these into a table drop.
         for (String dots : new String[] {"`.`", "`..`"}) {
           for (String sql :
               new String[] {

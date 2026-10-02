@@ -613,7 +613,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     log.debug("Calling unlockTable succeeded");
   }
 
-  // A proxy that merges "//" or normalizes "." and ".." segments would route the request elsewhere.
+  // A normalizing proxy could reroute empty, "." or ".." segments.
   private static void checkPathSegment(String name, String value) {
     Preconditions.checkArgument(!value.isEmpty(), "%s must not be empty", name);
     Preconditions.checkArgument(

@@ -132,7 +132,7 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
     return new ResponseEntity<>(errorResponseBody, errorResponseBody.getStatus());
   }
 
-  /** Lists accepted values for an invalid enum request parameter, such as a lock reason. */
+  /** Lists accepted values for an invalid enum parameter. */
   @Override
   protected ResponseEntity<Object> handleTypeMismatch(
       TypeMismatchException ex, HttpHeaders headers, HttpStatus status, WebRequest request) {
