@@ -30,7 +30,10 @@ import lombok.NoArgsConstructor;
     name = "table_operations_history",
     indexes = {
       @Index(name = "idx_toph_db_table", columnList = "database_name, table_name"),
-      @Index(name = "idx_toph_table_uuid_completed", columnList = "table_uuid, completed_at")
+      @Index(name = "idx_toph_table_uuid_completed", columnList = "table_uuid, completed_at"),
+      @Index(
+          name = "idx_toph_optype_uuid_completed",
+          columnList = "operation_type, table_uuid, completed_at")
     })
 @Getter
 @EqualsAndHashCode

@@ -61,5 +61,9 @@ CREATE TABLE IF NOT EXISTS table_operations_history (
   -- Commit-driven analyzer (loadLatestHistoryForTable): filter by table_uuid, ordered by
   -- completed_at. No existing index leads with table_uuid (the composite below leads with
   -- operation_type), so this query was a full scan without it.
-  INDEX idx_toph_table_uuid_completed (table_uuid, completed_at)
+  INDEX idx_toph_table_uuid_completed (table_uuid, completed_at),
+  -- Drives TableOperationHistoryRepository.findLatestPerTable: the correlated
+  -- MAX(completed_at) subquery becomes an index-only lookup per (operation_type,
+  -- table_uuid) instead of an O(N²) scan.
+  INDEX idx_toph_optype_uuid_completed (operation_type, table_uuid, completed_at)
 );
