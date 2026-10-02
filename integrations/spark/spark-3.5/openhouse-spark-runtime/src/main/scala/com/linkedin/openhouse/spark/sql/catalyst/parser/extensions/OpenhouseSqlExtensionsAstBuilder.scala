@@ -20,11 +20,16 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
   override def visitSetRetentionPolicy(ctx: SetRetentionPolicyContext): SetRetentionPolicy = {
     val tableName = typedVisit[Seq[String]](ctx.multipartIdentifier)
     val (granularity, count) = typedVisit[(String, Int)](ctx.retentionPolicy())
+    val timeZone: Option[String] =
+      Option(ctx.retentionPolicy().STRING()).map { s =>
+        val raw = s.getText
+        raw.substring(1, raw.length - 1)
+      }
     val (colName, colPattern) =
       if (ctx.columnRetentionPolicy() != null)
         typedVisit[(String, String)](ctx.columnRetentionPolicy())
       else (null, null)
-    SetRetentionPolicy(tableName, granularity, count, Option(colName), Option(colPattern))
+    SetRetentionPolicy(tableName, granularity, count, Option(colName), Option(colPattern), timeZone)
   }
 
   override def visitSetReplicationPolicy(ctx: SetReplicationPolicyContext): SetReplicationPolicy = {
