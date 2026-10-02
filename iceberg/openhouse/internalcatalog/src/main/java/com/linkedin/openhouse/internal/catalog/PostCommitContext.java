@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.internal.catalog;
 
+import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import lombok.Value;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -19,4 +20,18 @@ public class PostCommitContext {
 
   /** The table metadata as committed. */
   TableMetadata committedMetadata;
+
+  /** The canonical catalog record written by the same commit. */
+  HouseTable houseTable;
+
+  public PostCommitContext(TableIdentifier tableIdentifier, TableMetadata committedMetadata) {
+    this(tableIdentifier, committedMetadata, null);
+  }
+
+  public PostCommitContext(
+      TableIdentifier tableIdentifier, TableMetadata committedMetadata, HouseTable houseTable) {
+    this.tableIdentifier = tableIdentifier;
+    this.committedMetadata = committedMetadata;
+    this.houseTable = houseTable;
+  }
 }
