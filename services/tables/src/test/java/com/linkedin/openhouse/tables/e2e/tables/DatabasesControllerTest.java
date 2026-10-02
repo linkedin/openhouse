@@ -1,13 +1,12 @@
-package com.linkedin.openhouse.tables.e2e.h2;
+package com.linkedin.openhouse.tables.e2e.tables;
 
-import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX;
+import static com.linkedin.openhouse.tables.e2e.tables.ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX;
 import static com.linkedin.openhouse.tables.model.DatabaseModelConstants.GET_DATABASE_RESPONSE_BODY;
 import static com.linkedin.openhouse.tables.model.DatabaseModelConstants.GET_DATABASE_RESPONSE_BODY_DIFF_DB;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.linkedin.openhouse.cluster.storage.StorageManager;
-import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetDatabaseResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
@@ -37,7 +36,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 @Slf4j
 @SpringBootTest
 @AutoConfigureMockMvc
-@ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
+@ContextConfiguration(initializers = TableE2eContextInitializer.class)
 @WithMockUser(username = "testUser")
 public class DatabasesControllerTest {
 

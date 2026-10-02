@@ -24,10 +24,11 @@ plugins {
 
 // Configure unique port for OpenAPI spec generation to avoid conflicts during parallel builds
 openApi {
+  def specPort = project.findProperty('tableOpenApiPort') ?: '8000'
   customBootRun {
-    args = ["--server.port=8000"]
+    args = ["--server.port=${specPort}"]
   }
-  apiDocsUrl.set("http://localhost:8000/v3/api-docs")
+  apiDocsUrl.set("http://localhost:${specPort}/v3/api-docs")
 }
 
 dependencies {
@@ -47,7 +48,33 @@ dependencies {
   testImplementation 'org.springframework.security:spring-security-test:5.7.3'
   testImplementation 'org.springframework:spring-context-support:5.3.18'
   testImplementation(testFixtures(project(':services:common')))
+  testImplementation 'org.testcontainers:mysql:1.19.8'
+  testRuntimeOnly 'mysql:mysql-connector-java:8.0.33'
   testImplementation (project(':tables-test-fixtures:tables-test-fixtures_2.12')) {
     exclude group: 'com.linkedin.iceberg'
+  }
+}
+
+def tableE2eBackend = providers.gradleProperty('tableE2eBackend').getOrElse('docker')
+if (!(tableE2eBackend in ['docker', 'h2'])) {
+  throw new GradleException('tableE2eBackend must be docker or h2')
+}
+
+tasks.named('test') {
+  inputs.property('tableE2eBackend', tableE2eBackend)
+  systemProperty 'tableE2eBackend', tableE2eBackend
+  systemProperty 'spring.test.context.cache.maxSize', '1'
+  // The existing property initializer also uses java.io.tmpdir for per-context storage.
+  def testStorage = layout.buildDirectory.dir('e2e-storage')
+  systemProperty 'java.io.tmpdir', testStorage.get().asFile.absolutePath
+  doFirst { testStorage.get().asFile.mkdirs() }
+  if (tableE2eBackend == 'docker') {
+    maxHeapSize = '1536m'
+    def htsJar = project(':services:housetables').tasks.named('bootJar')
+    dependsOn htsJar
+    inputs.files(htsJar.flatMap { it.archiveFile })
+    inputs.dir(rootProject.file('services/housetables/ddl'))
+    systemProperty 'tableE2eHtsJar', htsJar.flatMap { it.archiveFile }.get().asFile.absolutePath
+    systemProperty 'tableE2eDdl', rootProject.file('services/housetables/ddl').absolutePath
   }
 }

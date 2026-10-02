@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.tables.mock.controller;
 
-import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX;
+import static com.linkedin.openhouse.tables.e2e.tables.ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.linkedin.openhouse.common.audit.CachingRequestBodyFilter;

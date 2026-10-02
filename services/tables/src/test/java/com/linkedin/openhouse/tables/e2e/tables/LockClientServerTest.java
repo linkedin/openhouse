@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.tables.e2e.h2;
+package com.linkedin.openhouse.tables.e2e.tables;
 
 import static com.linkedin.openhouse.tables.config.TablesMvcConstants.HTTP_HEADER_ACTION_TYPE;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.GET_TABLE_RESPONSE_BODY;
@@ -6,7 +6,6 @@ import static com.linkedin.openhouse.tables.model.TableModelConstants.buildCreat
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor.DummySecurityJWT;
-import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
 import com.linkedin.openhouse.tables.client.invoker.ApiClient;
@@ -39,13 +38,10 @@ import org.springframework.test.context.ContextConfiguration;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 @SpringBootTest(
-    classes = SpringH2Application.class,
+    classes = TablesE2eApplication.class,
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ContextConfiguration(
-    initializers = {
-      PropertyOverrideContextInitializer.class,
-      AuthorizationPropertiesInitializer.class
-    })
+    initializers = {TableE2eContextInitializer.class, AuthorizationPropertiesInitializer.class})
 @Import(LockClientServerTest.HeaderObservation.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class LockClientServerTest {

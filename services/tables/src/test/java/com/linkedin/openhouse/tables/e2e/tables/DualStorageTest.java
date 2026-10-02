@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.tables.e2e.h2;
+package com.linkedin.openhouse.tables.e2e.tables;
 
 import static com.linkedin.openhouse.tables.model.TableModelConstants.buildGetTableResponseBodyWithDbTbl;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.buildTableDto;
@@ -21,9 +21,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.TestPropertySource;
 
 @SpringBootTest
-@ContextConfiguration(initializers = CustomClusterPropertiesInitializer.class)
+@TestPropertySource(properties = "cluster.storages.default-type=hdfs")
+@ContextConfiguration(
+    initializers = {CustomClusterPropertiesInitializer.class, TableE2eContextInitializer.class})
 public class DualStorageTest {
 
   @Autowired HouseTableRepository houseTablesRepository;
@@ -50,7 +53,7 @@ public class DualStorageTest {
             .databaseId(hdfsDtoPrimaryKey.getDatabaseId())
             .tableId(hdfsDtoPrimaryKey.getTableId())
             .build();
-    Assertions.assertTrue(houseTablesRepository.existsById(hdfsHtsPrimaryKey));
+    Assertions.assertTrue(houseTablesRepository.findById(hdfsHtsPrimaryKey).isPresent());
     HouseTable houseTable = houseTablesRepository.findById(hdfsHtsPrimaryKey).get();
     // storage type hdfs
     Assertions.assertEquals(StorageType.HDFS.getValue(), houseTable.getStorageType());
@@ -65,7 +68,7 @@ public class DualStorageTest {
             .databaseId(localDtoPrimaryKey.getDatabaseId())
             .tableId(localDtoPrimaryKey.getTableId())
             .build();
-    Assertions.assertTrue(houseTablesRepository.existsById(localHtsPrimaryKey));
+    Assertions.assertTrue(houseTablesRepository.findById(localHtsPrimaryKey).isPresent());
     houseTable = houseTablesRepository.findById(localHtsPrimaryKey).get();
     // storage type local
     Assertions.assertEquals(StorageType.LOCAL.getValue(), houseTable.getStorageType());

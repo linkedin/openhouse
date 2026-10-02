@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.tablestest;
+package com.linkedin.openhouse.tables.e2e.tables;
 
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
@@ -29,15 +29,14 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
 
   Map<SoftDeletedTablePrimaryKey, HouseTable> softDeletedTables = new HashMap<>();
 
-  Optional<HouseTable> findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
-      String databaseId, String tableId);
-
   /* Default bodies throughout: Spring Data would derive a query from any abstract method name,
    * and none of these predicates is derivable. */
 
   String ENTITY_TYPE_TABLE = "TABLE";
 
   String ENTITY_TYPE_VIEW = "VIEW";
+
+  Optional<HouseTable> findByDatabaseIdAndTableId(String databaseId, String tableId);
 
   /** Untyped, so a typed list can filter before it paginates. */
   List<HouseTable> findByDatabaseId(String databaseId);
@@ -78,7 +77,7 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
   /** A view at a shared key is absent here, keeping it out of every table path. */
   @Override
   default Optional<HouseTable> findById(HouseTablePrimaryKey houseTablePrimaryKey) {
-    return this.findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
+    return this.findByDatabaseIdAndTableId(
             houseTablePrimaryKey.getDatabaseId(), houseTablePrimaryKey.getTableId())
         .filter(HouseTablesH2Repository::isTableOrLegacy)
         .map(HouseTablesH2Repository::hydrateEntityType);
@@ -105,7 +104,7 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
 
   @Override
   default Optional<HouseTable> findEntityById(HouseTablePrimaryKey houseTablePrimaryKey) {
-    return this.findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
+    return this.findByDatabaseIdAndTableId(
             houseTablePrimaryKey.getDatabaseId(), houseTablePrimaryKey.getTableId())
         .map(HouseTablesH2Repository::hydrateEntityType);
   }
@@ -113,7 +112,7 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
   /** Queries the shared key space directly; the table read would find nothing. */
   @Override
   default Optional<HouseTable> findViewById(HouseTablePrimaryKey houseTablePrimaryKey) {
-    return this.findByDatabaseIdIgnoreCaseAndTableIdIgnoreCase(
+    return this.findByDatabaseIdAndTableId(
             houseTablePrimaryKey.getDatabaseId(), houseTablePrimaryKey.getTableId())
         .filter(HouseTablesH2Repository::isView);
   }
@@ -155,25 +154,37 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
         .ifPresent(
             houseTable -> {
               HouseTable renamedTable =
-                  houseTable.toBuilder().tableId(toTableId).tableLocation(metadataLocation).build();
+                  houseTable
+                      .toBuilder()
+                      .databaseId(toDatabaseId)
+                      .tableId(toTableId)
+                      .tableLocation(metadataLocation)
+                      .build();
               this.save(renamedTable);
               this.delete(houseTable);
             });
   }
 
   @Override
-  default void deleteById(HouseTablePrimaryKey houseTablePrimaryKey, boolean isSoftDelete) {
+  default void deleteById(HouseTablePrimaryKey houseTablePrimaryKey, boolean purge) {
     // For the purpose of testing, move the table to a soft-deleted map instead of deleting it.
     // If HTS is enabled it will write to a different table
     if (this.findById(houseTablePrimaryKey).isPresent()) {
-      if (isSoftDelete) {
+      if (!purge) {
         SoftDeletedTablePrimaryKey key =
             SoftDeletedTablePrimaryKey.builder()
                 .databaseId(houseTablePrimaryKey.getDatabaseId())
                 .tableId(houseTablePrimaryKey.getTableId())
                 .deletedAtMs(System.currentTimeMillis())
                 .build();
-        softDeletedTables.put(key, this.findById(houseTablePrimaryKey).get());
+        softDeletedTables.put(
+            key,
+            this.findById(houseTablePrimaryKey)
+                .get()
+                .toBuilder()
+                .deletedAtMs(key.getDeletedAtMs())
+                .purgeAfterMs(key.getDeletedAtMs() + 86400000)
+                .build());
       }
       deleteById(houseTablePrimaryKey);
     }
@@ -224,6 +235,10 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
       HouseTable restoredTable = softDeletedTables.remove(key);
       // Restore the table to the main repository
       this.save(restoredTable);
+    } else {
+      // Throw NoSuchUserTableException when table is not found in soft deleted tables
+      throw new com.linkedin.openhouse.common.exception.NoSuchUserTableException(
+          databaseId, tableId);
     }
   }
 }

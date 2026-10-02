@@ -22,10 +22,11 @@ plugins {
 
 // Configure unique port for OpenAPI spec generation to avoid conflicts during parallel builds
 openApi {
+  def specPort = project.findProperty('htsOpenApiPort') ?: '8001'
   customBootRun {
-    args = ["--server.port=8001"]
+    args = ["--server.port=${specPort}"]
   }
-  apiDocsUrl.set("http://localhost:8001/v3/api-docs")
+  apiDocsUrl.set("http://localhost:${specPort}/v3/api-docs")
 }
 
 configurations {
@@ -50,5 +51,24 @@ dependencies {
   implementation "mysql:mysql-connector-java:8.+"
   implementation "org.jetbrains:annotations:16.0.3"
   testImplementation(testFixtures(project(':services:common')))
+  testImplementation 'org.testcontainers:mysql:1.19.8'
 }
 
+tasks.named('test') {
+  useJUnitPlatform {
+    excludeTags 'mysql-index'
+  }
+}
+
+tasks.register('mysqlIndexTest', Test) {
+  description = 'Checks actual HTS endpoint SQL plans against an isolated MySQL container'
+  group = 'verification'
+  testClassesDirs = sourceSets.test.output.classesDirs
+  classpath = sourceSets.test.runtimeClasspath
+  useJUnitPlatform {
+    includeTags 'mysql-index'
+  }
+  maxParallelForks = 1
+  systemProperty 'hts.index.reportDir', "${buildDir}/reports/mysql-index-plans"
+  systemProperty 'hts.index.mysqlImage', project.findProperty('mysqlIndexImage') ?: 'mysql:8.4.11'
+}

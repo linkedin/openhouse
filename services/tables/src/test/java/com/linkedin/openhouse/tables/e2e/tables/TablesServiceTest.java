@@ -1,8 +1,8 @@
-package com.linkedin.openhouse.tables.e2e.h2;
+package com.linkedin.openhouse.tables.e2e.tables;
 
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
 import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
-import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.*;
+import static com.linkedin.openhouse.tables.e2e.tables.ValidationUtilities.*;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 
 import com.google.common.collect.ImmutableMap;
@@ -11,12 +11,13 @@ import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
-import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
+import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
+import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
@@ -50,9 +51,11 @@ import org.springframework.data.util.Pair;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.ContextConfiguration;
 
-@SpringBootTest(classes = SpringH2Application.class)
-@ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
+@SpringBootTest(classes = TablesE2eApplication.class)
+@ContextConfiguration(initializers = TableE2eContextInitializer.class)
 public class TablesServiceTest {
+  @Autowired TableE2eFixtures fixtures;
+  @Autowired HouseTableRepository houseTablesRepository;
 
   @Autowired TablesService tablesService;
 
@@ -931,7 +934,7 @@ public class TablesServiceTest {
             .deletedAtMs(System.currentTimeMillis())
             .build();
 
-    HouseTablesH2Repository.softDeletedTables.put(
+    fixtures.seedSoftDeleted(
         SoftDeletedTablePrimaryKey.builder()
             .databaseId(databaseId)
             .tableId(TABLE_DTO.getTableId())
@@ -939,7 +942,7 @@ public class TablesServiceTest {
             .build(),
         softDeletedTable);
 
-    HouseTablesH2Repository.softDeletedTables.put(
+    fixtures.seedSoftDeleted(
         SoftDeletedTablePrimaryKey.builder()
             .databaseId(databaseId + "_2")
             .tableId(TABLE_DTO.getTableId() + "_2")
@@ -973,7 +976,7 @@ public class TablesServiceTest {
             .purgeAfterMs(System.currentTimeMillis())
             .build();
 
-    HouseTablesH2Repository.softDeletedTables.put(
+    fixtures.seedSoftDeleted(
         SoftDeletedTablePrimaryKey.builder()
             .databaseId(purgeDbId)
             .tableId(TABLE_DTO.getTableId())
@@ -1002,20 +1005,31 @@ public class TablesServiceTest {
     String restoreDbId = TABLE_DTO.getDatabaseId() + "_restore";
     long deletedAtMs = System.currentTimeMillis();
 
+    TableDto created =
+        openHouseInternalRepository.save(
+            TABLE_DTO
+                .toBuilder()
+                .databaseId(restoreDbId)
+                .tableVersion(INITIAL_TABLE_VERSION)
+                .build());
     HouseTable softDeletedTable =
         HouseTable.builder()
-            .tableId(TABLE_DTO.getTableId())
+            .tableId(created.getTableId())
             .databaseId(restoreDbId)
-            .tableLocation(TABLE_DTO.getTableLocation())
-            .tableVersion(TABLE_DTO.getTableVersion())
-            .tableCreator(TABLE_DTO.getTableCreator())
-            .lastModifiedTime(TABLE_DTO.getLastModifiedTime())
-            .creationTime(TABLE_DTO.getCreationTime())
+            .tableLocation(created.getTableLocation())
+            .tableVersion(created.getTableVersion())
+            .storageType(storageManager.getDefaultStorage().getType().getValue())
+            .creationTime(created.getCreationTime())
             .deletedAtMs(deletedAtMs)
             .purgeAfterMs(System.currentTimeMillis() + 86400000) // 1 day from now
             .build();
+    houseTablesRepository.deleteById(
+        HouseTablePrimaryKey.builder()
+            .databaseId(restoreDbId)
+            .tableId(created.getTableId())
+            .build());
 
-    HouseTablesH2Repository.softDeletedTables.put(
+    fixtures.seedSoftDeleted(
         SoftDeletedTablePrimaryKey.builder()
             .databaseId(restoreDbId)
             .tableId(TABLE_DTO.getTableId())
@@ -1037,6 +1051,10 @@ public class TablesServiceTest {
     result = tablesService.searchSoftDeletedTables(restoreDbId, null, 0, 10, null);
     Assertions.assertNotNull(result);
     Assertions.assertEquals(0, result.getContent().size());
+    TableDto restored = tablesService.getTable(restoreDbId, created.getTableId(), TEST_USER);
+    Assertions.assertEquals(created.getSchema(), restored.getSchema());
+    Assertions.assertEquals(created.getTableLocation(), restored.getTableLocation());
+    tablesService.deleteTable(restoreDbId, created.getTableId(), TEST_USER);
   }
 
   @Test
@@ -1045,8 +1063,12 @@ public class TablesServiceTest {
     long deletedAtMs = System.currentTimeMillis();
 
     // Try to restore a table that doesn't exist in soft deleted tables
+    Class<? extends RuntimeException> expected =
+        fixtures.usesDocker()
+            ? com.linkedin.openhouse.common.exception.NoSuchSoftDeletedUserTableException.class
+            : NoSuchUserTableException.class;
     Assertions.assertThrows(
-        NoSuchUserTableException.class,
+        expected,
         () ->
             tablesService.restoreTable(
                 nonExistentDbId, "nonexistent_table", deletedAtMs, TEST_USER));

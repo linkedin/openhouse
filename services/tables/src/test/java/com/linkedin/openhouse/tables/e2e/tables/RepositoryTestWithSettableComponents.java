@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.tables.e2e.h2;
+package com.linkedin.openhouse.tables.e2e.tables;
 
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.TABLE_DTO;
@@ -6,7 +6,7 @@ import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
-import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
+import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalTableOperations;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
@@ -50,7 +50,7 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
 
 @SpringBootTest
-@ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
+@ContextConfiguration(initializers = TableE2eContextInitializer.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_CLASS)
 @Import(SettableTestConfig.class)
 public class RepositoryTestWithSettableComponents {
@@ -152,19 +152,22 @@ public class RepositoryTestWithSettableComponents {
 
     BaseTable spyOptsMockedTable = Mockito.spy(new BaseTable(spyOperations, realTable.name()));
 
-    Catalog spyCatalog = Mockito.spy(Catalog.class);
+    OpenHouseInternalCatalog spyCatalog = Mockito.spy(OpenHouseInternalCatalog.class);
     Mockito.doReturn(spyOptsMockedTable).when(spyCatalog).loadTable(tableIdentifier);
+    // Route save() down the update branch: the neutral occupancy read reports an existing
+    // (non-view) table at the name, so no create/allocation runs.
+    Mockito.doReturn(
+            Optional.of(
+                HouseTable.builder()
+                    .databaseId(TABLE_DTO.getDatabaseId())
+                    .tableId(TABLE_DTO.getTableId())
+                    .entityType("TABLE")
+                    .build()))
+        .when(spyCatalog)
+        .findEntityById(tableIdentifier);
     ((SettableInternalRepositoryForTest) openHouseInternalRepository).setCatalog(spyCatalog);
-    // the following spy object avoid execution path enter table-creation branch that doesn't
-    // contain retry logic.
+    // the following spy object serves as the client of the Iceberg Catalog that drives the update.
     OpenHouseInternalRepository spyRepo = Mockito.spy(openHouseInternalRepository);
-    Mockito.doReturn(true)
-        .when(spyRepo)
-        .existsById(
-            TableDtoPrimaryKey.builder()
-                .tableId(TABLE_DTO.getTableId())
-                .databaseId(TABLE_DTO.getDatabaseId())
-                .build());
 
     // step IV execute the table update in internal repository level.
     Map<String, String> props = new HashMap<>(creationDTO.getTableProperties());
@@ -296,7 +299,7 @@ public class RepositoryTestWithSettableComponents {
                       + "."
                       + TABLE_DTO.getTableId()));
 
-      Catalog spyCatalog = Mockito.spy(Catalog.class);
+      OpenHouseInternalCatalog spyCatalog = Mockito.spy(OpenHouseInternalCatalog.class);
       Mockito.doReturn(spyOptsMockedTable).when(spyCatalog).loadTable(tableIdentifier);
 
       ((SettableInternalRepositoryForTest) openHouseInternalRepository).setCatalog(spyCatalog);

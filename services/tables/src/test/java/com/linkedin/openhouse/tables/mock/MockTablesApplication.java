@@ -39,7 +39,7 @@ import org.springframework.context.annotation.FilterType;
     excludeFilters =
         @ComponentScan.Filter(
             type = FilterType.REGEX,
-            pattern = "com.linkedin.openhouse.tables.e2e.h2.*"))
+            pattern = "com.linkedin.openhouse.tables.e2e.tables.*"))
 @EntityScan(
     basePackages = {
       "com.linkedin.openhouse.tables.model",
