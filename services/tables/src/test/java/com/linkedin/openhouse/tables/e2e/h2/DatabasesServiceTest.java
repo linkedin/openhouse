@@ -3,7 +3,6 @@ package com.linkedin.openhouse.tables.e2e.h2;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.SHARED_TABLE_DTO;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.TEST_USER;
 
-import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.services.DatabasesService;
 import org.junit.jupiter.api.Assertions;
@@ -13,7 +12,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ContextConfiguration;
 
 @SpringBootTest(classes = SpringH2Application.class)
-@ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
+@ContextConfiguration(initializers = TableE2eContextInitializer.class)
 public class DatabasesServiceTest {
 
   @Autowired DatabasesService databasesService;
