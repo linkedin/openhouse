@@ -23,9 +23,6 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew clean build
 
-      - name: Run HouseTables MySQL Index Tests
-        run: ./gradlew :services:housetables:mysqlIndexTest
-
       # The MySQL-backed variant of oh-only. It costs one extra container and lets the
       # House Tables tests below reach the database directly, which is the only way to
       # cover a legacy NULL entity_type and to read the column back after a restore.
