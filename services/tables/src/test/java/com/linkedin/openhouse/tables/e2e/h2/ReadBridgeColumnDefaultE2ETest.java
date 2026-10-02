@@ -68,7 +68,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
  * table fails the same way: the stored table is at fault, not the request. Create and update
  * responses omit {@code config}. Resolver unit tests cover the same matrix.
  */
-@SpringBootTest
+@SpringBootTest(properties = "cluster.read-bridge.column-default.minimum-client-version=0.5.100")
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_CLASS)
 @Import(ReadBridgeColumnDefaultE2ETest.StubDefaults.class)
@@ -103,9 +103,9 @@ public class ReadBridgeColumnDefaultE2ETest {
   }
 
   @Autowired private MockMvc mvc;
-  @Autowired private StorageManager storageManager;
   @Autowired private ToggleStatusesRepository toggleStatusesRepository;
   @Autowired private Catalog catalog;
+  @Autowired private StorageManager storageManager;
 
   private GetTableResponseBody created;
   private TableToggleStatus toggleStatus;
@@ -127,8 +127,7 @@ public class ReadBridgeColumnDefaultE2ETest {
   public void create_omitsConfigAndGetStampsColumnDefaultWhenEnabled() throws Exception {
     created = create(uniqueTable("prop_on"), Collections.singletonMap(ENABLED_PROP, "true"));
 
-    MvcResult createdResult =
-        RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
+    MvcResult createdResult = createTable();
     jsonPath("$.config").doesNotExist().match(createdResult);
 
     getTable()
@@ -140,7 +139,7 @@ public class ReadBridgeColumnDefaultE2ETest {
   @Test
   public void get_omitsColumnDefaultConfigWhenFeatureDisabled() throws Exception {
     created = create(uniqueTable("prop_off"), Collections.singletonMap(ENABLED_PROP, "false"));
-    RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
+    createTable();
     getTable()
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.config['" + CONFIG_KEY + "']").doesNotExist());
@@ -149,7 +148,7 @@ public class ReadBridgeColumnDefaultE2ETest {
   @Test
   public void get_omitsConfigWhenNoPropertyAndNoHtsToggle() throws Exception {
     created = create(uniqueTable("no_ramp"), Collections.emptyMap());
-    RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
+    createTable();
     getTable()
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.config['" + CONFIG_KEY + "']").doesNotExist());
@@ -160,7 +159,7 @@ public class ReadBridgeColumnDefaultE2ETest {
     String tableId = uniqueTable("hts_on");
     created = create(tableId, Collections.emptyMap());
     activateHtsToggle(created);
-    RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
+    createTable();
     getTable()
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.config['" + CONFIG_KEY + "']", is("\"US\"")));
@@ -171,7 +170,7 @@ public class ReadBridgeColumnDefaultE2ETest {
     created =
         create(uniqueTable("hts_on_prop_off"), Collections.singletonMap(ENABLED_PROP, "false"));
     activateHtsToggle(created);
-    RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
+    createTable();
     getTable()
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.config['" + CONFIG_KEY + "']").doesNotExist());
@@ -181,7 +180,7 @@ public class ReadBridgeColumnDefaultE2ETest {
   public void get_unparseablePropertyFailsClosedEvenIfHtsActive() throws Exception {
     created = create(uniqueTable("bad_prop"), Collections.singletonMap(ENABLED_PROP, "sometimes"));
     activateHtsToggle(created);
-    RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
+    createTable();
     getTable()
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.config['" + CONFIG_KEY + "']").doesNotExist());
@@ -191,7 +190,7 @@ public class ReadBridgeColumnDefaultE2ETest {
   @Test
   public void get_failsWhenSourceCannotApplyADefault() throws Exception {
     created = create(uniqueTable("unusable"), Collections.singletonMap(ENABLED_PROP, "true"));
-    RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
+    createTable();
     failing = true;
 
     getTable()
@@ -204,7 +203,7 @@ public class ReadBridgeColumnDefaultE2ETest {
   public void put_failsAsServerErrorWhenStoredDefaultCannotBeApplied() throws Exception {
     created =
         create(uniqueTable("stored_unusable"), Collections.singletonMap(ENABLED_PROP, "true"));
-    RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
+    createTable();
     GetTableResponseBody current =
         buildGetTableResponseBody(getTable().andExpect(status().isOk()).andReturn());
     current.getTableProperties().put("user.new", "value");
@@ -223,7 +222,7 @@ public class ReadBridgeColumnDefaultE2ETest {
   @Test
   public void putWithMatchingOverlay_doesNotPersistInitialDefault() throws Exception {
     created = create(uniqueTable("persist_drop"), Collections.singletonMap(ENABLED_PROP, "true"));
-    RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
+    createTable();
 
     MvcResult get = getTable().andExpect(status().isOk()).andReturn();
     GetTableResponseBody current = buildGetTableResponseBody(get);
@@ -242,10 +241,97 @@ public class ReadBridgeColumnDefaultE2ETest {
   }
 
   @Test
+  public void incompatibleClientsCannotReadOrExposeMetadataLocations() throws Exception {
+    created = create(uniqueTable("client_gate"), Collections.singletonMap(ENABLED_PROP, "true"));
+    createTable();
+    String path = "/v1/databases/" + created.getDatabaseId() + "/tables/" + created.getTableId();
+    for (String[] client :
+        new String[][] {
+          {"trino", "0.5.100"},
+          {"spark", "0.5.99"},
+          {"spark", "unknown"},
+          {"spark", "4.2.100"},
+          {"spark", "0.5.100-SNAPSHOT"}
+        }) {
+      mvc.perform(
+              MockMvcRequestBuilders.get(path)
+                  .header("X-Client-Name", client[0])
+                  .header("User-Agent", "openhouse-java-client/" + client[1]))
+          .andExpect(status().isUnprocessableEntity())
+          .andExpect(jsonPath("$.tableLocation").doesNotExist());
+    }
+    mvc.perform(MockMvcRequestBuilders.get(path)).andExpect(status().isUnprocessableEntity());
+    mvc.perform(
+            MockMvcRequestBuilders.get(path)
+                .header("X-OpenHouse-Dangerously-Bypass-Column-Default-Policy", "true"))
+        .andExpect(status().isOk());
+    mvc.perform(
+            MockMvcRequestBuilders.get(path)
+                .header("Authorization", "")
+                .header("X-OpenHouse-Dangerously-Bypass-Column-Default-Policy", "true"))
+        .andExpect(status().isUnauthorized());
+    mvc.perform(
+            MockMvcRequestBuilders.post("/v2/databases/d1/tables/search")
+                .param("fields", "tableLocation"))
+        .andExpect(status().isUnprocessableEntity());
+    mvc.perform(MockMvcRequestBuilders.post("/v2/databases/d1/tables/search"))
+        .andExpect(status().isOk());
+  }
+
+  @Test
+  public void writesCannotBypassAdmissionByRemovingOptIn() throws Exception {
+    created = create(uniqueTable("write_gate"), Collections.singletonMap(ENABLED_PROP, "true"));
+    String path = "/v1/databases/" + created.getDatabaseId() + "/tables/" + created.getTableId();
+    mvc.perform(
+            MockMvcRequestBuilders.put(path)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    buildCreateUpdateTableRequestBody(created)
+                        .toBuilder()
+                        .baseTableVersion("INITIAL_VERSION")
+                        .build()
+                        .toJson()))
+        .andExpect(status().isUnprocessableEntity());
+    MvcResult initial = createTable();
+    CreateUpdateTableRequestBody update =
+        buildCreateUpdateTableRequestBody(buildGetTableResponseBody(initial));
+    Map<String, String> properties = new HashMap<>(update.getTableProperties());
+    properties.remove(ENABLED_PROP);
+    update = update.toBuilder().tableProperties(properties).build();
+    mvc.perform(
+            MockMvcRequestBuilders.put(path)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(update.toJson()))
+        .andExpect(status().isUnprocessableEntity());
+    mvc.perform(
+            MockMvcRequestBuilders.put(path + "/iceberg/v2/snapshots")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    IcebergSnapshotsRequestBody.builder()
+                        .baseTableVersion(update.getBaseTableVersion())
+                        .createUpdateTableRequestBody(update)
+                        .jsonSnapshots(Collections.emptyList())
+                        .build()
+                        .toJson()))
+        .andExpect(status().isUnprocessableEntity());
+    getTable()
+        .andExpect(jsonPath("$.tableLocation", is(update.getBaseTableVersion())))
+        .andExpect(jsonPath("$.tableProperties['" + ENABLED_PROP + "']", is("true")));
+    properties.put(ENABLED_PROP, "true");
+    properties.put("user.override", "accepted");
+    mvc.perform(
+            MockMvcRequestBuilders.put(path)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(update.toBuilder().tableProperties(properties).build().toJson())
+                .header("X-OpenHouse-Dangerously-Bypass-Column-Default-Policy", "true"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.tableProperties['user.override']", is("accepted")));
+  }
+
+  @Test
   public void policyBypassAllowsDisablingCommittedOptIn() throws Exception {
     created = create(uniqueTable("disable"), Collections.singletonMap(ENABLED_PROP, "true"));
-    MvcResult initial =
-        RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
+    MvcResult initial = createTable();
     CreateUpdateTableRequestBody update =
         buildCreateUpdateTableRequestBody(buildGetTableResponseBody(initial));
     Map<String, String> properties = new HashMap<>(update.getTableProperties());
@@ -253,7 +339,11 @@ public class ReadBridgeColumnDefaultE2ETest {
     String body = update.toBuilder().tableProperties(properties).build().toJson();
     String path = "/v1/databases/" + created.getDatabaseId() + "/tables/" + created.getTableId();
     mvc.perform(
-            MockMvcRequestBuilders.put(path).contentType(MediaType.APPLICATION_JSON).content(body))
+            MockMvcRequestBuilders.put(path)
+                .header("X-Client-Name", "spark")
+                .header("User-Agent", "openhouse-java-client/0.5.100")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
         .andExpect(status().isBadRequest())
         .andExpect(
             jsonPath("$.message", containsString("dangerously-bypass-column-default-policy")));
@@ -272,6 +362,22 @@ public class ReadBridgeColumnDefaultE2ETest {
         .andExpect(jsonPath("$.config['" + CONFIG_KEY + "']").doesNotExist());
   }
 
+  private MvcResult createTable() throws Exception {
+    return mvc.perform(
+            MockMvcRequestBuilders.post("/v1/databases/" + created.getDatabaseId() + "/tables")
+                .header("X-Client-Name", "spark")
+                .header("User-Agent", "openhouse-java-client/0.5.100")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    buildCreateUpdateTableRequestBody(created)
+                        .toBuilder()
+                        .baseTableVersion("INITIAL_VERSION")
+                        .build()
+                        .toJson()))
+        .andExpect(status().isCreated())
+        .andReturn();
+  }
+
   /**
    * Type 2 gates the rewrite snapshots a snapshots PUT adds on any branch, not snapshots already on
    * the table. https://github.com/linkedin/openhouse/issues/693
@@ -280,8 +386,7 @@ public class ReadBridgeColumnDefaultE2ETest {
   public void snapshotsPut_gatesAddedBranchRewritesButNotRefsAtPersistedRewrites()
       throws Exception {
     created = create(uniqueTable("branch_rewrite"), Collections.singletonMap(ENABLED_PROP, "true"));
-    MvcResult current =
-        RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
+    MvcResult current = createTable();
     TableIdentifier identifier = TableIdentifier.of(created.getDatabaseId(), created.getTableId());
 
     Table table = catalog.loadTable(identifier);
@@ -337,6 +442,8 @@ public class ReadBridgeColumnDefaultE2ETest {
                         + "/databases/%s/tables/%s/iceberg/v2/snapshots",
                     created.getDatabaseId(),
                     created.getTableId()))
+            .header("X-Client-Name", "spark")
+            .header("User-Agent", "openhouse-java-client/0.5.100")
             .contentType(MediaType.APPLICATION_JSON)
             .content(request.toJson())
             .accept(MediaType.APPLICATION_JSON));
@@ -403,6 +510,8 @@ public class ReadBridgeColumnDefaultE2ETest {
                     ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/%s",
                     created.getDatabaseId(),
                     created.getTableId()))
+            .header("X-Client-Name", "spark")
+            .header("User-Agent", "openhouse-java-client/0.5.100")
             .accept(MediaType.APPLICATION_JSON));
   }
 
@@ -413,6 +522,8 @@ public class ReadBridgeColumnDefaultE2ETest {
                     ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/%s",
                     table.getDatabaseId(),
                     table.getTableId()))
+            .header("X-Client-Name", "spark")
+            .header("User-Agent", "openhouse-java-client/0.5.100")
             .contentType(MediaType.APPLICATION_JSON)
             .content(buildCreateUpdateTableRequestBody(table).toJson())
             .accept(MediaType.APPLICATION_JSON));

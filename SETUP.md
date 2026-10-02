@@ -399,17 +399,27 @@ scala> spark.sql("SHOW TBLPROPERTIES openhouse.db.tb").show()
 
 ```
 
-#### Default-value opt-in
+#### Default-value client compatibility
 
-Once `read-bridge.column-default.enabled=true` is committed, it cannot be changed or removed.
-`false`, an unparseable value and an absent property remain changeable.
+Tables with `read-bridge.column-default.enabled=true` require `X-Client-Name: spark` and
+`User-Agent: openhouse-java-client/<version>` for table loads, metadata-location searches, and
+metadata/snapshot commits. Configure `cluster.read-bridge.column-default.minimum-client-version`
+to a verified compatible JAR release. Unset/invalid minima and missing/unknown/prerelease client
+versions fail closed with HTTP **422**. Numeric versions are compared only within the same major
+release family, so LI `4.x` is not mistakenly treated as newer than OSS `0.x`.
+
+Use `spark.sql.catalog.openhouse.client-name=spark` if the Spark catalog does not already identify
+itself. Telemetry is self-reported: `client-version` must reflect the actual JAR, not a fabricated
+version. New version stamping is not part of this gate.
 
 The default-off escape hatch is
 `spark.sql.catalog.openhouse.dangerously-bypass-column-default-policy=true` (or the same suffix in
-Java catalog properties). It bypasses only column-default policy checks, currently the rule that a
-committed `read-bridge.column-default.enabled=true` cannot be changed or removed. Incorrect reads or
-writes may result. Authentication, authorization, default resolution and default-value write
-protections still apply. Old JARs without this parameter need an upgrade/backport to use it.
+Java catalog properties). It bypasses only column-default policy checks: client compatibility and
+the rule that a committed `read-bridge.column-default.enabled=true` cannot be changed or removed.
+Incorrect reads or writes may result. Authentication, authorization, default resolution and
+default-value write protections still apply. Old JARs without this parameter need an
+upgrade/backport to use it. Removing table opt-in in a write is not a bypass.
+Administrative operations, cached metadata and direct storage access are unchanged.
 
 #### SET POLICY
 

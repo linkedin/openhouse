@@ -15,6 +15,7 @@ import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PoliciesSpecMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultClientGate;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
@@ -59,18 +60,22 @@ class SystemOnlyLockPolicyServiceTest {
         .thenReturn(UUID.randomUUID());
     ReadBridgeStripProtection protection = mock(ReadBridgeStripProtection.class);
     when(protection.prepare(any(), any())).thenAnswer(invocation -> invocation.getArgument(1));
+    // No table here opts into column defaults, so the gate admits every request.
+    ColumnDefaultClientGate gate = new ColumnDefaultClientGate("");
     tables = new TablesServiceImpl();
     tables.openHouseInternalRepository = repository;
     tables.tablesMapper = mapper;
     tables.authorizationUtils = authorization;
     tables.tableUUIDGenerator = generator;
     tables.readBridgeStripProtection = protection;
+    tables.columnDefaultClientGate = gate;
     snapshots = new IcebergSnapshotsServiceImpl();
     snapshots.openHouseInternalRepository = repository;
     snapshots.tablesMapper = mapper;
     snapshots.authorizationUtils = authorization;
     snapshots.tableUUIDGenerator = generator;
     snapshots.readBridgeStripProtection = protection;
+    snapshots.columnDefaultClientGate = gate;
     systemOnly =
         LockState.builder()
             .locked(true)
