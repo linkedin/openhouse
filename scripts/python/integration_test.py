@@ -1,5 +1,6 @@
 import requests
 import sys
+from table_hts_integration_test import run_tests as run_table_hts_tests
 
 DATABASE_ID = "d3"
 TABLE_ID = "t1"
@@ -77,5 +78,6 @@ if __name__ == '__main__':
     test_delete_table(token_str)
     test_get_table_not_found(token_str)
     
-    print("All tests passed successfully")
+    run_table_hts_tests(token_str)
 
+    print("All tests passed successfully")
