@@ -9,7 +9,9 @@ import java.io.UncheckedIOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import org.apache.iceberg.SnapshotRef;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -44,9 +46,7 @@ public class ReadBridgeStripProtectionTest {
   @Test
   public void noneSource_stillStripsInitialDefault() throws ColumnDefaultException {
     TableDto incoming = ramped(SCHEMA_WITH_DEFAULT, overwrite(10));
-    ReadBridgeStripProtection protection =
-        new ReadBridgeStripProtection(
-            new ReadBridgeConfigResolver(ColumnDefaultsSource.NONE, ALL_ON));
+    ReadBridgeStripProtection protection = protection(ColumnDefaultsSource.NONE);
 
     TableDto prepared = protection.prepare(ramped(SCHEMA_WITHOUT_DEFAULT), incoming);
     Assertions.assertFalse(prepared.getSchema().contains("initial-default"));
@@ -103,12 +103,72 @@ public class ReadBridgeStripProtectionTest {
 
   @Test
   public void historicalOverwriteDoesNotGateCurrentAppend() throws ColumnDefaultException {
-    ReadBridgeStripProtection protection = protection(FIELD_2);
+    ReadBridgeStripProtection protection = protection(FIELD_2, 1L);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming =
         ramped(SCHEMA_WITHOUT_DEFAULT, snapshots(overwriteJson(1), appendJson(10)), refs(10));
 
     Assertions.assertSame(incoming, protection.prepare(existing, incoming));
+  }
+
+  @Test
+  public void branchOverwriteAddedAlongsideMainAppend_rejected() {
+    ReadBridgeStripProtection protection = protection(FIELD_2, 1L);
+    Map<String, String> refs = refs(11);
+    refs.put("feature", ref(20, "branch"));
+    TableDto incoming =
+        ramped(
+            SCHEMA_WITHOUT_DEFAULT,
+            snapshots(appendJson(1), appendJson(11), overwriteJson(20)),
+            refs);
+
+    ColumnDefaultException thrown =
+        Assertions.assertThrows(
+            ColumnDefaultException.class,
+            () -> protection.prepare(ramped(SCHEMA_WITHOUT_DEFAULT), incoming));
+    Assertions.assertEquals(ColumnDefaultException.Operation.REWRITE, thrown.getOperation());
+  }
+
+  @Test
+  public void stagedWapOverwriteWithoutRef_rejected() {
+    ReadBridgeStripProtection protection = protection(FIELD_2, 1L);
+    TableDto incoming =
+        ramped(SCHEMA_WITHOUT_DEFAULT, snapshots(appendJson(1), overwriteJson(20)), refs(1));
+
+    ColumnDefaultException thrown =
+        Assertions.assertThrows(
+            ColumnDefaultException.class,
+            () -> protection.prepare(ramped(SCHEMA_WITHOUT_DEFAULT), incoming));
+    Assertions.assertEquals(ColumnDefaultException.Operation.REWRITE, thrown.getOperation());
+  }
+
+  @Test
+  public void branchAndTagAtPersistedOverwriteHead_notRewrite() throws ColumnDefaultException {
+    ReadBridgeStripProtection protection = protection(FIELD_2, 1L);
+    Map<String, String> refs = refs(1);
+    refs.put("feature", ref(1, "branch"));
+    refs.put("release", ref(1, "tag"));
+    TableDto incoming = ramped(SCHEMA_WITHOUT_DEFAULT, snapshots(overwriteJson(1)), refs);
+
+    Assertions.assertSame(incoming, protection.prepare(ramped(SCHEMA_WITHOUT_DEFAULT), incoming));
+  }
+
+  @Test
+  public void unreadablePersistedSnapshots_failsClosed() {
+    ReadBridgeStripProtection protection =
+        new ReadBridgeStripProtection(
+            new ReadBridgeConfigResolver(FIELD_2, ALL_ON),
+            key -> {
+              throw new IllegalStateException("catalog unavailable");
+            });
+    TableDto incoming = ramped(SCHEMA_WITHOUT_DEFAULT, overwrite(10));
+
+    ColumnDefaultException thrown =
+        Assertions.assertThrows(
+            ColumnDefaultException.class,
+            () -> protection.prepare(ramped(SCHEMA_WITHOUT_DEFAULT), incoming));
+    Assertions.assertEquals(ColumnDefaultException.Operation.UNUSABLE, thrown.getOperation());
+    Assertions.assertTrue(thrown.getMessage().contains("catalog unavailable"));
   }
 
   @Test
@@ -384,8 +444,12 @@ public class ReadBridgeStripProtectionTest {
     }
   }
 
-  private static ReadBridgeStripProtection protection(ColumnDefaultsSource source) {
-    return new ReadBridgeStripProtection(new ReadBridgeConfigResolver(source, ALL_ON));
+  /** {@code persisted}: snapshot ids already committed to the table, i.e. history. */
+  private static ReadBridgeStripProtection protection(
+      ColumnDefaultsSource source, Long... persisted) {
+    Set<Long> persistedIds = new HashSet<>(Arrays.asList(persisted));
+    return new ReadBridgeStripProtection(
+        new ReadBridgeConfigResolver(source, ALL_ON), key -> persistedIds);
   }
 
   private static TableDto ramped(String schema) {
@@ -443,6 +507,10 @@ public class ReadBridgeStripProtectionTest {
     Map<String, String> refs = new HashMap<>();
     refs.put(SnapshotRef.MAIN_BRANCH, "{\"snapshot-id\":" + snapshotId + ",\"type\":\"branch\"}");
     return refs;
+  }
+
+  private static String ref(long snapshotId, String type) {
+    return "{\"snapshot-id\":" + snapshotId + ",\"type\":\"" + type + "\"}";
   }
 
   private static Map<String, String> refsFrom(String jsonSnapshot) {

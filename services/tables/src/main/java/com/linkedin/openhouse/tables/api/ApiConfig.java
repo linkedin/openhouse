@@ -5,6 +5,7 @@ import com.linkedin.openhouse.tables.api.handler.impl.OpenHouseTablesApiHandler;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultsSource;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
+import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
@@ -31,7 +32,9 @@ public class ApiConfig {
 
   @Bean
   public ReadBridgeStripProtection readBridgeStripProtection(
-      ReadBridgeConfigResolver readBridgeConfigResolver) {
-    return new ReadBridgeStripProtection(readBridgeConfigResolver);
+      ReadBridgeConfigResolver readBridgeConfigResolver,
+      OpenHouseInternalRepository openHouseInternalRepository) {
+    return new ReadBridgeStripProtection(
+        readBridgeConfigResolver, openHouseInternalRepository::findSnapshotIds);
   }
 }

@@ -832,6 +832,17 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
                     .build());
   }
 
+  @Override
+  public Set<Long> findSnapshotIds(TableDtoPrimaryKey tableDtoPrimaryKey) {
+    Table table =
+        catalog.loadTable(
+            TableIdentifier.of(
+                tableDtoPrimaryKey.getDatabaseId(), tableDtoPrimaryKey.getTableId()));
+    Set<Long> snapshotIds = new HashSet<>();
+    table.snapshots().forEach(snapshot -> snapshotIds.add(snapshot.snapshotId()));
+    return snapshotIds;
+  }
+
   // FIXME: Likely need a cache layer to avoid expensive tableScan.
   @Timed(metricKey = MetricsConstant.REPO_TABLE_EXISTS_TIME)
   @Override

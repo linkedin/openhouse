@@ -7,6 +7,7 @@ import static com.linkedin.openhouse.tables.model.TableModelConstants.buildGetTa
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -19,8 +20,10 @@ import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
+import com.linkedin.openhouse.tables.model.IcebergSnapshotsModelTestUtilities;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException.Reason;
@@ -29,12 +32,23 @@ import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
 import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
 import com.linkedin.openhouse.tables.toggle.model.TableToggleStatus;
 import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;
+import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
+import org.apache.iceberg.DataFile;
 import org.apache.iceberg.SchemaParser;
+import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotParser;
+import org.apache.iceberg.SnapshotRef;
+import org.apache.iceberg.SnapshotRefParser;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -92,6 +106,7 @@ public class ReadBridgeColumnDefaultE2ETest {
   @Autowired private MockMvc mvc;
   @Autowired private StorageManager storageManager;
   @Autowired private ToggleStatusesRepository toggleStatusesRepository;
+  @Autowired private Catalog catalog;
 
   private GetTableResponseBody created;
   private TableToggleStatus toggleStatus;
@@ -215,15 +230,8 @@ public class ReadBridgeColumnDefaultE2ETest {
 
     MvcResult get = getTable().andExpect(status().isOk()).andReturn();
     GetTableResponseBody current = buildGetTableResponseBody(get);
-    ObjectMapper mapper = new ObjectMapper();
-    JsonNode root = mapper.readTree(current.getSchema());
-    for (JsonNode field : root.get("fields")) {
-      if (field.get("id").asInt() == 2) {
-        ((ObjectNode) field).put("initial-default", "US");
-      }
-    }
     GetTableResponseBody overlay =
-        current.toBuilder().schema(mapper.writeValueAsString(root)).build();
+        current.toBuilder().schema(withInitialDefault(current.getSchema())).build();
 
     mvc.perform(
             MockMvcRequestBuilders.put(
@@ -275,6 +283,104 @@ public class ReadBridgeColumnDefaultE2ETest {
         .andExpect(
             jsonPath("$.tableProperties['openhouse.columnDefaultPolicyBypass']").doesNotExist())
         .andExpect(jsonPath("$.config['" + CONFIG_KEY + "']").doesNotExist());
+  }
+
+  /**
+   * Type 2 gates the rewrite snapshots a snapshots PUT adds on any branch, not snapshots already on
+   * the table. https://github.com/linkedin/openhouse/issues/693
+   */
+  @Test
+  public void snapshotsPut_gatesAddedBranchRewritesButNotRefsAtPersistedRewrites()
+      throws Exception {
+    created = create(uniqueTable("branch_rewrite"), Collections.singletonMap(ENABLED_PROP, "true"));
+    MvcResult current =
+        RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
+    TableIdentifier identifier = TableIdentifier.of(created.getDatabaseId(), created.getTableId());
+
+    Table table = catalog.loadTable(identifier);
+    Snapshot append = table.newAppend().appendFile(dataFile(table)).apply();
+    current =
+        putSnapshots(current, false, branch("main", append), append)
+            .andExpect(status().isOk())
+            .andReturn();
+
+    table = catalog.loadTable(identifier);
+    Snapshot branchOverwrite =
+        table.newOverwrite().addFile(dataFile(table)).toBranch("feature").apply();
+    Map<String, String> branchWrite = branch("main", append);
+    branchWrite.putAll(branch("feature", branchOverwrite));
+    putSnapshots(current, false, branchWrite, append, branchOverwrite)
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message", containsString("COLUMN_DEFAULT_REWRITE")));
+
+    Snapshot mainOverwrite = table.newOverwrite().addFile(dataFile(table)).apply();
+    current =
+        putSnapshots(current, true, branch("main", mainOverwrite), append, mainOverwrite)
+            .andExpect(status().isOk())
+            .andReturn();
+
+    Map<String, String> refOnly = branch("main", mainOverwrite);
+    refOnly.putAll(branch("feature", mainOverwrite));
+    refOnly.put(
+        "release",
+        SnapshotRefParser.toJson(SnapshotRef.tagBuilder(mainOverwrite.snapshotId()).build()));
+    putSnapshots(current, false, refOnly, append, mainOverwrite).andExpect(status().isOk());
+    assertTrue(catalog.loadTable(identifier).refs().get("release").isTag());
+  }
+
+  private ResultActions putSnapshots(
+      MvcResult current, boolean handshake, Map<String, String> refs, Snapshot... snapshots)
+      throws Exception {
+    CreateUpdateTableRequestBody envelope = buildCreateUpdateTableRequestBody(current);
+    if (handshake) {
+      envelope = envelope.toBuilder().schema(withInitialDefault(envelope.getSchema())).build();
+    }
+    IcebergSnapshotsRequestBody request =
+        IcebergSnapshotsRequestBody.builder()
+            .baseTableVersion(envelope.getBaseTableVersion())
+            .jsonSnapshots(
+                Arrays.stream(snapshots).map(SnapshotParser::toJson).collect(Collectors.toList()))
+            .snapshotRefs(refs)
+            .createUpdateTableRequestBody(envelope)
+            .build();
+    return mvc.perform(
+        MockMvcRequestBuilders.put(
+                String.format(
+                    ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/%s/tables/%s/iceberg/v2/snapshots",
+                    created.getDatabaseId(),
+                    created.getTableId()))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(request.toJson())
+            .accept(MediaType.APPLICATION_JSON));
+  }
+
+  /** The default-aware client handshake: {@code initial-default} equal to the stamp. */
+  private static String withInitialDefault(String schemaJson) throws IOException {
+    ObjectMapper mapper = new ObjectMapper();
+    JsonNode root = mapper.readTree(schemaJson);
+    for (JsonNode field : root.get("fields")) {
+      if (field.get("id").asInt() == 2) {
+        ((ObjectNode) field).put("initial-default", "US");
+      }
+    }
+    return mapper.writeValueAsString(root);
+  }
+
+  private DataFile dataFile(Table table) throws IOException {
+    return IcebergSnapshotsModelTestUtilities.createDummyDataFile(
+        storageManager.getDefaultStorage().getClient().getRootPrefix()
+            + "/"
+            + UUID.randomUUID()
+            + ".orc",
+        table.spec());
+  }
+
+  private static Map<String, String> branch(String name, Snapshot snapshot) {
+    Map<String, String> refs = new HashMap<>();
+    refs.put(
+        name, SnapshotRefParser.toJson(SnapshotRef.branchBuilder(snapshot.snapshotId()).build()));
+    return refs;
   }
 
   private void activateHtsToggle(GetTableResponseBody table) {
