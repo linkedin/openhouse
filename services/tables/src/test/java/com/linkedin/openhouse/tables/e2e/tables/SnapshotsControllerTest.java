@@ -1,8 +1,8 @@
-package com.linkedin.openhouse.tables.e2e.h2;
+package com.linkedin.openhouse.tables.e2e.tables;
 
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
-import static com.linkedin.openhouse.tables.e2e.h2.RequestAndValidateHelper.putSnapshotsAndValidateResponse;
-import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.*;
+import static com.linkedin.openhouse.tables.e2e.tables.RequestAndValidateHelper.putSnapshotsAndValidateResponse;
+import static com.linkedin.openhouse.tables.e2e.tables.ValidationUtilities.*;
 import static com.linkedin.openhouse.tables.model.IcebergSnapshotsModelTestUtilities.*;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.*;
 import static org.hamcrest.Matchers.*;

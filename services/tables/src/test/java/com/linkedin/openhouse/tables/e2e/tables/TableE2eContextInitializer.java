@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.tables.e2e.h2;
+package com.linkedin.openhouse.tables.e2e.tables;
 
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import java.nio.file.Paths;

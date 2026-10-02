@@ -215,7 +215,7 @@ class RetentionPolicySpecValidatorTest {
             .contains("Please define pattern in retention config"));
 
     // The granularity mismatch is covered in
-    // com.linkedin.openhouse.tables.e2e.h2.TablesControllerTest.testCreateRequestFailsForWithGranularityDifferentFromTimePartitionSpec
+    // com.linkedin.openhouse.tables.e2e.tables.TablesControllerTest.testCreateRequestFailsForWithGranularityDifferentFromTimePartitionSpec
     // with error message validation
 
   }

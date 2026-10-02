@@ -41,10 +41,11 @@ This single command:
 | `./gradlew dockerUp -Precipe=<recipe>` | Build everything and start containers |
 | `./gradlew dockerDown -Precipe=<recipe>` | Stop and remove containers |
 
-## Tables Java end-to-end backend
+## Tables Java Docker-backed integration tests
 
-The existing `services/tables` Java `e2e/h2` tests run against **Docker HTS by default**,
-despite the historical package name. The normal `test`/`build` tasks build this checkout's
+The `services/tables` Java `e2e/tables` tests run against **Docker HTS by default**.
+Tables Service runs in the `TablesE2eApplication` Spring test harness, retaining
+authorization/audit test doubles; HTS runs as a real service. The normal `test`/`build` tasks build this checkout's
 HouseTables boot JAR, start it in a Java 17 container, and connect the Tables Spring context
 to its dynamic HTTP port. A disposable MySQL 8.4.11 container is initialized with the
 checked-in HTS DDL. No pre-existing Compose services or fixed service ports are required.
@@ -76,6 +77,11 @@ For Git worktrees add `-x CopyGitHooksTask`. If local Compose services already o
 OpenAPI generation ports, also pass `-PtableOpenApiPort=18000 -PhtsOpenApiPort=18001`
 (or other free ports); otherwise client generation can accidentally read an older service.
 CI runs Docker mode through `clean build`, then explicitly reruns the full Tables suite in H2.
+
+The Java tests remain under `services/tables/src/test/java` to exercise the Spring service
+and repository layers in either backend mode. The separate
+`scripts/python/table_hts_integration_test.py` deployment tests call both running services
+over HTTP and are invoked by `scripts/python/integration_test.py`.
 
 ## HTS index regression tests (no load generator)
 

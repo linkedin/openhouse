@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.tables.model;
 
-import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX;
+import static com.linkedin.openhouse.tables.e2e.tables.ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX;
 
 import com.google.gson.JsonNull;
 import com.google.gson.JsonParser;

@@ -1,9 +1,9 @@
-package com.linkedin.openhouse.tables.e2e.h2;
+package com.linkedin.openhouse.tables.e2e.tables;
 
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
 import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
 import static com.linkedin.openhouse.tables.config.TablesMvcConstants.*;
-import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.*;
+import static com.linkedin.openhouse.tables.e2e.tables.ValidationUtilities.*;
 import static com.linkedin.openhouse.tables.model.ServiceAuditModelConstants.*;
 import static com.linkedin.openhouse.tables.model.TableAuditModelConstants.*;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.*;

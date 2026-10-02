@@ -1,7 +1,7 @@
-package com.linkedin.openhouse.tables.e2e.h2;
+package com.linkedin.openhouse.tables.e2e.tables;
 
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
-import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.*;
+import static com.linkedin.openhouse.tables.e2e.tables.ValidationUtilities.*;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.buildCreateUpdateTableRequestBody;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;

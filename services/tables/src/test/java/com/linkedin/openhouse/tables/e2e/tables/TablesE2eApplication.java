@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.tables.e2e.h2;
+package com.linkedin.openhouse.tables.e2e.tables;
 
 import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.DummyServiceAuditHandler;
@@ -52,8 +52,8 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
       ManagementWebSecurityAutoConfiguration.class,
       JpaRepositoriesAutoConfiguration.class
     })
-@Import(SpringH2Application.H2Repositories.class)
-public class SpringH2Application {
+@Import(TablesE2eApplication.H2Repositories.class)
+public class TablesE2eApplication {
 
   @Configuration
   @ConditionalOnProperty(name = "tableE2eBackend", havingValue = "h2")
@@ -61,7 +61,7 @@ public class SpringH2Application {
   static class H2Repositories {}
 
   public static void main(String[] args) {
-    SpringApplication.run(SpringH2Application.class, args);
+    SpringApplication.run(TablesE2eApplication.class, args);
   }
 
   @Bean

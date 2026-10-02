@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.tables.e2e.h2;
+package com.linkedin.openhouse.tables.e2e.tables;
 
 import static com.linkedin.openhouse.tables.model.TableModelConstants.SHARED_TABLE_DTO;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.TEST_USER;
@@ -11,7 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ContextConfiguration;
 
-@SpringBootTest(classes = SpringH2Application.class)
+@SpringBootTest(classes = TablesE2eApplication.class)
 @ContextConfiguration(initializers = TableE2eContextInitializer.class)
 public class DatabasesServiceTest {
 
