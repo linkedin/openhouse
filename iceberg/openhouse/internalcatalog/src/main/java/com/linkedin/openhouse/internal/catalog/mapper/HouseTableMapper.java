@@ -3,12 +3,15 @@ package com.linkedin.openhouse.internal.catalog.mapper;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.IS_OH_PREFIXED;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.OPENHOUSE_NAMESPACE;
 
+import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.housetables.client.model.UserTable;
+import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.io.FileIO;
 import org.mapstruct.BeanMapping;
 import org.mapstruct.Mapper;
@@ -30,6 +33,26 @@ public abstract class HouseTableMapper {
     return toHouseTable(extractRawHTSFields(tableMetadata.properties()), fileIO);
   }
 
+  public HouseTable toHouseTable(
+      TableMetadata tableMetadata, FileIO fileIO, TableIdentifier tableIdentifier) {
+    Map<String, String> properties = extractRawHTSFields(tableMetadata.properties());
+    String clusterId = tableMetadata.properties().get(CatalogConstants.OPENHOUSE_CLUSTERID_KEY);
+    properties.put("databaseId", tableIdentifier.namespace().toString());
+    properties.put("tableId", tableIdentifier.name());
+    properties.remove("tableUri");
+    if (clusterId != null) {
+      properties.put(
+          "tableUri",
+          TableUri.builder()
+              .clusterId(clusterId)
+              .databaseId(tableIdentifier.namespace().toString())
+              .tableId(tableIdentifier.name())
+              .build()
+              .toString());
+    }
+    return toHouseTable(properties, fileIO);
+  }
+
   @BeanMapping(ignoreByDefault = true)
   @Mapping(target = "databaseId", source = "userTable.databaseId")
   public abstract HouseTable toHouseTableWithDatabaseId(UserTable userTable);
@@ -41,12 +64,7 @@ public abstract class HouseTableMapper {
   @Mappings({@Mapping(target = "tableLocation", source = "userTable.metadataLocation")})
   public abstract HouseTable toHouseTable(UserTable userTable);
 
-  // The pointer carries no discriminator: entity type lives only on the HTS row, and HTS sets it
-  // from the endpoint the write arrived on.
-  @Mappings({
-    @Mapping(target = "metadataLocation", source = "houseTable.tableLocation"),
-    @Mapping(target = "entityType", ignore = true)
-  })
+  @Mappings({@Mapping(target = "metadataLocation", source = "houseTable.tableLocation")})
   public abstract UserTable toUserTable(HouseTable houseTable);
 
   private Map<String, String> extractRawHTSFields(Map<String, String> input) {
