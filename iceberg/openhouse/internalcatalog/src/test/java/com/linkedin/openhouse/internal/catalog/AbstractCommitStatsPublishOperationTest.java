@@ -4,6 +4,7 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.iceberg.TableMetadata;
@@ -42,7 +43,11 @@ public class AbstractCommitStatsPublishOperationTest {
     props.put(AbstractCommitStatsPublishOperation.COMMIT_STATS_COLLECTION_ENABLED_PROP, "true");
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props)));
+    op.execute(
+        new PostCommitContext(
+            TABLE,
+            metadataWith(props),
+            HouseTable.builder().tableUUID("uuid-123").tableVersion("v1").build()));
 
     Assertions.assertEquals(1, op.publishCount);
     Assertions.assertNotNull(op.published);
@@ -58,7 +63,7 @@ public class AbstractCommitStatsPublishOperationTest {
     // no opt-in property
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props)));
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), HouseTable.builder().build()));
 
     Assertions.assertEquals(0, op.publishCount);
   }
@@ -70,7 +75,7 @@ public class AbstractCommitStatsPublishOperationTest {
     props.put(AbstractCommitStatsPublishOperation.COMMIT_STATS_COLLECTION_ENABLED_PROP, "false");
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props)));
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), HouseTable.builder().build()));
 
     Assertions.assertEquals(0, op.publishCount);
   }
@@ -78,11 +83,11 @@ public class AbstractCommitStatsPublishOperationTest {
   @Test
   void testDoesNotPublishWhenNoTableUuidEvenIfEnabled() throws Exception {
     Map<String, String> props = new HashMap<>();
-    // enabled, but no stable UUID to key on -> factory returns empty
+    props.put(getCanonicalFieldName("tableUUID"), "metadata-only-uuid");
     props.put(AbstractCommitStatsPublishOperation.COMMIT_STATS_COLLECTION_ENABLED_PROP, "true");
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props)));
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), HouseTable.builder().build()));
 
     Assertions.assertEquals(0, op.publishCount);
   }

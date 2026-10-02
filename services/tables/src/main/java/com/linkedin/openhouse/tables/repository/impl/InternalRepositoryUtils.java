@@ -4,8 +4,11 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 
 import com.google.common.annotations.VisibleForTesting;
 import com.linkedin.openhouse.cluster.storage.Storage;
+import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
+import com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils;
+import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PartitionSpecMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PoliciesSpecMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.TableTypeMapper;
@@ -22,6 +25,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.SortOrderParser;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.UpdateProperties;
+import org.apache.iceberg.catalog.TableIdentifier;
 
 /** Utilities used in repository implementation. */
 public final class InternalRepositoryUtils {
@@ -100,56 +104,54 @@ public final class InternalRepositoryUtils {
   @VisibleForTesting
   static TableDto convertToTableDto(
       Table table,
+      TableIdentifier tableIdentifier,
+      HouseTable houseTable,
       FileIOManager fileIOManager,
       PartitionSpecMapper partitionSpecMapper,
       PoliciesSpecMapper policiesMapper,
       TableTypeMapper tableTypeMapper) {
     /* Contains everything needed to populate dto */
     final Map<String, String> megaProps = table.properties();
+    Map<String, String> userVisibleProperties = new HashMap<>(megaProps);
+    HouseTableSerdeUtils.HTS_FIELD_NAMES.forEach(
+        fieldName -> userVisibleProperties.remove(getCanonicalFieldName(fieldName)));
     Storage storage = fileIOManager.getStorage(table.io());
     TableDto tableDto =
         TableDto.builder()
-            .tableId(megaProps.get(getCanonicalFieldName("tableId")))
-            .databaseId(megaProps.get(getCanonicalFieldName("databaseId")))
-            .clusterId(megaProps.get(getCanonicalFieldName("clusterId")))
-            .tableUri(megaProps.get(getCanonicalFieldName("tableUri")))
-            .tableUUID(megaProps.get(getCanonicalFieldName("tableUUID")))
+            .tableId(tableIdentifier.name())
+            .databaseId(tableIdentifier.namespace().toString())
+            .clusterId(houseTable.getClusterId())
+            .tableUri(
+                TableUri.builder()
+                    .clusterId(houseTable.getClusterId())
+                    .databaseId(tableIdentifier.namespace().toString())
+                    .tableId(tableIdentifier.name())
+                    .build()
+                    .toString())
+            .tableUUID(houseTable.getTableUUID())
             .tableLocation(
                 URI.create(
                         StringUtils.prependIfMissing(
                             // remove after resolving
                             // https://github.com/linkedin/openhouse/issues/121
-                            megaProps.get(getCanonicalFieldName("tableLocation")),
-                            storage.getClient().getEndpoint()))
+                            houseTable.getTableLocation(), storage.getClient().getEndpoint()))
                     .normalize()
                     .toString())
-            .tableVersion(megaProps.get(getCanonicalFieldName("tableVersion")))
-            .tableCreator(megaProps.get(getCanonicalFieldName("tableCreator")))
+            .tableVersion(houseTable.getTableVersion())
+            .tableCreator(houseTable.getTableCreator())
             .schema(IcebergSchemaHelper.getSchemaJsonFromSchema(table.schema()))
-            .lastModifiedTime(safeParseLong("lastModifiedTime", megaProps))
-            .creationTime(safeParseLong("creationTime", megaProps))
+            .lastModifiedTime(houseTable.getLastModifiedTime())
+            .creationTime(houseTable.getCreationTime())
             .timePartitioning(partitionSpecMapper.toTimePartitionSpec(table))
             .clustering(partitionSpecMapper.toClusteringSpec(table))
             .policies(policiesMapper.toPoliciesObject(megaProps.get("policies")))
             .tableType(tableTypeMapper.toTableType(table))
             .jsonSnapshots(null)
-            .tableProperties(megaProps)
+            .tableProperties(userVisibleProperties)
             .sortOrder(SortOrderParser.toJson(table.sortOrder()))
             .build();
 
     return tableDto;
-  }
-
-  /**
-   * Safely parse the time related field into String.
-   *
-   * @return 0 indicate the value not available.
-   */
-  private static long safeParseLong(String keyName, Map<String, String> megaProps) {
-    String canonicalFieldName = getCanonicalFieldName(keyName);
-    return megaProps.containsKey(canonicalFieldName)
-        ? Long.parseLong(megaProps.get(canonicalFieldName))
-        : 0;
   }
 
   /**

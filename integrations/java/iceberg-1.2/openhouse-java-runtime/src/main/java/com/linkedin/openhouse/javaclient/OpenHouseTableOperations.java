@@ -54,6 +54,15 @@ import reactor.core.publisher.Mono;
 @AllArgsConstructor(access = AccessLevel.PROTECTED)
 public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
 
+  protected OpenHouseTableOperations(
+      TableIdentifier tableIdentifier,
+      FileIO fileIO,
+      TableApi tableApi,
+      SnapshotApi snapshotApi,
+      String cluster) {
+    this(tableIdentifier, fileIO, tableApi, snapshotApi, cluster, new AtomicReference<>());
+  }
+
   @Getter(AccessLevel.PROTECTED)
   private TableIdentifier tableIdentifier;
 
@@ -88,6 +97,10 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
    */
   private final AtomicReference<Map<String, String>> config = new AtomicReference<>();
 
+  /** Cluster identity from the catalog response that produced {@code current()}. */
+  @Builder.Default
+  private final AtomicReference<String> currentTableClusterId = new AtomicReference<>();
+
   /** Stamps last applied to {@code current()}, or {@code null}. */
   protected Map<String, String> currentConfig() {
     return config.get();
@@ -120,7 +133,6 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
 
   private static final String UPDATED_OPENHOUSE_POLICY_KEY = "updated.openhouse.policy";
   private static final String OPENHOUSE_TABLE_TYPE_KEY = "openhouse.tableType";
-  private static final String OPENHOUSE_CLUSTER_ID_KEY = "openhouse.clusterId";
   private static final String OPENHOUSE_IS_TABLE_REPLICATED_KEY = "openhouse.isTableReplicated";
   private static final String POLICIES_KEY = "policies";
   static final String INITIAL_TABLE_VERSION = "INITIAL_VERSION";
@@ -164,6 +176,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
         });
     if (loaded.get()) {
       config.set(fetched);
+      tableResponse.map(GetTableResponseBody::getClusterId).ifPresent(currentTableClusterId::set);
     }
     log.debug("Calling doRefresh succeeded");
   }
@@ -318,10 +331,15 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     config.set(value);
   }
 
+  @VisibleForTesting
+  void setCurrentTableClusterId(String value) {
+    currentTableClusterId.set(value);
+  }
+
   /**
    * If request is coming from replication process, createUpdateTableRequestBody.tableType should be
-   * REPLICA_TABLE Replication process requests are identified based on difference between table
-   * types and cluster_id between base, metadata
+   * REPLICA_TABLE Replication process requests are identified from table type and the current table
+   * cluster returned by the catalog.
    */
   @VisibleForTesting
   CreateUpdateTableRequestBody.TableTypeEnum getTableType(
@@ -336,9 +354,8 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
       // check if commit request is from replication case
       if (baseTableType == CreateUpdateTableRequestBody.TableTypeEnum.REPLICA_TABLE
           && metadataTableType == CreateUpdateTableRequestBody.TableTypeEnum.PRIMARY_TABLE
-          && !base.properties()
-              .get(OPENHOUSE_CLUSTER_ID_KEY)
-              .equals(metadata.properties().get(OPENHOUSE_CLUSTER_ID_KEY))) {
+          && currentTableClusterId.get() != null
+          && !cluster.equals(currentTableClusterId.get())) {
         return baseTableType;
       }
     }
