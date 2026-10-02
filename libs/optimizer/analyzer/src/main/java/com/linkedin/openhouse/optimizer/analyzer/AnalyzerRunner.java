@@ -71,15 +71,17 @@ public class AnalyzerRunner {
   }
 
   /**
-   * Commit-driven entry point using stats <b>already in memory</b> from the stats upsert, so it
-   * does not re-read {@code table_stats}. Evaluates the single table against every registered
-   * analyzer with the same opt-in, active-op dedup, and cadence guards as the full scan. The
-   * table's current operations and latest history are each loaded once (one query) and shared
-   * across analyzers.
+   * Commit-driven entry point. Evaluates a single table — whose stats are already in memory from
+   * the stats upsert, so {@code table_stats} is not re-read — against every registered analyzer,
+   * under the same opt-in, active-op dedup, and cadence guards as the full scan. The table's
+   * current operations and latest history are each loaded once and shared across analyzers.
    *
-   * <p>Complements — does not replace — the full-scan {@link #analyze} the standalone analyzer app
-   * runs on a cron; this just reacts faster to individual commits, and (unlike a fetch-by-uuid
-   * path) cannot miss a brand-new table whose {@code table_stats} row is not yet visible.
+   * <p>Complements, not replaces, the full-scan {@link #analyze} the cron runs. Because the stats
+   * arrive in memory, this cannot miss a brand-new table whose {@code table_stats} row is not yet
+   * visible to a fetch-by-uuid.
+   *
+   * <p>Shares the per-table decision with the full-scan path via {@link #analyzeAndSchedule}; only
+   * the load phase differs (in-memory here, DB query in {@link #analyzeDatabase}).
    */
   public void analyzeTable(TableDto table) {
     log.info(
@@ -90,19 +92,13 @@ public class AnalyzerRunner {
     Map<OperationTypeDto, TableOperationDto> currentOps = loadCurrentOpsForTable(table);
     Map<OperationTypeDto, TableOperationsHistoryDto> latestHistory =
         loadLatestHistoryForTable(table);
-    for (OperationAnalyzer analyzer : analyzers) {
-      if (!analyzer.isEnabled(table)) {
-        continue;
-      }
-      OperationTypeDto type = analyzer.getOperationType();
-      if (!analyzer.shouldSchedule(
-          table,
-          Optional.ofNullable(currentOps.get(type)),
-          Optional.ofNullable(latestHistory.get(type)))) {
-        continue;
-      }
-      createPending(analyzer, table);
-    }
+    analyzers.forEach(
+        analyzer ->
+            analyzeAndSchedule(
+                analyzer,
+                table,
+                Optional.ofNullable(currentOps.get(analyzer.getOperationType())),
+                Optional.ofNullable(latestHistory.get(analyzer.getOperationType()))));
   }
 
   /** All active operations for a single table, keyed by operation type (most-recent per type). */
@@ -186,40 +182,44 @@ public class AnalyzerRunner {
             .collect(Collectors.toList());
 
     /*
-     * For each table in this database, decide whether to create a new PENDING operation.
-     *
-     * 1. Skip tables not opted in to this operation type.
-     * 2. Look up the table's current active operation (if any) and its most recent completed
-     *    history entry from the maps loaded above.
-     * 3. Delegate the schedule-or-not decision to the analyzer's shouldSchedule — strategy
-     *    encapsulates cadence, retry policy, and any future per-operation signals.
-     * 4. On true, persist a new PENDING operation. The scheduler picks it up on its next pass.
+     * Process phase: for each table in this database, run the shared decision via
+     * analyzeAndSchedule using the current op and latest-history maps loaded above. The full-scan
+     * path differs from the commit-driven path only in this load phase; the decision is identical.
      */
-    int created = 0;
-    int failed = 0;
-    for (TableDto table : tables) {
-      if (!analyzer.isEnabled(table)) {
-        continue;
-      }
-      Optional<TableOperationDto> currentOp =
-          Optional.ofNullable(currentOps.get(table.getTableUuid()));
-      Optional<TableOperationsHistoryDto> entry =
-          Optional.ofNullable(latestHistory.get(table.getTableUuid()));
-      if (!analyzer.shouldSchedule(table, currentOp, entry)) {
-        continue;
-      }
-      if (createPending(analyzer, table)) {
-        created++;
-      } else {
-        failed++;
-      }
-    }
+    long created =
+        tables.stream()
+            .filter(
+                table ->
+                    analyzeAndSchedule(
+                        analyzer,
+                        table,
+                        Optional.ofNullable(currentOps.get(table.getTableUuid())),
+                        Optional.ofNullable(latestHistory.get(table.getTableUuid()))))
+            .count();
     log.info(
-        "Finished analyzing Database {}: created {} PENDING {} operation(s) ({} failed)",
+        "Finished analyzing Database {}: created {} PENDING {} operation(s)",
         databaseName,
         created,
-        analyzer.getOperationType(),
-        failed);
+        analyzer.getOperationType());
+  }
+
+  /**
+   * Process phase (shared by the commit-driven {@link #analyzeTable} and the full-scan {@link
+   * #analyzeDatabase}): evaluate one {@code (analyzer, table)} against the table's already-loaded
+   * current operation and latest history, and persist a PENDING operation when it is due. Keeping
+   * this phase separate from the load phase lets the commit path reuse the in-memory stats while
+   * sharing the identical opt-in / active-op / cadence decision. Returns whether a PENDING op was
+   * created.
+   */
+  private boolean analyzeAndSchedule(
+      OperationAnalyzer analyzer,
+      TableDto table,
+      Optional<TableOperationDto> currentOp,
+      Optional<TableOperationsHistoryDto> latestHistory) {
+    if (!analyzer.isEnabled(table) || !analyzer.shouldSchedule(table, currentOp, latestHistory)) {
+      return false;
+    }
+    return createPending(analyzer, table);
   }
 
   /**
