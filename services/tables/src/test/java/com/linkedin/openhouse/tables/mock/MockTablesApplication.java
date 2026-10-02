@@ -7,6 +7,7 @@ import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
+import java.util.Collections;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.actuate.autoconfigure.security.servlet.ManagementWebSecurityAutoConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -71,7 +72,9 @@ public class MockTablesApplication {
             return false;
           }
         };
+    // ColumnDefaultsSource.NONE stamps nothing, so Type 2 never reads persisted snapshots.
     return new ReadBridgeStripProtection(
-        new ReadBridgeConfigResolver(ColumnDefaultsSource.NONE, unused));
+        new ReadBridgeConfigResolver(ColumnDefaultsSource.NONE, unused),
+        key -> Collections.emptySet());
   }
 }

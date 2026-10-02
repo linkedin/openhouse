@@ -6,6 +6,7 @@ import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.repository.PagingAndSortingRepository;
@@ -27,6 +28,12 @@ public interface OpenHouseInternalRepository
    * full table state.
    */
   Optional<TableDto> findTableRefById(TableDtoPrimaryKey tableDtoPrimaryKey);
+
+  /**
+   * Ids of every snapshot in the table's current metadata, including snapshots no branch or tag
+   * references.
+   */
+  Set<Long> findSnapshotIds(TableDtoPrimaryKey tableDtoPrimaryKey);
 
   List<TableDtoPrimaryKey> findAllIds();
 

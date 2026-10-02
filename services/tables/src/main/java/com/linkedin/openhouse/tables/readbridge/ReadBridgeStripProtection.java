@@ -8,6 +8,7 @@ import com.linkedin.openhouse.common.exception.DependencyUnavailableException;
 import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.tables.model.TableDto;
+import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -15,11 +16,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
 import org.apache.iceberg.DataOperations;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotParser;
-import org.apache.iceberg.SnapshotRef;
-import org.apache.iceberg.SnapshotRefParser;
 
 /**
  * Type 1 / Type 2 strip protection for column defaults. Default-aware clients send {@code
@@ -30,11 +30,10 @@ import org.apache.iceberg.SnapshotRefParser;
  * table until OpenHouse rewrites are trusted or default-aware compaction exists. A lift/compaction
  * flag is a follow-up, not this class.
  *
- * <p>The PUT includes the table's full snapshot list, so rewrite detection uses the main-branch
- * snapshot, not a historical overwrite still in the list. A WAP / named-branch overwrite leaves
- * {@code main} unchanged and is not gated. Do not infer the written ref by diffing ref maps — use
- * commit deltas from #669 once they reach this path. See
- * https://github.com/linkedin/openhouse/issues/693.
+ * <p>The PUT carries the table's full snapshot list, so Type 2 gates only the snapshots this commit
+ * adds: an overwrite/replace snapshot not already persisted on the table. That covers main, named
+ * branches, and staged WAP snapshots. A historical overwrite still in the list is not this commit,
+ * and a ref-only change (create branch or tag at an existing snapshot) adds nothing to gate.
  *
  * <p>Schema field objects are the JSON nodes that carry {@code id} — the same walk as the client
  * overlay. On Iceberg schema JSON that is NestedField; {@code element-id} / {@code schema-id} are
@@ -53,9 +52,19 @@ public class ReadBridgeStripProtection {
   }
 
   private final ReadBridgeConfigResolver resolver;
+  private final Function<TableDtoPrimaryKey, Set<Long>> persistedSnapshotIds;
 
-  public ReadBridgeStripProtection(ReadBridgeConfigResolver resolver) {
+  /**
+   * @param persistedSnapshotIds every snapshot id in the table's persisted metadata. Consulted only
+   *     when a stamped, ramped table's PUT carries an overwrite/replace snapshot. Its failures are
+   *     not the request's fault and propagate as themselves.
+   */
+  public ReadBridgeStripProtection(
+      ReadBridgeConfigResolver resolver,
+      Function<TableDtoPrimaryKey, Set<Long>> persistedSnapshotIds) {
     this.resolver = Objects.requireNonNull(resolver, "resolver");
+    this.persistedSnapshotIds =
+        Objects.requireNonNull(persistedSnapshotIds, "persistedSnapshotIds");
   }
 
   /**
@@ -78,7 +87,7 @@ public class ReadBridgeStripProtection {
     Map<Integer, String> incomingStamped = resolver.incomingColumnDefaults(incoming);
     if (existing != null) {
       rejectRemovedDefaults(previousStamped, incomingStamped, incoming);
-      rejectUnawareRewrite(previousStamped, incoming);
+      rejectUnawareRewrite(previousStamped, existing, incoming);
     }
     return stripInitialDefaults(incoming);
   }
@@ -113,8 +122,9 @@ public class ReadBridgeStripProtection {
    * Type 2: overwrite/replace must send {@code initial-default} equal to the stamp. That handshake
    * is trust, not proof the files were rewritten. Appends are not rewrites.
    */
-  private void rejectUnawareRewrite(Map<Integer, String> previousStamped, TableDto incoming) {
-    if (previousStamped.isEmpty() || !isRewrite(incoming)) {
+  private void rejectUnawareRewrite(
+      Map<Integer, String> previousStamped, TableDto existing, TableDto incoming) {
+    if (previousStamped.isEmpty() || !isRewrite(existing, incoming)) {
       return;
     }
     JsonNode schema = tree(incoming.getSchema(), incoming);
@@ -151,50 +161,48 @@ public class ReadBridgeStripProtection {
   }
 
   /**
-   * Main-branch snapshot only, so history in {@code jsonSnapshots} is not "this commit." WAP
-   * overwrite is therefore missed. Fix with #669 deltas, not a ref-map diff:
-   * https://github.com/linkedin/openhouse/issues/693
+   * A replace, or a commit that adds an overwrite/replace snapshot on any ref (or none, for a
+   * staged WAP snapshot). Snapshots already persisted on the table are history, not this commit.
+   * See https://github.com/linkedin/openhouse/issues/693.
    */
-  private boolean isRewrite(TableDto incoming) {
+  private boolean isRewrite(TableDto existing, TableDto incoming) {
     if (incoming.isReplaceCommit() || incoming.isStageReplace()) {
       return true;
     }
     List<String> jsonSnapshots = incoming.getJsonSnapshots();
-    if (jsonSnapshots == null || jsonSnapshots.isEmpty()) {
+    if (jsonSnapshots == null) {
       return false;
     }
-    String operation = currentSnapshot(incoming, jsonSnapshots).operation();
-    return DataOperations.OVERWRITE.equals(operation) || DataOperations.REPLACE.equals(operation);
-  }
-
-  private static Snapshot currentSnapshot(TableDto incoming, List<String> jsonSnapshots) {
-    Long mainId = mainSnapshotId(incoming);
-    if (mainId != null) {
-      for (String json : jsonSnapshots) {
-        Snapshot snapshot = snapshot(json, incoming);
-        if (snapshot.snapshotId() == mainId) {
-          return snapshot;
-        }
+    Set<Long> persisted = null;
+    for (String json : jsonSnapshots) {
+      Snapshot snapshot = snapshot(json, incoming);
+      String operation = snapshot.operation();
+      if (!DataOperations.OVERWRITE.equals(operation)
+          && !DataOperations.REPLACE.equals(operation)) {
+        continue;
       }
-      throw unusable(incoming, "main-branch snapshot is missing from the request", null);
+      if (persisted == null) {
+        persisted = persistedSnapshotIds(existing);
+      }
+      if (!persisted.contains(snapshot.snapshotId())) {
+        return true;
+      }
     }
-    return snapshot(jsonSnapshots.get(jsonSnapshots.size() - 1), incoming);
+    return false;
   }
 
-  private static Long mainSnapshotId(TableDto incoming) {
-    Map<String, String> snapshotRefs = incoming.getSnapshotRefs();
-    if (snapshotRefs == null) {
-      return null;
-    }
-    String main = snapshotRefs.get(SnapshotRef.MAIN_BRANCH);
-    if (main == null) {
-      return null;
-    }
-    try {
-      return SnapshotRefParser.fromJson(main).snapshotId();
-    } catch (RuntimeException e) {
-      throw unusable(incoming, "unreadable snapshot ref", e);
-    }
+  /**
+   * Read after {@code existing}. If another commit lands in between, this PUT's base version is
+   * stale and the commit is rejected regardless of this check.
+   */
+  private Set<Long> persistedSnapshotIds(TableDto existing) {
+    return Objects.requireNonNull(
+        persistedSnapshotIds.apply(
+            TableDtoPrimaryKey.builder()
+                .databaseId(existing.getDatabaseId())
+                .tableId(existing.getTableId())
+                .build()),
+        "persisted snapshot ids");
   }
 
   private static Snapshot snapshot(String json, TableDto incoming) {
