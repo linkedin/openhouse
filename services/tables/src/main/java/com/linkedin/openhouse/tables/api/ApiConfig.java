@@ -26,8 +26,8 @@ public class ApiConfig {
 
   @Bean
   public ReadBridgeStripProtection readBridgeStripProtection(
-      ReadBridgeConfigResolver readBridgeConfigResolver) {
-    return new ReadBridgeStripProtection(readBridgeConfigResolver);
+      ReadBridgeConfigResolver readBridgeConfigResolver, CatalogRequestContext requestContext) {
+    return new ReadBridgeStripProtection(readBridgeConfigResolver, requestContext);
   }
 
   /** The internal catalog's commit policy. */

@@ -3,10 +3,10 @@ package com.linkedin.openhouse.tables.readbridge;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
+import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -51,7 +51,7 @@ public class ReadBridgeStripProtectionTest {
     ColumnDefaultException thrown =
         Assertions.assertThrows(
             ColumnDefaultException.class, () -> protection.prepare(existing, incoming));
-    Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_REWRITE"));
+    Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_UNAWARE_COMMIT"));
     Assertions.assertTrue(thrown.getMessage().contains("country (field-id 2)"));
     Assertions.assertTrue(thrown.getMessage().contains("Spark 3.1"));
   }
@@ -65,7 +65,7 @@ public class ReadBridgeStripProtectionTest {
     ColumnDefaultException thrown =
         Assertions.assertThrows(
             ColumnDefaultException.class, () -> protection.prepare(existing, incoming));
-    Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_REWRITE"));
+    Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_UNAWARE_COMMIT"));
     Assertions.assertTrue(thrown.getMessage().contains("matching initial-default"));
     Assertions.assertTrue(thrown.getMessage().contains("country (field-id 2)"));
   }
@@ -81,25 +81,17 @@ public class ReadBridgeStripProtectionTest {
     Assertions.assertTrue(prepared.getSchema().contains("\"id\":2"));
   }
 
+  /** Type 2 is not limited to rewrites: an append from a client without the handshake fails. */
   @Test
-  public void appendWithoutInitialDefault_allowedWhenRamped() {
+  public void appendWithoutInitialDefault_rejectedWhenRamped() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming = ramped(SCHEMA_WITHOUT_DEFAULT, append(10));
 
-    Assertions.assertSame(
-        incoming, Assertions.assertDoesNotThrow(() -> protection.prepare(existing, incoming)));
-  }
-
-  @Test
-  public void historicalOverwriteDoesNotGateCurrentAppend() {
-    ReadBridgeStripProtection protection = protection(FIELD_2);
-    TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
-    TableDto incoming =
-        ramped(SCHEMA_WITHOUT_DEFAULT, snapshots(overwriteJson(1), appendJson(10)), refs(10));
-
-    Assertions.assertSame(
-        incoming, Assertions.assertDoesNotThrow(() -> protection.prepare(existing, incoming)));
+    ColumnDefaultException thrown =
+        Assertions.assertThrows(
+            ColumnDefaultException.class, () -> protection.prepare(existing, incoming));
+    Assertions.assertTrue(thrown.getMessage().startsWith("COLUMN_DEFAULT_UNAWARE_COMMIT"));
   }
 
   @Test
@@ -317,6 +309,32 @@ public class ReadBridgeStripProtectionTest {
         incoming, Assertions.assertDoesNotThrow(() -> protection.prepare(existing, incoming)));
   }
 
+  /**
+   * The column-default policy bypass skips every check and the lookups they need, so a source that
+   * cannot answer is never consulted, but initial-default is still stripped.
+   */
+  @Test
+  public void policyBypass_skipsChecksButStillStrips() {
+    ReadBridgeStripProtection protection =
+        new ReadBridgeStripProtection(
+            new ReadBridgeConfigResolver(
+                tableDto -> {
+                  throw new IllegalStateException("consulted despite the bypass");
+                }),
+            new CatalogRequestContext() {
+              @Override
+              public boolean columnDefaultPolicyBypass() {
+                return true;
+              }
+            });
+    TableDto incoming = ramped(SCHEMA_WITH_DUMMY_DEFAULT, overwrite(10));
+
+    TableDto prepared =
+        Assertions.assertDoesNotThrow(
+            () -> protection.prepare(ramped(SCHEMA_WITHOUT_DEFAULT), incoming));
+    Assertions.assertFalse(prepared.getSchema().contains("initial-default"));
+  }
+
   /** A buggy source fails the write closed, as itself rather than as anyone's unusable default. */
   @Test
   public void sourceBug_failsClosedAsItself() {
@@ -378,28 +396,6 @@ public class ReadBridgeStripProtectionTest {
             ColumnDefaultException.class, () -> protection.prepare(existing, incoming));
     Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_UNUSABLE"));
     Assertions.assertTrue(thrown.getMessage().contains("unreadable json"));
-    Assertions.assertTrue(thrown.getMessage().contains(METADATA_LOCATION));
-  }
-
-  @Test
-  public void unreadableSnapshots_failsClosedWhenRamped() {
-    ReadBridgeStripProtection protection = protection(FIELD_2);
-    TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
-    TableDto incoming =
-        TableDto.builder()
-            .databaseId("db")
-            .tableId("tbl")
-            .tableLocation(METADATA_LOCATION)
-            .schema(SCHEMA_WITHOUT_DEFAULT)
-            .tableProperties(optIn())
-            .jsonSnapshots(Collections.singletonList("not-a-snapshot"))
-            .build();
-
-    ColumnDefaultException thrown =
-        Assertions.assertThrows(
-            ColumnDefaultException.class, () -> protection.prepare(existing, incoming));
-    Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_UNUSABLE"));
-    Assertions.assertTrue(thrown.getMessage().contains("unreadable snapshot"));
     Assertions.assertTrue(thrown.getMessage().contains(METADATA_LOCATION));
   }
 
@@ -470,16 +466,8 @@ public class ReadBridgeStripProtectionTest {
     return snapshotJson(snapshotId, "overwrite");
   }
 
-  private static String appendJson(long snapshotId) {
-    return snapshotJson(snapshotId, "append");
-  }
-
   private static String overwriteJson(long snapshotId) {
     return snapshotJson(snapshotId, "overwrite");
-  }
-
-  private static java.util.List<String> snapshots(String... json) {
-    return Arrays.asList(json);
   }
 
   private static Map<String, String> refs(long snapshotId) {
