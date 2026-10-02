@@ -1,88 +1,76 @@
 # Replication Simplification Design
 
-**Status:** Design in progress; this is not yet an implementation specification.
+**Status:** Design in progress. This document captures the goal and agreed direction; it is not yet an implementation specification.
 
-## Goal and motivation
+## Problem statement
 
-Mixing catalog concerns into table-format metadata complicates catalog operations. It creates two sources of truth that must remain synchronized, and it makes operations such as replication harder: physical data cannot be moved without also rewriting OpenHouse metadata embedded in Iceberg, even when the move does not change the table's physical layout or Iceberg-native state.
+Today, OpenHouse "leaks" catalog concerns into Iceberg table metadata. As a result, operations that could be pure catalog operations must update Iceberg metadata unnecessarily. Operations such as `RENAME` or replication become semantically more complicated because metadata must be updated when, for example, it is transferred to a new table location. This may also affect performance: a disk read or write is required for what should be a lightweight catalog lookup.
 
-This design separates OpenHouse's logical catalog state from Iceberg's representation of a table's physical layout. Iceberg metadata should describe Iceberg table state, not duplicate OpenHouse-owned catalog state. The desired invariant is that an OpenHouse-only rename, move to another cluster, or drop and recreate under a different logical name does not require OpenHouse-specific edits to Iceberg metadata. Genuine Iceberg schema and snapshot changes continue to evolve Iceberg metadata normally.
+## Proposed solution
 
-## Scope: three relocations
+"The only way to win is not to play."
 
-### 1. HTS/catalog table fields — completed background
+The solution is to establish a clear separation of concerns between the OpenHouse Catalog and the Iceberg table format.
 
-OpenHouse table identity and catalog fields already represented in the House Tables Service (HTS) or catalog database were removed from Iceberg properties in an earlier feature branch. That work eliminated duplicate state and is background for this design, not implementation scope for this PR.
+The plan is to relocate three classes of information from Iceberg table metadata to the OpenHouse Catalog:
 
-### 2. Replication source definition — planned
+1. **House Tables Service (HTS) data.** This is the easiest category to move because all HTS data is also represented in the OpenHouse Catalog. The change establishes a single source of truth; the main work is on the Spark side, which should use OpenHouse APIs rather than read metadata directly.
+2. **Replication configuration data.** This data is stored on the source table in a `policies` blob in Iceberg metadata and is not represented in the Catalog. Replication is a property of the Catalog, not of Iceberg or the table layout, so this is a leaked concern.
+3. **Replication operational data.** This data is stored on the destination table and tracks whether a table is replicated and its replication progress. Like replication configuration, this is a leaked concern: whether an Iceberg table is a replica is a property of the Catalog, not the table format.
 
-The source currently defines replication through `policies.replication`, serialized in Iceberg's `policies` property. Move the desired source-to-destination replication plan into typed, catalog-backed storage and expose it through the Tables Service API.
+This design is the first layer of a three-PR stack, with one PR for each category.
 
-The model must support multiple destinations. Represent each source-to-destination edge as one record, with complete typed table identities and a schedule; do not use a generic JSON property bag.
+In the first phase, the work is primarily to ensure that all reads and writes go through existing APIs rather than accessing metadata directly.
 
-The existing `destination` value is a cluster string and historically implies the source database and table. Add a structured `destinationTable` containing `clusterId`, `databaseId`, and `tableId`. The two forms are mutually exclusive; supplying both is an error.
+In the second and third phases, new backend tables must be introduced in the Catalog to represent replication configuration and operational status, respectively. The APIs for accessing this data appear to largely exist, but currently pass reads and writes through to the JSON metadata.
 
-Compatibility is intentionally one-way. New code may normalize a legacy `destination` string into an explicit `destinationTable` using the legacy same-database-and-table behavior. Do not flatten a structured `destinationTable` back into the legacy string, because older tools may then target the wrong table. Confirm actual replication worker behavior before finalizing this contract.
+On the operational side, the last update time is already handled incorrectly because it is updated in place instead of through an `ALTER TABLE` operation. Is that slower? Yes. Is that correct? Also yes.
 
-### 3. Replication destination state and progress — planned separately
+## Advantages
 
-Desired source configuration and observed destination state or progress are separate concepts and should remain separate in the model. Audit the following fields and determine their semantics and ownership:
+Separating these concerns offers several advantages:
 
-| Field or concept | Initial hypothesis to verify |
-| --- | --- |
-| Replica role (`REPLICA_TABLE`) | Destination identity or role state |
-| `openhouse.isTableReplicated` | Potentially transient operation context |
-| `last-updated-ms` | Candidate source watermark or progress |
-| Replica UUID | Already represented by catalog identity |
-| `openhouse.replicaTableLocationId` | Path override |
+1. Iceberg tables become fully portable, and replication can potentially be reduced to an `rsync`-like operation between storage systems. This is especially relevant to OpenHouse, whose Iceberg format is non-standard in that it uses relative path names.
+2. Supporting other table formats becomes easier. Introducing a new table format would otherwise require emulating Iceberg table properties to represent key catalog data. Separating these concerns makes additional table formats easier to accommodate.
+3. Table administration becomes easier. Finding all replicated tables in the Catalog currently requires scanning and parsing each metadata JSON file. Similarly, tracking replication operational status requires scanning metadata JSON.
 
-Determine whether each value belongs in catalog/API state, should remain as transient context, or is obsolete and can be removed. Preserve identity and path behavior across rename, recreation, and cluster move.
+## Disadvantages
 
-## Migration and compatibility principles
+1. **Direct metadata readers must be migrated.** APIs for this data already exist, and standard readers such as Spark can be updated to use the APIs instead of reading metadata directly. Inevitably, however, some systems may bypass the APIs and read metadata directly. This design's position is that such systems were never supported in the first place.
+2. **Direct filesystem inspection becomes less informative.** It will be harder to determine a table's relationship to OpenHouse by inspecting filesystem data. As with direct readers, playbooks may rely on inspecting table metadata to identify the corresponding OpenHouse table. Those playbooks will need to be updated, hopefully offset by the improved catalog search capability.
 
-- The catalog becomes canonical for OpenHouse state. After migration, Iceberg properties must not remain a second writable source of truth.
-- Inventory all readers and writers. Classify direct Iceberg metadata consumers separately from consumers already using catalog APIs; catalog API consumers may need no migration.
-- Where no catalog API exists, determine whether the consumer and use case are still necessary before adding an API.
-- A versioned table `PUT` is a candidate lazy-migration point: import legacy state only when no canonical catalog state exists, apply the requested change, and remove only migrated OpenHouse state from newly written Iceberg metadata. `GET` remains side-effect-free. Define precedence so canonical catalog state always wins after migration.
-- Preserve unrelated policies (including retention, history, sharing, tags, and lock state), user-defined properties, and Iceberg-native metadata.
-- Do not assume an Iceberg metadata commit and catalog update are atomic. Design idempotency, concurrency handling, and recovery before implementation.
-- Assess whether untouched tables need a backfill and how to handle external or direct metadata consumers.
+## Alternatives considered
 
-## Workstreams and sequence
+There are no good alternatives beyond more limited implementations of this proposal. The current model is broken, and the longer it remains in place, the harder it will be to fix. The only real alternative is to do nothing, which is not feasible.
 
-### A. Inventory
+## Phases of operation
 
-Inventory OpenHouse properties and top-level metadata on source and destination tables. Trace direct readers and writers, catalog API consumers, and external scripts. For each value, record its semantics, canonical owner, compatibility requirements, and whether it represents configuration, identity, progress, or transient context.
+The proposed phases are as follows.
 
-### B. Source replication plan
+### 1. HTS/catalog table fields
 
-1. Verify the replication worker's target semantics.
-2. Finalize the API contract and one-way legacy normalization behavior.
-3. Design a typed catalog relation keyed by complete source and destination identities.
-4. Update the API, scheduler, and worker.
-5. Migrate the legacy policy and remove only the replication policy from Iceberg metadata.
+Move OpenHouse table identity and catalog fields out of Iceberg properties because they already exist in the House Tables Service/catalog database. This avoids duplicating state and the inevitable issues caused by having two sources of truth.
 
-### C. Destination state
+### 2. Add replication source definition
 
-1. Define the semantics of replica role, provenance, and watermark.
-2. Determine which fields belong on the catalog table, in separate replication state, or in transient context to eliminate.
-3. Preserve identity and path behavior across rename, recreation, and cluster move.
-4. Migrate direct consumers.
+The source table currently defines its replication plan through `policies.replication`, persisted in the Iceberg `policies` property. Move the desired source-to-destination replication plan into typed, catalog-backed storage and expose it through the Tables Service API.
 
-### D. Metadata-invariance verification
+Agreed API direction:
 
-Test that an OpenHouse-only rename, move, or drop and recreate does not change Iceberg metadata to encode OpenHouse state. Also verify that genuine Iceberg changes continue to evolve Iceberg metadata normally.
+- Keep the current legacy `destination` string form readable for existing configurations. It identifies a destination cluster and historically implies the source database and table.
+- Add a structured `destinationTable` with `clusterId`, `databaseId`, and `tableId` so a destination can be explicit and may use a different database or table name.
+- The two forms are mutually exclusive in a request. Supplying both is an error.
+- Compatibility is one-way: new code can normalize a legacy `destination` into `destinationTable` using the legacy same-database-and-table rule. Never flatten a structured `destinationTable` back into a legacy string, since older tools could target the wrong table.
+- Support multiple destinations as separate plan entries. Catalog storage should represent one source-to-destination edge per record with typed schedule fields, not a generic JSON property bag.
 
-## Out of scope unless justified
+Adding the ability to configure a more general destination table is not strictly necessary, but is easy to do now and offers administrators a path to greater flexibility in the future. An alternative that allowed dotted paths in `destination` was considered and discarded because they could collide with existing cluster IDs.
 
-- SQL system tables. They may be a future surface, but are not a prerequisite if the Tables Service API suffices.
-- Moving all OpenHouse fields in one change. Classify each field and migrate deliberately.
-- Replacing Iceberg-native metadata or user properties.
+### 3. Replication destination state and progress
+
+Replica tables also carry OpenHouse-owned operational state, making this the least well-defined of the three phases. To do this properly, first audit the true semantics of the replication operational data to determine what is necessary, particularly because the Iceberg table itself will no longer need to be modified during replication: the root table location and other metadata will instead be represented in the Catalog.
+
+In some ways, this is easier than with compliant Iceberg table formats because changing the on-storage location between clusters becomes a catalog operation rather than a table-layout operation.
 
 ## Open questions
 
-- What is the exact destination behavior in the production replication worker, and is that worker in this repository?
-- Which destination values represent durable progress versus one-time request context?
-- Is the path override required after identity and path decoupling?
-- What rollout and migration strategy is needed for direct Iceberg-metadata consumers, including external systems?
-- Is lazy `PUT` migration sufficient, or is bulk backfill required?
+- What, if any, changes need to be made to the currently supported replication implementations? OpenHouse itself does not implement a replication job; it only provides a contract. OpenHouse may instead provide a reference implementation for replication between clusters that others can adopt, perhaps as a compaction job.
