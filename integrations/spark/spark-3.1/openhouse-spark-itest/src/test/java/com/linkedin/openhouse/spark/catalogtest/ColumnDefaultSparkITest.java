@@ -2,11 +2,15 @@ package com.linkedin.openhouse.spark.catalogtest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.linkedin.openhouse.javaclient.OpenHouseCatalog;
+import com.linkedin.openhouse.tablestest.OpenHouseLocalServer;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import com.linkedin.openhouse.tablestest.SparkItestColumnDefaults;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.spark.Spark3Util;
@@ -24,13 +28,16 @@ import org.junit.jupiter.params.provider.ValueSource;
  */
 public class ColumnDefaultSparkITest extends OpenHouseSparkITest {
 
+  /** Catalog that identifies as a Spark client the local server admits for opted-in tables. */
+  private static final String CATALOG = "openhouse_spark_client";
+
   private static final String DATABASE = SparkItestColumnDefaults.DATABASE;
   private static final String ENABLED_PROP = "read-bridge.column-default.enabled";
 
   @Test
   public void readBridgeOverlaysInitialDefaultAfterSparkAddColumn() throws Exception {
-    String fqtn = "openhouse." + DATABASE + ".members_overlay";
-    try (SparkSession spark = getSparkSession()) {
+    String fqtn = CATALOG + "." + DATABASE + ".members_overlay";
+    try (SparkSession spark = compatibleClientSession()) {
       spark.sql("DROP TABLE IF EXISTS " + fqtn);
       spark.sql(
           "CREATE TABLE "
@@ -70,8 +77,8 @@ public class ColumnDefaultSparkITest extends OpenHouseSparkITest {
   @ParameterizedTest(name = "vectorized={0}")
   @ValueSource(booleans = {false, true})
   public void orcFillsDefaultsInsideListsAndMaps(boolean vectorized) throws Exception {
-    String fqtn = String.format("openhouse.%s.members_collections_%s", DATABASE, vectorized);
-    try (SparkSession spark = getSparkSession()) {
+    String fqtn = String.format("%s.%s.members_collections_%s", CATALOG, DATABASE, vectorized);
+    try (SparkSession spark = compatibleClientSession()) {
       spark.sql("DROP TABLE IF EXISTS " + fqtn);
       spark.sql(
           String.format(
@@ -111,9 +118,9 @@ public class ColumnDefaultSparkITest extends OpenHouseSparkITest {
             ? "read.parquet.vectorization.enabled"
             : "read.orc.vectorization.enabled";
     String tableName = String.format("members_%s_%s", fileFormat, vectorized);
-    String fqtn = String.format("openhouse.%s.%s", DATABASE, tableName);
+    String fqtn = String.format("%s.%s.%s", CATALOG, DATABASE, tableName);
 
-    try (SparkSession spark = getSparkSession()) {
+    try (SparkSession spark = compatibleClientSession()) {
       spark.sql("DROP TABLE IF EXISTS " + fqtn);
       spark.sql(
           String.format(
@@ -176,6 +183,20 @@ public class ColumnDefaultSparkITest extends OpenHouseSparkITest {
 
   private static Object[] row(Object... values) {
     return values;
+  }
+
+  /**
+   * Opted-in tables admit only Spark clients at or above the local server's minimum release. The
+   * locally built runtime does not advertise a release version, so the catalog states one.
+   */
+  private SparkSession compatibleClientSession() throws Exception {
+    String prefix = "spark.sql.catalog." + CATALOG + ".";
+    Map<String, String> client = new HashMap<>();
+    client.put(prefix + OpenHouseCatalog.CLIENT_NAME, "spark");
+    client.put(
+        prefix + OpenHouseCatalog.CLIENT_VERSION,
+        OpenHouseLocalServer.COLUMN_DEFAULT_MINIMUM_CLIENT_VERSION);
+    return getSparkSession(CATALOG, client);
   }
 
   private static void assertIds(
