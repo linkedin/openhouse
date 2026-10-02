@@ -52,6 +52,17 @@ class UnlockTableCatalogTest extends OpenHouseSparkITest {
               IllegalArgumentException.class,
               () -> spark.sql("ALTER TABLE " + table + " UNLOCK REASON " + reason));
         }
+        // A proxy that normalizes "." or ".." path segments could turn lock/.. into a table drop.
+        for (String dots : new String[] {"`.`", "`..`"}) {
+          for (String sql :
+              new String[] {
+                "ALTER TABLE " + table + " UNLOCK REASON " + dots,
+                "ALTER TABLE openhouse." + DATABASE + "." + dots + " UNLOCK",
+                "ALTER TABLE openhouse." + dots + "." + id.name() + " UNLOCK"
+              }) {
+            Assertions.assertThrows(IllegalArgumentException.class, () -> spark.sql(sql), sql);
+          }
+        }
         Assertions.assertThrows(
             ValidationException.class,
             () ->

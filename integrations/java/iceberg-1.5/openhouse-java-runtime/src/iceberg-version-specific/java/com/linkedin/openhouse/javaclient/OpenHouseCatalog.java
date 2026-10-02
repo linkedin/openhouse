@@ -595,6 +595,11 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     }
     String databaseId = tableIdentifier.namespace().toString();
     String tableId = tableIdentifier.name();
+    checkNotDotSegment("Database name", databaseId);
+    checkNotDotSegment("Table name", tableId);
+    if (reason != null) {
+      checkNotDotSegment("Lock reason", reason);
+    }
     (reason == null
             ? tableApi.deleteLockV1(databaseId, tableId)
             : tableApi.deleteLockByReasonV1(databaseId, tableId, reason))
@@ -606,6 +611,12 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
             e -> Mono.error(new WebClientRequestWithMessageException(e)))
         .block();
     log.debug("Calling unlockTable succeeded");
+  }
+
+  // A proxy that normalizes "." or ".." path segments would route the request elsewhere.
+  private static void checkNotDotSegment(String name, String value) {
+    Preconditions.checkArgument(
+        !".".equals(value) && !"..".equals(value), "%s must not be '%s'", name, value);
   }
 
   private UpdateAclPoliciesRequestBody getUpdateAclPoliciesRequestBody(
