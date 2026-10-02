@@ -18,6 +18,7 @@ import com.jayway.jsonpath.JsonPath;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
@@ -230,6 +231,37 @@ public class ReadBridgeColumnDefaultE2ETest {
             .andReturn();
     String schemaJson = JsonPath.read(after.getResponse().getContentAsString(), "$.schema");
     assertNull(SchemaParser.fromJson(schemaJson).findField(2).initialDefault());
+  }
+
+  @Test
+  public void policyBypassAllowsDisablingCommittedOptIn() throws Exception {
+    created = create(uniqueTable("disable"), Collections.singletonMap(ENABLED_PROP, "true"));
+    MvcResult initial =
+        RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
+    CreateUpdateTableRequestBody update =
+        buildCreateUpdateTableRequestBody(buildGetTableResponseBody(initial));
+    Map<String, String> properties = new HashMap<>(update.getTableProperties());
+    properties.put(ENABLED_PROP, "false");
+    String body = update.toBuilder().tableProperties(properties).build().toJson();
+    String path = "/v1/databases/" + created.getDatabaseId() + "/tables/" + created.getTableId();
+    mvc.perform(
+            MockMvcRequestBuilders.put(path).contentType(MediaType.APPLICATION_JSON).content(body))
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath("$.message", containsString("dangerously-bypass-column-default-policy")));
+    mvc.perform(
+            MockMvcRequestBuilders.put(path)
+                .header("X-OpenHouse-Dangerously-Bypass-Column-Default-Policy", "true")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.tableProperties['" + ENABLED_PROP + "']", is("false")));
+    getTable()
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.tableProperties['" + ENABLED_PROP + "']", is("false")))
+        .andExpect(
+            jsonPath("$.tableProperties['openhouse.columnDefaultPolicyBypass']").doesNotExist())
+        .andExpect(jsonPath("$.config['" + CONFIG_KEY + "']").doesNotExist());
   }
 
   private void activateHtsToggle(GetTableResponseBody table) {

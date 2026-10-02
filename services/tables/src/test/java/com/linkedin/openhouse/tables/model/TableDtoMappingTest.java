@@ -30,6 +30,7 @@ public class TableDtoMappingTest {
           "stageCreate",
           "stageReplace",
           "replaceCommit",
+          "columnDefaultPolicyBypass",
           "jsonSnapshots",
           "snapshotRefs",
           "policies",

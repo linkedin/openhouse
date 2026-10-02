@@ -554,6 +554,16 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    */
   private void enforcePropertyRules(TableMetadata base, Map<String, String> properties) {
     enforcePropertyRule(base, properties, TableProperties.MAX_REF_AGE_MS, this::boundMaxRefAge);
+    // The column-default policy bypass is a commit-only signal: remove it so it is never
+    // persisted, and skip the opt-in lock when it is set.
+    if (!Boolean.parseBoolean(
+        properties.remove(CatalogConstants.COLUMN_DEFAULT_POLICY_BYPASS_KEY))) {
+      enforcePropertyRule(
+          base,
+          properties,
+          CatalogConstants.COLUMN_DEFAULT_ENABLED_TABLE_PROP,
+          this::keepColumnDefaultOptIn);
+    }
   }
 
   /**
@@ -608,6 +618,29 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     } catch (NumberFormatException e) {
       return false;
     }
+  }
+
+  /**
+   * Keeps {@link CatalogConstants#COLUMN_DEFAULT_ENABLED_TABLE_PROP} once committed as {@code
+   * true}: it cannot be changed or removed. {@code false}, an invalid value and an absent property
+   * remain mutable so a table can still opt in later. Comparing with this commit's base keeps
+   * transaction retries from overwriting a value committed concurrently.
+   */
+  private String keepColumnDefaultOptIn(String committed, String requested) {
+    if (isColumnDefaultOptedIn(committed) && !committed.equals(requested)) {
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.ALTER_RESERVED_TBLPROPS,
+          String.format(
+              "Table property %s is immutable once set to true on table %s; cannot change or remove"
+                  + " it. To override, set dangerously-bypass-column-default-policy=true on the"
+                  + " client catalog.",
+              CatalogConstants.COLUMN_DEFAULT_ENABLED_TABLE_PROP, tableIdentifier));
+    }
+    return requested;
+  }
+
+  private static boolean isColumnDefaultOptedIn(String value) {
+    return value != null && "true".equalsIgnoreCase(value.trim());
   }
 
   /**

@@ -399,6 +399,18 @@ scala> spark.sql("SHOW TBLPROPERTIES openhouse.db.tb").show()
 
 ```
 
+#### Default-value opt-in
+
+Once `read-bridge.column-default.enabled=true` is committed, it cannot be changed or removed.
+`false`, an unparseable value and an absent property remain changeable.
+
+The default-off escape hatch is
+`spark.sql.catalog.openhouse.dangerously-bypass-column-default-policy=true` (or the same suffix in
+Java catalog properties). It bypasses only column-default policy checks, currently the rule that a
+committed `read-bridge.column-default.enabled=true` cannot be changed or removed. Incorrect reads or
+writes may result. Authentication, authorization, default resolution and default-value write
+protections still apply. Old JARs without this parameter need an upgrade/backport to use it.
+
 #### SET POLICY
 
 ```

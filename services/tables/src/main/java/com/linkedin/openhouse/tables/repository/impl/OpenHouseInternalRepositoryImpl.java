@@ -193,6 +193,9 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       // TODO remove tableTypeAdded after all existing tables have been back-filled to have a
       // tableType
       boolean tableTypeAdded = checkIfTableTypeAdded(updateProperties, table.properties());
+      if (tableDto.isColumnDefaultPolicyBypass()) {
+        updateProperties.set(COLUMN_DEFAULT_POLICY_BYPASS_KEY, "true");
+      }
       updateProperties.set(COMMIT_KEY, tableDto.getTableVersion()).commit();
       // this relies on forked iceberg-core to use this property for building the base transaction
       // retryer
@@ -605,6 +608,10 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     if (tableDto.isStageReplace()) {
       meterRegistry.counter(MetricsConstant.REPO_TABLE_REPLACED_CTR_STAGED).increment();
       propertiesMap.put(IS_STAGE_REPLACE_KEY, String.valueOf(tableDto.isStageReplace()));
+    }
+
+    if (tableDto.isColumnDefaultPolicyBypass()) {
+      propertiesMap.put(COLUMN_DEFAULT_POLICY_BYPASS_KEY, "true");
     }
 
     propertiesMap.put(

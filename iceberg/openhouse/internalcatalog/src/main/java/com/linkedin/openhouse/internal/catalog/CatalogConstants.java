@@ -34,6 +34,23 @@ public final class CatalogConstants {
 
   public static final String WAP_ENABLED_TABLE_PROP = "write.wap.enabled";
 
+  public static final String COLUMN_DEFAULT_FEATURE_ID = "read-bridge.column-default";
+
+  /**
+   * Self-service opt-in/out; a committed {@code true} cannot be changed or removed unless the
+   * request carries the column-default policy bypass.
+   */
+  public static final String COLUMN_DEFAULT_ENABLED_TABLE_PROP =
+      COLUMN_DEFAULT_FEATURE_ID + ".enabled";
+
+  /**
+   * Commit-only signal that the caller sent the column-default policy bypass. The tables repository
+   * sets it and {@code doCommit} removes it before persistence; the preserved {@code openhouse.}
+   * prefix keeps ordinary writes from supplying it as a table property.
+   */
+  public static final String COLUMN_DEFAULT_POLICY_BYPASS_KEY =
+      "openhouse.columnDefaultPolicyBypass";
+
   static final String FEATURE_TOGGLE_STOP_CREATE = "stop_create";
 
   static final String CLIENT_TABLE_SCHEMA = "client.table.schema";
