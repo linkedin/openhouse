@@ -5,12 +5,15 @@ import static com.linkedin.openhouse.internal.catalog.CatalogConstants.ENTITY_TY
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.IS_OH_PREFIXED;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.OPENHOUSE_NAMESPACE;
 
+import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.housetables.client.model.UserTable;
+import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.io.FileIO;
 import org.mapstruct.BeanMapping;
 import org.mapstruct.Mapper;
@@ -31,6 +34,26 @@ public abstract class HouseTableMapper {
 
   public HouseTable toHouseTable(TableMetadata tableMetadata, FileIO fileIO) {
     return toHouseTable(extractRawHTSFields(tableMetadata.properties()), fileIO);
+  }
+
+  public HouseTable toHouseTable(
+      TableMetadata tableMetadata, FileIO fileIO, TableIdentifier tableIdentifier) {
+    Map<String, String> properties = extractRawHTSFields(tableMetadata.properties());
+    String clusterId = tableMetadata.properties().get(CatalogConstants.OPENHOUSE_CLUSTERID_KEY);
+    properties.put("databaseId", tableIdentifier.namespace().toString());
+    properties.put("tableId", tableIdentifier.name());
+    properties.remove("tableUri");
+    if (clusterId != null) {
+      properties.put(
+          "tableUri",
+          TableUri.builder()
+              .clusterId(clusterId)
+              .databaseId(tableIdentifier.namespace().toString())
+              .tableId(tableIdentifier.name())
+              .build()
+              .toString());
+    }
+    return toHouseTable(properties, fileIO);
   }
 
   @BeanMapping(ignoreByDefault = true)

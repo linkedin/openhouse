@@ -116,6 +116,12 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
         .collect(Collectors.toList());
   }
 
+  public List<TableIdentifier> listAllTableIdentifiers() {
+    return StreamSupport.stream(houseTableRepository.findAll().spliterator(), false)
+        .map(houseTable -> TableIdentifier.of(houseTable.getDatabaseId(), houseTable.getTableId()))
+        .collect(Collectors.toList());
+  }
+
   public Page<TableIdentifier> listTables(Namespace namespace, Pageable pageable) {
     NamespaceUtil.validateOperationNamespace(namespace);
     if (namespace.isEmpty()) {
@@ -230,7 +236,11 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   @Override
   public void renameTable(TableIdentifier from, TableIdentifier to) {
     Table fromTable = loadTable(from);
-    String tableClusterId = fromTable.properties().get(CatalogConstants.OPENHOUSE_CLUSTERID_KEY);
+    String tableClusterId =
+        findHouseTable(from)
+            .map(HouseTable::getClusterId)
+            .orElseThrow(
+                () -> new IllegalStateException("Catalog entry is missing for table " + from));
 
     // Preserve existing case if databases are the same
     String toDatabaseName =
