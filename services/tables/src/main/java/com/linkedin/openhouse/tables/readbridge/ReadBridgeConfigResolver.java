@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.tables.readbridge;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
 import java.util.Collections;
@@ -15,7 +16,7 @@ import java.util.Objects;
 public class ReadBridgeConfigResolver {
 
   /** Capability id; also names {@code <id>.enabled} and the config key prefix below. */
-  public static final String COLUMN_DEFAULT_FEATURE_ID = "read-bridge.column-default";
+  public static final String COLUMN_DEFAULT_FEATURE_ID = CatalogConstants.COLUMN_DEFAULT_FEATURE_ID;
 
   /** Client contract: {@code openhouse.read-bridge.column-default.<fieldId>}. */
   public static final String COLUMN_DEFAULT_PREFIX = "openhouse." + COLUMN_DEFAULT_FEATURE_ID + ".";
@@ -111,7 +112,10 @@ public class ReadBridgeConfigResolver {
   /**
    * Uses {@link TableFeatureToggle#isFeatureActivatedWithOverride} so {@code
    * read-bridge.column-default.enabled} can opt in/out without HTS. A lookup failure fails the read
-   * or write rather than silently omitting defaults.
+   * or write rather than silently omitting defaults. The table property may be set at creation or
+   * on an existing table. A committed {@code true} is immutable unless the client sends the
+   * column-default policy bypass; {@code false} and an absent property remain changeable, and
+   * absence still follows the ramp.
    */
   private boolean isColumnDefaultRamped(TableDto tableDto) {
     if (columnDefaultsSource == ColumnDefaultsSource.NONE) {

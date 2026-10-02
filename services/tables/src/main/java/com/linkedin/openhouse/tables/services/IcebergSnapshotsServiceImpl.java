@@ -10,6 +10,7 @@ import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultPolicyBypass;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
@@ -92,6 +93,11 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
     } catch (ColumnDefaultException e) {
       throw e.toUnsupportedClient();
     }
+    tableDtoToSave =
+        tableDtoToSave
+            .toBuilder()
+            .columnDefaultPolicyBypass(ColumnDefaultPolicyBypass.requested())
+            .build();
     try {
       return Pair.of(openHouseInternalRepository.save(tableDtoToSave), !tableDto.isPresent());
     } catch (BadRequestException e) {
