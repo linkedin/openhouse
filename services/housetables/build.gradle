@@ -22,10 +22,11 @@ plugins {
 
 // Configure unique port for OpenAPI spec generation to avoid conflicts during parallel builds
 openApi {
+  def specPort = project.findProperty('htsOpenApiPort') ?: '8001'
   customBootRun {
-    args = ["--server.port=8001"]
+    args = ["--server.port=${specPort}"]
   }
-  apiDocsUrl.set("http://localhost:8001/v3/api-docs")
+  apiDocsUrl.set("http://localhost:${specPort}/v3/api-docs")
 }
 
 configurations {

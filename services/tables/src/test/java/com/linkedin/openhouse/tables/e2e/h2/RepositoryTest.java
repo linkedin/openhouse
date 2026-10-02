@@ -10,7 +10,6 @@ import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
-import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -67,13 +66,13 @@ import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.util.AopTestUtils;
 
 @SpringBootTest
-@ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
+@ContextConfiguration(initializers = TableE2eContextInitializer.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_CLASS)
 public class RepositoryTest {
 
   @Autowired HouseTableRepository houseTablesRepository;
 
-  @Autowired HouseTablesH2Repository h2Repository;
+  @Autowired TableE2eFixtures fixtures;
 
   @SpyBean @Autowired OpenHouseInternalRepository openHouseInternalRepository;
 
@@ -1607,17 +1606,93 @@ public class RepositoryTest {
   private void verifyTable(HouseTable table) {
     Assertions.assertEquals(TABLE_DTO.getTableId(), table.getTableId());
     Assertions.assertEquals(TABLE_DTO.getDatabaseId(), table.getDatabaseId());
-    Assertions.assertEquals(TABLE_DTO.getClusterId(), table.getClusterId());
-    Assertions.assertEquals(TABLE_DTO.getTableUri(), table.getTableUri());
+    if (!fixtures.usesDocker()) {
+      Assertions.assertEquals(TABLE_DTO.getClusterId(), table.getClusterId());
+      Assertions.assertEquals(TABLE_DTO.getTableUri(), table.getTableUri());
+    } else {
+      // HTS persists the metadata pointer, not the full DTO; the table read above hydrates it.
+      Assertions.assertEquals(
+          "TABLE", fixtures.storedEntityType(getHouseTablePrimaryKey(getPrimaryKey(TABLE_DTO))));
+      Assertions.assertEquals("TABLE", table.getEntityType());
+      Assertions.assertNotNull(table.getStorageType());
+      Assertions.assertNotNull(table.getTableVersion());
+    }
     Path path =
         Paths.get(
             storageManager.getDefaultStorage().getClient().getRootPrefix(),
             table.getDatabaseId(),
-            table.getTableId() + "-" + table.getTableUUID());
+            fixtures.usesDocker()
+                ? table.getTableId()
+                : table.getTableId() + "-" + table.getTableUUID());
     Assertions.assertTrue(table.getTableLocation().startsWith(path.toString()));
   }
 
-  /* The stand-in shares one key space, so it must discriminate exactly as the server does. */
+  @Test
+  void selectedBackendIsActuallyWired() {
+    fixtures.assertBackendWiring();
+  }
+
+  @Test
+  void softDeleteAndRestoreUseTheSelectedBackendWithoutRawSeeding() {
+    String tableId = "backend_restore_round_trip";
+    TableDto created = openHouseInternalRepository.save(createDtoFor(tableId));
+    HouseTablePrimaryKey key = occupationKey(tableId);
+    try {
+      houseTablesRepository.deleteById(key, false);
+      Assertions.assertFalse(openHouseInternalRepository.existsById(getPrimaryKey(created)));
+      Page<HouseTable> deleted =
+          houseTablesRepository.searchSoftDeletedTables(
+              OCCUPATION_DB, tableId, PageRequest.of(0, 10));
+      Assertions.assertEquals(1, deleted.getTotalElements());
+      HouseTable row = deleted.getContent().get(0);
+      Assertions.assertEquals(
+          ValidationUtilities.stripPathScheme(created.getTableLocation()),
+          ValidationUtilities.stripPathScheme(row.getTableLocation()));
+      Assertions.assertTrue(row.getDeletedAtMs() > 0);
+      houseTablesRepository.restoreTable(OCCUPATION_DB, tableId, row.getDeletedAtMs());
+      Assertions.assertEquals("TABLE", houseTablesRepository.findById(key).get().getEntityType());
+      if (fixtures.usesDocker()) {
+        Assertions.assertEquals("TABLE", fixtures.storedEntityType(key));
+      }
+      Assertions.assertEquals(
+          created.getSchema(),
+          openHouseInternalRepository.findById(getPrimaryKey(created)).get().getSchema());
+      Assertions.assertEquals(
+          0,
+          houseTablesRepository
+              .searchSoftDeletedTables(OCCUPATION_DB, tableId, PageRequest.of(0, 10))
+              .getTotalElements());
+    } finally {
+      if (houseTablesRepository.findEntityById(key).isPresent()) {
+        houseTablesRepository.deleteById(key);
+      }
+      houseTablesRepository.purgeSoftDeletedTables(OCCUPATION_DB, tableId, Long.MAX_VALUE);
+    }
+  }
+
+  @Test
+  void legacyLowercaseDiscriminatorsAreReadThroughTheSelectedBackend() {
+    HouseTable table = isolationRow("lowercase_table", "TABLE");
+    HouseTable view = isolationRow("lowercase_view", "VIEW");
+    houseTablesRepository.save(table);
+    houseTablesRepository.saveView(view);
+    try {
+      fixtures.setEntityType(table, "table");
+      fixtures.setEntityType(view, "view");
+      Assertions.assertEquals("table", fixtures.storedEntityType(isolationKey("lowercase_table")));
+      Assertions.assertEquals("view", fixtures.storedEntityType(isolationKey("lowercase_view")));
+      Assertions.assertTrue(
+          houseTablesRepository.findById(isolationKey("lowercase_table")).isPresent());
+      Assertions.assertTrue(
+          houseTablesRepository.findViewById(isolationKey("lowercase_view")).isPresent());
+      assertAbsentTable(isolationKey("lowercase_view"));
+      Assertions.assertFalse(
+          houseTablesRepository.findViewById(isolationKey("lowercase_table")).isPresent());
+    } finally {
+      houseTablesRepository.deleteById(isolationKey("lowercase_table"));
+      houseTablesRepository.deleteViewById(isolationKey("lowercase_view"));
+    }
+  }
 
   private static final String ISOLATION_DB = "entity_type_isolation_db";
 
@@ -1637,16 +1712,19 @@ public class RepositoryTest {
   }
 
   private void seedIsolationRows() {
-    houseTablesRepository.save(isolationRow("view_a", "VIEW"));
-    houseTablesRepository.save(isolationRow("view_b", "VIEW"));
+    houseTablesRepository.saveView(isolationRow("view_a", "VIEW"));
+    houseTablesRepository.saveView(isolationRow("view_b", "VIEW"));
     houseTablesRepository.save(isolationRow("table_a", "TABLE"));
     houseTablesRepository.save(isolationRow("legacy_a", null));
+    fixtures.setEntityType(isolationRow("legacy_a", null), null);
   }
 
   private void deleteIsolationRows() {
     for (String tableId : Arrays.asList("view_a", "view_b", "view_c", "table_a", "legacy_a")) {
       if (houseTablesRepository.findEntityById(isolationKey(tableId)).isPresent()) {
-        houseTablesRepository.deleteById(isolationKey(tableId));
+        if (!houseTablesRepository.deleteViewById(isolationKey(tableId))) {
+          houseTablesRepository.deleteById(isolationKey(tableId));
+        }
       }
     }
   }
@@ -1655,9 +1733,7 @@ public class RepositoryTest {
   void houseTableStandInKeepsTableAndViewReadsApart() {
     seedIsolationRows();
     try {
-      Assertions.assertFalse(
-          houseTablesRepository.findById(isolationKey("view_a")).isPresent(),
-          "a view at a shared key must be absent from the table point read");
+      assertAbsentTable(isolationKey("view_a"));
       Assertions.assertEquals(
           "TABLE", houseTablesRepository.findById(isolationKey("table_a")).get().getEntityType());
       Assertions.assertEquals(
@@ -1742,7 +1818,9 @@ public class RepositoryTest {
     seedIsolationRows();
     houseTablesRepository.save(isolationRow("table_b", "TABLE"));
     try {
-      Sort descending = Sort.by("tableId").descending();
+      // HTS currently exposes only an ascending sort field; H2 also supports direction.
+      Sort descending =
+          fixtures.usesDocker() ? Sort.by("tableId") : Sort.by("tableId").descending();
       Page<HouseTable> first =
           houseTablesRepository.findAllByDatabaseId(ISOLATION_DB, PageRequest.of(0, 2, descending));
       Page<HouseTable> second =
@@ -1750,13 +1828,17 @@ public class RepositoryTest {
 
       Assertions.assertEquals(3L, first.getTotalElements());
       Assertions.assertEquals(
-          Arrays.asList("table_b", "table_a"),
+          fixtures.usesDocker()
+              ? Arrays.asList("legacy_a", "table_a")
+              : Arrays.asList("table_b", "table_a"),
           first.getContent().stream().map(HouseTable::getTableId).collect(Collectors.toList()));
       Assertions.assertEquals(
-          Collections.singletonList("legacy_a"),
+          Collections.singletonList(fixtures.usesDocker() ? "table_b" : "legacy_a"),
           second.getContent().stream().map(HouseTable::getTableId).collect(Collectors.toList()));
-      Assertions.assertEquals(
-          descending, first.getSort(), "the returned page must report the sort it was asked for");
+      if (!fixtures.usesDocker()) {
+        Assertions.assertEquals(
+            descending, first.getSort(), "the returned page must report the sort it was asked for");
+      }
     } finally {
       if (houseTablesRepository.findEntityById(isolationKey("table_b")).isPresent()) {
         houseTablesRepository.deleteById(isolationKey("table_b"));
@@ -1796,9 +1878,7 @@ public class RepositoryTest {
     try {
       HouseTable saved = houseTablesRepository.saveView(isolationRow("view_c", null));
       Assertions.assertEquals("VIEW", saved.getEntityType(), "the view route stamps the type");
-      Assertions.assertFalse(
-          houseTablesRepository.findById(isolationKey("view_c")).isPresent(),
-          "a stamped view stays out of the table path");
+      assertAbsentTable(isolationKey("view_c"));
 
       Assertions.assertTrue(houseTablesRepository.deleteViewById(isolationKey("view_c")));
       Assertions.assertFalse(
@@ -1820,6 +1900,17 @@ public class RepositoryTest {
   }
 
   private static final String OCCUPATION_DB = TABLE_DTO.getDatabaseId();
+
+  private void assertAbsentTable(HouseTablePrimaryKey key) {
+    if (fixtures.usesDocker()) {
+      Assertions.assertThrows(
+          com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException
+              .class,
+          () -> houseTablesRepository.findById(key));
+    } else {
+      Assertions.assertFalse(houseTablesRepository.findById(key).isPresent());
+    }
+  }
 
   private HouseTablePrimaryKey occupationKey(String tableId) {
     return HouseTablePrimaryKey.builder().databaseId(OCCUPATION_DB).tableId(tableId).build();
@@ -1886,7 +1977,9 @@ public class RepositoryTest {
     } finally {
       // Type-agnostic: without the fix the create overwrites the view, leaving a table row behind.
       if (houseTablesRepository.findEntityById(occupationKey(tableId)).isPresent()) {
-        houseTablesRepository.deleteById(occupationKey(tableId));
+        if (!houseTablesRepository.deleteViewById(occupationKey(tableId))) {
+          houseTablesRepository.deleteById(occupationKey(tableId));
+        }
       }
     }
   }
@@ -1897,9 +1990,9 @@ public class RepositoryTest {
     TableDto created = openHouseInternalRepository.save(createDtoFor(tableId));
     try {
       HouseTable stored = houseTablesRepository.findEntityById(occupationKey(tableId)).get();
-      houseTablesRepository.save(stored.toBuilder().entityType(null).build());
+      fixtures.setEntityType(stored, null);
       Assertions.assertNull(
-          h2Repository.findByDatabaseIdAndTableId(OCCUPATION_DB, tableId).get().getEntityType(),
+          fixtures.storedEntityType(occupationKey(tableId)),
           "the row must really be stored with no discriminator, not merely read back as one");
 
       TableDto update = created.toBuilder().tableVersion(created.getTableLocation()).build();
@@ -1968,7 +2061,7 @@ public class RepositoryTest {
           "VIEW",
           houseTablesRepository.findEntityById(occupationKey(tableId)).get().getEntityType());
     } finally {
-      houseTablesRepository.deleteById(occupationKey(tableId));
+      houseTablesRepository.deleteViewById(occupationKey(tableId));
     }
   }
 }

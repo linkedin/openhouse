@@ -19,7 +19,6 @@ import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
-import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -49,7 +48,6 @@ import com.linkedin.openhouse.tables.model.TableAuditModelConstants;
 import com.linkedin.openhouse.tables.model.TableModelConstants;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.toggle.model.TableToggleStatus;
-import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;
 import io.micrometer.core.instrument.search.MeterNotFoundException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.ArrayList;
@@ -94,11 +92,9 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ContextConfiguration(
-    initializers = {
-      PropertyOverrideContextInitializer.class,
-      AuthorizationPropertiesInitializer.class
-    })
+    initializers = {TableE2eContextInitializer.class, AuthorizationPropertiesInitializer.class})
 public class TablesControllerTest {
+  @Autowired TableE2eFixtures fixtures;
 
   @Autowired OpenHouseInternalRepository openHouseInternalRepository;
 
@@ -121,8 +117,6 @@ public class TablesControllerTest {
   @Autowired private SimpleMeterRegistry registry;
 
   @Autowired private ClusterProperties clusterProperties;
-
-  @Autowired private ToggleStatusesRepository inMemToggleStatusRepo;
 
   @Test
   public void testSwaggerDocsWithoutAuth() throws Exception {
@@ -338,7 +332,7 @@ public class TablesControllerTest {
      * This is just to ensure the ToggleStatusesRepository#findById is activated to the correct
      * path.
      */
-    inMemToggleStatusRepo.save(
+    fixtures.seedToggle(
         TableToggleStatus.builder()
             .featureId(TblPropsToggleRegistryBaseImpl.ENABLE_TBLTYPE)
             .tableId(GET_TABLE_RESPONSE_BODY.getTableId())
@@ -446,7 +440,7 @@ public class TablesControllerTest {
       Assertions.assertEquals(before.getTableLocation(), after.getTableLocation());
     } finally {
       if (houseTablesRepository.findEntityById(key).isPresent()) {
-        houseTablesRepository.deleteById(key);
+        houseTablesRepository.deleteViewById(key);
       }
     }
   }
@@ -1936,7 +1930,7 @@ public class TablesControllerTest {
             .build();
 
     // Manually insert soft deleted tables in House tables repository
-    HouseTablesH2Repository.softDeletedTables.put(
+    fixtures.seedSoftDeleted(
         SoftDeletedTablePrimaryKey.builder()
             .databaseId(softDeletedTable.getDatabaseId())
             .tableId(softDeletedTable.getTableId())
@@ -2095,25 +2089,21 @@ public class TablesControllerTest {
     String tableId = GET_TABLE_RESPONSE_BODY.getTableId() + "_restore";
     long deletedAtMs = System.currentTimeMillis();
 
-    // TODO: When soft delete API is exposed, use that instead of manually inserting into house
-    // table repository
+    RequestAndValidateHelper.createTableAndValidateResponse(
+        buildGetTableResponseBodyWithDbTbl(databaseId, tableId), mvc, storageManager);
+    HouseTablePrimaryKey key =
+        HouseTablePrimaryKey.builder().databaseId(databaseId).tableId(tableId).build();
     HouseTable softDeletedTable =
-        HouseTable.builder()
-            .databaseId(databaseId)
-            .tableId(tableId)
-            .clusterId(GET_TABLE_RESPONSE_BODY.getClusterId())
-            .tableUri("file:///tmp/test/" + databaseId + "/" + tableId)
-            .tableUUID("test-uuid-restore")
-            .tableLocation("file:///tmp/test/" + databaseId + "/" + tableId)
-            .tableVersion("v1")
-            .lastModifiedTime(System.currentTimeMillis())
-            .creationTime(System.currentTimeMillis())
-            .tableCreator("testUser")
+        houseTablesRepository
+            .findById(key)
+            .get()
+            .toBuilder()
             .deletedAtMs(deletedAtMs)
             .purgeAfterMs(System.currentTimeMillis() + 86400000) // 1 day from now
             .build();
+    houseTablesRepository.deleteById(key);
 
-    HouseTablesH2Repository.softDeletedTables.put(
+    fixtures.seedSoftDeleted(
         SoftDeletedTablePrimaryKey.builder()
             .databaseId(softDeletedTable.getDatabaseId())
             .tableId(softDeletedTable.getTableId())
@@ -2158,6 +2148,18 @@ public class TablesControllerTest {
                 .contentType(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.pageResults.content", hasSize(0)));
+    mvc.perform(
+            MockMvcRequestBuilders.get(
+                CURRENT_MAJOR_VERSION_PREFIX + "/databases/" + databaseId + "/tables/" + tableId))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath(
+                "$.tableLocation",
+                org.hamcrest.Matchers.endsWith(
+                    stripPathScheme(softDeletedTable.getTableLocation()))))
+        .andExpect(jsonPath("$.schema", notNullValue()));
+    RequestAndValidateHelper.deleteTableAndValidateResponse(
+        mvc, buildGetTableResponseBodyWithDbTbl(databaseId, tableId));
   }
 
   @Test

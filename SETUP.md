@@ -41,6 +41,42 @@ This single command:
 | `./gradlew dockerUp -Precipe=<recipe>` | Build everything and start containers |
 | `./gradlew dockerDown -Precipe=<recipe>` | Stop and remove containers |
 
+## Tables Java end-to-end backend
+
+The existing `services/tables` Java `e2e/h2` tests run against **Docker HTS by default**,
+despite the historical package name. The normal `test`/`build` tasks build this checkout's
+HouseTables boot JAR, start it in a Java 17 container, and connect the Tables Spring context
+to its dynamic HTTP port. A disposable MySQL 8.4.11 container is initialized with the
+checked-in HTS DDL. No pre-existing Compose services or fixed service ports are required.
+Docker must be running; startup/readiness failures fail the tests, never silently fall back.
+
+```bash
+# Java 17 + Docker; full Tables suite, including the existing e2e tests.
+./gradlew :services:tables:test
+
+# Explicit lightweight Java H2 alternative (same tests, no HTS container).
+./gradlew :services:tables:test -PtableE2eBackend=h2
+```
+
+Only `docker` and `h2` are accepted; changing mode invalidates Gradle's test cache.
+Contexts own non-reusable containers, closed on disposal; the test context cache is bounded
+to one entry. Test storage is under `build/tables/e2e-storage`. Mock/unit applications and
+`tables-test-fixtures` are not migrated. Historical NULL discriminators and soft-delete
+timestamps use backend-aware raw fixtures; ordinary reads/writes and feature toggles go
+through the real HTS client in Docker mode. Restore tests use real Iceberg metadata and
+verify that the restored table can be read, not only that its deleted row disappeared.
+Only the test database's metadata-location/version columns are widened to 1024 characters
+(and H2 uses a test-only ORM mapping) to accommodate long worktree-local paths without
+writing metadata outside the checkout. Production DDL and entity models are unchanged.
+The HTS client currently supports ascending sort fields (not direction/ignore-case flags)
+and raises its typed not-found exception for missing table point reads; backend-aware
+assertions preserve those contracts and the richer H2 sorting checks.
+
+For Git worktrees add `-x CopyGitHooksTask`. If local Compose services already occupy the
+OpenAPI generation ports, also pass `-PtableOpenApiPort=18000 -PhtsOpenApiPort=18001`
+(or other free ports); otherwise client generation can accidentally read an older service.
+CI runs Docker mode through `clean build`, then explicitly reruns the full Tables suite in H2.
+
 ## HTS index regression tests (no load generator)
 
 The HTS index tests live in
@@ -67,6 +103,10 @@ GitHub Actions retains the separate MySQL-backed Compose deployment and Python
 integration suites.
 The Python deployment suite uses `/v1/hts/views/query` and reads every view page before cleanup;
 its offline helper tests and deployed multi-page regression also run in Actions.
+`integration_test.py` also invokes `table_hts_integration_test.py` against the deployed
+Tables Service and HTS, covering the real Tables→HTS table lifecycle, stale-write rejection,
+and table/VIEW name collision and name reuse. Actions runs every offline
+`scripts/python/test_*helpers.py` unit test before the deployed suites.
 The image defaults to `mysql:8.4.11`; use `-PmysqlIndexImage=mysql:<version>` to check another
 supported MySQL 8 version.
 

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<entity-mappings xmlns="http://xmlns.jcp.org/xml/ns/persistence/orm" version="2.2">
+  <!-- Worktree-local test metadata paths can exceed the default JPA VARCHAR(255). -->
+  <entity class="com.linkedin.openhouse.internal.catalog.model.HouseTable">
+    <attributes>
+      <basic name="tableLocation"><column length="1024"/></basic>
+      <basic name="tableVersion"><column length="1024"/></basic>
+    </attributes>
+  </entity>
+</entity-mappings>

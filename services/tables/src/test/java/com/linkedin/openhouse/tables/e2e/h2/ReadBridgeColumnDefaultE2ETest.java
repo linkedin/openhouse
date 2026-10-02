@@ -16,7 +16,6 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.jayway.jsonpath.JsonPath;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
-import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
@@ -24,7 +23,6 @@ import com.linkedin.openhouse.tables.readbridge.ColumnDefaultsSource;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
 import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
 import com.linkedin.openhouse.tables.toggle.model.TableToggleStatus;
-import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -55,10 +53,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_CLASS)
 @Import(ReadBridgeColumnDefaultE2ETest.StubDefaults.class)
 @ContextConfiguration(
-    initializers = {
-      PropertyOverrideContextInitializer.class,
-      AuthorizationPropertiesInitializer.class
-    })
+    initializers = {TableE2eContextInitializer.class, AuthorizationPropertiesInitializer.class})
 public class ReadBridgeColumnDefaultE2ETest {
 
   private static final String CONFIG_KEY = ReadBridgeConfigResolver.COLUMN_DEFAULT_PREFIX + "2";
@@ -76,7 +71,7 @@ public class ReadBridgeColumnDefaultE2ETest {
 
   @Autowired private MockMvc mvc;
   @Autowired private StorageManager storageManager;
-  @Autowired private ToggleStatusesRepository toggleStatusesRepository;
+  @Autowired private TableE2eFixtures fixtures;
 
   private GetTableResponseBody created;
   private TableToggleStatus toggleStatus;
@@ -88,7 +83,7 @@ public class ReadBridgeColumnDefaultE2ETest {
       created = null;
     }
     if (toggleStatus != null) {
-      toggleStatusesRepository.delete(toggleStatus);
+      fixtures.deleteToggle(toggleStatus);
       toggleStatus = null;
     }
   }
@@ -211,7 +206,7 @@ public class ReadBridgeColumnDefaultE2ETest {
             .tableId(table.getTableId())
             .toggleStatusEnum(ToggleStatus.StatusEnum.ACTIVE)
             .build();
-    toggleStatusesRepository.save(toggleStatus);
+    fixtures.seedToggle(toggleStatus);
   }
 
   private static GetTableResponseBody create(String tableId, Map<String, String> extraProps) {
