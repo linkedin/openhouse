@@ -9,6 +9,7 @@ import com.linkedin.openhouse.spark.OpenHouseCatalog;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -67,10 +68,11 @@ class SystemOnlyLockCatalogTest extends OpenHouseSparkITest {
         Assertions.assertEquals(423, dropFailure.getStatusCode());
         LockState lock = lock(inspection, id);
 
+        String maxRefAgeMs = String.valueOf(TimeUnit.DAYS.toMillis(1));
         maintenance
             .loadTable(id)
             .updateProperties()
-            .set(TableProperties.MAX_REF_AGE_MS, String.valueOf(Long.MAX_VALUE))
+            .set(TableProperties.MAX_REF_AGE_MS, maxRefAgeMs)
             .commit();
         Assertions.assertEquals(lock, lock(inspection, id));
         maintenance
@@ -83,8 +85,7 @@ class SystemOnlyLockCatalogTest extends OpenHouseSparkITest {
 
         Table expired = maintenance.loadTable(id);
         Assertions.assertEquals(
-            String.valueOf(Long.MAX_VALUE),
-            expired.properties().get(TableProperties.MAX_REF_AGE_MS));
+            maxRefAgeMs, expired.properties().get(TableProperties.MAX_REF_AGE_MS));
         Assertions.assertNull(expired.snapshot(firstSnapshot));
         Assertions.assertNotNull(expired.snapshot(secondSnapshot));
 

@@ -3,6 +3,8 @@ package com.linkedin.openhouse.common.exception.handler;
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.linkedin.openhouse.common.api.spec.ErrorResponseBody;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
+import com.linkedin.openhouse.common.exception.CodedApiException;
+import com.linkedin.openhouse.common.exception.CorruptEntityTypeException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
@@ -97,6 +99,30 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
             .message(resourceGatedByToggledOnFeatureException.getMessage())
             .stacktrace(getAbbreviatedStackTrace(resourceGatedByToggledOnFeatureException))
             .cause(getExceptionCause(resourceGatedByToggledOnFeatureException))
+            .build();
+    return buildResponseEntity(errorResponseBody);
+  }
+
+  /**
+   * Generic mapping for any exception that already knows its own HTTP status. The status comes from
+   * {@link CodedApiException#getHttpStatus()}; the body is the existing unchanged {@link
+   * ErrorResponseBody}, so no service-specific error taxonomy reaches the wire.
+   *
+   * <p>Spring selects the most specific handler, so declaring this does not change the mapping of
+   * any exception already handled above.
+   */
+  @Hidden
+  @ExceptionHandler(CodedApiException.class)
+  protected ResponseEntity<ErrorResponseBody> handleCodedApiException(
+      CodedApiException codedApiException) {
+    HttpStatus httpStatus = codedApiException.getHttpStatus();
+    ErrorResponseBody errorResponseBody =
+        ErrorResponseBody.builder()
+            .status(httpStatus)
+            .error(httpStatus.getReasonPhrase())
+            .message(codedApiException.getMessage())
+            .stacktrace(getAbbreviatedStackTrace(codedApiException))
+            .cause(getExceptionCause(codedApiException))
             .build();
     return buildResponseEntity(errorResponseBody);
   }
@@ -382,6 +408,27 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
             .build();
     return handleExceptionInternal(
         exception, errorResponseBody, headers, HttpStatus.BAD_REQUEST, request);
+  }
+
+  /**
+   * Corrupt stored data is a server-state failure whatever wrote it, so it must not fall through to
+   * the {@link IllegalArgumentException} advice below, which answers 400. The persistence boundary
+   * has already unwrapped it, so this advice needs no ORM vocabulary.
+   */
+  @Hidden
+  @ExceptionHandler(CorruptEntityTypeException.class)
+  protected ResponseEntity<ErrorResponseBody> handleCorruptEntityTypeException(
+      CorruptEntityTypeException corruptEntityTypeException) {
+    ErrorResponseBody errorResponseBody =
+        ErrorResponseBody.builder()
+            .status(HttpStatus.INTERNAL_SERVER_ERROR)
+            .error(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase())
+            .message(corruptEntityTypeException.getMessage())
+            .stacktrace(getAbbreviatedStackTrace(corruptEntityTypeException))
+            .cause(getExceptionCause(corruptEntityTypeException))
+            .build();
+    log.error("Corrupt entity type read from storage:\n", corruptEntityTypeException);
+    return buildResponseEntity(errorResponseBody);
   }
 
   @Hidden
