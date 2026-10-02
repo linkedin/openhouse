@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.tablestest;
 
-import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.web.context.WebServerApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -13,6 +14,13 @@ import org.springframework.context.ConfigurableApplicationContext;
  * OpenHouseLocalServer#stop()}.
  */
 public class OpenHouseLocalServer {
+
+  /**
+   * Oldest client release this server admits for tables opted into column defaults. A test that
+   * reads or writes such a table identifies its catalog as client-name {@code spark} with this
+   * client-version.
+   */
+  public static final String COLUMN_DEFAULT_MINIMUM_CLIENT_VERSION = "0.5.100";
 
   private int port;
   private ConfigurableApplicationContext appContext;
@@ -37,8 +45,12 @@ public class OpenHouseLocalServer {
   public synchronized void start(boolean applyTomcatFix) {
     if (appContext == null || !appContext.isActive()) {
       SpringApplication application = new SpringApplication(SpringH2TestApplication.class);
-      application.setDefaultProperties(
-          Collections.singletonMap("server.port", String.valueOf(port)));
+      Map<String, Object> defaults = new HashMap<>();
+      defaults.put("server.port", String.valueOf(port));
+      defaults.put(
+          "cluster.read-bridge.column-default.minimum-client-version",
+          COLUMN_DEFAULT_MINIMUM_CLIENT_VERSION);
+      application.setDefaultProperties(defaults);
       if (applyTomcatFix) {
         fixTomcatInstantiation();
       }
