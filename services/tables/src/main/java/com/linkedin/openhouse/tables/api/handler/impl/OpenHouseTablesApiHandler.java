@@ -14,6 +14,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
 import com.linkedin.openhouse.tables.services.TablesService;
 import java.util.List;
@@ -39,9 +40,16 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
 
   @Autowired private ReadBridgeConfigResolver readBridgeConfigResolver;
 
-  /** Request-time {@code config} stamp; mapper leaves it null. */
+  /**
+   * GET-only {@code config} stamp; the mapper leaves it null. Write responses omit it: resolving
+   * after a commit could fail a committed write, and clients load config from GET.
+   */
   private GetTableResponseBody withConfig(GetTableResponseBody body, TableDto tableDto) {
-    return body.toBuilder().config(readBridgeConfigResolver.resolve(tableDto)).build();
+    try {
+      return body.toBuilder().config(readBridgeConfigResolver.resolve(tableDto)).build();
+    } catch (ColumnDefaultException e) {
+      throw e.toServerError();
+    }
   }
 
   @Override
@@ -103,7 +111,7 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
     TableDto tableDto = putResult.getFirst();
     return ApiResponse.<GetTableResponseBody>builder()
         .httpStatus(HttpStatus.CREATED)
-        .responseBody(withConfig(tablesMapper.toGetTableResponseBody(tableDto), tableDto))
+        .responseBody(tablesMapper.toGetTableResponseBody(tableDto))
         .build();
   }
 
@@ -121,7 +129,7 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
     TableDto tableDto = putResult.getFirst();
     return ApiResponse.<GetTableResponseBody>builder()
         .httpStatus(status)
-        .responseBody(withConfig(tablesMapper.toGetTableResponseBody(tableDto), tableDto))
+        .responseBody(tablesMapper.toGetTableResponseBody(tableDto))
         .build();
   }
 

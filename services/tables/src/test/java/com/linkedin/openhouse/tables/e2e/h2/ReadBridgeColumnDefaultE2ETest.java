@@ -4,8 +4,8 @@ import static com.linkedin.openhouse.tables.model.TableModelConstants.CLUSTER_NA
 import static com.linkedin.openhouse.tables.model.TableModelConstants.GET_TABLE_RESPONSE_BODY;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.buildCreateUpdateTableRequestBody;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.buildGetTableResponseBody;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -20,6 +20,9 @@ import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitial
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
+import com.linkedin.openhouse.tables.model.TableDto;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException.Reason;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultsSource;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
 import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
@@ -29,6 +32,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Predicate;
 import org.apache.iceberg.SchemaParser;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -47,8 +51,9 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 /**
- * HTTP create/get stamps {@code config} from a stub {@link ColumnDefaultsSource} according to the
- * OpenHouse ramp. Deployment encoders are out of scope; resolver unit tests cover the same matrix.
+ * HTTP GET stamps {@code config} from a stub {@link ColumnDefaultsSource} according to the
+ * OpenHouse ramp, and fails when the source cannot apply a declared default. Create and update
+ * responses omit {@code config}. Resolver unit tests cover the same matrix.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -66,11 +71,20 @@ public class ReadBridgeColumnDefaultE2ETest {
       ReadBridgeConfigResolver.COLUMN_DEFAULT_FEATURE_ID
           + TableFeatureToggle.ENABLED_PROPERTY_SUFFIX;
 
+  /** Tables the stub source rejects; reset after each test. */
+  private static volatile Predicate<TableDto> failWhen = table -> false;
+
   @TestConfiguration
   static class StubDefaults {
     @Bean
     ColumnDefaultsSource stubColumnDefaults() {
-      return tableDto -> Collections.singletonMap(2, TextNode.valueOf("US"));
+      return tableDto -> {
+        if (failWhen.test(tableDto)) {
+          throw new ColumnDefaultException(
+              Reason.INVALID_VALUE, tableDto, 2, "name", "string", "string", null);
+        }
+        return Collections.singletonMap(2, TextNode.valueOf("US"));
+      };
     }
   }
 
@@ -83,6 +97,7 @@ public class ReadBridgeColumnDefaultE2ETest {
 
   @AfterEach
   public void tearDown() throws Exception {
+    failWhen = table -> false;
     if (created != null) {
       RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, created);
       created = null;
@@ -94,15 +109,12 @@ public class ReadBridgeColumnDefaultE2ETest {
   }
 
   @Test
-  public void createAndGet_stampsColumnDefaultConfigWhenEnabled() throws Exception {
+  public void create_omitsConfigAndGetStampsColumnDefaultWhenEnabled() throws Exception {
     created = create(uniqueTable("prop_on"), Collections.singletonMap(ENABLED_PROP, "true"));
 
     MvcResult createdResult =
         RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
-    assertEquals(
-        "\"US\"",
-        JsonPath.read(
-            createdResult.getResponse().getContentAsString(), "$.config['" + CONFIG_KEY + "']"));
+    jsonPath("$.config").doesNotExist().match(createdResult);
 
     getTable()
         .andExpect(status().isOk())
@@ -158,6 +170,36 @@ public class ReadBridgeColumnDefaultE2ETest {
     getTable()
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.config['" + CONFIG_KEY + "']").doesNotExist());
+  }
+
+  /** GET fails loudly instead of returning the table without its declared defaults. */
+  @Test
+  public void get_failsWithServerErrorWhenDefaultIsUnusable() throws Exception {
+    created = create(uniqueTable("unusable"), Collections.singletonMap(ENABLED_PROP, "true"));
+    RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
+    failWhen = table -> table.getTableId().equals(created.getTableId());
+
+    getTable()
+        .andExpect(status().isInternalServerError())
+        .andExpect(jsonPath("$.message", containsString("COLUMN_DEFAULT_UNUSABLE")))
+        .andExpect(jsonPath("$.message", containsString("INVALID_VALUE, column name, field ID 2")))
+        .andExpect(jsonPath("$.config").doesNotExist());
+  }
+
+  /**
+   * Nothing consults the source after the commit: create succeeds even though only the stored table
+   * is rejected, and the following GET reports the failure.
+   */
+  @Test
+  public void create_commitsWithoutLookupWhenSourceRejectsStoredTable() throws Exception {
+    created =
+        create(uniqueTable("stored_rejected"), Collections.singletonMap(ENABLED_PROP, "true"));
+    failWhen = table -> table.getTableLocation() != null;
+
+    MvcResult createdResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
+    jsonPath("$.config").doesNotExist().match(createdResult);
+    getTable().andExpect(status().isInternalServerError());
   }
 
   /**
