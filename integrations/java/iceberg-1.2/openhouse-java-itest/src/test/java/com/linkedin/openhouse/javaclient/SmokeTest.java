@@ -141,6 +141,28 @@ public class SmokeTest {
   }
 
   @Test
+  public void testDangerousOverrideIsExplicitAndCatalogScoped() throws InterruptedException {
+    String property = "dangerously-bypass-column-default-policy";
+    String header = "X-OpenHouse-Dangerously-Bypass-Column-Default-Policy";
+    OpenHouseCatalog unsafe = new OpenHouseCatalog();
+    unsafe.initialize("unsafe", ImmutableMap.of(CatalogProperties.URI, url, property, "true"));
+    OpenHouseCatalog safe = new OpenHouseCatalog();
+    safe.initialize("safe", ImmutableMap.of(CatalogProperties.URI, url));
+    for (OpenHouseCatalog catalog : new OpenHouseCatalog[] {unsafe, safe}) {
+      mockTableService.enqueue(new MockResponse().setResponseCode(404));
+      Assertions.assertFalse(catalog.tableExists(TableIdentifier.of("db", "table")));
+      Assertions.assertEquals(
+          catalog == unsafe ? "true" : null,
+          mockTableService.takeRequest(1, TimeUnit.SECONDS).getHeader(header));
+    }
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new OpenHouseCatalog()
+                .initialize("bad", ImmutableMap.of(CatalogProperties.URI, url, property, "yes")));
+  }
+
+  @Test
   public void testDatabaseApiInterfacesWorking() {
     mockTableService.enqueue(
         new MockResponse()

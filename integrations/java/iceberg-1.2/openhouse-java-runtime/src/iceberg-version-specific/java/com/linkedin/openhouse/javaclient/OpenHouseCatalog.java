@@ -125,6 +125,11 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     Preconditions.checkArgument(
         actionType == null || ACTION_TYPE_SYSTEM.equalsIgnoreCase(actionType),
         "action-type must be SYSTEM when supplied");
+    String bypassPolicy =
+        properties.getOrDefault("dangerously-bypass-column-default-policy", "false");
+    Preconditions.checkArgument(
+        "true".equalsIgnoreCase(bypassPolicy) || "false".equalsIgnoreCase(bypassPolicy),
+        "dangerously-bypass-column-default-policy must be true or false");
     try {
       TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
       tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
@@ -140,6 +145,13 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     }
     if (actionType != null) {
       this.apiClient.addDefaultHeader(HTTP_HEADER_ACTION_TYPE, actionType.toUpperCase(Locale.ROOT));
+    }
+    if (Boolean.parseBoolean(bypassPolicy)) {
+      this.apiClient.addDefaultHeader(
+          "X-OpenHouse-Dangerously-Bypass-Column-Default-Policy", "true");
+      log.warn(
+          "Column-default policy checks disabled for {}; incorrect reads or writes may result",
+          name);
     }
     this.tableApi = new TableApi(apiClient);
     this.snapshotApi = new SnapshotApi(apiClient);
