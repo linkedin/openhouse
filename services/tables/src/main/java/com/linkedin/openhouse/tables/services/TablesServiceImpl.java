@@ -25,6 +25,7 @@ import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultPolicyBypass;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
@@ -175,7 +176,12 @@ public class TablesServiceImpl implements TablesService {
     } catch (ColumnDefaultException e) {
       throw e.toUnsupportedClient();
     }
-    return saveTableDto(tableDtoToSave, tableDto);
+    return saveTableDto(
+        tableDtoToSave
+            .toBuilder()
+            .columnDefaultPolicyBypass(ColumnDefaultPolicyBypass.requested())
+            .build(),
+        tableDto);
   }
 
   private Pair<TableDto, Boolean> saveTableDto(

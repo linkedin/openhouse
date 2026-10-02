@@ -83,6 +83,9 @@ public class TableDto {
 
   private boolean replaceCommit;
 
+  /** Request-only: the caller sent the column-default policy bypass. */
+  private boolean columnDefaultPolicyBypass;
+
   /**
    * Bundling eligible string type field into a map as {@link org.mapstruct.Mapper} doesn't provide
    * easy interface to achieve so.
