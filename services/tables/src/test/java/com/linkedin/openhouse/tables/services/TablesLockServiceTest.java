@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
+import com.linkedin.openhouse.common.exception.LockConflictException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
@@ -74,9 +74,14 @@ class TablesLockServiceTest {
             : LockState.builder().locked(true).reason(null).build());
     CreateUpdateLockRequestBody request =
         existingSystemOnly ? legacyRequest() : systemOnlyRequest();
-    assertThrows(
-        EntityConcurrentModificationException.class,
-        () -> service.createLock("db", "table", request, OWNER));
+    assertEquals(
+        existingSystemOnly
+            ? "Table db.table already has a SYSTEM_ONLY lock."
+            : "Table db.table already has a LEGACY lock.",
+        assertThrows(
+                LockConflictException.class,
+                () -> service.createLock("db", "table", request, OWNER))
+            .getMessage());
     verify(service.openHouseInternalRepository, never()).save(any());
   }
 
@@ -92,9 +97,10 @@ class TablesLockServiceTest {
   @Test
   void legacyDeleteRefusesSystemOnly() {
     withLock(LockState.builder().locked(true).reason(LockReason.SYSTEM_ONLY).build());
-    assertThrows(
-        EntityConcurrentModificationException.class,
-        () -> service.deleteLock("db", "table", OWNER));
+    assertEquals(
+        "Table db.table has a SYSTEM_ONLY lock. Remove it with reason SYSTEM_ONLY.",
+        assertThrows(LockConflictException.class, () -> service.deleteLock("db", "table", OWNER))
+            .getMessage());
     verify(service.openHouseInternalRepository, never()).save(any());
   }
 
@@ -127,9 +133,12 @@ class TablesLockServiceTest {
   @Test
   void reasonTargetedUnlockRejectsMismatchedReason() {
     withLock(systemOnlyLock());
-    assertThrows(
-        EntityConcurrentModificationException.class,
-        () -> service.deleteLock("db", "table", LockReason.LEGACY, OWNER));
+    assertEquals(
+        "Table db.table has a SYSTEM_ONLY lock, not LEGACY.",
+        assertThrows(
+                LockConflictException.class,
+                () -> service.deleteLock("db", "table", LockReason.LEGACY, OWNER))
+            .getMessage());
     verify(service.openHouseInternalRepository, never()).save(any());
   }
 

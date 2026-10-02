@@ -30,7 +30,12 @@ class UnlockTableCatalogTest extends OpenHouseSparkITest {
       TableApi controls = controls(spark);
       try {
         lock(controls, id, CreateUpdateLockRequestBody.ReasonEnum.SYSTEM_ONLY);
-        assertUnlockFails(spark, "ALTER TABLE " + table + " UNLOCK", 409, "reason-targeted");
+        assertUnlockFails(
+            spark,
+            "ALTER TABLE " + table + " UNLOCK",
+            409,
+            "Table unlock_catalog.matching_lock has a SYSTEM_ONLY lock. "
+                + "Remove it with reason SYSTEM_ONLY.");
         Assertions.assertEquals(
             423,
             Assertions.assertThrows(
@@ -45,8 +50,15 @@ class UnlockTableCatalogTest extends OpenHouseSparkITest {
         lock(controls, id, null);
         Assertions.assertTrue(policiesProperty(spark, table).contains("LEGACY"));
         assertUnlockFails(
-            spark, "ALTER TABLE " + table + " UNLOCK REASON SYSTEM_ONLY", 409, "does not match");
-        assertUnlockFails(spark, "ALTER TABLE " + table + " UNLOCK REASON UNKNOWN", 400, null);
+            spark,
+            "ALTER TABLE " + table + " UNLOCK REASON SYSTEM_ONLY",
+            409,
+            "Table unlock_catalog.matching_lock has a LEGACY lock, not SYSTEM_ONLY.");
+        assertUnlockFails(
+            spark,
+            "ALTER TABLE " + table + " UNLOCK REASON UNKNOWN",
+            400,
+            "Invalid reason 'UNKNOWN'. Expected one of: LEGACY, SYSTEM_ONLY.");
         for (String reason : new String[] {"``", "` `"}) {
           Assertions.assertThrows(
               IllegalArgumentException.class,
@@ -98,9 +110,7 @@ class UnlockTableCatalogTest extends OpenHouseSparkITest {
     WebClientResponseWithMessageException failure =
         Assertions.assertThrows(WebClientResponseWithMessageException.class, () -> spark.sql(sql));
     Assertions.assertEquals(status, failure.getStatusCode(), failure.getMessage());
-    if (message != null) {
-      Assertions.assertTrue(failure.getMessage().contains(message), failure.getMessage());
-    }
+    Assertions.assertTrue(failure.getMessage().contains(message), failure.getMessage());
   }
 
   private static String policiesProperty(SparkSession spark, String table) {
