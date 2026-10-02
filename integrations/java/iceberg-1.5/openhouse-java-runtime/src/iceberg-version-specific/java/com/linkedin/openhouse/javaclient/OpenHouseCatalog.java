@@ -595,10 +595,10 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     }
     String databaseId = tableIdentifier.namespace().toString();
     String tableId = tableIdentifier.name();
-    checkNotDotSegment("Database name", databaseId);
-    checkNotDotSegment("Table name", tableId);
+    checkPathSegment("Database name", databaseId);
+    checkPathSegment("Table name", tableId);
     if (reason != null) {
-      checkNotDotSegment("Lock reason", reason);
+      checkPathSegment("Lock reason", reason);
     }
     (reason == null
             ? tableApi.deleteLockV1(databaseId, tableId)
@@ -613,8 +613,9 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     log.debug("Calling unlockTable succeeded");
   }
 
-  // A proxy that normalizes "." or ".." path segments would route the request elsewhere.
-  private static void checkNotDotSegment(String name, String value) {
+  // A proxy that merges "//" or normalizes "." and ".." segments would route the request elsewhere.
+  private static void checkPathSegment(String name, String value) {
+    Preconditions.checkArgument(!value.isEmpty(), "%s must not be empty", name);
     Preconditions.checkArgument(
         !".".equals(value) && !"..".equals(value), "%s must not be '%s'", name, value);
   }
