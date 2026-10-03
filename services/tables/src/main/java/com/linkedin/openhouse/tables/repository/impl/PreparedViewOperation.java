@@ -51,9 +51,9 @@ public final class PreparedViewOperation {
   /**
    * The requested identifiers, carried only so audit emission can name an operation whose capture
    * found no row at all (a create from observed absence). Excluded from equality/hashing/toString
-   * so a caller that constructs this value without them (as every pre-existing unit test's {@link
-   * #observedAbsence()} call does) still compares equal to an instance the service later enriches
-   * via {@link #withRequestedIdentity(String, String)} purely for audit emission.
+   * so a caller that constructs this value without them still compares equal to an instance the
+   * service later enriches via {@link #withRequestedIdentity(String, String)} purely for audit
+   * emission.
    */
   @EqualsAndHashCode.Exclude private final String requestedDatabaseId;
 
