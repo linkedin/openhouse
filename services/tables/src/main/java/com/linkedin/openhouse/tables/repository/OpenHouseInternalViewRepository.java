@@ -12,7 +12,7 @@ import org.springframework.data.domain.Pageable;
  * semantics. Owns the single pre-admission snapshot capture ({@link #prepareWrite}/{@link
  * #prepareDelete}), UUID/storage/root allocation (create only, after admission), the {@code
  * ViewCommitEngine} call, and result mapping. Surfaces engine and HTS exceptions unwrapped: typed,
- * cause-preserving translation happens once, at the {@code ViewsServiceImpl} boundary.
+ * cause-preserving translation is the calling service's responsibility.
  */
 public interface OpenHouseInternalViewRepository {
 
