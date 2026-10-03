@@ -70,6 +70,84 @@ public class AnalyzerRunner {
     log.info("Analysis complete for {}", operationType);
   }
 
+  /**
+   * Commit-driven entry point. Evaluates a single table — whose stats are already in memory from
+   * the stats upsert, so {@code table_stats} is not re-read — against every registered analyzer,
+   * under the same opt-in, active-op dedup, and cadence guards as the full scan. The table's
+   * current operations and latest history are each loaded once and shared across analyzers.
+   *
+   * <p>Complements, not replaces, the full-scan {@link #analyze} the cron runs. Because the stats
+   * arrive in memory, this cannot miss a brand-new table whose {@code table_stats} row is not yet
+   * visible to a fetch-by-uuid.
+   *
+   * <p>Shares the per-table decision with the full-scan path via {@link #analyze(OperationAnalyzer,
+   * TableDto, Optional, Optional)}; only the load phase differs (in-memory here, DB query in {@link
+   * #analyzeDatabase}). Each analyzer first passes a cheap {@link
+   * OperationAnalyzer#triggersOnCommit} pre-filter, so a commit no analyzer cares about skips the
+   * DB loads entirely.
+   */
+  public void analyzeTable(TableDto table) {
+    log.info(
+        "Commit-driven analyze for table {}.{} (uuid={})",
+        table.getDatabaseName(),
+        table.getTableId(),
+        table.getTableUuid());
+    List<OperationAnalyzer> triggered =
+        analyzers.stream()
+            .filter(analyzer -> analyzer.triggersOnCommit(table))
+            .collect(Collectors.toList());
+    if (triggered.isEmpty()) {
+      log.debug(
+          "No analyzer triggered by commit to {}.{}; skipping",
+          table.getDatabaseName(),
+          table.getTableId());
+      return;
+    }
+    Map<OperationTypeDto, TableOperationDto> currentOps = loadCurrentOpsForTable(table);
+    Map<OperationTypeDto, TableOperationsHistoryDto> latestHistory =
+        loadLatestHistoryForTable(table);
+    triggered.forEach(
+        analyzer ->
+            analyze(
+                analyzer,
+                table,
+                Optional.ofNullable(currentOps.get(analyzer.getOperationType())),
+                Optional.ofNullable(latestHistory.get(analyzer.getOperationType()))));
+  }
+
+  /** All active operations for a single table, keyed by operation type (most-recent per type). */
+  private Map<OperationTypeDto, TableOperationDto> loadCurrentOpsForTable(TableDto table) {
+    return operationsRepo
+        .find(
+            Optional.empty(),
+            Optional.empty(),
+            Optional.of(table.getTableUuid()),
+            Optional.of(table.getDatabaseName()),
+            Optional.of(table.getTableId()),
+            Optional.empty(),
+            Optional.empty(),
+            Pageable.unpaged())
+        .stream()
+        .filter(e -> e.getTableUuid() != null)
+        .map(TableOperationDto::fromRow)
+        .collect(
+            Collectors.toMap(
+                TableOperationDto::getOperationType, op -> op, TableOperationDto::mostRecent));
+  }
+
+  /** Latest completed history entry per operation type for a single table. */
+  private Map<OperationTypeDto, TableOperationsHistoryDto> loadLatestHistoryForTable(
+      TableDto table) {
+    return historyRepo.find(table.getTableUuid(), Pageable.unpaged()).stream()
+        .filter(r -> r.getTableUuid() != null)
+        .map(TableOperationsHistoryDto::fromRow)
+        .collect(
+            Collectors.toMap(
+                TableOperationsHistoryDto::getOperationType,
+                h -> h,
+                TableOperationsHistoryDto::after));
+  }
+
   @Transactional
   void analyzeDatabase(
       OperationAnalyzer analyzer,
@@ -118,55 +196,73 @@ public class AnalyzerRunner {
             .collect(Collectors.toList());
 
     /*
-     * For each table in this database, decide whether to create a new PENDING operation.
-     *
-     * 1. Skip tables not opted in to this operation type.
-     * 2. Look up the table's current active operation (if any) and its most recent completed
-     *    history entry from the maps loaded above.
-     * 3. Delegate the schedule-or-not decision to the analyzer's shouldSchedule — strategy
-     *    encapsulates cadence, retry policy, and any future per-operation signals.
-     * 4. On true, persist a new PENDING operation. The scheduler picks it up on its next pass.
+     * Process phase: for each table in this database, run the shared decision via analyze(...)
+     * using the current op and latest-history maps loaded above. The full-scan path differs from
+     * the commit-driven path only in this load phase; the decision is identical.
      */
-    int created = 0;
-    int failed = 0;
-    for (TableDto table : tables) {
-      if (!analyzer.isEnabled(table)) {
-        continue;
-      }
-      Optional<TableOperationDto> currentOp =
-          Optional.ofNullable(currentOps.get(table.getTableUuid()));
-      Optional<TableOperationsHistoryDto> entry =
-          Optional.ofNullable(latestHistory.get(table.getTableUuid()));
-      if (!analyzer.shouldSchedule(table, currentOp, entry)) {
-        continue;
-      }
-      try {
-        TableOperationDto op = TableOperationDto.pending(table, analyzer.getOperationType());
-        operationsRepo.save(op.toRow());
-        log.debug(
-            "Created PENDING {} operation for table {}.{}",
-            analyzer.getOperationType(),
-            table.getDatabaseName(),
-            table.getTableId());
-        created++;
-      } catch (RuntimeException e) {
-        // One bad table should not abort the rest of the database. Log and continue; the next
-        // analyzer pass will retry for any table whose save failed here.
-        log.error(
-            "Failed to create PENDING {} operation for table {}.{}: {}",
-            analyzer.getOperationType(),
-            table.getDatabaseName(),
-            table.getTableId(),
-            e.toString(),
-            e);
-        failed++;
-      }
-    }
+    long created =
+        tables.stream()
+            .filter(
+                table ->
+                    analyze(
+                        analyzer,
+                        table,
+                        Optional.ofNullable(currentOps.get(table.getTableUuid())),
+                        Optional.ofNullable(latestHistory.get(table.getTableUuid()))))
+            .count();
     log.info(
-        "Finished analyzing Database {}: created {} PENDING {} operation(s) ({} failed)",
+        "Finished analyzing Database {}: created {} PENDING {} operation(s)",
         databaseName,
         created,
-        analyzer.getOperationType(),
-        failed);
+        analyzer.getOperationType());
+  }
+
+  /**
+   * Process phase (shared by the commit-driven {@link #analyzeTable} and the full-scan {@link
+   * #analyzeDatabase}): evaluate one {@code (analyzer, table)} against the table's already-loaded
+   * current operation and latest history, and persist a PENDING operation when it is due. Keeping
+   * this phase separate from the load phase lets the commit path reuse the in-memory stats while
+   * sharing the identical opt-in / active-op / cadence decision. Returns whether a PENDING op was
+   * created.
+   *
+   * <p>Named for what it does — analyze and record a PENDING recommendation; it does <i>not</i>
+   * schedule a job (the scheduler claims PENDING rows and submits jobs).
+   */
+  private boolean analyze(
+      OperationAnalyzer analyzer,
+      TableDto table,
+      Optional<TableOperationDto> currentOp,
+      Optional<TableOperationsHistoryDto> latestHistory) {
+    if (!analyzer.isEnabled(table) || !analyzer.shouldSchedule(table, currentOp, latestHistory)) {
+      return false;
+    }
+    return createPending(analyzer, table);
+  }
+
+  /**
+   * Persist one PENDING operation, isolating failures so a single bad table never aborts the rest
+   * of the pass; the next pass retries it. Returns whether the save succeeded.
+   */
+  private boolean createPending(OperationAnalyzer analyzer, TableDto table) {
+    try {
+      operationsRepo.save(TableOperationDto.pending(table, analyzer.getOperationType()).toRow());
+      log.debug(
+          "Created PENDING {} operation for table {}.{}",
+          analyzer.getOperationType(),
+          table.getDatabaseName(),
+          table.getTableId());
+      return true;
+    } catch (RuntimeException e) {
+      // One bad table should not abort the rest of the database. Log and continue; the next
+      // analyzer pass will retry for any table whose save failed here.
+      log.error(
+          "Failed to create PENDING {} operation for table {}.{}: {}",
+          analyzer.getOperationType(),
+          table.getDatabaseName(),
+          table.getTableId(),
+          e.toString(),
+          e);
+      return false;
+    }
   }
 }

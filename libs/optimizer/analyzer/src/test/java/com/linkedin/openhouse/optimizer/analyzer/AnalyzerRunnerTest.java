@@ -3,6 +3,7 @@ package com.linkedin.openhouse.optimizer.analyzer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -44,8 +45,59 @@ class AnalyzerRunnerTest {
   @BeforeEach
   void setUp() {
     runner = new AnalyzerRunner(List.of(analyzer), statsRepo, operationsRepo, historyRepo);
-    when(analyzer.getOperationType()).thenReturn(OFD_TYPE);
-    when(statsRepo.findDistinctDatabaseNames()).thenReturn(List.of(DB));
+    // Lenient: the triggersOnCommit pre-filter can short-circuit analyzeTable before the type is
+    // read (see analyzeTable_skipsLoadAndSave_whenNoAnalyzerTriggersOnCommit).
+    lenient().when(analyzer.getOperationType()).thenReturn(OFD_TYPE);
+    // Only the full-scan entry point resolves databases; analyzeTable passes the db through.
+    lenient().when(statsRepo.findDistinctDatabaseNames()).thenReturn(List.of(DB));
+  }
+
+  @Test
+  void analyzeTable_usesInMemoryStats_insertsPendingOp_withoutReadingTableStats() {
+    TableDto table =
+        TableDto.builder().tableUuid("uuid-1").databaseName(DB).tableId("tbl1").build();
+
+    when(operationsRepo.find(
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.of("uuid-1")),
+            eq(Optional.of(DB)),
+            eq(Optional.of("tbl1")),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            any()))
+        .thenReturn(Collections.emptyList());
+    when(historyRepo.find(eq("uuid-1"), any())).thenReturn(Collections.emptyList());
+    when(analyzer.triggersOnCommit(table)).thenReturn(true);
+    when(analyzer.isEnabled(table)).thenReturn(true);
+    when(analyzer.shouldSchedule(table, Optional.empty(), Optional.empty())).thenReturn(true);
+
+    runner.analyzeTable(table);
+
+    ArgumentCaptor<TableOperationsRow> captor = ArgumentCaptor.forClass(TableOperationsRow.class);
+    verify(operationsRepo).save(captor.capture());
+    TableOperationsRow saved = captor.getValue();
+    assertThat(saved.getTableUuid()).isEqualTo("uuid-1");
+    assertThat(saved.getTableName()).isEqualTo("tbl1");
+    assertThat(saved.getOperationType()).isEqualTo(OFD_DB);
+    assertThat(saved.getStatus())
+        .isEqualTo(com.linkedin.openhouse.optimizer.db.OperationStatus.PENDING);
+    // The point of the in-memory path: the commit-driven trigger never re-reads table_stats.
+    verify(statsRepo, never()).find(any(), any(), any(), any());
+  }
+
+  @Test
+  void analyzeTable_skipsLoadAndSave_whenNoAnalyzerTriggersOnCommit() {
+    TableDto table =
+        TableDto.builder().tableUuid("uuid-1").databaseName(DB).tableId("tbl1").build();
+    when(analyzer.triggersOnCommit(table)).thenReturn(false);
+
+    runner.analyzeTable(table);
+
+    // Pre-filter short-circuits before any DB load or save.
+    verify(operationsRepo, never()).find(any(), any(), any(), any(), any(), any(), any(), any());
+    verify(historyRepo, never()).find(any(), any());
+    verify(operationsRepo, never()).save(any());
   }
 
   @Test
