@@ -26,7 +26,21 @@ public enum ViewErrorCode {
   REQUIRED_REPRESENTATION_MISSING(HttpStatus.UNPROCESSABLE_ENTITY),
   DEPENDENCY_CYCLE(HttpStatus.UNPROCESSABLE_ENTITY),
   MAX_VIEW_DEPTH_EXCEEDED(HttpStatus.UNPROCESSABLE_ENTITY),
-  VIEW_SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE);
+  VIEW_SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE),
+
+  /**
+   * Unexpected or corrupt server-side failure: trusted-input validation failures from the engine,
+   * corrupt persisted metadata, and caller-translated HTS 4xx on a trusted server call. Never a
+   * caller-input error — the API validator owns every caller-input 400.
+   */
+  INTERNAL_VIEW_ERROR(HttpStatus.INTERNAL_SERVER_ERROR),
+
+  /**
+   * A write's publication outcome is unacknowledged: it may have succeeded or failed. Distinct from
+   * {@link #VIEW_SERVICE_UNAVAILABLE}, which is a transient read-side dependency failure. No blind
+   * retry or cleanup of a possibly-committed write is performed.
+   */
+  COMMIT_STATE_UNKNOWN(HttpStatus.SERVICE_UNAVAILABLE);
 
   private final HttpStatus httpStatus;
 }
