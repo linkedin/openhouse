@@ -6,6 +6,7 @@ import com.linkedin.openhouse.tables.readbridge.ColumnDefaultsSource;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
+import com.linkedin.openhouse.tables.repository.OpenHouseInternalViewRepository;
 import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.actuate.autoconfigure.security.servlet.ManagementWebSecurityAutoConfiguration;
@@ -57,6 +58,16 @@ public class MockTablesApplication {
   @MockBean OpenHouseInternalCatalog openHouseInternalCatalog;
 
   @MockBean HouseTableRepository houseTableRepository;
+
+  /**
+   * The views service graph in {@code tables.services} requires these seams. Mock tests do not scan
+   * {@code tables.toggle} (which would add FeatureToggleAspect and the HTS-backed toggle store) or
+   * {@code tables.repository}, so mock them as for the table repository above. The mocked toggle
+   * reports every feature inactive, i.e. views stay disabled.
+   */
+  @MockBean TableFeatureToggle tableFeatureToggle;
+
+  @MockBean OpenHouseInternalViewRepository openHouseInternalViewRepository;
 
   /**
    * Mock tests scan {@code tables.api.validator}, not {@code tables.api}, so {@code ApiConfig} is

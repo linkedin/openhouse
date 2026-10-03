@@ -1036,10 +1036,15 @@ public class ViewsControllerTest {
         ViewModelConstants.DEFAULT_CATALOG, payloadObject.get("defaultCatalog").getAsString());
     Assertions.assertTrue(
         payloadObject.has("baseMetadataLocation"),
-        "The audited payload is the raw body the caller sent, so it carries the wire key.");
+        "The audited payload keeps the wire key so an auditor can see the caller supplied a CAS"
+            + " token.");
     Assertions.assertEquals(
-        ViewModelConstants.METADATA_LOCATION,
-        payloadObject.get("baseMetadataLocation").getAsString());
+        ServiceAuditPayloadRedactor.REDACTED_VALUE,
+        payloadObject.get("baseMetadataLocation").getAsString(),
+        "The write CAS token must be redacted from request audit payloads.");
+    Assertions.assertFalse(
+        serializedPayload.contains(ViewModelConstants.METADATA_LOCATION),
+        "No fragment of the submitted CAS token may appear anywhere in the audited payload.");
     Assertions.assertEquals(
         ViewModelConstants.DATABASE_ID,
         payloadObject.getAsJsonArray("defaultNamespace").get(0).getAsString());
