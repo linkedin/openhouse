@@ -80,8 +80,10 @@ public class AnalyzerRunner {
    * arrive in memory, this cannot miss a brand-new table whose {@code table_stats} row is not yet
    * visible to a fetch-by-uuid.
    *
-   * <p>Shares the per-table decision with the full-scan path via {@link #analyzeAndSchedule}; only
-   * the load phase differs (in-memory here, DB query in {@link #analyzeDatabase}).
+   * <p>Shares the per-table decision with the full-scan path via {@link #analyzeAndCreatePending};
+   * only the load phase differs (in-memory here, DB query in {@link #analyzeDatabase}). Each
+   * analyzer first passes a cheap {@link OperationAnalyzer#triggersOnCommit} pre-filter, so a
+   * commit no analyzer cares about skips the DB loads entirely.
    */
   public void analyzeTable(TableDto table) {
     log.info(
@@ -89,12 +91,23 @@ public class AnalyzerRunner {
         table.getDatabaseName(),
         table.getTableId(),
         table.getTableUuid());
+    List<OperationAnalyzer> triggered =
+        analyzers.stream()
+            .filter(analyzer -> analyzer.triggersOnCommit(table))
+            .collect(Collectors.toList());
+    if (triggered.isEmpty()) {
+      log.debug(
+          "No analyzer triggered by commit to {}.{}; skipping",
+          table.getDatabaseName(),
+          table.getTableId());
+      return;
+    }
     Map<OperationTypeDto, TableOperationDto> currentOps = loadCurrentOpsForTable(table);
     Map<OperationTypeDto, TableOperationsHistoryDto> latestHistory =
         loadLatestHistoryForTable(table);
-    analyzers.forEach(
+    triggered.forEach(
         analyzer ->
-            analyzeAndSchedule(
+            analyzeAndCreatePending(
                 analyzer,
                 table,
                 Optional.ofNullable(currentOps.get(analyzer.getOperationType())),
@@ -183,14 +196,15 @@ public class AnalyzerRunner {
 
     /*
      * Process phase: for each table in this database, run the shared decision via
-     * analyzeAndSchedule using the current op and latest-history maps loaded above. The full-scan
-     * path differs from the commit-driven path only in this load phase; the decision is identical.
+     * analyzeAndCreatePending using the current op and latest-history maps loaded above. The
+     * full-scan path differs from the commit-driven path only in this load phase; the decision is
+     * identical.
      */
     long created =
         tables.stream()
             .filter(
                 table ->
-                    analyzeAndSchedule(
+                    analyzeAndCreatePending(
                         analyzer,
                         table,
                         Optional.ofNullable(currentOps.get(table.getTableUuid())),
@@ -210,8 +224,11 @@ public class AnalyzerRunner {
    * this phase separate from the load phase lets the commit path reuse the in-memory stats while
    * sharing the identical opt-in / active-op / cadence decision. Returns whether a PENDING op was
    * created.
+   *
+   * <p>Named for what it does — analyze and record a PENDING recommendation; it does <i>not</i>
+   * schedule a job (the scheduler claims PENDING rows and submits jobs).
    */
-  private boolean analyzeAndSchedule(
+  private boolean analyzeAndCreatePending(
       OperationAnalyzer analyzer,
       TableDto table,
       Optional<TableOperationDto> currentOp,
