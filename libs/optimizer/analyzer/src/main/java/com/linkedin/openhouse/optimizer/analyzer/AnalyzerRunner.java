@@ -80,10 +80,11 @@ public class AnalyzerRunner {
    * arrive in memory, this cannot miss a brand-new table whose {@code table_stats} row is not yet
    * visible to a fetch-by-uuid.
    *
-   * <p>Shares the per-table decision with the full-scan path via {@link #analyzeAndCreatePending};
-   * only the load phase differs (in-memory here, DB query in {@link #analyzeDatabase}). Each
-   * analyzer first passes a cheap {@link OperationAnalyzer#triggersOnCommit} pre-filter, so a
-   * commit no analyzer cares about skips the DB loads entirely.
+   * <p>Shares the per-table decision with the full-scan path via {@link #analyze(OperationAnalyzer,
+   * TableDto, Optional, Optional)}; only the load phase differs (in-memory here, DB query in {@link
+   * #analyzeDatabase}). Each analyzer first passes a cheap {@link
+   * OperationAnalyzer#triggersOnCommit} pre-filter, so a commit no analyzer cares about skips the
+   * DB loads entirely.
    */
   public void analyzeTable(TableDto table) {
     log.info(
@@ -107,7 +108,7 @@ public class AnalyzerRunner {
         loadLatestHistoryForTable(table);
     triggered.forEach(
         analyzer ->
-            analyzeAndCreatePending(
+            analyze(
                 analyzer,
                 table,
                 Optional.ofNullable(currentOps.get(analyzer.getOperationType())),
@@ -195,16 +196,15 @@ public class AnalyzerRunner {
             .collect(Collectors.toList());
 
     /*
-     * Process phase: for each table in this database, run the shared decision via
-     * analyzeAndCreatePending using the current op and latest-history maps loaded above. The
-     * full-scan path differs from the commit-driven path only in this load phase; the decision is
-     * identical.
+     * Process phase: for each table in this database, run the shared decision via analyze(...)
+     * using the current op and latest-history maps loaded above. The full-scan path differs from
+     * the commit-driven path only in this load phase; the decision is identical.
      */
     long created =
         tables.stream()
             .filter(
                 table ->
-                    analyzeAndCreatePending(
+                    analyze(
                         analyzer,
                         table,
                         Optional.ofNullable(currentOps.get(table.getTableUuid())),
@@ -228,7 +228,7 @@ public class AnalyzerRunner {
    * <p>Named for what it does — analyze and record a PENDING recommendation; it does <i>not</i>
    * schedule a job (the scheduler claims PENDING rows and submits jobs).
    */
-  private boolean analyzeAndCreatePending(
+  private boolean analyze(
       OperationAnalyzer analyzer,
       TableDto table,
       Optional<TableOperationDto> currentOp,
