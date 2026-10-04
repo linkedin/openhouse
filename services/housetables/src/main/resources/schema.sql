@@ -58,3 +58,21 @@ CREATE TABLE IF NOT EXISTS soft_deleted_user_table_row (
     purge_after_ms      BIGINT          NOT NULL,
     PRIMARY KEY (database_id, table_id, deleted_at_ms)
 );
+
+CREATE TABLE IF NOT EXISTS replication_configuration (
+    source_database_id       VARCHAR (128)     NOT NULL,
+    source_table_id          VARCHAR (128)     NOT NULL,
+    destination_cluster_id   VARCHAR (128)     NOT NULL,
+    destination_database_id  VARCHAR (128)     NOT NULL,
+    destination_table_id     VARCHAR (128)     NOT NULL,
+    replication_interval     VARCHAR (128)     NOT NULL,
+    version                  BIGINT            NOT NULL,
+    ETL_TS                   DATETIME(6)       DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (
+        source_database_id,
+        source_table_id,
+        destination_cluster_id,
+        destination_database_id,
+        destination_table_id
+    )
+);
