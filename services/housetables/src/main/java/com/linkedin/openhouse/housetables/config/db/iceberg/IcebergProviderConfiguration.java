@@ -5,6 +5,8 @@ import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.housetables.repository.HtsRepository;
 import com.linkedin.openhouse.hts.catalog.model.jobtable.JobIcebergRow;
 import com.linkedin.openhouse.hts.catalog.model.jobtable.JobIcebergRowPrimaryKey;
+import com.linkedin.openhouse.hts.catalog.model.replication.ReplicationStateIcebergRow;
+import com.linkedin.openhouse.hts.catalog.model.replication.ReplicationStateIcebergRowPrimaryKey;
 import com.linkedin.openhouse.hts.catalog.model.usertable.UserTableIcebergRow;
 import com.linkedin.openhouse.hts.catalog.model.usertable.UserTableIcebergRowPrimaryKey;
 import com.linkedin.openhouse.hts.catalog.repository.IcebergHtsRepository;
@@ -35,6 +37,8 @@ public class IcebergProviderConfiguration {
   private static final String HTS_DATABASE_NAME = "htsDB";
   private static final String HTS_USER_TBL_NAME = "userTable";
   private static final String HTS_JOB_TBL_NAME = "jobTable";
+  private static final String HTS_REPLICATION_DESTINATION_TBL_NAME = "replicationDestination";
+  private static final String HTS_REPLICATION_CHECKPOINT_TBL_NAME = "replicationCheckpoint";
 
   @Autowired StorageManager storageManager;
 
@@ -68,6 +72,29 @@ public class IcebergProviderConfiguration {
     return IcebergHtsRepository.<JobIcebergRow, JobIcebergRowPrimaryKey>builder()
         .catalog(catalog)
         .htsTableIdentifier(TableIdentifier.of(HTS_DATABASE_NAME, HTS_JOB_TBL_NAME))
+        .build();
+  }
+
+  @Bean
+  @ConditionalOnProperty(value = "cluster.housetables.database.type", havingValue = "ICEBERG")
+  public IcebergHtsRepository<ReplicationStateIcebergRow, ReplicationStateIcebergRowPrimaryKey>
+      replicationDestinationIcebergRepository() {
+    return provideReplicationStateRepository(HTS_REPLICATION_DESTINATION_TBL_NAME);
+  }
+
+  @Bean
+  @ConditionalOnProperty(value = "cluster.housetables.database.type", havingValue = "ICEBERG")
+  public IcebergHtsRepository<ReplicationStateIcebergRow, ReplicationStateIcebergRowPrimaryKey>
+      replicationCheckpointIcebergRepository() {
+    return provideReplicationStateRepository(HTS_REPLICATION_CHECKPOINT_TBL_NAME);
+  }
+
+  private IcebergHtsRepository<ReplicationStateIcebergRow, ReplicationStateIcebergRowPrimaryKey>
+      provideReplicationStateRepository(String tableName) {
+    return IcebergHtsRepository
+        .<ReplicationStateIcebergRow, ReplicationStateIcebergRowPrimaryKey>builder()
+        .catalog(provideHadoopCatalogForHouseTables())
+        .htsTableIdentifier(TableIdentifier.of(HTS_DATABASE_NAME, tableName))
         .build();
   }
 
