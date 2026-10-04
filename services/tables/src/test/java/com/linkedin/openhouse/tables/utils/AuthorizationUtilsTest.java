@@ -20,6 +20,8 @@ public class AuthorizationUtilsTest {
           .tableCreator("table-creator")
           .tableType(TableType.PRIMARY_TABLE)
           .build();
+  private static final TableDto REPLICA_TABLE =
+      TABLE.toBuilder().tableType(TableType.REPLICA_TABLE).build();
 
   private AuthorizationHandler authorizationHandler;
   private AuthorizationUtils authorizationUtils;
@@ -58,5 +60,32 @@ public class AuthorizationUtilsTest {
         () ->
             authorizationUtils.checkTableWritePathPrivileges(
                 TABLE, ACTING_PRINCIPAL, Privileges.UPDATE_TABLE_METADATA));
+  }
+
+  @Test
+  public void testReplicaTableWritePathRequiresSystemAdmin() {
+    Mockito.when(
+            authorizationHandler.checkAccessDecision(
+                ACTING_PRINCIPAL, REPLICA_TABLE, Privileges.SYSTEM_ADMIN))
+        .thenReturn(false);
+
+    Assertions.assertThrows(
+        AccessDeniedException.class,
+        () ->
+            authorizationUtils.checkTableWritePathPrivileges(
+                REPLICA_TABLE, ACTING_PRINCIPAL, Privileges.UPDATE_TABLE_METADATA));
+    Mockito.verify(authorizationHandler)
+        .checkAccessDecision(ACTING_PRINCIPAL, REPLICA_TABLE, Privileges.SYSTEM_ADMIN);
+    Mockito.verify(authorizationHandler, Mockito.never())
+        .checkAccessDecision(ACTING_PRINCIPAL, REPLICA_TABLE, Privileges.UPDATE_TABLE_METADATA);
+
+    Mockito.when(
+            authorizationHandler.checkAccessDecision(
+                ACTING_PRINCIPAL, REPLICA_TABLE, Privileges.SYSTEM_ADMIN))
+        .thenReturn(true);
+    Assertions.assertDoesNotThrow(
+        () ->
+            authorizationUtils.checkTableWritePathPrivileges(
+                REPLICA_TABLE, ACTING_PRINCIPAL, Privileges.UPDATE_TABLE_METADATA));
   }
 }
