@@ -7,6 +7,7 @@ import com.linkedin.openhouse.common.stats.model.CommitEventTable;
 import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats;
 import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitions;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
+import com.linkedin.openhouse.housetables.client.api.ReplicationConfigurationApi;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import java.util.ArrayList;
@@ -25,10 +26,21 @@ import org.apache.commons.cli.Option;
  */
 @Slf4j
 public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
+  private final ReplicationConfigurationApi replicationConfigurationApi;
 
   public TableStatsCollectionSparkApp(
       String jobId, StateManager stateManager, String fqtn, OtelEmitter otelEmitter) {
+    this(jobId, stateManager, fqtn, otelEmitter, null);
+  }
+
+  public TableStatsCollectionSparkApp(
+      String jobId,
+      StateManager stateManager,
+      String fqtn,
+      OtelEmitter otelEmitter,
+      ReplicationConfigurationApi replicationConfigurationApi) {
     super(jobId, stateManager, fqtn, otelEmitter);
+    this.replicationConfigurationApi = replicationConfigurationApi;
   }
 
   @Override
@@ -42,7 +54,10 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
     IcebergTableStats icebergStats =
         executeWithTiming(
             "table stats collection",
-            () -> ops.collectTableStats(fqtn),
+            () ->
+                replicationConfigurationApi == null
+                    ? ops.collectTableStats(fqtn)
+                    : ops.collectTableStats(fqtn, replicationConfigurationApi),
             result -> String.format("%s", fqtn));
 
     List<CommitEventTable> commitEvents =
@@ -184,6 +199,7 @@ public class TableStatsCollectionSparkApp extends BaseTableSparkApp {
         getJobId(cmdLine),
         createStateManager(cmdLine, otelEmitter),
         cmdLine.getOptionValue("tableName"),
-        otelEmitter);
+        otelEmitter,
+        createReplicationConfigurationApi(cmdLine.getOptionValue("storageURL"), otelEmitter, null));
   }
 }

@@ -10,6 +10,7 @@ import com.linkedin.openhouse.common.stats.model.CommitEventTable;
 import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats;
 import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitions;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
+import com.linkedin.openhouse.housetables.client.api.ReplicationConfigurationApi;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.jobs.util.TableStatsCollector;
@@ -788,16 +789,25 @@ public final class Operations implements AutoCloseable {
    * @param fqtn fully-qualified table name
    */
   public IcebergTableStats collectTableStats(String fqtn) {
+    return collectTableStats(fqtn, null);
+  }
+
+  public IcebergTableStats collectTableStats(
+      String fqtn, ReplicationConfigurationApi replicationConfigurationApi) {
     Table table = getTable(fqtn);
 
     try {
       TableStatsCollector tableStatsCollector = new TableStatsCollector(fs(), spark, table);
-      return tableStatsCollector.collectTableStats();
+      return tableStatsCollector.collectTableStats(replicationConfigurationApi);
     } catch (IOException e) {
       log.error("Unable to initialize file system for table stats collection", e);
       return null;
     } catch (Exception e) {
       log.error("Failed to collect table stats for table: {}", fqtn, e);
+      if (replicationConfigurationApi != null) {
+        throw new IllegalStateException(
+            "Failed to collect table stats with catalog replication configuration for " + fqtn, e);
+      }
       return null;
     }
   }

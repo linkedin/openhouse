@@ -4,6 +4,7 @@ import com.linkedin.openhouse.client.ssl.HousetablesApiClientFactory;
 import com.linkedin.openhouse.common.JobState;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.housetables.client.api.JobApi;
+import com.linkedin.openhouse.housetables.client.api.ReplicationConfigurationApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
@@ -84,6 +85,17 @@ public abstract class BaseApp {
 
   protected static JobApi createJobApiClient(
       String basePath, OtelEmitter otelEmitter, String trustStoreLocation) {
+    return new JobApi(createHouseTablesApiClient(basePath, otelEmitter, trustStoreLocation));
+  }
+
+  protected static ReplicationConfigurationApi createReplicationConfigurationApi(
+      String basePath, OtelEmitter otelEmitter, String trustStoreLocation) {
+    return new ReplicationConfigurationApi(
+        createHouseTablesApiClient(basePath, otelEmitter, trustStoreLocation));
+  }
+
+  private static ApiClient createHouseTablesApiClient(
+      String basePath, OtelEmitter otelEmitter, String trustStoreLocation) {
     ApiClient client = null;
     try {
       client =
@@ -99,7 +111,7 @@ public abstract class BaseApp {
               AttributeKey.stringKey(AppConstants.SERVICE_NAME), AppConstants.SERVICE_HOUSETABLES));
       throw new RuntimeException(e);
     }
-    return new JobApi(client);
+    return client;
   }
 
   protected void onStarted() {

@@ -3,8 +3,11 @@ package com.linkedin.openhouse.jobs.util;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.linkedin.openhouse.common.stats.model.ColumnData;
+import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.common.stats.model.PolicyStats;
 import com.linkedin.openhouse.common.stats.model.ReplicationPolicyStatsSchema;
+import com.linkedin.openhouse.housetables.client.model.ReplicationConfiguration;
+import com.linkedin.openhouse.housetables.client.model.ReplicationConfigurationSet;
 import java.util.Arrays;
 import java.util.List;
 import org.apache.spark.sql.Row;
@@ -466,6 +469,51 @@ public class TableStatsCollectorUtilTest {
 
     Assertions.assertNull(result.getReplicationPolicies());
     Assertions.assertFalse(result.getSharingEnabled());
+  }
+
+  @Test
+  public void testWithCatalogReplicationPolicyUsesCatalogDestinations() {
+    IcebergTableStats stats = IcebergTableStats.builder().build();
+    ReplicationConfigurationSet configurationSet =
+        new ReplicationConfigurationSet()
+            .configured(true)
+            .configurations(
+                Arrays.asList(
+                    new ReplicationConfiguration()
+                        .destinationClusterId("war")
+                        .replicationInterval("12H"),
+                    new ReplicationConfiguration()
+                        .destinationClusterId("holdem")
+                        .replicationInterval("1D")));
+
+    IcebergTableStats result =
+        TableStatsCollectorUtil.withCatalogReplicationPolicy(stats, configurationSet);
+
+    Assertions.assertEquals(2, result.getReplicationPolicies().size());
+    Assertions.assertEquals("war", result.getReplicationPolicies().get(0).getDestination());
+    Assertions.assertEquals("12H", result.getReplicationPolicies().get(0).getInterval());
+    Assertions.assertEquals("holdem", result.getReplicationPolicies().get(1).getDestination());
+    Assertions.assertEquals("1D", result.getReplicationPolicies().get(1).getInterval());
+  }
+
+  @Test
+  public void testWithCatalogReplicationPolicyClearsLegacyReplication() {
+    IcebergTableStats stats =
+        IcebergTableStats.builder()
+            .replicationPolicies(
+                Arrays.asList(
+                    ReplicationPolicyStatsSchema.builder()
+                        .destination("legacy")
+                        .interval("12H")
+                        .build()))
+            .build();
+    ReplicationConfigurationSet configurationSet =
+        new ReplicationConfigurationSet().configured(false);
+
+    IcebergTableStats result =
+        TableStatsCollectorUtil.withCatalogReplicationPolicy(stats, configurationSet);
+
+    Assertions.assertNull(result.getReplicationPolicies());
   }
 
   @Test

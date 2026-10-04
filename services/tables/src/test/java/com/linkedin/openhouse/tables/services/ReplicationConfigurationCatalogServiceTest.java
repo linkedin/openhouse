@@ -137,6 +137,7 @@ class ReplicationConfigurationCatalogServiceTest {
     assertEquals(
         "CATALOG", enriched.getPolicies().getReplication().getConfig().get(0).getDestination());
     assertEquals("12H", enriched.getPolicies().getReplication().getConfig().get(0).getInterval());
+    verify(replicationConfigurationApi, never()).replaceReplicationConfiguration(any());
   }
 
   @Test
@@ -158,5 +159,50 @@ class ReplicationConfigurationCatalogServiceTest {
                     null)));
 
     assertSame(legacy, service.enrich(legacy));
+    verify(replicationConfigurationApi, never()).replaceReplicationConfiguration(any());
+  }
+
+  @Test
+  void synchronizePreservesOmittedReplicationDuringReplaceCommit() {
+    TableDto existing =
+        TableDto.builder()
+            .databaseId("source_db")
+            .tableId("source_table")
+            .policies(Policies.builder().build())
+            .build();
+    TableDto requested = TableDto.builder().databaseId("source_db").tableId("source_table").build();
+
+    service.synchronize(requested, existing, true);
+
+    verifyNoInteractions(replicationConfigurationApi);
+  }
+
+  @Test
+  void synchronizePropagatesCatalogWriteFailure() {
+    TableDto requested =
+        TableDto.builder()
+            .databaseId("source_db")
+            .tableId("source_table")
+            .policies(
+                Policies.builder()
+                    .replication(
+                        Replication.builder()
+                            .config(
+                                Collections.singletonList(
+                                    ReplicationConfig.builder()
+                                        .destination("CLUSTER2")
+                                        .interval("12H")
+                                        .build()))
+                            .build())
+                    .build())
+            .build();
+    RuntimeException failure = new RuntimeException("HTS unavailable");
+    when(replicationConfigurationApi.replaceReplicationConfiguration(any()))
+        .thenReturn(Mono.error(failure));
+
+    RuntimeException thrown =
+        assertThrows(RuntimeException.class, () -> service.synchronize(requested, null, false));
+
+    assertSame(failure, thrown);
   }
 }

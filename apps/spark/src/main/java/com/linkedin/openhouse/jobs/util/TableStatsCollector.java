@@ -1,15 +1,21 @@
 package com.linkedin.openhouse.jobs.util;
 
+import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.getCanonicalFieldName;
+
 import com.linkedin.openhouse.common.stats.model.CommitEventTable;
 import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats;
 import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitions;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
+import com.linkedin.openhouse.housetables.client.api.ReplicationConfigurationApi;
+import com.linkedin.openhouse.housetables.client.model.ReplicationConfigurationSet;
+import java.time.Duration;
 import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.iceberg.Table;
 import org.apache.spark.sql.SparkSession;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 /** Class to collect and publish stats for a given table. */
 @Slf4j
@@ -22,10 +28,20 @@ public class TableStatsCollector {
 
   /** Collect table stats. */
   public IcebergTableStats collectTableStats() {
+    return collectTableStats(null);
+  }
+
+  /** Collect table stats, sourcing replication policy from HTS when the client is available. */
+  public IcebergTableStats collectTableStats(
+      ReplicationConfigurationApi replicationConfigurationApi) {
     IcebergTableStats stats = IcebergTableStats.builder().build();
 
     IcebergTableStats statsWithMetadataData =
         TableStatsCollectorUtil.populateTableMetadata(table, stats);
+    if (replicationConfigurationApi != null) {
+      statsWithMetadataData =
+          populateCatalogReplicationPolicy(statsWithMetadataData, replicationConfigurationApi);
+    }
     IcebergTableStats statsWithReferenceFiles =
         TableStatsCollectorUtil.populateStatsOfAllReferencedFiles(
             table, spark, statsWithMetadataData);
@@ -36,6 +52,32 @@ public class TableStatsCollector {
         TableStatsCollectorUtil.populateStorageStats(table, fs, statsWithCurrentSnapshot);
 
     return tableStats;
+  }
+
+  private IcebergTableStats populateCatalogReplicationPolicy(
+      IcebergTableStats stats, ReplicationConfigurationApi replicationConfigurationApi) {
+    String databaseId = table.properties().get(getCanonicalFieldName("databaseId"));
+    String tableId = table.properties().get(getCanonicalFieldName("tableId"));
+    if (databaseId == null || tableId == null) {
+      throw new IllegalStateException(
+          "Cannot load catalog replication policy without table databaseId and tableId");
+    }
+
+    ReplicationConfigurationSet configurationSet;
+    try {
+      configurationSet =
+          replicationConfigurationApi
+              .getReplicationConfiguration(databaseId, tableId)
+              .block(Duration.ofSeconds(30));
+    } catch (WebClientResponseException e) {
+      if (e.getStatusCode().value() == 404) {
+        return stats;
+      }
+      throw e;
+    }
+    return configurationSet == null
+        ? stats
+        : TableStatsCollectorUtil.withCatalogReplicationPolicy(stats, configurationSet);
   }
 
   /**

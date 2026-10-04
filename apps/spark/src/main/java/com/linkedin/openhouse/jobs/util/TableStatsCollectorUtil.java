@@ -20,6 +20,7 @@ import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
 import com.linkedin.openhouse.common.stats.model.PolicyStats;
 import com.linkedin.openhouse.common.stats.model.ReplicationPolicyStatsSchema;
 import com.linkedin.openhouse.common.stats.model.RetentionStatsSchema;
+import com.linkedin.openhouse.housetables.client.model.ReplicationConfigurationSet;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -381,6 +382,7 @@ public final class TableStatsCollectorUtil {
     if (jsonObject == null) {
       return policyStats;
     }
+
     if (jsonObject.has("retention")) {
       GsonBuilder gsonBuilder = new GsonBuilder();
       gsonBuilder.registerTypeAdapter(
@@ -415,6 +417,23 @@ public final class TableStatsCollectorUtil {
       }
     }
     return policyStats;
+  }
+
+  static IcebergTableStats withCatalogReplicationPolicy(
+      IcebergTableStats stats, ReplicationConfigurationSet configurationSet) {
+    if (!configurationSet.getConfigured()) {
+      return stats.toBuilder().replicationPolicies(null).build();
+    }
+    List<ReplicationPolicyStatsSchema> replicationPolicies =
+        configurationSet.getConfigurations().stream()
+            .map(
+                configuration ->
+                    ReplicationPolicyStatsSchema.builder()
+                        .destination(configuration.getDestinationClusterId())
+                        .interval(configuration.getReplicationInterval())
+                        .build())
+            .collect(Collectors.toList());
+    return stats.toBuilder().replicationPolicies(replicationPolicies).build();
   }
 
   /**
