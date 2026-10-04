@@ -6,10 +6,14 @@ import com.linkedin.openhouse.housetables.model.JobRowPrimaryKey;
 import com.linkedin.openhouse.housetables.model.UserTableRow;
 import com.linkedin.openhouse.housetables.model.UserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.HtsRepository;
+import com.linkedin.openhouse.housetables.repository.ReplicationConfigurationStore;
+import com.linkedin.openhouse.housetables.repository.impl.iceberg.IcebergReplicationConfigurationStore;
 import com.linkedin.openhouse.housetables.repository.impl.iceberg.JobTableHtsRepository;
 import com.linkedin.openhouse.housetables.repository.impl.iceberg.UserTableHtsRepository;
+import com.linkedin.openhouse.housetables.repository.impl.jdbc.JdbcReplicationConfigurationStore;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.JobTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -40,12 +44,26 @@ public class DatabaseConfiguration {
 
   @Autowired UserTableHtsJdbcRepository userTableHtsJdbcRepository;
 
+  @Autowired JdbcReplicationConfigurationStore jdbcReplicationConfigurationStore;
+
   /** iceberg based implementations * */
   @Autowired(required = false)
   JobTableHtsRepository jobTableHtsIcebergRepository;
 
   @Autowired(required = false)
   UserTableHtsRepository userTableHtsIcebergRepository;
+
+  @Bean
+  @Primary
+  public ReplicationConfigurationStore replicationConfigurationStorePrimary(
+      ObjectProvider<IcebergReplicationConfigurationStore> icebergStoreProvider) {
+    switch (SupportedDbTypes.valueOf(clusterProperties.getClusterHouseTablesDatabaseType())) {
+      case ICEBERG:
+        return icebergStoreProvider.getObject();
+      default:
+        return jdbcReplicationConfigurationStore;
+    }
+  }
 
   /** provide appropriate implementations * */
   @Primary

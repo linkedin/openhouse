@@ -38,6 +38,20 @@ public class PoliciesSpecMapper {
     return "";
   }
 
+  /** Serialize every policy plane except replication, which is catalog-backed. */
+  public String toPoliciesJsonStringWithoutReplication(TableDto tableDto)
+      throws JsonParseException {
+    if (tableDto.getPolicies() == null) {
+      return "";
+    }
+    Policies policies = tableDto.getPolicies().toBuilder().replication(null).build();
+    try {
+      return gson.toJson(policies);
+    } catch (JsonParseException e) {
+      throw new JsonParseException("Malformed policies json");
+    }
+  }
+
   /**
    * @param policiesString an openhouse table policies
    * @return Policies {@link Policies} Null if houseTable has no policies set

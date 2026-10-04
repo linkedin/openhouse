@@ -4,6 +4,7 @@ import com.linkedin.openhouse.hts.catalog.api.IcebergRow;
 import com.linkedin.openhouse.hts.catalog.api.IcebergRowPrimaryKey;
 import com.linkedin.openhouse.hts.catalog.data.GenericIcebergRowReadersWriters;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import lombok.Builder;
 import org.apache.iceberg.PartitionSpec;
@@ -53,18 +54,7 @@ public class IcebergHtsRepository<IR extends IcebergRow, IRPK extends IcebergRow
    */
   @Override
   public <IRI extends IR> IRI save(IRI icebergRow) {
-    Table table;
-    if (!catalog.tableExists(htsTableIdentifier)) {
-      table =
-          catalog.createTable(
-              htsTableIdentifier,
-              icebergRow.getSchema(),
-              PartitionSpec.unpartitioned(),
-              ImmutableMap.of(TableProperties.FORMAT_VERSION, "2"));
-      table.newAppend().commit();
-    } else {
-      table = catalog.loadTable(htsTableIdentifier);
-    }
+    Table table = getOrCreateTable(icebergRow);
     return (IRI) genericIcebergRowReadersWriters.put(table, icebergRow);
   }
 
@@ -108,6 +98,33 @@ public class IcebergHtsRepository<IR extends IcebergRow, IRPK extends IcebergRow
     }
     Table table = catalog.loadTable(htsTableIdentifier);
     return genericIcebergRowReadersWriters.searchByPartialId(table, icebergRowPrimaryKey);
+  }
+
+  public void replaceByPartialId(IRPK partialKey, List<IR> rows) {
+    if (!catalog.tableExists(htsTableIdentifier)) {
+      if (rows.isEmpty()) {
+        return;
+      }
+      Table table = getOrCreateTable(rows.get(0));
+      genericIcebergRowReadersWriters.replaceByPartialId(table, partialKey, rows);
+      return;
+    }
+    Table table = catalog.loadTable(htsTableIdentifier);
+    genericIcebergRowReadersWriters.replaceByPartialId(table, partialKey, rows);
+  }
+
+  private Table getOrCreateTable(IR icebergRow) {
+    if (!catalog.tableExists(htsTableIdentifier)) {
+      Table table =
+          catalog.createTable(
+              htsTableIdentifier,
+              icebergRow.getSchema(),
+              PartitionSpec.unpartitioned(),
+              ImmutableMap.of(TableProperties.FORMAT_VERSION, "2"));
+      table.newAppend().commit();
+      return table;
+    }
+    return catalog.loadTable(htsTableIdentifier);
   }
 
   @Override

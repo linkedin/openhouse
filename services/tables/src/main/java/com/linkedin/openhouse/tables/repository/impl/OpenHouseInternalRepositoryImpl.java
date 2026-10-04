@@ -36,6 +36,7 @@ import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import com.linkedin.openhouse.tables.repository.SchemaValidator;
+import com.linkedin.openhouse.tables.services.ReplicationConfigurationCatalogService;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.util.ArrayList;
@@ -91,6 +92,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   @Autowired private PoliciesSpecMapper policiesMapper;
 
   @Autowired private TablePolicyManager tablePolicyManager;
+
+  @Autowired private ReplicationConfigurationCatalogService replicationConfigurationCatalogService;
 
   @Autowired PartitionSpecMapper partitionSpecMapper;
 
@@ -365,10 +368,12 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     Policies existingPolicies =
         policiesMapper.toPoliciesObject(existingProperties.get(POLICIES_KEY));
     boolean replicationEnabled =
-        existingPolicies != null
-            && existingPolicies.getReplication() != null
-            && existingPolicies.getReplication().getConfig() != null
-            && !existingPolicies.getReplication().getConfig().isEmpty();
+        replicationConfigurationCatalogService.hasReplication(
+            TableDto.builder()
+                .databaseId(tableIdentifier.namespace().toString())
+                .tableId(tableIdentifier.name())
+                .policies(existingPolicies)
+                .build());
     if (wapEnabled || replicationEnabled) {
       List<String> conflictingFeatures = new ArrayList<>();
       if (wapEnabled) {
@@ -398,10 +403,14 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     Policies existingPolicies =
         policiesMapper.toPoliciesObject(
             catalog.loadTable(tableIdentifier).properties().get(POLICIES_KEY));
-    return requested
-        .toBuilder()
-        .policies(mergePolicies(existingPolicies, requested.getPolicies()))
-        .build();
+    TableDto merged =
+        requested
+            .toBuilder()
+            .policies(mergePolicies(existingPolicies, requested.getPolicies()))
+            .build();
+    return requested.getPolicies() == null || requested.getPolicies().getReplication() == null
+        ? replicationConfigurationCatalogService.enrich(merged)
+        : merged;
   }
 
   /**
@@ -594,7 +603,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     }
 
     // Populate policies
-    String policiesString = policiesMapper.toPoliciesJsonString(tableDto);
+    String policiesString = policiesMapper.toPoliciesJsonStringWithoutReplication(tableDto);
     propertiesMap.put(InternalRepositoryUtils.POLICIES_KEY, policiesString);
 
     if (!CollectionUtils.isEmpty(tableDto.getJsonSnapshots())) {

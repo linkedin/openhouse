@@ -33,6 +33,7 @@ import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
@@ -57,6 +58,8 @@ public class TablesServiceImpl implements TablesService {
   @Autowired TableUUIDGenerator tableUUIDGenerator;
 
   @Autowired ReadBridgeStripProtection readBridgeStripProtection;
+
+  @Autowired ReplicationConfigurationCatalogService replicationConfigurationCatalogService;
   /**
    * Lookup a table by databaseId and tableId in OpenHouse's Internal Catalog.
    *
@@ -78,12 +81,14 @@ public class TablesServiceImpl implements TablesService {
     authorizationUtils.checkTablePrivilege(
         tableDto, actingPrincipal, Privileges.GET_TABLE_METADATA);
     LockPolicyValidator.checkSystemOnlyAccess(tableDto);
-    return tableDto;
+    return replicationConfigurationCatalogService.enrich(tableDto);
   }
 
   @Override
   public List<TableDto> searchTables(String databaseId) {
-    return openHouseInternalRepository.searchTables(databaseId);
+    return openHouseInternalRepository.searchTables(databaseId).stream()
+        .map(replicationConfigurationCatalogService::enrich)
+        .collect(Collectors.toList());
   }
 
   @Override
@@ -99,7 +104,11 @@ public class TablesServiceImpl implements TablesService {
           databaseId, actingPrincipal, Privileges.GET_TABLE_METADATA);
     }
     Pageable pageable = createPageable(page, size, sortBy, null);
-    return openHouseInternalRepository.searchTables(databaseId, pageable, fields);
+    Page<TableDto> tables = openHouseInternalRepository.searchTables(databaseId, pageable, fields);
+    if (fields == null || fields.isEmpty() || !fields.contains("policies")) {
+      return tables;
+    }
+    return tables.map(replicationConfigurationCatalogService::enrich);
   }
 
   @WithSpan("TablesService.putTable")
@@ -115,6 +124,7 @@ public class TablesServiceImpl implements TablesService {
         openHouseInternalRepository.findById(
             TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build());
 
+    boolean updateIsNoop = false;
     // Special case handling
     if (tableDto.isPresent() && createUpdateTableRequestBody.isStageReplace()) {
       authorizationUtils.checkTableWritePathPrivileges(
@@ -141,7 +151,7 @@ public class TablesServiceImpl implements TablesService {
 
       // An optimization to avoid persisting unchanged TableDto into HouseTable.
       if (!updateNeeded(tableDto.get(), createUpdateTableRequestBody)) {
-        return Pair.of(tableDto.get(), /*creation didn't occur*/ false);
+        updateIsNoop = true;
       }
     } else {
       // Check if table creator has the privilege to create a table in this DB.
@@ -175,13 +185,36 @@ public class TablesServiceImpl implements TablesService {
     } catch (ColumnDefaultException e) {
       throw e.toUnsupportedClient();
     }
-    return saveTableDto(tableDtoToSave, tableDto);
+    boolean preserveReplicationWhenOmitted = createUpdateTableRequestBody.isReplaceCommit();
+    if (!tableDtoToSave.isStageCreate() && !tableDtoToSave.isStageReplace()) {
+      replicationConfigurationCatalogService.synchronize(
+          tableDtoToSave, tableDto.orElse(null), preserveReplicationWhenOmitted);
+    }
+    if (updateIsNoop) {
+      TableDto unchanged = tableDto.get();
+      if (preserveReplicationWhenOmitted) {
+        unchanged = replicationConfigurationCatalogService.enrich(unchanged);
+      }
+      return Pair.of(unchanged, /*creation didn't occur*/ false);
+    }
+    return saveTableDto(
+        tableDtoToSave,
+        tableDto,
+        preserveReplicationWhenOmitted
+            || (tableDtoToSave.getPolicies() != null
+                && tableDtoToSave.getPolicies().getReplication() != null));
   }
 
   private Pair<TableDto, Boolean> saveTableDto(
-      TableDto tableDtoToSave, Optional<TableDto> tableDto) {
+      TableDto tableDtoToSave,
+      Optional<TableDto> tableDto,
+      boolean includeCatalogReplicationInResponse) {
     try {
-      return Pair.of(openHouseInternalRepository.save(tableDtoToSave), !tableDto.isPresent());
+      TableDto saved = openHouseInternalRepository.save(tableDtoToSave);
+      if (includeCatalogReplicationInResponse) {
+        saved = replicationConfigurationCatalogService.enrich(saved);
+      }
+      return Pair.of(saved, !tableDto.isPresent());
     } catch (BadRequestException e) {
       throw new RequestValidationFailureException(e.getMessage(), e);
     } catch (CommitFailedException ce) {
@@ -205,6 +238,11 @@ public class TablesServiceImpl implements TablesService {
               "Commit regarding to the requested table is not acknowledged."),
           commitStateUnknownException);
     }
+  }
+
+  private Pair<TableDto, Boolean> saveTableDto(
+      TableDto tableDtoToSave, Optional<TableDto> tableDto) {
+    return saveTableDto(tableDtoToSave, tableDto, false);
   }
 
   private void checkIfLockPoliciesUpdated(

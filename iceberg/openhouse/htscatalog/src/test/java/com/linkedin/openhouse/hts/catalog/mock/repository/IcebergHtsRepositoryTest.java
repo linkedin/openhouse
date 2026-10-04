@@ -88,6 +88,32 @@ public class IcebergHtsRepositoryTest {
     testRepository.deleteById(irpk("db2", 1));
   }
 
+  @Test
+  void testReplaceByPartialIdAtomicallyReplacesOnlyMatchingRows() {
+    testRepository.save(ir("db1", 1, "data1"));
+    TestIcebergRow saved2 = testRepository.save(ir("db1", 2, "data2"));
+    TestIcebergRow savedOtherDatabase = testRepository.save(ir("db2", 1, "other"));
+
+    TestIcebergRow updated2 = ir("db1", 2, saved2.getCurrentVersion(), "updated2");
+    TestIcebergRow added3 = ir("db1", 3, "added3");
+    testRepository.replaceByPartialId(irpk("db1", null), Arrays.asList(updated2, added3));
+
+    List<TestIcebergRow> database1Rows =
+        Lists.newArrayList(testRepository.searchByPartialId(irpk("db1", null)).iterator());
+    Assertions.assertEquals(
+        Arrays.asList("added3", "updated2"),
+        database1Rows.stream().map(TestIcebergRow::getData).sorted().collect(Collectors.toList()));
+    Assertions.assertEquals("other", testRepository.findById(irpk("db2", 1)).get().getData());
+    Assertions.assertFalse(testRepository.findById(irpk("db1", 1)).isPresent());
+    Assertions.assertNotEquals(
+        saved2.getCurrentVersion(),
+        testRepository.findById(irpk("db1", 2)).get().getCurrentVersion());
+
+    testRepository.deleteById(irpk("db1", 2));
+    testRepository.deleteById(irpk("db1", 3));
+    testRepository.delete(savedOtherDatabase);
+  }
+
   @AfterAll
   static void tearDown() {
     testRepository.deleteAll();

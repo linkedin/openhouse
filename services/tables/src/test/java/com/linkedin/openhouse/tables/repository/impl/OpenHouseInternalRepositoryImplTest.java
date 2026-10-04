@@ -53,7 +53,7 @@ public class OpenHouseInternalRepositoryImplTest {
   void setUp() {
     when(meterRegistry.counter(anyString())).thenReturn(mock(Counter.class));
     when(preservedKeyChecker.allowKeyInCreation(anyString(), any())).thenReturn(true);
-    when(policiesMapper.toPoliciesJsonString(any())).thenReturn("{}");
+    when(policiesMapper.toPoliciesJsonStringWithoutReplication(any())).thenReturn("{}");
     when(clusterProperties.getClusterIcebergWriteFormatDefault()).thenReturn("parquet");
   }
 

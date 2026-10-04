@@ -113,6 +113,28 @@ public class PoliciesSpecMapperTest {
   }
 
   @Test
+  public void testToPoliciesJsonWithoutReplication() {
+    TableDto tableDto =
+        TableModelConstants.buildTableDto(
+            GET_TABLE_RESPONSE_BODY
+                .toBuilder()
+                .policies(TableModelConstants.TABLE_POLICIES)
+                .build());
+
+    String jsonPolicies = policiesMapper.toPoliciesJsonStringWithoutReplication(tableDto);
+
+    Assertions.assertThrows(
+        com.jayway.jsonpath.PathNotFoundException.class,
+        () -> JsonPath.read(jsonPolicies, "$.replication"));
+    Assertions.assertEquals(
+        TABLE_POLICIES.getRetention().getCount(),
+        (Integer) JsonPath.read(jsonPolicies, "$.retention.count"));
+    Assertions.assertEquals(
+        TABLE_POLICIES.getHistory().getVersions(),
+        (Integer) JsonPath.read(jsonPolicies, "$.history.versions"));
+  }
+
+  @Test
   public void testToPoliciesJsonWithLockFromObject() {
     TableDto tableDto =
         TableModelConstants.buildTableDto(

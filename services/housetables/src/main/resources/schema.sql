@@ -76,3 +76,12 @@ CREATE TABLE IF NOT EXISTS replication_configuration (
         destination_table_id
     )
 );
+
+CREATE TABLE IF NOT EXISTS replication_configuration_state (
+    source_database_id  VARCHAR (128)     NOT NULL,
+    source_table_id     VARCHAR (128)     NOT NULL,
+    configured          BOOLEAN           NOT NULL,
+    version             BIGINT            NOT NULL,
+    ETL_TS              DATETIME(6)       DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (source_database_id, source_table_id)
+);

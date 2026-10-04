@@ -3,12 +3,14 @@ package com.linkedin.openhouse.hts.catalog.data;
 import com.linkedin.openhouse.hts.catalog.api.IcebergRow;
 import com.linkedin.openhouse.hts.catalog.api.IcebergRowPrimaryKey;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.compress.utils.Lists;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.data.IcebergGenerics;
@@ -123,5 +125,56 @@ public class GenericIcebergRowReadersWriters<
     return records.stream()
         .map(r -> (IR) icebergRowPartialKey.buildIcebergRow(r))
         .collect(Collectors.toList());
+  }
+
+  public void replaceByPartialId(Table table, IRPK partialKey, List<IR> rows) {
+    Snapshot snapshot = table.currentSnapshot();
+    List<IR> existingRows = Lists.newArrayList(searchByPartialId(table, partialKey).iterator());
+    for (IR row : rows) {
+      Optional<IR> existingRow =
+          existingRows.stream()
+              .filter(existing -> hasSamePrimaryKey(existing.getIcebergRowPrimaryKey(), row))
+              .findFirst();
+      if (existingRow.isPresent()
+          && !Objects.equals(existingRow.get().getCurrentVersion(), row.getCurrentVersion())) {
+        throw new CommitFailedException(
+            "Metadata has changed, can you try again? The replication configuration changed.");
+      }
+      if (!existingRow.isPresent() && row.getCurrentVersion() != null) {
+        throw new CommitFailedException(
+            "Metadata has changed, can you try again? The replication configuration changed.");
+      }
+    }
+
+    RowDelta rowDelta = table.newRowDelta();
+    existingRows.forEach(
+        existing -> {
+          DeleteFile deleteFile =
+              IcebergDataUtils.createRowDeltaDeleteFile(table, existing.getIcebergRowPrimaryKey());
+          rowDelta.addDeletes(deleteFile);
+        });
+    rows.forEach(
+        row ->
+            rowDelta.addRows(
+                IcebergDataUtils.createRowDeltaDataFileWithNextVersion(table, row).first()));
+
+    if (existingRows.isEmpty() && rows.isEmpty()) {
+      return;
+    }
+    rowDelta
+        .conflictDetectionFilter(IcebergDataUtils.createPartialSearchExpression(partialKey))
+        .validateFromSnapshot(snapshot.snapshotId())
+        .validateNoConflictingDeleteFiles()
+        .validateNoConflictingDataFiles()
+        .commit();
+  }
+
+  private boolean hasSamePrimaryKey(IcebergRowPrimaryKey existingKey, IR row) {
+    return existingKey.getSchema().columns().stream()
+        .allMatch(
+            column ->
+                Objects.equals(
+                    existingKey.getRecord().getField(column.name()),
+                    row.getIcebergRowPrimaryKey().getRecord().getField(column.name())));
   }
 }

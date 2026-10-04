@@ -45,7 +45,7 @@ public class TablePolicyManager {
 
     boolean policiesUpdated;
 
-    String tableDtoPolicyString = policiesMapper.toPoliciesJsonString(tableDto);
+    String tableDtoPolicyString = policiesMapper.toPoliciesJsonStringWithoutReplication(tableDto);
     if (!existingTableProps.containsKey(InternalRepositoryUtils.POLICIES_KEY)) {
       updateProperties.set(InternalRepositoryUtils.POLICIES_KEY, tableDtoPolicyString);
       policiesUpdated = true;

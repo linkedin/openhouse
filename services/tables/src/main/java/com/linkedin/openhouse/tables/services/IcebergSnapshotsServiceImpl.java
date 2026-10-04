@@ -36,6 +36,8 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
 
   @Autowired ReadBridgeStripProtection readBridgeStripProtection;
 
+  @Autowired ReplicationConfigurationCatalogService replicationConfigurationCatalogService;
+
   @Override
   public Pair<TableDto, Boolean> putIcebergSnapshots(
       String databaseId,
@@ -92,8 +94,20 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
     } catch (ColumnDefaultException e) {
       throw e.toUnsupportedClient();
     }
+    if (!tableDtoToSave.isStageCreate() && !tableDtoToSave.isStageReplace()) {
+      replicationConfigurationCatalogService.synchronize(
+          tableDtoToSave,
+          tableDto.orElse(null),
+          icebergSnapshotRequestBody.getCreateUpdateTableRequestBody().isReplaceCommit());
+    }
     try {
-      return Pair.of(openHouseInternalRepository.save(tableDtoToSave), !tableDto.isPresent());
+      TableDto saved = openHouseInternalRepository.save(tableDtoToSave);
+      if (icebergSnapshotRequestBody.getCreateUpdateTableRequestBody().isReplaceCommit()
+          || (tableDtoToSave.getPolicies() != null
+              && tableDtoToSave.getPolicies().getReplication() != null)) {
+        saved = replicationConfigurationCatalogService.enrich(saved);
+      }
+      return Pair.of(saved, !tableDto.isPresent());
     } catch (BadRequestException e) {
       throw new RequestValidationFailureException(e.getMessage(), e);
     } catch (CommitFailedException ce) {

@@ -27,7 +27,7 @@ public class TablePolicyManagerTest {
     when(updateProperties.set(anyString(), anyString())).thenReturn(updateProperties);
 
     String incomingPolicies = "{\"retention\":{\"count\":30,\"granularity\":\"DAY\"}}";
-    when(policiesMapper.toPoliciesJsonString(any())).thenReturn(incomingPolicies);
+    when(policiesMapper.toPoliciesJsonStringWithoutReplication(any())).thenReturn(incomingPolicies);
 
     TableDto tableDto = TableDto.builder().databaseId("db").tableId("table").build();
 
@@ -46,7 +46,7 @@ public class TablePolicyManagerTest {
     UpdateProperties updateProperties = mock(UpdateProperties.class);
 
     String policiesJson = "{\"retention\":{\"count\":30,\"granularity\":\"DAY\"}}";
-    when(policiesMapper.toPoliciesJsonString(any())).thenReturn(policiesJson);
+    when(policiesMapper.toPoliciesJsonStringWithoutReplication(any())).thenReturn(policiesJson);
 
     TableDto tableDto = TableDto.builder().databaseId("db").tableId("table").build();
 
@@ -68,7 +68,7 @@ public class TablePolicyManagerTest {
 
     String newPolicies = "{\"retention\":{\"count\":60,\"granularity\":\"DAY\"}}";
     String existingPolicies = "{\"retention\":{\"count\":30,\"granularity\":\"DAY\"}}";
-    when(policiesMapper.toPoliciesJsonString(any())).thenReturn(newPolicies);
+    when(policiesMapper.toPoliciesJsonStringWithoutReplication(any())).thenReturn(newPolicies);
 
     TableDto tableDto = TableDto.builder().databaseId("db").tableId("table").build();
 
