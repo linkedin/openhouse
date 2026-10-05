@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.internal.catalog.mapper;
 
+import static com.linkedin.openhouse.internal.catalog.CatalogConstants.ENTITY_TYPE_TABLE;
+import static com.linkedin.openhouse.internal.catalog.CatalogConstants.ENTITY_TYPE_VIEW;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.IS_OH_PREFIXED;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.OPENHOUSE_NAMESPACE;
 
@@ -18,10 +20,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 @Mapper(componentModel = "spring")
 public abstract class HouseTableMapper {
-
-  static final String ENTITY_TYPE_TABLE = "TABLE";
-
-  static final String ENTITY_TYPE_VIEW = "VIEW";
 
   @Autowired FileIOManager fileIOManager;
 

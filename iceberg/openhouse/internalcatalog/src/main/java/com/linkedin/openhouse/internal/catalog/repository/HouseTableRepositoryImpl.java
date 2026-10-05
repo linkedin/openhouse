@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.internal.catalog.repository;
 
 import static com.linkedin.openhouse.common.utils.PageableUtil.getSortByStr;
+import static com.linkedin.openhouse.internal.catalog.CatalogConstants.ENTITY_TYPE_VIEW;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
@@ -60,9 +61,6 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
 
   /** Write request timeout is 60 secs due to no retries on table write operations */
   private static final int WRITE_REQUEST_TIMEOUT_SECONDS = 60;
-
-  /** Exact spelling House Table stores and exchanges for a view row. */
-  private static final String ENTITY_TYPE_VIEW = "VIEW";
 
   /** A seam, like {@link #getHtsRetryTemplate(List)}, so a test can shorten the budget. */
   @VisibleForTesting

@@ -84,7 +84,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   private static final String TABLE_TYPE_KEY = "tableType";
   private static final String CLUSTER_ID = "clusterId";
   private static final long DEFAULT_MAX_REFERENCE_AGE_MILLIS = TimeUnit.DAYS.toMillis(7);
-  private static final String ENTITY_TYPE_TABLE = "TABLE";
 
   @Autowired OpenHouseInternalCatalog catalog;
 
@@ -128,8 +127,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       throw new AlreadyExistsException(
           occupant.get().getEntityType(), tableDto.getDatabaseId() + "." + tableDto.getTableId());
     }
-    boolean existed = occupant.isPresent();
-    if (!existed) {
+    if (!occupant.isPresent()) {
       creationEligibilityCheck(tableDto);
       PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
       log.info(

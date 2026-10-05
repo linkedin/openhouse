@@ -1,5 +1,8 @@
 package com.linkedin.openhouse.tables.e2e.h2;
 
+import static com.linkedin.openhouse.internal.catalog.CatalogConstants.ENTITY_TYPE_TABLE;
+import static com.linkedin.openhouse.internal.catalog.CatalogConstants.ENTITY_TYPE_VIEW;
+
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
@@ -31,10 +34,6 @@ public interface HouseTablesH2Repository extends HouseTableRepository {
 
   /* Default bodies throughout: Spring Data would derive a query from any abstract method name,
    * and none of these predicates is derivable. */
-
-  String ENTITY_TYPE_TABLE = "TABLE";
-
-  String ENTITY_TYPE_VIEW = "VIEW";
 
   Optional<HouseTable> findByDatabaseIdAndTableId(String databaseId, String tableId);
 
