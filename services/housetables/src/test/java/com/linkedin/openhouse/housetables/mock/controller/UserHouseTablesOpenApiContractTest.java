@@ -94,6 +94,16 @@ public class UserHouseTablesOpenApiContractTest {
     return false;
   }
 
+  private JsonObject generatedOpenApiDocument() throws Exception {
+    String document =
+        mvc.perform(MockMvcRequestBuilders.get("/v3/api-docs"))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    return JsonParser.parseString(document).getAsJsonObject();
+  }
+
   @Test
   public void testGeneratedDocumentDeclaresExactlyTheFrozenResponseCodes() throws Exception {
     assertThat(generatedUserTableOperations())
@@ -115,5 +125,23 @@ public class UserHouseTablesOpenApiContractTest {
             "put /hts/views",
             "delete /hts/views")
         .doesNotContain("get /hts/views/query");
+  }
+
+  @Test
+  public void testReplicationStateRoutesAndSchemasAreGenerated() throws Exception {
+    JsonObject document = generatedOpenApiDocument();
+    JsonObject paths = document.getAsJsonObject("paths");
+    assertThat(paths.getAsJsonObject("/hts/replication-destinations").keySet())
+        .containsExactlyInAnyOrder("get", "put");
+    assertThat(paths.getAsJsonObject("/hts/replication-checkpoints").keySet())
+        .containsExactlyInAnyOrder("get", "put");
+
+    JsonObject schemas = document.getAsJsonObject("components").getAsJsonObject("schemas");
+    assertThat(schemas.keySet())
+        .contains(
+            "ReplicationDestination",
+            "ReplicationCheckpoint",
+            "ReplicationCheckpointUpdate",
+            "ReplicationEdgeState");
   }
 }
