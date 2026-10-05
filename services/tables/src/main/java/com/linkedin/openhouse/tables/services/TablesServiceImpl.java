@@ -40,7 +40,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.util.Pair;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 
 /** Default Table Service Implementation for /tables REST endpoint. */
 @Component
@@ -79,6 +81,33 @@ public class TablesServiceImpl implements TablesService {
         tableDto, actingPrincipal, Privileges.GET_TABLE_METADATA);
     LockPolicyValidator.checkSystemOnlyAccess(tableDto);
     return tableDto;
+  }
+
+  @Override
+  public TableDto getTableByIdentity(
+      String clusterId, String tableUUID, long creationTime, String actingPrincipal) {
+    List<TableDto> matches =
+        openHouseInternalRepository.findTableRefsByIdentity(clusterId, tableUUID, creationTime);
+    if (matches.isEmpty()) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Table generation not found");
+    }
+    if (matches.size() > 1) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "Table generation identity resolves to multiple catalog rows");
+    }
+    TableDto reference = matches.get(0);
+    TableDto table = getTable(reference.getDatabaseId(), reference.getTableId(), actingPrincipal);
+    if (!sameIdentityValue(table.getClusterId(), clusterId)
+        || !sameIdentityValue(table.getTableUUID(), tableUUID)
+        || table.getCreationTime() != creationTime) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "Table generation changed while resolving its current locator");
+    }
+    return table;
+  }
+
+  private static boolean sameIdentityValue(String stored, String requested) {
+    return stored != null && requested != null && stored.equalsIgnoreCase(requested);
   }
 
   @Override

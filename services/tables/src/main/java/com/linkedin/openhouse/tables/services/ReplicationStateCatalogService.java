@@ -32,7 +32,7 @@ public class ReplicationStateCatalogService {
             .getDestinations(sourceClusterId, sourceTableUUID, sourceCreationTime)
             .collectList()
             .block();
-    edges.forEach(edge -> authorizeDestination(edge.getDestination(), actingPrincipal));
+    edges.forEach(edge -> resolveAndAuthorizeDestination(edge.getDestination(), actingPrincipal));
     return edges;
   }
 
@@ -152,6 +152,24 @@ public class ReplicationStateCatalogService {
             destination.getDestinationTableId(),
             actingPrincipal);
     authorizationUtils.checkTablePrivilege(table, actingPrincipal, Privileges.SYSTEM_ADMIN);
+    return table;
+  }
+
+  private TableDto resolveAndAuthorizeDestination(
+      ReplicationDestination destination, String actingPrincipal) {
+    if (destination == null) {
+      throw new ResponseStatusException(
+          HttpStatus.NOT_FOUND, "Replication destination association not found");
+    }
+    TableDto table =
+        tablesService.getTableByIdentity(
+            destination.getDestinationClusterId(),
+            destination.getDestinationTableUUID(),
+            destination.getDestinationCreationTime(),
+            actingPrincipal);
+    authorizationUtils.checkTablePrivilege(table, actingPrincipal, Privileges.SYSTEM_ADMIN);
+    destination.setDestinationDatabaseId(table.getDatabaseId());
+    destination.setDestinationTableId(table.getTableId());
     return table;
   }
 }

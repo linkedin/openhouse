@@ -26,6 +26,13 @@ public interface TablesService {
   TableDto getTable(String databaseId, String tableId, String actingPrincipal);
 
   /**
+   * Resolve a current table locator by its cluster-scoped immutable generation identity and return
+   * the table after applying the normal metadata-read authorization checks.
+   */
+  TableDto getTableByIdentity(
+      String clusterId, String tableUUID, long creationTime, String actingPrincipal);
+
+  /**
    * Given a databaseId, prepare list of {@link TableDto}s.
    *
    * @param databaseId
