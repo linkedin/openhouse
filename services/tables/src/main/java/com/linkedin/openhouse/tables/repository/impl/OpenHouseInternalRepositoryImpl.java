@@ -168,7 +168,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       Map<String, String> tableProps = computePropsForTableCreation(tableDto);
       tablePolicyManager.managePoliciesOnCreateIfNeeded(tableDto);
       SortOrder sortOrder = getIcebergSortOrder(tableDto, writeSchema);
-      String metadataLocation = tableDto.getTableLocation();
+      String metadataLocation = getSchemeLessPath(tableDto.getTableLocation());
       String tableLocation = metadataLocation.substring(0, metadataLocation.lastIndexOf("/"));
       table =
           replaceTable(

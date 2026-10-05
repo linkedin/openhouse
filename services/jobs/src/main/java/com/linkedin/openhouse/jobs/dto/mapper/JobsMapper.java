@@ -42,6 +42,7 @@ public interface JobsMapper {
   @Mapping(
       target = "jobConf",
       expression = "java(new JobConfConverter().convertToDatabaseColumn(jobDto.getJobConf()))")
+  @Mapping(target = "version", ignore = true)
   Job toJob(JobDto jobDto);
 
   @Mapping(

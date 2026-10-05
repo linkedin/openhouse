@@ -221,10 +221,9 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   public void renameTable(TableIdentifier from, TableIdentifier to) {
     Table fromTable = loadTable(from);
     String tableClusterId =
-        findHouseTable(from)
-            .map(HouseTable::getClusterId)
+        Optional.ofNullable(fromTable.properties().get(CatalogConstants.OPENHOUSE_CLUSTERID_KEY))
             .orElseThrow(
-                () -> new IllegalStateException("Catalog entry is missing for table " + from));
+                () -> new IllegalStateException("Catalog entry is missing cluster ID for " + from));
 
     // Preserve existing case if databases are the same
     String toDatabaseName =

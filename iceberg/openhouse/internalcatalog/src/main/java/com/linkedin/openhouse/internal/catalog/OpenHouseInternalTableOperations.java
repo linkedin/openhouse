@@ -342,6 +342,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
             metadata.properties().getOrDefault(CatalogConstants.LAST_UPDATED_MS, currentTsString);
       }
       long currentTimestamp = Long.parseLong(currentTsString);
+      properties.put(getCanonicalFieldName("lastModifiedTime"), currentTsString);
       HouseTable existingHouseTable = findHouseTable();
       String requestedDatabaseId =
           properties.getOrDefault(
@@ -379,19 +380,21 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
               ? houseTableMapper.toHouseTable(metadata, fileIO, tableIdentifier)
               : existingHouseTable;
       String clusterId = propertiesHouseTable.getClusterId();
+      String tableUri =
+          TableUri.builder()
+              .clusterId(clusterId)
+              .databaseId(catalogDatabaseId)
+              .tableId(catalogTableId)
+              .build()
+              .toString();
+      properties.put(CatalogConstants.OPENHOUSE_TABLEURI_KEY, tableUri);
       houseTable =
           propertiesHouseTable
               .toBuilder()
               .databaseId(catalogDatabaseId)
               .tableId(catalogTableId)
               .clusterId(clusterId)
-              .tableUri(
-                  TableUri.builder()
-                      .clusterId(clusterId)
-                      .databaseId(catalogDatabaseId)
-                      .tableId(catalogTableId)
-                      .build()
-                      .toString())
+              .tableUri(tableUri)
               .tableLocation(newMetadataLocation)
               .tableVersion(previousMetadataLocation)
               .lastModifiedTime(currentTimestamp)
