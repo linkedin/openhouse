@@ -195,12 +195,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
    * com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog}, or {@link
    * OpenHouseInternalTableOperations}.
    */
-  private Mono<? extends HouseTable> handleHtsHttpError(Throwable e) {
-    return mapHtsReadError(e);
-  }
-
-  /** Generic in the response type so a paginated read can share the classification. */
-  private <T> Mono<T> mapHtsReadError(Throwable e) {
+  private <T> Mono<T> handleHtsHttpError(Throwable e) {
     if (e instanceof WebClientResponseException.NotFound) {
       return Mono.error(new HouseTableNotFoundException("", e));
     } else if (e instanceof WebClientResponseException.Conflict) {
@@ -398,7 +393,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
 
   @Override
   public Optional<HouseTable> findEntityById(HouseTablePrimaryKey houseTablePrimaryKey) {
-    return pointReadWithRetry(
+    return findWithRetry(
         apiInstance.getEntity(
             houseTablePrimaryKey.getDatabaseId(), houseTablePrimaryKey.getTableId()));
   }
@@ -407,7 +402,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
   public Optional<HouseTable> findViewById(HouseTablePrimaryKey houseTablePrimaryKey)
       throws IllegalStateException {
     Optional<HouseTable> found =
-        pointReadWithRetry(
+        findWithRetry(
             apiInstance.getUserView(
                 houseTablePrimaryKey.getDatabaseId(), houseTablePrimaryKey.getTableId()));
     // After the retry template finishes, never inside the callback: it retries
@@ -420,7 +415,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
   }
 
   /** A non-view occupant already arrives as a 404, so only a present bad row is a violation. */
-  private Optional<HouseTable> pointReadWithRetry(Mono<EntityResponseBodyUserTable> call) {
+  private Optional<HouseTable> findWithRetry(Mono<EntityResponseBodyUserTable> call) {
     return getHtsRetryTemplate(
             Arrays.asList(
                 HouseTableRepositoryStateUnknownException.class, IllegalStateException.class))
@@ -475,7 +470,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
                             pageable.getPageSize(),
                             getSortByStr(pageable))
                         // Classify before blocking, or the retry never engages.
-                        .onErrorResume(this::mapHtsReadError)
+                        .onErrorResume(this::handleHtsHttpError)
                         .block(Duration.ofSeconds(READ_REQUEST_TIMEOUT_SECONDS)));
 
     Page<UserTable> userTablePage = getUserTablePageFromPageUserTable(result.getPageResults());
