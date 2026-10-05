@@ -3,12 +3,15 @@ package com.linkedin.openhouse.internal.catalog.mapper;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.IS_OH_PREFIXED;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.OPENHOUSE_NAMESPACE;
 
+import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.housetables.client.model.UserTable;
+import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.io.FileIO;
 import org.mapstruct.BeanMapping;
 import org.mapstruct.Mapper;
@@ -27,7 +30,27 @@ public abstract class HouseTableMapper {
   public abstract HouseTable toHouseTable(Map<String, String> properties, FileIO fileIO);
 
   public HouseTable toHouseTable(TableMetadata tableMetadata, FileIO fileIO) {
-    return toHouseTable(extractRawHTSFields(tableMetadata.properties()), fileIO);
+    return toHouseTable(extractRawHouseTableFields(tableMetadata.properties()), fileIO);
+  }
+
+  public HouseTable toHouseTable(
+      TableMetadata tableMetadata, FileIO fileIO, TableIdentifier tableIdentifier) {
+    Map<String, String> properties = extractRawHouseTableFields(tableMetadata.properties());
+    String clusterId = tableMetadata.properties().get(CatalogConstants.OPENHOUSE_CLUSTERID_KEY);
+    properties.put("databaseId", tableIdentifier.namespace().toString());
+    properties.put("tableId", tableIdentifier.name());
+    properties.remove("tableUri");
+    if (clusterId != null) {
+      properties.put(
+          "tableUri",
+          TableUri.builder()
+              .clusterId(clusterId)
+              .databaseId(tableIdentifier.namespace().toString())
+              .tableId(tableIdentifier.name())
+              .build()
+              .toString());
+    }
+    return toHouseTable(properties, fileIO);
   }
 
   @BeanMapping(ignoreByDefault = true)
@@ -38,23 +61,29 @@ public abstract class HouseTableMapper {
   @Mapping(target = "databaseId", source = "houseTable.databaseId")
   public abstract UserTable toUserTableWithDatabaseId(HouseTable houseTable);
 
-  @Mappings({@Mapping(target = "tableLocation", source = "userTable.metadataLocation")})
+  @Mappings({
+    @Mapping(target = "tableLocation", source = "userTable.metadataLocation"),
+    @Mapping(target = "clusterId", ignore = true),
+    @Mapping(target = "tableUri", ignore = true),
+    @Mapping(target = "tableUUID", ignore = true),
+    @Mapping(target = "tableCreator", ignore = true),
+    @Mapping(target = "lastModifiedTime", ignore = true)
+  })
   public abstract HouseTable toHouseTable(UserTable userTable);
 
-  // The pointer carries no discriminator: entity type lives only on the HTS row, and HTS sets it
-  // from the endpoint the write arrived on.
+  // HTS assigns the discriminator from the endpoint; it is not copied from the catalog row.
   @Mappings({
     @Mapping(target = "metadataLocation", source = "houseTable.tableLocation"),
     @Mapping(target = "entityType", ignore = true)
   })
   public abstract UserTable toUserTable(HouseTable houseTable);
 
-  private Map<String, String> extractRawHTSFields(Map<String, String> input) {
+  private Map<String, String> extractRawHouseTableFields(Map<String, String> input) {
     Map<String, String> output = new HashMap<>();
     for (Map.Entry<String, String> entry : input.entrySet()) {
       String key = entry.getKey();
       String value = entry.getValue();
-      if (isHtsField(key)) {
+      if (isHouseTableField(key)) {
         String newKey = stripOhNamespace(key);
         output.put(newKey, value);
       }
@@ -62,9 +91,9 @@ public abstract class HouseTableMapper {
     return output;
   }
 
-  private static boolean isHtsField(String key) {
+  private static boolean isHouseTableField(String key) {
     return IS_OH_PREFIXED.test(key)
-        && HouseTableSerdeUtils.HTS_FIELD_NAMES.contains(stripOhNamespace(key));
+        && HouseTableSerdeUtils.HOUSE_TABLE_FIELD_NAMES.contains(stripOhNamespace(key));
   }
 
   static String stripOhNamespace(String key) {

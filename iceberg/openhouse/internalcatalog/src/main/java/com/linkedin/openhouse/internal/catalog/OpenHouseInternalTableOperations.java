@@ -12,12 +12,14 @@ import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.hdfs.HdfsStorageClient;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
+import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
+import com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
@@ -294,6 +296,19 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     }
   }
 
+  private HouseTable findHouseTable() {
+    HouseTablePrimaryKey primaryKey =
+        HouseTablePrimaryKey.builder()
+            .databaseId(tableIdentifier.namespace().toString())
+            .tableId(tableIdentifier.name())
+            .build();
+    try {
+      return houseTableRepository.findById(primaryKey).orElse(null);
+    } catch (HouseTableNotFoundException e) {
+      return null;
+    }
+  }
+
   @WithSpan("IcebergTableOps.doCommit")
   @SuppressWarnings("checkstyle:MissingSwitchDefault")
   @Override
@@ -321,21 +336,73 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       // A rejected property change must not mark the unchanged table version as attempted.
       failIfRetryUpdate(properties);
 
-      properties.put(
-          getCanonicalFieldName("tableVersion"),
-          properties.getOrDefault(
-              getCanonicalFieldName("tableLocation"), CatalogConstants.INITIAL_VERSION));
-      properties.put(getCanonicalFieldName("tableLocation"), newMetadataLocation);
-
       String currentTsString = String.valueOf(Instant.now(Clock.systemUTC()).toEpochMilli());
-      if (isReplicatedTableCreate(properties)) {
+      if (isReplicatedTableCreate(properties, base)) {
         currentTsString =
             metadata.properties().getOrDefault(CatalogConstants.LAST_UPDATED_MS, currentTsString);
       }
+      long currentTimestamp = Long.parseLong(currentTsString);
       properties.put(getCanonicalFieldName("lastModifiedTime"), currentTsString);
-      if (base == null) {
-        properties.put(getCanonicalFieldName("creationTime"), currentTsString);
-      }
+      HouseTable existingHouseTable = findHouseTable();
+      String requestedDatabaseId =
+          properties.getOrDefault(
+              CatalogConstants.OPENHOUSE_DATABASEID_KEY, tableIdentifier.namespace().toString());
+      String requestedTableId =
+          properties.getOrDefault(CatalogConstants.OPENHOUSE_TABLEID_KEY, tableIdentifier.name());
+      boolean renameRequested =
+          base != null
+              && properties.containsKey(CatalogConstants.OPENHOUSE_TABLEID_KEY)
+              && properties.containsKey(CatalogConstants.OPENHOUSE_DATABASEID_KEY)
+              && properties.containsKey(CatalogConstants.OPENHOUSE_TABLEURI_KEY)
+              && (!requestedTableId.equalsIgnoreCase(tableIdentifier.name())
+                  || !requestedDatabaseId.equalsIgnoreCase(tableIdentifier.namespace().toString()));
+      String catalogDatabaseId =
+          renameRequested
+              ? requestedDatabaseId
+              : existingHouseTable == null
+                  ? tableIdentifier.namespace().toString()
+                  : existingHouseTable.getDatabaseId();
+      String catalogTableId =
+          renameRequested
+              ? requestedTableId
+              : existingHouseTable == null
+                  ? tableIdentifier.name()
+                  : existingHouseTable.getTableId();
+      String previousMetadataLocation =
+          existingHouseTable == null
+              ? properties.getOrDefault(
+                  getCanonicalFieldName("tableLocation"), CatalogConstants.INITIAL_VERSION)
+              : existingHouseTable.getTableLocation();
+      long creationTime =
+          existingHouseTable == null ? currentTimestamp : existingHouseTable.getCreationTime();
+      HouseTable propertiesHouseTable =
+          existingHouseTable == null
+              ? houseTableMapper.toHouseTable(metadata, fileIO, tableIdentifier)
+              : existingHouseTable;
+      String clusterId = propertiesHouseTable.getClusterId();
+      String tableUri =
+          TableUri.builder()
+              .clusterId(clusterId)
+              .databaseId(catalogDatabaseId)
+              .tableId(catalogTableId)
+              .build()
+              .toString();
+      properties.put(CatalogConstants.OPENHOUSE_TABLEURI_KEY, tableUri);
+      houseTable =
+          propertiesHouseTable
+              .toBuilder()
+              .databaseId(catalogDatabaseId)
+              .tableId(catalogTableId)
+              .clusterId(clusterId)
+              .tableUri(tableUri)
+              .tableLocation(newMetadataLocation)
+              .tableVersion(previousMetadataLocation)
+              .lastModifiedTime(currentTimestamp)
+              .creationTime(creationTime)
+              .build();
+
+      HouseTableSerdeUtils.HTS_FIELD_NAMES.forEach(
+          fieldName -> properties.remove(getCanonicalFieldName(fieldName)));
 
       if (properties.containsKey(CatalogConstants.EVOLVED_SCHEMA_KEY)) {
         properties.remove(CatalogConstants.EVOLVED_SCHEMA_KEY);
@@ -432,21 +499,12 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         writeSpan.end();
       }
 
-      houseTable = houseTableMapper.toHouseTable(updatedMtDataRef, fileIO);
-      if (base != null
-          && (properties.containsKey(CatalogConstants.OPENHOUSE_TABLEID_KEY)
-                  && !properties
-                      .get(CatalogConstants.OPENHOUSE_TABLEID_KEY)
-                      .equalsIgnoreCase(this.tableIdentifier.name())
-              || properties.containsKey(CatalogConstants.OPENHOUSE_DATABASEID_KEY)
-                  && !properties
-                      .get(CatalogConstants.OPENHOUSE_DATABASEID_KEY)
-                      .equalsIgnoreCase(this.tableIdentifier.namespace().toString()))) {
+      if (renameRequested) {
         houseTableRepository.rename(
             this.tableIdentifier.namespace().toString(),
             this.tableIdentifier.name(),
-            properties.get(CatalogConstants.OPENHOUSE_DATABASEID_KEY),
-            properties.get(CatalogConstants.OPENHOUSE_TABLEID_KEY),
+            requestedDatabaseId,
+            requestedTableId,
             newMetadataLocation);
       } else if (!isStageCreate && !isStageReplace) {
         Span htsSpan = tracer.spanBuilder("IcebergTableOps.saveHouseTable").startSpan();
@@ -467,7 +525,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
          */
         refreshMetadata(newMetadataLocation);
       }
-      if (isReplicatedTableCreate(properties)) {
+      if (isReplicatedTableCreate(properties, base)) {
         updateMetadataFieldForTable(metadata, newMetadataLocation);
       }
       committedMetadata = Optional.of(updatedMtDataRef);
@@ -534,7 +592,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           metricsReporter.count(InternalCatalogMetricsConstant.COMMIT_STATE_UNKNOWN);
           break;
         case SUCCESS:
-          runPostCommitOperations(committedMetadata);
+          runPostCommitOperations(committedMetadata, houseTable);
           break;
         default:
           break; /*should never happen, kept to silence SpotBugs*/
@@ -615,14 +673,16 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    * switch. Never throws: the commit has already durably succeeded and post-commit work must not
    * affect its outcome.
    */
-  private void runPostCommitOperations(Optional<TableMetadata> committedMetadata) {
+  private void runPostCommitOperations(
+      Optional<TableMetadata> committedMetadata, HouseTable houseTable) {
     if (postCommitOperationRunner == null || !postCommitOperationRunner.isEnabled()) {
       return;
     }
     try {
       committedMetadata.ifPresent(
           metadata ->
-              postCommitOperationRunner.runAll(new PostCommitContext(tableIdentifier, metadata)));
+              postCommitOperationRunner.runAll(
+                  new PostCommitContext(tableIdentifier, metadata, houseTable)));
     } catch (Throwable t) {
       log.error(
           "Failed to dispatch post-commit operations for table {} (nonfatal)", tableIdentifier, t);
@@ -967,13 +1027,10 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    * @param properties
    * @return
    */
-  private boolean isReplicatedTableCreate(Map<String, String> properties) {
-    return Boolean.parseBoolean(
-            properties.getOrDefault(CatalogConstants.OPENHOUSE_IS_TABLE_REPLICATED_KEY, "false"))
-        && properties
-            .getOrDefault(
-                CatalogConstants.OPENHOUSE_TABLE_VERSION, CatalogConstants.INITIAL_VERSION)
-            .equals(CatalogConstants.INITIAL_VERSION);
+  private boolean isReplicatedTableCreate(Map<String, String> properties, TableMetadata base) {
+    return base == null
+        && Boolean.parseBoolean(
+            properties.getOrDefault(CatalogConstants.OPENHOUSE_IS_TABLE_REPLICATED_KEY, "false"));
   }
 
   private List<String> getIntermediateSchemasFromProps(TableMetadata metadata) {
