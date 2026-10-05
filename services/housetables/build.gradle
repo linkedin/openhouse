@@ -23,9 +23,9 @@ plugins {
 // Configure unique port for OpenAPI spec generation to avoid conflicts during parallel builds
 openApi {
   customBootRun {
-    args = ["--server.port=8001"]
+    args = ["--server.port=18082"]
   }
-  apiDocsUrl.set("http://localhost:8001/v3/api-docs")
+  apiDocsUrl.set("http://localhost:18082/v3/api-docs")
 }
 
 tasks.matching { it.name == 'generateOpenApiDocs' }.configureEach {

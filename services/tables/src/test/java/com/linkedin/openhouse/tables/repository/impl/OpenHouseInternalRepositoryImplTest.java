@@ -17,6 +17,7 @@ import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.apache.iceberg.TableProperties;
@@ -183,6 +184,85 @@ public class OpenHouseInternalRepositoryImplTest {
             TableDtoPrimaryKey.builder().databaseId(DB_ID).tableId(TABLE_ID).build());
 
     Assertions.assertFalse(result.isPresent());
+  }
+
+  @Test
+  void findTableRefsByIdentityUsesClusterUuidAndCreationTimeAndReturnsCurrentLocator() {
+    TableIdentifier currentIdentifier = TableIdentifier.of("renamed_db", "renamed_table");
+    TableIdentifier wrongUuidIdentifier = TableIdentifier.of("db", "wrong_uuid");
+    TableIdentifier wrongCreationIdentifier = TableIdentifier.of("db", "wrong_creation");
+    TableIdentifier wrongClusterIdentifier = TableIdentifier.of("db", "wrong_cluster");
+    TableIdentifier deletedIdentifier = TableIdentifier.of("db", "deleted");
+    when(catalog.listAllTableIdentifiers())
+        .thenReturn(
+            List.of(
+                currentIdentifier,
+                wrongUuidIdentifier,
+                wrongCreationIdentifier,
+                wrongClusterIdentifier,
+                deletedIdentifier));
+    when(catalog.findHouseTable(currentIdentifier))
+        .thenReturn(
+            Optional.of(
+                HouseTable.builder()
+                    .databaseId("renamed_db")
+                    .tableId("renamed_table")
+                    .clusterId("destination")
+                    .tableUUID("destination-uuid")
+                    .creationTime(20L)
+                    .build()));
+    when(catalog.findHouseTable(wrongUuidIdentifier))
+        .thenReturn(
+            Optional.of(
+                HouseTable.builder()
+                    .databaseId("db")
+                    .tableId("wrong_uuid")
+                    .clusterId("destination")
+                    .tableUUID("other-uuid")
+                    .creationTime(20L)
+                    .build()));
+    when(catalog.findHouseTable(wrongCreationIdentifier))
+        .thenReturn(
+            Optional.of(
+                HouseTable.builder()
+                    .databaseId("db")
+                    .tableId("wrong_creation")
+                    .clusterId("destination")
+                    .tableUUID("destination-uuid")
+                    .creationTime(21L)
+                    .build()));
+    when(catalog.findHouseTable(wrongClusterIdentifier))
+        .thenReturn(
+            Optional.of(
+                HouseTable.builder()
+                    .databaseId("db")
+                    .tableId("wrong_cluster")
+                    .clusterId("other-cluster")
+                    .tableUUID("destination-uuid")
+                    .creationTime(20L)
+                    .build()));
+    when(catalog.findHouseTable(deletedIdentifier))
+        .thenReturn(
+            Optional.of(
+                HouseTable.builder()
+                    .databaseId("db")
+                    .tableId("deleted")
+                    .clusterId("destination")
+                    .tableUUID("destination-uuid")
+                    .creationTime(20L)
+                    .deletedAtMs(100L)
+                    .build()));
+
+    List<TableDto> matches =
+        openHouseInternalRepository.findTableRefsByIdentity("destination", "destination-uuid", 20L);
+
+    Assertions.assertEquals(1, matches.size());
+    TableDto match = matches.get(0);
+    Assertions.assertEquals("renamed_db", match.getDatabaseId());
+    Assertions.assertEquals("renamed_table", match.getTableId());
+    Assertions.assertEquals("destination", match.getClusterId());
+    Assertions.assertEquals("destination-uuid", match.getTableUUID());
+    Assertions.assertEquals(20L, match.getCreationTime());
   }
 
   @Test

@@ -906,6 +906,41 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
                     .build());
   }
 
+  @Override
+  public List<TableDto> findTableRefsByIdentity(
+      String clusterId, String tableUUID, long creationTime) {
+    if (!(catalog instanceof OpenHouseInternalCatalog)) {
+      throw new UnsupportedOperationException(
+          "findTableRefsByIdentity is not supported for catalog type: "
+              + catalog.getClass().getName());
+    }
+    OpenHouseInternalCatalog internalCatalog = (OpenHouseInternalCatalog) catalog;
+    return internalCatalog.listAllTableIdentifiers().stream()
+        .map(internalCatalog::findHouseTable)
+        .filter(Optional::isPresent)
+        .map(Optional::get)
+        .filter(houseTable -> houseTable.getDeletedAtMs() == 0)
+        .filter(
+            houseTable ->
+                sameIdentityValue(houseTable.getClusterId(), clusterId)
+                    && sameIdentityValue(houseTable.getTableUUID(), tableUUID)
+                    && houseTable.getCreationTime() == creationTime)
+        .map(
+            houseTable ->
+                TableDto.builder()
+                    .databaseId(houseTable.getDatabaseId())
+                    .tableId(houseTable.getTableId())
+                    .clusterId(houseTable.getClusterId())
+                    .tableUUID(houseTable.getTableUUID())
+                    .creationTime(houseTable.getCreationTime())
+                    .build())
+        .collect(Collectors.toList());
+  }
+
+  private static boolean sameIdentityValue(String stored, String requested) {
+    return stored != null && requested != null && stored.equalsIgnoreCase(requested);
+  }
+
   // FIXME: Likely need a cache layer to avoid expensive tableScan.
   @Timed(metricKey = MetricsConstant.REPO_TABLE_EXISTS_TIME)
   @Override
