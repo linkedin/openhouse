@@ -45,7 +45,7 @@ services:
   tables-a:
     <<: *openhouse-tables
     ports:
-      - "8000:8080"
+      - "${OH_MULTICLUSTER_TABLES_A_PORT:-8000}:8080"
     environment:
       <<: *openhouse-otel
       OTEL_SERVICE_NAME: openhouse-tables-a
@@ -61,7 +61,7 @@ services:
   housetables-a:
     <<: *openhouse-housetables
     ports:
-      - "8001:8080"
+      - "${OH_MULTICLUSTER_HOUSETABLES_A_PORT:-8001}:8080"
     environment:
       <<: *openhouse-otel
       HTS_DB_USER: oh_user
@@ -76,7 +76,7 @@ services:
   jobs-a:
     <<: *openhouse-jobs
     ports:
-      - "8002:8080"
+      - "${OH_MULTICLUSTER_JOBS_A_PORT:-8002}:8080"
     environment:
       <<: *openhouse-otel
       OTEL_SERVICE_NAME: openhouse-jobs-a
@@ -90,7 +90,7 @@ services:
   tables-b:
     <<: *openhouse-tables
     ports:
-      - "8010:8080"
+      - "${OH_MULTICLUSTER_TABLES_B_PORT:-8010}:8080"
     environment:
       <<: *openhouse-otel
       OTEL_SERVICE_NAME: openhouse-tables-b
@@ -106,7 +106,7 @@ services:
   housetables-b:
     <<: *openhouse-housetables
     ports:
-      - "8011:8080"
+      - "${OH_MULTICLUSTER_HOUSETABLES_B_PORT:-8011}:8080"
     environment:
       <<: *openhouse-otel
       HTS_DB_USER: oh_user
@@ -121,7 +121,7 @@ services:
   jobs-b:
     <<: *openhouse-jobs
     ports:
-      - "8012:8080"
+      - "${OH_MULTICLUSTER_JOBS_B_PORT:-8012}:8080"
     environment:
       <<: *openhouse-otel
       OTEL_SERVICE_NAME: openhouse-jobs-b
@@ -135,8 +135,8 @@ services:
   namenode-a:
     <<: *hadoop-namenode
     ports:
-      - "9870:9870"
-      - "9000:9000"
+      - "${OH_MULTICLUSTER_NAMENODE_A_HTTP_PORT:-9870}:9870"
+      - "${OH_MULTICLUSTER_NAMENODE_A_RPC_PORT:-9000}:9000"
     environment:
       CLUSTER_NAME: openhouse-a
       CORE_CONF_fs_defaultFS: hdfs://namenode-a:9000
@@ -146,8 +146,8 @@ services:
   datanode-a:
     <<: *hadoop-datanode
     ports:
-      - "9864:9864"
-      - "9866:9866"
+      - "${OH_MULTICLUSTER_DATANODE_A_HTTP_PORT:-9864}:9864"
+      - "${OH_MULTICLUSTER_DATANODE_A_IPC_PORT:-9866}:9866"
     environment:
       SERVICE_PRECONDITION: namenode-a:9870
       CORE_CONF_fs_defaultFS: hdfs://namenode-a:9000
@@ -157,8 +157,8 @@ services:
   namenode-b:
     <<: *hadoop-namenode
     ports:
-      - "9871:9870"
-      - "9004:9000"
+      - "${OH_MULTICLUSTER_NAMENODE_B_HTTP_PORT:-9871}:9870"
+      - "${OH_MULTICLUSTER_NAMENODE_B_RPC_PORT:-9004}:9000"
     environment:
       CLUSTER_NAME: openhouse-b
       CORE_CONF_fs_defaultFS: hdfs://namenode-b:9000
@@ -168,8 +168,8 @@ services:
   datanode-b:
     <<: *hadoop-datanode
     ports:
-      - "9865:9864"
-      - "9867:9866"
+      - "${OH_MULTICLUSTER_DATANODE_B_HTTP_PORT:-9865}:9864"
+      - "${OH_MULTICLUSTER_DATANODE_B_IPC_PORT:-9867}:9866"
     environment:
       SERVICE_PRECONDITION: namenode-b:9870
       CORE_CONF_fs_defaultFS: hdfs://namenode-b:9000
@@ -179,7 +179,7 @@ services:
   mysql-a:
     image: mysql:8
     ports:
-      - "3306:3306"
+      - "${OH_MULTICLUSTER_MYSQL_A_PORT:-3306}:3306"
     environment:
       MYSQL_ROOT_PASSWORD: oh_root_password
       MYSQL_PASSWORD: oh_password
@@ -191,7 +191,7 @@ services:
   mysql-b:
     image: mysql:8
     ports:
-      - "3307:3306"
+      - "${OH_MULTICLUSTER_MYSQL_B_PORT:-3307}:3306"
     environment:
       MYSQL_ROOT_PASSWORD: oh_root_password
       MYSQL_PASSWORD: oh_password
@@ -203,8 +203,8 @@ services:
   spark-master:
     <<: *spark-build
     ports:
-      - "9001:8080"
-      - "7077:7077"
+      - "${OH_MULTICLUSTER_SPARK_MASTER_UI_PORT:-9001}:8080"
+      - "${OH_MULTICLUSTER_SPARK_MASTER_RPC_PORT:-7077}:7077"
     environment:
       SPARK_LOCAL_IP: spark-master
       SPARK_WORKLOAD: master
@@ -213,8 +213,8 @@ services:
   spark-worker-a:
     <<: *spark-build
     ports:
-      - "9002:8080"
-      - "7000:7000"
+      - "${OH_MULTICLUSTER_SPARK_WORKER_UI_PORT:-9002}:8080"
+      - "${OH_MULTICLUSTER_SPARK_WORKER_RPC_PORT:-7000}:7000"
     environment:
       SPARK_MASTER: spark://spark-master:7077
       SPARK_WORKER_CORES: 1
@@ -230,7 +230,7 @@ services:
   spark-livy:
     <<: *spark-build
     ports:
-      - "9003:8998"
+      - "${OH_MULTICLUSTER_LIVY_PORT:-9003}:8998"
     environment:
       SPARK_MASTER: spark://spark-master:7077
       SPARK_WORKLOAD: livy
@@ -242,7 +242,7 @@ services:
   prometheus:
     image: prom/prometheus:v2.21.0
     ports:
-      - "9090:9090"
+      - "${OH_MULTICLUSTER_PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     command: --web.enable-lifecycle --config.file=/etc/prometheus/prometheus.yml
@@ -250,9 +250,9 @@ services:
   jaeger:
     image: jaegertracing/all-in-one:1.54
     ports:
-      - "16686:16686"
-      - "4317:4317"
-      - "4318:4318"
+      - "${OH_MULTICLUSTER_JAEGER_UI_PORT:-16686}:16686"
+      - "${OH_MULTICLUSTER_JAEGER_GRPC_PORT:-4317}:4317"
+      - "${OH_MULTICLUSTER_JAEGER_HTTP_PORT:-4318}:4318"
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
 
