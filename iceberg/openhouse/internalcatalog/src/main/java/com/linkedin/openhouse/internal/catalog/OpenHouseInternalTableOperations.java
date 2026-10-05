@@ -275,7 +275,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     return logClassifiedFailure(
         databaseId,
         tableId,
-        "OPENHOUSE_IMPLEMENTATION_DEFECT (500)",
+        "OPENHOUSE_INTERNAL_FAILURE (500)",
         new InvalidTableMetadataException(databaseId, tableId, rootCauseMessage(e), e),
         e);
   }
