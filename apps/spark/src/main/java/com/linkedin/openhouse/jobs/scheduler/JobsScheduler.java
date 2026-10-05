@@ -9,7 +9,6 @@ import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.JobsClientFactory;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.TablesClientFactory;
-import com.linkedin.openhouse.jobs.client.TablesClientOptions;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
 import com.linkedin.openhouse.jobs.scheduler.tasks.DatabaseOperationTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.JobInfo;
@@ -197,8 +196,7 @@ public class JobsScheduler {
     Class<? extends OperationTask> operationTaskCls = getOperationTaskCls(operationType.toString());
     TablesClientFactory tablesClientFactory = getTablesClientFactory(cmdLine);
     TablesClient tablesClient =
-        tablesClientFactory.create(
-            TablesClientOptions.builder().systemAction(isSystemAction(operationType)).build());
+        tablesClientFactory.withSystemAction(isSystemAction(operationType)).create();
     JobsClientFactory jobsClientFactory = getJobsClientFactory(cmdLine);
     JobsClient jobsClient = jobsClientFactory.create();
     Properties properties = getAdditionalProperties(cmdLine);

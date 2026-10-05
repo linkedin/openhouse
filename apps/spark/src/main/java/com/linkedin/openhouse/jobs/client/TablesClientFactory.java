@@ -5,30 +5,38 @@ import com.linkedin.openhouse.client.ssl.TablesApiClientFactory;
 import com.linkedin.openhouse.client.ssl.WebClientFactory;
 import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
+import com.linkedin.openhouse.jobs.util.RetryUtil;
 import com.linkedin.openhouse.tables.client.api.DatabaseApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
 import com.linkedin.openhouse.tables.client.invoker.ApiClient;
 import java.net.MalformedURLException;
 import javax.annotation.Nullable;
 import javax.net.ssl.SSLException;
-import lombok.AllArgsConstructor;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.retry.support.RetryTemplate;
 
 /** A factory class for {@link TablesClient}. */
 @Slf4j
-@AllArgsConstructor
+@RequiredArgsConstructor
 public class TablesClientFactory {
   private final String basePath;
   private final DatabaseTableFilter filter;
   private final @Nullable String token;
   protected final FsStorageProvider fsStorageProvider;
+  private boolean systemAction;
 
-  public TablesClient create() {
-    return create(TablesClientOptions.builder().build());
+  /** Makes clients created afterwards declare SYSTEM on every request. */
+  public TablesClientFactory withSystemAction(boolean systemAction) {
+    this.systemAction = systemAction;
+    return this;
   }
 
-  public TablesClient create(TablesClientOptions options) {
+  public TablesClient create() {
+    return create(RetryUtil.getTablesApiRetryTemplate());
+  }
+
+  private TablesClient create(RetryTemplate retryTemplate) {
     ApiClient client = null;
     try {
       client = TablesApiClientFactory.getInstance().createApiClient(basePath, token, null);
@@ -37,11 +45,11 @@ public class TablesClientFactory {
           "Tables Client initialization failed: Failure while initializing ApiClient", e);
     }
     client.setBasePath(basePath);
-    if (options.isSystemAction()) {
+    if (systemAction) {
       client.addDefaultHeader(
           WebClientFactory.HTTP_HEADER_ACTION_TYPE, WebClientFactory.ACTION_TYPE_SYSTEM);
     }
-    return create(options.getRetryTemplate(), new TableApi(client), new DatabaseApi(client));
+    return create(retryTemplate, new TableApi(client), new DatabaseApi(client));
   }
 
   public TablesClient create(RetryTemplate retryTemplate, TableApi tableApi, DatabaseApi dbApi) {
