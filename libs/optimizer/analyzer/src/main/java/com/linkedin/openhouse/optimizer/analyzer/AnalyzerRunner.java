@@ -10,6 +10,7 @@ import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,8 +19,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Core analysis loop. For one operation type per call, iterates databases and evaluates each table
- * in a database against the matching {@link OperationAnalyzer}.
+ * Core analysis loop. The single public entry point {@link #analyze(AnalyzeRequest)} takes a filter
+ * describing what to evaluate (operation types × database × table, or a single in-memory table for
+ * the commit path); every filter dimension is optional and only narrows "analyze everything
+ * enabled". Callers never invoke the per-table / per-database workers directly.
  *
  * <p>Both sides of the join — current operations and latest history per (table, type) — are loaded
  * into maps once per database before the table loop. This is correct at small scale (≤~100k
@@ -38,62 +41,77 @@ public class AnalyzerRunner {
   private final TableOperationsHistoryRepository historyRepo;
 
   /**
-   * Run the analysis loop for {@code operationType} across all databases, with no filters.
-   * Equivalent to {@link #analyze(OperationTypeDto, Optional, Optional, Optional)} with all-empty
-   * filters.
+   * Unified, filter-driven entry point. Every dimension of {@link AnalyzeRequest} is an optional
+   * filter over "analyze everything enabled": an empty request evaluates all registered analyzers
+   * across all databases, and each field only narrows that.
+   *
+   * <p>Dispatch mirrors the two load strategies:
+   *
+   * <ul>
+   *   <li>{@code table} present (commit-driven) &rarr; evaluate just that in-memory table via
+   *       {@link #analyzeTable(TableDto, List)}; the DB table scan is skipped.
+   *   <li>{@code table} absent (full/filtered scan) &rarr; iterate the selected database(s) one at
+   *       a time, delegating each to {@link #analyzeDatabase} so the per-query working set stays
+   *       bounded by tables-per-db.
+   * </ul>
    */
-  public void analyze(OperationTypeDto operationType) {
-    analyze(operationType, Optional.empty(), Optional.empty(), Optional.empty());
+  public void analyze(AnalyzeRequest request) {
+    List<OperationAnalyzer> selected = selectAnalyzers(request.getOperationTypes());
+    if (selected.isEmpty()) {
+      log.info(
+          "No registered analyzer matches operation types {}; nothing to analyze",
+          request.getOperationTypes());
+      return;
+    }
+    if (request.getTable().isPresent()) {
+      analyzeTable(request.getTable().get(), selected);
+      return;
+    }
+    List<String> dbs =
+        request.getDatabaseName().map(List::of).orElseGet(statsRepo::findDistinctDatabaseNames);
+    log.info(
+        "Analyzing {} across {} database(s) with {} analyzer(s)",
+        request.getDatabaseName().orElse("<all databases>"),
+        dbs.size(),
+        selected.size());
+    selected.forEach(
+        analyzer ->
+            dbs.forEach(
+                db ->
+                    analyzeDatabase(analyzer, db, request.getTableName(), request.getTableUuid())));
+    log.info("Analysis complete for {}", request);
+  }
+
+  /** Registered analyzers matching {@code operationTypes}; empty filter selects all of them. */
+  private List<OperationAnalyzer> selectAnalyzers(Set<OperationTypeDto> operationTypes) {
+    return operationTypes.isEmpty()
+        ? analyzers
+        : analyzers.stream()
+            .filter(a -> operationTypes.contains(a.getOperationType()))
+            .collect(Collectors.toList());
   }
 
   /**
-   * Run the analysis loop for the given operation type, optionally scoped to a single database,
-   * table name, or table UUID. Iterates databases one at a time so the working set is bounded by
-   * tables-per-db, not tables-total.
-   */
-  public void analyze(
-      OperationTypeDto operationType,
-      Optional<String> databaseName,
-      Optional<String> tableName,
-      Optional<String> tableUuid) {
-    OperationAnalyzer analyzer =
-        analyzers.stream()
-            .filter(a -> a.getOperationType() == operationType)
-            .findFirst()
-            .orElseThrow(
-                () ->
-                    new IllegalStateException(
-                        "No analyzer registered for operation type " + operationType));
-    List<String> dbs = databaseName.map(List::of).orElseGet(statsRepo::findDistinctDatabaseNames);
-    log.info("Analyzing {} across {} database(s)", operationType, dbs.size());
-    dbs.forEach(db -> analyzeDatabase(analyzer, db, tableName, tableUuid));
-    log.info("Analysis complete for {}", operationType);
-  }
-
-  /**
-   * Commit-driven entry point. Evaluates a single table — whose stats are already in memory from
-   * the stats upsert, so {@code table_stats} is not re-read — against every registered analyzer,
-   * under the same opt-in, active-op dedup, and cadence guards as the full scan. The table's
-   * current operations and latest history are each loaded once and shared across analyzers.
+   * Commit-driven worker: evaluate one in-memory table against the given candidate analyzers. The
+   * candidates come from the operation-type filter in {@link AnalyzeRequest}; each is additionally
+   * passed through the cheap {@link OperationAnalyzer#triggersOnCommit} opt-out, so a commit no
+   * candidate cares about skips the DB loads entirely. The table's current operations and latest
+   * history are each loaded once and shared across the triggered analyzers.
    *
-   * <p>Complements, not replaces, the full-scan {@link #analyze} the cron runs. Because the stats
-   * arrive in memory, this cannot miss a brand-new table whose {@code table_stats} row is not yet
-   * visible to a fetch-by-uuid.
-   *
-   * <p>Shares the per-table decision with the full-scan path via {@link #analyze(OperationAnalyzer,
-   * TableDto, Optional, Optional)}; only the load phase differs (in-memory here, DB query in {@link
-   * #analyzeDatabase}). Each analyzer first passes a cheap {@link
-   * OperationAnalyzer#triggersOnCommit} pre-filter, so a commit no analyzer cares about skips the
-   * DB loads entirely.
+   * <p>Complements, not replaces, the full-scan path. Because the stats arrive in memory, this
+   * cannot miss a brand-new table whose {@code table_stats} row is not yet visible to a
+   * fetch-by-uuid. Shares the per-table decision with the full-scan path via {@link
+   * #analyze(OperationAnalyzer, TableDto, Optional, Optional)}; only the load phase differs
+   * (in-memory here, DB query in {@link #analyzeDatabase}).
    */
-  public void analyzeTable(TableDto table) {
+  private void analyzeTable(TableDto table, List<OperationAnalyzer> candidates) {
     log.info(
         "Commit-driven analyze for table {}.{} (uuid={})",
         table.getDatabaseName(),
         table.getTableId(),
         table.getTableUuid());
     List<OperationAnalyzer> triggered =
-        analyzers.stream()
+        candidates.stream()
             .filter(analyzer -> analyzer.triggersOnCommit(table))
             .collect(Collectors.toList());
     if (triggered.isEmpty()) {

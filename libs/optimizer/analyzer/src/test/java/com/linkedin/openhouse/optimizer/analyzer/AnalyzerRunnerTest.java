@@ -72,7 +72,7 @@ class AnalyzerRunnerTest {
     when(analyzer.isEnabled(table)).thenReturn(true);
     when(analyzer.shouldSchedule(table, Optional.empty(), Optional.empty())).thenReturn(true);
 
-    runner.analyzeTable(table);
+    runner.analyze(AnalyzeRequest.builder().table(table).build());
 
     ArgumentCaptor<TableOperationsRow> captor = ArgumentCaptor.forClass(TableOperationsRow.class);
     verify(operationsRepo).save(captor.capture());
@@ -92,7 +92,7 @@ class AnalyzerRunnerTest {
         TableDto.builder().tableUuid("uuid-1").databaseName(DB).tableId("tbl1").build();
     when(analyzer.triggersOnCommit(table)).thenReturn(false);
 
-    runner.analyzeTable(table);
+    runner.analyze(AnalyzeRequest.builder().table(table).build());
 
     // Pre-filter short-circuits before any DB load or save.
     verify(operationsRepo, never()).find(any(), any(), any(), any(), any(), any(), any(), any());
@@ -124,7 +124,7 @@ class AnalyzerRunnerTest {
     when(analyzer.shouldSchedule(expectedTable, Optional.empty(), Optional.empty()))
         .thenReturn(true);
 
-    runner.analyze(OFD_TYPE);
+    runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
 
     ArgumentCaptor<TableOperationsRow> captor = ArgumentCaptor.forClass(TableOperationsRow.class);
     verify(operationsRepo).save(captor.capture());
@@ -173,7 +173,7 @@ class AnalyzerRunnerTest {
     when(analyzer.shouldSchedule(expectedTable, Optional.of(existingOp), Optional.empty()))
         .thenReturn(false);
 
-    runner.analyze(OFD_TYPE);
+    runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
 
     verify(operationsRepo, never()).save(any());
   }
@@ -200,7 +200,7 @@ class AnalyzerRunnerTest {
     when(historyRepo.findLatest(eq(OFD_DB), any())).thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(false);
 
-    runner.analyze(OFD_TYPE);
+    runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
 
     verify(operationsRepo, never()).save(any());
   }
@@ -240,7 +240,7 @@ class AnalyzerRunnerTest {
     when(analyzer.shouldSchedule(expectedTable, Optional.of(scheduledOp), Optional.empty()))
         .thenReturn(false);
 
-    runner.analyze(OFD_TYPE);
+    runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
 
     verify(operationsRepo, never()).save(any());
   }
@@ -263,8 +263,78 @@ class AnalyzerRunnerTest {
         .thenReturn(Collections.emptyList());
     when(historyRepo.findLatest(any(), any())).thenReturn(Collections.emptyList());
 
-    runner.analyze(OFD_TYPE);
+    runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
 
     verify(operationsRepo, never()).save(any());
+  }
+
+  @Test
+  void analyzeRequest_withNonMatchingOperationType_isNoOp() {
+    // The only registered analyzer is OFD; filtering to STATS selects nothing.
+    runner.analyze(
+        AnalyzeRequest.builder()
+            .operationTypes(java.util.Set.of(OperationTypeDto.TABLE_STATS_COLLECTION))
+            .build());
+
+    verify(statsRepo, never()).findDistinctDatabaseNames();
+    verify(statsRepo, never()).find(any(), any(), any(), any());
+    verify(operationsRepo, never()).save(any());
+  }
+
+  @Test
+  void analyzeRequest_withTable_dispatchesToCommitPath_withoutReadingTableStats() {
+    TableDto table =
+        TableDto.builder().tableUuid("uuid-1").databaseName(DB).tableId("tbl1").build();
+    when(operationsRepo.find(
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.of("uuid-1")),
+            eq(Optional.of(DB)),
+            eq(Optional.of("tbl1")),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            any()))
+        .thenReturn(Collections.emptyList());
+    when(historyRepo.find(eq("uuid-1"), any())).thenReturn(Collections.emptyList());
+    when(analyzer.triggersOnCommit(table)).thenReturn(true);
+    when(analyzer.isEnabled(table)).thenReturn(true);
+    when(analyzer.shouldSchedule(table, Optional.empty(), Optional.empty())).thenReturn(true);
+
+    runner.analyze(AnalyzeRequest.builder().table(table).build());
+
+    verify(operationsRepo).save(any());
+    // Commit path uses the in-memory stats; it never scans table_stats or resolves databases.
+    verify(statsRepo, never()).find(any(), any(), any(), any());
+    verify(statsRepo, never()).findDistinctDatabaseNames();
+  }
+
+  @Test
+  void analyzeRequest_withDatabaseFilter_scansOnlyThatDatabase_withoutResolvingAllDatabases() {
+    TableStatsRow statsEntity =
+        TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
+    TableDto expectedTable = TableDto.fromRow(statsEntity);
+
+    when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
+        .thenReturn(List.of(statsEntity));
+    when(operationsRepo.find(
+            eq(Optional.of(OFD_DB)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.of(DB)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            any()))
+        .thenReturn(Collections.emptyList());
+    when(historyRepo.findLatest(eq(OFD_DB), any())).thenReturn(Collections.emptyList());
+    when(analyzer.isEnabled(expectedTable)).thenReturn(true);
+    when(analyzer.shouldSchedule(expectedTable, Optional.empty(), Optional.empty()))
+        .thenReturn(true);
+
+    runner.analyze(AnalyzeRequest.builder().databaseName(DB).build());
+
+    verify(operationsRepo).save(any());
+    // A supplied database filter short-circuits the all-databases resolution.
+    verify(statsRepo, never()).findDistinctDatabaseNames();
   }
 }

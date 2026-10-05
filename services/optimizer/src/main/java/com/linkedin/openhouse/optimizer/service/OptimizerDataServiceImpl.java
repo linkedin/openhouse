@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.optimizer.service;
 
+import com.linkedin.openhouse.optimizer.analyzer.AnalyzeRequest;
 import com.linkedin.openhouse.optimizer.analyzer.AnalyzerRunner;
 import com.linkedin.openhouse.optimizer.db.TableStatsHistoryRow;
 import com.linkedin.openhouse.optimizer.db.TableStatsRow;
@@ -152,7 +153,7 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
    * skips — so a trigger failure must never fail the stats upsert.
    */
   private void triggerCommitDrivenAnalysis(TableDto table) {
-    Mono.fromRunnable(() -> analyzerRunner.analyzeTable(table))
+    Mono.fromRunnable(() -> analyzerRunner.analyze(AnalyzeRequest.builder().table(table).build()))
         .subscribeOn(Schedulers.boundedElastic())
         .doOnError(
             e ->

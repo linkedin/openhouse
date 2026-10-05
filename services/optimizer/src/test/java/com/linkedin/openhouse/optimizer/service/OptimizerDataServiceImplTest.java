@@ -119,14 +119,18 @@ class OptimizerDataServiceImplTest {
     service.upsertTableStats(input);
 
     // Trigger is fire-and-forget on a bounded-elastic worker; await the async invocation. The
-    // analyzer receives the in-memory table (no table_stats re-read).
+    // analyzer receives an AnalyzeRequest carrying the in-memory table (no table_stats re-read).
     verify(analyzerRunner, timeout(5000))
-        .analyzeTable(
+        .analyze(
             argThat(
-                t ->
-                    tableUuid.equals(t.getTableUuid())
-                        && "db1".equals(t.getDatabaseName())
-                        && "tbl1".equals(t.getTableId())));
+                req ->
+                    req.getTable()
+                        .map(
+                            t ->
+                                tableUuid.equals(t.getTableUuid())
+                                    && "db1".equals(t.getDatabaseName())
+                                    && "tbl1".equals(t.getTableId()))
+                        .orElse(false)));
   }
 
   @Test
