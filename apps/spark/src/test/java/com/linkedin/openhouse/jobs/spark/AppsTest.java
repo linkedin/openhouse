@@ -18,6 +18,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.relocated.com.google.common.collect.Iterables;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -139,7 +141,8 @@ public class AppsTest extends OpenHouseSparkITest {
         (jobId, stateManager, fqtn) ->
             new SnapshotsExpirationSparkApp(
                 jobId, stateManager, fqtn, 0, "", 1, false, ".backup", otelEmitter),
-        JobState.SUCCEEDED);
+        JobState.SUCCEEDED,
+        1);
   }
 
   @Test
@@ -148,7 +151,8 @@ public class AppsTest extends OpenHouseSparkITest {
         "test_stats_system_only_lock",
         (jobId, stateManager, fqtn) ->
             new TableStatsCollectionSparkApp(jobId, stateManager, fqtn, otelEmitter),
-        JobState.FAILED);
+        JobState.FAILED,
+        2);
   }
 
   private interface AppFactory {
@@ -156,7 +160,8 @@ public class AppsTest extends OpenHouseSparkITest {
   }
 
   private void assertFinalStateOnSystemOnlyLockedTable(
-      String tableName, AppFactory appFactory, JobState expectedState) throws Exception {
+      String tableName, AppFactory appFactory, JobState expectedState, int expectedSnapshots)
+      throws Exception {
     final String database = "db";
     final String fqtn = database + "." + tableName;
     final String jobId = "job-" + tableName;
@@ -166,6 +171,11 @@ public class AppsTest extends OpenHouseSparkITest {
     try {
       spark.sql(String.format("INSERT INTO openhouse.%s VALUES (1)", fqtn));
       spark.sql(String.format("INSERT INTO openhouse.%s VALUES (2)", fqtn));
+      long currentSnapshotId =
+          getOpenHouseCatalog(spark)
+              .loadTable(TableIdentifier.parse(fqtn))
+              .currentSnapshot()
+              .snapshotId();
       controls
           .createLockV1(
               database,
@@ -182,6 +192,11 @@ public class AppsTest extends OpenHouseSparkITest {
       appFactory.create(jobId, stateManagerMock, fqtn).run();
 
       Mockito.verify(stateManagerMock).updateState(jobId, expectedState);
+      SparkSession reader = getSparkSession().newSession();
+      reader.conf().set("spark.sql.catalog.openhouse.action-type", "SYSTEM");
+      Table table = getOpenHouseCatalog(reader).loadTable(TableIdentifier.parse(fqtn));
+      Assertions.assertEquals(currentSnapshotId, table.currentSnapshot().snapshotId());
+      Assertions.assertEquals(expectedSnapshots, Iterables.size(table.snapshots()));
     } finally {
       SparkSession.clearActiveSession();
       controls.deleteLockByReasonV1(database, tableName, "SYSTEM_ONLY").block();

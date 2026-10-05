@@ -98,12 +98,17 @@ public class TablesClientTest {
               DatabaseTableFilter.of(".*", ".*", 0),
               "token",
               null);
-      factory.create(TablesClientOptions.builder().systemAction(true).build()).getDatabases();
-      factory.create().getDatabases();
+      for (TablesClient client :
+          Arrays.asList(
+              factory.create(TablesClientOptions.builder().systemAction(true).build()),
+              factory.create())) {
+        client.getDatabases();
+        client.getAllTables("db");
+      }
     } finally {
       server.stop(0);
     }
-    Assertions.assertEquals(Arrays.asList("SYSTEM", null), declarations);
+    Assertions.assertEquals(Arrays.asList("SYSTEM", "SYSTEM", null, null), declarations);
   }
 
   @Test
