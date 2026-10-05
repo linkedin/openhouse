@@ -29,10 +29,7 @@ import org.springframework.stereotype.Component;
 public class TableUUIDGenerator {
   // TODO: r/w of tableProperties being managed in single place.
   private static final String OPENHOUSE_NAMESPACE = "openhouse.";
-  private static final String DB_RAW_KEY = "databaseId";
-  private static final String TBL_RAW_KEY = "tableId";
   private static final String TBL_LOC_RAW_KEY = "tableLocation";
-  private static final String TBL_UUID_RAW_KEY = "tableUUID";
 
   @Autowired StorageManager storageManager;
 
@@ -50,7 +47,8 @@ public class TableUUIDGenerator {
             createUpdateTableRequestBody.getTableProperties(),
             createUpdateTableRequestBody.getDatabaseId(),
             createUpdateTableRequestBody.getTableId(),
-            createUpdateTableRequestBody.getTableType())
+            createUpdateTableRequestBody.getTableType(),
+            createUpdateTableRequestBody.getBaseTableVersion())
         .orElseGet(UUID::randomUUID);
   }
 
@@ -69,18 +67,9 @@ public class TableUUIDGenerator {
             () -> generateUUID(icebergSnapshotsRequestBody.getCreateUpdateTableRequestBody()));
   }
 
-  /** Simple helper method to obtain tableURI from requestBody. */
-  private String getTableURI(IcebergSnapshotsRequestBody icebergSnapshotsRequestBody) {
-    return icebergSnapshotsRequestBody.getCreateUpdateTableRequestBody().getDatabaseId()
-        + "."
-        + icebergSnapshotsRequestBody.getCreateUpdateTableRequestBody().getTableId();
-  }
-
   /**
-   * Extracting the value of given key from the table properties map. The main use cases are for
-   * tableId, databaseId and tableLocation where the value captured in tblproperties preserved the
-   * casing from creation. This casing is critical if r/w for this table occurs in a platform with
-   * different casing-preservation contract.
+   * Extract a required path value from table properties. Table identifiers come from the request
+   * body; they are no longer duplicated in Iceberg table properties.
    */
   private String extractFromTblPropsIfExists(
       String tableURI, Map<String, String> tblProps, String rawKey) {
@@ -109,7 +98,11 @@ public class TableUUIDGenerator {
    * @return Optional.of(UUID)
    */
   private Optional<UUID> extractUUIDFromTableProperties(
-      Map<String, String> tableProperties, String databaseId, String tableId, TableType tableType) {
+      Map<String, String> tableProperties,
+      String databaseId,
+      String tableId,
+      TableType tableType,
+      String baseTableVersion) {
     Optional<String> tableUUIDProperty =
         Optional.ofNullable(tableProperties).map(x -> x.get(CatalogConstants.OPENHOUSE_UUID_KEY));
 
@@ -118,7 +111,7 @@ public class TableUUIDGenerator {
     }
 
     validatePathOfProvidedRequest(
-        tableProperties, databaseId, tableId, tableUUIDProperty.get(), tableType);
+        tableProperties, databaseId, tableId, tableUUIDProperty.get(), tableType, baseTableVersion);
 
     try {
       return tableUUIDProperty.map(UUID::fromString);
@@ -134,11 +127,10 @@ public class TableUUIDGenerator {
       String databaseId,
       String tableId,
       String tableUUIDProperty,
-      TableType tableType) {
+      TableType tableType,
+      String baseTableVersion) {
 
     String tableURI = String.format("%s.%s", databaseId, tableId);
-    String dbIdFromProps = extractFromTblPropsIfExists(tableURI, tableProperties, DB_RAW_KEY);
-    String tblIdFromProps = extractFromTblPropsIfExists(tableURI, tableProperties, TBL_RAW_KEY);
     boolean isTableReplicated =
         Boolean.parseBoolean(
             tableProperties.getOrDefault(
@@ -148,20 +140,30 @@ public class TableUUIDGenerator {
     // replication both require
     // UUID to be passed from table Property. To disambiguate, TBL_IS_REPLICATED_RAW_KEY is used.
     if (TableType.REPLICA_TABLE != tableType && !isTableReplicated) {
-      // Extract tableLocation from table properties (openhouse.tableLocation)
-      // tableLocation should be the absolute path to the latest metadata file including scheme.
-      // Scheme is not present for HDFS and Local storages. See:
-      // https://github.com/linkedin/openhouse/issues/121
-      String tableLocation =
-          extractFromTblPropsIfExists(tableURI, tableProperties, TBL_LOC_RAW_KEY);
+      String tableLocation = getBaseMetadataLocation(tableURI, tableProperties, baseTableVersion);
       Storage storage = storageManager.getStorageFromPath(tableLocation);
 
-      if (!storage.isPathValid(tableLocation, dbIdFromProps, tblIdFromProps, tableUUIDProperty)) {
+      if (!storage.isPathValid(tableLocation, databaseId, tableId, tableUUIDProperty)) {
         log.error("Previous tableLocation: {} doesn't exist", tableLocation);
         throw new RequestValidationFailureException(
-            String.format("Provided snapshot is invalid for %s.%s", dbIdFromProps, tblIdFromProps));
+            String.format("Provided snapshot is invalid for %s", tableURI));
       }
     }
+  }
+
+  private String getBaseMetadataLocation(
+      String tableURI, Map<String, String> tableProperties, String baseTableVersion) {
+    String tableLocation =
+        Optional.ofNullable(tableProperties)
+            .map(properties -> properties.get(OPENHOUSE_NAMESPACE + TBL_LOC_RAW_KEY))
+            .orElse(null);
+    if (tableLocation != null) {
+      return tableLocation;
+    }
+    if (baseTableVersion != null && !CatalogConstants.INITIAL_VERSION.equals(baseTableVersion)) {
+      return baseTableVersion;
+    }
+    return extractFromTblPropsIfExists(tableURI, tableProperties, TBL_LOC_RAW_KEY);
   }
 
   /**
@@ -176,20 +178,10 @@ public class TableUUIDGenerator {
   private Optional<UUID> extractUUIDFromRequestBody(
       IcebergSnapshotsRequestBody snapshotsRequestBody) {
     List<String> jsonSnapshots = snapshotsRequestBody.getJsonSnapshots();
-    String tableURI =
-        snapshotsRequestBody.getCreateUpdateTableRequestBody().getDatabaseId()
-            + "."
-            + snapshotsRequestBody.getCreateUpdateTableRequestBody().getTableId();
-    String databaseId =
-        extractFromTblPropsIfExists(
-            tableURI,
-            snapshotsRequestBody.getCreateUpdateTableRequestBody().getTableProperties(),
-            DB_RAW_KEY);
-    String tableId =
-        extractFromTblPropsIfExists(
-            tableURI,
-            snapshotsRequestBody.getCreateUpdateTableRequestBody().getTableProperties(),
-            TBL_RAW_KEY);
+    CreateUpdateTableRequestBody tableRequest =
+        snapshotsRequestBody.getCreateUpdateTableRequestBody();
+    String databaseId = tableRequest.getDatabaseId();
+    String tableId = tableRequest.getTableId();
 
     String snapshotStr =
         Optional.ofNullable(jsonSnapshots)
@@ -201,23 +193,21 @@ public class TableUUIDGenerator {
       return Optional.empty();
     }
 
-    // Extract tableLocation from table properties (openhouse.tableLocation)
-    // tableLocation should be the absolute path to the latest metadata file including scheme.
-    // Scheme is not present for HDFS and Local storages. See:
-    // https://github.com/linkedin/openhouse/issues/121
-    String tableLocation =
-        extractFromTblPropsIfExists(
-            tableURI,
-            snapshotsRequestBody.getCreateUpdateTableRequestBody().getTableProperties(),
-            TBL_LOC_RAW_KEY);
-
-    Storage storage = storageManager.getStorageFromPath(tableLocation);
-    java.nio.file.Path databaseDirPath = Paths.get(storage.getClient().getRootPrefix(), databaseId);
     String manifestListKey = "manifest-list";
+    String manifestListPathString;
+    try {
+      manifestListPathString =
+          new Gson().fromJson(snapshotStr, JsonObject.class).get(manifestListKey).getAsString();
+    } catch (Exception exception) {
+      throw new RequestValidationFailureException(
+          String.format(
+              "Provided Snapshot %s doesn't contain metadata for %s", snapshotStr, manifestListKey),
+          exception);
+    }
+    Storage storage = storageManager.getStorageFromPath(manifestListPathString);
+    java.nio.file.Path databaseDirPath = Paths.get(storage.getClient().getRootPrefix(), databaseId);
     java.nio.file.Path manifestListPath;
     try {
-      String manifestListPathString =
-          new Gson().fromJson(snapshotStr, JsonObject.class).get(manifestListKey).getAsString();
       manifestListPathString =
           StringUtils.removeStart(manifestListPathString, storage.getClient().getEndpoint());
       manifestListPath = Paths.get(manifestListPathString);

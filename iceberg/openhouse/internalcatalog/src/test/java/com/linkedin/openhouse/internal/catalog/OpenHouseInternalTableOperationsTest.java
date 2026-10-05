@@ -273,6 +273,35 @@ public class OpenHouseInternalTableOperationsTest {
     }
   }
 
+  @Test
+  void testDoCommitRetainsCatalogOnlyProperties() throws IOException {
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    properties.put(getCanonicalFieldName("clusterId"), "cluster-from-properties");
+    properties.put(getCanonicalFieldName("tableUUID"), "uuid-from-properties");
+    properties.put(getCanonicalFieldName("tableCreator"), "creator-from-properties");
+    properties.put(getCanonicalFieldName("lastModifiedTime"), "1");
+
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      openHouseInternalTableOperations.doCommit(
+          BASE_TABLE_METADATA, BASE_TABLE_METADATA.replaceProperties(properties));
+
+      TableMetadata committedMetadata = getPersistedMetadata();
+      assertNoHtsProperties(committedMetadata);
+      Assertions.assertEquals(
+          "cluster-from-properties",
+          committedMetadata.properties().get(getCanonicalFieldName("clusterId")));
+      Assertions.assertEquals(
+          "uuid-from-properties",
+          committedMetadata.properties().get(getCanonicalFieldName("tableUUID")));
+      Assertions.assertEquals(
+          "creator-from-properties",
+          committedMetadata.properties().get(getCanonicalFieldName("tableCreator")));
+      Assertions.assertNotEquals(
+          "1", committedMetadata.properties().get(getCanonicalFieldName("lastModifiedTime")));
+    }
+  }
+
   /**
    * A successful commit must dispatch registered post-commit operations exactly once, handing them
    * a context that carries the table identity and the committed metadata.
