@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.jobs.spark;
 
-import com.linkedin.openhouse.client.ssl.WebClientFactory;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
@@ -14,7 +13,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
 import org.apache.iceberg.actions.ExpireSnapshots;
-import org.apache.spark.sql.SparkSession;
 
 /**
  * Class with main entry point to run as a table snapshot expiration job. Snapshots for table which
@@ -62,11 +60,9 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
     this.backupDir = backupDir;
   }
 
-  /** Declares SYSTEM so expiration also maintains tables with a SYSTEM_ONLY lock. */
   @Override
-  protected SparkSession.Builder configureSession(SparkSession.Builder builder) {
-    return builder.config(
-        "spark.sql.catalog.openhouse.action-type", WebClientFactory.ACTION_TYPE_SYSTEM);
+  protected boolean isSystemAction() {
+    return true;
   }
 
   @Override

@@ -9,6 +9,7 @@ import com.linkedin.openhouse.jobs.client.JobsClient;
 import com.linkedin.openhouse.jobs.client.JobsClientFactory;
 import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.TablesClientFactory;
+import com.linkedin.openhouse.jobs.client.TablesClientOptions;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
 import com.linkedin.openhouse.jobs.scheduler.tasks.DatabaseOperationTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.JobInfo;
@@ -34,12 +35,14 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -122,6 +125,9 @@ public class JobsScheduler {
   private static final String SUPPORTED_OPERATIONS_STRING =
       String.join(",", OPERATIONS_REGISTRY.keySet());
 
+  private static final Set<JobConf.JobTypeEnum> SYSTEM_ACTION_JOB_TYPES =
+      EnumSet.of(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION);
+
   @Getter(AccessLevel.PROTECTED)
   private final ThreadPoolExecutor jobExecutors;
 
@@ -190,9 +196,9 @@ public class JobsScheduler {
     JobConf.JobTypeEnum operationType = getOperationJobType(cmdLine);
     Class<? extends OperationTask> operationTaskCls = getOperationTaskCls(operationType.toString());
     TablesClientFactory tablesClientFactory = getTablesClientFactory(cmdLine);
-    // Snapshots expiration maintains every table, including tables with a SYSTEM_ONLY lock.
     TablesClient tablesClient =
-        tablesClientFactory.create(operationType == JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION);
+        tablesClientFactory.create(
+            TablesClientOptions.builder().systemAction(isSystemAction(operationType)).build());
     JobsClientFactory jobsClientFactory = getJobsClientFactory(cmdLine);
     JobsClient jobsClient = jobsClientFactory.create();
     Properties properties = getAdditionalProperties(cmdLine);
@@ -697,6 +703,11 @@ public class JobsScheduler {
   protected static JobConf.JobTypeEnum getOperationJobType(CommandLine cmdLine) {
     String operationType = cmdLine.getOptionValue("type");
     return JobConf.JobTypeEnum.fromValue(operationType);
+  }
+
+  /** Whether jobs of this type declare SYSTEM, so they also maintain SYSTEM_ONLY-locked tables. */
+  protected static boolean isSystemAction(JobConf.JobTypeEnum jobType) {
+    return SYSTEM_ACTION_JOB_TYPES.contains(jobType);
   }
 
   protected static boolean isDryRun(CommandLine cmdLine) {

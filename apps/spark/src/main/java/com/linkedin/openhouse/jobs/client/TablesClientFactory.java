@@ -5,7 +5,6 @@ import com.linkedin.openhouse.client.ssl.TablesApiClientFactory;
 import com.linkedin.openhouse.client.ssl.WebClientFactory;
 import com.linkedin.openhouse.cluster.storage.filesystem.FsStorageProvider;
 import com.linkedin.openhouse.jobs.util.DatabaseTableFilter;
-import com.linkedin.openhouse.jobs.util.RetryUtil;
 import com.linkedin.openhouse.tables.client.api.DatabaseApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
 import com.linkedin.openhouse.tables.client.invoker.ApiClient;
@@ -26,14 +25,10 @@ public class TablesClientFactory {
   protected final FsStorageProvider fsStorageProvider;
 
   public TablesClient create() {
-    return create(false);
+    return create(TablesClientOptions.builder().build());
   }
 
-  public TablesClient create(boolean systemAction) {
-    return create(RetryUtil.getTablesApiRetryTemplate(), systemAction);
-  }
-
-  private TablesClient create(RetryTemplate retryTemplate, boolean systemAction) {
+  public TablesClient create(TablesClientOptions options) {
     ApiClient client = null;
     try {
       client = TablesApiClientFactory.getInstance().createApiClient(basePath, token, null);
@@ -42,11 +37,11 @@ public class TablesClientFactory {
           "Tables Client initialization failed: Failure while initializing ApiClient", e);
     }
     client.setBasePath(basePath);
-    if (systemAction) {
+    if (options.isSystemAction()) {
       client.addDefaultHeader(
           WebClientFactory.HTTP_HEADER_ACTION_TYPE, WebClientFactory.ACTION_TYPE_SYSTEM);
     }
-    return create(retryTemplate, new TableApi(client), new DatabaseApi(client));
+    return create(options.getRetryTemplate(), new TableApi(client), new DatabaseApi(client));
   }
 
   public TablesClient create(RetryTemplate retryTemplate, TableApi tableApi, DatabaseApi dbApi) {

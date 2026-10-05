@@ -4,12 +4,14 @@ import com.linkedin.openhouse.common.exception.RequestValidationFailureException
 import com.linkedin.openhouse.common.exception.SystemOnlyLockAccessDeniedException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.TableDto;
+import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
@@ -68,20 +70,26 @@ public class AuthorizationUtils {
    * @param actingPrincipal
    */
   public void checkSystemOnlyLockAccess(TableDto tableDto, String actingPrincipal) {
-    LockState lock = tableDto.getPolicies() == null ? null : tableDto.getPolicies().getLockState();
-    if (lock == null || !lock.isLocked() || lock.getReason() != LockReason.SYSTEM_ONLY) {
+    Optional<LockState> systemOnlyLock =
+        Optional.ofNullable(tableDto.getPolicies())
+            .map(Policies::getLockState)
+            .filter(lock -> lock.isLocked() && lock.getReason() == LockReason.SYSTEM_ONLY);
+    if (!systemOnlyLock.isPresent()
+        || authorizationHandler.checkSystemOnlyLockAccess(
+            actingPrincipal, tableDto, actionTypeDeclaration())) {
       return;
     }
-    if (!authorizationHandler.checkSystemOnlyLockAccess(
-        actingPrincipal, tableDto, actionTypeDeclaration())) {
-      String message = lock.getMessage();
-      String detail = message == null || message.trim().isEmpty() ? "" : ": " + message;
-      throw new SystemOnlyLockAccessDeniedException(
-          String.format(
-              "Table %s.%s has a SYSTEM_ONLY lock%s. Use the reason-targeted OpenHouse unlock endpoint "
-                  + "as an authorized lock administrator.",
-              tableDto.getDatabaseId(), tableDto.getTableId(), detail));
-    }
+    String detail =
+        systemOnlyLock
+            .map(LockState::getMessage)
+            .filter(message -> !message.trim().isEmpty())
+            .map(message -> ": " + message)
+            .orElse("");
+    throw new SystemOnlyLockAccessDeniedException(
+        String.format(
+            "Table %s.%s has a SYSTEM_ONLY lock%s. Use the reason-targeted OpenHouse unlock endpoint "
+                + "as an authorized lock administrator.",
+            tableDto.getDatabaseId(), tableDto.getTableId(), detail));
   }
 
   /**

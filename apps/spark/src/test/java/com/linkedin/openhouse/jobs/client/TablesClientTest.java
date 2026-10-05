@@ -98,12 +98,27 @@ public class TablesClientTest {
               DatabaseTableFilter.of(".*", ".*", 0),
               "token",
               null);
-      factory.create(true).getDatabases();
+      factory.create(TablesClientOptions.builder().systemAction(true).build()).getDatabases();
       factory.create().getDatabases();
     } finally {
       server.stop(0);
     }
     Assertions.assertEquals(Arrays.asList("SYSTEM", null), declarations);
+  }
+
+  @Test
+  void testCreateUsesRequestedRetryTemplate() {
+    TablesClientFactory factory =
+        Mockito.spy(
+            new TablesClientFactory(
+                "http://localhost:1", DatabaseTableFilter.of(".*", ".*", 0), null, null));
+    RetryTemplate retryTemplate = RetryTemplate.builder().build();
+    factory.create(TablesClientOptions.builder().retryTemplate(retryTemplate).build());
+    Mockito.verify(factory)
+        .create(
+            Mockito.same(retryTemplate),
+            Mockito.any(TableApi.class),
+            Mockito.any(DatabaseApi.class));
   }
 
   @BeforeEach

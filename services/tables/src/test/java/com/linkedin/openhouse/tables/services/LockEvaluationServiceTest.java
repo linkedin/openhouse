@@ -274,6 +274,36 @@ class LockEvaluationServiceTest {
             () -> tables.getTable("db", "table", "owner")));
   }
 
+  @ParameterizedTest
+  @CsvSource(
+      value = {"NULL,''", "' ',''", "'keep me',': keep me'"},
+      nullValues = "NULL")
+  void systemOnlyDenialIncludesOnlyNonBlankLockMessage(String message, String detail) {
+    current =
+        current
+            .toBuilder()
+            .policies(
+                Policies.builder()
+                    .lockState(
+                        LockState.builder()
+                            .locked(true)
+                            .reason(LockReason.SYSTEM_ONLY)
+                            .message(message)
+                            .build())
+                    .build())
+            .build();
+    SystemOnlyLockAccessDeniedException exception =
+        assertThrowsExactly(
+            SystemOnlyLockAccessDeniedException.class,
+            () -> tables.getTable("db", "table", "owner"));
+    assertEquals(
+        "Table db.table has a SYSTEM_ONLY lock"
+            + detail
+            + ". Use the reason-targeted OpenHouse unlock endpoint as an authorized lock"
+            + " administrator.",
+        exception.getMessage());
+  }
+
   @Test
   void messageDoesNotChooseTheLockReasonAndInactiveLocksDoNotBlock() {
     current =

@@ -784,6 +784,16 @@ public class JobsSchedulerTest {
   }
 
   @Test
+  void testOnlySnapshotsExpirationIsSystemAction() {
+    for (JobConf.JobTypeEnum jobType : JobConf.JobTypeEnum.values()) {
+      Assertions.assertEquals(
+          jobType == JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION,
+          JobsScheduler.isSystemAction(jobType),
+          jobType.name());
+    }
+  }
+
+  @Test
   void testMainDeclaresSystemOnlyForSnapshotsExpiration() throws IOException {
     List<String> seHeaders = actionTypeHeadersSentByMain(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION);
     List<String> ofdHeaders =
