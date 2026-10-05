@@ -433,6 +433,11 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    */
   @WithSpan("InternalRepository.updateEligibilityCheck")
   protected void updateEligibilityCheck(Table existingTable, TableDto tableDto) {
+    if (ValidatorConstants.INITIAL_TABLE_VERSION.equals(tableDto.getTableVersion())) {
+      // A create can race the service's existence check. Reject it before
+      // inspecting update-only properties or considering replication bypasses.
+      versionCheck(existingTable, tableDto);
+    }
     if (!skipEligibilityCheck(existingTable.properties(), tableDto.getTableProperties())) {
       // eligibility check is relaxed for request from replication flow since preserved properties
       // & tableType will differ in tableDto and existing table.
