@@ -20,12 +20,16 @@ plugins {
   id 'openhouse.service-specgen-convention'
 }
 
-// Configure unique port for OpenAPI spec generation to avoid conflicts during parallel builds
+// Use an ephemeral port so generation cannot query a different local House Tables service.
+def openApiPortSocket = new java.net.ServerSocket(0)
+def openApiPort = openApiPortSocket.localPort
+openApiPortSocket.close()
+
 openApi {
   customBootRun {
-    args = ["--server.port=8001"]
+    args = ["--server.port=${openApiPort}"]
   }
-  apiDocsUrl.set("http://localhost:8001/v3/api-docs")
+  apiDocsUrl.set("http://localhost:${openApiPort}/v3/api-docs")
 }
 
 tasks.matching { it.name == 'generateOpenApiDocs' }.configureEach {
