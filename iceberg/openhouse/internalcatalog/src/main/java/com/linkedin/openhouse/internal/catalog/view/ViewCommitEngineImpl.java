@@ -241,11 +241,8 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
   }
 
   private void rejectOccupiedName(ViewCommitIntent intent, HouseTable occupant) {
-    if (isView(occupant.getEntityType())) {
-      throw new AlreadyExistsException(
-          "View already exists: %s.%s", intent.getDatabaseId(), intent.getViewId());
-    }
-    throw new ViewNameOccupiedException(
+    throw new AlreadyExistsException(
+        "Cannot create view %s.%s: name is already occupied by an entity of type %s",
         intent.getDatabaseId(), intent.getViewId(), occupant.getEntityType());
   }
 

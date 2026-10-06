@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
+import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.NoSuchViewException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -128,9 +129,9 @@ public class ViewCommitEngineMixedEntityTest {
         "the neutral read hydrates the legacy null to TABLE before the engine ever sees it");
     int readsBeforeCommit = harness.readCalls();
 
-    ViewNameOccupiedException thrown =
+    AlreadyExistsException thrown =
         Assertions.assertThrows(
-            ViewNameOccupiedException.class,
+            AlreadyExistsException.class,
             () ->
                 harness
                     .getViewCommitEngine()
@@ -142,8 +143,11 @@ public class ViewCommitEngineMixedEntityTest {
                                     root, DB, "legacy_a", ViewTestFixtures.VIEW_UUID))
                             .build()));
 
-    Assertions.assertEquals(CatalogConstants.ENTITY_TYPE_TABLE, thrown.getOccupantEntityType());
-    Assertions.assertEquals("legacy_a", thrown.getViewId());
+    Assertions.assertEquals(
+        "Cannot create view "
+            + DB
+            + ".legacy_a: name is already occupied by an entity of type TABLE",
+        thrown.getMessage());
     Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
     Assertions.assertEquals(
         readsBeforeCommit,

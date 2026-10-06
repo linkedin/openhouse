@@ -76,9 +76,20 @@ public class ViewCommitEngineCommitTest {
     HouseTable occupant = captureNeutral();
     int readsBeforeCommit = harness.readCalls();
 
-    Assertions.assertThrows(
-        AlreadyExistsException.class,
-        () -> harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, occupant)));
+    AlreadyExistsException thrown =
+        Assertions.assertThrows(
+            AlreadyExistsException.class,
+            () ->
+                harness
+                    .getViewCommitEngine()
+                    .commit(ViewTestFixtures.createIntent(root, occupant)));
+    Assertions.assertEquals(
+        "Cannot create view "
+            + DB
+            + "."
+            + VIEW
+            + ": name is already occupied by an entity of type VIEW",
+        thrown.getMessage());
 
     assertCreateCollisionLeftNoTrace(readsBeforeCommit);
   }
@@ -97,17 +108,22 @@ public class ViewCommitEngineCommitTest {
         "the caller captures the hydrated discriminator the engine will classify");
     int readsBeforeCommit = harness.readCalls();
 
-    ViewNameOccupiedException thrown =
+    AlreadyExistsException thrown =
         Assertions.assertThrows(
-            ViewNameOccupiedException.class,
+            AlreadyExistsException.class,
             () ->
                 harness
                     .getViewCommitEngine()
                     .commit(ViewTestFixtures.createIntent(root, occupant)));
 
-    Assertions.assertEquals(expectedOccupantType, thrown.getOccupantEntityType());
-    Assertions.assertEquals(DB, thrown.getDatabaseId());
-    Assertions.assertEquals(VIEW, thrown.getViewId());
+    Assertions.assertEquals(
+        "Cannot create view "
+            + DB
+            + "."
+            + VIEW
+            + ": name is already occupied by an entity of type "
+            + expectedOccupantType,
+        thrown.getMessage());
     assertCreateCollisionLeftNoTrace(readsBeforeCommit);
   }
 
