@@ -15,11 +15,12 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * Catalog → ReadBridge overlay → Spark's Iceberg table. Iceberg 1.2.0.20's Spark readers do not
- * fill {@code initial-default}; SQL fill/filter coverage is disabled until OpenHouse picks up
- * linkedin/iceberg#267–269.
+ * Catalog → ReadBridge overlay → Spark's Iceberg table. The Spark ORC row reader fills {@code
+ * initial-default} (linkedin/iceberg#267–269); Spark Parquet readers do not, so the Parquet/ORC
+ * backfill matrix stays disabled.
  */
 public class ColumnDefaultSparkITest extends OpenHouseSparkITest {
 
@@ -61,10 +62,46 @@ public class ColumnDefaultSparkITest extends OpenHouseSparkITest {
   }
 
   /**
-   * Enable after bumping {@code iceberg_1_2_version} to a build that fills {@code initial-default}
-   * in Spark parquet/ORC readers (linkedin/iceberg#267–269).
+   * Defaults on fields of structs inside list elements and map values reach Spark through the
+   * overlay, and the ORC row reader fills them for rows written before the fields existed. With ORC
+   * vectorization enabled, a projection with defaults still uses the row reader. The append goes
+   * through the overlaid table, so write protection sees the nested {@code initial-default}.
    */
-  @Disabled("Spark readers in iceberg 1.2.0.20 do not fill initial-default")
+  @ParameterizedTest(name = "vectorized={0}")
+  @ValueSource(booleans = {false, true})
+  public void orcFillsDefaultsInsideListsAndMaps(boolean vectorized) throws Exception {
+    String fqtn = String.format("openhouse.%s.members_collections_%s", DATABASE, vectorized);
+    try (SparkSession spark = getSparkSession()) {
+      spark.sql("DROP TABLE IF EXISTS " + fqtn);
+      spark.sql(
+          String.format(
+              "CREATE TABLE %s (id bigint, tags array<struct<a:int>>,"
+                  + " attrs map<string, struct<a:int>>) USING iceberg TBLPROPERTIES ("
+                  + "'write.format.default'='orc', 'read.orc.vectorization.enabled'='%b', '%s'='true')",
+              fqtn, vectorized, ENABLED_PROP));
+      spark.sql(
+          "INSERT INTO "
+              + fqtn
+              + " VALUES (1, array(named_struct('a', 1)), map('k', named_struct('a', 2)))");
+      spark.sql("ALTER TABLE " + fqtn + " ADD COLUMN tags.element.country string");
+      spark.sql("ALTER TABLE " + fqtn + " ADD COLUMN attrs.value.tier int");
+      spark.sql("REFRESH TABLE " + fqtn);
+      spark.sql(
+          "INSERT INTO "
+              + fqtn
+              + " VALUES (2, array(named_struct('a', 3, 'country', 'CA')),"
+              + " map('k', named_struct('a', 4, 'tier', 5)))");
+
+      assertRowsEqual(
+          Arrays.asList(row(1L, "US", 1), row(2L, "CA", 5)),
+          rows(spark, "SELECT id, tags[0].country, attrs['k'].tier FROM " + fqtn + " ORDER BY id"));
+
+      spark.sql("DROP TABLE " + fqtn);
+    }
+  }
+
+  /** Enable once Spark Parquet readers fill {@code initial-default}; #267–269 added ORC only. */
+  @Disabled("Spark Parquet readers do not fill initial-default")
   @ParameterizedTest(name = "format={0}, vectorized={1}")
   @CsvSource({"parquet, false", "parquet, true", "orc, false", "orc, true"})
   public void columnDefaultBackfillViaReadBridge(String fileFormat, boolean vectorized)
