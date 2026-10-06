@@ -43,7 +43,7 @@ public class SetSharingPolicyStatementTest {
   @Test
   public void testPolicyAfterUseCatalogAndDatabase() {
     spark.sql("use openhouse.db").show();
-    assert isPlanValid("ALTER TABLE table SET policy (SHARING=TRUE)", "db.table", "TRUE");
+    assert isPlanValid("ALTER TABLE table SET policy (SHARING=TRUE)", "table", "TRUE");
   }
 
   @Test

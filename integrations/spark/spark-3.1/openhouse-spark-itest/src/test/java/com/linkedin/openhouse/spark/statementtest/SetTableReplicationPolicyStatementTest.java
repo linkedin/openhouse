@@ -246,6 +246,6 @@ public class SetTableReplicationPolicyStatementTest {
   private boolean isUnSetPlanValid(String statement, String replicationConfigJson) {
     String queryStr = StatementTestUtils.planWithoutExecuting(spark, statement);
     JsonObject json = new Gson().fromJson(replicationConfigJson, JsonObject.class);
-    return queryStr.contains("REPLICATION") && json.has("replication");
+    return queryStr.contains("UnSetReplicationPolicy") && json.has("replication");
   }
 }
