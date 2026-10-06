@@ -1,8 +1,10 @@
 package com.linkedin.openhouse.spark.sql.execution.datasources.v2
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.linkedin.openhouse.spark.sql.catalyst.parser.extensions.OpenhouseParseException
 import java.time.{DateTimeException, ZoneId}
 import org.apache.iceberg.spark.source.SparkTable
+import org.apache.iceberg.types.Types
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
@@ -20,17 +22,48 @@ case class SetRetentionPolicyExec(
 
   override lazy val output: Seq[Attribute] = Nil
 
+  @throws[OpenhouseParseException]
   override protected def run(): Seq[InternalRow] = {
-    timeZone.foreach { tz =>
-      SetRetentionPolicyExec.validateTimeZone(tz)
-      SetRetentionPolicyExec.rejectZoneEncodingPattern(colPattern)
+    timeZone.foreach { declaredTimeZone =>
+      try ZoneId.of(declaredTimeZone)
+      catch {
+        case cause: DateTimeException =>
+          throw new OpenhouseParseException(
+            s"Invalid retention time zone '$declaredTimeZone': ${cause.getMessage}",
+            1, 0)
+      }
+      if (colName.isEmpty) {
+        throw new OpenhouseParseException(
+          "WITH TIMEZONE requires ON COLUMN for a string retention column", 1, 0)
+      }
+      if (colPattern.exists(_.replaceAll("'[^']*'", "")
+          .exists(character => "VvzOXxZ".indexOf(character) >= 0))) {
+        throw new OpenhouseParseException(
+          "The retention column pattern already encodes a time zone", 1, 0)
+      }
     }
     catalog.loadTable(ident) match {
       case iceberg: SparkTable if iceberg.table().properties().containsKey("openhouse.tableId") =>
+        if (timeZone.isDefined &&
+            !colName.flatMap(name => Option(iceberg.table().schema().findType(name)))
+              .contains(Types.StringType.get())) {
+          throw new OpenhouseParseException(
+            "WITH TIMEZONE requires a string retention column", 1, 0)
+        }
+        val mapper = new ObjectMapper()
+        val retention = mapper.createObjectNode()
+        retention.put("count", count)
+        retention.put("granularity", granularity)
+        timeZone.foreach(declaredTimeZone => retention.put("timeZone", declaredTimeZone))
+        colName.foreach { columnName =>
+          val columnPattern = retention.putObject("columnPattern")
+          columnPattern.put("columnName", columnName)
+          columnPattern.put("pattern", colPattern.getOrElse(""))
+        }
+        val policy = mapper.createObjectNode()
+        policy.set("retention", retention)
         iceberg.table().updateProperties()
-          .set(
-            "updated.openhouse.policy",
-            SetRetentionPolicyExec.retentionPolicyJson(granularity, count, timeZone, colName, colPattern))
+          .set("updated.openhouse.policy", mapper.writeValueAsString(policy))
           .commit()
 
       case table =>
@@ -42,90 +75,5 @@ case class SetRetentionPolicyExec(
 
   override def simpleString(maxFields: Int): String = {
     s"SetRetentionPolicyExec: ${catalog} ${ident} ${count} ${granularity} ${colName.getOrElse("")} ${colPattern.getOrElse("")} ${timeZone.getOrElse("")}"
-  }
-}
-
-object SetRetentionPolicyExec {
-
-  /**
-   * Rejects a time zone that `ZoneId` cannot resolve, so an invalid zone fails the statement
-   * instead of persisting a policy the retention job cannot evaluate. A table owner supplies the
-   * zone as free text in the SQL statement.
-   *
-   * The declared exception is unchecked because this runs on the `run` override inherited from
-   * `LeafV2CommandExec`, whose signature declares no checked exception, so there is no checked
-   * channel to return the failure through; Spark surfaces the throw as the failed statement. This
-   * matches the unchecked rejections the sibling policy execs already use for a non-Openhouse table.
-   *
-   * @throws java.lang.IllegalArgumentException if the zone is not a valid IANA id or fixed offset.
-   */
-  @throws[IllegalArgumentException]("if the zone is not a valid IANA id or fixed offset")
-  private def validateTimeZone(tz: String): Unit = {
-    try ZoneId.of(tz)
-    catch {
-      case cause: DateTimeException =>
-        throw new IllegalArgumentException(
-          s"Invalid retention time zone '$tz': expected an IANA zone id such as America/Los_Angeles or a fixed offset such as +05:30",
-          cause)
-    }
-  }
-
-  // DateTimeFormatter zone and offset pattern letters: V and v zone id and generic name, z zone
-  // name, O localized offset, X x Z numeric offset. This mirrors the service validator's set.
-  private val ZONE_PATTERN_LETTERS = "VvzOXxZ"
-
-  /**
-   * Rejects a column pattern that already encodes a time zone when the statement also sets a policy
-   * time zone, so one policy never carries two zones. The pattern arrives as the quoted SQL token,
-   * so its surrounding quotes are removed before the check; the service validator cannot see the
-   * zone field through those quotes, which is why the statement enforces it here.
-   *
-   * @throws java.lang.IllegalArgumentException if the pattern encodes a zone field.
-   */
-  @throws[IllegalArgumentException]("if the column pattern already encodes a time zone")
-  private def rejectZoneEncodingPattern(colPattern: Option[String]): Unit =
-    colPattern
-      .map(unquote)
-      .filter(patternEncodesZone)
-      .foreach { pattern =>
-        throw new IllegalArgumentException(
-          s"Retention column pattern '$pattern' already encodes a time zone, so it cannot be " +
-            "combined with WITH TIMEZONE; remove the zone field from the pattern or drop WITH TIMEZONE")
-      }
-
-  private def unquote(text: String): String =
-    if (text.length >= 2 && text.startsWith("'") && text.endsWith("'"))
-      text.substring(1, text.length - 1)
-    else text
-
-  private def patternEncodesZone(pattern: String): Boolean = {
-    val withoutLiterals = pattern.replaceAll("'[^']*'", "")
-    withoutLiterals.exists(character => ZONE_PATTERN_LETTERS.indexOf(character.toInt) >= 0)
-  }
-
-  /**
-   * Serializes the retention policy with a JSON writer so quotes, backslashes, and control
-   * characters in the owner-supplied column name, pattern, and time zone are escaped by the library
-   * rather than by hand. Pure: it reads only its arguments.
-   */
-  private def retentionPolicyJson(
-    granularity: String,
-    count: Int,
-    timeZone: Option[String],
-    colName: Option[String],
-    colPattern: Option[String]): String = {
-    val mapper = new ObjectMapper()
-    val retention = mapper.createObjectNode()
-    retention.put("count", count)
-    retention.put("granularity", granularity)
-    timeZone.foreach(tz => retention.put("timeZone", tz))
-    colName.foreach { name =>
-      val columnPattern = retention.putObject("columnPattern")
-      columnPattern.put("columnName", name)
-      columnPattern.put("pattern", colPattern.getOrElse(""))
-    }
-    val policy = mapper.createObjectNode()
-    policy.set("retention", retention)
-    mapper.writeValueAsString(policy)
   }
 }

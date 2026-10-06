@@ -7,10 +7,13 @@ import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import org.apache.spark.sql.AnalysisException;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 /**
  * Integration test for the retention time-zone SQL surface. Each case runs {@code ALTER TABLE ...
@@ -34,6 +37,9 @@ public class SetRetentionTimeZoneStatementTest extends OpenHouseSparkITest {
       Policies policies = storedPolicies(spark, table);
       Assertions.assertNotNull(policies.getRetention());
       Assertions.assertEquals("America/Los_Angeles", policies.getRetention().getTimeZone());
+      Assertions.assertEquals(
+          "yyyy-MM-dd", policies.getRetention().getColumnPattern().getPattern());
+      Assertions.assertEquals("name", policies.getRetention().getColumnPattern().getColumnName());
     }
   }
 
@@ -66,17 +72,21 @@ public class SetRetentionTimeZoneStatementTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testSetRetentionWithTimeZoneOnNativeTimestampColumn() throws Exception {
+  public void testSetRetentionRejectsTimeZoneOnNativeTimestampColumn() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String table = "openhouse." + DATABASE + ".native_tz";
       spark.sql("CREATE TABLE " + table + " (name string, ts timestamp) PARTITIONED BY (days(ts))");
-      spark.sql(
-          "ALTER TABLE "
-              + table
-              + " SET POLICY (RETENTION=30d WITH TIMEZONE 'America/Los_Angeles')");
+      spark.sql("ALTER TABLE " + table + " SET POLICY (RETENTION=30d)");
       Policies policies = storedPolicies(spark, table);
-      Assertions.assertNotNull(policies.getRetention());
-      Assertions.assertEquals("America/Los_Angeles", policies.getRetention().getTimeZone());
+      Assertions.assertThrows(
+          AnalysisException.class,
+          () ->
+              spark.sql(
+                  "ALTER TABLE "
+                      + table
+                      + " SET POLICY (RETENTION=30d WITH TIMEZONE 'America/Los_Angeles')"));
+      Assertions.assertEquals(policies, storedPolicies(spark, table));
+      Assertions.assertNull(policies.getRetention().getTimeZone());
       Assertions.assertNull(policies.getRetention().getColumnPattern());
     }
   }
@@ -85,9 +95,11 @@ public class SetRetentionTimeZoneStatementTest extends OpenHouseSparkITest {
   public void testSetRetentionWithZoneEncodingPatternAndTimeZoneIsRejected() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       String table = createStringColumnTable(spark, "zonepattern");
-      Exception thrown =
+      spark.sql("ALTER TABLE " + table + " SET POLICY (RETENTION=7d ON COLUMN name)");
+      Policies originalPolicies = storedPolicies(spark, table);
+      AnalysisException thrown =
           Assertions.assertThrows(
-              Exception.class,
+              AnalysisException.class,
               () ->
                   spark.sql(
                       "ALTER TABLE "
@@ -95,31 +107,73 @@ public class SetRetentionTimeZoneStatementTest extends OpenHouseSparkITest {
                           + " SET POLICY (RETENTION=30d WITH TIMEZONE 'America/Los_Angeles'"
                           + " ON COLUMN name WHERE PATTERN='yyyy-MM-dd-X')"));
       Assertions.assertTrue(
-          messageChain(thrown).contains("already encodes a time zone"),
-          "Expected the zone-encoding-pattern rejection, got: " + messageChain(thrown));
-      Policies policies = storedPolicies(spark, table);
-      Assertions.assertTrue(policies == null || policies.getRetention() == null);
+          thrown.getMessage().contains("already encodes a time zone"), thrown.getMessage());
+      Assertions.assertEquals(originalPolicies, storedPolicies(spark, table));
     }
   }
 
-  @Test
-  public void testSetRetentionWithInvalidTimeZoneIsRejected() throws Exception {
+  @ParameterizedTest
+  @CsvSource(
+      value = {"invalid,Not/AZone", "empty,''", "blank,' '"},
+      ignoreLeadingAndTrailingWhitespace = false)
+  public void testSetRetentionWithInvalidTimeZoneIsRejected(String tableSuffix, String timeZone)
+      throws Exception {
     try (SparkSession spark = getSparkSession()) {
-      String table = createStringColumnTable(spark, "invalid");
-      Exception thrown =
+      String table = createStringColumnTable(spark, tableSuffix);
+      spark.sql("ALTER TABLE " + table + " SET POLICY (RETENTION=7d ON COLUMN name)");
+      Policies originalPolicies = storedPolicies(spark, table);
+      AnalysisException thrown =
           Assertions.assertThrows(
-              Exception.class,
+              AnalysisException.class,
               () ->
                   spark.sql(
                       "ALTER TABLE "
                           + table
-                          + " SET POLICY (RETENTION=30d WITH TIMEZONE 'Not/AZone'"
+                          + " SET POLICY (RETENTION=30d WITH TIMEZONE '"
+                          + timeZone
+                          + "'"
                           + " ON COLUMN name WHERE PATTERN='yyyy-MM-dd')"));
       Assertions.assertTrue(
-          messageChain(thrown).contains("Invalid retention time zone 'Not/AZone'"),
-          "Expected the invalid-zone validation message, got: " + messageChain(thrown));
-      Policies policies = storedPolicies(spark, table);
-      Assertions.assertTrue(policies == null || policies.getRetention() == null);
+          thrown.getMessage().contains("Invalid retention time zone"), thrown.getMessage());
+      Assertions.assertEquals(originalPolicies, storedPolicies(spark, table));
+    }
+  }
+
+  @Test
+  public void testSetRetentionUpdatesAndRemovesTimeZone() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      String table = createStringColumnTable(spark, "updates");
+      spark.sql(
+          "ALTER TABLE "
+              + table
+              + " SET POLICY (RETENTION=3d WITH TIMEZONE 'America/Los_Angeles' ON COLUMN name)");
+      Assertions.assertEquals(
+          "yyyy-MM-dd",
+          storedPolicies(spark, table).getRetention().getColumnPattern().getPattern());
+      spark.sql(
+          "ALTER TABLE "
+              + table
+              + " SET POLICY (RETENTION=3d WITH TIMEZONE '+05:30' ON COLUMN name)");
+      Assertions.assertEquals("+05:30", storedPolicies(spark, table).getRetention().getTimeZone());
+      spark.sql("ALTER TABLE " + table + " SET POLICY (RETENTION=3d ON COLUMN name)");
+      Assertions.assertNull(storedPolicies(spark, table).getRetention().getTimeZone());
+    }
+  }
+
+  @Test
+  public void testSetRetentionRejectsTimeZoneOnNumericColumn() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      String table = "openhouse." + DATABASE + ".numeric";
+      spark.sql("CREATE TABLE " + table + " (number int)");
+      AnalysisException failure =
+          Assertions.assertThrows(
+              AnalysisException.class,
+              () ->
+                  spark.sql(
+                      "ALTER TABLE "
+                          + table
+                          + " SET POLICY (RETENTION=3d WITH TIMEZONE 'UTC' ON COLUMN number)"));
+      Assertions.assertTrue(failure.getMessage().contains("requires a string retention column"));
     }
   }
 
@@ -136,15 +190,5 @@ public class SetRetentionTimeZoneStatementTest extends OpenHouseSparkITest {
             .collect(Collectors.toMap(row -> row.getString(0), row -> row.getString(1)));
     Gson gson = new GsonBuilder().create();
     return gson.fromJson(propertyByKey.get("policies"), Policies.class);
-  }
-
-  private static String messageChain(Throwable throwable) {
-    StringBuilder builder = new StringBuilder();
-    for (Throwable current = throwable; current != null; current = current.getCause()) {
-      if (current.getMessage() != null) {
-        builder.append(current.getMessage()).append(" | ");
-      }
-    }
-    return builder.toString();
   }
 }
