@@ -38,6 +38,9 @@ import org.apache.hadoop.fs.Path;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
@@ -315,15 +318,17 @@ public class TablesClientTest {
     Mockito.verify(apiMock, Mockito.times(1)).getTableV1(testDbName, testTableNamePartitioned);
   }
 
-  @Test
-  void testPartitionedTableCarriesTimeZoneIntoRetentionConfig() {
+  @ParameterizedTest
+  @NullAndEmptySource
+  @ValueSource(strings = {"America/Los_Angeles", " "})
+  void testRetentionCarriesTimeZoneIntoJobConfiguration(String timeZone) {
     TimePartitionSpec partitionSpec = Mockito.mock(TimePartitionSpec.class);
     Policies policies = Mockito.mock(Policies.class);
     Retention retention = Mockito.mock(Retention.class);
     Mockito.when(policies.getRetention()).thenReturn(retention);
     Mockito.when(retention.getCount()).thenReturn(testRetentionTTLDays);
     Mockito.when(retention.getGranularity()).thenReturn(Retention.GranularityEnum.DAY);
-    Mockito.when(retention.getTimeZone()).thenReturn("America/Los_Angeles");
+    Mockito.when(retention.getTimeZone()).thenReturn(timeZone);
     Mockito.when(partitionSpec.getColumnName()).thenReturn(testPartitionColumnName);
     GetTableResponseBody responseBody =
         setUpResponseBodyMock(testDbName, testTableNamePartitioned, partitionSpec, policies);
@@ -338,7 +343,7 @@ public class TablesClientTest {
             TableMetadata.builder().dbName(testDbName).tableName(testTableNamePartitioned).build());
 
     Assertions.assertTrue(result.isPresent());
-    Assertions.assertEquals(Optional.of("America/Los_Angeles"), result.get().getTimeZone());
+    Assertions.assertEquals(Optional.ofNullable(timeZone), result.get().getTimeZone());
   }
 
   @Test

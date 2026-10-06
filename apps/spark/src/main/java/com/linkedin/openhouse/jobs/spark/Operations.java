@@ -10,18 +10,22 @@ import com.linkedin.openhouse.common.stats.model.CommitEventTable;
 import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats;
 import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitions;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
+import com.linkedin.openhouse.jobs.exception.RetentionConfigurationException;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.jobs.util.TableStatsCollector;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import java.io.IOException;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -58,7 +62,10 @@ import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.apache.iceberg.spark.actions.SparkActions;
+import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.catalyst.expressions.Literal;
+import org.apache.spark.sql.types.DataTypes;
 import scala.collection.JavaConverters;
 
 /**
@@ -522,7 +529,9 @@ public final class Operations implements AutoCloseable {
     if (backupEnabled) {
       // Cache of manifests: partitionPath -> list of data file path
       Map<String, List<String>> manifestCache =
-          prepareBackupDataManifests(fqtn, columnName, columnPattern, granularity, count, now);
+          prepareBackupDataManifests(
+              fqtn,
+              SparkJobUtil.createDeleteFilter(columnName, columnPattern, granularity, count, now));
       writeBackupDataManifests(manifestCache, getTable(fqtn), backupDir, now);
       exposeBackupLocation(getTable(fqtn), backupDir);
     }
@@ -533,16 +542,58 @@ public final class Operations implements AutoCloseable {
     spark.sql(statement);
   }
 
-  private Map<String, List<String>> prepareBackupDataManifests(
-      String fqtn,
+  public void runRetention(
+      String fullyQualifiedTableName,
       String columnName,
       String columnPattern,
       String granularity,
       int count,
-      ZonedDateTime now) {
+      boolean backupEnabled,
+      String backupDirectory,
+      ZonedDateTime evaluationTime,
+      ZoneId timeZone)
+      throws RetentionConfigurationException {
+    if (!Optional.ofNullable(getTable(fullyQualifiedTableName).schema().findType(columnName))
+        .filter(Types.StringType.get()::equals)
+        .isPresent()) {
+      throw new RetentionConfigurationException(
+          "Retention time zone requires a string column: " + columnName);
+    }
+    String cutoff =
+        SparkJobUtil.createZonedStringCutoff(
+            columnPattern, granularity, count, evaluationTime, timeZone);
+    if (timeZone.normalized().equals(ZoneOffset.UTC)) {
+      runRetention(
+          fullyQualifiedTableName,
+          columnName,
+          columnPattern,
+          granularity,
+          count,
+          backupEnabled,
+          backupDirectory,
+          evaluationTime.withZoneSameInstant(ZoneOffset.UTC));
+      return;
+    }
+    if (backupEnabled) {
+      Map<String, List<String>> manifestCache =
+          prepareBackupDataManifests(
+              fullyQualifiedTableName, Expressions.lessThan(columnName, cutoff));
+      writeBackupDataManifests(
+          manifestCache, getTable(fullyQualifiedTableName), backupDirectory, evaluationTime);
+      exposeBackupLocation(getTable(fullyQualifiedTableName), backupDirectory);
+    }
+    String statement =
+        String.format(
+            "DELETE FROM %s WHERE %s < %s",
+            SparkJobUtil.getQuotedFqtn(fullyQualifiedTableName),
+            columnName,
+            Literal.create(cutoff, DataTypes.StringType).sql());
+    log.info("Table: {}. Retention query: {}", fullyQualifiedTableName, statement);
+    spark.sql(statement);
+  }
+
+  private Map<String, List<String>> prepareBackupDataManifests(String fqtn, Expression filter) {
     Table table = getTable(fqtn);
-    Expression filter =
-        SparkJobUtil.createDeleteFilter(columnName, columnPattern, granularity, count, now);
     TableScan scan = table.newScan().filter(filter);
     try (CloseableIterable<FileScanTask> filesIterable = scan.planFiles()) {
       List<FileScanTask> filesList = Lists.newArrayList(filesIterable);

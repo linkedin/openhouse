@@ -101,9 +101,7 @@ public class TablesClient {
             .columnPattern(columnPattern)
             .count(policies.getRetention().getCount())
             .granularity(policies.getRetention().getGranularity())
-            .timeZone(
-                Optional.ofNullable(policies.getRetention().getTimeZone())
-                    .filter(zone -> !zone.isBlank()))
+            .timeZone(Optional.ofNullable(policies.getRetention().getTimeZone()))
             .build());
   }
 

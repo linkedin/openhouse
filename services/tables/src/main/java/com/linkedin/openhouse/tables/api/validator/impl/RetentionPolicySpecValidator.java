@@ -5,13 +5,16 @@ import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.common.DefaultColumnPattern;
 import java.time.DateTimeException;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
+import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.iceberg.types.Types;
 import org.springframework.stereotype.Component;
 
 /**
@@ -95,9 +98,19 @@ public class RetentionPolicySpecValidator extends PolicySpecValidator {
       if (!validateTimeZoneScope(retention)) {
         failureMessage =
             String.format(
-                "Retention time zone[%s] is not allowed on a column pattern that already encodes a"
-                    + " zone; use a zone-free pattern for table[%s]",
+                "Retention time zone[%s] requires a string column pattern with no zone field for table[%s]",
                 retention.getTimeZone(), tableUri);
+        errorField = "retention";
+        return false;
+      }
+      if (Optional.ofNullable(retention.getTimeZone()).isPresent()
+          && !Optional.ofNullable(retention.getColumnPattern())
+              .map(RetentionColumnPattern::getColumnName)
+              .map(columnName -> getSchemaFromSchemaJson(schema).findType(columnName))
+              .filter(Types.StringType.get()::equals)
+              .isPresent()) {
+        failureMessage =
+            String.format("Retention time zone requires a string column for table[%s]", tableUri);
         errorField = "retention";
         return false;
       }
@@ -152,39 +165,31 @@ public class RetentionPolicySpecValidator extends PolicySpecValidator {
     return true;
   }
 
-  /**
-   * Validate that the retention time zone, when present, is a value {@link ZoneId} can resolve: an
-   * IANA zone id such as {@code America/Los_Angeles} or a fixed offset such as {@code +05:30}. An
-   * absent or empty time zone means UTC and is valid.
-   */
+  /** An omitted time zone uses UTC; an explicit value must resolve through {@link ZoneId}. */
   protected boolean validateTimeZoneIfPresent(Retention retention) {
-    String timeZone = retention.getTimeZone();
-    if (timeZone == null || timeZone.isEmpty()) {
-      return true;
-    }
-    try {
-      ZoneId.of(timeZone);
-    } catch (DateTimeException dateTimeException) {
-      log.warn("The retention time zone {} cannot be resolved to a valid zone", timeZone);
-      return false;
-    }
-    return true;
+    return Optional.ofNullable(retention.getTimeZone())
+        .map(
+            timeZone -> {
+              try {
+                ZoneId.of(timeZone);
+                return true;
+              } catch (DateTimeException dateTimeException) {
+                log.warn("The retention time zone {} cannot be resolved to a valid zone", timeZone);
+                return false;
+              }
+            })
+        .orElse(true);
   }
 
-  /**
-   * A retention time zone declares the wall-clock zone of the retention column's values, so it is
-   * accepted on a native timestamp column and on a string pattern with no zone of its own. It is
-   * rejected only when a string pattern already formats a zone, which would carry two zones. An
-   * absent or empty zone is always in scope.
-   */
+  /** A declared time zone supplies the zone omitted from the string's date pattern. */
   protected boolean validateTimeZoneScope(Retention retention) {
-    String timeZone = retention.getTimeZone();
-    if (timeZone == null || timeZone.isEmpty()) {
+    if (Optional.ofNullable(retention.getTimeZone()).isEmpty()) {
       return true;
     }
-    return retention.getColumnPattern() == null
-        || retention.getColumnPattern().getPattern() == null
-        || !patternEncodesZone(retention.getColumnPattern().getPattern());
+    return Optional.ofNullable(retention.getColumnPattern())
+        .map(RetentionColumnPattern::getPattern)
+        .filter(pattern -> !patternEncodesZone(pattern))
+        .isPresent();
   }
 
   // DateTimeFormatter zone and offset pattern letters: V and v zone id and generic name, z zone

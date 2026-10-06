@@ -2,6 +2,7 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
+import com.linkedin.openhouse.jobs.exception.RetentionConfigurationException;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
@@ -11,12 +12,15 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.Arrays;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.Table;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.mockito.stubbing.Answer;
@@ -129,7 +133,7 @@ public class AppsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testRetentionSparkAppPassesUtcNowToRunRetention() {
+  public void testRetentionSparkAppPassesUtcNowToRunRetention() throws Exception {
     final String tableName = "db.test_retention_app";
     Operations ops = Mockito.mock(Operations.class);
     Table table = Mockito.mock(Table.class);
@@ -147,8 +151,7 @@ public class AppsTest extends OpenHouseSparkITest {
             "DAY",
             7,
             otelEmitter,
-            ".backup",
-            "");
+            ".backup");
 
     app.runInner(ops);
 
@@ -167,7 +170,7 @@ public class AppsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testRetentionSparkAppPassesZonedNowToRunRetention() {
+  public void testRetentionSparkAppPassesTimeZoneDeclarationToRunRetention() throws Exception {
     final String tableName = "db.test_retention_app_zoned";
     Operations ops = Mockito.mock(Operations.class);
     Table table = Mockito.mock(Table.class);
@@ -186,7 +189,7 @@ public class AppsTest extends OpenHouseSparkITest {
             7,
             otelEmitter,
             ".backup",
-            "America/Los_Angeles");
+            Optional.of("America/Los_Angeles"));
 
     app.runInner(ops);
 
@@ -200,12 +203,14 @@ public class AppsTest extends OpenHouseSparkITest {
             Mockito.eq(7),
             Mockito.eq(true),
             Mockito.eq(".backup"),
-            nowCaptor.capture());
-    Assertions.assertEquals(ZoneId.of("America/Los_Angeles"), nowCaptor.getValue().getZone());
+            nowCaptor.capture(),
+            Mockito.eq(ZoneId.of("America/Los_Angeles")));
+    Assertions.assertEquals(ZoneOffset.UTC, nowCaptor.getValue().getZone());
   }
 
-  @Test
-  public void testRetentionSparkAppRejectsInvalidTimeZone() {
+  @ParameterizedTest
+  @ValueSource(strings = {"Not/AZone", "", " "})
+  public void testRetentionSparkAppRejectsInvalidTimeZone(String timeZone) {
     final String tableName = "db.test_retention_app_invalid_zone";
     Operations ops = Mockito.mock(Operations.class);
     Table table = Mockito.mock(Table.class);
@@ -224,11 +229,11 @@ public class AppsTest extends OpenHouseSparkITest {
             7,
             otelEmitter,
             ".backup",
-            "Not/AZone");
+            Optional.of(timeZone));
 
-    IllegalArgumentException thrown =
-        Assertions.assertThrows(IllegalArgumentException.class, () -> app.runInner(ops));
-    Assertions.assertTrue(thrown.getMessage().contains("Invalid --timeZone 'Not/AZone'"));
+    RetentionConfigurationException thrown =
+        Assertions.assertThrows(RetentionConfigurationException.class, () -> app.runInner(ops));
+    Assertions.assertTrue(thrown.getMessage().contains("Invalid --timeZone '" + timeZone + "'"));
     Mockito.verify(ops, Mockito.never())
         .runRetention(
             Mockito.any(),

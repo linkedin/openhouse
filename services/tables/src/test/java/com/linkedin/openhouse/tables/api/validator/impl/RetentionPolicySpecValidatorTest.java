@@ -15,6 +15,8 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class RetentionPolicySpecValidatorTest {
 
@@ -72,8 +74,7 @@ class RetentionPolicySpecValidatorTest {
 
   @Test
   void testValidateTimeZoneScope() {
-    // A zone on a native timestamp column is accepted: it declares the column's wall-clock zone.
-    Assertions.assertTrue(
+    Assertions.assertFalse(
         validator.validateTimeZoneScope(
             Retention.builder()
                 .count(1)
@@ -141,7 +142,7 @@ class RetentionPolicySpecValidatorTest {
   }
 
   @Test
-  void testValidateAcceptsTimeZoneOnTimePartitionedTable() {
+  void testValidateRejectsTimeZoneOnTimePartitionedTable() {
     Retention retention =
         Retention.builder()
             .count(1)
@@ -158,7 +159,74 @@ class RetentionPolicySpecValidatorTest {
                     .granularity(TimePartitionSpec.Granularity.DAY)
                     .build())
             .build();
+    Assertions.assertFalse(validator.validate(request, TableUri.builder().build()));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"", " ", "Not/AZone"})
+  void testValidateRejectsExplicitInvalidTimeZone(String timeZone) {
+    Assertions.assertFalse(
+        validator.validateTimeZoneIfPresent(Retention.builder().timeZone(timeZone).build()));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"America/Los_Angeles", "+05:30", "UTC", "Europe/London"})
+  void testValidateAcceptsTimeZoneOnStringColumn(String timeZone) {
+    Retention retention =
+        Retention.builder()
+            .count(1)
+            .granularity(TimePartitionSpec.Granularity.DAY)
+            .columnPattern(
+                RetentionColumnPattern.builder().columnName("id").pattern("yyyy-MM-dd").build())
+            .timeZone(timeZone)
+            .build();
+    CreateUpdateTableRequestBody request =
+        CreateUpdateTableRequestBody.builder()
+            .policies(Policies.builder().retention(retention).build())
+            .schema(getSchemaJsonFromSchema(dummySchema))
+            .build();
     Assertions.assertTrue(validator.validate(request, TableUri.builder().build()));
+  }
+
+  @Test
+  void testValidateTimeZoneUsesStringSchemaAndDefaultPattern() {
+    Retention retention =
+        Retention.builder()
+            .count(1)
+            .granularity(TimePartitionSpec.Granularity.DAY)
+            .columnPattern(
+                RetentionColumnPattern.builder().columnName("top1.aa").pattern("").build())
+            .timeZone("America/Los_Angeles")
+            .build();
+    CreateUpdateTableRequestBody request =
+        CreateUpdateTableRequestBody.builder()
+            .policies(Policies.builder().retention(retention).build())
+            .schema(getSchemaJsonFromSchema(nestedSchema))
+            .build();
+    Assertions.assertTrue(validator.validate(request, TableUri.builder().build()));
+
+    Retention numericRetention =
+        retention
+            .toBuilder()
+            .columnPattern(RetentionColumnPattern.builder().columnName("top2").pattern("").build())
+            .build();
+    Assertions.assertFalse(
+        validator.validate(
+            request
+                .toBuilder()
+                .policies(Policies.builder().retention(numericRetention).build())
+                .build(),
+            TableUri.builder().build()));
+    Assertions.assertTrue(
+        validator.validate(
+            request
+                .toBuilder()
+                .policies(
+                    Policies.builder()
+                        .retention(numericRetention.toBuilder().timeZone(null).build())
+                        .build())
+                .build(),
+            TableUri.builder().build()));
   }
 
   @Test
