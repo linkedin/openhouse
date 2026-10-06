@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.jobs.spark;
 
-import com.google.gson.Gson;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.CommitEventTable;
@@ -62,6 +61,7 @@ public class BatchedTableStatsCollectionSparkApp extends BaseSparkApp {
   private final List<BatchEntry> entries;
   private final String resultsEndpoint;
   private final int driverParallelism;
+  private final StatsCollectionSink sink;
 
   public BatchedTableStatsCollectionSparkApp(
       String jobId,
@@ -69,11 +69,13 @@ public class BatchedTableStatsCollectionSparkApp extends BaseSparkApp {
       OtelEmitter otelEmitter,
       List<BatchEntry> entries,
       String resultsEndpoint,
-      int driverParallelism) {
+      int driverParallelism,
+      StatsCollectionSink sink) {
     super(jobId, stateManager, otelEmitter);
     this.entries = entries;
     this.resultsEndpoint = resultsEndpoint;
     this.driverParallelism = Math.max(1, driverParallelism);
+    this.sink = sink;
   }
 
   @Override
@@ -207,30 +209,6 @@ public class BatchedTableStatsCollectionSparkApp extends BaseSparkApp {
     }
   }
 
-  // --- Publish hooks (mirror the single-table app; log via Gson). Overridable for tests. ---
-
-  protected void publishStats(String fqtn, IcebergTableStats icebergTableStats) {
-    log.info("Publishing stats for table: {}", fqtn);
-    log.info(new Gson().toJson(icebergTableStats));
-  }
-
-  protected void publishCommitEvents(String fqtn, List<CommitEventTable> commitEvents) {
-    log.info("Publishing commit events for table: {}", fqtn);
-    log.info(new Gson().toJson(commitEvents));
-  }
-
-  protected void publishPartitionEvents(
-      String fqtn, List<CommitEventTablePartitions> partitionEvents) {
-    log.info("Publishing partition events for table: {}", fqtn);
-    log.info(new Gson().toJson(partitionEvents));
-  }
-
-  protected void publishPartitionStats(
-      String fqtn, List<CommitEventTablePartitionStats> partitionStats) {
-    log.info("Publishing partition stats for table: {} ({} stats)", fqtn, partitionStats.size());
-    log.info(new Gson().toJson(partitionStats));
-  }
-
   /** One unit of work in a batched stats-collection job. */
   private final class TableWorker implements Callable<Boolean> {
     private final Operations ops;
@@ -287,11 +265,11 @@ public class BatchedTableStatsCollectionSparkApp extends BaseSparkApp {
       if (icebergStats == null) {
         throw new IllegalStateException("Table stats collection returned null for " + fqtn);
       }
-      publishStats(fqtn, icebergStats);
+      sink.publishStats(fqtn, icebergStats);
 
       List<CommitEventTable> commitEvents = ops.collectCommitEventTable(fqtn);
       if (commitEvents != null && !commitEvents.isEmpty()) {
-        publishCommitEvents(fqtn, commitEvents);
+        sink.publishCommitEvents(fqtn, commitEvents);
       } else {
         log.info("No commit events to publish for table: {}", fqtn);
       }
@@ -299,7 +277,7 @@ public class BatchedTableStatsCollectionSparkApp extends BaseSparkApp {
       List<CommitEventTablePartitions> partitionEvents =
           ops.collectCommitEventTablePartitions(fqtn);
       if (partitionEvents != null && !partitionEvents.isEmpty()) {
-        publishPartitionEvents(fqtn, partitionEvents);
+        sink.publishPartitionEvents(fqtn, partitionEvents);
       } else {
         log.info("No partition events to publish for table: {} (unpartitioned or none)", fqtn);
       }
@@ -307,7 +285,7 @@ public class BatchedTableStatsCollectionSparkApp extends BaseSparkApp {
       List<CommitEventTablePartitionStats> partitionStats =
           ops.collectCommitEventTablePartitionStats(fqtn);
       if (partitionStats != null && !partitionStats.isEmpty()) {
-        publishPartitionStats(fqtn, partitionStats);
+        sink.publishPartitionStats(fqtn, partitionStats);
       } else {
         log.info("No partition stats to publish for table: {} (unpartitioned or none)", fqtn);
       }
@@ -368,7 +346,8 @@ public class BatchedTableStatsCollectionSparkApp extends BaseSparkApp {
         otelEmitter,
         entries,
         requireOption(cmdLine, "resultsEndpoint"),
-        Integer.parseInt(cmdLine.getOptionValue("driverParallelism", "1")));
+        Integer.parseInt(cmdLine.getOptionValue("driverParallelism", "1")),
+        new LoggingStatsCollectionSink());
   }
 
   static List<BatchEntry> buildEntries(String tableNames, String operationIds, String tableUuids) {

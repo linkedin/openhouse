@@ -6,12 +6,10 @@ import com.linkedin.openhouse.common.stats.model.CommitEventTable;
 import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats;
 import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitions;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
-import com.linkedin.openhouse.jobs.spark.optimizer.OptimizerServiceClient;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
@@ -22,8 +20,9 @@ import org.junit.jupiter.api.Test;
  * Local integration tests for {@link BatchedTableStatsCollectionSparkApp} against a real local
  * Spark session + catalog (via {@link OpenHouseSparkITest}). Exercises the multi-table job logic
  * end-to-end: concurrent per-table collection, per-table failure isolation, the all-fail contract,
- * and partition-level artifacts. The optimizer-service callback is stubbed out (empty client) so
- * the tests stay offline; published artifacts are captured via the overridable publish hooks.
+ * and partition-level artifacts. The optimizer-service callback is skipped (null results endpoint)
+ * so the tests stay offline; published artifacts are captured through a generic {@link
+ * StatsCollectionSink} rather than by subclassing.
  */
 @Slf4j
 public class BatchedTableStatsCollectionSparkAppTest extends OpenHouseSparkITest {
@@ -43,12 +42,13 @@ public class BatchedTableStatsCollectionSparkAppTest extends OpenHouseSparkITest
         populateTable(ops, t, numInserts);
       }
 
-      CapturingApp app = new CapturingApp(otelEmitter, entries(t1, t2, t3), 2);
+      CapturingSink sink = new CapturingSink();
+      BatchedTableStatsCollectionSparkApp app = newApp(entries(t1, t2, t3), 2, sink);
       app.runInner(ops);
 
       Assertions.assertEquals(
-          Set.of(t1, t2, t3), app.publishedStats, "all three tables should publish stats");
-      Assertions.assertEquals(Set.of(t1, t2, t3), app.publishedCommitEvents);
+          Set.of(t1, t2, t3), sink.publishedStats, "all three tables should publish stats");
+      Assertions.assertEquals(Set.of(t1, t2, t3), sink.publishedCommitEvents);
     }
   }
 
@@ -65,12 +65,13 @@ public class BatchedTableStatsCollectionSparkAppTest extends OpenHouseSparkITest
       }
       ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", missing)).show();
 
-      CapturingApp app = new CapturingApp(otelEmitter, entries(good1, missing, good2), 2);
+      CapturingSink sink = new CapturingSink();
+      BatchedTableStatsCollectionSparkApp app = newApp(entries(good1, missing, good2), 2, sink);
       // One bad table must not abort the batch: >=1 success means runInner returns normally.
       Assertions.assertDoesNotThrow(() -> app.runInner(ops));
 
       Assertions.assertEquals(
-          Set.of(good1, good2), app.publishedStats, "only the healthy tables publish stats");
+          Set.of(good1, good2), sink.publishedStats, "only the healthy tables publish stats");
     }
   }
 
@@ -81,10 +82,11 @@ public class BatchedTableStatsCollectionSparkAppTest extends OpenHouseSparkITest
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", missing)).show();
 
-      CapturingApp app = new CapturingApp(otelEmitter, entries(missing), 1);
+      CapturingSink sink = new CapturingSink();
+      BatchedTableStatsCollectionSparkApp app = newApp(entries(missing), 1, sink);
       // Whole batch failed -> runInner must surface it so the job exits non-zero.
       Assertions.assertThrows(RuntimeException.class, () -> app.runInner(ops));
-      Assertions.assertTrue(app.publishedStats.isEmpty());
+      Assertions.assertTrue(sink.publishedStats.isEmpty());
     }
   }
 
@@ -97,12 +99,13 @@ public class BatchedTableStatsCollectionSparkAppTest extends OpenHouseSparkITest
       prepareTable(ops, partitioned, true);
       populateTable(ops, partitioned, 3);
 
-      CapturingApp app = new CapturingApp(otelEmitter, entries(partitioned), 1);
+      CapturingSink sink = new CapturingSink();
+      BatchedTableStatsCollectionSparkApp app = newApp(entries(partitioned), 1, sink);
       app.runInner(ops);
 
-      Assertions.assertTrue(app.publishedStats.contains(partitioned));
+      Assertions.assertTrue(sink.publishedStats.contains(partitioned));
       Assertions.assertTrue(
-          app.publishedPartitionStats.contains(partitioned),
+          sink.publishedPartitionStats.contains(partitioned),
           "partitioned table should publish partition stats");
     }
   }
@@ -124,43 +127,47 @@ public class BatchedTableStatsCollectionSparkAppTest extends OpenHouseSparkITest
   }
 
   /**
-   * Test double: captures which tables reached each publish hook (thread-safe, workers run
-   * concurrently) and suppresses the optimizer-service callback so the test stays offline.
+   * Build the real app wired to a capturing sink, with a null results endpoint so the
+   * optimizer-service callback is skipped and the test stays offline.
    */
-  private static final class CapturingApp extends BatchedTableStatsCollectionSparkApp {
+  private BatchedTableStatsCollectionSparkApp newApp(
+      List<BatchedTableStatsCollectionSparkApp.BatchEntry> entries,
+      int driverParallelism,
+      StatsCollectionSink sink) {
+    return new BatchedTableStatsCollectionSparkApp(
+        "test-job", null, otelEmitter, entries, null, driverParallelism, sink);
+  }
+
+  /**
+   * Generic capturing {@link StatsCollectionSink}: records which tables reached each publish call
+   * (thread-safe, workers run concurrently). Exercises the app end-to-end through its real sink
+   * seam rather than by subclassing to override a logger.
+   */
+  private static final class CapturingSink implements StatsCollectionSink {
     final Set<String> publishedStats = ConcurrentHashMap.newKeySet();
     final Set<String> publishedCommitEvents = ConcurrentHashMap.newKeySet();
     final Set<String> publishedPartitionStats = ConcurrentHashMap.newKeySet();
 
-    CapturingApp(OtelEmitter otelEmitter, List<BatchEntry> entries, int driverParallelism) {
-      super("test-job", null, otelEmitter, entries, null, driverParallelism);
-    }
-
     @Override
-    protected Optional<OptimizerServiceClient> newOptimizerClient() {
-      return Optional.empty();
-    }
-
-    @Override
-    protected void publishStats(String fqtn, IcebergTableStats icebergTableStats) {
+    public void publishStats(String fqtn, IcebergTableStats icebergTableStats) {
       publishedStats.add(fqtn);
     }
 
     @Override
-    protected void publishCommitEvents(String fqtn, List<CommitEventTable> commitEvents) {
+    public void publishCommitEvents(String fqtn, List<CommitEventTable> commitEvents) {
       publishedCommitEvents.add(fqtn);
     }
 
     @Override
-    protected void publishPartitionStats(
+    public void publishPartitionStats(
         String fqtn, List<CommitEventTablePartitionStats> partitionStats) {
       publishedPartitionStats.add(fqtn);
     }
 
     @Override
-    protected void publishPartitionEvents(
+    public void publishPartitionEvents(
         String fqtn, List<CommitEventTablePartitions> partitionEvents) {
-      // no-op capture not needed for assertions
+      // not asserted on
     }
   }
 
