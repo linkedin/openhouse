@@ -6,6 +6,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
+import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -116,19 +117,43 @@ public final class InternalRepositoryUtils {
     HouseTableSerdeUtils.HTS_FIELD_NAMES.forEach(
         fieldName -> userVisibleProperties.remove(getCanonicalFieldName(fieldName)));
     Storage storage = fileIOManager.getStorage(table.io());
+    String clusterId = megaProps.get(CatalogConstants.OPENHOUSE_CLUSTERID_KEY);
+    if (clusterId == null) {
+      clusterId = houseTable.getClusterId();
+    }
+    String tableUri = megaProps.get(CatalogConstants.OPENHOUSE_TABLEURI_KEY);
+    if (tableUri == null) {
+      tableUri = houseTable.getTableUri();
+    }
+    if (tableUri == null) {
+      tableUri =
+          TableUri.builder()
+              .clusterId(clusterId)
+              .databaseId(tableIdentifier.namespace().toString())
+              .tableId(tableIdentifier.name())
+              .build()
+              .toString();
+    }
+    String tableUUID = megaProps.get(CatalogConstants.OPENHOUSE_UUID_KEY);
+    if (tableUUID == null) {
+      tableUUID = houseTable.getTableUUID();
+    }
+    String tableCreator = megaProps.get(getCanonicalFieldName("tableCreator"));
+    if (tableCreator == null) {
+      tableCreator = houseTable.getTableCreator();
+    }
+    long lastModifiedTime = houseTable.getLastModifiedTime();
+    String lastModifiedTimeProperty = megaProps.get(getCanonicalFieldName("lastModifiedTime"));
+    if (lastModifiedTimeProperty != null) {
+      lastModifiedTime = Long.parseLong(lastModifiedTimeProperty);
+    }
     TableDto tableDto =
         TableDto.builder()
             .tableId(tableIdentifier.name())
             .databaseId(tableIdentifier.namespace().toString())
-            .clusterId(houseTable.getClusterId())
-            .tableUri(
-                TableUri.builder()
-                    .clusterId(houseTable.getClusterId())
-                    .databaseId(tableIdentifier.namespace().toString())
-                    .tableId(tableIdentifier.name())
-                    .build()
-                    .toString())
-            .tableUUID(houseTable.getTableUUID())
+            .clusterId(clusterId)
+            .tableUri(tableUri)
+            .tableUUID(tableUUID)
             .tableLocation(
                 URI.create(
                         StringUtils.prependIfMissing(
@@ -138,9 +163,9 @@ public final class InternalRepositoryUtils {
                     .normalize()
                     .toString())
             .tableVersion(houseTable.getTableVersion())
-            .tableCreator(houseTable.getTableCreator())
+            .tableCreator(tableCreator)
             .schema(IcebergSchemaHelper.getSchemaJsonFromSchema(table.schema()))
-            .lastModifiedTime(houseTable.getLastModifiedTime())
+            .lastModifiedTime(lastModifiedTime)
             .creationTime(houseTable.getCreationTime())
             .timePartitioning(partitionSpecMapper.toTimePartitionSpec(table))
             .clustering(partitionSpecMapper.toClusteringSpec(table))
