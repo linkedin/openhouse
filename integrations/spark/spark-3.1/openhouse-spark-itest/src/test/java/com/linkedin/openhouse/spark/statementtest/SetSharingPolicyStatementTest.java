@@ -6,10 +6,7 @@ import java.nio.file.Files;
 import java.util.List;
 import lombok.SneakyThrows;
 import org.apache.hadoop.fs.Path;
-import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
-import org.apache.spark.sql.execution.ExplainMode;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -25,43 +22,39 @@ public class SetSharingPolicyStatementTest {
 
   @Test
   public void testPolicySuccess() {
-    Dataset<Row> df = spark.sql("ALTER TABLE openhouse.db.table SET POLICY (SHARING=TRUE)");
-    assert isPlanValid(df, "openhouse", "db.table", "TRUE");
-
-    Dataset<Row> df1 = spark.sql("ALTER TABLE openhouse.db.table SET POLICY (SHARING=FALSE)");
-    assert isPlanValid(df1, "openhouse", "db.table", "FALSE");
+    assert isPlanValid(
+        "ALTER TABLE openhouse.db.table SET POLICY (SHARING=TRUE)", "db.table", "TRUE");
+    assert isPlanValid(
+        "ALTER TABLE openhouse.db.table SET POLICY (SHARING=FALSE)", "db.table", "FALSE");
   }
 
   @Test
   public void testPolicyLowerCase() {
-    Dataset<Row> df = spark.sql("ALTER TABLE openhouse.db.table SET policy (SHARING=TRUE)");
-    assert isPlanValid(df, "openhouse", "db.table", "TRUE");
+    assert isPlanValid(
+        "ALTER TABLE openhouse.db.table SET policy (SHARING=TRUE)", "db.table", "TRUE");
   }
 
   @Test
   public void testPolicyAfterUseCatalog() {
     spark.sql("use openhouse").show();
-    Dataset<Row> df = spark.sql("ALTER TABLE db.table SET policy (SHARING=TRUE)");
-    assert isPlanValid(df, "openhouse", "db.table", "TRUE");
+    assert isPlanValid("ALTER TABLE db.table SET policy (SHARING=TRUE)", "db.table", "TRUE");
   }
 
   @Test
   public void testPolicyAfterUseCatalogAndDatabase() {
     spark.sql("use openhouse.db").show();
-    Dataset<Row> df = spark.sql("ALTER TABLE table SET policy (SHARING=TRUE)");
-    assert isPlanValid(df, "openhouse", "db.table", "TRUE");
+    assert isPlanValid("ALTER TABLE table SET policy (SHARING=TRUE)", "db.table", "TRUE");
   }
 
   @Test
   public void testPolicyWithQuotedTableIdentifier() {
-    Dataset<Row> df = spark.sql("ALTER TABLE openhouse.`db`.`table` SET policy (SHARING=TRUE)");
-    assert isPlanValid(df, "openhouse", "db.table", "TRUE");
+    assert isPlanValid(
+        "ALTER TABLE openhouse.`db`.`table` SET policy (SHARING=TRUE)", "db.table", "TRUE");
   }
 
   @Test
   public void testPolicyIdentifierWithLeadingDigits() {
-    Dataset<Row> df = spark.sql("ALTER TABLE openhouse.0_.0_ SET policy (SHARING=TRUE)");
-    assert isPlanValid(df, "openhouse", "0_.0_", "TRUE");
+    assert isPlanValid("ALTER TABLE openhouse.0_.0_ SET policy (SHARING=TRUE)", "0_.0_", "TRUE");
   }
 
   @Test
@@ -80,7 +73,7 @@ public class SetSharingPolicyStatementTest {
             "ALTER -- a line ending comment\n"
                 + "TABLE openhouse.`db`.`table` SET policy (SHARING=TRUE)");
     for (String statement : statementsWithComments) {
-      assert isPlanValid(spark.sql(statement), "openhouse", "db.table", "TRUE");
+      assert isPlanValid(statement, "db.table", "TRUE");
     }
   }
 
@@ -138,9 +131,8 @@ public class SetSharingPolicyStatementTest {
   }
 
   @SneakyThrows
-  private boolean isPlanValid(
-      Dataset<Row> dataframe, String catalogName, String dbTable, String sharingEnabled) {
-    String queryStr = dataframe.queryExecution().explainString(ExplainMode.fromString("simple"));
+  private boolean isPlanValid(String statement, String dbTable, String sharingEnabled) {
+    String queryStr = StatementTestUtils.planWithoutExecuting(spark, statement);
     return queryStr.contains(sharingEnabled) && queryStr.contains(dbTable);
   }
 }
