@@ -28,16 +28,7 @@ public class TableFileStatsTest extends OpenHouseSparkITest {
           tableFileStats.get().collectAsList().stream()
               .collect(Collectors.toMap(FileStat::getPath, FileStat::getSizeInBytes));
       FileSystem fs = FileSystem.get(spark.sparkContext().hadoopConfiguration());
-      Path tableDirectory =
-          new Path(
-                  spark
-                      .sql(
-                          String.format(
-                              "SHOW TBLPROPERTIES %s ('openhouse.tableLocation')", testTable))
-                      .collectAsList()
-                      .get(0)
-                      .getString(1))
-              .getParent();
+      Path tableDirectory = getTableDirectory(spark, testTable);
       Map<String, Long> expectedStats = new HashMap<>();
       for (FileStatus fileStatus : fs.listStatus(new Path(tableDirectory, "data"))) {
         expectedStats.put(
@@ -62,16 +53,7 @@ public class TableFileStatsTest extends OpenHouseSparkITest {
           TableFileStats.builder().spark(spark).tableName(testTable).build();
       List<FileStat> fileStatList = tableFileStats.get().collectAsList();
       FileSystem fs = FileSystem.get(spark.sparkContext().hadoopConfiguration());
-      Path tableDirectory =
-          new Path(
-                  spark
-                      .sql(
-                          String.format(
-                              "SHOW TBLPROPERTIES %s ('openhouse.tableLocation')", testTable))
-                      .collectAsList()
-                      .get(0)
-                      .getString(1))
-              .getParent();
+      Path tableDirectory = getTableDirectory(spark, testTable);
       for (FileStat fileStat : fileStatList) {
         String tsPartitionValue = fileStat.getPartitionValues().get(0);
         String idPartitionValue = fileStat.getPartitionValues().get(1);
@@ -80,5 +62,15 @@ public class TableFileStatsTest extends OpenHouseSparkITest {
         Assertions.assertEquals(fileStatus.getLen(), fileStat.getSizeInBytes());
       }
     }
+  }
+
+  private Path getTableDirectory(SparkSession spark, String tableName) {
+    String tableLocation =
+        spark
+            .sql(String.format("DESCRIBE TABLE EXTENDED %s", tableName))
+            .filter("col_name = 'Location'")
+            .first()
+            .getString(1);
+    return new Path(tableLocation);
   }
 }
