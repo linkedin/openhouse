@@ -154,6 +154,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     requireCreateInput(intent, intent.getViewUuid(), "viewUuid");
     requireCreateInput(intent, intent.getViewLocation(), "viewLocation");
     requireCreateInput(intent, intent.getStorageType(), "storageType");
+    requireCreateInput(intent, intent.getSourceDialect(), "sourceDialect");
 
     // The snapshot is advisory; only the conditional write prevents concurrent creates.
     HouseTable occupant = intent.getBaseRow();
@@ -263,6 +264,20 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     String capturedBase = row.getTableLocation();
     FileIO fileIO = fileIOManager.getFileIO(storageType.fromString(row.getStorageType()));
     ViewMetadata current = viewMetadataCodec.read(fileIO.newInputFile(capturedBase));
+
+    String currentSourceDialect =
+        current.currentVersion().summary().get(SOURCE_DIALECT_SUMMARY_KEY);
+    if (isBlank(currentSourceDialect)) {
+      throw new IllegalStateException(
+          String.format(
+              "Corrupt view metadata %s.%s: sourceDialect is missing or blank",
+              intent.getDatabaseId(), intent.getViewId()));
+    }
+    if (!currentSourceDialect.equals(intent.getSourceDialect())) {
+      throw new BadRequestException(
+          "Cannot replace view %s.%s: sourceDialect must match the current view",
+          intent.getDatabaseId(), intent.getViewId());
+    }
 
     Map<String, String> currentUserProperties = extractUserPropertiesFromMetadata(current);
     Map<String, String> userProperties = new LinkedHashMap<>(currentUserProperties);
