@@ -10,6 +10,7 @@ import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.common.exception.JobEngineException;
 import com.linkedin.openhouse.common.exception.JobStateConflictException;
+import com.linkedin.openhouse.common.exception.MetadataRefreshFailureContext;
 import com.linkedin.openhouse.common.exception.NoSuchEntityException;
 import com.linkedin.openhouse.common.exception.NoSuchJobException;
 import com.linkedin.openhouse.common.exception.NoSuchSoftDeletedUserTableException;
@@ -17,6 +18,7 @@ import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.ResourceGatedByToggledOnFeatureException;
+import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableException;
 import com.linkedin.openhouse.common.exception.SystemOnlyLockAccessDeniedException;
 import com.linkedin.openhouse.common.exception.UnprocessableEntityException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
@@ -344,6 +346,27 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
     return buildResponseEntity(errorResponseBody);
   }
 
+  /**
+   * Transient storage-dependency failures encountered while reading table metadata (HDFS timeout,
+   * connection failure, NameNode standby, Iceberg ServiceUnavailableException, or another retriable
+   * I/O error) are retriable server conditions, surfaced as 503 rather than being misrepresented as
+   * invalid metadata.
+   */
+  @Hidden
+  @ExceptionHandler(StorageDependencyUnavailableException.class)
+  protected ResponseEntity<ErrorResponseBody> handleStorageDependencyUnavailableException(
+      StorageDependencyUnavailableException storageDependencyUnavailableException) {
+    ErrorResponseBody errorResponseBody =
+        ErrorResponseBody.builder()
+            .status(HttpStatus.SERVICE_UNAVAILABLE)
+            .error(HttpStatus.SERVICE_UNAVAILABLE.getReasonPhrase())
+            .message(storageDependencyUnavailableException.getMessage())
+            .stacktrace(getAbbreviatedStackTrace(storageDependencyUnavailableException))
+            .cause(getExceptionCause(storageDependencyUnavailableException))
+            .build();
+    return buildResponseEntity(errorResponseBody);
+  }
+
   @Hidden
   @ExceptionHandler(IllegalStateException.class)
   protected ResponseEntity<ErrorResponseBody> handleIllegalStateException(
@@ -435,6 +458,9 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
   @ExceptionHandler(IllegalArgumentException.class)
   protected ResponseEntity<ErrorResponseBody> handleIllegalArgumentException(
       IllegalArgumentException illegalArgumentException) {
+    if (MetadataRefreshFailureContext.matches(illegalArgumentException)) {
+      return handleGenericException(illegalArgumentException);
+    }
     ErrorResponseBody errorResponseBody =
         ErrorResponseBody.builder()
             .status(HttpStatus.BAD_REQUEST)
