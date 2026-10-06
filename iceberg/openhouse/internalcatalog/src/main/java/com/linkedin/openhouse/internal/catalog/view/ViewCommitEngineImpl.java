@@ -251,20 +251,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return CatalogConstants.ENTITY_TYPE_VIEW.equals(entityType);
   }
 
-  private ViewCommitResult replace(ViewCommitIntent intent) {
-    HouseTable row = intent.getBaseRow();
-    if (row == null || !isView(row.getEntityType())) {
-      throw new NoSuchViewException(
-          "View does not exist: %s.%s", intent.getDatabaseId(), intent.getViewId());
-    }
-    requireRowTargetsIntent(intent, row);
-    requireViewPointerAndStorage(intent, row);
-
-    // Use the captured storage and path; never refresh to a newer base.
-    String capturedBase = row.getTableLocation();
-    FileIO fileIO = fileIOManager.getFileIO(storageType.fromString(row.getStorageType()));
-    ViewMetadata current = viewMetadataCodec.read(fileIO.newInputFile(capturedBase));
-
+  private static void requireSourceDialectMatches(ViewCommitIntent intent, ViewMetadata current) {
     String currentSourceDialect =
         current.currentVersion().summary().get(SOURCE_DIALECT_SUMMARY_KEY);
     if (isBlank(currentSourceDialect)) {
@@ -278,6 +265,22 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
           "Cannot replace view %s.%s: sourceDialect must match the current view",
           intent.getDatabaseId(), intent.getViewId());
     }
+  }
+
+  private ViewCommitResult replace(ViewCommitIntent intent) {
+    HouseTable row = intent.getBaseRow();
+    if (row == null || !isView(row.getEntityType())) {
+      throw new NoSuchViewException(
+          "View does not exist: %s.%s", intent.getDatabaseId(), intent.getViewId());
+    }
+    requireRowTargetsIntent(intent, row);
+    requireViewPointerAndStorage(intent, row);
+
+    // Use the captured storage and path; never refresh to a newer base.
+    String capturedBase = row.getTableLocation();
+    FileIO fileIO = fileIOManager.getFileIO(storageType.fromString(row.getStorageType()));
+    ViewMetadata current = viewMetadataCodec.read(fileIO.newInputFile(capturedBase));
+    requireSourceDialectMatches(intent, current);
 
     Map<String, String> currentUserProperties = extractUserPropertiesFromMetadata(current);
     Map<String, String> userProperties = new LinkedHashMap<>(currentUserProperties);
