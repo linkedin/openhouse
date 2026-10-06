@@ -22,6 +22,9 @@ public final class HouseTableSerdeUtils {
   @VisibleForTesting
   public static final Predicate<String> IS_OH_PREFIXED = s -> s.startsWith(OPENHOUSE_NAMESPACE);
 
+  /**
+   * HouseTable fields also stored in the HTS UserTable row; other fields remain in Iceberg props.
+   */
   public static final Set<String> HTS_FIELD_NAMES =
       Set.of(
           "tableId",
@@ -31,7 +34,8 @@ public final class HouseTableSerdeUtils {
           "creationTime",
           "deletedAtMs",
           "purgeAfterMs",
-          "storageType");
+          "storageType",
+          "entityType");
 
   public static final Set<String> HOUSE_TABLE_FIELD_NAMES =
       Arrays.stream(HouseTable.class.getDeclaredFields())

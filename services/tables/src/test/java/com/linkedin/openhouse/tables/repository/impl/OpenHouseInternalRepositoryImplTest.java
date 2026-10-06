@@ -148,6 +148,34 @@ public class OpenHouseInternalRepositoryImplTest {
   }
 
   @Test
+  void testComputePropsForTableCreation_NonHtsFields() {
+    TableDto tableDto =
+        createTableDto(new HashMap<>())
+            .toBuilder()
+            .clusterId("local-cluster")
+            .tableUri("local-cluster.db.table")
+            .tableUUID("uuid-1")
+            .tableCreator("creator")
+            .lastModifiedTime(1234L)
+            .build();
+
+    Map<String, String> actualProps =
+        openHouseInternalRepository.computePropsForTableCreation(tableDto);
+
+    Assertions.assertEquals(
+        "local-cluster", actualProps.get(HouseTableSerdeUtils.getCanonicalFieldName("clusterId")));
+    Assertions.assertEquals(
+        "local-cluster.db.table",
+        actualProps.get(HouseTableSerdeUtils.getCanonicalFieldName("tableUri")));
+    Assertions.assertEquals(
+        "uuid-1", actualProps.get(HouseTableSerdeUtils.getCanonicalFieldName("tableUUID")));
+    Assertions.assertEquals(
+        "creator", actualProps.get(HouseTableSerdeUtils.getCanonicalFieldName("tableCreator")));
+    Assertions.assertEquals(
+        "1234", actualProps.get(HouseTableSerdeUtils.getCanonicalFieldName("lastModifiedTime")));
+  }
+
+  @Test
   void findTableRefByIdReturnsPartialTableDto() {
     HouseTable row =
         HouseTable.builder()

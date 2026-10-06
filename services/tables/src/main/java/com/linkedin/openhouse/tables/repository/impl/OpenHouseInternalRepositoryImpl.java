@@ -585,13 +585,16 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
     // Populate server reserved properties
     Map<String, String> dtoMap = tableDto.convertToMap();
-    for (String htsFieldName : HTS_FIELD_NAMES) {
-      if (dtoMap.get(htsFieldName) != null) {
-        if (htsFieldName.equals("tableLocation")) {
+    for (String fieldName : HOUSE_TABLE_FIELD_NAMES) {
+      if (dtoMap.get(fieldName) != null) {
+        if (!HTS_FIELD_NAMES.contains(fieldName)) {
+          // Fields not represented by UserTable must remain in Iceberg properties.
+          propertiesMap.put(getCanonicalFieldName(fieldName), dtoMap.get(fieldName));
+        } else if (fieldName.equals("tableLocation")) {
           propertiesMap.put(
-              getCanonicalFieldName(htsFieldName), getSchemeLessPath(dtoMap.get(htsFieldName)));
+              getCanonicalFieldName(fieldName), getSchemeLessPath(dtoMap.get(fieldName)));
         } else {
-          propertiesMap.put(getCanonicalFieldName(htsFieldName), dtoMap.get(htsFieldName));
+          propertiesMap.put(getCanonicalFieldName(fieldName), dtoMap.get(fieldName));
         }
       }
     }

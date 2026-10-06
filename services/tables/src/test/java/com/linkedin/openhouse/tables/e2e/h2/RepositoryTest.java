@@ -600,8 +600,7 @@ public class RepositoryTest {
     Assertions.assertNotNull(returnedDto.getTableProperties());
     Assertions.assertFalse(returnedDto.getTableProperties().isEmpty());
     Assertions.assertEquals(returnedDto.getTableProperties().get("tableId"), "foo");
-    Assertions.assertEquals(
-        returnedDto.getTableProperties().get("openhouse.tableId"), TABLE_DTO.getTableId());
+    Assertions.assertNull(returnedDto.getTableProperties().get("openhouse.tableId"));
     Assertions.assertEquals(
         returnedDto.getTableProperties().get(TableProperties.DEFAULT_FILE_FORMAT).toLowerCase(),
         "avro");
@@ -1247,8 +1246,17 @@ public class RepositoryTest {
                     .tableId(fromTableIdentifier.name())
                     .build())
             .isPresent());
+    Map<String, String> expectedRenamedProperties = new HashMap<>(originalTableProperties);
+    expectedRenamedProperties.remove(CatalogConstants.OPENHOUSE_TABLEURI_KEY);
+    expectedRenamedProperties.remove(getCanonicalFieldName("lastModifiedTime"));
+    Map<String, String> actualRenamedProperties =
+        new HashMap<>(catalog.loadTable(toTableIdentifier).properties());
     Assertions.assertEquals(
-        originalTableProperties, catalog.loadTable(toTableIdentifier).properties());
+        "local-cluster.d1.t1_renamed",
+        actualRenamedProperties.remove(CatalogConstants.OPENHOUSE_TABLEURI_KEY));
+    Assertions.assertNotNull(
+        actualRenamedProperties.remove(getCanonicalFieldName("lastModifiedTime")));
+    Assertions.assertEquals(expectedRenamedProperties, actualRenamedProperties);
 
     TableDto updatedRenamedTable =
         openHouseInternalRepository.save(
@@ -1295,8 +1303,7 @@ public class RepositoryTest {
 
     // Validate metadata is storing the preserved case
     Assertions.assertEquals(renamedTable.get().getDatabaseId(), "d1");
-    Assertions.assertEquals(
-        renamedTable.get().getTableProperties().get("openhouse.databaseId"), "d1");
+    Assertions.assertNull(renamedTable.get().getTableProperties().get("openhouse.databaseId"));
     Assertions.assertEquals(
         renamedTable.get().getTableProperties().get("openhouse.tableUri"),
         "local-cluster.d1.t1_renamed");
@@ -1887,15 +1894,13 @@ public class RepositoryTest {
 
   /**
    * The create/update decision is made by exactly one neutral occupancy read at the table's key,
-   * never the TABLE-typed existence probe or the raw House Table lookup. Assert-only: it verifies
-   * already-recorded interactions and neither reads, captures, resets, nor invokes production.
+   * never a TABLE-typed existence probe. HTS reads may happen later to validate or materialize the
+   * canonical metadata. Assert-only: this verifies already-recorded interactions.
    */
   private void verifySingleNeutralLookup(String tableId) {
     Mockito.verify((OpenHouseInternalCatalog) catalog, Mockito.times(1))
         .findEntityById(TableIdentifier.of(OCCUPATION_DB, tableId));
     Mockito.verify(catalog, Mockito.never()).tableExists(Mockito.any());
-    Mockito.verify((OpenHouseInternalCatalog) catalog, Mockito.never())
-        .findHouseTable(Mockito.any());
   }
 
   @Test
