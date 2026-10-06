@@ -1014,6 +1014,67 @@ public class ViewCommitEngineCommitTest {
                                     ViewTestFixtures.SQL_V1, ViewTestFixtures.TRINO_DIALECT))))));
   }
 
+  /**
+   * The guard compares against the captured stored source itself: not a default, not the first
+   * (spark) representation, and not a trimmed or lower-cased copy of it.
+   */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("matchingNonDefaultSourceDialects")
+  void aReplaceKeepingTheExactStoredSourceDialectIsAcceptedAndPreservesIt(
+      String caseName, String source) {
+    ViewCommitResult created =
+        harness
+            .getViewCommitEngine()
+            .commit(
+                ViewTestFixtures.baseIntent(root, Boolean.TRUE, null)
+                    .representations(BOTH_DIALECTS_V1)
+                    .sourceDialect(source)
+                    .build());
+    Assertions.assertEquals(
+        source,
+        harness
+            .readMetadata(created.getPointer().getMetadataLocation())
+            .currentVersion()
+            .summary()
+            .get(ViewTestFixtures.SOURCE_DIALECT_SUMMARY_KEY),
+        "CREATE persists the source verbatim");
+    HouseTable base = captureNeutral();
+    int savesAfterCreate = harness.getHouseTableRepository().getSaveViewCalls();
+    harness.clearEvents();
+
+    ViewCommitResult replayed =
+        harness
+            .getViewCommitEngine()
+            .commit(
+                ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
+                    .representations(BOTH_DIALECTS_V1)
+                    .sourceDialect(source)
+                    .build());
+
+    Assertions.assertFalse(replayed.isMetadataChanged(), "an identical replay is a no-op");
+    assertNoOpReadCapturedFileOnce(base);
+    Assertions.assertEquals(savesAfterCreate, harness.getHouseTableRepository().getSaveViewCalls());
+
+    ViewCommitIntent changed =
+        ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
+            .schema(ViewTestFixtures.schemaV2())
+            .representations(ViewTestFixtures.sparkAndTrino(ViewTestFixtures.SQL_V2))
+            .sourceDialect(source)
+            .build();
+    ViewCommitResult updated = harness.getViewCommitEngine().commit(changed);
+
+    Assertions.assertTrue(updated.isMetadataChanged(), "a changed definition commits");
+    Assertions.assertEquals(
+        savesAfterCreate + 1, harness.getHouseTableRepository().getSaveViewCalls());
+    assertPersistedDefinitionMatches(changed, updated, "definition with source " + caseName);
+  }
+
+  private static Stream<Arguments> matchingNonDefaultSourceDialects() {
+    return Stream.of(
+        Arguments.of("trino, not the first representation", ViewTestFixtures.TRINO_DIALECT),
+        Arguments.of("noncanonical exact source", " SPARK"));
+  }
+
   private static UnaryOperator<ViewCommitIntent.ViewCommitIntentBuilder> sourceChange(
       UnaryOperator<ViewCommitIntent.ViewCommitIntentBuilder> mutation) {
     return mutation;
