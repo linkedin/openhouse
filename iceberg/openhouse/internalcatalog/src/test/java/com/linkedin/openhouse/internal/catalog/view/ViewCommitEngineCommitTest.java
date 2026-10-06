@@ -44,6 +44,8 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.view.ImmutableSQLViewRepresentation;
+import org.apache.iceberg.view.ImmutableViewVersion;
 import org.apache.iceberg.view.SQLViewRepresentation;
 import org.apache.iceberg.view.ViewMetadata;
 import org.apache.iceberg.view.ViewProperties;
@@ -388,6 +390,83 @@ public class ViewCommitEngineCommitTest {
   @Test
   void createWithoutTheSuppliedStorageTypeFailsInsteadOfSelectingOne() {
     assertCreateRejectsMissing(builder -> builder.storageType(null), "storageType");
+  }
+
+  /**
+   * A CREATE without a nonblank source is rejected with the prepared-input failure before FileIO,
+   * codec, or publish, and before an occupied name is classified.
+   */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("missingCreateSourceDialects")
+  void createWithoutANonBlankSourceDialectIsRejectedBeforeAnyEffect(
+      String caseName, String sourceDialect, boolean occupied) {
+    if (occupied) {
+      harness
+          .getHouseTableRepository()
+          .seed(ViewTestFixtures.viewRow("/existing/00001-a.metadata.json"));
+    }
+    HouseTable occupant = occupied ? captureNeutral() : null;
+    ViewCommitIntent intent =
+        ViewTestFixtures.baseIntent(root, Boolean.TRUE, occupant)
+            .sourceDialect(sourceDialect)
+            .build();
+    Optional<HouseTable> pointerBefore = harness.getHouseTableRepository().peek(DB, VIEW);
+    int readsBeforeCommit = harness.readCalls();
+    harness.clearEvents();
+
+    BadRequestException thrown =
+        Assertions.assertThrows(
+            BadRequestException.class, () -> harness.getViewCommitEngine().commit(intent));
+
+    Assertions.assertEquals(
+        "Cannot create view "
+            + DB
+            + "."
+            + VIEW
+            + ": sourceDialect is required and is not supplied by this layer",
+        thrown.getMessage(),
+        caseName);
+    Assertions.assertEquals(
+        Collections.emptyList(),
+        harness.events(),
+        "a rejected create performs no codec read or write and no publish");
+    Assertions.assertEquals(readsBeforeCommit, harness.readCalls());
+    Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
+    verify(harness.getFileIOManager(), never()).getFileIO(any(StorageType.Type.class));
+    Assertions.assertTrue(harness.metadataFiles().isEmpty());
+    Assertions.assertEquals(pointerBefore, harness.getHouseTableRepository().peek(DB, VIEW));
+  }
+
+  private static Stream<Arguments> missingCreateSourceDialects() {
+    return Stream.of(
+        Arguments.of("null source", null, false),
+        Arguments.of("empty source", "", false),
+        Arguments.of("whitespace-only source", "   ", false),
+        Arguments.of("null source over an occupied name", null, true));
+  }
+
+  /** sourceDialect is validated after the existing prepared inputs, never ahead of them. */
+  @Test
+  void aMissingStorageTypeIsReportedBeforeAMissingSourceDialect() {
+    BadRequestException thrown =
+        Assertions.assertThrows(
+            BadRequestException.class,
+            () ->
+                harness
+                    .getViewCommitEngine()
+                    .commit(
+                        ViewTestFixtures.baseIntent(root, Boolean.TRUE, null)
+                            .storageType(null)
+                            .sourceDialect(null)
+                            .build()));
+
+    Assertions.assertEquals(
+        "Cannot create view "
+            + DB
+            + "."
+            + VIEW
+            + ": storageType is required and is not supplied by this layer",
+        thrown.getMessage());
   }
 
   private void assertCreateRejectsMissing(
@@ -865,10 +944,221 @@ public class ViewCommitEngineCommitTest {
         builder -> builder.representations(withPresto), "representation set");
   }
 
-  @Test
-  void aChangedSourceDialectIsNotANoOp() {
-    assertStructuralChangeIsNotANoOp(
-        builder -> builder.sourceDialect(ViewTestFixtures.TRINO_DIALECT), "source dialect");
+  // ---- Source dialect is immutable across REPLACE ----
+
+  private static final String SOURCE_MISMATCH_MESSAGE =
+      "Cannot replace view " + DB + "." + VIEW + ": sourceDialect must match the current view";
+
+  private static final String CORRUPT_STORED_SOURCE_MESSAGE =
+      "Corrupt view metadata " + DB + "." + VIEW + ": sourceDialect is missing or blank";
+
+  /**
+   * Equality is exact and case-sensitive, and the guard runs before no-op detection, candidate
+   * build, write, and CAS. The representation set stays valid and unique in every source-only case,
+   * so no other BadRequestException can satisfy the pinned message.
+   */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("sourceDialectChangingReplacements")
+  void aReplaceThatChangesTheSourceDialectIsRejectedBeforeAnyWrite(
+      String caseName, UnaryOperator<ViewCommitIntent.ViewCommitIntentBuilder> mutation) {
+    createWithBothDialects();
+    HouseTable base = captureNeutral();
+    ViewCommitIntent intent =
+        mutation
+            .apply(
+                ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
+                    .representations(BOTH_DIALECTS_V1))
+            .build();
+    RejectedReplaceBaseline baseline = captureRejectedReplaceBaseline();
+
+    BadRequestException thrown =
+        Assertions.assertThrows(
+            BadRequestException.class, () -> harness.getViewCommitEngine().commit(intent));
+
+    Assertions.assertEquals(SOURCE_MISMATCH_MESSAGE, thrown.getMessage(), caseName);
+    assertRejectedReplaceOnlyReadTheCapturedFile(base, baseline);
+  }
+
+  private static Stream<Arguments> sourceDialectChangingReplacements() {
+    return Stream.of(
+        Arguments.of(
+            "another dialect",
+            sourceChange(builder -> builder.sourceDialect(ViewTestFixtures.TRINO_DIALECT))),
+        Arguments.of("case-only change", sourceChange(builder -> builder.sourceDialect("SPARK"))),
+        Arguments.of(
+            "leading whitespace", sourceChange(builder -> builder.sourceDialect(" spark"))),
+        Arguments.of("null incoming source", sourceChange(builder -> builder.sourceDialect(null))),
+        Arguments.of("empty incoming source", sourceChange(builder -> builder.sourceDialect(""))),
+        Arguments.of(
+            "whitespace-only incoming source",
+            sourceChange(builder -> builder.sourceDialect("   "))),
+        Arguments.of(
+            "another dialect with a changed schema and SQL",
+            sourceChange(
+                builder ->
+                    builder
+                        .sourceDialect(ViewTestFixtures.TRINO_DIALECT)
+                        .schema(ViewTestFixtures.schemaV2())
+                        .representations(ViewTestFixtures.sparkAndTrino(ViewTestFixtures.SQL_V2)))),
+        // Also drops the stored spark representation: the source guard must report first, not
+        // Iceberg's drop-dialect IllegalStateException.
+        Arguments.of(
+            "another dialect while dropping a stored representation",
+            sourceChange(
+                builder ->
+                    builder
+                        .sourceDialect(ViewTestFixtures.TRINO_DIALECT)
+                        .representations(
+                            Collections.singletonList(
+                                ViewTestFixtures.sql(
+                                    ViewTestFixtures.SQL_V1, ViewTestFixtures.TRINO_DIALECT))))));
+  }
+
+  private static UnaryOperator<ViewCommitIntent.ViewCommitIntentBuilder> sourceChange(
+      UnaryOperator<ViewCommitIntent.ViewCommitIntentBuilder> mutation) {
+    return mutation;
+  }
+
+  /**
+   * Engine CREATE can no longer produce a source-less view, so this state is fabricated directly.
+   * Each replay would otherwise equal the stored definition, so the stored check must precede both
+   * the equality comparison and no-op detection.
+   */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("malformedStoredSourceDialects")
+  void aReplaceOfStoredMetadataWithoutASourceDialectIsCorruptStateNotANoOp(
+      String caseName, String storedSource, String incomingSource) {
+    HouseTable base = seedViewWithStoredSourceDialect(storedSource);
+    ViewCommitIntent intent =
+        ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
+            .sourceDialect(incomingSource)
+            .build();
+    RejectedReplaceBaseline baseline = captureRejectedReplaceBaseline();
+
+    IllegalStateException thrown =
+        Assertions.assertThrows(
+            IllegalStateException.class, () -> harness.getViewCommitEngine().commit(intent));
+
+    Assertions.assertEquals(CORRUPT_STORED_SOURCE_MESSAGE, thrown.getMessage(), caseName);
+    assertRejectedReplaceOnlyReadTheCapturedFile(base, baseline);
+  }
+
+  private static Stream<Arguments> malformedStoredSourceDialects() {
+    return Stream.of(
+        Arguments.of("absent stored key, otherwise unchanged null replay", null, null),
+        Arguments.of(
+            "absent stored key, ordinary spark replay", null, ViewTestFixtures.SPARK_DIALECT),
+        Arguments.of("empty stored source, identical replay", "", ""),
+        Arguments.of("whitespace stored source, identical replay", "   ", "   "));
+  }
+
+  /**
+   * Writes real metadata through the codec and seeds its pointer without engine CREATE. The
+   * definition matches {@link ViewTestFixtures#replaceIntent} except the source summary key, which
+   * is omitted when {@code storedSource} is null.
+   */
+  private HouseTable seedViewWithStoredSourceDialect(String storedSource) {
+    String location =
+        ViewTestFixtures.allocatedViewLocation(root, DB, VIEW, ViewTestFixtures.VIEW_UUID);
+    String metadataLocation = location + "/00001-" + UUID.randomUUID() + ".metadata.json";
+    String timestamp = "1700000000000";
+
+    ImmutableViewVersion.Builder version =
+        ImmutableViewVersion.builder()
+            .versionId(1)
+            .timestampMillis(Long.parseLong(timestamp))
+            .schemaId(ViewTestFixtures.schemaV1().schemaId())
+            .defaultCatalog("openhouse")
+            .defaultNamespace(Namespace.of(DB))
+            .putSummary("operation", "create")
+            .addAllRepresentations(
+                Collections.singletonList(
+                    ImmutableSQLViewRepresentation.builder()
+                        .sql(ViewTestFixtures.SQL_V1)
+                        .dialect(ViewTestFixtures.SPARK_DIALECT)
+                        .build()));
+    if (storedSource != null) {
+      version.putSummary(ViewTestFixtures.SOURCE_DIALECT_SUMMARY_KEY, storedSource);
+    }
+
+    Map<String, String> properties = new LinkedHashMap<>(ViewTestFixtures.userProperties("a", "1"));
+    properties.put(ViewProperties.REPLACE_DROP_DIALECT_ALLOWED, "false");
+    properties.put(getCanonicalFieldName("tableUUID"), ViewTestFixtures.VIEW_UUID);
+    properties.put(getCanonicalFieldName("tableId"), VIEW);
+    properties.put(getCanonicalFieldName("databaseId"), DB);
+    properties.put(getCanonicalFieldName("tableCreator"), ViewTestFixtures.CREATOR);
+    properties.put(getCanonicalFieldName("tableVersion"), CatalogConstants.INITIAL_VERSION);
+    properties.put(getCanonicalFieldName("tableLocation"), metadataLocation);
+    properties.put(getCanonicalFieldName("creationTime"), timestamp);
+    properties.put(getCanonicalFieldName("lastModifiedTime"), timestamp);
+
+    ViewMetadata metadata =
+        ViewMetadata.builder()
+            .assignUUID(ViewTestFixtures.VIEW_UUID)
+            .setLocation(location)
+            .setCurrentVersion(version.build(), ViewTestFixtures.schemaV1())
+            .setProperties(properties)
+            .build();
+    harness.getCodec().write(metadata, harness.getFileIO().newOutputFile(metadataLocation));
+    harness.getHouseTableRepository().seed(ViewTestFixtures.viewRow(metadataLocation));
+
+    Map<String, String> storedSummary =
+        harness.readMetadata(metadataLocation).currentVersion().summary();
+    Assertions.assertEquals(
+        storedSource != null,
+        storedSummary.containsKey(ViewTestFixtures.SOURCE_DIALECT_SUMMARY_KEY),
+        "the fixture must persist exactly the intended malformed source, or this proves nothing");
+    Assertions.assertEquals(
+        storedSource, storedSummary.get(ViewTestFixtures.SOURCE_DIALECT_SUMMARY_KEY));
+    return captureNeutral();
+  }
+
+  /** Taken after all setup and capture, so only the measured attempt is observed. */
+  private RejectedReplaceBaseline captureRejectedReplaceBaseline() {
+    RejectedReplaceBaseline baseline =
+        new RejectedReplaceBaseline(
+            harness.getHouseTableRepository().peek(DB, VIEW),
+            harness.readCalls(),
+            harness.getHouseTableRepository().getSaveViewCalls(),
+            harness.metadataFiles());
+    harness.clearEvents();
+    return baseline;
+  }
+
+  /** Exactly one read of the captured file; no candidate write, CAS, refresh, or retry. */
+  private void assertRejectedReplaceOnlyReadTheCapturedFile(
+      HouseTable capturedBase, RejectedReplaceBaseline baseline) {
+    Assertions.assertEquals(
+        Collections.singletonList(readEvent(capturedBase.getTableLocation())),
+        harness.events(),
+        "a rejected replace reads only the captured file and neither writes nor publishes");
+    Assertions.assertEquals(
+        baseline.reads, harness.readCalls(), "a rejected replace reads no House Table row");
+    Assertions.assertEquals(
+        baseline.saves,
+        harness.getHouseTableRepository().getSaveViewCalls(),
+        "a rejected replace attempts no CAS");
+    Assertions.assertEquals(
+        baseline.files, harness.metadataFiles(), "a rejected replace writes no metadata file");
+    Assertions.assertEquals(
+        baseline.pointer,
+        harness.getHouseTableRepository().peek(DB, VIEW),
+        "a rejected replace leaves the pointer row exactly as it was");
+  }
+
+  private static final class RejectedReplaceBaseline {
+    private final Optional<HouseTable> pointer;
+    private final int reads;
+    private final int saves;
+    private final List<Path> files;
+
+    private RejectedReplaceBaseline(
+        Optional<HouseTable> pointer, int reads, int saves, List<Path> files) {
+      this.pointer = pointer;
+      this.reads = reads;
+      this.saves = saves;
+      this.files = files;
+    }
   }
 
   @Test
