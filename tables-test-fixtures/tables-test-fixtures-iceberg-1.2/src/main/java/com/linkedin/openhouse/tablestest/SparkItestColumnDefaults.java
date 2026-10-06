@@ -8,6 +8,7 @@ import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultsSource;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -15,7 +16,8 @@ import org.springframework.context.annotation.Configuration;
 /**
  * Local-server stand-in for a deployment {@link ColumnDefaultsSource}. OSS OpenHouse has no
  * encoder; Spark catalog itests need one so ReadBridge can stamp {@code initial-default} on load.
- * Scoped to {@link #DATABASE} so other catalog tests stay on empty maps.
+ * Scoped to {@link #DATABASE} so other catalog tests stay on empty maps. Stamps {@code country} and
+ * {@code tier} at any depth, including fields of structs inside list elements and map values.
  */
 @Configuration
 public class SparkItestColumnDefaults {
@@ -37,21 +39,17 @@ public class SparkItestColumnDefaults {
     if (schemaJson == null || schemaJson.isEmpty()) {
       return Collections.emptyMap();
     }
-    JsonNode fields;
+    List<JsonNode> fields;
     try {
-      fields = MAPPER.readTree(schemaJson).path("fields");
+      // Only field objects carry "id"; lists, maps, and the schema use element-id, key-id,
+      // value-id, and schema-id.
+      fields = MAPPER.readTree(schemaJson).findParents("id");
     } catch (Exception e) {
-      return Collections.emptyMap();
-    }
-    if (!fields.isArray()) {
       return Collections.emptyMap();
     }
     Map<Integer, JsonNode> out = new LinkedHashMap<>();
     for (JsonNode field : fields) {
       String name = field.path("name").asText();
-      if (!field.has("id")) {
-        continue;
-      }
       int id = field.get("id").asInt();
       if ("country".equals(name)) {
         out.put(id, TextNode.valueOf("US"));
