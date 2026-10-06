@@ -61,6 +61,11 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
   }
 
   @Override
+  protected boolean isSystemAction() {
+    return true;
+  }
+
+  @Override
   protected void runInner(Operations ops) {
     log.info(
         "Snapshot expiration app start for table {}, expiring older than {} {}s or with more than {} versions, deleteFiles={}, backupDir={}",
