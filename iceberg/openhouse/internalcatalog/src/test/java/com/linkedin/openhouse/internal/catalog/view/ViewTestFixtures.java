@@ -1,5 +1,8 @@
 package com.linkedin.openhouse.internal.catalog.view;
 
+import static com.linkedin.openhouse.internal.catalog.CatalogConstants.ENTITY_TYPE_TABLE;
+import static com.linkedin.openhouse.internal.catalog.CatalogConstants.ENTITY_TYPE_VIEW;
+
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.view.model.SqlViewRepresentationIntent;
@@ -35,10 +38,6 @@ public final class ViewTestFixtures {
 
   /** A second request generates its own identity; it never reuses the first. */
   public static final String SECOND_VIEW_UUID = "22222222-2222-2222-2222-222222222222";
-
-  public static final String ENTITY_TYPE_VIEW = "VIEW";
-
-  public static final String ENTITY_TYPE_TABLE = "TABLE";
 
   /** Unrecognized: a create colliding with one must fail closed. */
   public static final String ENTITY_TYPE_UNKNOWN = "MATERIALIZED_VIEW";

@@ -1,5 +1,8 @@
 package com.linkedin.openhouse.internal.catalog.view;
 
+import static com.linkedin.openhouse.internal.catalog.CatalogConstants.ENTITY_TYPE_TABLE;
+import static com.linkedin.openhouse.internal.catalog.CatalogConstants.ENTITY_TYPE_VIEW;
+
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
@@ -34,9 +37,6 @@ public class InMemoryViewHouseTableRepository implements HouseTableRepository {
   public static final String LIST_VIEWS = "findAllViewsByDatabaseId";
   public static final String SAVE_VIEW = "saveView";
   public static final String DELETE_VIEW = "deleteViewById";
-
-  private static final String ENTITY_TYPE_VIEW = "VIEW";
-  private static final String ENTITY_TYPE_TABLE = "TABLE";
 
   private final Map<String, HouseTable> rows = new ConcurrentHashMap<>();
 

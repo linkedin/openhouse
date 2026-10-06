@@ -2,6 +2,7 @@ package com.linkedin.openhouse.internal.catalog.view;
 
 import static com.linkedin.openhouse.internal.catalog.view.ViewTestFixtures.DB;
 
+import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewPointer;
@@ -122,7 +123,7 @@ public class ViewCommitEngineMixedEntityTest {
     HouseTable occupant =
         harness.getHouseTableRepository().findEntityById(key("legacy_a")).orElse(null);
     Assertions.assertEquals(
-        ViewTestFixtures.ENTITY_TYPE_TABLE,
+        CatalogConstants.ENTITY_TYPE_TABLE,
         occupant.getEntityType(),
         "the neutral read hydrates the legacy null to TABLE before the engine ever sees it");
     int readsBeforeCommit = harness.readCalls();
@@ -141,7 +142,7 @@ public class ViewCommitEngineMixedEntityTest {
                                     root, DB, "legacy_a", ViewTestFixtures.VIEW_UUID))
                             .build()));
 
-    Assertions.assertEquals(ViewTestFixtures.ENTITY_TYPE_TABLE, thrown.getOccupantEntityType());
+    Assertions.assertEquals(CatalogConstants.ENTITY_TYPE_TABLE, thrown.getOccupantEntityType());
     Assertions.assertEquals("legacy_a", thrown.getViewId());
     Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
     Assertions.assertEquals(

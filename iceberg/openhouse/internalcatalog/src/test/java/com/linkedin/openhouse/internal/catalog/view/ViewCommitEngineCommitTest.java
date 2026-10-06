@@ -117,11 +117,11 @@ public class ViewCommitEngineCommitTest {
         Arguments.of(
             "stored TABLE stays TABLE",
             ViewTestFixtures.tableRow(path),
-            ViewTestFixtures.ENTITY_TYPE_TABLE),
+            CatalogConstants.ENTITY_TYPE_TABLE),
         Arguments.of(
             "raw legacy null hydrates to TABLE",
             ViewTestFixtures.legacyRow(path),
-            ViewTestFixtures.ENTITY_TYPE_TABLE),
+            CatalogConstants.ENTITY_TYPE_TABLE),
         Arguments.of(
             "unknown discriminator fails closed",
             ViewTestFixtures.row(ViewTestFixtures.ENTITY_TYPE_UNKNOWN, path),

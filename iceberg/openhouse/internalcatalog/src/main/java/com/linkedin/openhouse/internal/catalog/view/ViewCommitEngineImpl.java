@@ -65,8 +65,6 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
   private static final String CREATE_OPERATION = "create";
   private static final String REPLACE_OPERATION = "replace";
 
-  private static final String ENTITY_TYPE_VIEW = "VIEW";
-
   private static final String METADATA_FILE_EXTENSION = ".metadata.json";
 
   private final HouseTableRepository houseTableRepository;
@@ -252,7 +250,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
   }
 
   private static boolean isView(String entityType) {
-    return ENTITY_TYPE_VIEW.equals(entityType);
+    return CatalogConstants.ENTITY_TYPE_VIEW.equals(entityType);
   }
 
   private ViewCommitResult replace(ViewCommitIntent intent) {
