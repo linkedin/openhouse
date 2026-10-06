@@ -7,6 +7,7 @@ import com.google.gson.JsonParser;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
+import com.linkedin.openhouse.jobs.exception.RetentionConfigurationException;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
@@ -51,6 +52,8 @@ import org.apache.spark.sql.Row;
 import org.assertj.core.util.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 
@@ -320,75 +323,6 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testRetentionWithNativeTimestampDailyPartitionHonorsLosAngelesZone()
-      throws Exception {
-    final String zonedTableName = "db.test_retention_zoned_native_timestamp";
-    final String utcTableName = "db.test_retention_utc_native_timestamp";
-    ZonedDateTime now = ZonedDateTime.of(2024, 2, 1, 2, 0, 0, 0, ZoneOffset.UTC);
-    ZonedDateTime losAngelesNow = now.withZoneSameInstant(ZoneId.of("America/Los_Angeles"));
-    ZonedDateTime losAngelesCutoff =
-        losAngelesNow.truncatedTo(ChronoUnit.DAYS).minusDays(1).withZoneSameInstant(ZoneOffset.UTC);
-    ZonedDateTime snappedLosAngelesCutoff = losAngelesCutoff.truncatedTo(ChronoUnit.DAYS);
-    ZonedDateTime utcCutoff = now.truncatedTo(ChronoUnit.DAYS).minusDays(1);
-    Assertions.assertEquals(
-        ZonedDateTime.of(2024, 1, 30, 0, 0, 0, 0, ZoneOffset.UTC), snappedLosAngelesCutoff);
-    Assertions.assertEquals(ZonedDateTime.of(2024, 1, 31, 0, 0, 0, 0, ZoneOffset.UTC), utcCutoff);
-
-    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
-      prepareTable(ops, zonedTableName, true);
-      prepareTable(ops, utcTableName, true);
-      String fixtureRows =
-          "('older_than_zoned_cutoff', cast('2024-01-29 12:00:00' as timestamp)), "
-              + "('kept_only_by_los_angeles_zone', cast('2024-01-30 12:00:00' as timestamp)), "
-              + "('kept_by_both', cast('2024-01-31 12:00:00' as timestamp))";
-      ops.spark().sql(String.format("INSERT INTO %s VALUES %s", zonedTableName, fixtureRows));
-      ops.spark().sql(String.format("INSERT INTO %s VALUES %s", utcTableName, fixtureRows));
-
-      ops.runRetention(zonedTableName, "ts", "", "day", 1, false, "", losAngelesNow);
-      ops.runRetention(utcTableName, "ts", "", "day", 1, false, "", now);
-
-      Assertions.assertEquals(
-          Arrays.asList("kept_by_both", "kept_only_by_los_angeles_zone"),
-          collectSortedDataValues(ops, zonedTableName));
-      Assertions.assertEquals(
-          Arrays.asList("kept_by_both"), collectSortedDataValues(ops, utcTableName));
-    }
-  }
-
-  @Test
-  public void testRetentionWithBackupKeepsZonedNativeTimestampDeleteMetadataOnly()
-      throws Exception {
-    final String tableName = "db.test_retention_zoned_native_timestamp_backup";
-    ZonedDateTime now = ZonedDateTime.of(2024, 2, 1, 2, 0, 0, 0, ZoneOffset.UTC);
-    ZonedDateTime losAngelesNow = now.withZoneSameInstant(ZoneId.of("America/Los_Angeles"));
-    OtelEmitter spyEmitter = Mockito.spy(otelEmitter);
-    try (Operations ops = Operations.withCatalog(getSparkSession(), spyEmitter)) {
-      prepareTable(ops, tableName, true);
-      ops.spark()
-          .sql(
-              String.format(
-                  "INSERT INTO %s VALUES "
-                      + "('older_than_zoned_cutoff', cast('2024-01-29 12:00:00' as timestamp)), "
-                      + "('kept_only_by_los_angeles_zone', cast('2024-01-30 12:00:00' as timestamp)), "
-                      + "('kept_by_both', cast('2024-01-31 12:00:00' as timestamp))",
-                  tableName));
-
-      Assertions.assertDoesNotThrow(
-          () -> ops.runRetention(tableName, "ts", "", "day", 1, true, ".backup", losAngelesNow));
-
-      Assertions.assertEquals(
-          Arrays.asList("kept_by_both", "kept_only_by_los_angeles_zone"),
-          collectSortedDataValues(ops, tableName));
-      Mockito.verify(spyEmitter, Mockito.never())
-          .count(
-              ArgumentMatchers.anyString(),
-              ArgumentMatchers.eq(AppConstants.RETENTION_POLICY_MISCONFIGURED_TABLE_COUNT),
-              ArgumentMatchers.anyLong(),
-              ArgumentMatchers.any());
-    }
-  }
-
-  @Test
   public void testRetentionWithStringDatePartitionHonorsLosAngelesZone() throws Exception {
     final String zonedTableName = "db.test_retention_zoned_string_date";
     final String utcTableName = "db.test_retention_utc_string_date";
@@ -418,7 +352,8 @@ public class OperationsTest extends OpenHouseSparkITest {
           1,
           false,
           "",
-          now.withZoneSameInstant(ZoneId.of("America/Los_Angeles")));
+          now,
+          ZoneId.of("America/Los_Angeles"));
       ops.runRetention(utcTableName, "datePartition", "yyyy-MM-dd", "day", 1, false, "", now);
 
       Assertions.assertEquals(
@@ -426,6 +361,177 @@ public class OperationsTest extends OpenHouseSparkITest {
           collectSortedDataValues(ops, zonedTableName));
       Assertions.assertEquals(
           Arrays.asList("kept_by_both"), collectSortedDataValues(ops, utcTableName));
+    }
+  }
+
+  @Test
+  public void testRetentionWithTimeZoneRejectsNativeTimestamp() throws Exception {
+    final String tableName = "db.test_retention_zoned_native_ts";
+    ZonedDateTime now = ZonedDateTime.of(2024, 2, 1, 2, 0, 0, 0, ZoneOffset.UTC);
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName, true);
+      String fixtureRows =
+          "('old', cast('2024-01-29 12:00:00' as timestamp)), "
+              + "('recent', cast('2024-01-31 12:00:00' as timestamp))";
+      ops.spark().sql(String.format("INSERT INTO %s VALUES %s", tableName, fixtureRows));
+
+      Assertions.assertThrows(
+          RetentionConfigurationException.class,
+          () ->
+              ops.runRetention(
+                  tableName, "ts", "", "day", 1, false, "", now, ZoneId.of("America/Los_Angeles")));
+      Assertions.assertEquals(
+          Arrays.asList("old", "recent"), collectSortedDataValues(ops, tableName));
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "America/Los_Angeles,2024-03-11T07:30Z,2024-03-09,2024-03-10,2024-03-11,true",
+    "America/Los_Angeles,2024-11-04T07:30Z,2024-11-01,2024-11-02,2024-11-03,true",
+    "Asia/Tokyo,2024-01-09T20:45Z,2024-01-08,2024-01-09,2024-01-10,true",
+    "+05:30,2024-02-01T02:00Z,2024-01-30,2024-01-31,2024-02-01,true",
+    "America/Los_Angeles,2024-02-01T02:00Z,2024-01-29,2024-01-30,2024-01-31,false",
+    "UTC,2024-02-01T02:00Z,2024-01-30,2024-01-31,2024-02-01,true"
+  })
+  public void testRetentionWithDateStringsKeepsWholeLocalDays(
+      String timeZone,
+      String evaluationTime,
+      String expiredDate,
+      String retainedDate,
+      String currentDate,
+      boolean partitioned)
+      throws Exception {
+    final String tableName = "db.test_retention_zoned_calendar";
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      ops.spark().sql("DROP TABLE IF EXISTS " + tableName);
+      ops.spark()
+          .sql(
+              "CREATE TABLE "
+                  + tableName
+                  + " (data string, datePartition string)"
+                  + (partitioned ? " PARTITIONED BY (datePartition)" : ""));
+      String fixtureRows =
+          String.format(
+              "('expired', '%s'), ('yesterday', '%s'), ('today', '%s')",
+              expiredDate, retainedDate, currentDate);
+      ops.spark().sql(String.format("INSERT INTO %s VALUES %s", tableName, fixtureRows));
+
+      ops.runRetention(
+          tableName,
+          "datePartition",
+          "yyyy-MM-dd",
+          "day",
+          1,
+          false,
+          "",
+          ZonedDateTime.parse(evaluationTime),
+          ZoneId.of(timeZone));
+
+      Assertions.assertEquals(
+          Arrays.asList("today", "yesterday"), collectSortedDataValues(ops, tableName));
+    }
+  }
+
+  @Test
+  public void testRetentionWithBackupOnStringDateHonorsZone() throws Exception {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      String tableName = "db.test_retention_backup_zoned_string";
+      prepareTableWithStringColumn(ops, tableName);
+      ops.spark().sql(String.format("insert into %s values ('old', '2024-01-28')", tableName));
+      ops.spark().sql(String.format("insert into %s values ('old', '2024-01-28')", tableName));
+      ops.spark().sql(String.format("insert into %s values ('kept', '2024-01-30')", tableName));
+      ZonedDateTime now = ZonedDateTime.of(2024, 2, 1, 2, 0, 0, 0, ZoneOffset.UTC);
+      ops.runRetention(
+          tableName,
+          "datePartition",
+          "yyyy-MM-dd",
+          "day",
+          1,
+          true,
+          ".backup",
+          now,
+          ZoneId.of("America/Los_Angeles"));
+
+      Table table = ops.getTable(tableName);
+      String manifestName = String.format("data_manifest_%d.json", now.toInstant().toEpochMilli());
+      Path manifestPath =
+          new Path(
+              String.format(
+                  "%s/.backup/data/datePartition=2024-01-28/%s", table.location(), manifestName));
+      Assertions.assertTrue(ops.fs().exists(manifestPath));
+      try (InputStream in = ops.fs().open(manifestPath);
+          InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
+        JsonObject jsonObject = JsonParser.parseReader(reader).getAsJsonObject();
+        Assertions.assertEquals(2, jsonObject.get("file_count").getAsInt());
+      }
+      Assertions.assertEquals(Arrays.asList("kept"), collectSortedDataValues(ops, tableName));
+    }
+  }
+
+  @Test
+  public void testRetentionWithQuotedDatePattern() throws Exception {
+    final String tableName = "db.test_retention_quoted_date_pattern";
+    try (Operations operations = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTableWithStringColumn(operations, tableName);
+      operations
+          .spark()
+          .createDataFrame(
+              Arrays.asList(
+                  org.apache.spark.sql.RowFactory.create("expired", "O'Reilly_2024-01-29"),
+                  org.apache.spark.sql.RowFactory.create("yesterday", "O'Reilly_2024-01-30")),
+              org.apache.spark.sql.types.DataTypes.createStructType(
+                  Arrays.asList(
+                      org.apache.spark.sql.types.DataTypes.createStructField(
+                          "data", org.apache.spark.sql.types.DataTypes.StringType, false),
+                      org.apache.spark.sql.types.DataTypes.createStructField(
+                          "datePartition",
+                          org.apache.spark.sql.types.DataTypes.StringType,
+                          false))))
+          .write()
+          .insertInto(tableName);
+      operations.runRetention(
+          tableName,
+          "datePartition",
+          "'O''Reilly_'yyyy-MM-dd",
+          "day",
+          1,
+          false,
+          "",
+          ZonedDateTime.parse("2024-02-01T02:00Z"),
+          ZoneId.of("America/Los_Angeles"));
+      Assertions.assertEquals(
+          Arrays.asList("yesterday"), collectSortedDataValues(operations, tableName));
+    }
+  }
+
+  @Test
+  public void testRetentionWithZonedBackupRejectsUnpartitionedRows() throws Exception {
+    final String tableName = "db.test_retention_zoned_backup_unpartitioned";
+    try (Operations operations = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      operations.spark().sql("DROP TABLE IF EXISTS " + tableName);
+      operations.spark().sql("CREATE TABLE " + tableName + " (data string, datePartition string)");
+      operations
+          .spark()
+          .sql(
+              "INSERT INTO "
+                  + tableName
+                  + " VALUES ('expired', '2024-01-29'), ('yesterday', '2024-01-30')");
+      Assertions.assertThrows(
+          IllegalStateException.class,
+          () ->
+              operations.runRetention(
+                  tableName,
+                  "datePartition",
+                  "yyyy-MM-dd",
+                  "day",
+                  1,
+                  true,
+                  ".backup",
+                  ZonedDateTime.parse("2024-02-01T02:00Z"),
+                  ZoneId.of("America/Los_Angeles")));
+      Assertions.assertEquals(
+          Arrays.asList("expired", "yesterday"), collectSortedDataValues(operations, tableName));
     }
   }
 

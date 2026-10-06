@@ -15,6 +15,8 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class RetentionPolicySpecValidatorTest {
 
@@ -68,6 +70,163 @@ class RetentionPolicySpecValidatorTest {
                 .granularity(TimePartitionSpec.Granularity.DAY)
                 .timeZone("Not/AZone")
                 .build()));
+  }
+
+  @Test
+  void testValidateTimeZoneScope() {
+    Assertions.assertFalse(
+        validator.validateTimeZoneScope(
+            Retention.builder()
+                .count(1)
+                .granularity(TimePartitionSpec.Granularity.DAY)
+                .timeZone("America/Los_Angeles")
+                .build()));
+
+    // A zone on a string pattern that already encodes a zone is rejected.
+    Assertions.assertFalse(
+        validator.validateTimeZoneScope(
+            Retention.builder()
+                .count(1)
+                .granularity(TimePartitionSpec.Granularity.DAY)
+                .columnPattern(
+                    RetentionColumnPattern.builder()
+                        .columnName("dp")
+                        .pattern("yyyy-MM-dd-HHZ")
+                        .build())
+                .timeZone("America/Los_Angeles")
+                .build()));
+
+    // A zone on a string pattern that encodes a generic zone name (v) is rejected.
+    Assertions.assertFalse(
+        validator.validateTimeZoneScope(
+            Retention.builder()
+                .count(1)
+                .granularity(TimePartitionSpec.Granularity.DAY)
+                .columnPattern(
+                    RetentionColumnPattern.builder()
+                        .columnName("dp")
+                        .pattern("yyyy-MM-dd v")
+                        .build())
+                .timeZone("America/Los_Angeles")
+                .build()));
+
+    // A zone on a string pattern with no zone field is accepted.
+    Assertions.assertTrue(
+        validator.validateTimeZoneScope(
+            Retention.builder()
+                .count(1)
+                .granularity(TimePartitionSpec.Granularity.DAY)
+                .columnPattern(
+                    RetentionColumnPattern.builder().columnName("dp").pattern("yyyy-MM-dd").build())
+                .timeZone("America/Los_Angeles")
+                .build()));
+
+    // An absent zone is always in scope.
+    Assertions.assertTrue(
+        validator.validateTimeZoneScope(
+            Retention.builder().count(1).granularity(TimePartitionSpec.Granularity.DAY).build()));
+  }
+
+  @Test
+  void testPatternEncodesZone() {
+    Assertions.assertFalse(validator.patternEncodesZone("yyyy-MM-dd"));
+    Assertions.assertFalse(validator.patternEncodesZone("yyyy-MM-dd-HH"));
+    Assertions.assertTrue(validator.patternEncodesZone("yyyy-MM-dd-HHZ"));
+    Assertions.assertTrue(validator.patternEncodesZone("yyyy-MM-dd'T'HH:mm:ssXXX"));
+    Assertions.assertTrue(validator.patternEncodesZone("yyyy-MM-dd VV"));
+    // Lower-case v is the generic time-zone name, which main's letter set missed.
+    Assertions.assertTrue(validator.patternEncodesZone("yyyy-MM-dd v"));
+    Assertions.assertTrue(validator.patternEncodesZone("yyyy-MM-dd vvvv"));
+    // A zone letter inside a quoted literal is text, not a zone field.
+    Assertions.assertFalse(validator.patternEncodesZone("yyyy-MM-dd'Z'"));
+  }
+
+  @Test
+  void testValidateRejectsTimeZoneOnTimePartitionedTable() {
+    Retention retention =
+        Retention.builder()
+            .count(1)
+            .granularity(TimePartitionSpec.Granularity.DAY)
+            .timeZone("America/Los_Angeles")
+            .build();
+    CreateUpdateTableRequestBody request =
+        CreateUpdateTableRequestBody.builder()
+            .policies(Policies.builder().retention(retention).build())
+            .schema(getSchemaJsonFromSchema(dummySchema))
+            .timePartitioning(
+                TimePartitionSpec.builder()
+                    .columnName("ts")
+                    .granularity(TimePartitionSpec.Granularity.DAY)
+                    .build())
+            .build();
+    Assertions.assertFalse(validator.validate(request, TableUri.builder().build()));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"", " ", "Not/AZone"})
+  void testValidateRejectsExplicitInvalidTimeZone(String timeZone) {
+    Assertions.assertFalse(
+        validator.validateTimeZoneIfPresent(Retention.builder().timeZone(timeZone).build()));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"America/Los_Angeles", "+05:30", "UTC", "Europe/London"})
+  void testValidateAcceptsTimeZoneOnStringColumn(String timeZone) {
+    Retention retention =
+        Retention.builder()
+            .count(1)
+            .granularity(TimePartitionSpec.Granularity.DAY)
+            .columnPattern(
+                RetentionColumnPattern.builder().columnName("id").pattern("yyyy-MM-dd").build())
+            .timeZone(timeZone)
+            .build();
+    CreateUpdateTableRequestBody request =
+        CreateUpdateTableRequestBody.builder()
+            .policies(Policies.builder().retention(retention).build())
+            .schema(getSchemaJsonFromSchema(dummySchema))
+            .build();
+    Assertions.assertTrue(validator.validate(request, TableUri.builder().build()));
+  }
+
+  @Test
+  void testValidateTimeZoneUsesStringSchemaAndDefaultPattern() {
+    Retention retention =
+        Retention.builder()
+            .count(1)
+            .granularity(TimePartitionSpec.Granularity.DAY)
+            .columnPattern(
+                RetentionColumnPattern.builder().columnName("top1.aa").pattern("").build())
+            .timeZone("America/Los_Angeles")
+            .build();
+    CreateUpdateTableRequestBody request =
+        CreateUpdateTableRequestBody.builder()
+            .policies(Policies.builder().retention(retention).build())
+            .schema(getSchemaJsonFromSchema(nestedSchema))
+            .build();
+    Assertions.assertTrue(validator.validate(request, TableUri.builder().build()));
+
+    Retention numericRetention =
+        retention
+            .toBuilder()
+            .columnPattern(RetentionColumnPattern.builder().columnName("top2").pattern("").build())
+            .build();
+    Assertions.assertFalse(
+        validator.validate(
+            request
+                .toBuilder()
+                .policies(Policies.builder().retention(numericRetention).build())
+                .build(),
+            TableUri.builder().build()));
+    Assertions.assertTrue(
+        validator.validate(
+            request
+                .toBuilder()
+                .policies(
+                    Policies.builder()
+                        .retention(numericRetention.toBuilder().timeZone(null).build())
+                        .build())
+                .build(),
+            TableUri.builder().build()));
   }
 
   @Test

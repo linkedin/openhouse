@@ -42,8 +42,9 @@ public class Retention {
 
   @Schema(
       description =
-          "Retention is evaluated in this time zone, given as an IANA zone id such as "
-              + "America/Los_Angeles or a fixed offset such as +05:30. Defaults to UTC when absent.",
+          "Time zone of the retention column's date strings, supplied with columnPattern. "
+              + "Accepts an IANA zone id such as America/Los_Angeles or a fixed offset such as +05:30. "
+              + "Omitting the setting preserves UTC retention.",
       example = "America/Los_Angeles")
   String timeZone;
 }

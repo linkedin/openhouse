@@ -5,13 +5,16 @@ import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.common.DefaultColumnPattern;
 import java.time.DateTimeException;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
+import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.iceberg.types.Types;
 import org.springframework.stereotype.Component;
 
 /**
@@ -92,6 +95,25 @@ public class RetentionPolicySpecValidator extends PolicySpecValidator {
         errorField = "retention";
         return false;
       }
+      if (!validateTimeZoneScope(retention)) {
+        failureMessage =
+            String.format(
+                "Retention time zone[%s] requires a string column pattern with no zone field for table[%s]",
+                retention.getTimeZone(), tableUri);
+        errorField = "retention";
+        return false;
+      }
+      if (Optional.ofNullable(retention.getTimeZone()).isPresent()
+          && !Optional.ofNullable(retention.getColumnPattern())
+              .map(RetentionColumnPattern::getColumnName)
+              .map(columnName -> getSchemaFromSchemaJson(schema).findType(columnName))
+              .filter(Types.StringType.get()::equals)
+              .isPresent()) {
+        failureMessage =
+            String.format("Retention time zone requires a string column for table[%s]", tableUri);
+        errorField = "retention";
+        return false;
+      }
     }
 
     return true;
@@ -143,22 +165,41 @@ public class RetentionPolicySpecValidator extends PolicySpecValidator {
     return true;
   }
 
-  /**
-   * Validate that the retention time zone, when present, is a value {@link ZoneId} can resolve: an
-   * IANA zone id such as {@code America/Los_Angeles} or a fixed offset such as {@code +05:30}. An
-   * absent or empty time zone means UTC and is valid.
-   */
+  /** An omitted time zone uses UTC; an explicit value must resolve through {@link ZoneId}. */
   protected boolean validateTimeZoneIfPresent(Retention retention) {
-    String timeZone = retention.getTimeZone();
-    if (timeZone == null || timeZone.isEmpty()) {
+    return Optional.ofNullable(retention.getTimeZone())
+        .map(
+            timeZone -> {
+              try {
+                ZoneId.of(timeZone);
+                return true;
+              } catch (DateTimeException dateTimeException) {
+                log.warn("The retention time zone {} cannot be resolved to a valid zone", timeZone);
+                return false;
+              }
+            })
+        .orElse(true);
+  }
+
+  /** A declared time zone supplies the zone omitted from the string's date pattern. */
+  protected boolean validateTimeZoneScope(Retention retention) {
+    if (Optional.ofNullable(retention.getTimeZone()).isEmpty()) {
       return true;
     }
-    try {
-      ZoneId.of(timeZone);
-    } catch (DateTimeException dateTimeException) {
-      log.warn("The retention time zone {} cannot be resolved to a valid zone", timeZone);
-      return false;
-    }
-    return true;
+    return Optional.ofNullable(retention.getColumnPattern())
+        .map(RetentionColumnPattern::getPattern)
+        .filter(pattern -> !patternEncodesZone(pattern))
+        .isPresent();
+  }
+
+  // DateTimeFormatter zone and offset pattern letters: V and v zone id and generic name, z zone
+  // name, O localized offset, X x Z numeric offset. A retention time zone plus any of these is two
+  // zones on one policy.
+  private static final String ZONE_PATTERN_LETTERS = "VvzOXxZ";
+
+  /** True when the pattern contains a DateTimeFormatter zone or offset field outside a literal. */
+  protected boolean patternEncodesZone(String pattern) {
+    String withoutLiterals = pattern.replaceAll("'[^']*'", "");
+    return withoutLiterals.chars().anyMatch(c -> ZONE_PATTERN_LETTERS.indexOf(c) >= 0);
   }
 }

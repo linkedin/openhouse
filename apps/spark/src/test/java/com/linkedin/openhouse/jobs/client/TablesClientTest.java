@@ -38,6 +38,9 @@ import org.apache.hadoop.fs.Path;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
@@ -313,6 +316,34 @@ public class TablesClientTest {
         result.orElse(null));
     Mockito.verify(responseMock, Mockito.times(1)).block(any(Duration.class));
     Mockito.verify(apiMock, Mockito.times(1)).getTableV1(testDbName, testTableNamePartitioned);
+  }
+
+  @ParameterizedTest
+  @NullAndEmptySource
+  @ValueSource(strings = {"America/Los_Angeles", " "})
+  void testRetentionCarriesTimeZoneIntoJobConfiguration(String timeZone) {
+    TimePartitionSpec partitionSpec = Mockito.mock(TimePartitionSpec.class);
+    Policies policies = Mockito.mock(Policies.class);
+    Retention retention = Mockito.mock(Retention.class);
+    Mockito.when(policies.getRetention()).thenReturn(retention);
+    Mockito.when(retention.getCount()).thenReturn(testRetentionTTLDays);
+    Mockito.when(retention.getGranularity()).thenReturn(Retention.GranularityEnum.DAY);
+    Mockito.when(retention.getTimeZone()).thenReturn(timeZone);
+    Mockito.when(partitionSpec.getColumnName()).thenReturn(testPartitionColumnName);
+    GetTableResponseBody responseBody =
+        setUpResponseBodyMock(testDbName, testTableNamePartitioned, partitionSpec, policies);
+    Mockito.when(responseBody.getTableType())
+        .thenReturn(GetTableResponseBody.TableTypeEnum.PRIMARY_TABLE);
+    Mono<GetTableResponseBody> responseMock = (Mono<GetTableResponseBody>) Mockito.mock(Mono.class);
+    Mockito.when(responseMock.block(any(Duration.class))).thenReturn(responseBody);
+    Mockito.when(apiMock.getTableV1(testDbName, testTableNamePartitioned)).thenReturn(responseMock);
+
+    Optional<RetentionConfig> result =
+        client.getTableRetention(
+            TableMetadata.builder().dbName(testDbName).tableName(testTableNamePartitioned).build());
+
+    Assertions.assertTrue(result.isPresent());
+    Assertions.assertEquals(Optional.ofNullable(timeZone), result.get().getTimeZone());
   }
 
   @Test
