@@ -74,14 +74,14 @@ class TablesLockServiceTest {
             : LockState.builder().locked(true).reason(null).build());
     CreateUpdateLockRequestBody request =
         existingSystemOnly ? legacyRequest() : systemOnlyRequest();
+    LockConflictException exception =
+        assertThrows(
+            LockConflictException.class, () -> service.createLock("db", "table", request, OWNER));
     assertEquals(
         existingSystemOnly
             ? "Table db.table already has a SYSTEM_ONLY lock."
             : "Table db.table already has a LEGACY lock.",
-        assertThrows(
-                LockConflictException.class,
-                () -> service.createLock("db", "table", request, OWNER))
-            .getMessage());
+        exception.getMessage());
     verify(service.openHouseInternalRepository, never()).save(any());
   }
 
@@ -97,10 +97,11 @@ class TablesLockServiceTest {
   @Test
   void legacyDeleteRefusesSystemOnly() {
     withLock(LockState.builder().locked(true).reason(LockReason.SYSTEM_ONLY).build());
+    LockConflictException exception =
+        assertThrows(LockConflictException.class, () -> service.deleteLock("db", "table", OWNER));
     assertEquals(
         "Table db.table has a SYSTEM_ONLY lock. Remove it with reason SYSTEM_ONLY.",
-        assertThrows(LockConflictException.class, () -> service.deleteLock("db", "table", OWNER))
-            .getMessage());
+        exception.getMessage());
     verify(service.openHouseInternalRepository, never()).save(any());
   }
 
@@ -133,12 +134,11 @@ class TablesLockServiceTest {
   @Test
   void reasonTargetedUnlockRejectsMismatchedReason() {
     withLock(systemOnlyLock());
-    assertEquals(
-        "Table db.table has a SYSTEM_ONLY lock, not LEGACY.",
+    LockConflictException exception =
         assertThrows(
-                LockConflictException.class,
-                () -> service.deleteLock("db", "table", LockReason.LEGACY, OWNER))
-            .getMessage());
+            LockConflictException.class,
+            () -> service.deleteLock("db", "table", LockReason.LEGACY, OWNER));
+    assertEquals("Table db.table has a SYSTEM_ONLY lock, not LEGACY.", exception.getMessage());
     verify(service.openHouseInternalRepository, never()).save(any());
   }
 

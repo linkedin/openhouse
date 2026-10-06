@@ -54,6 +54,12 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
     SetColumnPolicyTag(tableName, colName, policyTags)
   }
 
+  override def visitUnlockTable(ctx: UnlockTableContext): UnlockTable = {
+    val tableName = typedVisit[Seq[String]](ctx.multipartIdentifier)
+    val reason = Option(ctx.lockReason).map(_.getText.toUpperCase(Locale.ROOT))
+    UnlockTable(tableName, reason)
+  }
+
   override def visitGrantStatement(ctx: GrantStatementContext): GrantRevokeStatement = {
     val (resourceType, resourceName) = typedVisit[(GrantableResourceType, Seq[String])](ctx.grantableResource())
     val principal = typedVisit[String](ctx.principal)
@@ -66,12 +72,6 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
     val privilege = typedVisit[String](ctx.privilege)
     val principal = typedVisit[String](ctx.principal)
     GrantRevokeStatement(isGrant = false, resourceType, resourceName, privilege, principal)
-  }
-
-  override def visitUnlockTable(ctx: UnlockTableContext): UnlockTable = {
-    val tableName = typedVisit[Seq[String]](ctx.multipartIdentifier)
-    val reason = Option(ctx.lockReason).map(_.getText.toUpperCase(Locale.ROOT))
-    UnlockTable(tableName, reason)
   }
 
   override def visitShowGrantsStatement(ctx: ShowGrantsStatementContext): ShowGrantsStatement = {

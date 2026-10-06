@@ -419,9 +419,10 @@ public class TablesServiceImpl implements TablesService {
     checkReplicaTable(tableDto);
     authorizationUtils.checkLockTablePrivilege(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
     if (isTableLocked(tableDto)) {
-      LockReason active = tableDto.getPolicies().getLockState().getReason();
-      if (active != LockReason.LEGACY) {
-        throw lockConflict(tableDto, "has a %1$s lock. Remove it with reason %1$s.", active);
+      LockReason existingReason = tableDto.getPolicies().getLockState().getReason();
+      if (existingReason != LockReason.LEGACY) {
+        throw lockConflict(
+            tableDto, "has a %1$s lock. Remove it with reason %1$s.", existingReason);
       }
     }
     removeLock(tableDto);

@@ -591,7 +591,16 @@ blank reason fails and leaves the lock. Unlocking a table without a lock does no
 
 ```
 scala> spark.sql("ALTER TABLE openhouse.db.tb UNLOCK").show
+++
+||
+++
+++
+
 scala> spark.sql("ALTER TABLE openhouse.db.tb UNLOCK REASON SYSTEM_ONLY").show
+++
+||
+++
+++
 ```
 
 ### Test through Livy
