@@ -10,7 +10,6 @@ import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.common.exception.JobEngineException;
 import com.linkedin.openhouse.common.exception.JobStateConflictException;
-import com.linkedin.openhouse.common.exception.LockConflictException;
 import com.linkedin.openhouse.common.exception.MetadataRefreshFailureContext;
 import com.linkedin.openhouse.common.exception.NoSuchEntityException;
 import com.linkedin.openhouse.common.exception.NoSuchJobException;
@@ -228,20 +227,6 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
             .message(cme.getMessage())
             .stacktrace(getAbbreviatedStackTrace(cme))
             .cause(getExceptionCause(cme))
-            .build();
-    return buildResponseEntity(errorResponseBody);
-  }
-
-  @Hidden
-  @ExceptionHandler(LockConflictException.class)
-  protected ResponseEntity<ErrorResponseBody> handleLockConflict(LockConflictException e) {
-    ErrorResponseBody errorResponseBody =
-        ErrorResponseBody.builder()
-            .status(HttpStatus.CONFLICT)
-            .error(HttpStatus.CONFLICT.getReasonPhrase())
-            .message(e.getMessage())
-            .stacktrace(getAbbreviatedStackTrace(e))
-            .cause(getExceptionCause(e))
             .build();
     return buildResponseEntity(errorResponseBody);
   }
