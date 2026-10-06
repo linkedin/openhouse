@@ -3,11 +3,14 @@ package com.linkedin.openhouse.common.exception.handler;
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.linkedin.openhouse.common.api.spec.ErrorResponseBody;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
+import com.linkedin.openhouse.common.exception.CodedApiException;
+import com.linkedin.openhouse.common.exception.CorruptEntityTypeException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.common.exception.JobEngineException;
 import com.linkedin.openhouse.common.exception.JobStateConflictException;
+import com.linkedin.openhouse.common.exception.MetadataRefreshFailureContext;
 import com.linkedin.openhouse.common.exception.NoSuchEntityException;
 import com.linkedin.openhouse.common.exception.NoSuchJobException;
 import com.linkedin.openhouse.common.exception.NoSuchSoftDeletedUserTableException;
@@ -15,6 +18,7 @@ import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.ResourceGatedByToggledOnFeatureException;
+import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableException;
 import com.linkedin.openhouse.common.exception.SystemOnlyLockAccessDeniedException;
 import com.linkedin.openhouse.common.exception.UnprocessableEntityException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
@@ -97,6 +101,30 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
             .message(resourceGatedByToggledOnFeatureException.getMessage())
             .stacktrace(getAbbreviatedStackTrace(resourceGatedByToggledOnFeatureException))
             .cause(getExceptionCause(resourceGatedByToggledOnFeatureException))
+            .build();
+    return buildResponseEntity(errorResponseBody);
+  }
+
+  /**
+   * Generic mapping for any exception that already knows its own HTTP status. The status comes from
+   * {@link CodedApiException#getHttpStatus()}; the body is the existing unchanged {@link
+   * ErrorResponseBody}, so no service-specific error taxonomy reaches the wire.
+   *
+   * <p>Spring selects the most specific handler, so declaring this does not change the mapping of
+   * any exception already handled above.
+   */
+  @Hidden
+  @ExceptionHandler(CodedApiException.class)
+  protected ResponseEntity<ErrorResponseBody> handleCodedApiException(
+      CodedApiException codedApiException) {
+    HttpStatus httpStatus = codedApiException.getHttpStatus();
+    ErrorResponseBody errorResponseBody =
+        ErrorResponseBody.builder()
+            .status(httpStatus)
+            .error(httpStatus.getReasonPhrase())
+            .message(codedApiException.getMessage())
+            .stacktrace(getAbbreviatedStackTrace(codedApiException))
+            .cause(getExceptionCause(codedApiException))
             .build();
     return buildResponseEntity(errorResponseBody);
   }
@@ -318,6 +346,27 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
     return buildResponseEntity(errorResponseBody);
   }
 
+  /**
+   * Transient storage-dependency failures encountered while reading table metadata (HDFS timeout,
+   * connection failure, NameNode standby, Iceberg ServiceUnavailableException, or another retriable
+   * I/O error) are retriable server conditions, surfaced as 503 rather than being misrepresented as
+   * invalid metadata.
+   */
+  @Hidden
+  @ExceptionHandler(StorageDependencyUnavailableException.class)
+  protected ResponseEntity<ErrorResponseBody> handleStorageDependencyUnavailableException(
+      StorageDependencyUnavailableException storageDependencyUnavailableException) {
+    ErrorResponseBody errorResponseBody =
+        ErrorResponseBody.builder()
+            .status(HttpStatus.SERVICE_UNAVAILABLE)
+            .error(HttpStatus.SERVICE_UNAVAILABLE.getReasonPhrase())
+            .message(storageDependencyUnavailableException.getMessage())
+            .stacktrace(getAbbreviatedStackTrace(storageDependencyUnavailableException))
+            .cause(getExceptionCause(storageDependencyUnavailableException))
+            .build();
+    return buildResponseEntity(errorResponseBody);
+  }
+
   @Hidden
   @ExceptionHandler(IllegalStateException.class)
   protected ResponseEntity<ErrorResponseBody> handleIllegalStateException(
@@ -384,10 +433,34 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
         exception, errorResponseBody, headers, HttpStatus.BAD_REQUEST, request);
   }
 
+  /**
+   * Corrupt stored data is a server-state failure whatever wrote it, so it must not fall through to
+   * the {@link IllegalArgumentException} advice below, which answers 400. The persistence boundary
+   * has already unwrapped it, so this advice needs no ORM vocabulary.
+   */
+  @Hidden
+  @ExceptionHandler(CorruptEntityTypeException.class)
+  protected ResponseEntity<ErrorResponseBody> handleCorruptEntityTypeException(
+      CorruptEntityTypeException corruptEntityTypeException) {
+    ErrorResponseBody errorResponseBody =
+        ErrorResponseBody.builder()
+            .status(HttpStatus.INTERNAL_SERVER_ERROR)
+            .error(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase())
+            .message(corruptEntityTypeException.getMessage())
+            .stacktrace(getAbbreviatedStackTrace(corruptEntityTypeException))
+            .cause(getExceptionCause(corruptEntityTypeException))
+            .build();
+    log.error("Corrupt entity type read from storage:\n", corruptEntityTypeException);
+    return buildResponseEntity(errorResponseBody);
+  }
+
   @Hidden
   @ExceptionHandler(IllegalArgumentException.class)
   protected ResponseEntity<ErrorResponseBody> handleIllegalArgumentException(
       IllegalArgumentException illegalArgumentException) {
+    if (MetadataRefreshFailureContext.matches(illegalArgumentException)) {
+      return handleGenericException(illegalArgumentException);
+    }
     ErrorResponseBody errorResponseBody =
         ErrorResponseBody.builder()
             .status(HttpStatus.BAD_REQUEST)

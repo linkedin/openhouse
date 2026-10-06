@@ -21,11 +21,17 @@ import com.linkedin.openhouse.jobs.scheduler.tasks.TableStatsCollectionTask;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
+import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -775,5 +781,63 @@ public class JobsSchedulerTest {
           Class.forName(JobsScheduler.class.getName());
         },
         "JobsScheduler class should be initialized without throwing an exception");
+  }
+
+  @Test
+  void testOnlySnapshotsExpirationIsSystemAction() {
+    for (JobConf.JobTypeEnum jobType : JobConf.JobTypeEnum.values()) {
+      Assertions.assertEquals(
+          jobType == JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION,
+          JobsScheduler.isSystemAction(jobType),
+          jobType.name());
+    }
+  }
+
+  @Test
+  void testMainDeclaresSystemOnlyForSnapshotsExpiration() throws IOException {
+    List<String> seHeaders = actionTypeHeadersSentByMain(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION);
+    List<String> ofdHeaders =
+        actionTypeHeadersSentByMain(JobConf.JobTypeEnum.ORPHAN_FILES_DELETION);
+
+    Assertions.assertFalse(seHeaders.isEmpty());
+    Assertions.assertTrue(seHeaders.stream().allMatch("SYSTEM"::equals), seHeaders.toString());
+    Assertions.assertFalse(ofdHeaders.isEmpty());
+    Assertions.assertTrue(ofdHeaders.stream().allMatch(Objects::isNull), ofdHeaders.toString());
+  }
+
+  private static List<String> actionTypeHeadersSentByMain(JobConf.JobTypeEnum jobType)
+      throws IOException {
+    List<String> headers = Collections.synchronizedList(new ArrayList<>());
+    HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+    server.createContext(
+        "/v1/databases",
+        exchange -> {
+          headers.add(exchange.getRequestHeaders().getFirst("X-OpenHouse-Action-Type"));
+          byte[] body = "{\"results\":[]}".getBytes(StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().add("Content-Type", "application/json");
+          exchange.sendResponseHeaders(200, body.length);
+          exchange.getResponseBody().write(body);
+          exchange.close();
+        });
+    server.start();
+    try {
+      String url = "http://localhost:" + server.getAddress().getPort();
+      JobsScheduler.main(
+          new String[] {
+            "--type",
+            jobType.getValue(),
+            "--tablesURL",
+            url,
+            "--jobsURL",
+            url,
+            "--cluster",
+            "local",
+            "--shutdownGracePeriodMs",
+            "1"
+          });
+    } finally {
+      server.stop(0);
+    }
+    return new ArrayList<>(headers);
   }
 }

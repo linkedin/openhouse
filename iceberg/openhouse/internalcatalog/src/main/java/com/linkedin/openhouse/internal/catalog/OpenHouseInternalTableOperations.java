@@ -13,6 +13,9 @@ import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.hdfs.HdfsStorageClient;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
+import com.linkedin.openhouse.common.exception.MetadataRefreshFailureContext;
+import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableException;
+import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
@@ -30,7 +33,9 @@ import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -41,6 +46,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BinaryOperator;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
@@ -63,6 +69,8 @@ import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NotFoundException;
+import org.apache.iceberg.exceptions.RuntimeIOException;
+import org.apache.iceberg.exceptions.ServiceUnavailableException;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Term;
@@ -135,6 +143,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   private static final Cache<String, Integer> CACHE =
       CacheBuilder.newBuilder().expireAfterWrite(5, TimeUnit.MINUTES).maximumSize(1000).build();
 
+  /** Upper bound, and value OpenHouse stamps, for {@link TableProperties#MAX_REF_AGE_MS}. */
+  private static final long MAX_REF_AGE_MS_LIMIT = TimeUnit.DAYS.toMillis(7);
+
   @Override
   protected String tableName() {
     return this.tableIdentifier.toString();
@@ -193,25 +204,134 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           "refreshMetadata from location {} succeeded, took {} ms",
           metadataLoc,
           System.currentTimeMillis() - startTime);
-    } catch (IllegalArgumentException
-        | IllegalStateException
-        | NotFoundException
-        | ValidationException e) {
-      log.error(
-          "refreshMetadata from location {} failed after {} ms",
-          metadataLoc,
-          System.currentTimeMillis() - startTime,
-          e);
-      throw new InvalidTableMetadataException(
-          tableIdentifier.namespace().toString(), tableIdentifier.name(), e.getMessage(), e);
     } catch (Exception e) {
       log.error(
           "refreshMetadata from location {} failed after {} ms",
           metadataLoc,
-          System.currentTimeMillis() - startTime,
-          e);
-      throw e;
+          System.currentTimeMillis() - startTime);
+      throw classifyMetadataRefreshFailure(e);
     }
+  }
+
+  /**
+   * Classifies a failure encountered while reading a table's Iceberg metadata so the API returns an
+   * specific exception while preserving HTTP 500 for corrupt stored metadata.
+   *
+   * <p>Classification is by exception TYPE (walking the cause chain), never by parsing exception
+   * messages, so it stays stable across Iceberg/Hadoop versions and locales.
+   *
+   * <ul>
+   *   <li>Original exception (500) — stored metadata corruption: a missing metadata/manifest file
+   *       ({@link NotFoundException}/{@link FileNotFoundException} = dangling pointer), an Iceberg
+   *       invariant violation ({@link ValidationException}), or malformed metadata surfaced by the
+   *       Iceberg parser as an {@link IllegalArgumentException}/ {@link IllegalStateException}. The
+   *       table is permanently corrupted (repair or drop it).
+   *   <li>{@link StorageDependencyUnavailableException} (503) — a transient storage-dependency
+   *       failure: any other I/O error (Iceberg {@link ServiceUnavailableException}/{@link
+   *       RuntimeIOException}, a {@link UncheckedIOException}, or an {@link IOException} subtype
+   *       such as socket timeout, connection failure, or NameNode standby). Retriable, not
+   *       corruption.
+   *   <li>{@link InvalidTableMetadataException} (500) — anything else: an unexpected/uncategorized
+   *       failure, treated as an OpenHouse implementation defect.
+   * </ul>
+   */
+  @com.google.common.annotations.VisibleForTesting
+  RuntimeException classifyMetadataRefreshFailure(Throwable e) {
+    final String databaseId = tableIdentifier.namespace().toString();
+    final String tableId = tableIdentifier.name();
+
+    // 500: the metadata/manifest file is genuinely missing (dangling pointer). Checked before the
+    // generic I/O branch because FileNotFoundException is itself an IOException.
+    if (hasCauseOfType(e, NotFoundException.class)
+        || hasCauseOfType(e, FileNotFoundException.class)) {
+      return rethrowMetadataFailure(e, "PERSISTENT_DANGLING_METADATA_POINTER");
+    }
+    // 500: Iceberg invariant violation (e.g. snapshot-log/timestamp ordering).
+    if (hasCauseOfType(e, ValidationException.class)) {
+      return rethrowMetadataFailure(e, "SEMANTIC_METADATA_CORRUPTION");
+    }
+    // 503: any other I/O failure is a transient storage-dependency problem. Timeout / connection /
+    // NameNode standby all extend IOException; Iceberg wraps I/O as ServiceUnavailableException or
+    // RuntimeIOException, and UncheckedIOException wraps an IOException.
+    if (hasCauseOfType(e, ServiceUnavailableException.class)
+        || hasCauseOfType(e, RuntimeIOException.class)
+        || hasCauseOfType(e, UncheckedIOException.class)
+        || hasCauseOfType(e, IOException.class)) {
+      return logClassifiedFailure(
+          databaseId,
+          tableId,
+          "TRANSIENT_STORAGE_DEPENDENCY_FAILURE (503)",
+          new StorageDependencyUnavailableException(databaseId, tableId, rootCauseMessage(e), e),
+          e);
+    }
+    // 500: the Iceberg parser rejects malformed/inconsistent metadata with an
+    // IllegalArgumentException/IllegalStateException (e.g. a missing schema/spec id, or a name that
+    // is not a valid metadata file). In this metadata-load path these are corruption.
+    if (hasCauseOfType(e, IllegalArgumentException.class)
+        || hasCauseOfType(e, IllegalStateException.class)) {
+      return rethrowMetadataFailure(e, "MALFORMED_METADATA");
+    }
+    // 500: unexpected/uncategorized -> OpenHouse implementation defect.
+    return logClassifiedFailure(
+        databaseId,
+        tableId,
+        "OPENHOUSE_INTERNAL_FAILURE (500)",
+        new InvalidTableMetadataException(databaseId, tableId, rootCauseMessage(e), e),
+        e);
+  }
+
+  // Iceberg's refresh API cannot declare checked exceptions; preserve the original throwable.
+  @lombok.SneakyThrows
+  private RuntimeException rethrowMetadataFailure(Throwable failure, String category) {
+    MetadataRefreshFailureContext.mark(failure);
+    log.error(
+        "Metadata refresh failure for table {} classified as {} (500)",
+        tableIdentifier,
+        category,
+        failure);
+    throw failure;
+  }
+
+  /**
+   * Logs the classification decision together with the original exception (including its stack
+   * trace) so operators can see exactly which underlying failure was mapped to which category.
+   */
+  private static RuntimeException logClassifiedFailure(
+      String databaseId,
+      String tableId,
+      String category,
+      RuntimeException classified,
+      Throwable original) {
+    log.error(
+        "Classified metadata refresh failure for table {}.{} as [{}]; returning {}. Original exception:",
+        databaseId,
+        tableId,
+        category,
+        classified.getClass().getSimpleName(),
+        original);
+    return classified;
+  }
+
+  private static boolean hasCauseOfType(Throwable e, Class<? extends Throwable> type) {
+    for (Throwable t = e; t != null; t = t.getCause()) {
+      if (type.isInstance(t)) {
+        return true;
+      }
+      if (t == t.getCause()) {
+        break;
+      }
+    }
+    return false;
+  }
+
+  private static String rootCauseMessage(Throwable e) {
+    Throwable root = e;
+    while (root.getCause() != null && root.getCause() != root) {
+      root = root.getCause();
+    }
+    return root.getMessage() == null
+        ? root.getClass().getSimpleName()
+        : root.getClass().getSimpleName() + ": " + root.getMessage();
   }
 
   /**
@@ -311,8 +431,10 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
       abortIfWriterBaseDivergedFromCatalog(base, metadata);
 
-      failIfRetryUpdate(properties);
       restoreOverriddenProperties(properties);
+      enforcePropertyRules(base, properties);
+      // A rejected property change must not mark the unchanged table version as attempted.
+      failIfRetryUpdate(properties);
 
       properties.put(
           getCanonicalFieldName("tableVersion"),
@@ -487,7 +609,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         throw new CommitFailedException(e);
       }
       throw new BadRequestException(e, e.getMessage());
-    } catch (CommitFailedException e) {
+    } catch (CommitFailedException | UnsupportedClientOperationException e) {
       throw e;
     } catch (HouseTableCallerException
         | HouseTableNotFoundException
@@ -532,6 +654,74 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         default:
           break; /*should never happen, kept to silence SpotBugs*/
       }
+    }
+  }
+
+  /**
+   * Applies OpenHouse's table property rules to the properties a commit will persist. doCommit runs
+   * it on every commit path (create, replace, update, snapshot put, replication and rename),
+   * including paths that skip repository-level property checks. Each rule sees the value committed
+   * on {@code base} and the value this commit leaves, and returns the value to persist or rejects
+   * the commit with {@link UnsupportedClientOperationException}.
+   *
+   * <p>Runs after restoreOverriddenProperties, so rules see the values that will be persisted, and
+   * before failIfRetryUpdate, so a rejected commit does not mark its base version as attempted.
+   */
+  private void enforcePropertyRules(TableMetadata base, Map<String, String> properties) {
+    enforcePropertyRule(base, properties, TableProperties.MAX_REF_AGE_MS, this::boundMaxRefAge);
+  }
+
+  /**
+   * Sets {@code key} to {@code rule.apply(committed, requested)}, where either argument is null
+   * when the property is absent; a null result removes the key.
+   */
+  private static void enforcePropertyRule(
+      TableMetadata base, Map<String, String> properties, String key, BinaryOperator<String> rule) {
+    String committed = base == null ? null : base.properties().get(key);
+    String persisted = rule.apply(committed, properties.get(key));
+    if (persisted == null) {
+      properties.remove(key);
+    } else {
+      properties.put(key, persisted);
+    }
+  }
+
+  /**
+   * Keeps {@link TableProperties#MAX_REF_AGE_MS} in (0, 7 days], so snapshot expiration drops
+   * branches and tags whose head snapshot is older than that. A missing value becomes seven days. A
+   * commit that sets an out-of-bound value is rejected; an out-of-bound value the table already
+   * held becomes seven days instead of failing an unrelated commit.
+   */
+  private String boundMaxRefAge(String committed, String requested) {
+    if (requested == null) {
+      return String.valueOf(MAX_REF_AGE_MS_LIMIT);
+    }
+    if (isWithinMaxRefAgeLimit(requested)) {
+      return requested;
+    }
+    if (!requested.equals(committed)) {
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.ALTER_RESERVED_TBLPROPS,
+          String.format(
+              "Table property %s on table %s must be a positive number of milliseconds no greater"
+                  + " than %d (7 days).",
+              TableProperties.MAX_REF_AGE_MS, tableIdentifier, MAX_REF_AGE_MS_LIMIT));
+    }
+    log.info(
+        "Replacing out-of-bound {}={} with {} for table {}",
+        TableProperties.MAX_REF_AGE_MS,
+        requested,
+        MAX_REF_AGE_MS_LIMIT,
+        tableIdentifier);
+    return String.valueOf(MAX_REF_AGE_MS_LIMIT);
+  }
+
+  private static boolean isWithinMaxRefAgeLimit(String maxRefAgeMs) {
+    try {
+      long value = Long.parseLong(maxRefAgeMs);
+      return value > 0 && value <= MAX_REF_AGE_MS_LIMIT;
+    } catch (NumberFormatException e) {
+      return false;
     }
   }
 
