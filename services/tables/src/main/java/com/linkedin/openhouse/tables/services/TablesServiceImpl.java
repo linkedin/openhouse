@@ -77,7 +77,7 @@ public class TablesServiceImpl implements TablesService {
     }
     authorizationUtils.checkTablePrivilege(
         tableDto, actingPrincipal, Privileges.GET_TABLE_METADATA);
-    LockPolicyValidator.checkSystemOnlyAccess(tableDto);
+    authorizationUtils.checkSystemOnlyLockAccess(tableDto, actingPrincipal);
     return tableDto;
   }
 
@@ -119,7 +119,7 @@ public class TablesServiceImpl implements TablesService {
     if (tableDto.isPresent() && createUpdateTableRequestBody.isStageReplace()) {
       authorizationUtils.checkTableWritePathPrivileges(
           tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
-      LockPolicyValidator.checkSystemOnlyAccess(tableDto.get());
+      authorizationUtils.checkSystemOnlyLockAccess(tableDto.get(), tableCreatorUpdater);
     } else if (tableDto.isPresent()) {
       if (failOnExist) {
         throw new AlreadyExistsException("Table", String.format("%s.%s", databaseId, tableId));
@@ -137,7 +137,7 @@ public class TablesServiceImpl implements TablesService {
       }
       authorizationUtils.checkTableWritePathPrivileges(
           tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
-      LockPolicyValidator.checkSystemOnlyAccess(tableDto.get());
+      authorizationUtils.checkSystemOnlyLockAccess(tableDto.get(), tableCreatorUpdater);
 
       // An optimization to avoid persisting unchanged TableDto into HouseTable.
       if (!updateNeeded(tableDto.get(), createUpdateTableRequestBody)) {
@@ -277,7 +277,7 @@ public class TablesServiceImpl implements TablesService {
         fromDatabaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
     authorizationUtils.checkTableWritePathPrivileges(
         existingTableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
-    LockPolicyValidator.checkSystemOnlyAccess(existingTableDto.get());
+    authorizationUtils.checkSystemOnlyLockAccess(existingTableDto.get(), tableCreatorUpdater);
 
     openHouseInternalRepository.rename(
         TableDtoPrimaryKey.builder().databaseId(fromDatabaseId).tableId(fromTableId).build(),

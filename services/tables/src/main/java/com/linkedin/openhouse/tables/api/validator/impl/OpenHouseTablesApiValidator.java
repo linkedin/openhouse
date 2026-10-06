@@ -25,10 +25,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import javax.validation.ConstraintViolation;
 import javax.validation.Validator;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang.StringUtils;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SortOrder;
@@ -102,18 +100,13 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     }
   }
 
-  @SuppressWarnings("checkstyle:OperatorWrap")
   @Override
   public void validateCreateTable(
       String clusterId,
       String databaseId,
       CreateUpdateTableRequestBody createUpdateTableRequestBody) {
     List<String> validationFailures = new ArrayList<>();
-    for (ConstraintViolation<CreateUpdateTableRequestBody> violation :
-        validator.validate(createUpdateTableRequestBody)) {
-      validationFailures.add(
-          String.format("%s : %s", ApiValidatorUtil.getField(violation), violation.getMessage()));
-    }
+    ApiValidatorUtil.collectViolations(validator, createUpdateTableRequestBody, validationFailures);
     if (!createUpdateTableRequestBody.getClusterId().equals(clusterId)) {
       validationFailures.add(
           String.format(
@@ -236,7 +229,6 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     }
   }
 
-  @SuppressWarnings("checkstyle:OperatorWrap")
   @Override
   public void validateUpdateTable(
       String clusterId,
@@ -244,11 +236,7 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
       String tableId,
       CreateUpdateTableRequestBody createUpdateTableRequestBody) {
     List<String> validationFailures = new ArrayList<>();
-    for (ConstraintViolation<CreateUpdateTableRequestBody> violation :
-        validator.validate(createUpdateTableRequestBody)) {
-      validationFailures.add(
-          String.format("%s : %s", ApiValidatorUtil.getField(violation), violation.getMessage()));
-    }
+    ApiValidatorUtil.collectViolations(validator, createUpdateTableRequestBody, validationFailures);
     if (!createUpdateTableRequestBody.getClusterId().equals(clusterId)) {
       validationFailures.add(
           String.format(
@@ -337,7 +325,6 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     }
   }
 
-  @SuppressWarnings("checkstyle:OperatorWrap")
   @Override
   public void validateUpdateAclPolicies(
       String databaseId,
@@ -345,11 +332,7 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
       UpdateAclPoliciesRequestBody updateAclPoliciesRequestBody) {
     List<String> validationFailures = new ArrayList<>();
 
-    for (ConstraintViolation<UpdateAclPoliciesRequestBody> violation :
-        validator.validate(updateAclPoliciesRequestBody)) {
-      validationFailures.add(
-          String.format("%s : %s", ApiValidatorUtil.getField(violation), violation.getMessage()));
-    }
+    ApiValidatorUtil.collectViolations(validator, updateAclPoliciesRequestBody, validationFailures);
     if (!validationFailures.isEmpty()) {
       throw new RequestValidationFailureException(validationFailures);
     }
@@ -524,22 +507,11 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
   }
 
   private void validateDatabaseId(String databaseId, List<String> validationFailures) {
-    if (StringUtils.isEmpty(databaseId)) {
-      validationFailures.add("databaseId : Cannot be empty");
-    } else if (!databaseId.matches(ALPHA_NUM_UNDERSCORE_REGEX)) {
-      validationFailures.add(
-          String.format(
-              "databaseId : provided %s, %s", databaseId, ALPHA_NUM_UNDERSCORE_ERROR_MSG));
-    }
+    ApiValidatorUtil.validateIdentifier("databaseId", databaseId, validationFailures);
   }
 
   private void validateTableId(String tableId, List<String> validationFailures) {
-    if (StringUtils.isEmpty(tableId)) {
-      validationFailures.add("tableId : Cannot be empty");
-    } else if (!tableId.matches(ALPHA_NUM_UNDERSCORE_REGEX)) {
-      validationFailures.add(
-          String.format("tableId : provided %s, %s", tableId, ALPHA_NUM_UNDERSCORE_ERROR_MSG));
-    }
+    ApiValidatorUtil.validateIdentifier("tableId", tableId, validationFailures);
   }
 
   private void validateSortOrder(String sortOrder, String schema, List<String> validationFailures) {
