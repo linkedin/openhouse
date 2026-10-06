@@ -1,6 +1,10 @@
 package com.linkedin.openhouse.spark.sql.execution.datasources.v2
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.linkedin.openhouse.spark.sql.catalyst.parser.extensions.OpenhouseParseException
+import java.time.{DateTimeException, ZoneId}
 import org.apache.iceberg.spark.source.SparkTable
+import org.apache.iceberg.types.Types
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
@@ -12,31 +16,54 @@ case class SetRetentionPolicyExec(
   granularity: String,
   count: Int,
   colName: Option[String],
-  colPattern: Option[String]
+  colPattern: Option[String],
+  timeZone: Option[String]
                                  ) extends LeafV2CommandExec {
 
   override lazy val output: Seq[Attribute] = Nil
 
+  @throws[OpenhouseParseException]
   override protected def run(): Seq[InternalRow] = {
+    timeZone.foreach { declaredTimeZone =>
+      try ZoneId.of(declaredTimeZone)
+      catch {
+        case cause: DateTimeException =>
+          throw new OpenhouseParseException(
+            s"Invalid retention time zone '$declaredTimeZone': ${cause.getMessage}",
+            1, 0)
+      }
+      if (colName.isEmpty) {
+        throw new OpenhouseParseException(
+          "WITH TIMEZONE requires ON COLUMN for a string retention column", 1, 0)
+      }
+      if (colPattern.exists(_.replaceAll("'[^']*'", "")
+          .exists(character => "VvzOXxZ".indexOf(character) >= 0))) {
+        throw new OpenhouseParseException(
+          "The retention column pattern already encodes a time zone", 1, 0)
+      }
+    }
     catalog.loadTable(ident) match {
       case iceberg: SparkTable if iceberg.table().properties().containsKey("openhouse.tableId") =>
-        val key = "updated.openhouse.policy"
-        val value = {
-          (colName, colPattern) match {
-            case (None, None) => s"""{"retention":{"count":${count},"granularity":"${granularity}"}}"""
-            case (Some(nameVal), Some(patternVal)) => {
-              val columnPattern = s"""{"columnName":"${nameVal}","pattern": "${patternVal}"}"""
-              s"""{"retention":{"count":${count},"granularity":"${granularity}", "columnPattern":${columnPattern}}}"""
-            }
-            case (Some(nameVal), None) => {
-              val columnPattern = s"""{"columnName":"${nameVal}","pattern": ""}"""
-              s"""{"retention":{"count":${count},"granularity":"${granularity}", "columnPattern":${columnPattern}}}"""
-            }
-          }
+        if (timeZone.isDefined &&
+            !colName.flatMap(name => Option(iceberg.table().schema().findType(name)))
+              .contains(Types.StringType.get())) {
+          throw new OpenhouseParseException(
+            "WITH TIMEZONE requires a string retention column", 1, 0)
         }
-
+        val mapper = new ObjectMapper()
+        val retention = mapper.createObjectNode()
+        retention.put("count", count)
+        retention.put("granularity", granularity)
+        timeZone.foreach(declaredTimeZone => retention.put("timeZone", declaredTimeZone))
+        colName.foreach { columnName =>
+          val columnPattern = retention.putObject("columnPattern")
+          columnPattern.put("columnName", columnName)
+          columnPattern.put("pattern", colPattern.getOrElse(""))
+        }
+        val policy = mapper.createObjectNode()
+        policy.set("retention", retention)
         iceberg.table().updateProperties()
-          .set(key, value)
+          .set("updated.openhouse.policy", mapper.writeValueAsString(policy))
           .commit()
 
       case table =>
@@ -47,6 +74,6 @@ case class SetRetentionPolicyExec(
   }
 
   override def simpleString(maxFields: Int): String = {
-    s"SetRetentionPolicyExec: ${catalog} ${ident} ${count} ${granularity} ${colName.getOrElse("")} ${colPattern.getOrElse("")}"
+    s"SetRetentionPolicyExec: ${catalog} ${ident} ${count} ${granularity} ${colName.getOrElse("")} ${colPattern.getOrElse("")} ${timeZone.getOrElse("")}"
   }
 }
