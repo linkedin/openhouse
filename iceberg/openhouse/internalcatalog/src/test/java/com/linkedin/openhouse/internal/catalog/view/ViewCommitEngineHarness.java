@@ -66,7 +66,7 @@ public class ViewCommitEngineHarness {
     this.viewCommitEngine = newEngineInstance();
   }
 
-  /** A new instance over the same rows, so a load cannot come from process state. */
+  /** An engine over the harness's shared rows, recording codec, FileIO, and metrics. */
   public ViewCommitEngine newEngineInstance() {
     return new ViewCommitEngineImpl(
         houseTableRepository,

@@ -201,6 +201,28 @@ public class IcebergViewBeanBoundaryTest {
         "the retired baseViewVersion builder method must not exist");
   }
 
+  /**
+   * Runs under both runtimes: the contract is metadata publication only, with a signature that
+   * names no Iceberg view type.
+   */
+  @Test
+  public void theEngineContractDeclaresOnlyTheCommitSignature() {
+    List<Method> operations = new ArrayList<>();
+    for (Method method : ViewCommitEngine.class.getMethods()) {
+      if (!method.isSynthetic()) {
+        operations.add(method);
+      }
+    }
+    Assertions.assertEquals(
+        1, operations.size(), "the engine contract must expose only commit: " + operations);
+    Method commit = operations.get(0);
+    Assertions.assertEquals("commit", commit.getName());
+    Assertions.assertEquals(
+        Collections.singletonList(ViewCommitIntent.class),
+        Arrays.asList(commit.getParameterTypes()));
+    Assertions.assertEquals(ViewCommitResult.class, commit.getReturnType());
+  }
+
   /** The conditional family is the only place an Iceberg view type may appear. */
   @Test
   public void onlyTheConditionalFamilyIsExemptFromTheVersionNeutralAudit() {

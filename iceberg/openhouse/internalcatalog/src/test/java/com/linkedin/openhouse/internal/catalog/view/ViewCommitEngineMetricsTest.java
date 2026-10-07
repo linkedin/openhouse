@@ -1,7 +1,5 @@
 package com.linkedin.openhouse.internal.catalog.view;
 
-import static com.linkedin.openhouse.internal.catalog.view.ViewTestFixtures.DB;
-import static com.linkedin.openhouse.internal.catalog.view.ViewTestFixtures.VIEW;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -15,7 +13,6 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -36,14 +33,11 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Collections;
-import java.util.Optional;
 import java.util.concurrent.TimeUnit;
-import org.apache.iceberg.Schema;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
-import org.apache.iceberg.exceptions.NoSuchViewException;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
@@ -116,88 +110,11 @@ class ViewCommitEngineMetricsTest {
               storedRow = proposed.toBuilder().entityType("VIEW").build();
               return storedRow;
             });
-    when(repository.findViewById(any()))
-        .thenAnswer(
-            invocation -> {
-              clock.add(Duration.ofMillis(13));
-              return Optional.ofNullable(storedRow);
-            });
   }
 
   @AfterEach
   void closeRegistry() {
     registry.close();
-  }
-
-  @Test
-  void loadIncludesLookupAndReadWhileStorageTimerExcludesLookup() {
-    createAndReset();
-    Schema schema = storedMetadata.schema();
-    storedMetadata = spy(storedMetadata);
-    when(storedMetadata.schema())
-        .thenAnswer(
-            invocation -> {
-              clock.add(Duration.ofMillis(17));
-              return schema;
-            });
-    assertEquals(storedMetadata.uuid(), engine.loadView(DB, VIEW).getViewUuid());
-    assertTimer("load_latency", 1, 37);
-    assertTimer("metadata_retrieval_latency", 1, 7);
-    assertAbsent("commit_latency", "metadata_update_latency");
-    verify(repository, times(1)).findViewById(ViewTestFixtures.key(DB, VIEW));
-    verify(codec, times(1)).read(inputFile);
-    verify(fileIO, times(1)).newInputFile(storedRow.getTableLocation());
-    verify(repository, never()).findById(any());
-  }
-
-  @Test
-  void absentLoadRecordsOnlyOverallTime() {
-    assertThrows(NoSuchViewException.class, () -> engine.loadView(DB, VIEW));
-    assertTimer("load_latency", 1, 13);
-    assertAbsent("metadata_retrieval_latency", "metadata_update_latency", "commit_latency");
-    verifyNoInteractions(fileIOManager, fileIO, codec);
-  }
-
-  @Test
-  void lookupFailureIsPropagatedUntouchedAndTimed() {
-    IllegalStateException failure = new IllegalStateException("corrupt pointer");
-    when(repository.findViewById(any()))
-        .thenAnswer(
-            invocation -> {
-              clock.add(Duration.ofMillis(17));
-              throw failure;
-            });
-    assertSame(failure, assertThrows(IllegalStateException.class, () -> engine.loadView(DB, VIEW)));
-    assertTimer("load_latency", 1, 17);
-    assertAbsent("metadata_retrieval_latency");
-    verifyNoInteractions(fileIOManager, fileIO, codec);
-  }
-
-  @ParameterizedTest
-  @ValueSource(booleans = {false, true})
-  void readFailuresIncludeInputFileCreationAndPreserveException(boolean failInFileCreation) {
-    createAndReset();
-    IllegalStateException failure = new IllegalStateException("unreadable metadata");
-    if (failInFileCreation) {
-      when(fileIO.newInputFile(anyString()))
-          .thenAnswer(
-              invocation -> {
-                clock.add(Duration.ofMillis(2));
-                throw failure;
-              });
-    } else {
-      when(codec.read(inputFile))
-          .thenAnswer(
-              invocation -> {
-                clock.add(Duration.ofMillis(5));
-                throw failure;
-              });
-    }
-    assertSame(failure, assertThrows(IllegalStateException.class, () -> engine.loadView(DB, VIEW)));
-    long readMillis = failInFileCreation ? 2 : 7;
-    assertTimer("metadata_retrieval_latency", 1, readMillis);
-    assertTimer("load_latency", 1, 13 + readMillis);
-    verify(repository, times(1)).findViewById(any());
   }
 
   @Test
@@ -241,25 +158,41 @@ class ViewCommitEngineMetricsTest {
     verify(repository, never()).findEntityById(any());
   }
 
-  @Test
-  void replacementReadFailureRecordsCommitAndReadWithoutWritingOrPublishing() {
+  /** Input-file creation is inside the retrieval timer, so its failure is timed as a read. */
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void replacementReadFailureRecordsCommitAndReadWithoutWritingOrPublishing(
+      boolean failInFileCreation) {
     createAndReset();
     IllegalStateException failure = new IllegalStateException("read failed");
-    when(codec.read(inputFile))
-        .thenAnswer(
-            invocation -> {
-              clock.add(Duration.ofMillis(5));
-              throw failure;
-            });
+    if (failInFileCreation) {
+      when(fileIO.newInputFile(anyString()))
+          .thenAnswer(
+              invocation -> {
+                clock.add(Duration.ofMillis(2));
+                throw failure;
+              });
+    } else {
+      when(codec.read(inputFile))
+          .thenAnswer(
+              invocation -> {
+                clock.add(Duration.ofMillis(5));
+                throw failure;
+              });
+    }
+    HouseTable captured = storedRow;
     assertSame(
         failure,
         assertThrows(
             IllegalStateException.class,
-            () -> engine.commit(ViewTestFixtures.changedReplaceIntent(root, storedRow).build())));
-    assertTimer("commit_latency", 1, 7);
-    assertTimer("metadata_retrieval_latency", 1, 7);
+            () -> engine.commit(ViewTestFixtures.changedReplaceIntent(root, captured).build())));
+    long readMillis = failInFileCreation ? 2 : 7;
+    assertTimer("commit_latency", 1, readMillis);
+    assertTimer("metadata_retrieval_latency", 1, readMillis);
     assertAbsent("metadata_update_latency", "load_latency");
-    verify(codec, times(1)).read(inputFile);
+    verify(fileIO, times(1)).newInputFile(captured.getTableLocation());
+    verify(codec, times(failInFileCreation ? 0 : 1)).read(inputFile);
+    verify(fileIO, never()).newOutputFile(anyString());
     verify(codec, never()).write(any(), any());
     verifyNoInteractions(repository);
   }

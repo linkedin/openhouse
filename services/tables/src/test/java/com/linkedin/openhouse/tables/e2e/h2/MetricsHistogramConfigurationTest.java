@@ -70,17 +70,21 @@ public class MetricsHistogramConfigurationTest {
   @Test
   void testViewTimersHave600SecondHistograms() {
     List<String> suffixes =
-        Arrays.asList(
-            "load_latency",
-            "commit_latency",
-            "metadata_retrieval_latency",
-            "metadata_update_latency");
+        Arrays.asList("commit_latency", "metadata_retrieval_latency", "metadata_update_latency");
     for (String suffix : suffixes) {
       String name = "catalog_view_" + suffix;
       String property = "management.metrics.distribution.maximum-expected-value." + name;
       assertEquals("600s", environment.getProperty(property));
       assertTimerHistogramExtendsTo600s(name, property);
     }
+  }
+
+  /** The engine no longer loads views, so no histogram bound may outlive its retired timer. */
+  @Test
+  void testRetiredViewLoadTimerHasNoHistogramConfiguration() {
+    assertNull(
+        environment.getProperty(
+            "management.metrics.distribution.maximum-expected-value.catalog_view_load_latency"));
   }
 
   /**

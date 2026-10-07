@@ -13,7 +13,6 @@ import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
-import com.linkedin.openhouse.internal.catalog.view.model.LoadedView;
 import com.linkedin.openhouse.internal.catalog.view.model.SqlViewRepresentationIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
@@ -831,10 +830,19 @@ public class ViewCommitEngineCommitTest {
     assertPersistedDefinitionMatches(intent, result, changedField);
   }
 
-  /** Reads back from the written file and a fresh load, so a stale value cannot pass. */
+  /**
+   * Parses the file the published pointer row now references, so a stale value or an unpublished
+   * candidate cannot pass.
+   */
   private void assertPersistedDefinitionMatches(
       ViewCommitIntent intent, ViewCommitResult result, String changedField) {
-    ViewMetadata persisted = harness.readMetadata(result.getPointer().getMetadataLocation());
+    String publishedLocation =
+        harness.getHouseTableRepository().peek(DB, VIEW).get().getTableLocation();
+    Assertions.assertEquals(
+        result.getPointer().getMetadataLocation(),
+        publishedLocation,
+        "the result must report the pointer that was published after changing " + changedField);
+    ViewMetadata persisted = harness.readMetadata(publishedLocation);
     Assertions.assertEquals(
         intent.getSchema().asStruct(),
         persisted.schema().asStruct(),
@@ -859,21 +867,14 @@ public class ViewCommitEngineCommitTest {
         intent.getSchema().identifierFieldIds(),
         persisted.schema().identifierFieldIds(),
         "identifier fields are part of the definition after changing " + changedField);
-
-    LoadedView reloaded = harness.newEngineInstance().loadView(DB, VIEW);
     Assertions.assertEquals(
-        submittedByDialect(intent),
-        loadedByDialect(reloaded),
-        "a fresh load must report the submitted definition after changing " + changedField);
-    Assertions.assertEquals(intent.getSourceDialect(), reloaded.getSourceDialect());
-    Assertions.assertEquals(intent.getDefaultCatalog(), reloaded.getDefaultCatalog());
+        result.getViewUuid(),
+        persisted.uuid(),
+        "a replace keeps the view identity after changing " + changedField);
     Assertions.assertEquals(
-        intent.getDefaultNamespace() == null ? Namespace.empty() : intent.getDefaultNamespace(),
-        reloaded.getDefaultNamespace());
-    Assertions.assertEquals(
-        intent.getSchema().asStruct(),
-        reloaded.getSchema().asStruct(),
-        "a fresh load must report the submitted schema after changing " + changedField);
+        String.valueOf(result.getLastModifiedTime()),
+        persisted.properties().get(getCanonicalFieldName("lastModifiedTime")),
+        "the reported time is the persisted one after changing " + changedField);
   }
 
   private static Map<String, String> submittedByDialect(ViewCommitIntent intent) {
@@ -897,18 +898,6 @@ public class ViewCommitEngineCommitTest {
                   byDialect.put(sql.dialect(), sql.sql()),
                   "a dialect must not be persisted twice: " + sql.dialect());
             });
-    return byDialect;
-  }
-
-  private static Map<String, String> loadedByDialect(LoadedView loaded) {
-    Map<String, String> byDialect = new LinkedHashMap<>();
-    loaded
-        .getRepresentations()
-        .forEach(
-            representation ->
-                Assertions.assertNull(
-                    byDialect.put(representation.getDialect(), representation.getSql()),
-                    "a dialect must not be reported twice: " + representation.getDialect()));
     return byDialect;
   }
 
@@ -1652,38 +1641,47 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertEquals("a view", metadata.properties().get("comment"));
   }
 
+  /** The published file, parsed back, carries the whole submitted definition and identity. */
   @Test
-  void aCommittedViewLoadsBackWithTheSameDefinition() {
+  void aCommittedViewRoundTripsThroughTheParserWithTheSameDefinition() {
     ViewCommitResult created = createWithBothDialects();
-    ViewMetadata metadata = harness.readMetadata(created.getPointer().getMetadataLocation());
+    String publishedLocation =
+        harness.getHouseTableRepository().peek(DB, VIEW).get().getTableLocation();
+    Assertions.assertEquals(created.getPointer().getMetadataLocation(), publishedLocation);
 
-    LoadedView loaded = harness.newEngineInstance().loadView(DB, VIEW);
+    ViewMetadata metadata = harness.readMetadata(publishedLocation);
 
-    Assertions.assertEquals(created.getViewUuid(), loaded.getViewUuid());
+    Assertions.assertEquals(ViewTestFixtures.VIEW_UUID, created.getViewUuid());
+    Assertions.assertEquals(created.getViewUuid(), metadata.uuid());
+    Assertions.assertEquals(1, metadata.versions().size());
     Assertions.assertEquals(
-        created.getPointer().getMetadataLocation(), loaded.getPointer().getMetadataLocation());
-    Assertions.assertEquals(metadata.currentVersionId(), loaded.getCurrentVersionId());
-    Assertions.assertEquals(ViewTestFixtures.schemaV1().asStruct(), loaded.getSchema().asStruct());
-    Assertions.assertEquals("openhouse", loaded.getDefaultCatalog());
-    Assertions.assertEquals(Namespace.of(DB), loaded.getDefaultNamespace());
-    Assertions.assertEquals(ViewTestFixtures.SPARK_DIALECT, loaded.getSourceDialect());
+        metadata.currentVersionId(), metadata.history().get(0).versionId(), "one created version");
+    Assertions.assertEquals(ViewTestFixtures.schemaV1().asStruct(), metadata.schema().asStruct());
+    Assertions.assertEquals("openhouse", metadata.currentVersion().defaultCatalog());
+    Assertions.assertEquals(Namespace.of(DB), metadata.currentVersion().defaultNamespace());
+    Assertions.assertEquals(
+        ViewTestFixtures.SPARK_DIALECT,
+        metadata.currentVersion().summary().get(ViewTestFixtures.SOURCE_DIALECT_SUMMARY_KEY));
 
-    // The whole mapping, not its size: one dialect returned twice would otherwise pass.
+    // The whole mapping, not its size: one dialect persisted twice fails inside persistedByDialect.
     Map<String, String> submitted = new LinkedHashMap<>();
     ViewTestFixtures.sparkAndTrino(ViewTestFixtures.SQL_V1)
         .forEach(
             representation -> submitted.put(representation.getDialect(), representation.getSql()));
-    Assertions.assertEquals(submitted, loadedByDialect(loaded));
+    Assertions.assertEquals(submitted, persistedByDialect(metadata));
 
     Assertions.assertEquals(
         ViewTestFixtures.userProperties("a", "1").entrySet(),
-        loaded.getProperties().entrySet().stream()
+        metadata.properties().entrySet().stream()
             .filter(entry -> !entry.getKey().startsWith("openhouse."))
             .filter(entry -> !entry.getKey().startsWith("replace."))
             .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue))
             .entrySet(),
-        "the public model must carry exactly the user properties that were submitted");
-    Assertions.assertEquals(created.getLastModifiedTime(), loaded.getLastModifiedTime());
+        "the persisted file must carry exactly the user properties that were submitted");
+    Assertions.assertEquals(
+        String.valueOf(created.getLastModifiedTime()),
+        metadata.properties().get(getCanonicalFieldName("lastModifiedTime")),
+        "the reported time is the persisted one");
   }
 
   /**
@@ -2407,7 +2405,8 @@ public class ViewCommitEngineCommitTest {
     ViewCommitResult a =
         harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
     HouseTable base = captureNeutral();
-    Assertions.assertTrue(harness.getViewCommitEngine().dropView(DB, VIEW));
+    Assertions.assertTrue(
+        harness.getHouseTableRepository().deleteViewById(ViewTestFixtures.key(DB, VIEW)));
     int savesAfterDrop = harness.getHouseTableRepository().getSaveViewCalls();
     int readsAfterDrop = harness.readCalls();
     harness.clearEvents();
@@ -2437,7 +2436,8 @@ public class ViewCommitEngineCommitTest {
     ViewCommitResult a =
         harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
     HouseTable base = captureNeutral();
-    Assertions.assertTrue(harness.getViewCommitEngine().dropView(DB, VIEW));
+    Assertions.assertTrue(
+        harness.getHouseTableRepository().deleteViewById(ViewTestFixtures.key(DB, VIEW)));
 
     // A distinguishable C: its own identity, root, and definition, so "returned A" is not vacuous.
     harness

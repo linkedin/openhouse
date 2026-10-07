@@ -1,15 +1,21 @@
 package com.linkedin.openhouse.internal.catalog.view;
 
+import com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsConstant;
+import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
+import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -27,6 +33,90 @@ public class ViewCommitEngineLayerBoundaryTest {
       Arrays.asList(
           "com.linkedin.openhouse.cluster.storage.selector.StorageSelector",
           "com.linkedin.openhouse.cluster.storage.Storage");
+
+  /** Query and lifecycle operations the engine no longer owns; HTS access belongs above it. */
+  private static final List<String> RETIRED_OPERATIONS =
+      Arrays.asList("loadView", "listViews", "dropView", "renameView");
+
+  /** The contract is metadata publication only: exactly one operation, with this signature. */
+  @Test
+  void theEngineContractDeclaresOnlyTheCommitOperation() {
+    List<Method> operations =
+        Arrays.stream(ViewCommitEngine.class.getMethods())
+            .filter(method -> !method.isSynthetic())
+            .collect(Collectors.toList());
+    Assertions.assertEquals(
+        1, operations.size(), "the engine contract must expose only commit: " + operations);
+    assertIsTheCommitSignature(operations.get(0));
+  }
+
+  @Test
+  void theEngineImplementationExposesOnlyTheCommitOperation() {
+    List<Method> publicMethods =
+        Arrays.stream(ViewCommitEngineImpl.class.getDeclaredMethods())
+            .filter(method -> !method.isSynthetic())
+            .filter(method -> Modifier.isPublic(method.getModifiers()))
+            .collect(Collectors.toList());
+    Assertions.assertEquals(
+        1,
+        publicMethods.size(),
+        "the engine implementation must expose only commit: " + publicMethods);
+    assertIsTheCommitSignature(publicMethods.get(0));
+  }
+
+  /** Any visibility: a retired operation kept as a private helper is still a second owner. */
+  @Test
+  void theRetiredOperationsAreAbsentFromTheContractAndTheImplementation() {
+    for (Class<?> type : Arrays.asList(ViewCommitEngine.class, ViewCommitEngineImpl.class)) {
+      List<String> present =
+          Arrays.stream(type.getDeclaredMethods())
+              .map(Method::getName)
+              .filter(RETIRED_OPERATIONS::contains)
+              .distinct()
+              .collect(Collectors.toList());
+      Assertions.assertTrue(
+          present.isEmpty(), type.getSimpleName() + " must not declare " + present);
+    }
+  }
+
+  /** The three retained view timers prove the field scan sees the class it inspects. */
+  @Test
+  void theRetiredViewLoadTimerConstantIsGoneAndTheThreeViewTimersRemain() throws Exception {
+    List<String> fieldNames =
+        Arrays.stream(InternalCatalogMetricsConstant.class.getDeclaredFields())
+            .map(Field::getName)
+            .collect(Collectors.toList());
+    Assertions.assertFalse(
+        fieldNames.contains("VIEW_LOAD_LATENCY"),
+        "the engine no longer loads views, so it owns no load timer: " + fieldNames);
+    Assertions.assertEquals(
+        "view_commit_latency",
+        InternalCatalogMetricsConstant.class.getField("VIEW_COMMIT_LATENCY").get(null));
+    Assertions.assertEquals(
+        "view_metadata_retrieval_latency",
+        InternalCatalogMetricsConstant.class.getField("VIEW_METADATA_RETRIEVAL_LATENCY").get(null));
+    Assertions.assertEquals(
+        "view_metadata_update_latency",
+        InternalCatalogMetricsConstant.class.getField("VIEW_METADATA_UPDATE_LATENCY").get(null));
+    for (Field field : InternalCatalogMetricsConstant.class.getDeclaredFields()) {
+      if (Modifier.isStatic(field.getModifiers()) && field.getType() == String.class) {
+        field.setAccessible(true);
+        Assertions.assertNotEquals(
+            "view_load_latency",
+            field.get(null),
+            field.getName() + " must not reintroduce the retired load timer under another name");
+      }
+    }
+  }
+
+  private static void assertIsTheCommitSignature(Method method) {
+    Assertions.assertEquals("commit", method.getName(), method.toString());
+    Assertions.assertEquals(
+        Arrays.asList(ViewCommitIntent.class),
+        Arrays.asList(method.getParameterTypes()),
+        method.toString());
+    Assertions.assertEquals(ViewCommitResult.class, method.getReturnType(), method.toString());
+  }
 
   @Test
   void theEngineDeclaresNoStorageSelectionOrAllocationCollaborator() {

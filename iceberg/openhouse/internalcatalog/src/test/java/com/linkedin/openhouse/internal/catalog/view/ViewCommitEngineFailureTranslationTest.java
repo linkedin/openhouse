@@ -178,20 +178,6 @@ public class ViewCommitEngineFailureTranslationTest {
     assertNothingHappenedAfterThePublishAttempt();
   }
 
-  @Test
-  void ambiguousDropBecomesCommitStateUnknown() {
-    harness.getHouseTableRepository().seed(ViewTestFixtures.viewRow("/loc/00001-a.metadata.json"));
-    harness.getHouseTableRepository().failNextDeleteViewWith(unknownState());
-
-    Assertions.assertThrows(
-        CommitStateUnknownException.class, () -> harness.getViewCommitEngine().dropView(DB, VIEW));
-
-    Assertions.assertEquals(
-        1,
-        harness.getHouseTableRepository().getDeleteViewByIdCalls(),
-        "an ambiguous delete must not be retried");
-  }
-
   /**
    * A commit works from the captured snapshot, so it never reaches the neutral reader: an armed
    * read failure is left un-consumed. Upstream, a failed lookup propagates to the caller instead.

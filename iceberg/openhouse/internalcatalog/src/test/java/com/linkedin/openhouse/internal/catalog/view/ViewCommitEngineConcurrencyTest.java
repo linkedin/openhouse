@@ -1,12 +1,12 @@
 package com.linkedin.openhouse.internal.catalog.view;
 
+import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.getCanonicalFieldName;
 import static com.linkedin.openhouse.internal.catalog.view.ViewTestFixtures.DB;
 import static com.linkedin.openhouse.internal.catalog.view.ViewTestFixtures.VIEW;
 
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
-import com.linkedin.openhouse.internal.catalog.view.model.LoadedView;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
 import java.nio.file.Path;
@@ -23,8 +23,12 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.CommitFailedException;
+import org.apache.iceberg.view.SQLViewRepresentation;
+import org.apache.iceberg.view.ViewMetadata;
+import org.apache.iceberg.view.ViewRepresentation;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -246,10 +250,24 @@ public class ViewCommitEngineConcurrencyTest {
     Assertions.assertEquals(
         outcome.success().getPointer().getMetadataLocation(), pointer.getTableLocation());
 
-    LoadedView reloaded = harness.newEngineInstance().loadView(DB, VIEW);
+    // The published file is the winner's: its definition, the captured identity, its time.
+    ViewMetadata published = harness.readMetadata(pointer.getTableLocation());
+    Assertions.assertEquals(ViewTestFixtures.VIEW_UUID, published.uuid());
+    Assertions.assertEquals(outcome.success().getViewUuid(), published.uuid());
     Assertions.assertEquals(
-        outcome.success().getPointer().getMetadataLocation(),
-        reloaded.getPointer().getMetadataLocation());
+        String.valueOf(outcome.success().getLastModifiedTime()),
+        published.properties().get(getCanonicalFieldName("lastModifiedTime")));
+    String publishedSql = soleSparkSql(published);
+    List<ViewCommitIntent> winners =
+        Stream.of(left, right)
+            .filter(intent -> intent.getRepresentations().get(0).getSql().equals(publishedSql))
+            .collect(Collectors.toList());
+    Assertions.assertEquals(
+        1, winners.size(), "the published SQL belongs to exactly one racer: " + publishedSql);
+    Assertions.assertEquals(
+        winners.get(0).getSchema().asStruct(),
+        published.schema().asStruct(),
+        "the published schema belongs to the same racer as its SQL");
   }
 
   /** No pre-write compare any more: the loser writes its candidate, then loses at the swap. */
@@ -313,9 +331,23 @@ public class ViewCommitEngineConcurrencyTest {
         pointerNow,
         "the losing attempt must not have altered the pointer row in any way");
 
-    // A fresh engine resolves the winner's version.
-    LoadedView reloaded = harness.newEngineInstance().loadView(DB, VIEW);
-    Assertions.assertEquals(winnerPath, reloaded.getPointer().getMetadataLocation());
+    // The published file carries the winner's definition and identity, never the loser's.
+    ViewMetadata published = harness.readMetadata(pointerNow.getTableLocation());
+    Assertions.assertEquals(interloper.get().getViewUuid(), published.uuid());
+    Assertions.assertEquals(
+        String.valueOf(interloper.get().getLastModifiedTime()),
+        published.properties().get(getCanonicalFieldName("lastModifiedTime")));
+    Assertions.assertEquals(ViewTestFixtures.SQL_V2, soleSparkSql(published));
+    Assertions.assertEquals(interloperIntent.getSchema().asStruct(), published.schema().asStruct());
+  }
+
+  /** The SQL of the single Spark representation; any other shape fails rather than guessing. */
+  private static String soleSparkSql(ViewMetadata metadata) {
+    List<ViewRepresentation> representations = metadata.currentVersion().representations();
+    Assertions.assertEquals(1, representations.size(), "one representation: " + representations);
+    SQLViewRepresentation sql = (SQLViewRepresentation) representations.get(0);
+    Assertions.assertEquals(ViewTestFixtures.SPARK_DIALECT, sql.dialect());
+    return sql.sql();
   }
 
   /** A create that captured absence loses at the swap when a VIEW takes the name before entry. */
@@ -390,7 +422,8 @@ public class ViewCommitEngineConcurrencyTest {
     ViewCommitIntent loser = changedReplaceIntentOf(base);
 
     // The base is deleted before the measured commit even begins.
-    Assertions.assertTrue(harness.getViewCommitEngine().dropView(DB, VIEW));
+    Assertions.assertTrue(
+        harness.getHouseTableRepository().deleteViewById(ViewTestFixtures.key(DB, VIEW)));
     int filesBeforeCommit = harness.metadataFiles().size();
     int readsBeforeCommit = harness.readCalls();
     harness.clearEvents();
@@ -414,7 +447,8 @@ public class ViewCommitEngineConcurrencyTest {
     ViewCommitIntent loser = changedReplaceIntentOf(base);
 
     // Deleted and a distinct C recreated before the measured commit even begins.
-    Assertions.assertTrue(harness.getViewCommitEngine().dropView(DB, VIEW));
+    Assertions.assertTrue(
+        harness.getHouseTableRepository().deleteViewById(ViewTestFixtures.key(DB, VIEW)));
     harness
         .getViewCommitEngine()
         .commit(
