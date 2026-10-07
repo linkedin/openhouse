@@ -21,7 +21,5 @@ task clientCodeGen(type: Exec, dependsOn: ["$serviceName:openApiOutput", ":clien
   outputs.dir(generatedCodeDir)
 }
 
-project.compileJava {
-  dependsOn "${project.path}:clientCodeGen"
-  sourceSets.main.java { srcDir  "$generatedCodeDir/src/main/java" }
-}
+// builtBy gives every reader of the main source set (compileJava, sourcesJar) the dependency on clientCodeGen.
+sourceSets.main.java.srcDir(files("$generatedCodeDir/src/main/java").builtBy(clientCodeGen))
