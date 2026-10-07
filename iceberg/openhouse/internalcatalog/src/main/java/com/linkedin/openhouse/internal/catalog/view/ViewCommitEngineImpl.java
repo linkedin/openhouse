@@ -84,42 +84,43 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
 
   @Override
   public ViewCommitResult commit(ViewCommitIntent intent) {
-    return metricsReporter.executeWithStats(
-        () -> {
-          requireCreateFlag(intent);
-          rejectServerOwnedProperties(intent);
-          rejectDuplicateDialects(intent);
-          return intent.getIsCreate() ? create(intent) : replace(intent);
-        },
-        VIEW_COMMIT_LATENCY);
+    return metricsReporter.executeWithStats(() -> commitInternal(intent), VIEW_COMMIT_LATENCY);
+  }
+
+  private ViewCommitResult commitInternal(ViewCommitIntent intent) {
+    requireCreateFlag(intent);
+    rejectServerOwnedProperties(intent);
+    rejectDuplicateDialects(intent);
+    return intent.getIsCreate() ? create(intent) : replace(intent);
   }
 
   @Override
   public LoadedView loadView(String databaseId, String viewId) {
     return metricsReporter.executeWithStats(
-        () -> {
-          HouseTable row = loadRequiredViewRow(databaseId, viewId);
-          FileIO fileIO = fileIOManager.getFileIO(storageType.fromString(row.getStorageType()));
-          ViewMetadata metadata =
-              metricsReporter.executeWithStats(
-                  () -> viewMetadataCodec.read(fileIO.newInputFile(row.getTableLocation())),
-                  VIEW_METADATA_RETRIEVAL_LATENCY);
-          ViewVersion version = metadata.currentVersion();
+        () -> loadViewInternal(databaseId, viewId), VIEW_LOAD_LATENCY);
+  }
 
-          return LoadedView.builder()
-              .pointer(toViewPointer(row))
-              .viewUuid(metadata.uuid())
-              .schema(metadata.schema())
-              .representations(toRepresentationIntents(version))
-              .sourceDialect(version.summary().get(SOURCE_DIALECT_SUMMARY_KEY))
-              .defaultCatalog(version.defaultCatalog())
-              .defaultNamespace(version.defaultNamespace())
-              .properties(metadata.properties())
-              .lastModifiedTime(readLongProperty(metadata, "lastModifiedTime"))
-              .currentVersionId(metadata.currentVersionId())
-              .build();
-        },
-        VIEW_LOAD_LATENCY);
+  private LoadedView loadViewInternal(String databaseId, String viewId) {
+    HouseTable row = loadRequiredViewRow(databaseId, viewId);
+    FileIO fileIO = fileIOManager.getFileIO(storageType.fromString(row.getStorageType()));
+    ViewMetadata metadata =
+        metricsReporter.executeWithStats(
+            () -> viewMetadataCodec.read(fileIO.newInputFile(row.getTableLocation())),
+            VIEW_METADATA_RETRIEVAL_LATENCY);
+    ViewVersion version = metadata.currentVersion();
+
+    return LoadedView.builder()
+        .pointer(toViewPointer(row))
+        .viewUuid(metadata.uuid())
+        .schema(metadata.schema())
+        .representations(toRepresentationIntents(version))
+        .sourceDialect(version.summary().get(SOURCE_DIALECT_SUMMARY_KEY))
+        .defaultCatalog(version.defaultCatalog())
+        .defaultNamespace(version.defaultNamespace())
+        .properties(metadata.properties())
+        .lastModifiedTime(readLongProperty(metadata, "lastModifiedTime"))
+        .currentVersionId(metadata.currentVersionId())
+        .build();
   }
 
   @Override
