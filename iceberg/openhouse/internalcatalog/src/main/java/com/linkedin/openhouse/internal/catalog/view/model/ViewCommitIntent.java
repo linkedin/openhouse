@@ -10,7 +10,12 @@ import lombok.ToString;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Namespace;
 
-/** Version-neutral inputs. UUID, root, and storage are required on CREATE, ignored on REPLACE. */
+/**
+ * Version-neutral inputs to {@link
+ * com.linkedin.openhouse.internal.catalog.view.ViewCommitEngine#commit(ViewCommitIntent)} only.
+ * UUID, root, and storage are required on CREATE, ignored on REPLACE. Source dialect is required on
+ * CREATE and must exactly match the stored source dialect on REPLACE.
+ */
 @Builder(toBuilder = true)
 @Getter
 @EqualsAndHashCode
