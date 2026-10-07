@@ -1,7 +1,11 @@
 package com.linkedin.openhouse.optimizer.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.verify;
 
+import com.linkedin.openhouse.optimizer.analyzer.AnalyzerRunner;
 import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
 import com.linkedin.openhouse.optimizer.db.TableStatsHistoryRow;
 import com.linkedin.openhouse.optimizer.model.HistoryStatusDto;
@@ -20,6 +24,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +38,9 @@ class OptimizerDataServiceImplTest {
   @Autowired TableOperationsRepository operationsRepository;
   @Autowired TableStatsRepository statsRepository;
   @Autowired TableStatsHistoryRepository statsHistoryRepository;
+
+  // Replace the real analyzer so the trigger is observable and no analysis runs during these tests.
+  @MockBean AnalyzerRunner analyzerRunner;
 
   // --- updateOperation ---
 
@@ -95,6 +103,34 @@ class OptimizerDataServiceImplTest {
         .containsEntry("maintenance.optimizer.ofd.enabled", "true");
     assertThat(result.getUpdatedAt()).isNotNull();
     assertThat(statsRepository.findById(tableUuid)).isPresent();
+  }
+
+  @Test
+  void upsertTableStats_triggersCommitDrivenAnalysis() {
+    String tableUuid = UUID.randomUUID().toString();
+    TableStatsDto input =
+        TableStatsDto.builder()
+            .tableUuid(tableUuid)
+            .databaseName("db1")
+            .tableName("tbl1")
+            .snapshot(TableStatsDto.SnapshotMetrics.builder().tableSizeBytes(1L).build())
+            .build();
+
+    service.upsertTableStats(input);
+
+    // Trigger is fire-and-forget on a bounded-elastic worker; await the async invocation. The
+    // analyzer receives an AnalyzeRequest carrying the in-memory table (no table_stats re-read).
+    verify(analyzerRunner, timeout(5000))
+        .analyze(
+            argThat(
+                req ->
+                    req.getTable()
+                        .map(
+                            t ->
+                                tableUuid.equals(t.getTableUuid())
+                                    && "db1".equals(t.getDatabaseName())
+                                    && "tbl1".equals(t.getTableId()))
+                        .orElse(false)));
   }
 
   @Test

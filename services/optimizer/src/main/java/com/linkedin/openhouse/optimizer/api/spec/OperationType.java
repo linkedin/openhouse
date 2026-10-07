@@ -3,7 +3,10 @@ package com.linkedin.openhouse.optimizer.api.spec;
 /** Maintenance operation types supported by the continuous optimizer. */
 public enum OperationType {
   /** Removes orphaned data files no longer referenced by table metadata. */
-  ORPHAN_FILES_DELETION;
+  ORPHAN_FILES_DELETION,
+
+  /** Collects per-table snapshot/size statistics used to drive optimizer decisions. */
+  TABLE_STATS_COLLECTION;
 
   /** Convert to the internal-model counterpart. */
   public com.linkedin.openhouse.optimizer.model.OperationTypeDto toModel() {

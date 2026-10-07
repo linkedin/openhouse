@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.optimizer.analyzer;
 
-import java.util.List;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -19,11 +18,12 @@ public class AnalyzerApplication {
   }
 
   /**
-   * Runs the analyzer once per registered {@link OperationAnalyzer} per process invocation. Each
-   * call is scoped to one operation type; the runner iterates databases internally.
+   * Runs a full scan across all registered analyzers and databases once per process invocation. An
+   * empty {@link AnalyzeRequest} is the "analyze everything enabled" filter; the runner selects the
+   * analyzers and iterates databases internally.
    */
   @Bean
-  public CommandLineRunner run(AnalyzerRunner runner, List<OperationAnalyzer> analyzers) {
-    return args -> analyzers.forEach(a -> runner.analyze(a.getOperationType()));
+  public CommandLineRunner run(AnalyzerRunner runner) {
+    return args -> runner.analyze(AnalyzeRequest.builder().build());
   }
 }

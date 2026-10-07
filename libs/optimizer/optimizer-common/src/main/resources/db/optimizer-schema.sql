@@ -12,8 +12,9 @@ CREATE TABLE IF NOT EXISTS table_operations (
   job_id         VARCHAR(255),
   -- TODO: per-operation metric columns will be added as operations are onboarded.
   PRIMARY KEY (id),
-  -- Analyzer commit-driven path (loadCurrentOps): localizes "active ops for this table" and
-  -- "latest active op by type" to one table's handful of rows instead of scanning the queue.
+  -- Localizes the commit-driven active-op lookup (AnalyzerRunner.loadCurrentOpsForTable) to one
+  -- table's handful of rows, and answers "latest active op by type" for that table, instead of
+  -- scanning the whole active queue on every commit.
   INDEX idx_to_table_uuid_optype (table_uuid, operation_type),
   -- Scheduler claim (find PENDING by type) and the daily full scan (filter by operation_type).
   INDEX idx_to_optype_status (operation_type, status)

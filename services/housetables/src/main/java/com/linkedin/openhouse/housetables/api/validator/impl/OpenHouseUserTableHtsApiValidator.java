@@ -9,7 +9,6 @@ import com.linkedin.openhouse.housetables.api.spec.model.UserTableKey;
 import com.linkedin.openhouse.housetables.api.validator.HouseTablesApiValidator;
 import java.util.ArrayList;
 import java.util.List;
-import javax.validation.ConstraintViolation;
 import javax.validation.Validator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -70,10 +69,7 @@ public class OpenHouseUserTableHtsApiValidator
   public void validatePutEntity(UserTable userTable) {
     List<String> validationFailures = new ArrayList<>();
 
-    for (ConstraintViolation<UserTable> violation : validator.validate(userTable)) {
-      validationFailures.add(
-          String.format("%s : %s", ApiValidatorUtil.getField(violation), violation.getMessage()));
-    }
+    ApiValidatorUtil.collectViolations(validator, userTable, validationFailures);
 
     if (!validationFailures.isEmpty()) {
       throw new RequestValidationFailureException(validationFailures);
