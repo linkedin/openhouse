@@ -43,9 +43,8 @@ case class OpenhouseDataSourceV2Strategy(spark: SparkSession) extends Strategy w
             try {
               catalog.loadTable(identifier.identifier)
             } catch {
-              case _: org.apache.iceberg.exceptions.NoSuchTableException if ifExists => return Nil
-              case _: org.apache.spark.sql.catalyst.analysis.NoSuchTableException if ifExists =>
-                return Nil
+              case _: org.apache.iceberg.exceptions.NoSuchTableException => return Nil
+              case _: org.apache.spark.sql.catalyst.analysis.NoSuchTableException => return Nil
             }
           val destinations =
             ReplicationDdlForwarder.replicationDestinations(table.properties())
