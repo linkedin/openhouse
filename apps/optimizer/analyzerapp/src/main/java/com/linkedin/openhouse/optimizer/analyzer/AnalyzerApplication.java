@@ -62,9 +62,7 @@ public class AnalyzerApplication implements CommandLineRunner, ExitCodeGenerator
     for (OperationAnalyzer analyzer : analyzers) {
       try {
         runner.analyze(
-            AnalyzeRequest.builder()
-                .operationTypes(Set.of(analyzer.getOperationType()))
-                .build());
+            AnalyzeRequest.builder().operationTypes(Set.of(analyzer.getOperationType())).build());
       } catch (Exception e) {
         log.error("Analyzer failed for operation type {}", analyzer.getOperationType(), e);
         exitCode = 1;
