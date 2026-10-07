@@ -8,6 +8,9 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Optional;
 import org.springframework.context.ApplicationContext;
 import org.testcontainers.containers.MySQLContainer;
 
@@ -91,6 +94,7 @@ public class TableE2eFixtures {
           .get()
           .getEntityType();
     }
+
     try (Connection connection = mysql.createConnection("");
         PreparedStatement statement =
             connection.prepareStatement(
@@ -105,6 +109,34 @@ public class TableE2eFixtures {
       }
     } catch (SQLException exception) {
       throw new IllegalStateException(exception);
+    }
+  }
+
+  /** Reads the physical row independently of HTS and the catalog's response mapping. */
+  public Optional<Map<String, Object>> persistedEntity(String databaseId, String tableId) {
+    if (!usesDocker()) {
+      throw new IllegalStateException("Physical persistence assertions require Docker MySQL");
+    }
+    try (Connection connection = mysql.createConnection("");
+        PreparedStatement statement =
+            connection.prepareStatement(
+                "SELECT database_id,table_id,entity_type,metadata_location,table_version,"
+                    + "version,storage_type,creation_time,ETL_TS FROM user_table_row "
+                    + "WHERE database_id=? AND table_id=?")) {
+      statement.setString(1, databaseId);
+      statement.setString(2, tableId);
+      try (ResultSet rows = statement.executeQuery()) {
+        if (!rows.next()) {
+          return Optional.empty();
+        }
+        Map<String, Object> row = new LinkedHashMap<>();
+        for (int column = 1; column <= rows.getMetaData().getColumnCount(); column++) {
+          row.put(rows.getMetaData().getColumnLabel(column), rows.getObject(column));
+        }
+        return Optional.of(row);
+      }
+    } catch (SQLException exception) {
+      throw new IllegalStateException("Cannot read physical HTS persistence", exception);
     }
   }
 
