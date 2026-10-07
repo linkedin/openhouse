@@ -9,7 +9,11 @@ import lombok.ToString;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Namespace;
 
-/** The complete definition of a published view, as parsed back out of its metadata file. */
+/**
+ * The complete definition of a published view, as parsed back out of its metadata file.
+ *
+ * <p>TODO: Reserved for the future views repository's load path.
+ */
 @Builder(toBuilder = true)
 @Getter
 @EqualsAndHashCode

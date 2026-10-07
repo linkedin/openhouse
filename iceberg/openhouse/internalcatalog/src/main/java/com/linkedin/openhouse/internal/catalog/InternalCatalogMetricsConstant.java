@@ -19,7 +19,6 @@ public final class InternalCatalogMetricsConstant {
   static final String METADATA_UPDATE_LATENCY = "metadata_update_latency";
   static final String METADATA_RETRIEVAL_LATENCY = "metadata_retrieval_latency";
 
-  public static final String VIEW_LOAD_LATENCY = "view_load_latency";
   public static final String VIEW_COMMIT_LATENCY = "view_commit_latency";
   public static final String VIEW_METADATA_RETRIEVAL_LATENCY = "view_metadata_retrieval_latency";
   public static final String VIEW_METADATA_UPDATE_LATENCY = "view_metadata_update_latency";

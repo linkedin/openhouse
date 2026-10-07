@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.internal.catalog.view;
 
 import static com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsConstant.VIEW_COMMIT_LATENCY;
-import static com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsConstant.VIEW_LOAD_LATENCY;
 import static com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsConstant.VIEW_METADATA_RETRIEVAL_LATENCY;
 import static com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsConstant.VIEW_METADATA_UPDATE_LATENCY;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.getCanonicalFieldName;
@@ -12,11 +11,9 @@ import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
-import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
-import com.linkedin.openhouse.internal.catalog.view.model.LoadedView;
 import com.linkedin.openhouse.internal.catalog.view.model.SqlViewRepresentationIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
@@ -51,8 +48,6 @@ import org.apache.iceberg.view.ViewMetadata;
 import org.apache.iceberg.view.ViewProperties;
 import org.apache.iceberg.view.ViewRepresentation;
 import org.apache.iceberg.view.ViewVersion;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 
 /**
  * Iceberg-1.5 implementation of {@link ViewCommitEngine}: build metadata, write the file, then one
@@ -92,57 +87,6 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     rejectServerOwnedProperties(intent);
     rejectDuplicateDialects(intent);
     return intent.getIsCreate() ? create(intent) : replace(intent);
-  }
-
-  @Override
-  public LoadedView loadView(String databaseId, String viewId) {
-    return metricsReporter.executeWithStats(
-        () -> loadViewInternal(databaseId, viewId), VIEW_LOAD_LATENCY);
-  }
-
-  private LoadedView loadViewInternal(String databaseId, String viewId) {
-    HouseTable row = loadRequiredViewRow(databaseId, viewId);
-    FileIO fileIO = fileIOManager.getFileIO(storageType.fromString(row.getStorageType()));
-    ViewMetadata metadata =
-        metricsReporter.executeWithStats(
-            () -> viewMetadataCodec.read(fileIO.newInputFile(row.getTableLocation())),
-            VIEW_METADATA_RETRIEVAL_LATENCY);
-    ViewVersion version = metadata.currentVersion();
-
-    return LoadedView.builder()
-        .pointer(toViewPointer(row))
-        .viewUuid(metadata.uuid())
-        .schema(metadata.schema())
-        .representations(toRepresentationIntents(version))
-        .sourceDialect(version.summary().get(SOURCE_DIALECT_SUMMARY_KEY))
-        .defaultCatalog(version.defaultCatalog())
-        .defaultNamespace(version.defaultNamespace())
-        .properties(metadata.properties())
-        .lastModifiedTime(readLongProperty(metadata, "lastModifiedTime"))
-        .currentVersionId(metadata.currentVersionId())
-        .build();
-  }
-
-  @Override
-  public Page<ViewPointer> listViews(String databaseId, Pageable pageable) {
-    return houseTableRepository
-        .findAllViewsByDatabaseId(databaseId, pageable)
-        .map(ViewCommitEngineImpl::toViewPointer);
-  }
-
-  @Override
-  public boolean dropView(String databaseId, String viewId) {
-    try {
-      return houseTableRepository.deleteViewById(buildPrimaryKey(databaseId, viewId));
-    } catch (HouseTableRepositoryStateUnknownException e) {
-      throw new CommitStateUnknownException(e);
-    }
-  }
-
-  @Override
-  public void renameView(String databaseId, String fromViewId, String toViewId) {
-    throw new UnsupportedOperationException(
-        "Renaming a view is not supported: " + databaseId + "." + fromViewId);
   }
 
   private void rejectServerOwnedProperties(ViewCommitIntent intent) {
@@ -466,13 +410,6 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         "%s/%05d-%s%s", viewLocation, version, UUID.randomUUID(), METADATA_FILE_EXTENSION);
   }
 
-  private HouseTable loadRequiredViewRow(String databaseId, String viewId) {
-    return houseTableRepository
-        .findViewById(buildPrimaryKey(databaseId, viewId))
-        .orElseThrow(
-            () -> new NoSuchViewException("View does not exist: %s.%s", databaseId, viewId));
-  }
-
   private static ViewPointer toViewPointer(HouseTable row) {
     return ViewPointer.builder()
         .databaseId(row.getDatabaseId())
@@ -530,25 +467,9 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return dialect + '\u0000' + sql;
   }
 
-  private static List<SqlViewRepresentationIntent> toRepresentationIntents(ViewVersion version) {
-    List<SqlViewRepresentationIntent> representations = new ArrayList<>();
-    for (ViewRepresentation representation : version.representations()) {
-      if (representation instanceof SQLViewRepresentation) {
-        SQLViewRepresentation sql = (SQLViewRepresentation) representation;
-        representations.add(
-            SqlViewRepresentationIntent.builder().sql(sql.sql()).dialect(sql.dialect()).build());
-      }
-    }
-    return representations;
-  }
-
   private static long readLongProperty(ViewMetadata metadata, String htsField) {
     String value = metadata.properties().get(getCanonicalFieldName(htsField));
     return value == null ? 0L : Long.parseLong(value);
-  }
-
-  private static HouseTablePrimaryKey buildPrimaryKey(String databaseId, String viewId) {
-    return HouseTablePrimaryKey.builder().databaseId(databaseId).tableId(viewId).build();
   }
 
   private static Namespace normalizeNamespace(Namespace defaultNamespace) {

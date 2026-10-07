@@ -76,17 +76,29 @@ public interface HouseTableRepository
    * qualify. Declared on the implementation too, so either proxy strategy sees it.
    */
 
-  /** Resolves only VIEW rows; a table at the same key reads as absent. */
+  /**
+   * Resolves only VIEW rows; a table at the same key reads as absent.
+   *
+   * <p>TODO: No production caller yet; intended for the future views repository's load path.
+   */
   Optional<HouseTable> findViewById(HouseTablePrimaryKey houseTablePrimaryKey)
       throws IllegalStateException;
 
-  /** Lists VIEW rows only; one non-view row fails the page rather than being dropped from it. */
+  /**
+   * Lists VIEW rows only; one non-view row fails the page rather than being dropped from it.
+   *
+   * <p>TODO: No production caller yet; intended for the future views repository's list path.
+   */
   Page<HouseTable> findAllViewsByDatabaseId(String databaseId, Pageable pageable)
       throws IllegalStateException;
 
   /** One attempt, never retried: an ambiguous outcome must not become a double write. */
   HouseTable saveView(HouseTable houseTable);
 
-  /** Hard delete, one attempt; false when the key is absent or holds a non-view. */
+  /**
+   * Hard delete, one attempt; false when the key is absent or holds a non-view.
+   *
+   * <p>TODO: No production caller yet; intended for the future views repository's drop path.
+   */
   boolean deleteViewById(HouseTablePrimaryKey houseTablePrimaryKey);
 }
