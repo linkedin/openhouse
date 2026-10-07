@@ -50,12 +50,13 @@ public class ViewCommitEngineLayerBoundaryTest {
     assertIsTheCommitSignature(operations.get(0));
   }
 
+  /** Public methods including inherited ones, so a superclass or extra interface cannot leak. */
   @Test
   void theEngineImplementationExposesOnlyTheCommitOperation() {
     List<Method> publicMethods =
-        Arrays.stream(ViewCommitEngineImpl.class.getDeclaredMethods())
+        Arrays.stream(ViewCommitEngineImpl.class.getMethods())
             .filter(method -> !method.isSynthetic())
-            .filter(method -> Modifier.isPublic(method.getModifiers()))
+            .filter(method -> method.getDeclaringClass() != Object.class)
             .collect(Collectors.toList());
     Assertions.assertEquals(
         1,
