@@ -45,6 +45,12 @@ to call out the issue it is addressing. If there is no issue, please create one 
 
 Please refer to our [Pull Request Template](.github/pull_request_template.md) for our policy on what we expect.
 
+### Views end-to-end tests
+
+See [Views Docker end-to-end tests](docs/development/views-docker-e2e.md) for the
+real Tables REST -> Docker HTS -> Docker MySQL suite, its run command, coverage,
+and distinction from supporting H2 tests.
+
 ### Types of Contributions
 
 [1] Bug Fixes (#bug): Create a new issue with a tag `bug` and add details like show [here](.github/ISSUE_TEMPLATE/bug_report_template.yaml). 
