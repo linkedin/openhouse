@@ -1,7 +1,5 @@
 package com.linkedin.openhouse.optimizer.analyzer;
 
-import java.util.List;
-import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
@@ -13,9 +11,9 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 
 /**
  * Entry point for the Optimizer Analyzer application — the scheduled (k8s CronJob) execution mode
- * that runs a full-database scan per registered {@link OperationAnalyzer}. The complementary
- * commit-driven mode runs inside the Optimizer Service (per-table, triggered on stats upsert) and
- * does not go through this app.
+ * that runs a full-database scan across all registered analyzers. The complementary commit-driven
+ * mode runs inside the Optimizer Service (per-table, triggered on stats upsert) and does not go
+ * through this app.
  *
  * <p>Spring Batch–style, mirroring {@code SchedulerApplication} implements {@link
  * CommandLineRunner} so the work runs after context startup, and {@link ExitCodeGenerator} so the
@@ -23,9 +21,9 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
  * (triggers {@code @PreDestroy} hooks, drains the JPA pool, etc.) so the CronJob pod terminates
  * cleanly with a status reflecting reality.
  *
- * <p>Unlike the scheduler, analyzers are isolated: a failure in one operation type's full scan is
- * logged and the remaining analyzers still run, but the batch still exits non-zero so the CronJob
- * surfaces the failure.
+ * <p>The run issues a single empty-filter {@link AnalyzeRequest} ("analyze everything enabled"), so
+ * the runner resolves the database set once and iterates all analyzers internally. Any failure
+ * surfaces as a non-zero exit code after the context shuts down cleanly.
  */
 @Slf4j
 @SpringBootApplication
@@ -34,13 +32,11 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 public class AnalyzerApplication implements CommandLineRunner, ExitCodeGenerator {
 
   private final AnalyzerRunner runner;
-  private final List<OperationAnalyzer> analyzers;
   private int exitCode = 0;
 
   @Autowired
-  public AnalyzerApplication(AnalyzerRunner runner, List<OperationAnalyzer> analyzers) {
+  public AnalyzerApplication(AnalyzerRunner runner) {
     this.runner = runner;
-    this.analyzers = analyzers;
   }
 
   public static void main(String[] args) {
@@ -48,27 +44,21 @@ public class AnalyzerApplication implements CommandLineRunner, ExitCodeGenerator
   }
 
   /**
-   * Runs the analyzer once per registered {@link OperationAnalyzer} per process invocation. Each
-   * call is scoped to one operation type via an {@link AnalyzeRequest} filter; the runner iterates
-   * databases internally. A failure in one analyzer is logged and does not abort the others, but
-   * sets a non-zero exit code that surfaces after the context is shut down cleanly via {@link
-   * #getExitCode()}.
+   * Runs a full scan across all registered analyzers and databases once per process invocation. An
+   * empty {@link AnalyzeRequest} is the "analyze everything enabled" filter; the runner selects the
+   * analyzers and iterates databases internally. A failure is logged and sets a non-zero exit code
+   * that surfaces after the context is shut down cleanly via {@link #getExitCode()}.
    */
   @Override
   public void run(String... args) {
-    log.info(
-        "Analyzer starting; operation types: {}",
-        analyzers.stream().map(OperationAnalyzer::getOperationType).toList());
-    for (OperationAnalyzer analyzer : analyzers) {
-      try {
-        runner.analyze(
-            AnalyzeRequest.builder().operationTypes(Set.of(analyzer.getOperationType())).build());
-      } catch (Exception e) {
-        log.error("Analyzer failed for operation type {}", analyzer.getOperationType(), e);
-        exitCode = 1;
-      }
+    log.info("Analyzer starting");
+    try {
+      runner.analyze(AnalyzeRequest.builder().build());
+      log.info("Analyzer completed successfully");
+    } catch (Exception e) {
+      log.error("Analyzer failed", e);
+      exitCode = 1;
     }
-    log.info("Analyzer completed with exit code {}", exitCode);
   }
 
   @Override
