@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -20,7 +21,9 @@ import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import com.linkedin.openhouse.internal.catalog.view.model.LoadedView;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewPointer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -62,7 +65,11 @@ public class ViewCommitEngineReadTest {
     storageType = mock(StorageType.class);
     viewCommitEngine =
         new ViewCommitEngineImpl(
-            houseTableRepository, fileIOManager, viewMetadataCodec, storageType);
+            houseTableRepository,
+            fileIOManager,
+            viewMetadataCodec,
+            storageType,
+            new MetricsReporter(new SimpleMeterRegistry(), "catalog", Collections.emptyList()));
   }
 
   @Test

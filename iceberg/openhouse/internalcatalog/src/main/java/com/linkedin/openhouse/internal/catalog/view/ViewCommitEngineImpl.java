@@ -1,7 +1,12 @@
 package com.linkedin.openhouse.internal.catalog.view;
 
+import static com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsConstant.VIEW_COMMIT_LATENCY;
+import static com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsConstant.VIEW_LOAD_LATENCY;
+import static com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsConstant.VIEW_METADATA_RETRIEVAL_LATENCY;
+import static com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsConstant.VIEW_METADATA_UPDATE_LATENCY;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.getCanonicalFieldName;
 
+import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
@@ -75,33 +80,46 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
 
   private final StorageType storageType;
 
+  private final MetricsReporter metricsReporter;
+
   @Override
   public ViewCommitResult commit(ViewCommitIntent intent) {
-    requireCreateFlag(intent);
-    rejectServerOwnedProperties(intent);
-    rejectDuplicateDialects(intent);
-    return intent.getIsCreate() ? create(intent) : replace(intent);
+    return metricsReporter.executeWithStats(
+        () -> {
+          requireCreateFlag(intent);
+          rejectServerOwnedProperties(intent);
+          rejectDuplicateDialects(intent);
+          return intent.getIsCreate() ? create(intent) : replace(intent);
+        },
+        VIEW_COMMIT_LATENCY);
   }
 
   @Override
   public LoadedView loadView(String databaseId, String viewId) {
-    HouseTable row = loadRequiredViewRow(databaseId, viewId);
-    FileIO fileIO = fileIOManager.getFileIO(storageType.fromString(row.getStorageType()));
-    ViewMetadata metadata = viewMetadataCodec.read(fileIO.newInputFile(row.getTableLocation()));
-    ViewVersion version = metadata.currentVersion();
+    return metricsReporter.executeWithStats(
+        () -> {
+          HouseTable row = loadRequiredViewRow(databaseId, viewId);
+          FileIO fileIO = fileIOManager.getFileIO(storageType.fromString(row.getStorageType()));
+          ViewMetadata metadata =
+              metricsReporter.executeWithStats(
+                  () -> viewMetadataCodec.read(fileIO.newInputFile(row.getTableLocation())),
+                  VIEW_METADATA_RETRIEVAL_LATENCY);
+          ViewVersion version = metadata.currentVersion();
 
-    return LoadedView.builder()
-        .pointer(toViewPointer(row))
-        .viewUuid(metadata.uuid())
-        .schema(metadata.schema())
-        .representations(toRepresentationIntents(version))
-        .sourceDialect(version.summary().get(SOURCE_DIALECT_SUMMARY_KEY))
-        .defaultCatalog(version.defaultCatalog())
-        .defaultNamespace(version.defaultNamespace())
-        .properties(metadata.properties())
-        .lastModifiedTime(readLongProperty(metadata, "lastModifiedTime"))
-        .currentVersionId(metadata.currentVersionId())
-        .build();
+          return LoadedView.builder()
+              .pointer(toViewPointer(row))
+              .viewUuid(metadata.uuid())
+              .schema(metadata.schema())
+              .representations(toRepresentationIntents(version))
+              .sourceDialect(version.summary().get(SOURCE_DIALECT_SUMMARY_KEY))
+              .defaultCatalog(version.defaultCatalog())
+              .defaultNamespace(version.defaultNamespace())
+              .properties(metadata.properties())
+              .lastModifiedTime(readLongProperty(metadata, "lastModifiedTime"))
+              .currentVersionId(metadata.currentVersionId())
+              .build();
+        },
+        VIEW_LOAD_LATENCY);
   }
 
   @Override
@@ -279,7 +297,10 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     // Use the captured storage and path; never refresh to a newer base.
     String capturedBase = row.getTableLocation();
     FileIO fileIO = fileIOManager.getFileIO(storageType.fromString(row.getStorageType()));
-    ViewMetadata current = viewMetadataCodec.read(fileIO.newInputFile(capturedBase));
+    ViewMetadata current =
+        metricsReporter.executeWithStats(
+            () -> viewMetadataCodec.read(fileIO.newInputFile(capturedBase)),
+            VIEW_METADATA_RETRIEVAL_LATENCY);
     requireSourceDialectMatches(intent, current);
 
     Map<String, String> currentUserProperties = extractUserPropertiesFromMetadata(current);
@@ -356,7 +377,9 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
       String newMetadataLocation,
       boolean isCreate) {
     long lastModifiedTime = readLongProperty(metadata, "lastModifiedTime");
-    viewMetadataCodec.write(metadata, fileIO.newOutputFile(newMetadataLocation));
+    metricsReporter.executeWithStats(
+        () -> viewMetadataCodec.write(metadata, fileIO.newOutputFile(newMetadataLocation)),
+        VIEW_METADATA_UPDATE_LATENCY);
 
     HouseTable pointer = buildPointerRow(metadata, storageTypeValue);
 

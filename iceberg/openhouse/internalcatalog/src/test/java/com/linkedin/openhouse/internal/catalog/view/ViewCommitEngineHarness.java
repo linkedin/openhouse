@@ -5,8 +5,10 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
+import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -46,6 +48,7 @@ public class ViewCommitEngineHarness {
   private final List<String> events;
   private final InMemoryViewHouseTableRepository houseTableRepository;
   private final ViewCommitEngine viewCommitEngine;
+  private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
 
   public ViewCommitEngineHarness(Path root) {
     this.root = root;
@@ -66,7 +69,11 @@ public class ViewCommitEngineHarness {
   /** A new instance over the same rows, so a load cannot come from process state. */
   public ViewCommitEngine newEngineInstance() {
     return new ViewCommitEngineImpl(
-        houseTableRepository, fileIOManager, recordingCodec, new StorageType());
+        houseTableRepository,
+        fileIOManager,
+        recordingCodec,
+        new StorageType(),
+        new MetricsReporter(meterRegistry, "catalog", Collections.emptyList()));
   }
 
   /** The single ordered log of codec and House Table interactions. */

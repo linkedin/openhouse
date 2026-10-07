@@ -1,8 +1,13 @@
 package com.linkedin.openhouse.internal.catalog.view;
 
+import static com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsConstant.METRICS_PREFIX;
+
+import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
+import io.micrometer.core.instrument.MeterRegistry;
+import java.util.Collections;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -25,8 +30,13 @@ public class ViewCommitEngineConfiguration {
       HouseTableRepository houseTableRepository,
       FileIOManager fileIOManager,
       ViewMetadataCodec viewMetadataCodec,
-      StorageType storageType) {
+      StorageType storageType,
+      MeterRegistry meterRegistry) {
     return new ViewCommitEngineImpl(
-        houseTableRepository, fileIOManager, viewMetadataCodec, storageType);
+        houseTableRepository,
+        fileIOManager,
+        viewMetadataCodec,
+        storageType,
+        new MetricsReporter(meterRegistry, METRICS_PREFIX, Collections.emptyList()));
   }
 }

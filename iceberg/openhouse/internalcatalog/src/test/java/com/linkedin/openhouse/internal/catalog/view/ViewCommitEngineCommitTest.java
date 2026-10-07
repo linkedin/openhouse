@@ -9,6 +9,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -1341,7 +1342,8 @@ public class ViewCommitEngineCommitTest {
             harness.getHouseTableRepository(),
             harness.getFileIOManager(),
             harness.getRecordingCodec(),
-            new StorageType()) {
+            new StorageType(),
+            new MetricsReporter(harness.getMeterRegistry(), "catalog", Collections.emptyList())) {
           @Override
           protected long nowMillis() {
             return fixedNow;
