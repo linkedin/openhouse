@@ -11,7 +11,11 @@ CREATE TABLE IF NOT EXISTS table_operations (
   scheduled_at   TIMESTAMP(6),
   job_id         VARCHAR(255),
   -- TODO: per-operation metric columns will be added as operations are onboarded.
-  PRIMARY KEY (id)
+  PRIMARY KEY (id),
+  -- Localizes the commit-driven active-op lookup (AnalyzerRunner.loadCurrentOpsForTable) to one
+  -- table's handful of rows, and answers "latest active op by type" for that table, instead of
+  -- scanning the whole active queue on every commit.
+  INDEX idx_to_table_uuid_optype (table_uuid, operation_type)
 );
 
 CREATE TABLE IF NOT EXISTS table_stats (

@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.optimizer.analyzer;
 
 import java.util.List;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
@@ -48,9 +49,10 @@ public class AnalyzerApplication implements CommandLineRunner, ExitCodeGenerator
 
   /**
    * Runs the analyzer once per registered {@link OperationAnalyzer} per process invocation. Each
-   * call is scoped to one operation type; the runner iterates databases internally. A failure in
-   * one analyzer is logged and does not abort the others, but sets a non-zero exit code that
-   * surfaces after the context is shut down cleanly via {@link #getExitCode()}.
+   * call is scoped to one operation type via an {@link AnalyzeRequest} filter; the runner iterates
+   * databases internally. A failure in one analyzer is logged and does not abort the others, but
+   * sets a non-zero exit code that surfaces after the context is shut down cleanly via {@link
+   * #getExitCode()}.
    */
   @Override
   public void run(String... args) {
@@ -59,7 +61,10 @@ public class AnalyzerApplication implements CommandLineRunner, ExitCodeGenerator
         analyzers.stream().map(OperationAnalyzer::getOperationType).toList());
     for (OperationAnalyzer analyzer : analyzers) {
       try {
-        runner.analyze(analyzer.getOperationType());
+        runner.analyze(
+            AnalyzeRequest.builder()
+                .operationTypes(Set.of(analyzer.getOperationType()))
+                .build());
       } catch (Exception e) {
         log.error("Analyzer failed for operation type {}", analyzer.getOperationType(), e);
         exitCode = 1;

@@ -78,5 +78,12 @@ public final class AppConstants {
    */
   public static final int OFD_MAX_BATCH_SIZE = 200;
 
+  /**
+   * Hard upper bound on a single stats-collection batch. The scheduler bin-packs stats collection
+   * by file count with a far smaller default per-bin table cap (default {@code 25}); this constant
+   * is a footgun stop against an oversized batch OOMing the driver, not the operating point.
+   */
+  public static final int STATS_MAX_BATCH_SIZE = 100;
+
   private AppConstants() {}
 }
