@@ -11,7 +11,7 @@ import java.util.Map;
 import org.apache.spark.sql.connector.catalog.Identifier;
 import org.junit.jupiter.api.Test;
 
-public class ReplicationDdlForwarderSpark3_5Test {
+public class ReplicationDdlForwarderSpark35Test {
 
   @Test
   public void cascadeCanBeDisabled() {
