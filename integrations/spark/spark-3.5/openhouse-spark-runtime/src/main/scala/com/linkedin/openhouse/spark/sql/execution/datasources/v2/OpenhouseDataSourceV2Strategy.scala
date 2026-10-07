@@ -3,8 +3,9 @@ package com.linkedin.openhouse.spark.sql.execution.datasources.v2
 import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement, UnSetReplicationPolicy}
 import org.apache.iceberg.spark.{Spark3Util, SparkCatalog, SparkSessionCatalog}
 import org.apache.spark.sql.{SparkSession, Strategy}
+import org.apache.spark.sql.catalyst.analysis.{ResolvedIdentifier, ResolvedTable}
 import org.apache.spark.sql.catalyst.expressions.PredicateHelper
-import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.sql.catalyst.plans.logical.{DropTable, LogicalPlan, RenameTable}
 import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
 import org.apache.spark.sql.execution.SparkPlan
 
@@ -31,6 +32,53 @@ case class OpenhouseDataSourceV2Strategy(spark: SparkSession) extends Strategy w
 
     case r @ ShowGrantsStatement(resourceType, CatalogAndIdentifierExtractor(catalog, ident)) =>
       ShowGrantsStatementExec(r.output, resourceType, catalog, ident) :: Nil
+
+    case DropTable(identifier: ResolvedIdentifier, ifExists, purge) =>
+      identifier.catalog match {
+        case catalog: TableCatalog
+            if ReplicationDdlForwarder.isOpenHouseCatalog(catalog) &&
+              ReplicationDdlForwarder.cascadeEnabled(
+                spark.conf.get(ReplicationDdlForwarder.CascadeConfig, "true")) =>
+          val table =
+            try {
+              catalog.loadTable(identifier.identifier)
+            } catch {
+              case _: org.apache.iceberg.exceptions.NoSuchTableException if ifExists => return Nil
+              case _: org.apache.spark.sql.catalyst.analysis.NoSuchTableException if ifExists =>
+                return Nil
+            }
+          val destinations =
+            ReplicationDdlForwarder.replicationDestinations(table.properties())
+          if (destinations.isEmpty) {
+            Nil
+          } else {
+            ReplicatedDropTableExec(
+              spark,
+              catalog,
+              identifier.identifier,
+              table,
+              destinations,
+              ifExists,
+              purge) :: Nil
+          }
+        case _ => Nil
+      }
+
+    case RenameTable(table: ResolvedTable, newIdentifier, isView)
+        if !isView &&
+          ReplicationDdlForwarder.isOpenHouseCatalog(table.catalog) &&
+          ReplicationDdlForwarder.cascadeEnabled(
+            spark.conf.get(ReplicationDdlForwarder.CascadeConfig, "true")) =>
+      val catalog = table.catalog
+      val from = table.identifier
+      val to = Identifier.of(newIdentifier.dropRight(1).toArray, newIdentifier.last)
+      val destinations =
+        ReplicationDdlForwarder.replicationDestinations(table.table.properties())
+      if (destinations.isEmpty) {
+        Nil
+      } else {
+        ReplicatedRenameTableExec(spark, catalog, from, to, table.table, destinations) :: Nil
+      }
 
     case _ => Nil
   }

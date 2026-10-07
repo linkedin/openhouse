@@ -110,6 +110,36 @@ spark.sql("CREATE TABLE openhouse_b.db.replication_seed (id BIGINT, value STRING
 spark.sql("INSERT INTO openhouse_b.db.replication_seed VALUES (2, 'destination')")
 ```
 
+The recipe also lets you verify replicated-table `RENAME` and `DROP` forwarding.
+Create matching tables on both clusters first (the spike forwards DDL; it does
+not copy table data), then run:
+
+```scala
+spark.sql("CREATE TABLE openhouse_a.db.replication_ddl (id BIGINT)")
+spark.sql("CREATE TABLE openhouse_b.db.replication_ddl (id BIGINT)")
+spark.sql("ALTER TABLE openhouse_a.db.replication_ddl SET POLICY (REPLICATION = ({destination:'LocalHadoopClusterB'}))")
+spark.sql("ALTER TABLE openhouse_a.db.replication_ddl RENAME TO openhouse_a.db.replication_ddl_renamed")
+spark.sql("SHOW TABLES IN openhouse_a.db").show()
+spark.sql("SHOW TABLES IN openhouse_b.db").show()
+spark.sql("DROP TABLE openhouse_a.db.replication_ddl_renamed")
+spark.sql("SHOW TABLES IN openhouse_a.db").show()
+spark.sql("SHOW TABLES IN openhouse_b.db").show()
+```
+
+After the rename, both clusters should list `replication_ddl_renamed`; after
+the drop, neither should list it. The forwarding applies only when the source
+table has an OpenHouse replication destination configured and does not apply
+to replica tables. Forwarding is enabled by default; to run DDL only on the
+source cluster for the current Spark session, run:
+
+```scala
+spark.conf.set("spark.openhouse.replication.ddl.cascade", "false")
+```
+
+The source DDL runs before destination DDL, so forwarding is not transactional;
+a failure on one destination can leave clusters with different table names or
+existence state.
+
 For manual or automated replication tests, use cluster A as the source
 (`LocalHadoopClusterA`, `http://localhost:8000`) and cluster B as the destination
 (`LocalHadoopClusterB`, `http://localhost:8010`), or reverse them. The Spark
