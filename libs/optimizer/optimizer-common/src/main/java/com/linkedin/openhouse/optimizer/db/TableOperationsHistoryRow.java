@@ -72,4 +72,11 @@ public class TableOperationsHistoryRow {
   @Enumerated(EnumType.STRING)
   @Column(name = "status", nullable = false, length = 20)
   private HistoryStatus status;
+
+  /**
+   * Why the operation failed, as reported by the executor; {@code null} for SUCCESS. Free-form
+   * (exception class + message, or a classified category), truncated by the caller to fit.
+   */
+  @Column(name = "failure_reason", length = 1024)
+  private String failureReason;
 }

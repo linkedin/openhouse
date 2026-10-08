@@ -44,4 +44,11 @@ public class UpdateOperationRequest {
 
   /** Debug echo: operation type. */
   private OperationType operationType;
+
+  /**
+   * Why the operation failed, reported by the executor (e.g. exception class + message, or a
+   * classified category). Null/ignored for {@code SUCCESS}. Persisted so dashboards can show why a
+   * table is failing; callers should keep it concise (the column is bounded).
+   */
+  private String failureReason;
 }

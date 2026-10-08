@@ -62,7 +62,7 @@ class OptimizerDataServiceImplTest {
             .build());
 
     Optional<TableOperationsHistoryDto> result =
-        service.updateOperation(operationId, HistoryStatusDto.SUCCESS);
+        service.updateOperation(operationId, HistoryStatusDto.SUCCESS, null);
 
     assertThat(result).isPresent();
     assertThat(result.get().getStatus()).isEqualTo(HistoryStatusDto.SUCCESS);
@@ -75,9 +75,57 @@ class OptimizerDataServiceImplTest {
   @Test
   void completeOperation_notFound_returnsEmpty() {
     Optional<TableOperationsHistoryDto> result =
-        service.updateOperation(UUID.randomUUID().toString(), HistoryStatusDto.FAILED);
+        service.updateOperation(UUID.randomUUID().toString(), HistoryStatusDto.FAILED, "boom");
 
     assertThat(result).isEmpty();
+  }
+
+  @Test
+  void completeOperation_failed_persistsFailureReason() {
+    String operationId = UUID.randomUUID().toString();
+    String tableUuid = UUID.randomUUID().toString();
+    operationsRepository.save(
+        TableOperationsRow.builder()
+            .id(operationId)
+            .tableUuid(tableUuid)
+            .databaseName("db1")
+            .tableName("tbl1")
+            .operationType(com.linkedin.openhouse.optimizer.db.OperationType.TABLE_STATS_COLLECTION)
+            .status(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)
+            .createdAt(Instant.now())
+            .scheduledAt(Instant.now())
+            .jobId("spark-job-456")
+            .build());
+
+    Optional<TableOperationsHistoryDto> result =
+        service.updateOperation(
+            operationId, HistoryStatusDto.FAILED, "OutOfMemoryError: Java heap space");
+
+    assertThat(result).isPresent();
+    assertThat(result.get().getStatus()).isEqualTo(HistoryStatusDto.FAILED);
+    assertThat(result.get().getFailureReason()).isEqualTo("OutOfMemoryError: Java heap space");
+  }
+
+  @Test
+  void completeOperation_success_ignoresFailureReason() {
+    String operationId = UUID.randomUUID().toString();
+    operationsRepository.save(
+        TableOperationsRow.builder()
+            .id(operationId)
+            .tableUuid(UUID.randomUUID().toString())
+            .databaseName("db1")
+            .tableName("tbl1")
+            .operationType(com.linkedin.openhouse.optimizer.db.OperationType.TABLE_STATS_COLLECTION)
+            .status(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)
+            .createdAt(Instant.now())
+            .scheduledAt(Instant.now())
+            .build());
+
+    Optional<TableOperationsHistoryDto> result =
+        service.updateOperation(operationId, HistoryStatusDto.SUCCESS, "should be ignored");
+
+    assertThat(result).isPresent();
+    assertThat(result.get().getFailureReason()).isNull();
   }
 
   // --- upsertTableStats ---
