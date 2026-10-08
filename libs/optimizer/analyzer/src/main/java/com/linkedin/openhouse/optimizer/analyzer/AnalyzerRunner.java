@@ -1,5 +1,9 @@
 package com.linkedin.openhouse.optimizer.analyzer;
 
+import com.linkedin.openhouse.optimizer.db.OperationType;
+import com.linkedin.openhouse.optimizer.db.TableOperationsHistoryRow;
+import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
+import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import com.linkedin.openhouse.optimizer.model.TableDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationDto;
@@ -147,7 +151,7 @@ public class AnalyzerRunner {
             Pageable.unpaged())
         .stream()
         .filter(e -> e.getTableUuid() != null)
-        .map(TableOperationDto::fromRow)
+        .map(TableOperationsRow::toModel)
         .collect(
             Collectors.toMap(
                 TableOperationDto::getOperationType, op -> op, TableOperationDto::mostRecent));
@@ -158,7 +162,7 @@ public class AnalyzerRunner {
       TableDto table) {
     return historyRepo.find(table.getTableUuid(), Pageable.unpaged()).stream()
         .filter(r -> r.getTableUuid() != null)
-        .map(TableOperationsHistoryDto::fromRow)
+        .map(TableOperationsHistoryRow::toModel)
         .collect(
             Collectors.toMap(
                 TableOperationsHistoryDto::getOperationType,
@@ -182,7 +186,7 @@ public class AnalyzerRunner {
     Map<String, TableOperationDto> currentOps =
         operationsRepo
             .find(
-                Optional.of(analyzer.getOperationType().toDb()),
+                Optional.of(OperationType.fromModel(analyzer.getOperationType())),
                 Optional.empty(),
                 tableUuid,
                 Optional.of(databaseName),
@@ -192,15 +196,17 @@ public class AnalyzerRunner {
                 Pageable.unpaged())
             .stream()
             .filter(e -> e.getTableUuid() != null)
-            .map(TableOperationDto::fromRow)
+            .map(TableOperationsRow::toModel)
             .collect(
                 Collectors.toMap(
                     TableOperationDto::getTableUuid, op -> op, TableOperationDto::mostRecent));
 
     Map<String, TableOperationsHistoryDto> latestHistory =
-        historyRepo.findLatest(analyzer.getOperationType().toDb(), Pageable.unpaged()).stream()
+        historyRepo
+            .findLatest(OperationType.fromModel(analyzer.getOperationType()), Pageable.unpaged())
+            .stream()
             .filter(r -> r.getTableUuid() != null)
-            .map(TableOperationsHistoryDto::fromRow)
+            .map(TableOperationsHistoryRow::toModel)
             .collect(
                 Collectors.toMap(
                     TableOperationsHistoryDto::getTableUuid,
@@ -210,7 +216,7 @@ public class AnalyzerRunner {
     List<TableDto> tables =
         statsRepo.find(Optional.of(databaseName), tableName, tableUuid, Pageable.unpaged()).stream()
             .filter(row -> row.getTableUuid() != null)
-            .map(TableDto::fromRow)
+            .map(TableStatsRow::toTableModel)
             .collect(Collectors.toList());
 
     /*
@@ -263,7 +269,9 @@ public class AnalyzerRunner {
    */
   private boolean createPending(OperationAnalyzer analyzer, TableDto table) {
     try {
-      operationsRepo.save(TableOperationDto.pending(table, analyzer.getOperationType()).toRow());
+      operationsRepo.save(
+          TableOperationsRow.fromModel(
+              TableOperationDto.pending(table, analyzer.getOperationType())));
       log.debug(
           "Created PENDING {} operation for table {}.{}",
           analyzer.getOperationType(),

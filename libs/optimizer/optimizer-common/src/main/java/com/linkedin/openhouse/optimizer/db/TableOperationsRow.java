@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.optimizer.db;
 
+import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import java.time.Instant;
 import javax.persistence.Column;
 import javax.persistence.Entity;
@@ -23,9 +24,6 @@ import lombok.NoArgsConstructor;
  * state. {@code table_uuid} is the stable identity for the table (survives renames; rotates on
  * drop+recreate). The application enforces one active (PENDING / SCHEDULING / SCHEDULED) row per
  * {@code (table_uuid, operation_type)} at a time.
- *
- * <p>Self-contained DB-layer type: enums are {@link OperationType} / {@link OperationStatus} from
- * the same package, JPA-bound as strings.
  */
 @Entity
 @Table(
@@ -79,4 +77,37 @@ public class TableOperationsRow {
   /** Spark job ID written by the scheduler at claim time. Internal-only; never exposed on wire. */
   @Column(name = "job_id", length = 255)
   private String jobId;
+
+  /** Convert this persistence row to the Spring-free optimizer model. */
+  public TableOperationDto toModel() {
+    return TableOperationDto.builder()
+        .id(id)
+        .tableUuid(tableUuid)
+        .databaseName(databaseName)
+        .tableName(tableName)
+        .operationType(operationType == null ? null : operationType.toModel())
+        .status(status == null ? null : status.toModel())
+        .createdAt(createdAt)
+        .scheduledAt(scheduledAt)
+        .jobId(jobId)
+        .build();
+  }
+
+  /** Build a persistence row from the Spring-free optimizer model. */
+  public static TableOperationsRow fromModel(TableOperationDto operation) {
+    if (operation == null) {
+      return null;
+    }
+    return TableOperationsRow.builder()
+        .id(operation.getId())
+        .tableUuid(operation.getTableUuid())
+        .databaseName(operation.getDatabaseName())
+        .tableName(operation.getTableName())
+        .operationType(OperationType.fromModel(operation.getOperationType()))
+        .status(OperationStatus.fromModel(operation.getStatus()))
+        .createdAt(operation.getCreatedAt())
+        .scheduledAt(operation.getScheduledAt())
+        .jobId(operation.getJobId())
+        .build();
+  }
 }

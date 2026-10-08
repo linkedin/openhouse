@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.optimizer.model;
 
-import com.linkedin.openhouse.optimizer.db.TableOperationsHistoryRow;
 import java.time.Instant;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -39,35 +38,6 @@ public class TableOperationsHistoryDto {
 
   /** Terminal outcome: {@link HistoryStatusDto#SUCCESS} or {@link HistoryStatusDto#FAILED}. */
   private HistoryStatusDto status;
-
-  /** Convert to the corresponding DB row. */
-  public TableOperationsHistoryRow toRow() {
-    return TableOperationsHistoryRow.builder()
-        .id(id)
-        .tableUuid(tableUuid)
-        .databaseName(databaseName)
-        .tableName(tableName)
-        .operationType(operationType == null ? null : operationType.toDb())
-        .completedAt(completedAt)
-        .status(status == null ? null : status.toDb())
-        .build();
-  }
-
-  /** Build a {@link TableOperationsHistoryDto} from a DB row. */
-  public static TableOperationsHistoryDto fromRow(TableOperationsHistoryRow row) {
-    if (row == null) {
-      return null;
-    }
-    return TableOperationsHistoryDto.builder()
-        .id(row.getId())
-        .tableUuid(row.getTableUuid())
-        .databaseName(row.getDatabaseName())
-        .tableName(row.getTableName())
-        .operationType(OperationTypeDto.fromDb(row.getOperationType()))
-        .completedAt(row.getCompletedAt())
-        .status(HistoryStatusDto.fromDb(row.getStatus()))
-        .build();
-  }
 
   /**
    * Return whichever of {@code this} and {@code other} completed later (or {@code this} on tie).

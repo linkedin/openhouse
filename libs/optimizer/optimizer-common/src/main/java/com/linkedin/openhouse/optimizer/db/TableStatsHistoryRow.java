@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.optimizer.db;
 
+import com.linkedin.openhouse.optimizer.model.TableStatsDto;
+import com.linkedin.openhouse.optimizer.model.TableStatsHistoryDto;
 import com.vladmihalcea.hibernate.type.json.JsonStringType;
 import java.time.Instant;
 import javax.persistence.Column;
@@ -20,11 +22,8 @@ import org.hibernate.annotations.TypeDef;
  * Append-only record of per-commit stats reported by the Tables Service.
  *
  * <p>Each Iceberg commit produces one row. Consumers can query this table to reconstruct change
- * rates over arbitrary time windows.
- *
- * <p>Self-contained DB-layer type. The stats payload is split across two JSON columns — {@link
- * SnapshotMetrics} (point-in-time fields at commit time) and {@link CommitDeltaMetrics} (per-commit
- * counters).
+ * rates over arbitrary time windows. The payload is split across point-in-time snapshot and
+ * per-commit delta JSON columns.
  */
 @TypeDef(name = "json", typeClass = JsonStringType.class)
 @Entity
@@ -71,4 +70,40 @@ public class TableStatsHistoryRow {
   /** When this history row was recorded (commit time). */
   @Column(name = "recorded_at", nullable = false)
   private Instant recordedAt;
+
+  /** Convert this persistence row to the Spring-free history model. */
+  public TableStatsHistoryDto toModel() {
+    TableStatsDto stats =
+        snapshot == null && delta == null
+            ? null
+            : TableStatsDto.builder()
+                .snapshot(snapshot == null ? null : snapshot.toModel())
+                .delta(delta == null ? null : delta.toModel())
+                .build();
+    return TableStatsHistoryDto.builder()
+        .id(id)
+        .tableUuid(tableUuid)
+        .databaseName(databaseName)
+        .tableName(tableName)
+        .stats(stats)
+        .recordedAt(recordedAt)
+        .build();
+  }
+
+  /** Build a persistence row from the Spring-free history model. */
+  public static TableStatsHistoryRow fromModel(TableStatsHistoryDto history) {
+    if (history == null) {
+      return null;
+    }
+    TableStatsDto stats = history.getStats();
+    return TableStatsHistoryRow.builder()
+        .id(history.getId())
+        .tableUuid(history.getTableUuid())
+        .databaseName(history.getDatabaseName())
+        .tableName(history.getTableName())
+        .snapshot(stats == null ? null : SnapshotMetrics.fromModel(stats.getSnapshot()))
+        .delta(stats == null ? null : CommitDeltaMetrics.fromModel(stats.getDelta()))
+        .recordedAt(history.getRecordedAt())
+        .build();
+  }
 }

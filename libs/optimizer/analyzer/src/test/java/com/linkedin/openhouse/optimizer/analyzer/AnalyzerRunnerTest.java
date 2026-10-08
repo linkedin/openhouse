@@ -105,7 +105,7 @@ class AnalyzerRunnerTest {
     TableStatsRow statsEntity =
         TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
 
-    TableDto expectedTable = TableDto.fromRow(statsEntity);
+    TableDto expectedTable = statsEntity.toTableModel();
 
     when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
         .thenReturn(List.of(statsEntity));
@@ -143,7 +143,7 @@ class AnalyzerRunnerTest {
     TableStatsRow statsEntity =
         TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
 
-    TableDto expectedTable = TableDto.fromRow(statsEntity);
+    TableDto expectedTable = statsEntity.toTableModel();
 
     TableOperationsRow existingEntity =
         TableOperationsRow.builder()
@@ -169,7 +169,7 @@ class AnalyzerRunnerTest {
     when(historyRepo.findLatest(eq(OFD_DB), any())).thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
 
-    TableOperationDto existingOp = TableOperationDto.fromRow(existingEntity);
+    TableOperationDto existingOp = existingEntity.toModel();
     when(analyzer.shouldSchedule(expectedTable, Optional.of(existingOp), Optional.empty()))
         .thenReturn(false);
 
@@ -183,7 +183,7 @@ class AnalyzerRunnerTest {
     TableStatsRow statsEntity =
         TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).build();
 
-    TableDto expectedTable = TableDto.fromRow(statsEntity);
+    TableDto expectedTable = statsEntity.toTableModel();
 
     when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
         .thenReturn(List.of(statsEntity));
@@ -210,7 +210,7 @@ class AnalyzerRunnerTest {
     TableStatsRow statsEntity =
         TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).build();
 
-    TableDto expectedTable = TableDto.fromRow(statsEntity);
+    TableDto expectedTable = statsEntity.toTableModel();
 
     TableOperationsRow scheduled =
         TableOperationsRow.builder()
@@ -236,7 +236,7 @@ class AnalyzerRunnerTest {
     when(historyRepo.findLatest(eq(OFD_DB), any())).thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
 
-    TableOperationDto scheduledOp = TableOperationDto.fromRow(scheduled);
+    TableOperationDto scheduledOp = scheduled.toModel();
     when(analyzer.shouldSchedule(expectedTable, Optional.of(scheduledOp), Optional.empty()))
         .thenReturn(false);
 
@@ -312,7 +312,7 @@ class AnalyzerRunnerTest {
   void analyzeRequest_withDatabaseFilter_scansOnlyThatDatabase_withoutResolvingAllDatabases() {
     TableStatsRow statsEntity =
         TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
-    TableDto expectedTable = TableDto.fromRow(statsEntity);
+    TableDto expectedTable = statsEntity.toTableModel();
 
     when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
         .thenReturn(List.of(statsEntity));

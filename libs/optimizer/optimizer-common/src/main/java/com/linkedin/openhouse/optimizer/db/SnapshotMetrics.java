@@ -25,4 +25,28 @@ public class SnapshotMetrics {
 
   /** Total number of data files as of the latest snapshot — used for bin-packing. */
   private Long numCurrentFiles;
+
+  /** Convert to the Spring-free optimizer model. */
+  public com.linkedin.openhouse.optimizer.model.TableStatsDto.SnapshotMetrics toModel() {
+    return com.linkedin.openhouse.optimizer.model.TableStatsDto.SnapshotMetrics.builder()
+        .tableVersion(tableVersion)
+        .tableLocation(tableLocation)
+        .tableSizeBytes(tableSizeBytes)
+        .numCurrentFiles(numCurrentFiles)
+        .build();
+  }
+
+  /** Build the persistence payload from the Spring-free optimizer model. */
+  public static SnapshotMetrics fromModel(
+      com.linkedin.openhouse.optimizer.model.TableStatsDto.SnapshotMetrics value) {
+    if (value == null) {
+      return null;
+    }
+    return SnapshotMetrics.builder()
+        .tableVersion(value.getTableVersion())
+        .tableLocation(value.getTableLocation())
+        .tableSizeBytes(value.getTableSizeBytes())
+        .numCurrentFiles(value.getNumCurrentFiles())
+        .build();
+  }
 }

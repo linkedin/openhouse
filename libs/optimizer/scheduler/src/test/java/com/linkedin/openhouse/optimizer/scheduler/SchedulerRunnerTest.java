@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 import com.linkedin.openhouse.optimizer.binpack.FirstFitDecreasingBinPacker;
 import com.linkedin.openhouse.optimizer.binpack.TotalFilesBinItem;
 import com.linkedin.openhouse.optimizer.db.OperationStatus;
+import com.linkedin.openhouse.optimizer.db.OperationType;
 import com.linkedin.openhouse.optimizer.db.SnapshotMetrics;
 import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
 import com.linkedin.openhouse.optimizer.db.TableStatsRow;
@@ -60,7 +61,7 @@ class SchedulerRunnerTest {
 
   private void stubFindPending(List<TableOperationsRow> rows) {
     when(operationsRepo.find(
-            eq(Optional.of(ORPHAN_FILES_DELETION.toDb())),
+            eq(Optional.of(OperationType.ORPHAN_FILES_DELETION)),
             eq(Optional.of(OperationStatus.PENDING)),
             eq(Optional.empty()),
             eq(Optional.empty()),
@@ -90,7 +91,7 @@ class SchedulerRunnerTest {
         .tableUuid(uuid)
         .databaseName(db)
         .tableName(table)
-        .operationType(ORPHAN_FILES_DELETION.toDb())
+        .operationType(OperationType.ORPHAN_FILES_DELETION)
         .status(OperationStatus.PENDING)
         .createdAt(Instant.now())
         .build();

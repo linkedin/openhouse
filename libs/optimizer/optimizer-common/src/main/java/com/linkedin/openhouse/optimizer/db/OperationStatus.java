@@ -1,9 +1,11 @@
 package com.linkedin.openhouse.optimizer.db;
 
+import com.linkedin.openhouse.optimizer.model.OperationStatusDto;
+
 /**
  * DB-layer enum for the {@code status} column of {@code table_operations}.
  *
- * <p>Self-contained: no references to api/ or model/ types.
+ * <p>Converts to and from its model/ counterpart; no references to api/ types.
  */
 public enum OperationStatus {
 
@@ -17,5 +19,15 @@ public enum OperationStatus {
   SCHEDULED,
 
   /** Scheduler marked this row as a duplicate of another PENDING row; not claimable. */
-  CANCELED
+  CANCELED;
+
+  /** Convert to the internal-model counterpart. */
+  public OperationStatusDto toModel() {
+    return OperationStatusDto.valueOf(name());
+  }
+
+  /** Build the DB-layer enum from the internal-model counterpart. */
+  public static OperationStatus fromModel(OperationStatusDto v) {
+    return v == null ? null : OperationStatus.valueOf(v.name());
+  }
 }

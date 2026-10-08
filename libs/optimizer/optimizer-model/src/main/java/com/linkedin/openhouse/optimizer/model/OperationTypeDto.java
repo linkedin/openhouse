@@ -11,15 +11,5 @@ public enum OperationTypeDto {
   ORPHAN_FILES_DELETION,
 
   /** Collects per-table snapshot/size statistics used to drive optimizer decisions. */
-  TABLE_STATS_COLLECTION;
-
-  /** Convert to the DB-layer counterpart. */
-  public com.linkedin.openhouse.optimizer.db.OperationType toDb() {
-    return com.linkedin.openhouse.optimizer.db.OperationType.valueOf(name());
-  }
-
-  /** Build the internal-model enum from the DB-layer counterpart. */
-  public static OperationTypeDto fromDb(com.linkedin.openhouse.optimizer.db.OperationType v) {
-    return v == null ? null : OperationTypeDto.valueOf(v.name());
-  }
+  TABLE_STATS_COLLECTION
 }

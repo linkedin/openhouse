@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.optimizer.model;
 
-import com.linkedin.openhouse.optimizer.db.TableStatsHistoryRow;
 import java.time.Instant;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -36,32 +35,4 @@ public class TableStatsHistoryDto {
 
   /** When this history row was recorded. */
   private Instant recordedAt;
-
-  /** Convert to the corresponding DB row. */
-  public TableStatsHistoryRow toRow() {
-    return TableStatsHistoryRow.builder()
-        .id(id)
-        .tableUuid(tableUuid)
-        .databaseName(databaseName)
-        .tableName(tableName)
-        .snapshot(stats == null ? null : stats.toSnapshotRow())
-        .delta(stats == null ? null : stats.toDeltaRow())
-        .recordedAt(recordedAt)
-        .build();
-  }
-
-  /** Build a {@link TableStatsHistoryDto} from a DB row. */
-  public static TableStatsHistoryDto fromRow(TableStatsHistoryRow row) {
-    if (row == null) {
-      return null;
-    }
-    return TableStatsHistoryDto.builder()
-        .id(row.getId())
-        .tableUuid(row.getTableUuid())
-        .databaseName(row.getDatabaseName())
-        .tableName(row.getTableName())
-        .stats(TableStatsDto.fromRows(row.getSnapshot(), row.getDelta()))
-        .recordedAt(row.getRecordedAt())
-        .build();
-  }
 }

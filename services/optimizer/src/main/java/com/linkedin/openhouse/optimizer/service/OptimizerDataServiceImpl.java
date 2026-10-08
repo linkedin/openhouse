@@ -2,6 +2,11 @@ package com.linkedin.openhouse.optimizer.service;
 
 import com.linkedin.openhouse.optimizer.analyzer.AnalyzeRequest;
 import com.linkedin.openhouse.optimizer.analyzer.AnalyzerRunner;
+import com.linkedin.openhouse.optimizer.db.OperationStatus;
+import com.linkedin.openhouse.optimizer.db.OperationType;
+import com.linkedin.openhouse.optimizer.db.SnapshotMetrics;
+import com.linkedin.openhouse.optimizer.db.TableOperationsHistoryRow;
+import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
 import com.linkedin.openhouse.optimizer.db.TableStatsHistoryRow;
 import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import com.linkedin.openhouse.optimizer.model.HistoryStatusDto;
@@ -32,9 +37,8 @@ import reactor.core.scheduler.Schedulers;
 /**
  * Implementation of {@link OptimizerDataService}.
  *
- * <p>Operates purely on model/ and db/ types. Conversion happens via the {@code toRow()} / {@code
- * fromRow(...)} methods on the model types themselves — no injected mapper. No api/-package types
- * appear in this class.
+ * <p>Operates only on model/ and db/ types. Persistence rows own conversion to and from the
+ * Spring-free optimizer model; no injected mapper or api/-package type appears here.
  */
 @Service
 @Slf4j
@@ -59,8 +63,8 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
       int limit) {
     return operationsRepository
         .find(
-            operationType.map(OperationTypeDto::toDb),
-            status.map(OperationStatusDto::toDb),
+            operationType.map(OperationType::fromModel),
+            status.map(OperationStatus::fromModel),
             tableUuid,
             databaseName,
             tableName,
@@ -68,7 +72,7 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
             Optional.empty(),
             PageRequest.of(0, limit))
         .stream()
-        .map(TableOperationDto::fromRow)
+        .map(TableOperationsRow::toModel)
         .collect(Collectors.toList());
   }
 
@@ -85,16 +89,19 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
                     .tableUuid(row.getTableUuid())
                     .databaseName(row.getDatabaseName())
                     .tableName(row.getTableName())
-                    .operationType(OperationTypeDto.fromDb(row.getOperationType()))
+                    .operationType(
+                        row.getOperationType() == null ? null : row.getOperationType().toModel())
                     .completedAt(Instant.now())
                     .status(status)
                     .build())
-        .map(history -> TableOperationsHistoryDto.fromRow(historyRepository.save(history.toRow())));
+        .map(
+            history ->
+                historyRepository.save(TableOperationsHistoryRow.fromModel(history)).toModel());
   }
 
   @Override
   public Optional<TableOperationDto> getTableOperation(String id) {
-    return operationsRepository.findById(id).map(TableOperationDto::fromRow);
+    return operationsRepository.findById(id).map(TableOperationsRow::toModel);
   }
 
   // --- TableStatsDto ---
@@ -114,11 +121,11 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
                         .toBuilder()
                         .databaseName(stats.getDatabaseName())
                         .tableName(stats.getTableName())
-                        .snapshot(stats.toSnapshotRow())
+                        .snapshot(SnapshotMetrics.fromModel(stats.getSnapshot()))
                         .tableProperties(stats.getTableProperties())
                         .updatedAt(now)
                         .build())
-            .orElse(stats.toBuilder().updatedAt(now).build().toRow());
+            .orElse(TableStatsRow.fromModel(stats.toBuilder().updatedAt(now).build()));
     // 1. Update the current per-table stats in MySQL (one row per table, upserted in place).
     TableStatsRow saved = statsRepository.save(row);
 
@@ -127,21 +134,21 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
     //    over multiple days; that aggregation path could be a streaming job or a MySQL query. It is
     //    not needed now and will be decided when required.
     statsHistoryRepository.save(
-        TableStatsHistoryRow.builder()
-            .id(UUID.randomUUID().toString())
-            .tableUuid(tableUuid)
-            .databaseName(stats.getDatabaseName())
-            .tableName(stats.getTableName())
-            .snapshot(stats.toSnapshotRow())
-            .delta(stats.toDeltaRow())
-            .recordedAt(now)
-            .build());
+        TableStatsHistoryRow.fromModel(
+            TableStatsHistoryDto.builder()
+                .id(UUID.randomUUID().toString())
+                .tableUuid(tableUuid)
+                .databaseName(stats.getDatabaseName())
+                .tableName(stats.getTableName())
+                .stats(stats)
+                .recordedAt(now)
+                .build()));
 
     // 3. Non-blocking trigger of commit-driven analysis as upsertTableStats does not need response
     //    from analyze, reusing the in-memory stats (no re-read).
-    triggerCommitDrivenAnalysis(TableDto.fromRow(saved));
+    triggerCommitDrivenAnalysis(saved.toTableModel());
 
-    return TableStatsDto.fromRow(saved);
+    return saved.toModel();
   }
 
   /**
@@ -169,7 +176,7 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
 
   @Override
   public Optional<TableStatsDto> getTableStats(String tableUuid) {
-    return statsRepository.findById(tableUuid).map(TableStatsDto::fromRow);
+    return statsRepository.findById(tableUuid).map(TableStatsRow::toModel);
   }
 
   @Override
@@ -180,7 +187,7 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
       int limit) {
     return statsRepository.find(databaseName, tableName, tableUuid, PageRequest.of(0, limit))
         .stream()
-        .map(TableStatsDto::fromRow)
+        .map(TableStatsRow::toModel)
         .collect(Collectors.toList());
   }
 
@@ -188,7 +195,7 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
   public List<TableStatsHistoryDto> getStatsHistory(
       String tableUuid, Optional<Instant> since, int limit) {
     return statsHistoryRepository.find(tableUuid, since, PageRequest.of(0, limit)).stream()
-        .map(TableStatsHistoryDto::fromRow)
+        .map(TableStatsHistoryRow::toModel)
         .collect(Collectors.toList());
   }
 
@@ -203,13 +210,13 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
             .completedAt(
                 history.getCompletedAt() != null ? history.getCompletedAt() : Instant.now())
             .build();
-    return TableOperationsHistoryDto.fromRow(historyRepository.save(toWrite.toRow()));
+    return historyRepository.save(TableOperationsHistoryRow.fromModel(toWrite)).toModel();
   }
 
   @Override
   public List<TableOperationsHistoryDto> getHistory(String tableUuid, int limit) {
     return historyRepository.find(tableUuid, PageRequest.of(0, limit)).stream()
-        .map(TableOperationsHistoryDto::fromRow)
+        .map(TableOperationsHistoryRow::toModel)
         .collect(Collectors.toList());
   }
 }

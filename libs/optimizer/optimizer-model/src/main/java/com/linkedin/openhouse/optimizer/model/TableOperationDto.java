@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.optimizer.model;
 
-import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.UUID;
@@ -13,8 +12,7 @@ import lombok.NoArgsConstructor;
  * An operation the analyzer has decided to schedule for a table, and that the scheduler later picks
  * up and submits.
  *
- * <p>Conversion methods cross into the DB layer one-way; the inverse lives on the api side. db/
- * types know nothing about model/ or api/.
+ * <p>Knows nothing about the db or api layers; they convert to and from it.
  */
 @Data
 @Builder
@@ -67,38 +65,5 @@ public class TableOperationDto {
     Comparator<TableOperationDto> byCreatedAt =
         Comparator.comparing(r -> r.getCreatedAt() != null ? r.getCreatedAt() : Instant.EPOCH);
     return byCreatedAt.compare(a, b) >= 0 ? a : b;
-  }
-
-  /** Convert to the corresponding DB row. */
-  public TableOperationsRow toRow() {
-    return TableOperationsRow.builder()
-        .id(id)
-        .tableUuid(tableUuid)
-        .databaseName(databaseName)
-        .tableName(tableName)
-        .operationType(operationType == null ? null : operationType.toDb())
-        .status(status == null ? null : status.toDb())
-        .createdAt(createdAt)
-        .scheduledAt(scheduledAt)
-        .jobId(jobId)
-        .build();
-  }
-
-  /** Build a {@link TableOperationDto} from a DB row. */
-  public static TableOperationDto fromRow(TableOperationsRow row) {
-    if (row == null) {
-      return null;
-    }
-    return TableOperationDto.builder()
-        .id(row.getId())
-        .tableUuid(row.getTableUuid())
-        .databaseName(row.getDatabaseName())
-        .tableName(row.getTableName())
-        .operationType(OperationTypeDto.fromDb(row.getOperationType()))
-        .status(OperationStatusDto.fromDb(row.getStatus()))
-        .createdAt(row.getCreatedAt())
-        .scheduledAt(row.getScheduledAt())
-        .jobId(row.getJobId())
-        .build();
   }
 }

@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.optimizer.db;
 
+import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
 import java.time.Instant;
 import javax.persistence.Column;
 import javax.persistence.Entity;
@@ -21,9 +22,6 @@ import lombok.NoArgsConstructor;
  * <p>Written when the operation-complete endpoint is called. The {@code id} is the same UUID as the
  * originating live-operations row, tying each history entry back to the operation cycle that
  * produced it. Multiple runs of the same operation on the same table produce multiple rows.
- *
- * <p>Self-contained DB-layer type: enums are {@link OperationType} / {@link HistoryStatus} from the
- * same package, JPA-bound as strings.
  */
 @Entity
 @Table(
@@ -72,4 +70,33 @@ public class TableOperationsHistoryRow {
   @Enumerated(EnumType.STRING)
   @Column(name = "status", nullable = false, length = 20)
   private HistoryStatus status;
+
+  /** Convert this persistence row to the Spring-free optimizer model. */
+  public TableOperationsHistoryDto toModel() {
+    return TableOperationsHistoryDto.builder()
+        .id(id)
+        .tableUuid(tableUuid)
+        .databaseName(databaseName)
+        .tableName(tableName)
+        .operationType(operationType == null ? null : operationType.toModel())
+        .completedAt(completedAt)
+        .status(status == null ? null : status.toModel())
+        .build();
+  }
+
+  /** Build a persistence row from the Spring-free optimizer model. */
+  public static TableOperationsHistoryRow fromModel(TableOperationsHistoryDto history) {
+    if (history == null) {
+      return null;
+    }
+    return TableOperationsHistoryRow.builder()
+        .id(history.getId())
+        .tableUuid(history.getTableUuid())
+        .databaseName(history.getDatabaseName())
+        .tableName(history.getTableName())
+        .operationType(OperationType.fromModel(history.getOperationType()))
+        .completedAt(history.getCompletedAt())
+        .status(HistoryStatus.fromModel(history.getStatus()))
+        .build();
+  }
 }

@@ -25,4 +25,28 @@ public class CommitDeltaMetrics {
 
   /** Total bytes removed by this commit. */
   private Long deletedSizeBytes;
+
+  /** Convert to the Spring-free optimizer model. */
+  public com.linkedin.openhouse.optimizer.model.TableStatsDto.CommitDelta toModel() {
+    return com.linkedin.openhouse.optimizer.model.TableStatsDto.CommitDelta.builder()
+        .numFilesAdded(numFilesAdded)
+        .numFilesDeleted(numFilesDeleted)
+        .addedSizeBytes(addedSizeBytes)
+        .deletedSizeBytes(deletedSizeBytes)
+        .build();
+  }
+
+  /** Build the persistence payload from the Spring-free optimizer model. */
+  public static CommitDeltaMetrics fromModel(
+      com.linkedin.openhouse.optimizer.model.TableStatsDto.CommitDelta value) {
+    if (value == null) {
+      return null;
+    }
+    return CommitDeltaMetrics.builder()
+        .numFilesAdded(value.getNumFilesAdded())
+        .numFilesDeleted(value.getNumFilesDeleted())
+        .addedSizeBytes(value.getAddedSizeBytes())
+        .deletedSizeBytes(value.getDeletedSizeBytes())
+        .build();
+  }
 }

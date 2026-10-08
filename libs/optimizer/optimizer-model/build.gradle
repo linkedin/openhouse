@@ -1,0 +1,8 @@
+plugins {
+  id 'openhouse.java-minimal-conventions'
+  id 'openhouse.maven-publish'
+}
+
+// The optimizer's internal model: plain Java 8 types with no Spring or JPA, so that
+// :libs:optimizer:binpack, and through it the Spark apps, can use them. The api and db layers
+// convert to and from these types.

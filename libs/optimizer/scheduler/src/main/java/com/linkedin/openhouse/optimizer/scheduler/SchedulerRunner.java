@@ -4,11 +4,10 @@ import com.linkedin.openhouse.optimizer.binpack.Bin;
 import com.linkedin.openhouse.optimizer.binpack.BinItem;
 import com.linkedin.openhouse.optimizer.binpack.BinPacker;
 import com.linkedin.openhouse.optimizer.db.OperationStatus;
+import com.linkedin.openhouse.optimizer.db.OperationType;
 import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
 import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
-import com.linkedin.openhouse.optimizer.model.TableOperationDto;
-import com.linkedin.openhouse.optimizer.model.TableStatsDto;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
 import com.linkedin.openhouse.optimizer.scheduler.client.JobsServiceClient;
@@ -107,7 +106,7 @@ public class SchedulerRunner {
     Map<String, List<TableOperationsRow>> byTableUuid =
         operationsRepo
             .find(
-                Optional.of(type.toDb()),
+                Optional.of(OperationType.fromModel(type)),
                 Optional.of(OperationStatus.PENDING),
                 Optional.empty(),
                 databaseName,
@@ -141,12 +140,12 @@ public class SchedulerRunner {
                     .pack(
                         byTableUuid.values().stream()
                             .map(rows -> rows.stream().min(oldestFirst).orElseThrow())
-                            .map(TableOperationDto::fromRow)
+                            .map(TableOperationsRow::toModel)
                             .collect(Collectors.toList()),
                         statsRepo.findAllById(byTableUuid.keySet()).stream()
                             .collect(
                                 Collectors.toMap(
-                                    TableStatsRow::getTableUuid, TableStatsDto::fromRow)))
+                                    TableStatsRow::getTableUuid, TableStatsRow::toModel)))
                     .stream()
                     .map(grouping -> new Bin(type, grouping))
                     .forEach(this::scheduleBin));
