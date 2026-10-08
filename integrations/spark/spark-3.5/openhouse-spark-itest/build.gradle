@@ -16,6 +16,16 @@ sourceSets {
   }
 }
 
+// The OpenHouse spark runtime uber jar bundles a *shaded* ORC
+// (org.apache.iceberg.shaded.org.apache.orc). Iceberg's merge-on-read delete loader lives in
+// iceberg-data and reads position deletes through the *unshaded* ORC, so pulling iceberg-data onto
+// the test classpath mixes the two and throws ClassCastException when a merge-on-read table is read
+// back. apps/spark-3.5 avoids this the same way; excluding iceberg-data lets merge-on-read DML read
+// back correctly here too.
+configurations.all {
+  exclude group: 'com.linkedin.iceberg', module: 'iceberg-data'
+}
+
 dependencies {
 
   testImplementation 'com.google.code.gson:gson:2.8.9'
