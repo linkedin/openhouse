@@ -11,8 +11,15 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
-/** Spring Data JPA repository for {@code table_operations} rows in the optimizer DB. */
+/**
+ * Spring Data JPA repository for {@code table_operations} rows in the optimizer DB.
+ *
+ * <p>The modifying queries are {@link Transactional}: the scheduler calls them with no transaction
+ * of its own, so each commits on its own, and a caller's transaction, where there is one, takes
+ * them in.
+ */
 public interface TableOperationsRepository extends JpaRepository<TableOperationsRow, String> {
 
   /**
@@ -84,6 +91,7 @@ public interface TableOperationsRepository extends JpaRepository<TableOperations
    * defensive — never drop a row another instance has claimed. Returns the number of rows actually
    * removed.
    */
+  @Transactional
   @Modifying(flushAutomatically = true, clearAutomatically = true)
   @Query(
       "DELETE FROM TableOperationsRow r "
@@ -129,6 +137,7 @@ public interface TableOperationsRepository extends JpaRepository<TableOperations
       @Param("ids") List<String> ids,
       Pageable pageable);
 
+  @Transactional
   @Modifying(flushAutomatically = true, clearAutomatically = true)
   @Query(
       "UPDATE TableOperationsRow r "

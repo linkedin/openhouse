@@ -17,6 +17,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
@@ -276,6 +277,37 @@ class TableOperationsRepositoryTest {
 
     assertThat(repository.findById(pendingId)).isEmpty();
     assertThat(repository.findById(scheduledId)).isPresent();
+  }
+
+  /**
+   * The scheduler runs the batch update and cancel with no transaction of its own, so that a claim
+   * commits before it launches a job. Each runs, and commits, in a transaction of its own.
+   */
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void updateBatchAndCancel_withoutCallerTransaction_commit() {
+    String claimedId = UUID.randomUUID().toString();
+    String cancelledId = UUID.randomUUID().toString();
+    repository.saveAll(List.of(pendingRow(claimedId, "tbl1"), pendingRow(cancelledId, "tbl2")));
+    try {
+      int claimed =
+          repository.updateBatch(
+              List.of(claimedId),
+              OperationStatus.PENDING,
+              OperationStatus.SCHEDULING,
+              Optional.of(Instant.now()),
+              Optional.empty());
+      int cancelled = repository.cancel(List.of(cancelledId));
+
+      assertThat(claimed).isEqualTo(1);
+      assertThat(cancelled).isEqualTo(1);
+      assertThat(repository.findById(claimedId).map(TableOperationsRow::getStatus))
+          .contains(OperationStatus.SCHEDULING);
+      assertThat(repository.findById(cancelledId)).isEmpty();
+    } finally {
+      // No test transaction rolls these rows back; the other tests expect an empty table.
+      repository.deleteAll(repository.findAllById(List.of(claimedId, cancelledId)));
+    }
   }
 
   // --- helpers ---
