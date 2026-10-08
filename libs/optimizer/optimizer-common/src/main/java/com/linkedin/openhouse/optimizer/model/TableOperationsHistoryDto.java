@@ -40,6 +40,9 @@ public class TableOperationsHistoryDto {
   /** Terminal outcome: {@link HistoryStatusDto#SUCCESS} or {@link HistoryStatusDto#FAILED}. */
   private HistoryStatusDto status;
 
+  /** Why the operation failed, as reported by the executor; {@code null} for SUCCESS. */
+  private String failureReason;
+
   /** Convert to the corresponding DB row. */
   public TableOperationsHistoryRow toRow() {
     return TableOperationsHistoryRow.builder()
@@ -50,6 +53,7 @@ public class TableOperationsHistoryDto {
         .operationType(operationType == null ? null : operationType.toDb())
         .completedAt(completedAt)
         .status(status == null ? null : status.toDb())
+        .failureReason(failureReason)
         .build();
   }
 
@@ -66,6 +70,7 @@ public class TableOperationsHistoryDto {
         .operationType(OperationTypeDto.fromDb(row.getOperationType()))
         .completedAt(row.getCompletedAt())
         .status(HistoryStatusDto.fromDb(row.getStatus()))
+        .failureReason(row.getFailureReason())
         .build();
   }
 

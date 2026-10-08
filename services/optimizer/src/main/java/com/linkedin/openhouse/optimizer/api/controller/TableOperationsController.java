@@ -62,7 +62,7 @@ public class TableOperationsController {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status is required");
     }
     return service
-        .updateOperation(id, request.getStatus().toModel())
+        .updateOperation(id, request.getStatus().toModel(), request.getFailureReason())
         .map(
             history ->
                 ResponseEntity.status(HttpStatus.CREATED)
