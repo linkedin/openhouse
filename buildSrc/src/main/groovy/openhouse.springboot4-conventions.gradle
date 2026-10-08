@@ -1,0 +1,39 @@
+// Conventions for the modules on Spring Boot 4: the optimizer service, the analyzer and scheduler, and
+// the libraries they share. Everything else in the repo stays on Spring Boot 2.7 through
+// openhouse.springboot-conventions.
+plugins {
+  id 'openhouse.java-minimal-conventions'
+}
+
+java {
+  sourceCompatibility = JavaVersion.VERSION_17
+  targetCompatibility = JavaVersion.VERSION_17
+}
+
+ext {
+  // Keep in step with the org.springframework.boot plugin version in the modules that build a bootJar.
+  springBoot4Version = '4.1.1'
+}
+
+configurations.configureEach {
+  // Like the Spring Boot 2.7 services, these log through log4j2 instead of Boot's default logback.
+  exclude module: 'spring-boot-starter-logging'
+  exclude module: 'logback-classic'
+}
+
+dependencies {
+  // Boot's BOM sets the versions of what these modules use: Spring, Hibernate, Jackson, MySQL
+  // Connector/J, and JUnit.
+  implementation platform("org.springframework.boot:spring-boot-dependencies:${springBoot4Version}")
+  testImplementation 'org.springframework.boot:spring-boot-starter-test'
+  testRuntimeOnly 'org.springframework.boot:spring-boot-starter-log4j2'
+  // Matches the launcher to the JUnit version Boot's BOM picks.
+  testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// Libraries leave the logging backend to the application that uses them.
+pluginManager.withPlugin('org.springframework.boot') {
+  dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-log4j2'
+  }
+}

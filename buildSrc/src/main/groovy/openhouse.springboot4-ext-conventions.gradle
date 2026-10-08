@@ -1,0 +1,19 @@
+// Spring Boot 4 applications: openhouse.springboot-ext-conventions for the Boot 4 modules.
+plugins {
+  id 'openhouse.springboot4-conventions'
+  id 'org.springframework.boot'
+}
+
+tasks.named('bootJar') {
+  archiveClassifier = ''
+  manifest {
+    // PropertiesLauncher, unlike Boot's default JarLauncher, also loads jars from the loader.path
+    // property or the LOADER_PATH environment variable.
+    attributes('Main-Class': 'org.springframework.boot.loader.launch.PropertiesLauncher')
+  }
+}
+
+tasks.named('jar') {
+  enabled = true
+  archiveClassifier = 'lib'
+}

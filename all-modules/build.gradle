@@ -25,6 +25,12 @@ rootProject.subprojects.each { subproject ->
   }
 }
 
+// The optimizer modules on Spring Boot 4 target Java 17, and this Java 8 project would otherwise ask
+// for Java 8 variants of every member. It compiles nothing, so take each member as it is built.
+java {
+  disableAutoTargetJvm()
+}
+
 dependencies {
   publishedMembers.each { member ->
     implementation project(member.path)

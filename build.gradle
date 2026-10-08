@@ -84,11 +84,25 @@ allprojects {
       ':apps:openhouse-spark-apps-1.5_2.12'
   ]
 
+  // The Spring Boot 4 modules take Jackson from Boot's BOM: swagger-core, under springdoc, needs a
+  // newer Jackson 2 than the one pinned below.
+  def springBoot4Projects = [
+      ':libs:optimizer:optimizer-common',
+      ':libs:optimizer:analyzer',
+      ':libs:optimizer:scheduler',
+      ':services:optimizer',
+      ':apps:optimizer:analyzerapp',
+      ':apps:optimizer:schedulerapp'
+  ]
+  def pinJackson = !springBoot4Projects.contains(it.path)
+
   if (!excludedProjects.contains(it.path)) {
     configurations.all {
       resolutionStrategy {
-        force 'com.fasterxml.jackson:jackson-bom:2.13.4'
-        force 'com.fasterxml.jackson.core:jackson-databind:2.13.4'
+        if (pinJackson) {
+          force 'com.fasterxml.jackson:jackson-bom:2.13.4'
+          force 'com.fasterxml.jackson.core:jackson-databind:2.13.4'
+        }
         force 'org.apache.orc:orc-core:1.8.3'
         force 'com.google.guava:guava:33.5.0-jre'
         force 'org.apache.avro:avro:1.11.4' // CVE-2024-47561; outranks strict transitive pin via iceberg-core

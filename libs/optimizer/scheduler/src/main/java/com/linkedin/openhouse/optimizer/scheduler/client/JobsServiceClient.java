@@ -1,13 +1,13 @@
 package com.linkedin.openhouse.optimizer.scheduler.client;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.reactive.function.client.WebClient;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Client for the OpenHouse Jobs Service.
@@ -17,7 +17,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 @Slf4j
 public class JobsServiceClient {
 
-  private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final JsonMapper MAPPER = JsonMapper.builder().build();
   private static final Duration TIMEOUT = Duration.ofSeconds(30);
 
   private final WebClient webClient;

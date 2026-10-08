@@ -2,21 +2,19 @@ package com.linkedin.openhouse.optimizer.db;
 
 import com.linkedin.openhouse.optimizer.model.TableStatsDto;
 import com.linkedin.openhouse.optimizer.model.TableStatsHistoryDto;
-import com.vladmihalcea.hibernate.type.json.JsonStringType;
+import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Index;
+import jakarta.persistence.Table;
 import java.time.Instant;
-import javax.persistence.Column;
-import javax.persistence.Entity;
-import javax.persistence.Id;
-import javax.persistence.Index;
-import javax.persistence.Table;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.hibernate.annotations.Type;
-import org.hibernate.annotations.TypeDef;
 
 /**
  * Append-only record of per-commit stats reported by the Tables Service.
@@ -25,7 +23,6 @@ import org.hibernate.annotations.TypeDef;
  * rates over arbitrary time windows. The payload is split across point-in-time snapshot and
  * per-commit delta JSON columns.
  */
-@TypeDef(name = "json", typeClass = JsonStringType.class)
 @Entity
 @Table(
     name = "table_stats_history",
@@ -57,13 +54,13 @@ public class TableStatsHistoryRow {
   @Column(name = "table_name", nullable = false, length = 128)
   private String tableName;
 
-  /** Snapshot fields at commit time. Stored as a JSON blob in the {@code snapshot} column. */
-  @Type(type = "json")
+  /** Snapshot fields at commit time. Stored as JSON text. */
+  @Convert(converter = JsonColumns.SnapshotMetricsConverter.class)
   @Column(name = "snapshot", columnDefinition = "TEXT")
   private SnapshotMetrics snapshot;
 
-  /** Per-commit delta counters. Stored as a JSON blob in the {@code delta} column. */
-  @Type(type = "json")
+  /** Per-commit delta counters. Stored as JSON text. */
+  @Convert(converter = JsonColumns.CommitDeltaMetricsConverter.class)
   @Column(name = "delta", columnDefinition = "TEXT")
   private CommitDeltaMetrics delta;
 

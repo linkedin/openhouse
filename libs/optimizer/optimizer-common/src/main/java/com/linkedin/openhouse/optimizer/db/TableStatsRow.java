@@ -2,23 +2,21 @@ package com.linkedin.openhouse.optimizer.db;
 
 import com.linkedin.openhouse.optimizer.model.TableDto;
 import com.linkedin.openhouse.optimizer.model.TableStatsDto;
-import com.vladmihalcea.hibernate.type.json.JsonStringType;
+import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Index;
+import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.Map;
-import javax.persistence.Column;
-import javax.persistence.Entity;
-import javax.persistence.Id;
-import javax.persistence.Index;
-import javax.persistence.Table;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.hibernate.annotations.Type;
-import org.hibernate.annotations.TypeDef;
 
 /**
  * JPA entity representing a per-table stats snapshot in the optimizer DB.
@@ -27,7 +25,6 @@ import org.hibernate.annotations.TypeDef;
  * to enumerate tables and check scheduling eligibility. Holds only point-in-time snapshot data;
  * per-commit deltas live exclusively on {@link TableStatsHistoryRow}.
  */
-@TypeDef(name = "json", typeClass = JsonStringType.class)
 @Entity
 @Table(
     name = "table_stats",
@@ -52,13 +49,13 @@ public class TableStatsRow {
   @Column(name = "table_name", nullable = false, length = 128)
   private String tableName;
 
-  /** Latest snapshot fields. Stored as a JSON blob in the {@code snapshot} column. */
-  @Type(type = "json")
+  /** Latest snapshot fields. Stored as JSON text for compatibility with the existing schema. */
+  @Convert(converter = JsonColumns.SnapshotMetricsConverter.class)
   @Column(name = "snapshot", columnDefinition = "TEXT")
   private SnapshotMetrics snapshot;
 
-  /** Current table-property map (e.g. maintenance opt-in flags). Stored as JSON. */
-  @Type(type = "json")
+  /** Current table-property map (e.g. maintenance opt-in flags). Stored as JSON text. */
+  @Convert(converter = JsonColumns.StringMapConverter.class)
   @Column(name = "table_properties", columnDefinition = "TEXT")
   private Map<String, String> tableProperties;
 

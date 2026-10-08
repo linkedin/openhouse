@@ -1,7 +1,6 @@
 plugins {
-  id 'openhouse.springboot-ext-conventions'
+  id 'openhouse.springboot4-conventions'
   id 'openhouse.maven-publish'
-  id 'org.springframework.boot' version '2.7.8'
 }
 
 // Shared optimizer core: db entities, repositories, and the analyzer SPI, over the model DTOs in
@@ -9,23 +8,10 @@ plugins {
 // the analyzer/scheduler libraries, so those libraries no longer need to depend on the service module
 // (breaks the dependency cycle that blocked hosting the analyzer in the service process). Library jar
 // only — no entry point.
-bootJar {
-  enabled = false
-}
-
-jar {
-  enabled = true
-  archiveClassifier = ''
-}
-
 dependencies {
   api project(':libs:optimizer:optimizer-model')
-  api 'org.springframework.boot:spring-boot-starter-data-jpa:2.7.8'
-  api 'com.vladmihalcea:hibernate-types-55:2.21.1'
-  testImplementation 'org.springframework.boot:spring-boot-starter-test:2.7.8'
-  testRuntimeOnly 'com.h2database:h2:2.1.210'
-}
-
-test {
-  useJUnitPlatform()
+  api 'org.springframework.boot:spring-boot-starter-data-jpa'
+  // Serializes the JSON columns.
+  implementation 'tools.jackson.core:jackson-databind'
+  testRuntimeOnly 'com.h2database:h2'
 }

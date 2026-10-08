@@ -1,7 +1,7 @@
 plugins {
-  id 'openhouse.springboot-ext-conventions'
+  id 'openhouse.springboot4-ext-conventions'
   id 'openhouse.maven-publish'
-  id 'org.springframework.boot' version '2.7.8'
+  id 'org.springframework.boot' version '4.1.1'
   // OpenAPI spec generation for :client:optimizerclient.
   id 'com.github.johnrengelman.processes' version '0.5.0'
   id 'org.springdoc.openapi-gradle-plugin' version '1.6.0'
@@ -9,20 +9,27 @@ plugins {
 }
 
 // Port allocation: tables 8000, housetables 8001, jobs 8002, optimizer 8003.
-// H2 overrides let the Spring context finish startup so springdoc can extract the spec.
+// The spec needs no database: the schema script doesn't run, and Hibernate takes its MySQL dialect
+// from these settings instead of from a connection, so the context starts and springdoc can serve
+// the spec.
 openApi {
   customBootRun {
     args = [
       "--server.port=8003",
-      "--spring.datasource.url=jdbc:h2:mem:codegen;MODE=MYSQL;DB_CLOSE_DELAY=-1",
-      "--spring.datasource.driver-class-name=org.h2.Driver",
-      "--spring.datasource.username=sa",
-      "--spring.datasource.password=",
-      "--spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect",
-      "--spring.sql.init.mode=never"
+      "--spring.sql.init.mode=never",
+      "--spring.jpa.properties.hibernate.boot.allow_jdbc_metadata_access=false",
+      "--spring.jpa.properties.jakarta.persistence.database-product-name=MySQL",
+      "--spring.jpa.properties.jakarta.persistence.database-major-version=8"
     ]
   }
   apiDocsUrl.set("http://localhost:8003/v3/api-docs")
+}
+
+// With the Spring Boot 4 plugin, springdoc's forked run reads the runtime classpath without
+// depending on the tasks that build the project jars on it. springdoc registers the task after
+// this script runs.
+tasks.matching { it.name == 'forkedSpringBootRun' }.configureEach {
+  dependsOn sourceSets.main.runtimeClasspath
 }
 
 dependencies {
@@ -31,18 +38,13 @@ dependencies {
   // analysis in-process (AnalyzerRunner implements the CommitTriggeredAnalyzer SPI). No cycle: the
   // analyzer depends on :libs:optimizer:optimizer-common, not on this module.
   implementation project(':libs:optimizer:analyzer')
-  implementation 'io.projectreactor:reactor-core:3.4.26'
-  implementation 'org.springframework.boot:spring-boot-starter-data-jpa:2.7.8'
-  implementation 'com.vladmihalcea:hibernate-types-55:2.21.1'
-  implementation 'org.springframework.boot:spring-boot-starter-web:2.7.8'
-  implementation 'mysql:mysql-connector-java:8.+'
-  // H2 only for spec-gen bootRun; excluded from bootJar. Pinned to 2.1.210 (matches
-  // :iceberg:openhouse:htscatalog) — 2.2.x switches to slf4j-api 2.x and breaks downstream bridges.
-  developmentOnly 'com.h2database:h2:2.1.210'
-  testImplementation 'com.h2database:h2:2.1.210'
-  testImplementation 'org.springframework.boot:spring-boot-starter-test:2.7.8'
-}
-
-test {
-  useJUnitPlatform()
+  implementation 'io.projectreactor:reactor-core'
+  implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+  implementation 'org.springframework.boot:spring-boot-starter-actuator'
+  implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+  implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1'
+  runtimeOnly 'com.mysql:mysql-connector-j'
+  runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+  testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+  testRuntimeOnly 'com.h2database:h2'
 }
