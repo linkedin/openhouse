@@ -22,7 +22,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Pageable;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Generic scheduler. Operation types are registered at construction via {@link #registerOperation},
@@ -154,9 +153,10 @@ public class SchedulerRunner {
 
   /**
    * Claim the bin's operations, narrow to the rows actually owned, launch one batched Spark job for
-   * the claimed subset, and mark SCHEDULED — or revert to PENDING if launch failed.
+   * the claimed subset, and mark SCHEDULED — or revert to PENDING if launch failed. Runs no
+   * transaction of its own: each repository call commits by itself, so other scheduler instances
+   * see the claim before the job launches.
    */
-  @Transactional
   void scheduleBin(Bin bin) {
     Instant claimedAt = Instant.now();
     List<BinItem> claimedItems = claim(bin, claimedAt);
