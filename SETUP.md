@@ -677,8 +677,8 @@ curl --fail -X PUT "http://localhost:8003/v1/optimizer/stats/$TABLE_UUID" \
     "tableProperties": {"maintenance.optimizer.ofd.enabled": "true"}
   }'
 
-# Run one analysis pass.
-docker compose run --rm --no-deps openhouse-optimizer-analyzer
+# Run one analysis pass with OFD enabled (disabled by default).
+docker compose run --rm --no-deps -e ANALYZER_OFD_ENABLED=true openhouse-optimizer-analyzer
 
 # Read the PENDING operation created by Analyzer.
 curl --fail \

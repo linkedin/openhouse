@@ -11,10 +11,10 @@ RUN groupadd --force -g "$GROUP_ID" "$USER" \
 WORKDIR /home/$USER
 
 # APP_NAME selects the REST service, analyzerapp, or schedulerapp bootJar.
-COPY --chown=$USER:$USER build/${APP_NAME}/libs/${APP_NAME}.jar app.jar
+COPY --chown=$USER:$USER build/${APP_NAME}/libs/${APP_NAME}.jar optimizer-service.jar
 
 ENV JAVA_TOOL_OPTIONS="-Xmx256M -Xms64M -XX:NativeMemoryTracking=summary"
 
 USER $USER
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["java", "-jar", "optimizer-service.jar"]
