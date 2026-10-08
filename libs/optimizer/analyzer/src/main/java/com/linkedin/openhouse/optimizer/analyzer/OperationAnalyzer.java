@@ -50,9 +50,13 @@ public interface OperationAnalyzer {
    * @param table the table entry
    * @param currentOp the existing active operation record, or empty if none exists
    * @param latestHistory the most recent history entry for this (table, type), or empty
+   * @param consecutiveFailures number of consecutive FAILED history entries ending at {@code
+   *     latestHistory} ({@code 0} when the latest run did not fail), used by the circuit breaker to
+   *     back off and signal a chronically-failing table
    */
   boolean shouldSchedule(
       TableDto table,
       Optional<TableOperationDto> currentOp,
-      Optional<TableOperationsHistoryDto> latestHistory);
+      Optional<TableOperationsHistoryDto> latestHistory,
+      int consecutiveFailures);
 }

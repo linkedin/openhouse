@@ -21,6 +21,7 @@ class CadenceBasedStatsCollectionAnalyzerTest {
   // a shorter interval (1h) rather than waiting out the full success cadence.
   private static final Duration SUCCESS_INTERVAL = Duration.ofHours(24);
   private static final Duration FAILURE_INTERVAL = Duration.ofHours(1);
+  private static final Duration STALE_TIMEOUT = Duration.ofHours(3);
 
   private CadenceBasedStatsCollectionAnalyzer analyzer;
 
@@ -28,7 +29,7 @@ class CadenceBasedStatsCollectionAnalyzerTest {
   void setUp() {
     analyzer =
         new CadenceBasedStatsCollectionAnalyzer(
-            new CadencePolicy(SUCCESS_INTERVAL, FAILURE_INTERVAL));
+            new CadencePolicy(SUCCESS_INTERVAL, FAILURE_INTERVAL, STALE_TIMEOUT));
   }
 
   @Test
@@ -57,7 +58,8 @@ class CadenceBasedStatsCollectionAnalyzerTest {
 
   @Test
   void shouldSchedule_noOp_noHistory_returnsTrue() {
-    assertThat(analyzer.shouldSchedule(tableWithProperty(true), Optional.empty(), Optional.empty()))
+    assertThat(
+            analyzer.shouldSchedule(tableWithProperty(true), Optional.empty(), Optional.empty(), 0))
         .isTrue();
   }
 
@@ -68,7 +70,8 @@ class CadenceBasedStatsCollectionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty(true),
                 Optional.empty(),
-                Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, longAgo))))
+                Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, longAgo)),
+                0))
         .isTrue();
   }
 
@@ -79,7 +82,8 @@ class CadenceBasedStatsCollectionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty(true),
                 Optional.empty(),
-                Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, recent))))
+                Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, recent)),
+                0))
         .isFalse();
   }
 
@@ -90,7 +94,8 @@ class CadenceBasedStatsCollectionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty(true),
                 Optional.empty(),
-                Optional.of(historyWithStatus(HistoryStatusDto.FAILED, longAgo))))
+                Optional.of(historyWithStatus(HistoryStatusDto.FAILED, longAgo)),
+                1))
         .isTrue();
   }
 
@@ -101,8 +106,51 @@ class CadenceBasedStatsCollectionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty(true),
                 Optional.empty(),
-                Optional.of(historyWithStatus(HistoryStatusDto.FAILED, recent))))
+                Optional.of(historyWithStatus(HistoryStatusDto.FAILED, recent)),
+                1))
         .isFalse();
+  }
+
+  // --- circuit breaker: exponential backoff once the consecutive-failure streak hits threshold ---
+
+  @Test
+  void shouldSchedule_belowStreakThreshold_usesFlatFailureInterval_returnsTrue() {
+    // 2 consecutive failures (< threshold 3): still the flat 1h retry, so a 90-min-old failure is
+    // eligible again.
+    Instant ninetyMinAgo = Instant.now().minus(Duration.ofMinutes(90));
+    assertThat(
+            analyzer.shouldSchedule(
+                tableWithProperty(true),
+                Optional.empty(),
+                Optional.of(historyWithStatus(HistoryStatusDto.FAILED, ninetyMinAgo)),
+                2))
+        .isTrue();
+  }
+
+  @Test
+  void shouldSchedule_atStreakThreshold_backsOff_returnsFalseWithinBackoff() {
+    // 3 consecutive failures: backoff = 1h * 2^(3-1) = 4h, so a 3h-old failure is NOT yet eligible.
+    Instant threeHoursAgo = Instant.now().minus(Duration.ofHours(3));
+    assertThat(
+            analyzer.shouldSchedule(
+                tableWithProperty(true),
+                Optional.empty(),
+                Optional.of(historyWithStatus(HistoryStatusDto.FAILED, threeHoursAgo)),
+                3))
+        .isFalse();
+  }
+
+  @Test
+  void shouldSchedule_atStreakThreshold_backsOff_returnsTrueAfterBackoff() {
+    // Same 4h backoff; a 5h-old failure is past it and becomes eligible again.
+    Instant fiveHoursAgo = Instant.now().minus(Duration.ofHours(5));
+    assertThat(
+            analyzer.shouldSchedule(
+                tableWithProperty(true),
+                Optional.empty(),
+                Optional.of(historyWithStatus(HistoryStatusDto.FAILED, fiveHoursAgo)),
+                3))
+        .isTrue();
   }
 
   // --- shouldSchedule: active op (pending / in-progress) → stay out ---
@@ -113,7 +161,8 @@ class CadenceBasedStatsCollectionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty(true),
                 Optional.of(opWithStatus(OperationStatusDto.PENDING)),
-                Optional.empty()))
+                Optional.empty(),
+                0))
         .isFalse();
   }
 
@@ -123,7 +172,8 @@ class CadenceBasedStatsCollectionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty(true),
                 Optional.of(opWithStatus(OperationStatusDto.SCHEDULING)),
-                Optional.empty()))
+                Optional.empty(),
+                0))
         .isFalse();
   }
 
@@ -133,7 +183,66 @@ class CadenceBasedStatsCollectionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty(true),
                 Optional.of(opWithStatus(OperationStatusDto.SCHEDULED)),
-                Optional.empty()))
+                Optional.empty(),
+                0))
+        .isFalse();
+  }
+
+  // --- shouldSchedule: SCHEDULING/SCHEDULED past the stale timeout → dead job, reschedule ---
+
+  @Test
+  void shouldSchedule_scheduledPastStaleTimeout_noHistory_returnsTrue() {
+    // Job submitted long ago but never reached a terminal state (missed/hung callback): the
+    // SCHEDULED row is treated as dead so the table is rescheduled rather than wedged forever.
+    Instant staleAt = Instant.now().minus(STALE_TIMEOUT).minusSeconds(60);
+    assertThat(
+            analyzer.shouldSchedule(
+                tableWithProperty(true),
+                Optional.of(opScheduledAt(OperationStatusDto.SCHEDULED, staleAt)),
+                Optional.empty(),
+                0))
+        .isTrue();
+  }
+
+  @Test
+  void shouldSchedule_scheduledWithinStaleTimeout_returnsFalse() {
+    // A recently-submitted job is still live; the analyzer stays out.
+    Instant recent = Instant.now().minus(STALE_TIMEOUT).plusSeconds(60);
+    assertThat(
+            analyzer.shouldSchedule(
+                tableWithProperty(true),
+                Optional.of(opScheduledAt(OperationStatusDto.SCHEDULED, recent)),
+                Optional.empty(),
+                0))
+        .isFalse();
+  }
+
+  @Test
+  void shouldSchedule_schedulingPastStaleTimeout_returnsTrue() {
+    // A scheduler that claimed the row but died before recording a jobId also wedges without this.
+    Instant staleAt = Instant.now().minus(STALE_TIMEOUT).minusSeconds(60);
+    assertThat(
+            analyzer.shouldSchedule(
+                tableWithProperty(true),
+                Optional.of(opScheduledAt(OperationStatusDto.SCHEDULING, staleAt)),
+                Optional.empty(),
+                0))
+        .isTrue();
+  }
+
+  @Test
+  void shouldSchedule_staleScheduled_stillHonorsHistoryCadence_returnsFalse() {
+    // Even when the SCHEDULED row is dead, a recent successful collection means the stats are
+    // fresh,
+    // so the cadence guard still suppresses a redundant reschedule.
+    Instant staleAt = Instant.now().minus(STALE_TIMEOUT).minusSeconds(60);
+    Instant recentSuccess = Instant.now().minus(SUCCESS_INTERVAL).plusSeconds(60);
+    assertThat(
+            analyzer.shouldSchedule(
+                tableWithProperty(true),
+                Optional.of(opScheduledAt(OperationStatusDto.SCHEDULED, staleAt)),
+                Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, recentSuccess)),
+                0))
         .isFalse();
   }
 
@@ -153,6 +262,10 @@ class CadenceBasedStatsCollectionAnalyzerTest {
 
   private TableOperationDto opWithStatus(OperationStatusDto status) {
     return TableOperationDto.builder().status(status).build();
+  }
+
+  private TableOperationDto opScheduledAt(OperationStatusDto status, Instant scheduledAt) {
+    return TableOperationDto.builder().status(status).scheduledAt(scheduledAt).build();
   }
 
   private TableOperationsHistoryDto historyWithStatus(
