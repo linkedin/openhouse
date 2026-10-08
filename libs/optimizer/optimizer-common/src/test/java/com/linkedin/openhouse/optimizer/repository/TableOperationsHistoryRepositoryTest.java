@@ -127,4 +127,55 @@ class TableOperationsHistoryRepositoryTest {
     assertThat(forTarget.getCompletedAt()).isEqualTo(t2);
     assertThat(forTarget.getStatus()).isEqualTo(HistoryStatus.FAILED);
   }
+
+  @Test
+  void findRecent_returnsNewestFirst_filteredByType_andRespectsLimit() {
+    String tableUuid = UUID.randomUUID().toString();
+    // Three STATS rows at increasing times + one OFD row that must be excluded by the type filter.
+    saveRow(
+        tableUuid,
+        OperationType.TABLE_STATS_COLLECTION,
+        "2024-01-01T10:00:00Z",
+        HistoryStatus.FAILED);
+    saveRow(
+        tableUuid,
+        OperationType.TABLE_STATS_COLLECTION,
+        "2024-01-02T10:00:00Z",
+        HistoryStatus.FAILED);
+    saveRow(
+        tableUuid,
+        OperationType.TABLE_STATS_COLLECTION,
+        "2024-01-03T10:00:00Z",
+        HistoryStatus.SUCCESS);
+    saveRow(
+        tableUuid,
+        OperationType.ORPHAN_FILES_DELETION,
+        "2024-01-04T10:00:00Z",
+        HistoryStatus.FAILED);
+
+    List<TableOperationsHistoryRow> recent =
+        repository.findRecent(
+            tableUuid, OperationType.TABLE_STATS_COLLECTION, PageRequest.of(0, 2));
+
+    // Only STATS rows, newest first, capped at the page size.
+    assertThat(recent).hasSize(2);
+    assertThat(recent.get(0).getCompletedAt()).isEqualTo(Instant.parse("2024-01-03T10:00:00Z"));
+    assertThat(recent.get(0).getStatus()).isEqualTo(HistoryStatus.SUCCESS);
+    assertThat(recent.get(1).getCompletedAt()).isEqualTo(Instant.parse("2024-01-02T10:00:00Z"));
+    assertThat(recent).allMatch(r -> r.getOperationType() == OperationType.TABLE_STATS_COLLECTION);
+  }
+
+  private void saveRow(
+      String tableUuid, OperationType type, String completedAt, HistoryStatus status) {
+    repository.save(
+        TableOperationsHistoryRow.builder()
+            .id(UUID.randomUUID().toString())
+            .tableUuid(tableUuid)
+            .databaseName("db1")
+            .tableName("tbl1")
+            .operationType(type)
+            .completedAt(Instant.parse(completedAt))
+            .status(status)
+            .build());
+  }
 }
