@@ -36,6 +36,11 @@ You will not be able to push directly to the `main` branch. You will need to cre
 You can then create a pull request from your branch in your fork in the [openhouse](https://github.com/linkedin/openhouse)
 repository.
 
+### Testing
+
+Every test lives in one of four places: Gradle, integration tooling, acceptance tests, or CD tooling. See
+[Testing](TESTING.md) for which one to use and what to write under "Testing Done" in your pull request.
+
 ### Issues and Pull Request
 
 We use Github Issues to track and manage outstanding features, bugs, or other improvements. We request each pull request
