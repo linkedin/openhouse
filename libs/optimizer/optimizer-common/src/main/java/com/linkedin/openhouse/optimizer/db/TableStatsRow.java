@@ -62,6 +62,6 @@ public class TableStatsRow {
   private Map<String, String> tableProperties;
 
   /** Set on every upsert. Used for stats pipeline staleness monitoring. */
-  @Column(name = "updated_at", nullable = false)
+  @Column(name = "updated_at", nullable = false, columnDefinition = "TIMESTAMP(6)")
   private Instant updatedAt;
 }

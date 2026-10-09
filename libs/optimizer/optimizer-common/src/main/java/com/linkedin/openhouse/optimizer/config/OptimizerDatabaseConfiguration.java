@@ -5,6 +5,8 @@ import com.linkedin.openhouse.optimizer.config.OptimizerDatabaseProperties.CertB
 import com.linkedin.openhouse.optimizer.config.OptimizerDatabaseProperties.DatabaseType;
 import com.zaxxer.hikari.HikariDataSource;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.boot.model.naming.PhysicalNamingStrategy;
+import org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -16,7 +18,10 @@ import org.springframework.context.annotation.PropertySource;
 import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 
-/** HTS-style JDBC configuration shared only by the optimizer service and batch applications. */
+/**
+ * HTS-style JDBC configuration shared only by the optimizer service and batch applications, and the
+ * naming that maps the JPA entities to their tables in each of them.
+ */
 @Configuration
 @PropertySource(
     name = "optimizerCluster",
@@ -88,5 +93,15 @@ public class OptimizerDatabaseConfiguration {
     }
 
     return dataSource;
+  }
+
+  /**
+   * Maps the entities to the table and column names their annotations give, as written: the names
+   * in the DDL that Hibernate writes for OptimizerSchemaMigrationsTest and Atlas. Spring Boot's
+   * default strategy would turn camelCase names into snake_case.
+   */
+  @Bean
+  public PhysicalNamingStrategy optimizerPhysicalNamingStrategy() {
+    return PhysicalNamingStrategyStandardImpl.INSTANCE;
   }
 }
