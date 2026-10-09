@@ -1,0 +1,169 @@
+/**
+ * Iceberg REST OpenAPI codegen from the checked-in full Iceberg contract.
+ *
+ * Spec: ${rootDir}/spec/iceberg-rest-catalog-open-api.yaml
+ * Opt-in support: x-openhouse-support: supported (missing = unsupported)
+ *
+ * Codegens Spring interfaces for supported ops only and emits
+ * IcebergRestOpenHouseSupport.SUPPORTED_ENDPOINTS for GET /v1/config.
+ */
+def icebergRestSpec = rootProject.file('spec/iceberg-rest-catalog-open-api.yaml')
+def openApiCliVersion = '7.12.0'
+def codegenDir = layout.buildDirectory.dir('generated/openapi/iceberg-rest-server')
+def codegenSpec = layout.buildDirectory.file('iceberg-rest/codegen-open-api.yaml')
+def supportJavaDir = layout.buildDirectory.dir('generated/openapi/iceberg-rest-support/src/main/java')
+def httpMethods = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace'] as Set
+
+// Both mappings are required (openapi-generator bug: one does not update the other).
+def icebergTypeMap = [
+    'ErrorModel=org.apache.iceberg.rest.responses.ErrorResponse',
+    'IcebergErrorResponse=org.apache.iceberg.rest.responses.ErrorResponse',
+    'LoadTableResult=org.apache.iceberg.rest.responses.LoadTableResponse',
+    'TableIdentifier=org.apache.iceberg.catalog.TableIdentifier',
+].join(',')
+
+configurations {
+  icebergRestOpenApiGenerator {
+    canBeConsumed = false
+    canBeResolved = true
+    transitive = false
+  }
+}
+
+dependencies {
+  icebergRestOpenApiGenerator "org.openapitools:openapi-generator-cli:${openApiCliVersion}"
+}
+
+def loadSpec = { new org.yaml.snakeyaml.Yaml().load(icebergRestSpec.newInputStream()) as Map }
+
+def eachOperation = { Map spec, Closure body ->
+  spec.paths.each { path, methods ->
+    methods.each { method, operation ->
+      if (method in httpMethods && operation instanceof Map) {
+        body.call(path as String, method as String, operation as Map)
+      }
+    }
+  }
+}
+
+tasks.register('icebergRestPrepareCodegenSpec') {
+  description = 'Filter Iceberg REST OpenAPI to x-openhouse-support: supported operations'
+  inputs.file(icebergRestSpec)
+  outputs.file(codegenSpec)
+  outputs.dir(supportJavaDir)
+  doLast {
+    def spec = loadSpec()
+    def paths = [:]
+    def endpoints = []
+    def invalid = []
+    eachOperation(spec) { path, method, operation ->
+      def support = operation['x-openhouse-support']
+      if (support != null && support != 'supported') {
+        invalid << "${method.toUpperCase()} ${path} -> ${support}"
+        return
+      }
+      if (support != 'supported') {
+        return
+      }
+      paths.computeIfAbsent(path) {
+        def item = [:]
+        if (spec.paths[path].parameters != null) {
+          item.parameters = spec.paths[path].parameters
+        }
+        item
+      }[method] = operation
+      if (operation.operationId != 'getConfig') {
+        endpoints << "${method.toUpperCase()} ${path}"
+      }
+    }
+    if (!invalid.isEmpty()) {
+      throw new IllegalStateException(
+          "Invalid x-openhouse-support (use 'supported' or omit):\n  - " + invalid.join('\n  - '))
+    }
+    if (paths.isEmpty()) {
+      throw new IllegalStateException('No operations marked x-openhouse-support: supported')
+    }
+
+    def info = new LinkedHashMap(spec.info as Map)
+    info.title = 'OpenHouse Iceberg REST Catalog (supported operations)'
+    def out = [
+        openapi   : spec.openapi,
+        info      : info,
+        paths     : paths,
+        // Keep full components; models= on codegen limits what Java is emitted.
+        components: spec.components,
+    ]
+    if (spec.servers != null) {
+      out.servers = spec.servers
+    }
+    if (spec.security != null) {
+      out.security = spec.security
+    }
+
+    def codegenFile = codegenSpec.get().asFile
+    codegenFile.parentFile.mkdirs()
+    codegenFile.text = new org.yaml.snakeyaml.Yaml().dump(out)
+
+    def pkg = new File(supportJavaDir.get().asFile, 'com/linkedin/openhouse/tables/generated/iceberg')
+    pkg.mkdirs()
+    def literals = endpoints.collect { "\"${it}\"" }.join(',\n          ')
+    new File(pkg, 'IcebergRestOpenHouseSupport.java').text = """\
+package com.linkedin.openhouse.tables.generated.iceberg;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
+/** Generated from x-openhouse-support in spec/iceberg-rest-catalog-open-api.yaml. */
+public final class IcebergRestOpenHouseSupport {
+  private IcebergRestOpenHouseSupport() {}
+
+  public static final List<String> SUPPORTED_ENDPOINTS =
+      Collections.unmodifiableList(Arrays.asList(
+          ${literals}));
+}
+"""
+    logger.lifecycle("Iceberg REST supported endpoints: ${endpoints}")
+  }
+}
+
+tasks.register('icebergRestValidateSpec', JavaExec) {
+  dependsOn tasks.named('icebergRestPrepareCodegenSpec')
+  classpath = configurations.icebergRestOpenApiGenerator
+  mainClass = 'org.openapitools.codegen.OpenAPIGenerator'
+  args 'validate', '-i', codegenSpec.get().asFile.absolutePath
+  inputs.file(codegenSpec)
+  inputs.files(configurations.icebergRestOpenApiGenerator)
+}
+
+tasks.register('icebergRestCodegen', JavaExec) {
+  dependsOn tasks.named('icebergRestValidateSpec')
+  classpath = configurations.icebergRestOpenApiGenerator
+  mainClass = 'org.openapitools.codegen.OpenAPIGenerator'
+  doFirst { delete codegenDir }
+  args 'generate',
+      '-g', 'spring',
+      '-i', codegenSpec.get().asFile.absolutePath,
+      '-o', codegenDir.get().asFile.absolutePath,
+      '--api-package', 'com.linkedin.openhouse.tables.generated.iceberg.api',
+      '--model-package', 'com.linkedin.openhouse.tables.generated.iceberg.model',
+      '--import-mappings', icebergTypeMap,
+      '--type-mappings', icebergTypeMap,
+      '--global-property',
+      'apis,models=CatalogConfig:ListTablesResponse,apiTests=false,apiDocs=false,modelTests=false,modelDocs=false,supportingFiles=',
+      '--additional-properties',
+      'interfaceOnly=true,useTags=true,skipDefaultInterface=false,hideGenerationTimestamp=true,useSpringBoot3=false,openApiNullable=false'
+  inputs.file(codegenSpec)
+  inputs.files(configurations.icebergRestOpenApiGenerator)
+  outputs.dir(codegenDir)
+}
+
+tasks.named('compileJava') {
+  dependsOn 'icebergRestCodegen', 'icebergRestPrepareCodegenSpec'
+  source codegenDir.map { it.dir('src/main/java') }
+  source supportJavaDir
+}
+
+tasks.named('check') {
+  dependsOn 'icebergRestValidateSpec'
+}
