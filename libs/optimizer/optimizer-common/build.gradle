@@ -7,10 +7,11 @@ plugins {
   id 'java-test-fixtures'
 }
 
-// Shared optimizer core: db entities, model DTOs, repositories, and the analyzer SPI. Depended on
-// by the Optimizer Service (:services:optimizer) and by the analyzer/scheduler/binpack libraries,
-// so those libraries no longer need to depend on the service module (breaks the dependency cycle
-// that blocked hosting the analyzer in the service process). Library jar only — no entry point.
+// Shared optimizer core: db entities and the Flyway migrations that create their tables, model
+// DTOs, repositories, and the analyzer SPI. Depended on by the Optimizer Service
+// (:services:optimizer) and by the analyzer/scheduler/binpack libraries, so those libraries no
+// longer need to depend on the service module (breaks the dependency cycle that blocked hosting the
+// analyzer in the service process). Library jar only — no entry point.
 bootJar {
   enabled = false
 }
@@ -27,6 +28,9 @@ dependencies {
   testImplementation 'org.springframework.boot:spring-boot-starter-test:2.7.8'
   testRuntimeOnly 'com.h2database:h2:2.1.210'
   testRuntimeOnly 'mysql:mysql-connector-java:8.0.33'
+  // Flyway creates the repository tests' tables from the migrations, as it does for the service.
+  testRuntimeOnly 'org.flywaydb:flyway-core:8.5.13'
+  testRuntimeOnly 'org.flywaydb:flyway-mysql:8.5.13'
   // MySqlContainerInitializer: a MySQL container for each Spring test context.
   testFixturesApi 'org.testcontainers:mysql:1.21.4'
   testFixturesImplementation 'org.springframework.boot:spring-boot-test:2.7.8'
