@@ -65,7 +65,7 @@ public class TableOperationsHistoryRow {
   private OperationType operationType;
 
   /** When the operation completed, as recorded by the complete endpoint. */
-  @Column(name = "completed_at", nullable = false)
+  @Column(name = "completed_at", nullable = false, columnDefinition = "TIMESTAMP(6)")
   private Instant completedAt;
 
   /** Terminal outcome: {@link HistoryStatus#SUCCESS} or {@link HistoryStatus#FAILED}. */
