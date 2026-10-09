@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.toggle.repository;
 
+import com.linkedin.openhouse.common.exception.DependencyUnavailableException;
 import com.linkedin.openhouse.housetables.client.api.ToggleStatusApi;
 import com.linkedin.openhouse.housetables.client.model.EntityResponseBodyToggleStatus;
 import com.linkedin.openhouse.tables.toggle.ToggleStatusMapper;
@@ -9,6 +10,8 @@ import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 /**
  * A base implementation for {@link ToggleStatusesRepository} that represents an interface for fetch
@@ -21,16 +24,43 @@ public class ToggleStatusesRepositoryImpl implements ToggleStatusesRepository {
 
   @Autowired private ToggleStatusMapper toggleStatusMapper;
 
+  /**
+   * HouseTables answers every lookup, defaulting to inactive, so a failed call is never a toggle
+   * state. When HouseTables is unreachable or fails (5xx), report the outage. A 4xx means this call
+   * is wrong, which is a bug, so it propagates as itself.
+   *
+   * @throws DependencyUnavailableException if HouseTables is unreachable or fails
+   */
   @Override
   public Optional<TableToggleStatus> findById(ToggleStatusKey toggleStatusKey) {
-    return apiInstance
-        .getTableToggleStatus(
+    try {
+      return apiInstance
+          .getTableToggleStatus(
+              toggleStatusKey.getDatabaseId(),
+              toggleStatusKey.getTableId(),
+              toggleStatusKey.getFeatureId())
+          .map(EntityResponseBodyToggleStatus::getEntity)
+          .map(s -> toggleStatusMapper.toTableToggleStatus(toggleStatusKey, s))
+          .blockOptional();
+    } catch (WebClientRequestException e) {
+      throw unavailable(toggleStatusKey, e);
+    } catch (WebClientResponseException e) {
+      if (e.getRawStatusCode() >= 500) {
+        throw unavailable(toggleStatusKey, e);
+      }
+      throw e;
+    }
+  }
+
+  private static DependencyUnavailableException unavailable(
+      ToggleStatusKey toggleStatusKey, Exception cause) {
+    return new DependencyUnavailableException(
+        String.format(
+            "HouseTables could not report feature %s for table %s.%s. Retry.",
+            toggleStatusKey.getFeatureId(),
             toggleStatusKey.getDatabaseId(),
-            toggleStatusKey.getTableId(),
-            toggleStatusKey.getFeatureId())
-        .map(EntityResponseBodyToggleStatus::getEntity)
-        .map(s -> toggleStatusMapper.toTableToggleStatus(toggleStatusKey, s))
-        .blockOptional();
+            toggleStatusKey.getTableId()),
+        cause);
   }
 
   @Override

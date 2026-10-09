@@ -4,8 +4,8 @@ import static com.linkedin.openhouse.tables.model.TableModelConstants.CLUSTER_NA
 import static com.linkedin.openhouse.tables.model.TableModelConstants.GET_TABLE_RESPONSE_BODY;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.buildCreateUpdateTableRequestBody;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.buildGetTableResponseBody;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -20,6 +20,7 @@ import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitial
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultsSource;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
 import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
@@ -47,8 +48,10 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 /**
- * HTTP create/get stamps {@code config} from a stub {@link ColumnDefaultsSource} according to the
- * OpenHouse ramp. Deployment encoders are out of scope; resolver unit tests cover the same matrix.
+ * HTTP GET stamps {@code config} from a stub {@link ColumnDefaultsSource} according to the
+ * OpenHouse ramp, and fails when the source cannot apply a declared default. A write against such a
+ * table fails the same way: the stored table is at fault, not the request. Create and update
+ * responses omit {@code config}. Resolver unit tests cover the same matrix.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -66,11 +69,21 @@ public class ReadBridgeColumnDefaultE2ETest {
       ReadBridgeConfigResolver.COLUMN_DEFAULT_FEATURE_ID
           + TableFeatureToggle.ENABLED_PROPERTY_SUFFIX;
 
+  private static final String UNUSABLE = "COLUMN_DEFAULT_UNUSABLE: column name has a bad default";
+
+  /** Makes the stub source reject every table; reset after each test. */
+  private static volatile boolean failing;
+
   @TestConfiguration
   static class StubDefaults {
     @Bean
     ColumnDefaultsSource stubColumnDefaults() {
-      return tableDto -> Collections.singletonMap(2, TextNode.valueOf("US"));
+      return tableDto -> {
+        if (failing) {
+          throw new ColumnDefaultException(UNUSABLE);
+        }
+        return Collections.singletonMap(2, TextNode.valueOf("US"));
+      };
     }
   }
 
@@ -83,6 +96,7 @@ public class ReadBridgeColumnDefaultE2ETest {
 
   @AfterEach
   public void tearDown() throws Exception {
+    failing = false;
     if (created != null) {
       RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, created);
       created = null;
@@ -94,15 +108,12 @@ public class ReadBridgeColumnDefaultE2ETest {
   }
 
   @Test
-  public void createAndGet_stampsColumnDefaultConfigWhenEnabled() throws Exception {
+  public void create_omitsConfigAndGetStampsColumnDefaultWhenEnabled() throws Exception {
     created = create(uniqueTable("prop_on"), Collections.singletonMap(ENABLED_PROP, "true"));
 
     MvcResult createdResult =
         RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
-    assertEquals(
-        "\"US\"",
-        JsonPath.read(
-            createdResult.getResponse().getContentAsString(), "$.config['" + CONFIG_KEY + "']"));
+    jsonPath("$.config").doesNotExist().match(createdResult);
 
     getTable()
         .andExpect(status().isOk())
@@ -160,6 +171,34 @@ public class ReadBridgeColumnDefaultE2ETest {
         .andExpect(jsonPath("$.config['" + CONFIG_KEY + "']").doesNotExist());
   }
 
+  /** GET fails instead of returning the table without its declared defaults. */
+  @Test
+  public void get_failsWhenSourceCannotApplyADefault() throws Exception {
+    created = create(uniqueTable("unusable"), Collections.singletonMap(ENABLED_PROP, "true"));
+    RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
+    failing = true;
+
+    getTable()
+        .andExpect(status().isInternalServerError())
+        .andExpect(jsonPath("$.message", containsString(UNUSABLE)));
+  }
+
+  /** A write is not blamed for a default the stored table already declares but cannot apply. */
+  @Test
+  public void put_failsAsServerErrorWhenStoredDefaultCannotBeApplied() throws Exception {
+    created =
+        create(uniqueTable("stored_unusable"), Collections.singletonMap(ENABLED_PROP, "true"));
+    RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
+    GetTableResponseBody current =
+        buildGetTableResponseBody(getTable().andExpect(status().isOk()).andReturn());
+    current.getTableProperties().put("user.new", "value");
+    failing = true;
+
+    putTable(current)
+        .andExpect(status().isInternalServerError())
+        .andExpect(jsonPath("$.message", containsString(UNUSABLE)));
+  }
+
   /**
    * Iceberg 1.5 {@code sameSchema} includes {@code initial-default}, so this PUT cannot go through
    * {@code updateTableAndValidateResponse}. Create without overlay, PUT a matching handshake, then
@@ -182,17 +221,7 @@ public class ReadBridgeColumnDefaultE2ETest {
     GetTableResponseBody overlay =
         current.toBuilder().schema(mapper.writeValueAsString(root)).build();
 
-    mvc.perform(
-            MockMvcRequestBuilders.put(
-                    String.format(
-                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
-                            + "/databases/%s/tables/%s",
-                        overlay.getDatabaseId(),
-                        overlay.getTableId()))
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(buildCreateUpdateTableRequestBody(overlay).toJson())
-                .accept(MediaType.APPLICATION_JSON))
-        .andExpect(status().isOk());
+    putTable(overlay).andExpect(status().isOk());
 
     MvcResult after =
         getTable()
@@ -236,6 +265,18 @@ public class ReadBridgeColumnDefaultE2ETest {
                     ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/%s",
                     created.getDatabaseId(),
                     created.getTableId()))
+            .accept(MediaType.APPLICATION_JSON));
+  }
+
+  private ResultActions putTable(GetTableResponseBody table) throws Exception {
+    return mvc.perform(
+        MockMvcRequestBuilders.put(
+                String.format(
+                    ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/%s",
+                    table.getDatabaseId(),
+                    table.getTableId()))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(buildCreateUpdateTableRequestBody(table).toJson())
             .accept(MediaType.APPLICATION_JSON));
   }
 }

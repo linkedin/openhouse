@@ -1,6 +1,8 @@
 package com.linkedin.openhouse.tables.readbridge;
 
 import com.fasterxml.jackson.databind.node.TextNode;
+import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
+import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
@@ -42,7 +44,7 @@ public class ReadBridgeStripProtectionTest {
       tableDto -> Collections.singletonMap(2, TextNode.valueOf("US"));
 
   @Test
-  public void noneSource_stillStripsInitialDefault() throws ColumnDefaultException {
+  public void noneSource_stillStripsInitialDefault() {
     TableDto incoming = ramped(SCHEMA_WITH_DEFAULT, overwrite(10));
     ReadBridgeStripProtection protection =
         new ReadBridgeStripProtection(
@@ -53,36 +55,37 @@ public class ReadBridgeStripProtectionTest {
   }
 
   @Test
-  public void overwriteWithoutInitialDefault_rejectedWhenRamped() throws ColumnDefaultException {
+  public void overwriteWithoutInitialDefault_rejectedWhenRamped() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming = ramped(SCHEMA_WITHOUT_DEFAULT, overwrite(10));
 
-    ColumnDefaultException thrown =
+    UnsupportedClientOperationException thrown =
         Assertions.assertThrows(
-            ColumnDefaultException.class, () -> protection.prepare(existing, incoming));
+            UnsupportedClientOperationException.class,
+            () -> protection.prepare(existing, incoming));
     Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_REWRITE"));
     Assertions.assertTrue(thrown.getMessage().contains("country (field-id 2)"));
     Assertions.assertTrue(thrown.getMessage().contains("Spark 3.1"));
   }
 
   @Test
-  public void overwriteWithDummyInitialDefault_rejected() throws ColumnDefaultException {
+  public void overwriteWithDummyInitialDefault_rejected() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming = ramped(SCHEMA_WITH_DUMMY_DEFAULT, overwrite(10));
 
-    ColumnDefaultException thrown =
+    UnsupportedClientOperationException thrown =
         Assertions.assertThrows(
-            ColumnDefaultException.class, () -> protection.prepare(existing, incoming));
+            UnsupportedClientOperationException.class,
+            () -> protection.prepare(existing, incoming));
     Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_REWRITE"));
     Assertions.assertTrue(thrown.getMessage().contains("matching initial-default"));
     Assertions.assertTrue(thrown.getMessage().contains("country (field-id 2)"));
   }
 
   @Test
-  public void overwriteWithMatchingInitialDefault_stripsBeforeReturning()
-      throws ColumnDefaultException {
+  public void overwriteWithMatchingInitialDefault_stripsBeforeReturning() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming = ramped(SCHEMA_WITH_DEFAULT, overwrite(10));
@@ -93,7 +96,7 @@ public class ReadBridgeStripProtectionTest {
   }
 
   @Test
-  public void appendWithoutInitialDefault_allowedWhenRamped() throws ColumnDefaultException {
+  public void appendWithoutInitialDefault_allowedWhenRamped() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming = ramped(SCHEMA_WITHOUT_DEFAULT, append(10));
@@ -102,7 +105,7 @@ public class ReadBridgeStripProtectionTest {
   }
 
   @Test
-  public void historicalOverwriteDoesNotGateCurrentAppend() throws ColumnDefaultException {
+  public void historicalOverwriteDoesNotGateCurrentAppend() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming =
@@ -112,8 +115,7 @@ public class ReadBridgeStripProtectionTest {
   }
 
   @Test
-  public void replaceCommitWithoutInitialDefault_rejectedWhenRamped()
-      throws ColumnDefaultException {
+  public void replaceCommitWithoutInitialDefault_rejectedWhenRamped() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming =
@@ -126,11 +128,11 @@ public class ReadBridgeStripProtectionTest {
             .build();
 
     Assertions.assertThrows(
-        ColumnDefaultException.class, () -> protection.prepare(existing, incoming));
+        UnsupportedClientOperationException.class, () -> protection.prepare(existing, incoming));
   }
 
   @Test
-  public void unrampedOverwriteWithoutInitialDefault_allowed() throws ColumnDefaultException {
+  public void unrampedOverwriteWithoutInitialDefault_allowed() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     Map<String, String> optedOut = Collections.singletonMap(ENABLED_PROP, "false");
     TableDto existing =
@@ -154,7 +156,7 @@ public class ReadBridgeStripProtectionTest {
   }
 
   @Test
-  public void optOutSchemaOnly_doesNotType1() throws ColumnDefaultException {
+  public void optOutSchemaOnly_doesNotType1() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming =
@@ -169,7 +171,7 @@ public class ReadBridgeStripProtectionTest {
   }
 
   @Test
-  public void optOutOverwriteWithoutOverlay_stillType2() throws ColumnDefaultException {
+  public void optOutOverwriteWithoutOverlay_stillType2() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming =
@@ -183,11 +185,11 @@ public class ReadBridgeStripProtectionTest {
             .build();
 
     Assertions.assertThrows(
-        ColumnDefaultException.class, () -> protection.prepare(existing, incoming));
+        UnsupportedClientOperationException.class, () -> protection.prepare(existing, incoming));
   }
 
   @Test
-  public void createWithOverlay_stripsStampedIds() throws ColumnDefaultException {
+  public void createWithOverlay_stripsStampedIds() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto incoming = ramped(SCHEMA_WITH_DEFAULT);
 
@@ -196,7 +198,7 @@ public class ReadBridgeStripProtectionTest {
   }
 
   @Test
-  public void unstampedWriterDefault_stripped() throws ColumnDefaultException {
+  public void unstampedWriterDefault_stripped() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto prepared = protection.prepare(null, ramped(SCHEMA_UNSTAMPED_WRITER_DEFAULTS));
 
@@ -204,7 +206,7 @@ public class ReadBridgeStripProtectionTest {
   }
 
   @Test
-  public void unrampedWithInitialDefault_stillStrips() throws ColumnDefaultException {
+  public void unrampedWithInitialDefault_stillStrips() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     Map<String, String> optedOut = Collections.singletonMap(ENABLED_PROP, "false");
     TableDto existing =
@@ -227,7 +229,7 @@ public class ReadBridgeStripProtectionTest {
   }
 
   @Test
-  public void nestedStampedDefault_stripped() throws ColumnDefaultException {
+  public void nestedStampedDefault_stripped() {
     ColumnDefaultsSource nested = tableDto -> Collections.singletonMap(10, TextNode.valueOf("US"));
     ReadBridgeStripProtection protection = protection(nested);
     TableDto prepared = protection.prepare(null, ramped(NESTED_WITH_DEFAULT));
@@ -237,7 +239,7 @@ public class ReadBridgeStripProtectionTest {
   }
 
   @Test
-  public void droppingLiveDefault_rejected() throws ColumnDefaultException {
+  public void droppingLiveDefault_rejected() {
     ColumnDefaultsSource fromProp =
         tableDto -> {
           String raw =
@@ -268,17 +270,17 @@ public class ReadBridgeStripProtectionTest {
             .tableProperties(optIn())
             .build();
 
-    ColumnDefaultException thrown =
+    UnsupportedClientOperationException thrown =
         Assertions.assertThrows(
-            ColumnDefaultException.class, () -> protection.prepare(existing, incoming));
+            UnsupportedClientOperationException.class,
+            () -> protection.prepare(existing, incoming));
     Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_REMOVED"));
-    Assertions.assertEquals(ColumnDefaultException.Operation.REMOVED, thrown.getOperation());
     Assertions.assertTrue(thrown.getMessage().contains("country (field-id 2)"));
     Assertions.assertTrue(thrown.getMessage().contains("cannot be removed or changed"));
   }
 
   @Test
-  public void droppingColumnThatHadDefault_allowed() throws ColumnDefaultException {
+  public void droppingColumnThatHadDefault_allowed() {
     ColumnDefaultsSource fromProp =
         tableDto -> {
           String raw =
@@ -313,7 +315,7 @@ public class ReadBridgeStripProtectionTest {
   }
 
   @Test
-  public void schemaOnlyUpdate_doesNotGate() throws ColumnDefaultException {
+  public void schemaOnlyUpdate_doesNotGate() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming = ramped(SCHEMA_WITHOUT_DEFAULT);
@@ -321,40 +323,73 @@ public class ReadBridgeStripProtectionTest {
     Assertions.assertSame(incoming, protection.prepare(existing, incoming));
   }
 
+  /** A buggy source fails the write closed, as itself rather than as anyone's unusable default. */
   @Test
-  public void sourceThrow_failsClosed() throws ColumnDefaultException {
-    ColumnDefaultsSource exploding =
-        tableDto -> {
-          throw new IllegalStateException("encoder exploded");
-        };
-    ReadBridgeStripProtection protection = protection(exploding);
+  public void sourceBug_failsClosedAsItself() {
+    IllegalStateException bug = new IllegalStateException("encoder exploded");
+    ReadBridgeStripProtection protection =
+        protection(
+            tableDto -> {
+              throw bug;
+            });
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming = ramped(SCHEMA_WITHOUT_DEFAULT, overwrite(10));
 
-    ColumnDefaultException thrown =
+    Assertions.assertSame(
+        bug,
         Assertions.assertThrows(
-            ColumnDefaultException.class, () -> protection.prepare(existing, incoming));
-    Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_UNUSABLE"));
-    Assertions.assertTrue(thrown.getMessage().contains("encoder exploded"));
-    Assertions.assertTrue(thrown.getMessage().contains(METADATA_LOCATION));
+            IllegalStateException.class, () -> protection.prepare(existing, incoming)));
+  }
+
+  /**
+   * A default the stored table declares but cannot apply is the server's fault, not the write's.
+   */
+  @Test
+  public void storedUnusableDefault_failsAsServerError() {
+    TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
+    TableDto incoming = ramped(SCHEMA_WITHOUT_DEFAULT, append(10));
+    ColumnDefaultException reported = unusableDefault();
+    ReadBridgeStripProtection protection = protection(rejecting(existing, reported));
+
+    TableConfigUnavailableException thrown =
+        Assertions.assertThrows(
+            TableConfigUnavailableException.class, () -> protection.prepare(existing, incoming));
+    Assertions.assertSame(reported, thrown.getCause());
+  }
+
+  /** A default the write declares but cannot apply is the request's fault. */
+  @Test
+  public void incomingUnusableDefault_failsAsRequestError() {
+    TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
+    TableDto incoming = ramped(SCHEMA_WITHOUT_DEFAULT, append(10));
+    ColumnDefaultException reported = unusableDefault();
+    ReadBridgeStripProtection protection = protection(rejecting(incoming, reported));
+
+    UnsupportedClientOperationException thrown =
+        Assertions.assertThrows(
+            UnsupportedClientOperationException.class,
+            () -> protection.prepare(existing, incoming));
+    Assertions.assertTrue(thrown.getMessage().contains("column country"));
+    Assertions.assertSame(reported, thrown.getCause());
   }
 
   @Test
-  public void unreadableSchema_failsClosedWhenRampedRewrite() throws ColumnDefaultException {
+  public void unreadableSchema_failsClosedWhenRampedRewrite() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming = ramped("{", overwrite(10));
 
-    ColumnDefaultException thrown =
+    UnsupportedClientOperationException thrown =
         Assertions.assertThrows(
-            ColumnDefaultException.class, () -> protection.prepare(existing, incoming));
+            UnsupportedClientOperationException.class,
+            () -> protection.prepare(existing, incoming));
     Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_UNUSABLE"));
     Assertions.assertTrue(thrown.getMessage().contains("unreadable json"));
     Assertions.assertTrue(thrown.getMessage().contains(METADATA_LOCATION));
   }
 
   @Test
-  public void unreadableSnapshots_failsClosedWhenRamped() throws ColumnDefaultException {
+  public void unreadableSnapshots_failsClosedWhenRamped() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming =
@@ -367,9 +402,10 @@ public class ReadBridgeStripProtectionTest {
             .jsonSnapshots(Collections.singletonList("not-a-snapshot"))
             .build();
 
-    ColumnDefaultException thrown =
+    UnsupportedClientOperationException thrown =
         Assertions.assertThrows(
-            ColumnDefaultException.class, () -> protection.prepare(existing, incoming));
+            UnsupportedClientOperationException.class,
+            () -> protection.prepare(existing, incoming));
     Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_UNUSABLE"));
     Assertions.assertTrue(thrown.getMessage().contains("unreadable snapshot"));
     Assertions.assertTrue(thrown.getMessage().contains(METADATA_LOCATION));
@@ -386,6 +422,21 @@ public class ReadBridgeStripProtectionTest {
 
   private static ReadBridgeStripProtection protection(ColumnDefaultsSource source) {
     return new ReadBridgeStripProtection(new ReadBridgeConfigResolver(source, ALL_ON));
+  }
+
+  /** Rejects only {@code declaring}; every other table has a usable default on field 2. */
+  private static ColumnDefaultsSource rejecting(
+      TableDto declaring, ColumnDefaultException reported) {
+    return tableDto -> {
+      if (tableDto == declaring) {
+        throw reported;
+      }
+      return Collections.singletonMap(2, TextNode.valueOf("US"));
+    };
+  }
+
+  private static ColumnDefaultException unusableDefault() {
+    return new ColumnDefaultException("column country: default is not a string");
   }
 
   private static TableDto ramped(String schema) {

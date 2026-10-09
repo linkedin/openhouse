@@ -5,6 +5,7 @@ import com.linkedin.openhouse.common.api.spec.ErrorResponseBody;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.CodedApiException;
 import com.linkedin.openhouse.common.exception.CorruptEntityTypeException;
+import com.linkedin.openhouse.common.exception.DependencyUnavailableException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
@@ -20,6 +21,7 @@ import com.linkedin.openhouse.common.exception.RequestValidationFailureException
 import com.linkedin.openhouse.common.exception.ResourceGatedByToggledOnFeatureException;
 import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableException;
 import com.linkedin.openhouse.common.exception.SystemOnlyLockAccessDeniedException;
+import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.common.exception.UnprocessableEntityException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import io.swagger.v3.oas.annotations.Hidden;
@@ -451,6 +453,40 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
             .cause(getExceptionCause(corruptEntityTypeException))
             .build();
     log.error("Corrupt entity type read from storage:\n", corruptEntityTypeException);
+    return buildResponseEntity(errorResponseBody);
+  }
+
+  /** Table {@code config} the server cannot produce is a server failure, not a bad request. */
+  @Hidden
+  @ExceptionHandler(TableConfigUnavailableException.class)
+  protected ResponseEntity<ErrorResponseBody> handleTableConfigUnavailableException(
+      TableConfigUnavailableException tableConfigUnavailableException) {
+    ErrorResponseBody errorResponseBody =
+        ErrorResponseBody.builder()
+            .status(HttpStatus.INTERNAL_SERVER_ERROR)
+            .error(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase())
+            .message(tableConfigUnavailableException.getMessage())
+            .stacktrace(getAbbreviatedStackTrace(tableConfigUnavailableException))
+            .cause(getExceptionCause(tableConfigUnavailableException))
+            .build();
+    log.error("Table config unavailable:\n", tableConfigUnavailableException);
+    return buildResponseEntity(errorResponseBody);
+  }
+
+  /** A dependency that could not answer: retryable, and not the request's fault. */
+  @Hidden
+  @ExceptionHandler(DependencyUnavailableException.class)
+  protected ResponseEntity<ErrorResponseBody> handleDependencyUnavailableException(
+      DependencyUnavailableException dependencyUnavailableException) {
+    ErrorResponseBody errorResponseBody =
+        ErrorResponseBody.builder()
+            .status(HttpStatus.SERVICE_UNAVAILABLE)
+            .error(HttpStatus.SERVICE_UNAVAILABLE.getReasonPhrase())
+            .message(dependencyUnavailableException.getMessage())
+            .stacktrace(getAbbreviatedStackTrace(dependencyUnavailableException))
+            .cause(getExceptionCause(dependencyUnavailableException))
+            .build();
+    log.error("Dependency unavailable:\n", dependencyUnavailableException);
     return buildResponseEntity(errorResponseBody);
   }
 
