@@ -79,6 +79,9 @@ test {
   filter {
     excludeTestsMatching 'com.linkedin.openhouse.spark.statementtest.*'
     excludeTestsMatching 'com.linkedin.openhouse.spark.catalogtest.*'
+    // Iceberg 1.2 (Spark 3.1) throws on non-append snapshots; Iceberg 1.5 (Spark 3.5) silently skips them.
+    // Spark 3.5 behavior is covered by catalogtest/e2e/IncrementalReadTest.testIncrementalReadWithOverwriteSkipsNonAppends.
+    excludeTestsMatching 'com.linkedin.openhouse.spark.e2e.dml.IncrementalReadTest.testIncrementalReadWithOverwriteInRange'
   }
   if (JavaVersion.current() >= JavaVersion.VERSION_1_9) {
     jvmArgs \
