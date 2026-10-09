@@ -60,7 +60,10 @@ Spark sends only the source operation to the Tables Service.
 The planned service-owned mode moves destination coordination to the source Tables Service. The
 service will read the source table's replication destinations, apply the DDL to each destination
 through that destination's Tables API, and commit the local operation last. A retry must recognize
-already-applied destination operations. If a destination succeeds and a later destination or the
+already-applied destination operations. If the addressed replica is already absent at a destination
+when applying a rename or drop, treat that destination as a successful no-op rather than a failure;
+this is an expected idempotent outcome when retrying an operation. Do not treat unrelated errors,
+such as a target-name conflict, as absence. If a destination succeeds and a later destination or the
 source commit fails, the error must identify which destinations may already be ahead so the same
 operation can be retried safely.
 
