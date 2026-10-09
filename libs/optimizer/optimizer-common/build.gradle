@@ -2,6 +2,9 @@ plugins {
   id 'openhouse.springboot-ext-conventions'
   id 'openhouse.maven-publish'
   id 'org.springframework.boot' version '2.7.8'
+  // Test fixtures: MySqlContainerInitializer, which runs a Spring test on MySQL in Docker, shared
+  // with :services:optimizer's tests.
+  id 'java-test-fixtures'
 }
 
 // Shared optimizer core: db entities, model DTOs, repositories, and the analyzer SPI. Depended on
@@ -24,7 +27,16 @@ dependencies {
   testImplementation 'org.springframework.boot:spring-boot-starter-test:2.7.8'
   testRuntimeOnly 'com.h2database:h2:2.1.210'
   testRuntimeOnly 'mysql:mysql-connector-java:8.0.33'
+  // MySqlContainerInitializer: a MySQL container for each Spring test context.
+  testFixturesApi 'org.testcontainers:mysql:1.21.4'
+  testFixturesImplementation 'org.springframework.boot:spring-boot-test:2.7.8'
+  // Testcontainers connects over JDBC to tell when the server is ready.
+  testFixturesRuntimeOnly 'mysql:mysql-connector-java:8.0.33'
 }
+
+// The test fixtures serve this repository's tests only; publish the library without them.
+components.java.withVariantsFromConfiguration(configurations.testFixturesApiElements) { skip() }
+components.java.withVariantsFromConfiguration(configurations.testFixturesRuntimeElements) { skip() }
 
 test {
   useJUnitPlatform()
