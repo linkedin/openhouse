@@ -30,6 +30,7 @@ import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -40,6 +41,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.util.Pair;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
 
 /** Default Table Service Implementation for /tables REST endpoint. */
@@ -57,6 +59,10 @@ public class TablesServiceImpl implements TablesService {
   @Autowired TableUUIDGenerator tableUUIDGenerator;
 
   @Autowired ReadBridgeStripProtection readBridgeStripProtection;
+
+  @Autowired ReplicationCascadeClient replicationCascadeClient;
+
+  @Autowired ReplicationCascadeProof replicationCascadeProof;
   /**
    * Lookup a table by databaseId and tableId in OpenHouse's Internal Catalog.
    *
@@ -230,17 +236,44 @@ public class TablesServiceImpl implements TablesService {
   public void deleteTable(String databaseId, String tableId, String actingPrincipal) {
     TableDtoPrimaryKey tableDtoPrimaryKey =
         TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build();
+    List<String> cascadedPeers = Collections.emptyList();
 
-    // Table-ref lookup (no metadata.json parse) is enough here — drop only needs identifiers +
-    // tableUUID for the ACL check. Lets us drop tables whose metadata.json is corrupted.
-    TableDto tableDto =
-        openHouseInternalRepository
-            .findTableRefById(tableDtoPrimaryKey)
-            .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
+    boolean trustedCascade =
+        replicationCascadeProof.isTrustedCascade(
+            "DELETE", databaseId, tableId, null, null, actingPrincipal);
+    // Replica status lives in table metadata today, so load it before a destructive operation.
+    // Failing closed for unreadable metadata avoids accidentally allowing direct replica DDL.
+    Optional<TableDto> tableDtoRef = openHouseInternalRepository.findById(tableDtoPrimaryKey);
+    if (!tableDtoRef.isPresent()) {
+      if (trustedCascade) {
+        return;
+      }
+      throw new NoSuchUserTableException(databaseId, tableId);
+    }
 
-    authorizationUtils.checkTableDropPrivilege(tableDto, actingPrincipal, Privileges.DELETE_TABLE);
+    TableDto tableDto = tableDtoRef.get();
+    if (tableDto.getTableType() == TableType.REPLICA_TABLE) {
+      if (!trustedCascade) {
+        throw new AccessDeniedException("Direct DROP of a replicated table is not permitted");
+      }
+      authorizationUtils.checkTablePrivilege(tableDto, actingPrincipal, Privileges.DELETE_TABLE);
+    } else {
+      if (trustedCascade) {
+        throw new AccessDeniedException("Replication cascade is only permitted for replica tables");
+      }
+      authorizationUtils.checkTableDropPrivilege(
+          tableDto, actingPrincipal, Privileges.DELETE_TABLE);
+      cascadedPeers = replicationCascadeClient.cascadeDrop(tableDto, actingPrincipal);
+    }
 
-    openHouseInternalRepository.deleteById(tableDtoPrimaryKey);
+    try {
+      openHouseInternalRepository.deleteById(tableDtoPrimaryKey);
+    } catch (RuntimeException exception) {
+      if (!cascadedPeers.isEmpty()) {
+        throw ReplicationCascadeException.localCommitFailure("DROP", cascadedPeers, exception);
+      }
+      throw exception;
+    }
   }
 
   @Override
@@ -250,12 +283,26 @@ public class TablesServiceImpl implements TablesService {
       String toDatabaseId,
       String toTableId,
       String tableCreatorUpdater) {
+    boolean trustedCascade =
+        replicationCascadeProof.isTrustedCascade(
+            "RENAME", fromDatabaseId, fromTableId, toDatabaseId, toTableId, tableCreatorUpdater);
     Optional<TableDto> existingTableDto =
         openHouseInternalRepository.findById(
             TableDtoPrimaryKey.builder().databaseId(fromDatabaseId).tableId(fromTableId).build());
 
     if (!existingTableDto.isPresent()) {
+      if (trustedCascade) {
+        return;
+      }
       throw new NoSuchUserTableException(fromDatabaseId, fromTableId);
+    }
+    TableDto tableDto = existingTableDto.get();
+    if (tableDto.getTableType() == TableType.REPLICA_TABLE) {
+      if (!trustedCascade) {
+        throw new AccessDeniedException("Direct RENAME of a replicated table is not permitted");
+      }
+    } else if (trustedCascade) {
+      throw new AccessDeniedException("Replication cascade is only permitted for replica tables");
     }
 
     Optional<TableDto> targetedTableDto =
@@ -275,13 +322,32 @@ public class TablesServiceImpl implements TablesService {
     // Rename involves both modifying an existing table and creating a new one
     authorizationUtils.checkDatabasePrivilege(
         fromDatabaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
-    authorizationUtils.checkTableWritePathPrivileges(
-        existingTableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
-    authorizationUtils.checkSystemOnlyLockAccess(existingTableDto.get(), tableCreatorUpdater);
+    if (trustedCascade) {
+      authorizationUtils.checkTablePrivilege(
+          tableDto, tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
+    } else {
+      authorizationUtils.checkTableWritePathPrivileges(
+          tableDto, tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
+    }
+    authorizationUtils.checkSystemOnlyLockAccess(tableDto, tableCreatorUpdater);
 
-    openHouseInternalRepository.rename(
-        TableDtoPrimaryKey.builder().databaseId(fromDatabaseId).tableId(fromTableId).build(),
-        TableDtoPrimaryKey.builder().databaseId(toDatabaseId).tableId(toTableId).build());
+    List<String> cascadedPeers = Collections.emptyList();
+    if (!trustedCascade) {
+      cascadedPeers =
+          replicationCascadeClient.cascadeRename(
+              tableDto, toDatabaseId, toTableId, tableCreatorUpdater);
+    }
+
+    try {
+      openHouseInternalRepository.rename(
+          TableDtoPrimaryKey.builder().databaseId(fromDatabaseId).tableId(fromTableId).build(),
+          TableDtoPrimaryKey.builder().databaseId(toDatabaseId).tableId(toTableId).build());
+    } catch (RuntimeException exception) {
+      if (!cascadedPeers.isEmpty()) {
+        throw ReplicationCascadeException.localCommitFailure("RENAME", cascadedPeers, exception);
+      }
+      throw exception;
+    }
   }
 
   @Override

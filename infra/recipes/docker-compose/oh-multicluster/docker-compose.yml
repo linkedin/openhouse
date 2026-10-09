@@ -50,6 +50,7 @@ services:
       <<: *openhouse-otel
       OTEL_SERVICE_NAME: openhouse-tables-a
       OPENHOUSE_CLUSTER_CONFIG_PATH: /var/config/cluster-a.yaml
+      OPENHOUSE_REPLICATION_CASCADE_KEY: "local-only-multicluster-replication-signing-key"
     depends_on:
       - housetables-a
       - namenode-a
@@ -95,6 +96,7 @@ services:
       <<: *openhouse-otel
       OTEL_SERVICE_NAME: openhouse-tables-b
       OPENHOUSE_CLUSTER_CONFIG_PATH: /var/config/cluster-b.yaml
+      OPENHOUSE_REPLICATION_CASCADE_KEY: "local-only-multicluster-replication-signing-key"
     depends_on:
       - housetables-b
       - namenode-b

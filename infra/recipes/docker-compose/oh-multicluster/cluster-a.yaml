@@ -4,6 +4,7 @@ cluster:
     peers:
       LocalHadoopClusterB:
         tables-api-base-uri: "http://tables-b:8080"
+        cascade-signing-key: "${OPENHOUSE_REPLICATION_CASCADE_KEY}"
   storage:
     type: "hadoop"
     uri: "hdfs://namenode-a:9000/"
