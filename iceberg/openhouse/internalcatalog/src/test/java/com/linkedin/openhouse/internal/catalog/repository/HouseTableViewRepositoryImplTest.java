@@ -315,6 +315,14 @@ public class HouseTableViewRepositoryImplTest {
     Assertions.assertEquals(3, page.getTotalPages());
     Assertions.assertTrue(
         page.getContent().stream().allMatch(row -> "VIEW".equals(row.getEntityType())));
+    // Rows are returned as served, in order, with their own pointer fields: no projection here.
+    Assertions.assertEquals(VIEW_ID, page.getContent().get(0).getTableId());
+    Assertions.assertEquals("v2", page.getContent().get(1).getTableId());
+    for (HouseTable row : page.getContent()) {
+      Assertions.assertEquals(VIEW_DB, row.getDatabaseId());
+      Assertions.assertEquals(VIEW_METADATA_LOCATION, row.getTableLocation());
+      Assertions.assertEquals("local", row.getStorageType());
+    }
   }
 
   @Test

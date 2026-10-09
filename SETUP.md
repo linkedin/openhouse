@@ -740,6 +740,15 @@ cd infra/recipes/docker-compose/{recipe-directory}
 
 ### Q. How do I monitor metrics emitted by my service?
 
+View commits emit `catalog_view_commit_latency` for the entire commit-engine call, including
+validation, failures and unchanged replacements. Commit timing excludes the caller's captured
+pointer lookup and storage allocation. The `catalog_view_metadata_retrieval_latency` and
+`catalog_view_metadata_update_latency` timers measure metadata file IO plus parsing or
+serialization, excluding HTS pointer lookup/publication. A replacement records retrieval of its
+captured metadata file even when unchanged, but records an update only when it writes a metadata
+file; a create records only an update. These timers have no per-view tags and use 600-second
+histogram bounds.
+
 We run prometheus that scrapes metrics emitted by services configured to do so. These metrics can be explored in
 prometheus UI by hitting below URL in browser.
 ```
