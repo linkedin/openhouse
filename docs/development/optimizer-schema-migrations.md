@@ -1,16 +1,20 @@
 # Optimizer Schema Migrations
 
 The Optimizer Service creates and changes its MySQL tables with
-[Flyway](https://documentation.red-gate.com/fd) migrations, which it applies when it starts. The
-tables can share a database with HouseTables' tables. The migrations' only targets are the four
-optimizer tables (`table_operations`, `table_operations_history`, `table_stats`,
+[Flyway](https://documentation.red-gate.com/fd) migrations, which it applies when it starts. The JPA
+entities declare the tables, and [Atlas](https://atlasgo.io) writes the migration that gets a
+database there. The tables can share a database with HouseTables' tables. The migrations' only
+targets are the four optimizer tables (`table_operations`, `table_operations_history`, `table_stats`,
 `table_stats_history`) and `optimizer_schema_history`. HouseTables' production schema and data must
 stay untouched.
 
 | Path | Role |
 |------|------|
-| `libs/optimizer/optimizer-common/src/main/java/com/linkedin/openhouse/optimizer/db/` | The entities, with their columns in `@Column` and their indexes in `@Table(indexes = ...)`. They map the tables the migrations create. |
-| `libs/optimizer/optimizer-common/src/main/resources/db/migration/` | The migrations. They ship in the optimizer-common jar; only the service runs them. |
+| `libs/optimizer/optimizer-common/src/main/java/com/linkedin/openhouse/optimizer/db/` | The entities, with their columns in `@Column` and their indexes in `@Table(indexes = ...)`. They declare the tables. |
+| `libs/optimizer/optimizer-common/src/main/resources/db/migration/` | The migrations, and Atlas's checksums of them in `atlas.sum`. They ship in the optimizer-common jar; only the service runs them. |
+| `libs/optimizer/optimizer-common/atlas.hcl` | Atlas's configuration: the entities' DDL, the migrations, and the MySQL image Atlas compares them on. |
+| `build/optimizer/entity-schema.sql` | The entities' DDL, which Hibernate writes when `OptimizerSchemaMigrationsTest` runs. Not committed. |
+| `OptimizerDatabaseConfiguration` (optimizer-common) | Maps the entities to the table and column names their annotations give, in the service and both apps, as in the entities' DDL. Hibernate doesn't turn camelCase into snake_case, so name each column in `@Column(name = ...)`. |
 
 ## Tests
 
@@ -26,16 +30,35 @@ and Flyway migrates it as the service does at startup. Add it to a `@SpringBootT
 class MyRepositoryTest { ... }
 ```
 
-`OptimizerSchemaMigrationsTest` starts the service on an empty database, and on one that holds the
-real HouseTables schema with seeded rows. Both must end up with the same optimizer tables, and
-HouseTables' table definitions and row contents must be identical before and after.
+`OptimizerSchemaMigrationsTest` starts the service on an empty database: Flyway applies every
+migration, and Hibernate writes the entities' DDL and validates the entities against the tables. The
+test runs the DDL on another empty database and fails unless both hold the same tables, indexes
+included, so an entity change without its migration fails the build. It also starts the service on
+a database holding the real HouseTables schema with seeded rows. Both must end up with the same
+optimizer tables, and HouseTables' table definitions and row contents must be identical before and
+after.
 
 ## Changing the Schema
 
-1. Write the migration in `libs/optimizer/optimizer-common/src/main/resources/db/migration/`, named
-   `V<UTC timestamp>__<description>.sql`, such as `V20261020000000__add_job_attempts.sql`. Flyway
-   applies migrations in version order; a timestamp keeps two branches from taking the same version.
-2. Edit the entities in `com.linkedin.openhouse.optimizer.db` to match.
+You need Docker, for the throwaway MySQL that Atlas compares on, and the
+[Atlas Community](https://atlasgo.io/community-edition) CLI (Apache 2.0):
+
+```bash
+curl -sSf https://atlasgo.sh | sh -s -- --community
+```
+
+1. Edit the entities in `com.linkedin.openhouse.optimizer.db`.
+2. Write their DDL, then generate the migration, such as `add_job_attempts`:
+   ```bash
+   ./gradlew :services:optimizer:test --tests '*OptimizerSchemaMigrationsTest'
+   cd libs/optimizer/optimizer-common
+   atlas migrate diff --env local add_job_attempts
+   ```
+   The test fails, as no migration makes the change yet, but Hibernate writes the entities' DDL
+   first. Atlas applies the migrations and that DDL to a throwaway MySQL, writes the difference to
+   `V<UTC timestamp>__add_job_attempts.sql`, and adds the file to `atlas.sum`. Delete the
+   `U<UTC timestamp>__add_job_attempts.sql` undo script it writes too: undo needs Flyway Teams, and
+   the service never runs it.
 3. Review the SQL:
    - Prefer one DDL statement per migration. MySQL commits each DDL statement on its own, so a
      migration that fails partway keeps its earlier statements, and the service won't start until
@@ -49,10 +72,18 @@ HouseTables' table definitions and row contents must be identical before and aft
    ```bash
    ./gradlew :libs:optimizer:optimizer-common:test :services:optimizer:test
    ```
-5. Commit the entity change and the migration together.
+5. Commit the entity change, the migration, and `atlas.sum` together.
 
-If another change merged a migration with a later version first, give yours a new timestamp when you
-rebase. Don't keep a migration that sorts before the base branch's newest: Flyway won't apply it to
+Atlas writes DDL only. Write a migration that it can't, such as one that copies data, by hand: add
+the file, then run `atlas migrate hash --env local` to update `atlas.sum`. The test still checks
+that the tables end up as the entities declare them.
+
+The timestamp columns declare `columnDefinition = "TIMESTAMP(6)"`, the type their migration created;
+for an `Instant`, Hibernate's DDL would say `DATETIME(6)`.
+
+If another change merged a migration first, `atlas.sum` conflicts when you rebase. Delete your
+migration, take `atlas.sum` from the base branch, and run step 2 again, so that yours gets a later
+version. Don't keep a migration that sorts before the base branch's newest: Flyway won't apply it to
 a database that already has the newer one, and the service stops starting there. The tests can't
 catch it, because they migrate databases that have none of the migrations.
 
@@ -62,7 +93,8 @@ Detected resolved migration not applied to database: 20261020000000.
 ```
 
 Never edit a migration that has shipped: Flyway compares every applied migration's checksum at
-startup and refuses to start on a mismatch. Fix it with a new migration instead.
+startup and refuses to start on a mismatch. Fix it with a new migration instead. After editing one
+that hasn't shipped, run `atlas migrate hash --env local`.
 
 ## What Happens at Startup
 
@@ -97,8 +129,13 @@ guards only against `clean`, not against migration SQL that touches other tables
 Flyway ignores applied migrations newer than the newest one it knows, so a rolled-back release
 still starts against the newer schema.
 
-The analyzer and scheduler apps don't migrate: they use the tables the service migrated. Roll out
-the service before the apps.
+The analyzer and scheduler apps don't migrate. Hibernate checks at their startup that the tables
+match their entities (`spring.jpa.hibernate.ddl-auto=validate`), so an app ahead of the service's
+schema exits before it reads or writes anything. Roll out the service before the apps.
+
+```
+SchemaManagementException: Schema-validation: missing column [attempts] in table [table_operations]
+```
 
 The service runs Flyway 8.5.13, the release Spring Boot 2.7 is built against. It supports MySQL up
 to 8.0; on a later MySQL it logs that support hasn't been tested.
@@ -160,5 +197,6 @@ safety boundary: migration review and the preservation test are.
 | `table_operations`, `table_operations_history`, `table_stats`, `table_stats_history` | `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, and `DROP` once a migration drops a table |
 | `optimizer_schema_history` | `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `INDEX`: Flyway creates the table, then its index with `CREATE INDEX`. Without `INDEX`, it keeps the table and goes on without the index. |
 
-Grant these before the service first starts; the optimizer tables don't exist until then. Write
-index changes on the optimizer's tables as `ALTER TABLE`, which doesn't need `INDEX`.
+Grant these before the service first starts; the optimizer tables don't exist until then. Atlas
+writes index changes on existing tables as `ALTER TABLE`, which doesn't need `INDEX`; write the
+ones you write by hand the same way.

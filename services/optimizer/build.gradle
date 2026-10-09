@@ -53,10 +53,17 @@ dependencies {
 // Reuse HouseTables' schema without adding its service to the optimizer's test classpath.
 def houseTablesSchema = rootProject.file('services/housetables/src/main/resources/schema.sql')
 
+// OptimizerSchemaMigrationsTest has Hibernate write the DDL of the tables the entities define here,
+// where libs/optimizer/optimizer-common/atlas.hcl reads it.
+def entitySchema = layout.buildDirectory.file('entity-schema.sql')
 test {
   useJUnitPlatform()
   inputs.file(houseTablesSchema).withPathSensitivity(PathSensitivity.RELATIVE)
+  outputs.file(entitySchema)
   doFirst {
+    // Set here, not as inputs: the absolute paths differ between checkouts that share the build
+    // cache.
     systemProperty 'optimizer.house-tables-schema', houseTablesSchema.absolutePath
+    systemProperty 'optimizer.entity-schema', entitySchema.get().asFile.absolutePath
   }
 }
