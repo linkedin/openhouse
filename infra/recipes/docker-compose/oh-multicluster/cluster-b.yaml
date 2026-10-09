@@ -1,6 +1,7 @@
 cluster:
   name: "LocalHadoopClusterB"
   replication:
+    cascade-mode: "service"
     peers:
       LocalHadoopClusterA:
         tables-api-base-uri: "http://tables-a:8080"

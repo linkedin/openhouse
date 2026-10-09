@@ -80,19 +80,26 @@ Peer Tables API endpoints use the existing cluster YAML loaded from
 ```yaml
 cluster:
   replication:
+    cascade-mode: service
     peers:
       LocalHadoopClusterB:
         tables-api-base-uri: "https://tables-b.example"
         cascade-signing-key: "${REPLICATION_PEER_B_CASCADE_SIGNING_KEY}"
 ```
 
+`cascade-mode` selects the single DDL coordinator: `spark` (the default) retains the existing
+Spark-owned cascade and does not call peer Tables APIs; `service` enables the Tables Service
+peer cascade. Configure Spark's `spark.openhouse.replication.ddl.cascade` to `false` in service
+mode, and to `true` when using Spark mode with Spark cascade enabled. Do not enable both paths.
+Peer configuration is optional. When no peers are configured, service fan-out is disabled;
+when at least one peer is configured, every destination in a table's replication policy must
+have a matching peer entry.
+
 Peer IDs are the destination cluster IDs used by the table's replication policy, compared without
 case sensitivity. Base URIs must be absolute HTTP(S) URIs without embedded credentials, query
 parameters, or fragments. The Docker recipe configures `http://tables-b:8080` on cluster A and
 `http://tables-a:8080` on cluster B for its private local Compose network. The Docker jobs set
-`spark.openhouse.replication.ddl.cascade=false` so only the service-owned path applies the operation;
-the existing Spark path remains available as an explicit compatibility option for deployments that
-have not enabled service-owned coordination.
+`spark.openhouse.replication.ddl.cascade=false` so only the service-owned path applies the operation.
 
 ### 2. Add replication source definition
 

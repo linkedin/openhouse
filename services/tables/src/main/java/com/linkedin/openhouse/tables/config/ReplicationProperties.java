@@ -17,10 +17,14 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "cluster.replication")
 public class ReplicationProperties implements InitializingBean {
 
+  private CascadeMode cascadeMode = CascadeMode.SPARK;
   private Map<String, Peer> peers = new LinkedHashMap<>();
 
   @Override
   public void afterPropertiesSet() {
+    if (cascadeMode == null) {
+      throw new IllegalStateException("Replication cascade mode must be either spark or service");
+    }
     Set<String> normalizedClusterIds = new HashSet<>();
     peers.forEach(
         (clusterId, peer) -> {
@@ -43,6 +47,11 @@ public class ReplicationProperties implements InitializingBean {
                     clusterId));
           }
         });
+  }
+
+  public enum CascadeMode {
+    SPARK,
+    SERVICE
   }
 
   public Peer getPeer(String clusterId) {

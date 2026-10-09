@@ -111,8 +111,8 @@ spark.sql("INSERT INTO openhouse_b.db.replication_seed VALUES (2, 'destination')
 ```
 
 The recipe also lets you verify replicated-table `RENAME` and `DROP` forwarding.
-Create matching tables on both clusters first (the spike forwards DDL; it does
-not copy table data), then run:
+For Spark clients, this exercises the compatibility cascade path; create matching
+tables on both clusters first (DDL forwarding does not copy table data), then run:
 
 ```scala
 spark.sql("CREATE TABLE openhouse_a.db.replication_ddl (id BIGINT)")
@@ -127,18 +127,51 @@ spark.sql("SHOW TABLES IN openhouse_b.db").show()
 ```
 
 After the rename, both clusters should list `replication_ddl_renamed`; after
-the drop, neither should list it. The forwarding applies only when the source
-table has an OpenHouse replication destination configured and does not apply
-to replica tables. Forwarding is enabled by default; to run DDL only on the
-source cluster for the current Spark session, run:
+the drop, neither should list it. The Spark forwarding applies only when the
+source table has an OpenHouse replication destination configured and does not
+apply to replica tables. The multi-cluster recipe disables Spark forwarding so
+the Tables Service owns the cascade and the operation is not applied twice.
+To enable the legacy Spark compatibility path for a Spark session, run:
 
 ```scala
 spark.conf.set("spark.openhouse.replication.ddl.cascade", "false")
 ```
 
-The source DDL runs before destination DDL, so forwarding is not transactional;
-a failure on one destination can leave clusters with different table names or
-existence state.
+The Tables Service cascade applies destination DDL before committing source DDL when
+`cluster.replication.cascade-mode` is `service`. The default `spark` mode leaves the existing
+Spark-owned cascade in control.
+Peer mappings are optional; without configured peers, service fan-out is disabled.
+This is not a distributed transaction: a failure part-way through fan-out, or
+after remote success but before the source commit, can leave clusters out of
+sync. Retry the operation after resolving the reported peer or commit failure.
+
+### Docker smoke test for service-owned cascades
+
+Run the real Tables APIs in two Dockerized clusters and exercise the service-owned
+HTTP cascade path with:
+
+```bash
+bash infra/recipes/docker-compose/oh-multicluster/run-cascade-smoke-test.sh
+```
+
+The script requires Docker Compose v2.24 or later, JDK 17, Python 3, and `curl`.
+It builds the Tables and House Tables service JARs plus the dummy-token utility,
+then starts the multi-cluster recipe under the separate Compose project
+`oh-multicluster-cascade-smoke`. It uses host ports 18000 and 18010 by default;
+set `CASCADE_SMOKE_PORT_A` and `CASCADE_SMOKE_PORT_B` to use other free ports.
+The test override starts one OPA instance per cluster to model independent ACLs.
+It grants local HDFS test-directory permissions inside the temporary containers.
+
+The smoke test checks that destination ACL denial leaves both source and replica
+unchanged; that the same authenticated caller can rename and drop when granted
+permissions on both clusters; that direct replica rename/drop are rejected; and
+that source rename/drop succeed when the destination replica is absent. It
+creates the replica as a test fixture using the source table UUID: this validates
+DDL coordination, not replication data movement or the Spark replication job.
+The generated table names are unique, and the script removes any remaining test
+tables. It stops only its isolated Compose project and retains its named volumes;
+remove those volumes explicitly if you want to discard the smoke-test catalog
+and HDFS state.
 
 For manual or automated replication tests, use cluster A as the source
 (`LocalHadoopClusterA`, `http://localhost:8000`) and cluster B as the destination

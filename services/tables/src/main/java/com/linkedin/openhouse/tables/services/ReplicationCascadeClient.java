@@ -53,6 +53,10 @@ public class ReplicationCascadeClient {
       String operation,
       String toDatabaseId,
       String toTableId) {
+    if (replicationProperties.getCascadeMode() != ReplicationProperties.CascadeMode.SERVICE
+        || replicationProperties.getPeers().isEmpty()) {
+      return Collections.emptyList();
+    }
     Set<String> destinations = replicationDestinations(table);
     if (destinations.isEmpty()) {
       return Collections.emptyList();

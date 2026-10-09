@@ -1,0 +1,67 @@
+services:
+  tables-a:
+    ports: !override
+      - "${CASCADE_SMOKE_PORT_A:-18000}:8080"
+    environment:
+      CLUSTER_SECURITY_TABLES_AUTHORIZATION_OPA_BASE_URI: http://opa-a:8181
+    depends_on:
+      opa-a:
+        condition: service_started
+
+  tables-b:
+    ports: !override
+      - "${CASCADE_SMOKE_PORT_B:-18010}:8080"
+    environment:
+      CLUSTER_SECURITY_TABLES_AUTHORIZATION_OPA_BASE_URI: http://opa-b:8181
+    depends_on:
+      opa-b:
+        condition: service_started
+
+  housetables-a:
+    ports: !override []
+  housetables-b:
+    ports: !override []
+  namenode-a:
+    ports: !override []
+  namenode-b:
+    ports: !override []
+  datanode-a:
+    ports: !override []
+  datanode-b:
+    ports: !override []
+  mysql-a:
+    ports: !override []
+  mysql-b:
+    ports: !override []
+  prometheus:
+    ports: !override []
+  jaeger:
+    ports: !override []
+  opa:
+    ports: !override []
+
+  opa-a:
+    image: openpolicyagent/opa:1.0.0
+    volumes:
+      - ../common/opa/policy.rego:/policy.rego:ro
+      - ../common/opa/data.json:/data:ro
+    command:
+      - run
+      - --server
+      - policy.rego
+      - data
+      - --addr
+      - 0.0.0.0:8181
+
+  opa-b:
+    image: openpolicyagent/opa:1.0.0
+    volumes:
+      - ../common/opa/policy.rego:/policy.rego:ro
+      - ../common/opa/data.json:/data:ro
+    command:
+      - run
+      - --server
+      - policy.rego
+      - data
+      - --addr
+      - 0.0.0.0:8181

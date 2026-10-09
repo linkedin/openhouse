@@ -96,6 +96,11 @@ class LockEvaluationServiceTest {
     tables.authorizationHandler = handler;
     tables.tablesMapper = mapper;
     tables.readBridgeStripProtection = protection;
+    tables.replicationCascadeClient = mock(ReplicationCascadeClient.class);
+    when(tables.replicationCascadeClient.cascadeRename(
+            any(), anyString(), anyString(), anyString()))
+        .thenReturn(Collections.emptyList());
+    tables.replicationCascadeProof = mock(ReplicationCascadeProof.class);
     snapshots = new IcebergSnapshotsServiceImpl();
     snapshots.openHouseInternalRepository = repository;
     snapshots.authorizationUtils = authorization;
