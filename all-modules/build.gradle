@@ -30,3 +30,22 @@ dependencies {
     implementation project(member.path)
   }
 }
+
+// Spring Boot services (openhouse.springboot-ext-conventions) publish two jars: the runnable boot jar as the main
+// artifact, and their classes as a "lib" classifier jar that downstream builds compile and package against. ELR
+// mirrors only the artifacts this POM names, so the POM also lists each "lib" jar. Gradle writes one POM dependency
+// per project, dropping a second one that selects the lib artifact, so these entries are added to the generated XML.
+def libJarMembers = publishedMembers.findAll { it.tasks.findByName('jar')?.archiveClassifier?.getOrNull() == 'lib' }
+publishing.publications.withType(MavenPublication).configureEach {
+  pom.withXml {
+    def dependencies = asNode().dependencies[0]
+    libJarMembers.each { member ->
+      def dependency = dependencies.appendNode('dependency')
+      dependency.appendNode('groupId', member.group)
+      dependency.appendNode('artifactId', member.publishing.publications.mavenJava.artifactId)
+      dependency.appendNode('version', member.version)
+      dependency.appendNode('classifier', 'lib')
+      dependency.appendNode('scope', 'runtime')
+    }
+  }
+}
