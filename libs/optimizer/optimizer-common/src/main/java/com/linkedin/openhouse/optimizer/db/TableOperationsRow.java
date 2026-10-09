@@ -71,11 +71,11 @@ public class TableOperationsRow {
   private OperationStatus status;
 
   /** When the analyzer first created this row. Set on insert; never updated. */
-  @Column(name = "created_at", nullable = false)
+  @Column(name = "created_at", nullable = false, columnDefinition = "TIMESTAMP(6)")
   private Instant createdAt;
 
   /** When the scheduler last submitted a job for this row. {@code null} while {@code PENDING}. */
-  @Column(name = "scheduled_at")
+  @Column(name = "scheduled_at", columnDefinition = "TIMESTAMP(6)")
   private Instant scheduledAt;
 
   /** Spark job ID written by the scheduler at claim time. Internal-only; never exposed on wire. */
