@@ -6,7 +6,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
-@EnableConfigurationProperties(InternalCatalogProperties.class)
+@EnableConfigurationProperties({InternalCatalogProperties.class, ReplicationProperties.class})
 public class InternalCatalogBeans {
 
   @Bean

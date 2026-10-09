@@ -1,6 +1,6 @@
 # Replication Simplification Design
 
-**Status:** Design in progress. This document captures the goal and agreed direction; it is not yet an implementation specification.
+**Status:** Design and implementation in progress. This document records the goal, agreed direction, current behavior, and outstanding authorization contract.
 
 ## Problem statement
 
@@ -50,6 +50,47 @@ The proposed phases are as follows.
 ### 1. HTS/catalog table fields
 
 Move OpenHouse table identity and catalog fields out of Iceberg properties because they already exist in the House Tables Service/catalog database. This avoids duplicating state and the inevitable issues caused by having two sources of truth.
+
+### Replicated table DDL coordination
+
+The current compatibility implementation coordinates replicated-table `RENAME` and `DROP` in
+Spark. It can be disabled with `spark.openhouse.replication.ddl.cascade=false`; when disabled,
+Spark sends only the source operation to the Tables Service.
+
+The planned service-owned mode moves destination coordination to the source Tables Service. The
+service will read the source table's replication destinations, apply the DDL to each destination
+through that destination's Tables API, and commit the local operation last. A retry must recognize
+already-applied destination operations. If a destination succeeds and a later destination or the
+source commit fails, the error must identify which destinations may already be ahead so the same
+operation can be retried safely.
+
+Peer Tables API endpoints use the existing cluster YAML loaded from
+`OPENHOUSE_CLUSTER_CONFIG_PATH`. The typed binding accepts a dynamic peer ID:
+
+```yaml
+cluster:
+  replication:
+    peers:
+      LocalHadoopClusterB:
+        tables-api-base-uri: "https://tables-b.example"
+```
+
+Peer IDs are the destination cluster IDs used by the table's replication policy, compared without
+case sensitivity. Base URIs must be absolute HTTP(S) URIs without embedded credentials, query
+parameters, or fragments. The Docker recipe configures `http://tables-b:8080` on cluster A and
+`http://tables-a:8080` on cluster B for its private local Compose network.
+
+The service-owned mode is not enabled yet. The current Tables API authentication contract
+authenticates the end user's request but has no trusted, cryptographically verifiable assertion
+that a replica-table DDL request was initiated by a source-cluster cascade. Forwarding the user's
+principal in a request header would be spoofable, while using a service account would bypass the
+destination user's ACL. The existing Spark implementation also calls the same destination DDL APIs
+as a user, so the receiver cannot distinguish its legitimate cascade from a direct user request.
+Before enabling service-owned DDL or rejecting direct replica DDL, the API needs a delegation
+contract that authenticates the source service and binds the original authenticated user, operation,
+and exact table identifiers; each destination must then authenticate that user and enforce its own
+ACLs. Until that contract exists, the Spark compatibility path remains the only active cascade
+implementation.
 
 ### 2. Add replication source definition
 
