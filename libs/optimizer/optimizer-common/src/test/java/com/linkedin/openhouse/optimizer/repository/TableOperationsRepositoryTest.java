@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.linkedin.openhouse.optimizer.db.OperationStatus;
 import com.linkedin.openhouse.optimizer.db.OperationType;
 import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
+import com.linkedin.openhouse.optimizer.testing.MySqlContainerInitializer;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -17,12 +18,14 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.ContextConfiguration;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @SpringBootTest
 @ActiveProfiles("test")
+@ContextConfiguration(initializers = MySqlContainerInitializer.class)
 @Transactional
 class TableOperationsRepositoryTest {
 
@@ -151,9 +154,9 @@ class TableOperationsRepositoryTest {
             .scheduledAt(Instant.now().minusSeconds(60))
             .build());
 
-    // Truncate to microseconds — MySQL TIMESTAMP(6) (and H2 in MySQL mode) stores microseconds,
-    // so a nano-precision now() round-trips lossily. On Linux CI Instant.now() carries nanos;
-    // truncating here keeps the watermark comparison exact across platforms.
+    // Truncate to microseconds — MySQL TIMESTAMP(6) stores microseconds, so a nano-precision now()
+    // round-trips lossily. On Linux CI Instant.now() carries nanos; truncating here keeps the
+    // watermark comparison exact across platforms.
     Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
     int transitioned =
         repository.updateBatch(

@@ -40,8 +40,9 @@ dependencies {
   // H2 only for spec-gen bootRun; excluded from bootJar. Pinned to 2.1.210 (matches
   // :iceberg:openhouse:htscatalog) — 2.2.x switches to slf4j-api 2.x and breaks downstream bridges.
   developmentOnly 'com.h2database:h2:2.1.210'
-  testImplementation 'com.h2database:h2:2.1.210'
   testImplementation 'org.springframework.boot:spring-boot-starter-test:2.7.8'
+  // MySqlContainerInitializer: each Spring test context runs on a new MySQL container.
+  testImplementation testFixtures(project(':libs:optimizer:optimizer-common'))
 }
 
 test {
