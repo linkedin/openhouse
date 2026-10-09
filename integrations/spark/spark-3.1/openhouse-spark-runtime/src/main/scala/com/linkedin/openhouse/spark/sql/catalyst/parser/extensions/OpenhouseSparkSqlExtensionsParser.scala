@@ -72,8 +72,28 @@ class OpenhouseSparkSqlExtensionsParser (delegate: ParserInterface) extends Pars
         normalized.contains("set tag"))) ||
       normalized.startsWith("grant") ||
       normalized.startsWith("revoke") ||
-      normalized.startsWith("show grants")
+      normalized.startsWith("show grants") ||
+      isUnlockTableCommand(sqlText)
 
+  }
+
+  // Matches ALTER TABLE <name> UNLOCK.
+  private def isUnlockTableCommand(sqlText: String): Boolean = {
+    sqlText.toLowerCase(Locale.ROOT).contains("unlock") && {
+      val lexer = new OpenhouseSqlExtensionsLexer(new UpperCaseCharStream(CharStreams.fromString(sqlText)))
+      lexer.removeErrorListeners()
+      val tokens = Iterator.continually(lexer.nextToken()).filter(_.getChannel == Token.DEFAULT_CHANNEL)
+      tokens.next().getType == OpenhouseSqlExtensionsLexer.ALTER &&
+        tokens.next().getType == OpenhouseSqlExtensionsLexer.TABLE && {
+          tokens.next()
+          var token = tokens.next()
+          while (token.getText == ".") {
+            tokens.next()
+            token = tokens.next()
+          }
+          token.getType == OpenhouseSqlExtensionsLexer.UNLOCK
+        }
+    }
   }
 
   protected def parse[T](command: String)(toResult: OpenhouseSqlExtensionsParser => T): T = {
@@ -134,6 +154,7 @@ class OpenhouseParseException(
 case object OpenhouseSqlExtensionsPostProcessor extends OpenhouseSqlExtensionsBaseListener {
   override def exitQuotedIdentifier(ctx: QuotedIdentifierContext): Unit = {
     val token = ctx.BACKQUOTED_IDENTIFIER.getSymbol().asInstanceOf[CommonToken]
-    token.setText(token.getText.replace("`", ""))
+    val text = token.getText
+    token.setText(text.substring(1, text.length - 1).replace("``", "`"))
   }
 }

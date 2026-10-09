@@ -299,8 +299,8 @@ class LockEvaluationServiceTest {
     assertEquals(
         "Table db.table has a SYSTEM_ONLY lock"
             + detail
-            + ". Use the reason-targeted OpenHouse unlock endpoint as an authorized lock"
-            + " administrator.",
+            + ". Use the reason-targeted OpenHouse unlock endpoint (Spark SQL: ALTER TABLE ..."
+            + " UNLOCK REASON SYSTEM_ONLY) as an authorized lock administrator.",
         exception.getMessage());
   }
 

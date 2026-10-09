@@ -7,6 +7,7 @@ import static com.linkedin.openhouse.javaclient.OpenHouseTableOperations.*;
 import com.linkedin.openhouse.client.ssl.HttpConnectionStrategy;
 import com.linkedin.openhouse.client.ssl.TablesApiClientFactory;
 import com.linkedin.openhouse.javaclient.api.SupportsGrantRevoke;
+import com.linkedin.openhouse.javaclient.api.SupportsUnlock;
 import com.linkedin.openhouse.javaclient.builder.ClusteringSpecBuilder;
 import com.linkedin.openhouse.javaclient.builder.TimePartitionSpecBuilder;
 import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageException;
@@ -73,7 +74,7 @@ import reactor.core.publisher.Mono;
  */
 @Slf4j
 public class OpenHouseCatalog extends BaseMetastoreCatalog
-    implements Configurable, SupportsNamespaces, SupportsGrantRevoke {
+    implements Configurable, SupportsNamespaces, SupportsGrantRevoke, SupportsUnlock {
 
   private TableApi tableApi;
 
@@ -533,6 +534,44 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
     log.debug("Calling getDatabaseAclPolicies succeeded");
     return aclPolicies;
+  }
+
+  @Override
+  public void unlockTable(TableIdentifier tableIdentifier, String reason) {
+    log.info(
+        "Calling unlockTable with identifier: {}, reason: {}", tableIdentifier.toString(), reason);
+    Preconditions.checkArgument(
+        reason == null || !reason.trim().isEmpty(), "Lock reason must not be blank");
+    if (tableIdentifier.namespace().levels().length > 1) {
+      throw new ValidationException(
+          "Input namespace has more than one levels "
+              + String.join(".", tableIdentifier.namespace().levels()));
+    }
+    String databaseId = tableIdentifier.namespace().toString();
+    String tableId = tableIdentifier.name();
+    checkPathSegment("Database name", databaseId);
+    checkPathSegment("Table name", tableId);
+    if (reason != null) {
+      checkPathSegment("Lock reason", reason);
+    }
+    (reason == null
+            ? tableApi.deleteLockV1(databaseId, tableId)
+            : tableApi.deleteLockByReasonV1(databaseId, tableId, reason))
+        .onErrorResume(
+            WebClientResponseException.class,
+            e -> Mono.error(new WebClientResponseWithMessageException(e)))
+        .onErrorResume(
+            WebClientRequestException.class,
+            e -> Mono.error(new WebClientRequestWithMessageException(e)))
+        .block();
+    log.debug("Calling unlockTable succeeded");
+  }
+
+  // A normalizing proxy could reroute empty, "." or ".." segments.
+  private static void checkPathSegment(String name, String value) {
+    Preconditions.checkArgument(!value.isEmpty(), "%s must not be empty", name);
+    Preconditions.checkArgument(
+        !".".equals(value) && !"..".equals(value), "%s must not be '%s'", name, value);
   }
 
   private UpdateAclPoliciesRequestBody getUpdateAclPoliciesRequestBody(

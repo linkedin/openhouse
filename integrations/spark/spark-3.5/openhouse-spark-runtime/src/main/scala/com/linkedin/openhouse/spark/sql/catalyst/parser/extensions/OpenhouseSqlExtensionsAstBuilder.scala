@@ -2,12 +2,14 @@ package com.linkedin.openhouse.spark.sql.catalyst.parser.extensions
 
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes
 import com.linkedin.openhouse.spark.sql.catalyst.parser.extensions.OpenhouseSqlExtensionsParser._
-import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement, UnSetReplicationPolicy}
+import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement, UnSetReplicationPolicy, UnlockTable}
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes.GrantableResourceType
 import com.linkedin.openhouse.gen.tables.client.model.TimePartitionSpec
 import org.antlr.v4.runtime.tree.ParseTree
 import org.apache.spark.sql.catalyst.parser.ParserInterface
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+
+import java.util.Locale
 
 import scala.collection.JavaConversions.iterableAsScalaIterable
 import scala.collection.JavaConverters._
@@ -50,6 +52,12 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
     val colName = ctx.columnNameClause().identifier().getText
     val policyTags = typedVisit[Seq[String]](ctx.columnPolicy())
     SetColumnPolicyTag(tableName, colName, policyTags)
+  }
+
+  override def visitUnlockTable(ctx: UnlockTableContext): UnlockTable = {
+    val tableName = typedVisit[Seq[String]](ctx.multipartIdentifier)
+    val reason = Option(ctx.lockReason).map(_.getText.toUpperCase(Locale.ROOT))
+    UnlockTable(tableName, reason)
   }
 
   override def visitGrantStatement(ctx: GrantStatementContext): GrantRevokeStatement = {

@@ -25,9 +25,11 @@ import com.linkedin.openhouse.common.exception.UnsupportedClientOperationExcepti
 import io.swagger.v3.oas.annotations.Hidden;
 import java.util.Arrays;
 import java.util.NoSuchElementException;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.springframework.beans.TypeMismatchException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -38,6 +40,7 @@ import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
@@ -149,6 +152,36 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
             .status(HttpStatus.BAD_REQUEST)
             .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
             .message(errorMsg)
+            .stacktrace(getAbbreviatedStackTrace(ex))
+            .cause(getExceptionCause(ex))
+            .build();
+    return new ResponseEntity<>(errorResponseBody, errorResponseBody.getStatus());
+  }
+
+  /**
+   * Overriding {@link ResponseEntityExceptionHandler#handleTypeMismatch} so that an invalid enum
+   * path or query value, such as an unknown lock reason, returns a message listing the accepted
+   * values. Other type mismatches keep the default response.
+   */
+  @Override
+  protected ResponseEntity<Object> handleTypeMismatch(
+      TypeMismatchException ex, HttpHeaders headers, HttpStatus status, WebRequest request) {
+    Class<?> type = ex.getRequiredType();
+    if (!(ex instanceof MethodArgumentTypeMismatchException) || type == null || !type.isEnum()) {
+      return super.handleTypeMismatch(ex, headers, status, request);
+    }
+    String expected =
+        Arrays.stream(type.getEnumConstants())
+            .map(value -> ((Enum<?>) value).name())
+            .collect(Collectors.joining(", "));
+    ErrorResponseBody errorResponseBody =
+        ErrorResponseBody.builder()
+            .status(status)
+            .error(status.getReasonPhrase())
+            .message(
+                String.format(
+                    "Invalid %s '%s'. Expected one of: %s.",
+                    ((MethodArgumentTypeMismatchException) ex).getName(), ex.getValue(), expected))
             .stacktrace(getAbbreviatedStackTrace(ex))
             .cause(getExceptionCause(ex))
             .build();

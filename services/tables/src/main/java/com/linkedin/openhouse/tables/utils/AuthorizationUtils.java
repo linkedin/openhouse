@@ -97,7 +97,8 @@ public class AuthorizationUtils {
     throw new SystemOnlyLockAccessDeniedException(
         String.format(
             "Table %s.%s has a SYSTEM_ONLY lock%s. Use the reason-targeted OpenHouse unlock endpoint "
-                + "as an authorized lock administrator.",
+                + "(Spark SQL: ALTER TABLE ... UNLOCK REASON SYSTEM_ONLY) as an authorized lock "
+                + "administrator.",
             tableDto.getDatabaseId(), tableDto.getTableId(), detail));
   }
 
