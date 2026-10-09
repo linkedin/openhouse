@@ -1,5 +1,9 @@
 cluster:
   name: "LocalHadoopClusterB"
+  replication:
+    peers:
+      LocalHadoopClusterA:
+        tables-api-base-uri: "http://tables-a:8080"
   storage:
     type: "hadoop"
     uri: "hdfs://namenode-b:9000/"
