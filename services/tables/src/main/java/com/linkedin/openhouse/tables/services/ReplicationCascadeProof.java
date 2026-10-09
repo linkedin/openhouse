@@ -69,7 +69,8 @@ public class ReplicationCascadeProof {
 
   /**
    * Validates the peer assertion against the authenticated caller and exact DDL request. Absence of
-   * an assertion is not itself an error; callers use the return value to reject direct replica DDL.
+   * an assertion is not itself an error; callers use the return value to distinguish a peer cascade
+   * from locally initiated DDL, which follows normal ACL checks and does not fan out.
    */
   public boolean isTrustedCascade(
       String operation,

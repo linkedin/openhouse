@@ -4,6 +4,7 @@ import com.linkedin.openhouse.javaclient.OpenHouseCatalog;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.TableMetadata;
@@ -18,165 +19,161 @@ public class SparkMultiSchemaEvolutionTest extends OpenHouseSparkITest {
 
   @Test
   void testMultiSchemaEvolution() throws Exception {
-    SparkSession spark = null;
-    try {
-      spark = getSparkSession();
-      spark.sql(
-          "CREATE TABLE openhouse.multiSchemaTest.t1 (name string, id int) TBLPROPERTIES ('openhouse.tableType' = 'REPLICA_TABLE');");
-      spark.sql("INSERT INTO openhouse.multiSchemaTest.t1 VALUES ('Alice', 1)");
-      spark.sql("INSERT INTO openhouse.multiSchemaTest.t1 VALUES ('Bob', 2), ('Charlie', 3)");
-      TableIdentifier tableIdentifier = TableIdentifier.of("multiSchemaTest", "t1");
-      OpenHouseCatalog ohCatalog = (OpenHouseCatalog) getOpenHouseCatalog(spark);
-      TableOperations ops = ohCatalog.newTableOps(tableIdentifier);
-      Schema evolvedSchema =
-          new Schema(
-              Types.NestedField.optional(1, "name", Types.StringType.get()),
-              Types.NestedField.optional(2, "id", Types.IntegerType.get()),
-              Types.NestedField.optional(3, "newCol", Types.IntegerType.get()));
-      Schema finalEvolvedSchema =
-          new Schema(
-              Types.NestedField.optional(1, "name", Types.StringType.get()),
-              Types.NestedField.optional(2, "id", Types.IntegerType.get()),
-              Types.NestedField.optional(3, "newCol1", Types.IntegerType.get()),
-              Types.NestedField.optional(4, "newCol2", Types.IntegerType.get()));
+    SparkSession spark = getSparkSession();
+    String tableId = uniqueTableId("multi_schema");
+    spark.sql(
+        "CREATE TABLE openhouse.multiSchemaTest."
+            + tableId
+            + " (name string, id int) TBLPROPERTIES ('openhouse.tableType' = 'REPLICA_TABLE')");
+    spark.sql("INSERT INTO openhouse.multiSchemaTest." + tableId + " VALUES ('Alice', 1)");
+    spark.sql(
+        "INSERT INTO openhouse.multiSchemaTest." + tableId + " VALUES ('Bob', 2), ('Charlie', 3)");
+    TableIdentifier tableIdentifier = TableIdentifier.of("multiSchemaTest", tableId);
+    OpenHouseCatalog ohCatalog = (OpenHouseCatalog) getOpenHouseCatalog(spark);
+    TableOperations ops = ohCatalog.newTableOps(tableIdentifier);
+    Schema evolvedSchema =
+        new Schema(
+            Types.NestedField.optional(1, "name", Types.StringType.get()),
+            Types.NestedField.optional(2, "id", Types.IntegerType.get()),
+            Types.NestedField.optional(3, "newCol", Types.IntegerType.get()));
+    Schema finalEvolvedSchema =
+        new Schema(
+            Types.NestedField.optional(1, "name", Types.StringType.get()),
+            Types.NestedField.optional(2, "id", Types.IntegerType.get()),
+            Types.NestedField.optional(3, "newCol1", Types.IntegerType.get()),
+            Types.NestedField.optional(4, "newCol2", Types.IntegerType.get()));
 
-      TableMetadata metadata = ops.current();
-      TableMetadata evolvedMetadata =
-          TableMetadata.buildFrom(metadata)
-              .addSchema(evolvedSchema, evolvedSchema.highestFieldId())
-              .build();
-      TableMetadata finalEvolvedMetadata =
-          TableMetadata.buildFrom(evolvedMetadata)
-              .addSchema(finalEvolvedSchema, finalEvolvedSchema.highestFieldId())
-              .setCurrentSchema(2)
-              .build();
+    TableMetadata metadata = ops.current();
+    TableMetadata evolvedMetadata =
+        TableMetadata.buildFrom(metadata)
+            .addSchema(evolvedSchema, evolvedSchema.highestFieldId())
+            .build();
+    TableMetadata finalEvolvedMetadata =
+        TableMetadata.buildFrom(evolvedMetadata)
+            .addSchema(finalEvolvedSchema, finalEvolvedSchema.highestFieldId())
+            .setCurrentSchema(2)
+            .build();
 
-      Assertions.assertEquals(finalEvolvedMetadata.schemas().size(), 3);
-      ops.commit(metadata, finalEvolvedMetadata);
-      TableMetadata result = ops.current();
-      Assertions.assertEquals(3, result.schemas().size());
-      Assertions.assertTrue(result.schema().sameSchema(finalEvolvedSchema));
-    } finally {
-      if (spark != null) {
-        spark.sql("DROP TABLE openhouse.multiSchemaTest.t1");
-      }
-    }
+    Assertions.assertEquals(finalEvolvedMetadata.schemas().size(), 3);
+    ops.commit(metadata, finalEvolvedMetadata);
+    TableMetadata result = ops.current();
+    Assertions.assertEquals(3, result.schemas().size());
+    Assertions.assertTrue(result.schema().sameSchema(finalEvolvedSchema));
+    spark.sql("DROP TABLE openhouse.multiSchemaTest." + tableId);
   }
 
   @Test
   void testSingleSchemaEvolution() throws Exception {
-    SparkSession spark = null;
-    try {
-      spark = getSparkSession();
-      spark.sql(
-          "CREATE TABLE openhouse.multiSchemaTest.t1 (name string, id int) TBLPROPERTIES ('openhouse.tableType' = 'REPLICA_TABLE');");
-      spark.sql("INSERT INTO openhouse.multiSchemaTest.t1 VALUES ('Alice', 1)");
-      spark.sql("INSERT INTO openhouse.multiSchemaTest.t1 VALUES ('Bob', 2), ('Charlie', 3)");
-      TableIdentifier tableIdentifier = TableIdentifier.of("multiSchemaTest", "t1");
-      OpenHouseCatalog ohCatalog = (OpenHouseCatalog) getOpenHouseCatalog(spark);
-      TableOperations ops = ohCatalog.newTableOps(tableIdentifier);
-      Schema finalEvolvedSchema =
-          new Schema(
-              Types.NestedField.optional(1, "name", Types.StringType.get()),
-              Types.NestedField.optional(2, "id", Types.IntegerType.get()),
-              Types.NestedField.optional(3, "newCol", Types.IntegerType.get()));
+    SparkSession spark = getSparkSession();
+    String tableId = uniqueTableId("single_schema");
+    spark.sql(
+        "CREATE TABLE openhouse.multiSchemaTest."
+            + tableId
+            + " (name string, id int) TBLPROPERTIES ('openhouse.tableType' = 'REPLICA_TABLE')");
+    spark.sql("INSERT INTO openhouse.multiSchemaTest." + tableId + " VALUES ('Alice', 1)");
+    spark.sql(
+        "INSERT INTO openhouse.multiSchemaTest." + tableId + " VALUES ('Bob', 2), ('Charlie', 3)");
+    TableIdentifier tableIdentifier = TableIdentifier.of("multiSchemaTest", tableId);
+    OpenHouseCatalog ohCatalog = (OpenHouseCatalog) getOpenHouseCatalog(spark);
+    TableOperations ops = ohCatalog.newTableOps(tableIdentifier);
+    Schema finalEvolvedSchema =
+        new Schema(
+            Types.NestedField.optional(1, "name", Types.StringType.get()),
+            Types.NestedField.optional(2, "id", Types.IntegerType.get()),
+            Types.NestedField.optional(3, "newCol", Types.IntegerType.get()));
 
-      TableMetadata metadata = ops.current();
-      TableMetadata finalEvolvedMetadata =
-          TableMetadata.buildFrom(metadata)
-              .addSchema(finalEvolvedSchema, finalEvolvedSchema.highestFieldId())
-              .setCurrentSchema(1)
-              .build();
+    TableMetadata metadata = ops.current();
+    TableMetadata finalEvolvedMetadata =
+        TableMetadata.buildFrom(metadata)
+            .addSchema(finalEvolvedSchema, finalEvolvedSchema.highestFieldId())
+            .setCurrentSchema(1)
+            .build();
 
-      Assertions.assertEquals(finalEvolvedMetadata.schemas().size(), 2);
-      ops.commit(metadata, finalEvolvedMetadata);
-      TableMetadata result = ops.current();
-      Assertions.assertEquals(2, result.schemas().size());
-      Assertions.assertTrue(result.schema().sameSchema(finalEvolvedSchema));
-    } finally {
-      if (spark != null) {
-        spark.sql("DROP TABLE openhouse.multiSchemaTest.t1");
-      }
-    }
+    Assertions.assertEquals(finalEvolvedMetadata.schemas().size(), 2);
+    ops.commit(metadata, finalEvolvedMetadata);
+    TableMetadata result = ops.current();
+    Assertions.assertEquals(2, result.schemas().size());
+    Assertions.assertTrue(result.schema().sameSchema(finalEvolvedSchema));
+    spark.sql("DROP TABLE openhouse.multiSchemaTest." + tableId);
   }
 
   @Test
   void testMultiSchemaEvolutionColumnOrderingOnCreate() throws Exception {
-    SparkSession spark = null;
-    try {
-      spark = getSparkSession();
-      TableIdentifier tableIdentifier = TableIdentifier.of("multiSchemaTest", "t2");
-      OpenHouseCatalog ohCatalog = (OpenHouseCatalog) getOpenHouseCatalog(spark);
-      Schema schemaColumnOrdering =
-          new Schema(
-              Types.NestedField.optional(2, "name", Types.StringType.get()),
-              Types.NestedField.optional(1, "id", Types.IntegerType.get()),
-              Types.NestedField.optional(4, "newCol1", Types.IntegerType.get()),
-              Types.NestedField.optional(3, "newCol2", Types.IntegerType.get()));
-      Map<String, String> tableProperties = new HashMap<>();
-      tableProperties.put("openhouse.tableType", "REPLICA_TABLE");
-      tableProperties.put("openhouse.isTableReplicated", "true");
-      tableProperties.put("client.table.schema", SchemaParser.toJson(schemaColumnOrdering));
-      ohCatalog.createTable(tableIdentifier, schemaColumnOrdering, null, tableProperties);
-      TableOperations ops = ohCatalog.newTableOps(tableIdentifier);
-      TableMetadata metadata = ops.current();
-      Assertions.assertEquals(metadata.schema().findColumnName(2), "name");
-      Assertions.assertTrue(metadata.schema().sameSchema(schemaColumnOrdering));
-      Schema schemaColumnOrdering2 =
-          new Schema(
-              Types.NestedField.optional(2, "name", Types.StringType.get()),
-              Types.NestedField.optional(1, "id", Types.IntegerType.get()),
-              Types.NestedField.optional(4, "newCol1", Types.IntegerType.get()),
-              Types.NestedField.optional(3, "newCol2", Types.IntegerType.get()),
-              Types.NestedField.optional(5, "newCol3", Types.IntegerType.get()));
+    SparkSession spark = getSparkSession();
+    String tableId = uniqueTableId("schema_ordering");
+    TableIdentifier tableIdentifier = TableIdentifier.of("multiSchemaTest", tableId);
+    OpenHouseCatalog ohCatalog = (OpenHouseCatalog) getOpenHouseCatalog(spark);
+    Schema schemaColumnOrdering =
+        new Schema(
+            Types.NestedField.optional(2, "name", Types.StringType.get()),
+            Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+            Types.NestedField.optional(4, "newCol1", Types.IntegerType.get()),
+            Types.NestedField.optional(3, "newCol2", Types.IntegerType.get()));
+    Map<String, String> tableProperties = new HashMap<>();
+    tableProperties.put("openhouse.tableType", "REPLICA_TABLE");
+    tableProperties.put("openhouse.isTableReplicated", "true");
+    tableProperties.put("client.table.schema", SchemaParser.toJson(schemaColumnOrdering));
+    ohCatalog.createTable(tableIdentifier, schemaColumnOrdering, null, tableProperties);
+    TableOperations ops = ohCatalog.newTableOps(tableIdentifier);
+    TableMetadata metadata = ops.current();
+    Assertions.assertEquals(metadata.schema().findColumnName(2), "name");
+    Assertions.assertTrue(metadata.schema().sameSchema(schemaColumnOrdering));
+    Schema schemaColumnOrdering2 =
+        new Schema(
+            Types.NestedField.optional(2, "name", Types.StringType.get()),
+            Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+            Types.NestedField.optional(4, "newCol1", Types.IntegerType.get()),
+            Types.NestedField.optional(3, "newCol2", Types.IntegerType.get()),
+            Types.NestedField.optional(5, "newCol3", Types.IntegerType.get()));
 
-      Schema schemaColumnOrdering3 =
-          new Schema(
-              Types.NestedField.optional(2, "name", Types.StringType.get()),
-              Types.NestedField.optional(1, "id", Types.IntegerType.get()),
-              Types.NestedField.optional(4, "newCol1", Types.IntegerType.get()),
-              Types.NestedField.optional(3, "newCol2", Types.IntegerType.get()),
-              Types.NestedField.optional(5, "newCol3", Types.IntegerType.get()),
-              Types.NestedField.optional(6, "newCol4", Types.IntegerType.get()),
-              Types.NestedField.optional(7, "newCol5", Types.IntegerType.get()));
+    Schema schemaColumnOrdering3 =
+        new Schema(
+            Types.NestedField.optional(2, "name", Types.StringType.get()),
+            Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+            Types.NestedField.optional(4, "newCol1", Types.IntegerType.get()),
+            Types.NestedField.optional(3, "newCol2", Types.IntegerType.get()),
+            Types.NestedField.optional(5, "newCol3", Types.IntegerType.get()),
+            Types.NestedField.optional(6, "newCol4", Types.IntegerType.get()),
+            Types.NestedField.optional(7, "newCol5", Types.IntegerType.get()));
 
-      Schema schemaColumnOrdering4 =
-          new Schema(
-              Types.NestedField.optional(2, "name", Types.StringType.get()),
-              Types.NestedField.optional(1, "id", Types.IntegerType.get()),
-              Types.NestedField.optional(4, "newCol1", Types.IntegerType.get()),
-              Types.NestedField.optional(3, "newCol2", Types.IntegerType.get()),
-              Types.NestedField.optional(5, "newCol3", Types.IntegerType.get()),
-              Types.NestedField.optional(6, "newCol4", Types.IntegerType.get()),
-              Types.NestedField.optional(7, "newCol5", Types.IntegerType.get()),
-              Types.NestedField.optional(8, "newCol6", Types.IntegerType.get()));
+    Schema schemaColumnOrdering4 =
+        new Schema(
+            Types.NestedField.optional(2, "name", Types.StringType.get()),
+            Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+            Types.NestedField.optional(4, "newCol1", Types.IntegerType.get()),
+            Types.NestedField.optional(3, "newCol2", Types.IntegerType.get()),
+            Types.NestedField.optional(5, "newCol3", Types.IntegerType.get()),
+            Types.NestedField.optional(6, "newCol4", Types.IntegerType.get()),
+            Types.NestedField.optional(7, "newCol5", Types.IntegerType.get()),
+            Types.NestedField.optional(8, "newCol6", Types.IntegerType.get()));
 
-      TableMetadata evolvedMetadata =
-          TableMetadata.buildFrom(metadata)
-              .addSchema(schemaColumnOrdering2, schemaColumnOrdering2.highestFieldId())
-              .build();
-      TableMetadata secondaryEvolvedMetadata =
-          TableMetadata.buildFrom(evolvedMetadata)
-              .addSchema(schemaColumnOrdering3, schemaColumnOrdering3.highestFieldId())
-              .setCurrentSchema(2)
-              .build();
-      TableMetadata finalEvolvedMetadata =
-          TableMetadata.buildFrom(secondaryEvolvedMetadata)
-              .addSchema(schemaColumnOrdering4, schemaColumnOrdering4.highestFieldId())
-              .setCurrentSchema(3)
-              .build();
+    TableMetadata evolvedMetadata =
+        TableMetadata.buildFrom(metadata)
+            .addSchema(schemaColumnOrdering2, schemaColumnOrdering2.highestFieldId())
+            .build();
+    TableMetadata secondaryEvolvedMetadata =
+        TableMetadata.buildFrom(evolvedMetadata)
+            .addSchema(schemaColumnOrdering3, schemaColumnOrdering3.highestFieldId())
+            .setCurrentSchema(2)
+            .build();
+    TableMetadata finalEvolvedMetadata =
+        TableMetadata.buildFrom(secondaryEvolvedMetadata)
+            .addSchema(schemaColumnOrdering4, schemaColumnOrdering4.highestFieldId())
+            .setCurrentSchema(3)
+            .build();
 
-      Assertions.assertEquals(finalEvolvedMetadata.schemas().size(), 4);
-      ops.commit(metadata, finalEvolvedMetadata);
-      TableMetadata result = ops.current();
-      Assertions.assertEquals(4, result.schemas().size());
-      // Validate ordering of columns persists on creation
-      Assertions.assertEquals(result.schema().findColumnName(2), "name");
-      Assertions.assertTrue(result.schema().sameSchema(schemaColumnOrdering4));
-    } finally {
-      if (spark != null) {
-        spark.sql("DROP TABLE openhouse.multiSchemaTest.t2");
-      }
-    }
+    Assertions.assertEquals(finalEvolvedMetadata.schemas().size(), 4);
+    ops.commit(metadata, finalEvolvedMetadata);
+    TableMetadata result = ops.current();
+    Assertions.assertEquals(4, result.schemas().size());
+    // Validate ordering of columns persists on creation
+    Assertions.assertEquals(result.schema().findColumnName(2), "name");
+    Assertions.assertTrue(result.schema().sameSchema(schemaColumnOrdering4));
+    spark.sql("DROP TABLE openhouse.multiSchemaTest." + tableId);
+  }
+
+  // Unique names isolate fixtures if a test fails before its cleanup.
+  private String uniqueTableId(String prefix) {
+    return prefix + "_" + UUID.randomUUID().toString().replace("-", "");
   }
 }

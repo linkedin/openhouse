@@ -46,7 +46,6 @@ import com.linkedin.openhouse.tables.config.TblPropsToggleRegistryBaseImpl;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
 import com.linkedin.openhouse.tables.model.ServiceAuditModelConstants;
 import com.linkedin.openhouse.tables.model.TableAuditModelConstants;
-import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.model.TableModelConstants;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.toggle.model.TableToggleStatus;
@@ -378,12 +377,7 @@ public class TablesControllerTest {
                     + trickFeatureToggleResponseBody.getDatabaseId()
                     + "/tables/"
                     + trickFeatureToggleResponseBody.getTableId()))
-        .andExpect(status().isForbidden());
-    openHouseInternalRepository.deleteById(
-        TableDtoPrimaryKey.builder()
-            .databaseId(trickFeatureToggleResponseBody.getDatabaseId())
-            .tableId(trickFeatureToggleResponseBody.getTableId())
-            .build());
+        .andExpect(status().isNoContent());
   }
 
   @Test

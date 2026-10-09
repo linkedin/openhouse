@@ -231,7 +231,7 @@ public class ReplicationCascadeEndToEndTest {
   }
 
   @Test
-  public void directReplicaRenameAndDropAreRejected() throws Exception {
+  public void directReplicaRenameAndDropAreAllowedWithoutCascading() throws Exception {
     String tableId = "replica_" + UUID.randomUUID().toString().replace("-", "");
     String uuid = UUID.randomUUID().toString();
     TableDto replica =
@@ -258,19 +258,36 @@ public class ReplicationCascadeEndToEndTest {
             .putTable(buildCreateUpdateTableRequestBody(replica), TEST_USER, true)
             .getFirst();
     tableIdsToClean.add(replica.getTableId());
+    String renamedId = replica.getTableId() + "_renamed";
 
     ResponseEntity<Void> rename =
-        request(
-            HttpMethod.PATCH,
-            renameUri(replica.getTableId(), replica.getTableId() + "_renamed"),
-            authorization);
-    ResponseEntity<Void> drop =
-        request(HttpMethod.DELETE, tableUri(replica.getTableId()), authorization);
+        request(HttpMethod.PATCH, renameUri(replica.getTableId(), renamedId), authorization);
+    Assertions.assertEquals(HttpStatus.NO_CONTENT, rename.getStatusCode());
+    tableIdsToClean.remove(replica.getTableId());
+    tableIdsToClean.add(renamedId);
+    Assertions.assertFalse(
+        repository
+            .findById(
+                TableDtoPrimaryKey.builder()
+                    .databaseId(replica.getDatabaseId())
+                    .tableId(replica.getTableId())
+                    .build())
+            .isPresent());
+    Assertions.assertNotNull(tablesService.getTable(replica.getDatabaseId(), renamedId, TEST_USER));
 
-    Assertions.assertEquals(HttpStatus.FORBIDDEN, rename.getStatusCode());
-    Assertions.assertEquals(HttpStatus.FORBIDDEN, drop.getStatusCode());
-    Assertions.assertNotNull(
-        tablesService.getTable(replica.getDatabaseId(), replica.getTableId(), TEST_USER));
+    ResponseEntity<Void> drop = request(HttpMethod.DELETE, tableUri(renamedId), authorization);
+
+    Assertions.assertEquals(HttpStatus.NO_CONTENT, drop.getStatusCode());
+    tableIdsToClean.remove(renamedId);
+    Assertions.assertFalse(
+        repository
+            .findById(
+                TableDtoPrimaryKey.builder()
+                    .databaseId(replica.getDatabaseId())
+                    .tableId(renamedId)
+                    .build())
+            .isPresent());
+    Assertions.assertEquals(0, PEERS.get(0).requests.get());
   }
 
   private TableDto createSource(String... destinations) {

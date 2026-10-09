@@ -242,7 +242,7 @@ public class TablesServiceImpl implements TablesService {
         replicationCascadeProof.isTrustedCascade(
             "DELETE", databaseId, tableId, null, null, actingPrincipal);
     // Replica status lives in table metadata today, so load it before a destructive operation.
-    // Failing closed for unreadable metadata avoids accidentally allowing direct replica DDL.
+    // Failing closed for unreadable metadata avoids cascading without verifying table type.
     Optional<TableDto> tableDtoRef = openHouseInternalRepository.findById(tableDtoPrimaryKey);
     if (!tableDtoRef.isPresent()) {
       if (trustedCascade) {
@@ -252,17 +252,12 @@ public class TablesServiceImpl implements TablesService {
     }
 
     TableDto tableDto = tableDtoRef.get();
-    if (tableDto.getTableType() == TableType.REPLICA_TABLE) {
-      if (!trustedCascade) {
-        throw new AccessDeniedException("Direct DROP of a replicated table is not permitted");
-      }
-      authorizationUtils.checkTablePrivilege(tableDto, actingPrincipal, Privileges.DELETE_TABLE);
-    } else {
-      if (trustedCascade) {
-        throw new AccessDeniedException("Replication cascade is only permitted for replica tables");
-      }
-      authorizationUtils.checkTableDropPrivilege(
-          tableDto, actingPrincipal, Privileges.DELETE_TABLE);
+    boolean isReplica = tableDto.getTableType() == TableType.REPLICA_TABLE;
+    if (trustedCascade && !isReplica) {
+      throw new AccessDeniedException("Replication cascade is only permitted for replica tables");
+    }
+    authorizationUtils.checkTableDropPrivilege(tableDto, actingPrincipal, Privileges.DELETE_TABLE);
+    if (!trustedCascade && !isReplica) {
       cascadedPeers = replicationCascadeClient.cascadeDrop(tableDto, actingPrincipal);
     }
 
@@ -297,11 +292,8 @@ public class TablesServiceImpl implements TablesService {
       throw new NoSuchUserTableException(fromDatabaseId, fromTableId);
     }
     TableDto tableDto = existingTableDto.get();
-    if (tableDto.getTableType() == TableType.REPLICA_TABLE) {
-      if (!trustedCascade) {
-        throw new AccessDeniedException("Direct RENAME of a replicated table is not permitted");
-      }
-    } else if (trustedCascade) {
+    boolean isReplica = tableDto.getTableType() == TableType.REPLICA_TABLE;
+    if (trustedCascade && !isReplica) {
       throw new AccessDeniedException("Replication cascade is only permitted for replica tables");
     }
 
@@ -322,7 +314,7 @@ public class TablesServiceImpl implements TablesService {
     // Rename involves both modifying an existing table and creating a new one
     authorizationUtils.checkDatabasePrivilege(
         fromDatabaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
-    if (trustedCascade) {
+    if (trustedCascade || isReplica) {
       authorizationUtils.checkTablePrivilege(
           tableDto, tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
     } else {
@@ -332,7 +324,7 @@ public class TablesServiceImpl implements TablesService {
     authorizationUtils.checkSystemOnlyLockAccess(tableDto, tableCreatorUpdater);
 
     List<String> cascadedPeers = Collections.emptyList();
-    if (!trustedCascade) {
+    if (!trustedCascade && !isReplica) {
       cascadedPeers =
           replicationCascadeClient.cascadeRename(
               tableDto, toDatabaseId, toTableId, tableCreatorUpdater);
