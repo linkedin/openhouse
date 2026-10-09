@@ -9,7 +9,8 @@ plugins {
 }
 
 // Port allocation: tables 8000, housetables 8001, jobs 8002, optimizer 8003.
-// H2 overrides let the Spring context finish startup so springdoc can extract the spec.
+// H2 overrides let the Spring context finish startup so springdoc can extract the spec. Flyway stays
+// off: the migrations are MySQL's.
 openApi {
   customBootRun {
     args = [
@@ -20,7 +21,7 @@ openApi {
       "--spring.datasource.username=sa",
       "--spring.datasource.password=",
       "--spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect",
-      "--spring.sql.init.mode=never"
+      "--spring.flyway.enabled=false"
     ]
   }
   apiDocsUrl.set("http://localhost:8003/v3/api-docs")
@@ -37,6 +38,10 @@ dependencies {
   implementation 'com.vladmihalcea:hibernate-types-55:2.21.1'
   implementation 'org.springframework.boot:spring-boot-starter-web:2.7.8'
   implementation 'mysql:mysql-connector-java:8.+'
+  // Applies the migrations in :libs:optimizer:optimizer-common at startup, before JPA. 8.5.13 is the
+  // Flyway release Spring Boot 2.7 is built against.
+  implementation 'org.flywaydb:flyway-core:8.5.13'
+  runtimeOnly 'org.flywaydb:flyway-mysql:8.5.13'
   // H2 only for spec-gen bootRun; excluded from bootJar. Pinned to 2.1.210 (matches
   // :iceberg:openhouse:htscatalog) — 2.2.x switches to slf4j-api 2.x and breaks downstream bridges.
   developmentOnly 'com.h2database:h2:2.1.210'
