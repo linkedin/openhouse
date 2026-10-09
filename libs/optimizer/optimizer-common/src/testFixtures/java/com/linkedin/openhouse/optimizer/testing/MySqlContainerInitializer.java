@@ -18,7 +18,10 @@ import org.testcontainers.utility.DockerImageName;
 public class MySqlContainerInitializer
     implements ApplicationContextInitializer<ConfigurableApplicationContext> {
 
-  /** The MySQL image the tests run on: MySQL 8.0, the release line production runs. */
+  /**
+   * The MySQL image the tests run on: MySQL 8.0, the release line production runs. Keep atlas.hcl's
+   * dev database on the same image.
+   */
   public static final DockerImageName MYSQL_IMAGE = DockerImageName.parse("mysql:8.0.46");
 
   @Override

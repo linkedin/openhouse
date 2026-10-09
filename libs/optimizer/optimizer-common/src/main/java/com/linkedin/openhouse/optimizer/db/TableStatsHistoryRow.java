@@ -69,6 +69,6 @@ public class TableStatsHistoryRow {
   private CommitDeltaMetrics delta;
 
   /** When this history row was recorded (commit time). */
-  @Column(name = "recorded_at", nullable = false)
+  @Column(name = "recorded_at", nullable = false, columnDefinition = "TIMESTAMP(6)")
   private Instant recordedAt;
 }
