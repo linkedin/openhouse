@@ -21,6 +21,7 @@ import com.linkedin.openhouse.relocated.org.springframework.http.HttpStatus;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientRequestException;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientResponseException;
 import com.linkedin.openhouse.relocated.reactor.core.publisher.Mono;
+import java.net.URI;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collections;
@@ -451,14 +452,12 @@ public class OpenHouseTableOperationsTest {
     Map<String, String> baseProps = new HashMap<>();
     Map<String, String> metaDataProps = new HashMap<>();
     baseProps.put("openhouse.tableType", "REPLICA_TABLE");
-    baseProps.put("openhouse.clusterId", "cluster1");
     baseProps.put(
         "openhouse.policy",
         "{\"replication\":{\"config\":[{\"destination\":\"a\", \"interval\":\"1D\"}, {\"destination\":\"aa\", \"interval\":\"2D\"}]}}");
 
     TableMetadata base = mock(TableMetadata.class);
     metaDataProps.put("openhouse.tableType", "PRIMARY_TABLE");
-    metaDataProps.put("openhouse.clusterId", "cluster2");
     metaDataProps.put(
         "openhouse.policy",
         "{\"replication\":{\"config\":[{\"destination\":\"a\", \"interval\":\"1D\"}, {\"destination\":\"aa\", \"interval\":\"2D\"}]}}");
@@ -469,9 +468,8 @@ public class OpenHouseTableOperationsTest {
     when(base.schema()).thenReturn(schema);
 
     when(metadata.properties()).thenReturn(metaDataProps);
-    OpenHouseTableOperations openHouseTableOperations = mock(OpenHouseTableOperations.class);
-
-    when(openHouseTableOperations.getTableType(base, metadata)).thenCallRealMethod();
+    OpenHouseTableOperations openHouseTableOperations = refreshableOps(mock(TableApi.class));
+    openHouseTableOperations.setCurrentTableClusterId("cluster1");
     CreateUpdateTableRequestBody.TableTypeEnum tableType =
         openHouseTableOperations.getTableType(base, metadata);
 
@@ -859,6 +857,25 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertEquals("US", sent.findField(2).initialDefault());
     Assertions.assertEquals("none", sent.findField(3).initialDefault());
     Assertions.assertEquals("email", sent.findField(3).name());
+  }
+
+  @Test
+  public void constructMetadataRequestBody_includesStagedLocationForInitialCreate() {
+    TableMetadata staged =
+        tableWithSchema(
+            "file:/tmp/rb-staged-create",
+            new Schema(NestedField.optional(1, "id", Types.IntegerType.get())));
+    TableMetadata commit =
+        TableMetadataParser.fromJson(
+            "file:/tmp/rb-staged-create/metadata/v1.metadata.json",
+            TableMetadataParser.toJson(staged));
+
+    CreateUpdateTableRequestBody body =
+        refreshableOps(mock(TableApi.class)).constructMetadataRequestBody(null, commit);
+
+    Assertions.assertEquals(
+        URI.create(commit.metadataFileLocation()).getPath(),
+        body.getTableProperties().get("openhouse.tableLocation"));
   }
 
   @Test

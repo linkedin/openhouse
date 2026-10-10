@@ -8,10 +8,7 @@ import com.linkedin.openhouse.spark.sql.catalyst.parser.extensions.OpenhousePars
 import java.nio.file.Files;
 import lombok.SneakyThrows;
 import org.apache.hadoop.fs.Path;
-import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
-import org.apache.spark.sql.execution.ExplainMode;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -44,45 +41,41 @@ public class SetTableReplicationPolicyStatementTest {
   @Test
   public void testSimpleSetReplicationPolicy() {
     String replicationConfigJson = "[{\"destination\":\"a\", \"interval\":\"12H\"}]";
-    Dataset<Row> ds =
-        spark.sql(
-            "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = "
-                + "({destination:'a', interval:12H}))");
-    assert isPlanValid(ds, replicationConfigJson);
+    String statement =
+        "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = "
+            + "({destination:'a', interval:12H}))";
+    assert isPlanValid(statement, replicationConfigJson);
 
     // Test support with multiple clusters
     replicationConfigJson =
         "[{\"destination\":\"a\", \"interval\":\"12H\"}, {\"destination\":\"aa\", \"interval\":\"2D\"}]";
-    ds =
-        spark.sql(
-            "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = "
-                + "({destination:'a', interval:12h}, {destination:'aa', interval:2d}))");
-    assert isPlanValid(ds, replicationConfigJson);
+    statement =
+        "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = "
+            + "({destination:'a', interval:12h}, {destination:'aa', interval:2d}))";
+    assert isPlanValid(statement, replicationConfigJson);
   }
 
   @Test
   public void testSimpleUnSetReplicationPolicy() {
     String replicationConfigJson = "{replication: null}";
-    Dataset<Row> ds = spark.sql("ALTER TABLE openhouse.db.table UNSET POLICY (REPLICATION)");
-    assert isUnSetPlanValid(ds, replicationConfigJson);
+    String statement = "ALTER TABLE openhouse.db.table UNSET POLICY (REPLICATION)";
+    assert isUnSetPlanValid(statement, replicationConfigJson);
   }
 
   @Test
   public void testSimpleSetReplicationPolicyOptionalInterval() {
     // Test with optional interval
     String replicationConfigJson = "[{\"destination\":\"a\"}]";
-    Dataset<Row> ds =
-        spark.sql(
-            "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = " + "({destination:'a'}))");
-    assert isPlanValid(ds, replicationConfigJson);
+    String statement =
+        "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = " + "({destination:'a'}))";
+    assert isPlanValid(statement, replicationConfigJson);
 
     // Test with optional interval for multiple clusters
     replicationConfigJson = "[{\"destination\":\"a\"}, {\"destination\":\"b\"}]";
-    ds =
-        spark.sql(
-            "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = "
-                + "({destination:'a'}, {destination:'b'}))");
-    assert isPlanValid(ds, replicationConfigJson);
+    statement =
+        "ALTER TABLE openhouse.db.table SET POLICY (REPLICATION = "
+            + "({destination:'a'}, {destination:'b'}))";
+    assert isPlanValid(statement, replicationConfigJson);
   }
 
   @Test
@@ -233,8 +226,8 @@ public class SetTableReplicationPolicyStatementTest {
   }
 
   @SneakyThrows
-  private boolean isPlanValid(Dataset<Row> dataframe, String replicationConfigJson) {
-    String queryStr = dataframe.queryExecution().explainString(ExplainMode.fromString("simple"));
+  private boolean isPlanValid(String statement, String replicationConfigJson) {
+    String queryStr = StatementTestUtils.planWithoutExecuting(spark, statement);
     JsonArray jsonArray = new Gson().fromJson(replicationConfigJson, JsonArray.class);
     boolean isValid = false;
     for (JsonElement element : jsonArray) {
@@ -250,9 +243,9 @@ public class SetTableReplicationPolicyStatementTest {
   }
 
   @SneakyThrows
-  private boolean isUnSetPlanValid(Dataset<Row> dataframe, String replicationConfigJson) {
-    String queryStr = dataframe.queryExecution().explainString(ExplainMode.fromString("simple"));
+  private boolean isUnSetPlanValid(String statement, String replicationConfigJson) {
+    String queryStr = StatementTestUtils.planWithoutExecuting(spark, statement);
     JsonObject json = new Gson().fromJson(replicationConfigJson, JsonObject.class);
-    return queryStr.contains("REPLICATION") && json.has("replication");
+    return queryStr.contains("UnSetReplicationPolicy") && json.has("replication");
   }
 }

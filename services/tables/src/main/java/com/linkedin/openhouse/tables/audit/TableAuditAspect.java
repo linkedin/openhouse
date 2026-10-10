@@ -401,8 +401,8 @@ public class TableAuditAspect {
     try {
       result = (ApiResponse<GetTableResponseBody>) point.proceed();
       // Read tableProperties from the response, not the request body: OpenHouse mutates
-      // properties server-side during commit (e.g. openhouse.tableVersion,
-      // openhouse.lastModifiedTime), and the audit event should reflect the committed state.
+      // catalog fields server-side during commit, and the audit event should reflect the
+      // committed state.
       TableAuditEvent event =
           eventBuilder
               .auditedTableProperties(

@@ -19,6 +19,7 @@ import java.util.Set;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.mapstruct.BeanMapping;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.Mappings;
@@ -160,6 +161,7 @@ public interface TablesMapper {
         target = "databaseId"),
     @Mapping(expression = "java(tableIdentifier.name())", target = "tableId")
   })
+  @BeanMapping(ignoreByDefault = true)
   TableDto toTableDto(TableIdentifier tableIdentifier);
 
   /**
