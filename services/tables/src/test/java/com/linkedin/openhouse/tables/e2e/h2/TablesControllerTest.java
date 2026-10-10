@@ -370,7 +370,14 @@ public class TablesControllerTest {
     // This update will otherwise fail if feature-toggle for enable-tableType is not turned on.
     RequestAndValidateHelper.updateTablePropsAndValidateResponse(mvc, toggledOnProp);
 
-    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, trickFeatureToggleResponseBody);
+    mvc.perform(
+            MockMvcRequestBuilders.delete(
+                ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                    + "/databases/"
+                    + trickFeatureToggleResponseBody.getDatabaseId()
+                    + "/tables/"
+                    + trickFeatureToggleResponseBody.getTableId()))
+        .andExpect(status().isNoContent());
   }
 
   @Test

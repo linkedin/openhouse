@@ -1,0 +1,272 @@
+x-openhouse-tables: &openhouse-tables
+  build:
+    context: ../../../..
+    dockerfile: tables-service.Dockerfile
+  volumes:
+    - ./:/var/config/:ro
+  environment: &openhouse-otel
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+    OTEL_TRACES_EXPORTER: otlp
+    OTEL_METRICS_EXPORTER: none
+    OTEL_LOGS_EXPORTER: none
+    OTEL_TRACES_SAMPLER: always_on
+
+x-openhouse-housetables: &openhouse-housetables
+  build:
+    context: ../../../..
+    dockerfile: housetables-service.Dockerfile
+  volumes:
+    - ./:/var/config/:ro
+  environment: *openhouse-otel
+
+x-openhouse-jobs: &openhouse-jobs
+  build:
+    context: ../../../..
+    dockerfile: jobs-service.Dockerfile
+  volumes:
+    - ./:/var/config/:ro
+  environment: *openhouse-otel
+
+x-hadoop-namenode: &hadoop-namenode
+  image: bde2020/hadoop-namenode:1.2.0-hadoop2.8-java8
+  restart: always
+
+x-hadoop-datanode: &hadoop-datanode
+  image: bde2020/hadoop-datanode:1.2.0-hadoop2.8-java8
+  restart: always
+
+x-spark-build: &spark-build
+  build:
+    context: ../../../..
+    dockerfile: infra/recipes/docker-compose/common/spark/spark-base-hadoop2.8.dockerfile
+
+services:
+  tables-a:
+    <<: *openhouse-tables
+    ports:
+      - "8000:8080"
+    environment:
+      <<: *openhouse-otel
+      OTEL_SERVICE_NAME: openhouse-tables-a
+      OPENHOUSE_CLUSTER_CONFIG_PATH: /var/config/cluster-a.yaml
+      OPENHOUSE_REPLICATION_CASCADE_KEY: "local-only-multicluster-replication-signing-key"
+    depends_on:
+      - housetables-a
+      - namenode-a
+      - datanode-a
+      - prometheus
+      - opa
+      - jaeger
+
+  housetables-a:
+    <<: *openhouse-housetables
+    ports:
+      - "8001:8080"
+    environment:
+      <<: *openhouse-otel
+      HTS_DB_USER: oh_user
+      HTS_DB_PASSWORD: oh_password
+      OTEL_SERVICE_NAME: openhouse-housetables-a
+      OPENHOUSE_CLUSTER_CONFIG_PATH: /var/config/cluster-a.yaml
+    depends_on:
+      - mysql-a
+      - prometheus
+      - jaeger
+
+  jobs-a:
+    <<: *openhouse-jobs
+    ports:
+      - "8002:8080"
+    environment:
+      <<: *openhouse-otel
+      OTEL_SERVICE_NAME: openhouse-jobs-a
+      OPENHOUSE_JOBS_CONFIG_PATH: /var/config/jobs-a.yaml
+    depends_on:
+      - housetables-a
+      - spark-livy
+      - prometheus
+      - jaeger
+
+  tables-b:
+    <<: *openhouse-tables
+    ports:
+      - "8010:8080"
+    environment:
+      <<: *openhouse-otel
+      OTEL_SERVICE_NAME: openhouse-tables-b
+      OPENHOUSE_CLUSTER_CONFIG_PATH: /var/config/cluster-b.yaml
+      OPENHOUSE_REPLICATION_CASCADE_KEY: "local-only-multicluster-replication-signing-key"
+    depends_on:
+      - housetables-b
+      - namenode-b
+      - datanode-b
+      - prometheus
+      - opa
+      - jaeger
+
+  housetables-b:
+    <<: *openhouse-housetables
+    ports:
+      - "8011:8080"
+    environment:
+      <<: *openhouse-otel
+      HTS_DB_USER: oh_user
+      HTS_DB_PASSWORD: oh_password
+      OTEL_SERVICE_NAME: openhouse-housetables-b
+      OPENHOUSE_CLUSTER_CONFIG_PATH: /var/config/cluster-b.yaml
+    depends_on:
+      - mysql-b
+      - prometheus
+      - jaeger
+
+  jobs-b:
+    <<: *openhouse-jobs
+    ports:
+      - "8012:8080"
+    environment:
+      <<: *openhouse-otel
+      OTEL_SERVICE_NAME: openhouse-jobs-b
+      OPENHOUSE_JOBS_CONFIG_PATH: /var/config/jobs-b.yaml
+    depends_on:
+      - housetables-b
+      - spark-livy
+      - prometheus
+      - jaeger
+
+  namenode-a:
+    <<: *hadoop-namenode
+    ports:
+      - "9870:9870"
+      - "9000:9000"
+    environment:
+      CLUSTER_NAME: openhouse-a
+      CORE_CONF_fs_defaultFS: hdfs://namenode-a:9000
+    volumes:
+      - hdfs_namenode_a:/hadoop/dfs/name
+
+  datanode-a:
+    <<: *hadoop-datanode
+    ports:
+      - "9864:9864"
+      - "9866:9866"
+    environment:
+      SERVICE_PRECONDITION: namenode-a:9870
+      CORE_CONF_fs_defaultFS: hdfs://namenode-a:9000
+    volumes:
+      - hdfs_datanode_a:/hadoop/dfs/data
+
+  namenode-b:
+    <<: *hadoop-namenode
+    ports:
+      - "9871:9870"
+      - "9004:9000"
+    environment:
+      CLUSTER_NAME: openhouse-b
+      CORE_CONF_fs_defaultFS: hdfs://namenode-b:9000
+    volumes:
+      - hdfs_namenode_b:/hadoop/dfs/name
+
+  datanode-b:
+    <<: *hadoop-datanode
+    ports:
+      - "9865:9864"
+      - "9867:9866"
+    environment:
+      SERVICE_PRECONDITION: namenode-b:9870
+      CORE_CONF_fs_defaultFS: hdfs://namenode-b:9000
+    volumes:
+      - hdfs_datanode_b:/hadoop/dfs/data
+
+  mysql-a:
+    image: mysql:8
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: oh_root_password
+      MYSQL_PASSWORD: oh_password
+      MYSQL_USER: oh_user
+      MYSQL_DATABASE: oh_db
+    volumes:
+      - mysql_a_data:/var/lib/mysql
+
+  mysql-b:
+    image: mysql:8
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: oh_root_password
+      MYSQL_PASSWORD: oh_password
+      MYSQL_USER: oh_user
+      MYSQL_DATABASE: oh_db
+    volumes:
+      - mysql_b_data:/var/lib/mysql
+
+  spark-master:
+    <<: *spark-build
+    ports:
+      - "9001:8080"
+      - "7077:7077"
+    environment:
+      SPARK_LOCAL_IP: spark-master
+      SPARK_WORKLOAD: master
+      CORE_CONF_fs_defaultFS: hdfs://namenode-a:9000
+
+  spark-worker-a:
+    <<: *spark-build
+    ports:
+      - "9002:8080"
+      - "7000:7000"
+    environment:
+      SPARK_MASTER: spark://spark-master:7077
+      SPARK_WORKER_CORES: 1
+      SPARK_WORKER_MEMORY: 1G
+      SPARK_DRIVER_MEMORY: 1G
+      SPARK_EXECUTOR_MEMORY: 1G
+      SPARK_WORKLOAD: worker
+      SPARK_LOCAL_IP: spark-worker-a
+      CORE_CONF_fs_defaultFS: hdfs://namenode-a:9000
+    depends_on:
+      - spark-master
+
+  spark-livy:
+    <<: *spark-build
+    ports:
+      - "9003:8998"
+    environment:
+      SPARK_MASTER: spark://spark-master:7077
+      SPARK_WORKLOAD: livy
+      LIVY_PORT: 8998
+      CORE_CONF_fs_defaultFS: hdfs://namenode-a:9000
+    depends_on:
+      - spark-master
+
+  prometheus:
+    image: prom/prometheus:v2.21.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command: --web.enable-lifecycle --config.file=/etc/prometheus/prometheus.yml
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.54
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+
+  opa:
+    extends:
+      file: ../common/opa-services.yml
+      service: opa
+
+volumes:
+  hdfs_namenode_a:
+  hdfs_datanode_a:
+  hdfs_namenode_b:
+  hdfs_datanode_b:
+  mysql_a_data:
+  mysql_b_data:

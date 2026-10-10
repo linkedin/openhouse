@@ -1,6 +1,6 @@
 # Replication Simplification Design
 
-**Status:** Design in progress. This document captures the goal and agreed direction; it is not yet an implementation specification.
+**Status:** Design and implementation in progress. This document records the goal, agreed direction, current behavior, and outstanding work.
 
 ## Problem statement
 
@@ -50,6 +50,58 @@ The proposed phases are as follows.
 ### 1. HTS/catalog table fields
 
 Move OpenHouse table identity and catalog fields out of Iceberg properties because they already exist in the House Tables Service/catalog database. This avoids duplicating state and the inevitable issues caused by having two sources of truth.
+
+### Replicated table DDL coordination
+
+The source Tables Service now coordinates replicated-table `RENAME` and `DROP`: it authorizes the
+source request, calls each configured destination Tables API, and commits locally only after every
+destination succeeds. A destination `404` is not treated as success at the client boundary; a
+destination that receives a valid cascade assertion returns success when the replica is already
+absent. This makes retries idempotent without confusing a missing API route or database with a
+missing replica. A target-name conflict remains an error. If one destination succeeds and a later
+destination or the source commit fails, the response identifies successful peers and states that the
+operation can be retried; destinations may temporarily be ahead of the source.
+
+The source forwards the incoming Bearer credential unchanged, so each destination authenticates the
+same user and evaluates its own DDL ACL. A peer-specific HMAC assertion binds the trusted source
+cluster, authenticated principal, credential fingerprint, operation, table identifiers, source
+table UUID, and a short-lived timestamp. A valid assertion is required for a source-initiated
+replica `RENAME` or `DROP`; the destination still checks the delegated user's normal
+`UPDATE_TABLE_METADATA` or `DELETE_TABLE` permission. Direct replica rename/drop is also allowed
+when the caller has the destination's normal DDL permissions. Such direct operations affect only
+that destination and do not cascade back to the source or fan out to other peers; a later
+replication run is responsible for reconciling it. Peer signing keys must be provisioned and
+rotated as secrets; the fixed key in the local Docker recipe is for local development only.
+Deployments whose user tokens cannot be authenticated by peer clusters must use a trusted
+token-exchange mechanism before enabling service-owned cascades; no service-account fallback is
+used.
+
+Peer Tables API endpoints use the existing cluster YAML loaded from
+`OPENHOUSE_CLUSTER_CONFIG_PATH`. The typed binding accepts a dynamic peer ID:
+
+```yaml
+cluster:
+  replication:
+    cascade-mode: service
+    peers:
+      LocalHadoopClusterB:
+        tables-api-base-uri: "https://tables-b.example"
+        cascade-signing-key: "${REPLICATION_PEER_B_CASCADE_SIGNING_KEY}"
+```
+
+`cascade-mode` selects the single DDL coordinator: `spark` (the default) retains the existing
+Spark-owned cascade and does not call peer Tables APIs; `service` enables the Tables Service
+peer cascade. Configure Spark's `spark.openhouse.replication.ddl.cascade` to `false` in service
+mode, and to `true` when using Spark mode with Spark cascade enabled. Do not enable both paths.
+Peer configuration is optional. When no peers are configured, service fan-out is disabled;
+when at least one peer is configured, every destination in a table's replication policy must
+have a matching peer entry.
+
+Peer IDs are the destination cluster IDs used by the table's replication policy, compared without
+case sensitivity. Base URIs must be absolute HTTP(S) URIs without embedded credentials, query
+parameters, or fragments. The Docker recipe configures `http://tables-b:8080` on cluster A and
+`http://tables-a:8080` on cluster B for its private local Compose network. The Docker jobs set
+`spark.openhouse.replication.ddl.cascade=false` so only the service-owned path applies the operation.
 
 ### 2. Add replication source definition
 

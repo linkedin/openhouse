@@ -1,0 +1,44 @@
+jobs:
+  defaults: &apps-defaults
+    spark-properties: &spark-defaults
+      "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,com.linkedin.openhouse.spark.extensions.OpenhouseSparkSessionExtensions"
+      "spark.sql.catalog.openhouse": "org.apache.iceberg.spark.SparkCatalog"
+      "spark.sql.catalog.openhouse.catalog-impl": "com.linkedin.openhouse.spark.OpenHouseCatalog"
+      "spark.sql.catalog.openhouse.uri": "http://tables-a:8080"
+      "spark.sql.catalog.openhouse.cluster": "LocalHadoopClusterA"
+      "spark.openhouse.replication.ddl.cascade": "false"
+      "spark.sql.catalog.openhouse_a": "org.apache.iceberg.spark.SparkCatalog"
+      "spark.sql.catalog.openhouse_a.catalog-impl": "com.linkedin.openhouse.spark.OpenHouseCatalog"
+      "spark.sql.catalog.openhouse_a.uri": "http://tables-a:8080"
+      "spark.sql.catalog.openhouse_a.cluster": "LocalHadoopClusterA"
+      "spark.sql.catalog.openhouse_b": "org.apache.iceberg.spark.SparkCatalog"
+      "spark.sql.catalog.openhouse_b.catalog-impl": "com.linkedin.openhouse.spark.OpenHouseCatalog"
+      "spark.sql.catalog.openhouse_b.uri": "http://tables-b:8080"
+      "spark.sql.catalog.openhouse_b.cluster": "LocalHadoopClusterB"
+      "spark.jars.packages": "org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0"
+      "spark.sql.autoBroadcastJoinThreshold": "-1"
+      "spark.driver.memory": "2g"
+  spark:
+    engines:
+      - &livy-engine
+        engine-type: LIVY
+        coordinator-class-name: com.linkedin.openhouse.jobs.services.livy.LivyJobsCoordinator
+        engine-uri: http://spark-livy:8998
+        jar-path: local:/opt/spark/openhouse-spark-apps_2.12-latest-all.jar
+        dependencies:
+          - local:/opt/spark/openhouse-spark-runtime_2.12-latest-all.jar
+    default-engine: LIVY
+    storage-uri: http://housetables-a:8080
+    metrics-uri: http://jaeger:4318
+    auth-token-path: "/var/config/openhouse.token"
+    apps:
+      - type: NO_OP
+        class-name: com.linkedin.openhouse.jobs.spark.NoOpSparkApp
+        args: []
+        <<: *apps-defaults
+        <<: *livy-engine
+      - type: SQL_TEST
+        class-name: com.linkedin.openhouse.jobs.spark.OpenHouseCatalogSQLTestSparkApp
+        args: []
+        <<: *apps-defaults
+        <<: *livy-engine
