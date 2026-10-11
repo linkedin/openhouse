@@ -108,16 +108,11 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
     //  branch. This is anti-pattern and only a temporary solution.
     if (namespace.isEmpty()) {
       return StreamSupport.stream(houseTableRepository.findAll().spliterator(), false)
-          .map(houseTable -> TableIdentifier.of(houseTable.getDatabaseId(), "Unused"))
+          .map(
+              houseTable -> TableIdentifier.of(houseTable.getDatabaseId(), houseTable.getTableId()))
           .collect(Collectors.toList());
     }
     return houseTableRepository.findAllByDatabaseId(namespace.toString()).stream()
-        .map(houseTable -> TableIdentifier.of(houseTable.getDatabaseId(), houseTable.getTableId()))
-        .collect(Collectors.toList());
-  }
-
-  public List<TableIdentifier> listAllTableIdentifiers() {
-    return StreamSupport.stream(houseTableRepository.findAll().spliterator(), false)
         .map(houseTable -> TableIdentifier.of(houseTable.getDatabaseId(), houseTable.getTableId()))
         .collect(Collectors.toList());
   }
@@ -127,7 +122,9 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
     if (namespace.isEmpty()) {
       return houseTableRepository
           .findAll(pageable)
-          .map(houseTable -> TableIdentifier.of(houseTable.getDatabaseId(), "Unused"));
+          .map(
+              houseTable ->
+                  TableIdentifier.of(houseTable.getDatabaseId(), houseTable.getTableId()));
     }
     return houseTableRepository
         .findAllByDatabaseId(namespace.toString(), pageable)

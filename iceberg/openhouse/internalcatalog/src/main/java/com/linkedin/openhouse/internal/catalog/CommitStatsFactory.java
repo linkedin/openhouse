@@ -33,10 +33,12 @@ public final class CommitStatsFactory {
    * reports the same current state as the prior commit.
    */
   public static Optional<CommitStats> extract(
-      TableIdentifier tableIdentifier, TableMetadata committedMetadata, HouseTable houseTable) {
+      TableMetadata committedMetadata, HouseTable houseTable) {
     if (committedMetadata == null || houseTable == null) {
       return Optional.empty();
     }
+    TableIdentifier tableIdentifier =
+        TableIdentifier.of(houseTable.getDatabaseId(), houseTable.getTableId());
     Map<String, String> properties = committedMetadata.properties();
     String tableUuid = houseTable.getTableUUID();
     if (tableUuid == null || tableUuid.isEmpty()) {

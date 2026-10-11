@@ -26,7 +26,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.SortOrderParser;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.UpdateProperties;
-import org.apache.iceberg.catalog.TableIdentifier;
 
 /** Utilities used in repository implementation. */
 public final class InternalRepositoryUtils {
@@ -105,7 +104,6 @@ public final class InternalRepositoryUtils {
   @VisibleForTesting
   static TableDto convertToTableDto(
       Table table,
-      TableIdentifier tableIdentifier,
       HouseTable houseTable,
       FileIOManager fileIOManager,
       PartitionSpecMapper partitionSpecMapper,
@@ -129,8 +127,8 @@ public final class InternalRepositoryUtils {
       tableUri =
           TableUri.builder()
               .clusterId(clusterId)
-              .databaseId(tableIdentifier.namespace().toString())
-              .tableId(tableIdentifier.name())
+              .databaseId(houseTable.getDatabaseId())
+              .tableId(houseTable.getTableId())
               .build()
               .toString();
     }
@@ -149,8 +147,8 @@ public final class InternalRepositoryUtils {
     }
     TableDto tableDto =
         TableDto.builder()
-            .tableId(tableIdentifier.name())
-            .databaseId(tableIdentifier.namespace().toString())
+            .tableId(houseTable.getTableId())
+            .databaseId(houseTable.getDatabaseId())
             .clusterId(clusterId)
             .tableUri(tableUri)
             .tableUUID(tableUUID)

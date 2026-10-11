@@ -237,13 +237,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       houseTable = existingHouseTable.get();
     }
     return convertToTableDto(
-        table,
-        tableIdentifier,
-        houseTable,
-        fileIOManager,
-        partitionSpecMapper,
-        policiesMapper,
-        tableTypeMapper);
+        table, houseTable, fileIOManager, partitionSpecMapper, policiesMapper, tableTypeMapper);
   }
 
   protected Table createTable(
@@ -587,6 +581,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     Map<String, String> dtoMap = tableDto.convertToMap();
     for (String fieldName : HOUSE_TABLE_FIELD_NAMES) {
       if (dtoMap.get(fieldName) != null) {
+        // The catalog commit consumes HTS-backed fields and strips them before persisting metadata.
         if (!HTS_FIELD_NAMES.contains(fieldName)) {
           // Fields not represented by UserTable must remain in Iceberg properties.
           propertiesMap.put(getCanonicalFieldName(fieldName), dtoMap.get(fieldName));
@@ -850,7 +845,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     return Optional.of(
         convertToTableDto(
             table,
-            tableId,
             getHouseTable(tableId),
             fileIOManager,
             partitionSpecMapper,
@@ -988,17 +982,13 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   @Timed(metricKey = MetricsConstant.REPO_TABLES_FIND_ALL_TIME)
   @Override
   public Iterable<TableDto> findAll() {
-    List<TableIdentifier> tableIdentifiers =
-        catalog instanceof OpenHouseInternalCatalog
-            ? ((OpenHouseInternalCatalog) catalog).listAllTableIdentifiers()
-            : catalog.listTables(Namespace.empty());
+    List<TableIdentifier> tableIdentifiers = catalog.listTables(Namespace.empty());
     return tableIdentifiers.stream()
         .map(
             tableIdentifier -> {
               Table table = catalog.loadTable(tableIdentifier);
               return convertToTableDto(
                   table,
-                  tableIdentifier,
                   getHouseTable(tableIdentifier),
                   fileIOManager,
                   partitionSpecMapper,

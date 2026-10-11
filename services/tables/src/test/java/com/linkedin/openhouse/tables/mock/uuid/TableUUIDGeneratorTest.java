@@ -205,7 +205,8 @@ public class TableUUIDGeneratorTest {
                                 "openhouse.databaseId",
                                 "db"))
                         .build()));
-    Assertions.assertTrue(exception.getMessage().contains("Provided snapshot is invalid"));
+    Assertions.assertTrue(
+        exception.getMessage().contains("openhouse.tableLocation is missing in properties"));
   }
 
   @Test
