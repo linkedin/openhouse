@@ -32,12 +32,15 @@ own Compose project if the script started it. Set the
 The reference Spark job is a one-shot application, not a production scheduler
 integration. The end-to-end test builds and starts an isolated Compose project,
 creates a source table and an empty `REPLICA_TABLE`, registers their immutable
-identities through the Tables API, then submits the Spark job after each of
-three source commits. It renames the source in the OpenHouse catalog, writes a
-fourth commit, and submits the job again. The script verifies the destination
-data, preserved replica identity under the renamed locator, absence of the old
-destination locator, and matching source/destination snapshots and table
-versions in the final replication checkpoint:
+identities through the Tables API, and sets the source replication policy to
+`LocalHadoopClusterB`. Its Spark SQL session enables
+`spark.openhouse.replication.ddl.cascade=true`. The script submits the reference
+Spark job after each of three source commits, renames the source through the
+OpenHouse Spark catalog, and verifies the destination was renamed before the
+job runs again. After a fourth source commit, it submits the job and verifies
+destination data, preserved replica identity, and matching snapshots and table
+versions in the final checkpoint. Finally, it drops the source through the
+Spark catalog and verifies the drop was forwarded to the destination:
 
 ```sh
 ./test-reference-replication.sh

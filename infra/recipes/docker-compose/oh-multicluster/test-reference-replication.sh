@@ -69,6 +69,7 @@ spark_sql() {
     --conf "spark.sql.catalog.openhouse_b.auth-token=$token" \
     --conf spark.hadoop.fs.defaultFS=hdfs://namenode-a:9000 \
     --conf spark.sql.warehouse.dir=file:///tmp/spark-reference-replication-warehouse \
+    --conf spark.openhouse.replication.ddl.cascade=true \
     --conf spark.driver.memory=1g \
     --conf spark.executor.memory=512m \
     --silent \
@@ -189,6 +190,8 @@ source_created=true
 spark_sql "$admin_token" \
   "CREATE TABLE openhouse_b.$database.$destination_table (id BIGINT, value STRING) USING iceberg TBLPROPERTIES ('openhouse.tableType'='REPLICA_TABLE')"
 destination_created=true
+spark_sql "$admin_token" \
+  "ALTER TABLE openhouse_a.$database.$source_table SET POLICY (REPLICATION = ({destination:'LocalHadoopClusterB'}))"
 
 source_metadata="$(get_table "$OH_MULTICLUSTER_TABLES_A_PORT" "$source_table")"
 destination_metadata="$(get_table "$OH_MULTICLUSTER_TABLES_B_PORT" "$destination_table")"
@@ -237,6 +240,37 @@ spark_sql "$admin_token" "INSERT INTO openhouse_a.$database.$source_table VALUES
 run_replicator
 spark_sql "$admin_token" \
   "ALTER TABLE openhouse_a.$database.$source_table RENAME TO openhouse_a.$database.$renamed_source_table"
+forwarded_destination_metadata="$(get_table "$OH_MULTICLUSTER_TABLES_B_PORT" "$renamed_source_table")"
+python3 - "$destination_table_uuid" "$destination_creation_time" \
+  "$forwarded_destination_metadata" <<'PY'
+import json
+import sys
+destination_uuid, destination_created, destination_json = sys.argv[1:]
+destination = json.loads(destination_json)
+assert destination["tableUUID"] == destination_uuid, destination
+assert int(destination["creationTime"]) == int(destination_created), destination
+assert destination["tableType"] == "REPLICA_TABLE", destination
+PY
+forwarded_old_destination_status="$(
+  curl --silent --show-error \
+    -H "Authorization: $admin_token" \
+    -o /dev/null -w '%{http_code}' \
+    "http://localhost:${OH_MULTICLUSTER_TABLES_B_PORT}/v1/databases/${database}/tables/${destination_table}"
+)"
+if [[ "$forwarded_old_destination_status" != "404" ]]; then
+  echo "Expected Spark catalog rename forwarding to remove the old destination locator, got HTTP $forwarded_old_destination_status." >&2
+  exit 1
+fi
+old_source_status="$(
+  curl --silent --show-error \
+    -H "Authorization: $admin_token" \
+    -o /dev/null -w '%{http_code}' \
+    "http://localhost:${OH_MULTICLUSTER_TABLES_A_PORT}/v1/databases/${database}/tables/${source_table}"
+)"
+if [[ "$old_source_status" != "404" ]]; then
+  echo "Expected the old source locator to be absent after Spark catalog rename, got HTTP $old_source_status." >&2
+  exit 1
+fi
 spark_sql "$admin_token" \
   "INSERT INTO openhouse_a.$database.$renamed_source_table VALUES (4, 'four')"
 run_replicator
@@ -313,4 +347,22 @@ assert checkpoint["destinationTableVersion"] == destination["tableVersion"], che
 assert int(checkpoint["revision"]) > 0, checkpoint
 PY
 
-echo "Reference replication e2e passed: interleaved commits, source rename, replica identity, data, and checkpoint progress verified."
+spark_sql "$admin_token" "DROP TABLE openhouse_a.$database.$renamed_source_table"
+source_after_drop_status="$(
+  curl --silent --show-error \
+    -H "Authorization: $admin_token" \
+    -o /dev/null -w '%{http_code}' \
+    "http://localhost:${OH_MULTICLUSTER_TABLES_A_PORT}/v1/databases/${database}/tables/${renamed_source_table}"
+)"
+destination_after_drop_status="$(
+  curl --silent --show-error \
+    -H "Authorization: $admin_token" \
+    -o /dev/null -w '%{http_code}' \
+    "http://localhost:${OH_MULTICLUSTER_TABLES_B_PORT}/v1/databases/${database}/tables/${renamed_source_table}"
+)"
+if [[ "$source_after_drop_status" != "404" || "$destination_after_drop_status" != "404" ]]; then
+  echo "Expected Spark catalog drop forwarding to remove the source and destination; got HTTP $source_after_drop_status and $destination_after_drop_status." >&2
+  exit 1
+fi
+
+echo "Reference replication e2e passed: interleaved commits, Spark-forwarded rename/drop, replica identity, data, and checkpoint progress verified."
