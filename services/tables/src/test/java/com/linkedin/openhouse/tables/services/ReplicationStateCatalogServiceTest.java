@@ -55,17 +55,10 @@ class ReplicationStateCatalogServiceTest {
         .thenReturn(Flux.just(new ReplicationEdgeState().destination(destination)));
 
     ReplicationDestination result =
-        cascadeAssociationResolver.resolve(
-            "source", "source-uuid", 10L, "source-db", "source-table", "destination");
+        cascadeAssociationResolver.resolve("source", "source-uuid", 10L, "destination");
 
     assertThat(result).isSameAs(destination);
-    assertThatThrownBy(
-            () ->
-                cascadeAssociationResolver.resolve(
-                    "source", "source-uuid", 10L, "source-db", "stale-source-table", "destination"))
-        .isInstanceOf(ResponseStatusException.class)
-        .extracting(error -> ((ResponseStatusException) error).getStatus())
-        .isEqualTo(HttpStatus.CONFLICT);
+    assertThat(result.getSourceTableId()).isEqualTo("source-table");
     verify(authorizationUtils, never()).checkTablePrivilege(any(), any(), any());
     verify(tablesService, never()).getTable(any(), any(), any());
     verify(tablesService, never()).getTableByIdentity(any(), any(), anyLong(), any());
@@ -77,9 +70,7 @@ class ReplicationStateCatalogServiceTest {
         .thenReturn(Flux.empty());
 
     assertThatThrownBy(
-            () ->
-                cascadeAssociationResolver.resolve(
-                    "source", "source-uuid", 10L, "source-db", "source-table", "destination"))
+            () -> cascadeAssociationResolver.resolve("source", "source-uuid", 10L, "destination"))
         .isInstanceOf(ResponseStatusException.class)
         .extracting(error -> ((ResponseStatusException) error).getStatus())
         .isEqualTo(HttpStatus.FORBIDDEN);
@@ -111,9 +102,7 @@ class ReplicationStateCatalogServiceTest {
                 new ReplicationEdgeState().destination(second)));
 
     assertThatThrownBy(
-            () ->
-                cascadeAssociationResolver.resolve(
-                    "source", "source-uuid", 10L, "source-db", "source-table", "destination"))
+            () -> cascadeAssociationResolver.resolve("source", "source-uuid", 10L, "destination"))
         .isInstanceOf(ResponseStatusException.class)
         .extracting(error -> ((ResponseStatusException) error).getStatus())
         .isEqualTo(HttpStatus.CONFLICT);

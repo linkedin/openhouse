@@ -285,8 +285,6 @@ public class TablesServiceImpl implements TablesService {
               cascade.getSourceCluster(),
               cascade.getSourceTableUUID(),
               cascade.getSourceCreationTime(),
-              databaseId,
-              tableId,
               clusterProperties.getClusterName());
       deleteTrustedReplica(databaseId, tableId, actingPrincipal, destination);
       return;
@@ -337,8 +335,6 @@ public class TablesServiceImpl implements TablesService {
               cascade.getSourceCluster(),
               cascade.getSourceTableUUID(),
               cascade.getSourceCreationTime(),
-              fromDatabaseId,
-              fromTableId,
               clusterProperties.getClusterName());
       renameTrustedReplica(
           fromDatabaseId, fromTableId, toDatabaseId, toTableId, tableCreatorUpdater, destination);

@@ -183,12 +183,7 @@ public class TablesServiceTest {
                     "source-cluster", sourceUUID, sourceCreationTime)));
     Mockito.when(
             replicationCascadeAssociationResolver.resolve(
-                "source-cluster",
-                sourceUUID,
-                sourceCreationTime,
-                sourceDatabaseId,
-                sourceTableId,
-                destinationClusterId))
+                "source-cluster", sourceUUID, sourceCreationTime, destinationClusterId))
         .thenReturn(
             new ReplicationDestination()
                 .sourceClusterId("source-cluster")
@@ -1088,6 +1083,86 @@ public class TablesServiceTest {
             .databaseId(replica.getDatabaseId())
             .tableId(renamedSourceTableId)
             .build());
+  }
+
+  @Test
+  public void trustedCascadesUseImmutableAssociationWhileSourceLocatorsAreStale() {
+    String originalTableId = "cascade_repeat_" + UUID.randomUUID().toString().replace("-", "");
+    String renamedTableId = originalTableId + "_renamed";
+    String renamedAgainTableId = renamedTableId + "_again";
+    TableDto replica = createReplicaForCascade(originalTableId, UUID.randomUUID().toString());
+    String sourceUUID = UUID.randomUUID().toString();
+    long sourceCreationTime = 110L;
+    ReplicationCascadeProof.TrustedCascade assertion =
+        new ReplicationCascadeProof.TrustedCascade(
+            "source-cluster", sourceUUID, sourceCreationTime);
+    ReplicationDestination staleAssociation =
+        new ReplicationDestination()
+            .sourceClusterId("source-cluster")
+            .sourceTableUUID(sourceUUID)
+            .sourceCreationTime(sourceCreationTime)
+            .sourceDatabaseId(replica.getDatabaseId())
+            .sourceTableId(originalTableId)
+            .destinationClusterId(replica.getClusterId())
+            .destinationTableUUID(replica.getTableUUID())
+            .destinationCreationTime(replica.getCreationTime())
+            .destinationDatabaseId(replica.getDatabaseId())
+            .destinationTableId(originalTableId);
+    Mockito.when(
+            replicationCascadeAssociationResolver.resolve(
+                "source-cluster", sourceUUID, sourceCreationTime, replica.getClusterId()))
+        .thenReturn(staleAssociation);
+    Mockito.when(
+            replicationCascadeProof.getTrustedCascade(
+                "RENAME",
+                replica.getDatabaseId(),
+                originalTableId,
+                replica.getDatabaseId(),
+                renamedTableId,
+                TEST_USER))
+        .thenReturn(Optional.of(assertion));
+    Mockito.when(
+            replicationCascadeProof.getTrustedCascade(
+                "RENAME",
+                replica.getDatabaseId(),
+                renamedTableId,
+                replica.getDatabaseId(),
+                renamedAgainTableId,
+                TEST_USER))
+        .thenReturn(Optional.of(assertion));
+    Mockito.when(
+            replicationCascadeProof.getTrustedCascade(
+                "DELETE", replica.getDatabaseId(), renamedAgainTableId, null, null, TEST_USER))
+        .thenReturn(Optional.of(assertion));
+
+    Assertions.assertDoesNotThrow(
+        () ->
+            tablesService.renameTable(
+                replica.getDatabaseId(),
+                originalTableId,
+                replica.getDatabaseId(),
+                renamedTableId,
+                TEST_USER));
+    Assertions.assertDoesNotThrow(
+        () ->
+            tablesService.renameTable(
+                replica.getDatabaseId(),
+                renamedTableId,
+                replica.getDatabaseId(),
+                renamedAgainTableId,
+                TEST_USER));
+    Assertions.assertDoesNotThrow(
+        () -> tablesService.deleteTable(replica.getDatabaseId(), renamedAgainTableId, TEST_USER));
+
+    Assertions.assertFalse(
+        openHouseInternalRepository
+            .findById(
+                TableDtoPrimaryKey.builder()
+                    .databaseId(replica.getDatabaseId())
+                    .tableId(renamedAgainTableId)
+                    .build())
+            .isPresent());
+    Mockito.verifyNoInteractions(replicationCascadeClient);
   }
 
   @Test

@@ -26,8 +26,6 @@ public class ReplicationCascadeAssociationResolver {
       String sourceClusterId,
       String sourceTableUUID,
       long sourceCreationTime,
-      String sourceDatabaseId,
-      String sourceTableId,
       String destinationClusterId) {
     List<ReplicationEdgeState> edges =
         replicationStateApi
@@ -60,8 +58,6 @@ public class ReplicationCascadeAssociationResolver {
     if (!sameLocator(destination.getSourceClusterId(), sourceClusterId)
         || !sameLocator(destination.getSourceTableUUID(), sourceTableUUID)
         || !Objects.equals(destination.getSourceCreationTime(), sourceCreationTime)
-        || !sameLocator(destination.getSourceDatabaseId(), sourceDatabaseId)
-        || !sameLocator(destination.getSourceTableId(), sourceTableId)
         || isBlank(destination.getDestinationTableUUID())
         || destination.getDestinationCreationTime() == null
         || isBlank(destination.getDestinationDatabaseId())

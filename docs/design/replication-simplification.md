@@ -66,10 +66,12 @@ The source forwards the incoming Bearer credential unchanged, so each destinatio
 same user and evaluates its own DDL ACL. A peer-specific HMAC assertion binds the trusted source
 cluster, authenticated principal, credential fingerprint, operation, table locators, source table
 UUID and creation time, and a short-lived timestamp. The destination resolves that signed source
-generation through its local replication association, which maps it to the destination's own UUID,
-creation time, and current catalog locator. Source and destination UUIDs are independent; the
-destination validates its own generation and replica type before mutation, then applies the
-delegated user's normal `UPDATE_TABLE_METADATA` or `DELETE_TABLE` permission. The internal
+generation through its local replication association, which maps it to the destination's own UUID
+and creation time. Mutable source and destination locators in the association may lag a completed
+rename; the signed request still binds the exact DDL locators, while the destination resolves the
+current replica locator from its immutable destination generation. Source and destination UUIDs are
+independent; the destination validates its own generation and replica type before mutation, then
+applies the delegated user's normal `UPDATE_TABLE_METADATA` or `DELETE_TABLE` permission. The internal
 association lookup does not require `SYSTEM_ADMIN` from the forwarded user and does not replace the
 normal DDL ACL check. Missing replicas are an idempotent no-op only when the source-generation
 association exists and no conflicting table occupies the requested locator; missing or ambiguous
