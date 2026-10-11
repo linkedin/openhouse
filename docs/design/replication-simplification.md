@@ -1,6 +1,6 @@
 # Replication Simplification Design
 
-**Status:** Design and implementation in progress. This document records the goal, agreed direction, current behavior, and outstanding authorization contract.
+**Status:** Design and implementation in progress. This document records the goal, agreed direction, current behavior, and outstanding work.
 
 ## Problem statement
 
@@ -53,19 +53,26 @@ Move OpenHouse table identity and catalog fields out of Iceberg properties becau
 
 ### Replicated table DDL coordination
 
-The current compatibility implementation coordinates replicated-table `RENAME` and `DROP` in
-Spark. It can be disabled with `spark.openhouse.replication.ddl.cascade=false`; when disabled,
-Spark sends only the source operation to the Tables Service.
+The source Tables Service now coordinates replicated-table `RENAME` and `DROP`: it authorizes the
+source request, calls each configured destination Tables API, and commits locally only after every
+destination succeeds. A destination `404` is not treated as success at the client boundary; a
+destination that receives a valid cascade assertion returns success when the replica is already
+absent. This makes retries idempotent without confusing a missing API route or database with a
+missing replica. A target-name conflict remains an error. If one destination succeeds and a later
+destination or the source commit fails, the response identifies successful peers and states that the
+operation can be retried; destinations may temporarily be ahead of the source.
 
-The planned service-owned mode moves destination coordination to the source Tables Service. The
-service will read the source table's replication destinations, apply the DDL to each destination
-through that destination's Tables API, and commit the local operation last. A retry must recognize
-already-applied destination operations. If the addressed replica is already absent at a destination
-when applying a rename or drop, treat that destination as a successful no-op rather than a failure;
-this is an expected idempotent outcome when retrying an operation. Do not treat unrelated errors,
-such as a target-name conflict, as absence. If a destination succeeds and a later destination or the
-source commit fails, the error must identify which destinations may already be ahead so the same
-operation can be retried safely.
+The source forwards the incoming Bearer credential unchanged, so each destination authenticates the
+same user and evaluates its own DDL ACL. A peer-specific HMAC assertion binds the trusted source
+cluster, authenticated principal, credential fingerprint, operation, table identifiers, source
+table UUID, and a short-lived timestamp. Only a configured peer with a valid assertion can perform
+replica `RENAME` or `DROP`; the destination still checks the delegated user's normal
+`UPDATE_TABLE_METADATA` or `DELETE_TABLE` permission. Direct replica DDL is denied, including to
+users with those ACLs, and cascade requests cannot fan out again from a replica. Peer signing keys
+must be provisioned and rotated as secrets; the fixed key in the local Docker recipe is for local
+development only. Deployments whose user tokens cannot be authenticated by peer clusters must use a
+trusted token-exchange mechanism before enabling service-owned cascades; no service-account
+fallback is used.
 
 Peer Tables API endpoints use the existing cluster YAML loaded from
 `OPENHOUSE_CLUSTER_CONFIG_PATH`. The typed binding accepts a dynamic peer ID:
@@ -76,24 +83,16 @@ cluster:
     peers:
       LocalHadoopClusterB:
         tables-api-base-uri: "https://tables-b.example"
+        cascade-signing-key: "${REPLICATION_PEER_B_CASCADE_SIGNING_KEY}"
 ```
 
 Peer IDs are the destination cluster IDs used by the table's replication policy, compared without
 case sensitivity. Base URIs must be absolute HTTP(S) URIs without embedded credentials, query
 parameters, or fragments. The Docker recipe configures `http://tables-b:8080` on cluster A and
-`http://tables-a:8080` on cluster B for its private local Compose network.
-
-The service-owned mode is not enabled yet. The current Tables API authentication contract
-authenticates the end user's request but has no trusted, cryptographically verifiable assertion
-that a replica-table DDL request was initiated by a source-cluster cascade. Forwarding the user's
-principal in a request header would be spoofable, while using a service account would bypass the
-destination user's ACL. The existing Spark implementation also calls the same destination DDL APIs
-as a user, so the receiver cannot distinguish its legitimate cascade from a direct user request.
-Before enabling service-owned DDL or rejecting direct replica DDL, the API needs a delegation
-contract that authenticates the source service and binds the original authenticated user, operation,
-and exact table identifiers; each destination must then authenticate that user and enforce its own
-ACLs. Until that contract exists, the Spark compatibility path remains the only active cascade
-implementation.
+`http://tables-a:8080` on cluster B for its private local Compose network. The Docker jobs set
+`spark.openhouse.replication.ddl.cascade=false` so only the service-owned path applies the operation;
+the existing Spark path remains available as an explicit compatibility option for deployments that
+have not enabled service-owned coordination.
 
 ### 2. Add replication source definition
 

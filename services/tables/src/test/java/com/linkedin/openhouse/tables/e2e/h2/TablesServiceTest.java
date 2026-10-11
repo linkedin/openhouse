@@ -19,13 +19,20 @@ import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.TableDto;
+import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
+import com.linkedin.openhouse.tables.services.ReplicationCascadeClient;
+import com.linkedin.openhouse.tables.services.ReplicationCascadeException;
+import com.linkedin.openhouse.tables.services.ReplicationCascadeProof;
 import com.linkedin.openhouse.tables.services.TablesService;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import java.io.IOException;
@@ -45,6 +52,7 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.data.domain.Page;
 import org.springframework.data.util.Pair;
 import org.springframework.security.access.AccessDeniedException;
@@ -56,11 +64,15 @@ public class TablesServiceTest {
 
   @Autowired TablesService tablesService;
 
-  @Autowired OpenHouseInternalRepository openHouseInternalRepository;
+  @SpyBean OpenHouseInternalRepository openHouseInternalRepository;
 
   @Autowired StorageManager storageManager;
 
   @MockBean AuthorizationHandler authorizationHandler;
+
+  @MockBean ReplicationCascadeClient replicationCascadeClient;
+
+  @MockBean ReplicationCascadeProof replicationCascadeProof;
 
   @Autowired AuthorizationUtils authorizationUtils;
 
@@ -315,7 +327,7 @@ public class TablesServiceTest {
    * findTableRefById lookup and avoids loadTable entirely.
    */
   @Test
-  public void testTableDeleteSucceedsWhenMetadataJsonIsCorrupted() throws IOException {
+  public void testTableDeleteFailsClosedWhenMetadataJsonIsCorrupted() throws IOException {
     TableDto created = verifyPutTableRequest(TABLE_DTO, null, true);
 
     // tableLocation on TableDto is the metadata.json path (file:/<base>/<filename>.metadata.json).
@@ -332,18 +344,26 @@ public class TablesServiceTest {
         Exception.class,
         () -> tablesService.getTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
 
-    // Drop should still succeed despite the corruption.
-    Assertions.assertDoesNotThrow(
-        () ->
-            tablesService.deleteTable(
-                TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
-
-    // Verify HTS row is gone — a second delete should now hit the not-found path.
+    // DDL fails closed because the table type (primary vs replica) cannot be verified.
     Assertions.assertThrows(
-        NoSuchUserTableException.class,
+        Exception.class,
         () ->
             tablesService.deleteTable(
                 TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+    Assertions.assertTrue(
+        openHouseInternalRepository
+            .findTableRefById(
+                TableDtoPrimaryKey.builder()
+                    .databaseId(TABLE_DTO.getDatabaseId())
+                    .tableId(TABLE_DTO.getTableId())
+                    .build())
+            .isPresent(),
+        "The catalog row must remain untouched when table type cannot be verified");
+    openHouseInternalRepository.deleteById(
+        TableDtoPrimaryKey.builder()
+            .databaseId(TABLE_DTO.getDatabaseId())
+            .tableId(TABLE_DTO.getTableId())
+            .build());
   }
 
   @Test
@@ -586,7 +606,15 @@ public class TablesServiceTest {
       Assertions.assertEquals(putResultCreate.getTableType(), tableType);
       // Read Table
       verifyGetTableRequest(TABLE_DTO.toBuilder().tableType(tableType).build());
-      tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+      if (tableType == TableType.REPLICA_TABLE) {
+        openHouseInternalRepository.deleteById(
+            TableDtoPrimaryKey.builder()
+                .databaseId(TABLE_DTO.getDatabaseId())
+                .tableId(TABLE_DTO.getTableId())
+                .build());
+      } else {
+        tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+      }
     }
   }
 
@@ -638,10 +666,14 @@ public class TablesServiceTest {
         tablesService
             .getTable(tableDtoCopy.getDatabaseId(), tableDtoCopy.getTableId(), TEST_USER)
             .getTableUUID());
-    tablesService.deleteTable(tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    openHouseInternalRepository.deleteById(
+        TableDtoPrimaryKey.builder()
+            .databaseId(tableDtoCopy.getDatabaseId())
+            .tableId(tableDtoCopy.getTableId())
+            .build());
   }
 
-  /** Test replica table permissions: update requires SYSTEM_ADMIN, delete uses DELETE_TABLE. */
+  /** Direct replica DDL is blocked even when the caller otherwise has the required ACL. */
   @Test
   public void testReplicaTableUpdateAndDeletePermissions() {
     UUID expectedUUID = UUID.randomUUID();
@@ -676,23 +708,375 @@ public class TablesServiceTest {
         AccessDeniedException.class,
         () -> verifyPutTableRequest(tableDtoCopy, putResultCreate, false));
 
-    // Deny DELETE_TABLE — delete on replica should fail
-    Mockito.when(
-            authorizationHandler.checkAccessDecision(
-                Mockito.any(), Mockito.any(TableDto.class), Mockito.eq(Privileges.DELETE_TABLE)))
-        .thenReturn(false);
+    // Direct DROP on a replica is denied regardless of the caller's ACL.
     Assertions.assertThrows(
         AccessDeniedException.class,
         () ->
             tablesService.deleteTable(
                 tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
 
-    // Allow DELETE_TABLE — delete on replica should succeed (SYSTEM_ADMIN still denied)
     Mockito.when(
             authorizationHandler.checkAccessDecision(
                 Mockito.any(), Mockito.any(TableDto.class), Mockito.eq(Privileges.DELETE_TABLE)))
         .thenReturn(true);
-    tablesService.deleteTable(tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    Assertions.assertThrows(
+        AccessDeniedException.class,
+        () ->
+            tablesService.deleteTable(
+                tableDtoCopy.getDatabaseId(), tableDtoCopy.getTableId(), TEST_USER));
+    Assertions.assertTrue(
+        openHouseInternalRepository
+            .findById(
+                TableDtoPrimaryKey.builder()
+                    .databaseId(tableDtoCopy.getDatabaseId())
+                    .tableId(tableDtoCopy.getTableId())
+                    .build())
+            .isPresent());
+    openHouseInternalRepository.deleteById(
+        TableDtoPrimaryKey.builder()
+            .databaseId(tableDtoCopy.getDatabaseId())
+            .tableId(tableDtoCopy.getTableId())
+            .build());
+  }
+
+  @Test
+  public void testDirectRenameOfReplicaTableIsBlocked() {
+    TableDto replica =
+        TABLE_DTO
+            .toBuilder()
+            .tableType(TableType.REPLICA_TABLE)
+            .tableProperties(
+                ImmutableMap.of(
+                    CatalogConstants.OPENHOUSE_UUID_KEY,
+                    UUID.randomUUID().toString(),
+                    "openhouse.tableId",
+                    TABLE_DTO.getTableId(),
+                    "openhouse.databaseId",
+                    TABLE_DTO.getDatabaseId()))
+            .build();
+    TableDto created = verifyPutTableRequest(replica, null, true);
+
+    Assertions.assertThrows(
+        AccessDeniedException.class,
+        () ->
+            tablesService.renameTable(
+                created.getDatabaseId(),
+                created.getTableId(),
+                created.getDatabaseId(),
+                created.getTableId() + "_renamed",
+                TEST_USER));
+    Assertions.assertTrue(
+        openHouseInternalRepository
+            .findById(
+                TableDtoPrimaryKey.builder()
+                    .databaseId(created.getDatabaseId())
+                    .tableId(created.getTableId())
+                    .build())
+            .isPresent());
+    openHouseInternalRepository.deleteById(
+        TableDtoPrimaryKey.builder()
+            .databaseId(created.getDatabaseId())
+            .tableId(created.getTableId())
+            .build());
+  }
+
+  @Test
+  public void trustedRenameCascadeUsesOriginalUserAcl() {
+    TableDto replica =
+        TABLE_DTO
+            .toBuilder()
+            .tableType(TableType.REPLICA_TABLE)
+            .tableProperties(
+                ImmutableMap.of(
+                    CatalogConstants.OPENHOUSE_UUID_KEY,
+                    UUID.randomUUID().toString(),
+                    "openhouse.tableId",
+                    TABLE_DTO.getTableId(),
+                    "openhouse.databaseId",
+                    TABLE_DTO.getDatabaseId()))
+            .build();
+    TableDto created = verifyPutTableRequest(replica, null, true);
+    String renamedId = created.getTableId() + "_cascade_renamed";
+    Mockito.when(
+            replicationCascadeProof.isTrustedCascade(
+                "RENAME",
+                created.getDatabaseId(),
+                created.getTableId(),
+                created.getDatabaseId(),
+                renamedId,
+                TEST_USER))
+        .thenReturn(true);
+    Mockito.when(
+            authorizationHandler.checkAccessDecision(
+                Mockito.eq(TEST_USER),
+                Mockito.any(TableDto.class),
+                Mockito.eq(Privileges.UPDATE_TABLE_METADATA)))
+        .thenReturn(false);
+
+    Assertions.assertThrows(
+        AccessDeniedException.class,
+        () ->
+            tablesService.renameTable(
+                created.getDatabaseId(),
+                created.getTableId(),
+                created.getDatabaseId(),
+                renamedId,
+                TEST_USER));
+    Assertions.assertTrue(
+        openHouseInternalRepository
+            .findById(
+                TableDtoPrimaryKey.builder()
+                    .databaseId(created.getDatabaseId())
+                    .tableId(created.getTableId())
+                    .build())
+            .isPresent());
+
+    Mockito.when(
+            authorizationHandler.checkAccessDecision(
+                Mockito.eq(TEST_USER),
+                Mockito.any(TableDto.class),
+                Mockito.eq(Privileges.UPDATE_TABLE_METADATA)))
+        .thenReturn(true);
+    Assertions.assertDoesNotThrow(
+        () ->
+            tablesService.renameTable(
+                created.getDatabaseId(),
+                created.getTableId(),
+                created.getDatabaseId(),
+                renamedId,
+                TEST_USER));
+    Assertions.assertTrue(
+        openHouseInternalRepository
+            .findById(
+                TableDtoPrimaryKey.builder()
+                    .databaseId(created.getDatabaseId())
+                    .tableId(renamedId)
+                    .build())
+            .isPresent());
+    openHouseInternalRepository.deleteById(
+        TableDtoPrimaryKey.builder()
+            .databaseId(created.getDatabaseId())
+            .tableId(renamedId)
+            .build());
+  }
+
+  @Test
+  public void trustedDropCascadeChecksAclAndMissingReplicaIsIdempotent() {
+    TableDto replica =
+        TABLE_DTO
+            .toBuilder()
+            .tableType(TableType.REPLICA_TABLE)
+            .tableProperties(
+                ImmutableMap.of(
+                    CatalogConstants.OPENHOUSE_UUID_KEY,
+                    UUID.randomUUID().toString(),
+                    "openhouse.tableId",
+                    TABLE_DTO.getTableId(),
+                    "openhouse.databaseId",
+                    TABLE_DTO.getDatabaseId()))
+            .build();
+    TableDto created = verifyPutTableRequest(replica, null, true);
+    Mockito.when(
+            replicationCascadeProof.isTrustedCascade(
+                "DELETE", created.getDatabaseId(), created.getTableId(), null, null, TEST_USER))
+        .thenReturn(true);
+    Mockito.when(
+            authorizationHandler.checkAccessDecision(
+                Mockito.eq(TEST_USER),
+                Mockito.any(TableDto.class),
+                Mockito.eq(Privileges.DELETE_TABLE)))
+        .thenReturn(false);
+
+    Assertions.assertThrows(
+        AccessDeniedException.class,
+        () -> tablesService.deleteTable(created.getDatabaseId(), created.getTableId(), TEST_USER));
+    Assertions.assertTrue(
+        openHouseInternalRepository
+            .findById(
+                TableDtoPrimaryKey.builder()
+                    .databaseId(created.getDatabaseId())
+                    .tableId(created.getTableId())
+                    .build())
+            .isPresent());
+
+    Mockito.when(
+            authorizationHandler.checkAccessDecision(
+                Mockito.eq(TEST_USER),
+                Mockito.any(TableDto.class),
+                Mockito.eq(Privileges.DELETE_TABLE)))
+        .thenReturn(true);
+    Assertions.assertDoesNotThrow(
+        () -> tablesService.deleteTable(created.getDatabaseId(), created.getTableId(), TEST_USER));
+    Assertions.assertDoesNotThrow(
+        () -> tablesService.deleteTable(created.getDatabaseId(), created.getTableId(), TEST_USER));
+  }
+
+  @Test
+  public void testRemotePermissionDenialKeepsSourceUnchanged() {
+    Policies replicationPolicies =
+        Policies.builder()
+            .replication(
+                Replication.builder()
+                    .config(
+                        Collections.singletonList(
+                            ReplicationConfig.builder().destination("clusterB").build()))
+                    .build())
+            .build();
+    TableDto source = TABLE_DTO.toBuilder().policies(replicationPolicies).build();
+    TableDto created = verifyPutTableRequest(source, null, true);
+    Mockito.doThrow(new AccessDeniedException("destination denied"))
+        .when(replicationCascadeClient)
+        .cascadeRename(
+            Mockito.any(TableDto.class),
+            Mockito.anyString(),
+            Mockito.anyString(),
+            Mockito.anyString());
+
+    Assertions.assertThrows(
+        AccessDeniedException.class,
+        () ->
+            tablesService.renameTable(
+                created.getDatabaseId(),
+                created.getTableId(),
+                created.getDatabaseId(),
+                created.getTableId() + "_renamed",
+                TEST_USER));
+    Assertions.assertTrue(
+        openHouseInternalRepository
+            .findById(
+                TableDtoPrimaryKey.builder()
+                    .databaseId(created.getDatabaseId())
+                    .tableId(created.getTableId())
+                    .build())
+            .isPresent());
+    Assertions.assertFalse(
+        openHouseInternalRepository
+            .findById(
+                TableDtoPrimaryKey.builder()
+                    .databaseId(created.getDatabaseId())
+                    .tableId(created.getTableId() + "_renamed")
+                    .build())
+            .isPresent());
+    Mockito.verify(replicationCascadeClient)
+        .cascadeRename(
+            Mockito.any(TableDto.class),
+            Mockito.eq(created.getDatabaseId()),
+            Mockito.eq(created.getTableId() + "_renamed"),
+            Mockito.eq(TEST_USER));
+    openHouseInternalRepository.deleteById(
+        TableDtoPrimaryKey.builder()
+            .databaseId(created.getDatabaseId())
+            .tableId(created.getTableId())
+            .build());
+  }
+
+  @Test
+  public void testLocalRenameFailureReportsPeersThatMayBeAhead() {
+    String tableId = "partial_" + UUID.randomUUID().toString().replace("-", "");
+    Policies replicationPolicies =
+        Policies.builder()
+            .replication(
+                Replication.builder()
+                    .config(
+                        Collections.singletonList(
+                            ReplicationConfig.builder().destination("clusterB").build()))
+                    .build())
+            .build();
+    TableDto source = TABLE_DTO.toBuilder().tableId(tableId).policies(replicationPolicies).build();
+    TableDto created =
+        tablesService
+            .putTable(buildCreateUpdateTableRequestBody(source), TEST_USER, true)
+            .getFirst();
+    String renamedTableId = tableId + "_renamed";
+    Mockito.when(
+            replicationCascadeClient.cascadeRename(
+                Mockito.any(TableDto.class),
+                Mockito.anyString(),
+                Mockito.anyString(),
+                Mockito.anyString()))
+        .thenReturn(Collections.singletonList("clusterB"));
+    Mockito.doThrow(new IllegalStateException("catalog commit failed"))
+        .when(openHouseInternalRepository)
+        .rename(Mockito.any(TableDtoPrimaryKey.class), Mockito.any(TableDtoPrimaryKey.class));
+
+    ReplicationCascadeException exception =
+        Assertions.assertThrows(
+            ReplicationCascadeException.class,
+            () ->
+                tablesService.renameTable(
+                    created.getDatabaseId(),
+                    created.getTableId(),
+                    created.getDatabaseId(),
+                    renamedTableId,
+                    TEST_USER));
+
+    Assertions.assertTrue(exception.getMessage().contains("clusterB"));
+    Assertions.assertTrue(exception.getMessage().contains("state may be ahead"));
+    Assertions.assertTrue(
+        openHouseInternalRepository
+            .findById(
+                TableDtoPrimaryKey.builder()
+                    .databaseId(created.getDatabaseId())
+                    .tableId(created.getTableId())
+                    .build())
+            .isPresent());
+    Assertions.assertFalse(
+        openHouseInternalRepository
+            .findById(
+                TableDtoPrimaryKey.builder()
+                    .databaseId(created.getDatabaseId())
+                    .tableId(renamedTableId)
+                    .build())
+            .isPresent());
+    Mockito.reset(openHouseInternalRepository);
+    openHouseInternalRepository.deleteById(
+        TableDtoPrimaryKey.builder()
+            .databaseId(created.getDatabaseId())
+            .tableId(created.getTableId())
+            .build());
+  }
+
+  @Test
+  public void testLocalDropFailureReportsPeersThatMayBeAhead() {
+    String tableId = "partial_drop_" + UUID.randomUUID().toString().replace("-", "");
+    Policies replicationPolicies =
+        Policies.builder()
+            .replication(
+                Replication.builder()
+                    .config(
+                        Collections.singletonList(
+                            ReplicationConfig.builder().destination("clusterB").build()))
+                    .build())
+            .build();
+    TableDto source = TABLE_DTO.toBuilder().tableId(tableId).policies(replicationPolicies).build();
+    TableDto created =
+        tablesService
+            .putTable(buildCreateUpdateTableRequestBody(source), TEST_USER, true)
+            .getFirst();
+    TableDtoPrimaryKey tableKey =
+        TableDtoPrimaryKey.builder()
+            .databaseId(created.getDatabaseId())
+            .tableId(created.getTableId())
+            .build();
+    Mockito.doReturn(Collections.singletonList("clusterB"))
+        .when(replicationCascadeClient)
+        .cascadeDrop(Mockito.any(TableDto.class), Mockito.anyString());
+    Mockito.doThrow(new IllegalStateException("catalog commit failed"))
+        .when(openHouseInternalRepository)
+        .deleteById(tableKey);
+
+    ReplicationCascadeException exception =
+        Assertions.assertThrows(
+            ReplicationCascadeException.class,
+            () ->
+                tablesService.deleteTable(
+                    created.getDatabaseId(), created.getTableId(), TEST_USER));
+
+    Assertions.assertTrue(exception.getMessage().contains("clusterB"));
+    Assertions.assertTrue(exception.getMessage().contains("state may be ahead"));
+    Assertions.assertTrue(openHouseInternalRepository.findById(tableKey).isPresent());
+    Mockito.reset(openHouseInternalRepository);
+    openHouseInternalRepository.deleteById(tableKey);
   }
 
   @Test
