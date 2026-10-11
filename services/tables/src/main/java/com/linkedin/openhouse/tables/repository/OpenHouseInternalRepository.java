@@ -28,6 +28,8 @@ public interface OpenHouseInternalRepository
    */
   Optional<TableDto> findTableRefById(TableDtoPrimaryKey tableDtoPrimaryKey);
 
+  List<TableDto> findTableRefsByIdentity(String clusterId, String tableUUID, long creationTime);
+
   List<TableDtoPrimaryKey> findAllIds();
 
   Page<TableDtoPrimaryKey> findAllIds(Pageable pageable);
