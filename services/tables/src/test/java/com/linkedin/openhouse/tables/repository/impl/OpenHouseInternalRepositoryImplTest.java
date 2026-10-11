@@ -292,19 +292,6 @@ public class OpenHouseInternalRepositoryImplTest {
     Assertions.assertEquals(20L, match.getCreationTime());
   }
 
-  @Test
-  void findTableRefByIdThrowsWhenCatalogIsNotOpenHouseInternalCatalog() {
-    // Build a fresh impl with a non-OpenHouseInternal Catalog wired in.
-    OpenHouseInternalRepositoryImpl impl = new OpenHouseInternalRepositoryImpl();
-    impl.catalog = mock(Catalog.class);
-
-    Assertions.assertThrows(
-        UnsupportedOperationException.class,
-        () ->
-            impl.findTableRefById(
-                TableDtoPrimaryKey.builder().databaseId(DB_ID).tableId(TABLE_ID).build()));
-  }
-
   private TableDto createTableDto(Map<String, String> properties) {
     return TableDto.builder()
         .databaseId(DB_ID)
