@@ -23,6 +23,8 @@ public class ReplicationPropertiesTest {
             context -> {
               ReplicationProperties properties = context.getBean(ReplicationProperties.class);
               Assertions.assertEquals(
+                  ReplicationProperties.CascadeMode.SPARK, properties.getCascadeMode());
+              Assertions.assertEquals(
                   "http://tables-b:8080",
                   properties.getPeers().get("clusterB").getTablesApiBaseUri());
               Assertions.assertEquals(
@@ -38,6 +40,29 @@ public class ReplicationPropertiesTest {
             "cluster.replication.peers.clusterB.tables-api-base-uri=",
             "cluster.replication.peers.clusterB.cascade-signing-key=01234567890123456789012345678901")
         .run(context -> Assertions.assertTrue(context.getStartupFailure() != null));
+  }
+
+  @Test
+  public void bindsServiceCascadeMode() {
+    contextRunner
+        .withPropertyValues("cluster.replication.cascade-mode=service")
+        .run(
+            context ->
+                Assertions.assertEquals(
+                    ReplicationProperties.CascadeMode.SERVICE,
+                    context.getBean(ReplicationProperties.class).getCascadeMode()));
+  }
+
+  @Test
+  public void missingReplicationConfigurationDefaultsToSparkMode() {
+    contextRunner.run(
+        context -> {
+          Assertions.assertNull(context.getStartupFailure());
+          ReplicationProperties properties = context.getBean(ReplicationProperties.class);
+          Assertions.assertEquals(
+              ReplicationProperties.CascadeMode.SPARK, properties.getCascadeMode());
+          Assertions.assertTrue(properties.getPeers().isEmpty());
+        });
   }
 
   @Test

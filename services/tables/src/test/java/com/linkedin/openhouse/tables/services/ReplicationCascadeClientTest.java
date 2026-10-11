@@ -42,6 +42,7 @@ public class ReplicationCascadeClientTest {
   public void setup() throws IOException {
     verifiedCalls = new AtomicInteger();
     ReplicationProperties properties = new ReplicationProperties();
+    properties.setCascadeMode(ReplicationProperties.CascadeMode.SERVICE);
     for (String clusterId : Arrays.asList("clusterB", "clusterC", "clusterD")) {
       MockWebServer server = new MockWebServer();
       server.setDispatcher(createDispatcher());
@@ -67,10 +68,40 @@ public class ReplicationCascadeClientTest {
     ReflectionTestUtils.setField(client, "replicationProperties", properties);
     ReflectionTestUtils.setField(client, "clusterProperties", clusterProperties);
     ReflectionTestUtils.setField(client, "proof", proof);
-    fixture = new ReplicationCascadePropertiesFixture(client, proof);
+    fixture = new ReplicationCascadePropertiesFixture(client, proof, properties);
     MockHttpServletRequest callerRequest = new MockHttpServletRequest();
     callerRequest.addHeader("Authorization", "Bearer user-with-rename-permission");
     RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(callerRequest));
+  }
+
+  @Test
+  public void sparkModeLeavesCascadeToSpark() {
+    fixture.properties.setCascadeMode(ReplicationProperties.CascadeMode.SPARK);
+    fixture.client.cascadeRename(replicatedSource("clusterB"), "db", "renamed", "alice");
+
+    Assertions.assertEquals(0, verifiedCalls.get());
+    Assertions.assertEquals(0, servers.get("clusterB").getRequestCount());
+  }
+
+  @Test
+  public void missingPeerConfigurationDisablesServiceCascade() {
+    fixture.properties.getPeers().clear();
+
+    Assertions.assertDoesNotThrow(
+        () -> fixture.client.cascadeRename(replicatedSource("clusterB"), "db", "renamed", "alice"));
+    Assertions.assertEquals(0, verifiedCalls.get());
+  }
+
+  @Test
+  public void partiallyConfiguredPeersRejectUnknownDestination() {
+    IllegalStateException exception =
+        Assertions.assertThrows(
+            IllegalStateException.class,
+            () ->
+                fixture.client.cascadeRename(
+                    replicatedSource("clusterE"), "db", "renamed", "alice"));
+
+    Assertions.assertTrue(exception.getMessage().contains("clusterE is not configured"));
   }
 
   @AfterEach
@@ -267,11 +298,15 @@ public class ReplicationCascadeClientTest {
   private static final class ReplicationCascadePropertiesFixture {
     private final ReplicationCascadeClient client;
     private final ReplicationCascadeProof proof;
+    private final ReplicationProperties properties;
 
     private ReplicationCascadePropertiesFixture(
-        ReplicationCascadeClient client, ReplicationCascadeProof proof) {
+        ReplicationCascadeClient client,
+        ReplicationCascadeProof proof,
+        ReplicationProperties properties) {
       this.client = client;
       this.proof = proof;
+      this.properties = properties;
     }
   }
 }

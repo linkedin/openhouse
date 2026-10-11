@@ -94,6 +94,7 @@ public class ReplicationCascadeEndToEndTest {
   @DynamicPropertySource
   static void peerProperties(DynamicPropertyRegistry registry) {
     registry.add("cluster.name", () -> "sourceA");
+    registry.add("cluster.replication.cascade-mode", () -> "service");
     registry.add(
         "cluster.security.token.interceptor.classname",
         () -> DummyTokenInterceptor.class.getName());
