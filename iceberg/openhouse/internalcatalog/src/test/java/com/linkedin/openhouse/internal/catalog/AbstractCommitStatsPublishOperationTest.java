@@ -47,7 +47,12 @@ public class AbstractCommitStatsPublishOperationTest {
         new PostCommitContext(
             TABLE,
             metadataWith(props),
-            HouseTable.builder().tableUUID("uuid-123").tableVersion("v1").build()));
+            HouseTable.builder()
+                .databaseId("db")
+                .tableId("tbl")
+                .tableUUID("uuid-123")
+                .tableVersion("v1")
+                .build()));
 
     Assertions.assertEquals(1, op.publishCount);
     Assertions.assertNotNull(op.published);
@@ -63,7 +68,11 @@ public class AbstractCommitStatsPublishOperationTest {
     // no opt-in property
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props), HouseTable.builder().build()));
+    op.execute(
+        new PostCommitContext(
+            TABLE,
+            metadataWith(props),
+            HouseTable.builder().databaseId("db").tableId("tbl").build()));
 
     Assertions.assertEquals(0, op.publishCount);
   }
@@ -75,7 +84,11 @@ public class AbstractCommitStatsPublishOperationTest {
     props.put(AbstractCommitStatsPublishOperation.COMMIT_STATS_COLLECTION_ENABLED_PROP, "false");
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props), HouseTable.builder().build()));
+    op.execute(
+        new PostCommitContext(
+            TABLE,
+            metadataWith(props),
+            HouseTable.builder().databaseId("db").tableId("tbl").build()));
 
     Assertions.assertEquals(0, op.publishCount);
   }
@@ -87,7 +100,11 @@ public class AbstractCommitStatsPublishOperationTest {
     props.put(AbstractCommitStatsPublishOperation.COMMIT_STATS_COLLECTION_ENABLED_PROP, "true");
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props), HouseTable.builder().build()));
+    op.execute(
+        new PostCommitContext(
+            TABLE,
+            metadataWith(props),
+            HouseTable.builder().databaseId("db").tableId("tbl").build()));
 
     Assertions.assertEquals(0, op.publishCount);
   }
