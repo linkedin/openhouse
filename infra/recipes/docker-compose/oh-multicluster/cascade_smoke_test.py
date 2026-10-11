@@ -173,15 +173,27 @@ def test_authorization_and_fanout():
         verify_missing(cluster, source_id, f"{label} old name is gone")
         expect(f"{label} new name exists", cluster, "GET", table_path(renamed_id), 200)
 
+    direct_renamed_id = renamed_id + "_direct"
     expect(
-        "direct replica rename is rejected",
+        "direct replica rename is allowed without cascading",
         "b",
         "PATCH",
         table_path(renamed_id)
-        + f"/rename?toDatabaseId={DATABASE_ID}&toTableId={renamed_id}_direct",
-        403,
+        + f"/rename?toDatabaseId={DATABASE_ID}&toTableId={direct_renamed_id}",
+        204,
     )
-    expect("direct replica drop is rejected", "b", "DELETE", table_path(renamed_id), 403)
+    created_tables["b"].discard(renamed_id)
+    created_tables["b"].add(direct_renamed_id)
+    verify_missing("b", renamed_id, "replica old name is gone after direct rename")
+    expect(
+        "direct replica drop is allowed without cascading",
+        "b",
+        "DELETE",
+        table_path(direct_renamed_id),
+        204,
+    )
+    created_tables["b"].discard(direct_renamed_id)
+    verify_missing("b", direct_renamed_id, "replica is gone after direct drop")
 
     expect(
         "authorized source drop cascades",

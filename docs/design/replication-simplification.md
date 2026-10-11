@@ -65,17 +65,17 @@ operation can be retried; destinations may temporarily be ahead of the source.
 The source forwards the incoming Bearer credential unchanged, so each destination authenticates the
 same user and evaluates its own DDL ACL. A peer-specific HMAC assertion binds the trusted source
 cluster, authenticated principal, credential fingerprint, operation, table identifiers, source
-table identity token, and a short-lived timestamp. The token is the catalog table UUID when
-available and otherwise the source table location, which keeps the assertion usable when UUID
-metadata is not exposed by the active catalog schema. Only a configured peer with a valid
-assertion can perform replica `RENAME` or `DROP`; the destination still checks the delegated user's normal
-`UPDATE_TABLE_METADATA` or `DELETE_TABLE` permission. In `service` mode, direct replica DDL is
-denied, including to users with those ACLs, and cascade requests cannot fan out again from a
-replica. `spark` mode preserves the existing Spark-owned cascade and its normal ACL behavior. Peer
-signing keys must be provisioned and rotated as secrets; the fixed key in the local Docker recipe
-is for local development only. Deployments whose user tokens cannot be authenticated by peer
-clusters must use a trusted token-exchange mechanism before enabling service-owned cascades; no
-service-account fallback is used.
+table UUID, and a short-lived timestamp. Only a configured peer with a valid assertion can
+perform replica `RENAME` or `DROP`; the destination still checks the delegated user's normal
+`UPDATE_TABLE_METADATA` or `DELETE_TABLE` permission. Direct replica `RENAME` and `DROP` are also
+allowed in `service` mode for Spark dual-catalog DDL, but never initiate another service cascade.
+When Spark's destination step follows a service-owned source operation, an already-applied rename
+is accepted only if the destination table UUID matches the originally loaded replica; an already
+completed drop is also accepted. `spark` mode preserves the existing Spark-owned cascade and its
+normal ACL behavior. Peer signing keys must be provisioned and rotated as secrets; the fixed key in
+the local Docker recipe is for local development only. Deployments whose user tokens cannot be
+authenticated by peer clusters must use a trusted token-exchange mechanism before enabling
+service-owned cascades; no service-account fallback is used.
 
 Peer Tables API endpoints use the existing cluster YAML loaded from
 `OPENHOUSE_CLUSTER_CONFIG_PATH`. The typed binding accepts a dynamic peer ID:
@@ -90,19 +90,21 @@ cluster:
         cascade-signing-key: "${REPLICATION_PEER_B_CASCADE_SIGNING_KEY}"
 ```
 
-`cascade-mode` selects the single DDL coordinator: `spark` (the default) retains the existing
+`cascade-mode` selects the service-side behavior: `spark` (the default) retains the existing
 Spark-owned cascade and does not call peer Tables APIs; `service` enables the Tables Service
-peer cascade. Configure Spark's `spark.openhouse.replication.ddl.cascade` to `false` in service
-mode, and to `true` when using Spark mode with Spark cascade enabled. Do not enable both paths.
-Peer configuration is optional. When no peers are configured, service fan-out is disabled;
+peer cascade. Spark's `spark.openhouse.replication.ddl.cascade` may remain enabled in service mode
+when Spark dual-catalog DDL is desired; the destination step is idempotent when the service cascade
+has already completed it. Setting it to `false` leaves service mode as the only cascade path. Peer
+configuration is optional. When no peers are configured, service fan-out is disabled;
 when at least one peer is configured, every destination in a table's replication policy must
 have a matching peer entry.
 
 Peer IDs are the destination cluster IDs used by the table's replication policy, compared without
 case sensitivity. Base URIs must be absolute HTTP(S) URIs without embedded credentials, query
 parameters, or fragments. The Docker recipe configures `http://tables-b:8080` on cluster A and
-`http://tables-a:8080` on cluster B for its private local Compose network. The Docker jobs set
-`spark.openhouse.replication.ddl.cascade=false` so only the service-owned path applies the operation.
+`http://tables-a:8080` on cluster B for its private local Compose network. The service-cascade
+reference scenario enables Spark dual-catalog DDL to verify idempotent destination operations;
+ordinary Docker jobs set `spark.openhouse.replication.ddl.cascade=false`.
 
 ### 2. Add replication source definition
 

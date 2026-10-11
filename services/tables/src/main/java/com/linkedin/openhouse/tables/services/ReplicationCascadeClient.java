@@ -103,7 +103,7 @@ public class ReplicationCascadeClient {
             table.getTableId(),
             toDatabaseId,
             toTableId,
-            tableIdentity(table),
+            table.getTableUUID(),
             actingPrincipal);
     HttpHeaders headers = new HttpHeaders();
     headers.set(HttpHeaders.AUTHORIZATION, signed.getAuthorization());
@@ -178,19 +178,6 @@ public class ReplicationCascadeClient {
       }
     }
     return destinations;
-  }
-
-  private String tableIdentity(TableDto table) {
-    String tableUUID = table.getTableUUID();
-    if (tableUUID != null && !tableUUID.trim().isEmpty()) {
-      return tableUUID;
-    }
-    String tableLocation = table.getTableLocation();
-    if (tableLocation == null || tableLocation.trim().isEmpty()) {
-      throw new IllegalStateException(
-          "Source table has neither a catalog UUID nor a table location for cascade signing");
-    }
-    return tableLocation;
   }
 
   private String normalizeDestination(String destination) {

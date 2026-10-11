@@ -233,14 +233,25 @@ public class ReplicationCascadeEndToEndTest {
   }
 
   @Test
-  public void directReplicaRenameAndDropAreRejected() throws Exception {
+  public void directReplicaRenameAndDropAreAllowedWithoutCascading() throws Exception {
     String tableId = "replica_" + UUID.randomUUID().toString().replace("-", "");
+    String renamedTableId = tableId + "_renamed";
     String uuid = UUID.randomUUID().toString();
+    Policies replicationPolicies =
+        Policies.builder()
+            .replication(
+                Replication.builder()
+                    .config(
+                        Collections.singletonList(
+                            ReplicationConfig.builder().destination("clusterB").build()))
+                    .build())
+            .build();
     TableDto replica =
         TABLE_DTO
             .toBuilder()
             .tableId(tableId)
             .tableType(TableType.REPLICA_TABLE)
+            .policies(replicationPolicies)
             .tableProperties(
                 ImmutableMap.of(
                     CatalogConstants.OPENHOUSE_UUID_KEY,
@@ -255,24 +266,39 @@ public class ReplicationCascadeEndToEndTest {
                     String.format(
                         "/tmp/%s/%s-%s/metadata.json", TABLE_DTO.getDatabaseId(), tableId, uuid)))
             .build();
-    replica =
+    TableDto createdReplica =
         tablesService
             .putTable(buildCreateUpdateTableRequestBody(replica), TEST_USER, true)
             .getFirst();
-    tableIdsToClean.add(replica.getTableId());
+    tableIdsToClean.add(createdReplica.getTableId());
+    PEERS.get(0).tables.add(replicaKey(tableId));
 
     ResponseEntity<String> rename =
         request(
             HttpMethod.PATCH,
-            renameUri(replica.getTableId(), replica.getTableId() + "_renamed"),
+            renameUri(createdReplica.getTableId(), renamedTableId),
             authorization);
-    ResponseEntity<String> drop =
-        request(HttpMethod.DELETE, tableUri(replica.getTableId()), authorization);
 
-    Assertions.assertEquals(HttpStatus.FORBIDDEN, rename.getStatusCode());
-    Assertions.assertEquals(HttpStatus.FORBIDDEN, drop.getStatusCode());
+    Assertions.assertEquals(HttpStatus.NO_CONTENT, rename.getStatusCode(), rename.getBody());
+    replaceTrackedTableId(tableId, renamedTableId);
+    Assertions.assertThrows(
+        Exception.class,
+        () -> tablesService.getTable(createdReplica.getDatabaseId(), tableId, TEST_USER));
     Assertions.assertNotNull(
-        tablesService.getTable(replica.getDatabaseId(), replica.getTableId(), TEST_USER));
+        tablesService.getTable(createdReplica.getDatabaseId(), renamedTableId, TEST_USER));
+    Assertions.assertEquals(0, PEERS.get(0).requests.get());
+    Assertions.assertTrue(PEERS.get(0).tables.contains(replicaKey(tableId)));
+
+    ResponseEntity<String> drop =
+        request(HttpMethod.DELETE, tableUri(renamedTableId), authorization);
+
+    Assertions.assertEquals(HttpStatus.NO_CONTENT, drop.getStatusCode(), drop.getBody());
+    tableIdsToClean.remove(renamedTableId);
+    Assertions.assertThrows(
+        Exception.class,
+        () -> tablesService.getTable(createdReplica.getDatabaseId(), renamedTableId, TEST_USER));
+    Assertions.assertEquals(0, PEERS.get(0).requests.get());
+    Assertions.assertTrue(PEERS.get(0).tables.contains(replicaKey(tableId)));
   }
 
   private TableDto createSource(String... destinations) {
@@ -288,9 +314,7 @@ public class ReplicationCascadeEndToEndTest {
         tablesService
             .putTable(buildCreateUpdateTableRequestBody(source), TEST_USER, true)
             .getFirst();
-    Assertions.assertTrue(
-        created.getTableUUID() != null || created.getTableLocation() != null,
-        "source table must expose a UUID or a location for cascade signing");
+    Assertions.assertNotNull(created.getTableUUID(), "source table UUID must be present");
     tableIdsToClean.add(tableId);
     return created;
   }

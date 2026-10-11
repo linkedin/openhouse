@@ -1,17 +1,16 @@
 package com.linkedin.openhouse.jobs.spark.replication;
 
 import com.linkedin.openhouse.client.ssl.TablesApiClientFactory;
+import com.linkedin.openhouse.housetables.client.model.ReplicationCheckpoint;
+import com.linkedin.openhouse.housetables.client.model.ReplicationCheckpointUpdate;
+import com.linkedin.openhouse.housetables.client.model.ReplicationDestination;
+import com.linkedin.openhouse.housetables.client.model.ReplicationEdgeState;
 import com.linkedin.openhouse.jobs.spark.replication.ReferenceReplicationDataPlane.CopyResult;
 import com.linkedin.openhouse.jobs.spark.replication.ReferenceReplicationDataPlane.TableGeneration;
 import com.linkedin.openhouse.jobs.util.RetryUtil;
-import com.linkedin.openhouse.tables.client.api.ReplicationStateControllerApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
 import com.linkedin.openhouse.tables.client.invoker.ApiClient;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
-import com.linkedin.openhouse.tables.client.model.ReplicationCheckpoint;
-import com.linkedin.openhouse.tables.client.model.ReplicationCheckpointUpdate;
-import com.linkedin.openhouse.tables.client.model.ReplicationDestination;
-import com.linkedin.openhouse.tables.client.model.ReplicationEdgeState;
 import java.net.MalformedURLException;
 import java.time.Duration;
 import java.util.List;
@@ -38,7 +37,7 @@ public final class ReferenceReplicatorSparkApp {
 
   private final Config config;
   private final ReferenceReplicationDataPlane dataPlane;
-  private final ReplicationStateControllerApi replicationApi;
+  private final ReferenceReplicationStateApi replicationApi;
   private final TableApi sourceTableApi;
   private final TableApi destinationTableApi;
   private final RetryTemplate retryTemplate = RetryUtil.getTablesApiRetryTemplate();
@@ -46,7 +45,7 @@ public final class ReferenceReplicatorSparkApp {
   ReferenceReplicatorSparkApp(
       Config config,
       ReferenceReplicationDataPlane dataPlane,
-      ReplicationStateControllerApi replicationApi,
+      ReferenceReplicationStateApi replicationApi,
       TableApi sourceTableApi,
       TableApi destinationTableApi) {
     this.config = config;
@@ -91,7 +90,7 @@ public final class ReferenceReplicatorSparkApp {
           new ReferenceReplicatorSparkApp(
               config,
               new ReferenceReplicationDataPlane(spark, metadataProvider),
-              new ReplicationStateControllerApi(destinationApiClient),
+              new ReferenceReplicationStateApi(destinationApiClient),
               sourceTableApi,
               destinationTableApi);
       app.run();

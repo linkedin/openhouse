@@ -39,12 +39,7 @@ case class ReplicatedDropTableExec(
     destinationTables.foreach {
       case (destination, destinationTable) =>
         uncache(destination, ident, destinationTable)
-        val dropped =
-          if (purge) destination.purgeTable(ident) else destination.dropTable(ident)
-        if (!dropped && !ifExists) {
-          throw new IllegalStateException(
-            s"Replicated OpenHouse table does not exist at destination: $ident")
-        }
+        ReplicationDdlForwarder.dropDestination(destination, ident, purge)
     }
     Nil
   }

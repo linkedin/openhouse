@@ -278,7 +278,6 @@ public class TablesServiceImpl implements TablesService {
       throw new AccessDeniedException("Replication cascade is not enabled on this cluster");
     }
     // Replica status lives in table metadata today, so load it before a destructive operation.
-    // Failing closed for unreadable metadata avoids accidentally allowing direct replica DDL.
     Optional<TableDto> tableDtoRef = openHouseInternalRepository.findById(tableDtoPrimaryKey);
     if (!tableDtoRef.isPresent()) {
       if (trustedCascade) {
@@ -290,9 +289,6 @@ public class TablesServiceImpl implements TablesService {
     boolean isReplica = tableDto.getTableType() == TableType.REPLICA_TABLE;
     if (trustedCascade && !isReplica) {
       throw new AccessDeniedException("Replication cascade is only permitted for replica tables");
-    }
-    if (serviceCascadeEnabled && isReplica && !trustedCascade) {
-      throw new AccessDeniedException("Direct DROP of a replicated table is not permitted");
     }
     authorizationUtils.checkTableDropPrivilege(tableDto, actingPrincipal, Privileges.DELETE_TABLE);
     if (serviceCascadeEnabled && !trustedCascade && !isReplica) {
@@ -338,10 +334,6 @@ public class TablesServiceImpl implements TablesService {
     if (trustedCascade && !isReplica) {
       throw new AccessDeniedException("Replication cascade is only permitted for replica tables");
     }
-    if (serviceCascadeEnabled && isReplica && !trustedCascade) {
-      throw new AccessDeniedException("Direct RENAME of a replicated table is not permitted");
-    }
-
     Optional<TableDto> targetedTableDto =
         openHouseInternalRepository.findById(
             TableDtoPrimaryKey.builder().databaseId(toDatabaseId).tableId(toTableId).build());

@@ -10,15 +10,17 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.linkedin.openhouse.housetables.client.model.ReplicationCheckpoint;
+import com.linkedin.openhouse.housetables.client.model.ReplicationCheckpointUpdate;
+import com.linkedin.openhouse.housetables.client.model.ReplicationDestination;
+import com.linkedin.openhouse.housetables.client.model.ReplicationEdgeState;
 import com.linkedin.openhouse.jobs.spark.replication.ReferenceReplicationDataPlane.CopyResult;
 import com.linkedin.openhouse.jobs.spark.replication.ReferenceReplicationDataPlane.TableGeneration;
-import com.linkedin.openhouse.tables.client.api.ReplicationStateControllerApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
+import com.linkedin.openhouse.tables.client.invoker.ApiClient;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
-import com.linkedin.openhouse.tables.client.model.ReplicationCheckpoint;
-import com.linkedin.openhouse.tables.client.model.ReplicationCheckpointUpdate;
-import com.linkedin.openhouse.tables.client.model.ReplicationDestination;
-import com.linkedin.openhouse.tables.client.model.ReplicationEdgeState;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -37,6 +39,8 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 class ReferenceReplicatorSparkAppTest {
+  private static final ObjectMapper OBJECT_MAPPER = new ApiClient().getObjectMapper();
+
   private static final String SOURCE_CLUSTER = "source-cluster";
   private static final String DESTINATION_CLUSTER = "destination-cluster";
   private static final String SOURCE_CATALOG = "source";
@@ -71,7 +75,7 @@ class ReferenceReplicatorSparkAppTest {
 
     TableApi sourceTableApi = mock(TableApi.class);
     TableApi destinationTableApi = mock(TableApi.class);
-    ReplicationStateControllerApi replicationApi = mock(ReplicationStateControllerApi.class);
+    ReferenceReplicationStateApi replicationApi = mock(ReferenceReplicationStateApi.class);
     when(sourceTableApi.getTableV1(anyString(), anyString()))
         .thenAnswer(
             invocation ->
@@ -127,18 +131,19 @@ class ReferenceReplicatorSparkAppTest {
             invocation -> {
               ReplicationCheckpointUpdate update = invocation.getArgument(0);
               ReplicationCheckpoint checkpoint =
-                  new ReplicationCheckpoint()
-                      .sourceClusterId(update.getSourceClusterId())
-                      .sourceTableUUID(update.getSourceTableUUID())
-                      .sourceCreationTime(update.getSourceCreationTime())
-                      .destinationClusterId(update.getDestinationClusterId())
-                      .destinationTableUUID(update.getDestinationTableUUID())
-                      .destinationCreationTime(update.getDestinationCreationTime())
-                      .sourceTableVersion(update.getSourceTableVersion())
-                      .sourceSnapshotId(update.getSourceSnapshotId())
-                      .destinationSnapshotId(update.getDestinationSnapshotId())
-                      .destinationTableVersion(update.getDestinationTableVersion())
-                      .revision(update.getExpectedRevision() + 1L);
+                  withRevision(
+                      new ReplicationCheckpoint()
+                          .sourceClusterId(update.getSourceClusterId())
+                          .sourceTableUUID(update.getSourceTableUUID())
+                          .sourceCreationTime(update.getSourceCreationTime())
+                          .destinationClusterId(update.getDestinationClusterId())
+                          .destinationTableUUID(update.getDestinationTableUUID())
+                          .destinationCreationTime(update.getDestinationCreationTime())
+                          .sourceTableVersion(update.getSourceTableVersion())
+                          .sourceSnapshotId(update.getSourceSnapshotId())
+                          .destinationSnapshotId(update.getDestinationSnapshotId())
+                          .destinationTableVersion(update.getDestinationTableVersion()),
+                      update.getExpectedRevision() + 1L);
               storedCheckpoint.set(checkpoint);
               return Mono.just(checkpoint);
             });
@@ -212,19 +217,34 @@ class ReferenceReplicatorSparkAppTest {
       TableIdentifier source,
       TableIdentifier destination,
       long version) {
-    return new ReplicationDestination()
-        .sourceClusterId(SOURCE_CLUSTER)
-        .sourceTableUUID(sourceGeneration.getTableUuid())
-        .sourceCreationTime(sourceGeneration.getCreationTime())
-        .sourceDatabaseId(source.namespace().level(0))
-        .sourceTableId(source.name())
-        .destinationClusterId(DESTINATION_CLUSTER)
-        .destinationTableUUID(destinationGeneration.getTableUuid())
-        .destinationCreationTime(destinationGeneration.getCreationTime())
-        .destinationDatabaseId(destination.namespace().level(0))
-        .destinationTableId(destination.name())
-        .expectedVersion(version)
-        .version(version);
+    return withVersion(
+        new ReplicationDestination()
+            .sourceClusterId(SOURCE_CLUSTER)
+            .sourceTableUUID(sourceGeneration.getTableUuid())
+            .sourceCreationTime(sourceGeneration.getCreationTime())
+            .sourceDatabaseId(source.namespace().level(0))
+            .sourceTableId(source.name())
+            .destinationClusterId(DESTINATION_CLUSTER)
+            .destinationTableUUID(destinationGeneration.getTableUuid())
+            .destinationCreationTime(destinationGeneration.getCreationTime())
+            .destinationDatabaseId(destination.namespace().level(0))
+            .destinationTableId(destination.name())
+            .expectedVersion(version),
+        version);
+  }
+
+  private static ReplicationDestination withVersion(
+      ReplicationDestination destination, long version) {
+    ObjectNode json = OBJECT_MAPPER.valueToTree(destination);
+    json.put("version", version);
+    return OBJECT_MAPPER.convertValue(json, ReplicationDestination.class);
+  }
+
+  private static ReplicationCheckpoint withRevision(
+      ReplicationCheckpoint checkpoint, long revision) {
+    ObjectNode json = OBJECT_MAPPER.valueToTree(checkpoint);
+    json.put("revision", revision);
+    return OBJECT_MAPPER.convertValue(json, ReplicationCheckpoint.class);
   }
 
   private static GetTableResponseBody tableMetadata(

@@ -69,7 +69,8 @@ public class ReplicationCascadeProof {
 
   /**
    * Validates the peer assertion against the authenticated caller and exact DDL request. Absence of
-   * an assertion is not itself an error; callers use the return value to reject direct replica DDL.
+   * an assertion is not itself an error; callers use this result to distinguish trusted remote
+   * cascade DDL from a direct operation.
    */
   public boolean isTrustedCascade(
       String operation,
@@ -160,7 +161,7 @@ public class ReplicationCascadeProof {
     fields.add(toTableId == null ? "" : toTableId);
     fieldNames.add("destination table");
     fields.add(tableUUID);
-    fieldNames.add("table identity token");
+    fieldNames.add("table UUID");
     fields.add(actingPrincipal);
     fieldNames.add("authenticated principal");
     fields.add(sha256(authorization == null ? "" : authorization));
