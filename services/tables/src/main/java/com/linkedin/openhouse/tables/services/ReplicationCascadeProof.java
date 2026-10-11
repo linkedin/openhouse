@@ -9,6 +9,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Optional;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import javax.servlet.http.HttpServletRequest;
@@ -69,10 +70,9 @@ public class ReplicationCascadeProof {
 
   /**
    * Validates the peer assertion against the authenticated caller and exact DDL request. Absence of
-   * an assertion is not itself an error; callers use this result to distinguish trusted remote
-   * cascade DDL from a direct operation.
+   * an assertion is not itself an error; an empty result identifies a direct operation.
    */
-  public boolean isTrustedCascade(
+  public Optional<String> getTrustedCascadeTableUUID(
       String operation,
       String fromDatabaseId,
       String fromTableId,
@@ -81,12 +81,12 @@ public class ReplicationCascadeProof {
       String actingPrincipal) {
     HttpServletRequest request = currentRequest();
     if (request == null) {
-      return false;
+      return Optional.empty();
     }
     String sourceCluster = request.getHeader(SOURCE_HEADER);
     String signature = request.getHeader(SIGNATURE_HEADER);
     if (sourceCluster == null && signature == null) {
-      return false;
+      return Optional.empty();
     }
     if (sourceCluster == null || signature == null) {
       throw new AccessDeniedException("Invalid replication cascade assertion");
@@ -132,7 +132,7 @@ public class ReplicationCascadeProof {
     if (!constantTimeEquals(expected, signature)) {
       throw new AccessDeniedException("Invalid replication cascade signature");
     }
-    return true;
+    return Optional.of(tableUUID);
   }
 
   private static String payload(

@@ -84,11 +84,31 @@ public class ReplicationCascadeClientTest {
   }
 
   @Test
-  public void missingPeerConfigurationDisablesServiceCascade() {
+  public void missingPeerConfigurationFailsClosedForConfiguredDestination() {
+    fixture.properties.getPeers().clear();
+
+    IllegalStateException renameException =
+        Assertions.assertThrows(
+            IllegalStateException.class,
+            () ->
+                fixture.client.cascadeRename(
+                    replicatedSource("clusterB"), "db", "renamed", "alice"));
+    Assertions.assertTrue(renameException.getMessage().contains("clusterB is not configured"));
+    IllegalStateException dropException =
+        Assertions.assertThrows(
+            IllegalStateException.class,
+            () -> fixture.client.cascadeDrop(replicatedSource("clusterB"), "alice"));
+    Assertions.assertTrue(dropException.getMessage().contains("clusterB is not configured"));
+    Assertions.assertEquals(0, verifiedCalls.get());
+  }
+
+  @Test
+  public void emptyReplicationDestinationsRemainNoOpWithoutPeerConfiguration() {
     fixture.properties.getPeers().clear();
 
     Assertions.assertDoesNotThrow(
-        () -> fixture.client.cascadeRename(replicatedSource("clusterB"), "db", "renamed", "alice"));
+        () -> fixture.client.cascadeRename(replicatedSource(), "db", "renamed", "alice"));
+    Assertions.assertDoesNotThrow(() -> fixture.client.cascadeDrop(replicatedSource(), "alice"));
     Assertions.assertEquals(0, verifiedCalls.get());
   }
 
@@ -258,8 +278,11 @@ public class ReplicationCascadeClientTest {
                   : null;
           boolean valid =
               fixture == null
-                  || fixture.proof.isTrustedCascade(
-                      operation, "db", "source", toDatabaseId, toTableId, "alice");
+                  || fixture
+                      .proof
+                      .getTrustedCascadeTableUUID(
+                          operation, "db", "source", toDatabaseId, toTableId, "alice")
+                      .isPresent();
           if (!valid) {
             return new MockResponse().setResponseCode(HttpStatus.FORBIDDEN.value());
           }

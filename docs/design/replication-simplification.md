@@ -65,10 +65,11 @@ operation can be retried; destinations may temporarily be ahead of the source.
 The source forwards the incoming Bearer credential unchanged, so each destination authenticates the
 same user and evaluates its own DDL ACL. A peer-specific HMAC assertion binds the trusted source
 cluster, authenticated principal, credential fingerprint, operation, table identifiers, source
-table UUID, and a short-lived timestamp. Only a configured peer with a valid assertion can
-perform replica `RENAME` or `DROP`; the destination still checks the delegated user's normal
-`UPDATE_TABLE_METADATA` or `DELETE_TABLE` permission. Direct replica `RENAME` and `DROP` are also
-allowed in `service` mode for Spark dual-catalog DDL, but never initiate another service cascade.
+table UUID, and a short-lived timestamp. A valid assertion from a configured peer is required for
+service-cascaded replica `RENAME` or `DROP`; the destination verifies that the signed UUID matches
+the replica before mutation and still checks the delegated user's normal `UPDATE_TABLE_METADATA`
+or `DELETE_TABLE` permission. Direct replica-local `RENAME` and `DROP` are allowed under normal
+ACLs in `service` mode for Spark dual-catalog DDL, but never initiate another service cascade.
 When Spark's destination step follows a service-owned source operation, an already-applied rename
 is accepted only if the destination table UUID matches the originally loaded replica; an already
 completed drop is also accepted. `spark` mode preserves the existing Spark-owned cascade and its
@@ -95,9 +96,9 @@ Spark-owned cascade and does not call peer Tables APIs; `service` enables the Ta
 peer cascade. Spark's `spark.openhouse.replication.ddl.cascade` may remain enabled in service mode
 when Spark dual-catalog DDL is desired; the destination step is idempotent when the service cascade
 has already completed it. Setting it to `false` leaves service mode as the only cascade path. Peer
-configuration is optional. When no peers are configured, service fan-out is disabled;
-when at least one peer is configured, every destination in a table's replication policy must
-have a matching peer entry.
+configuration is optional for tables with no replication destinations. In service mode, every
+destination in a source table's replication policy must have a matching peer entry; a missing
+mapping fails rename/drop before local DDL rather than silently skipping remote fan-out.
 
 Peer IDs are the destination cluster IDs used by the table's replication policy, compared without
 case sensitivity. Base URIs must be absolute HTTP(S) URIs without embedded credentials, query

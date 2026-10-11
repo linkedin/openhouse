@@ -15,6 +15,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.common.TableType;
+import com.linkedin.openhouse.tables.config.ReplicationProperties;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
@@ -82,6 +83,8 @@ public class ReplicationCascadeEndToEndTest {
   @Autowired OpenHouseInternalRepository repository;
 
   @Autowired ReplicationCascadeProof replicationCascadeProof;
+
+  @Autowired ReplicationProperties replicationProperties;
 
   @Autowired TestRestTemplate restTemplate;
 
@@ -230,6 +233,40 @@ public class ReplicationCascadeEndToEndTest {
     RecordedRequest outbound = PEERS.get(0).server.takeRequest();
     Assertions.assertEquals(authorization, outbound.getHeader(HttpHeaders.AUTHORIZATION));
     Assertions.assertNotNull(outbound.getHeader(ReplicationCascadeProof.SIGNATURE_HEADER));
+  }
+
+  @Test
+  public void missingPeerConfigurationKeepsSourceUnchangedForRenameAndDrop() {
+    Map<String, ReplicationProperties.Peer> configuredPeers =
+        new java.util.LinkedHashMap<>(replicationProperties.getPeers());
+    replicationProperties.getPeers().clear();
+    try {
+      TableDto source = createSource("clusterB");
+      String renamedTableId = source.getTableId() + "_unconfigured";
+
+      Assertions.assertThrows(
+          IllegalStateException.class,
+          () ->
+              tablesService.renameTable(
+                  source.getDatabaseId(),
+                  source.getTableId(),
+                  source.getDatabaseId(),
+                  renamedTableId,
+                  TEST_USER));
+      Assertions.assertNotNull(
+          tablesService.getTable(source.getDatabaseId(), source.getTableId(), TEST_USER));
+      Assertions.assertThrows(
+          Exception.class,
+          () -> tablesService.getTable(source.getDatabaseId(), renamedTableId, TEST_USER));
+
+      Assertions.assertThrows(
+          IllegalStateException.class,
+          () -> tablesService.deleteTable(source.getDatabaseId(), source.getTableId(), TEST_USER));
+      Assertions.assertNotNull(
+          tablesService.getTable(source.getDatabaseId(), source.getTableId(), TEST_USER));
+    } finally {
+      replicationProperties.setPeers(configuredPeers);
+    }
   }
 
   @Test
@@ -425,13 +462,14 @@ public class ReplicationCascadeEndToEndTest {
                 PROOF.get() != null
                     && PROOF
                         .get()
-                        .isTrustedCascade(
+                        .getTrustedCascadeTableUUID(
                             rename ? "RENAME" : "DELETE",
                             databaseId,
                             fromTableId,
                             toDatabaseId,
                             toTableId,
-                            actingPrincipal);
+                            actingPrincipal)
+                        .isPresent();
             if (!trusted) {
               failureReason.set("peer rejected the cascade assertion");
               return new MockResponse().setResponseCode(HttpStatus.FORBIDDEN.value());

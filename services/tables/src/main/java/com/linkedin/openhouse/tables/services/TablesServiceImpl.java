@@ -270,9 +270,10 @@ public class TablesServiceImpl implements TablesService {
         TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build();
     List<String> cascadedPeers = Collections.emptyList();
 
-    boolean trustedCascade =
-        replicationCascadeProof.isTrustedCascade(
+    Optional<String> trustedCascadeUUID =
+        replicationCascadeProof.getTrustedCascadeTableUUID(
             "DELETE", databaseId, tableId, null, null, actingPrincipal);
+    boolean trustedCascade = trustedCascadeUUID.isPresent();
     boolean serviceCascadeEnabled = isServiceCascadeEnabled();
     if (trustedCascade && !serviceCascadeEnabled) {
       throw new AccessDeniedException("Replication cascade is not enabled on this cluster");
@@ -289,6 +290,9 @@ public class TablesServiceImpl implements TablesService {
     boolean isReplica = tableDto.getTableType() == TableType.REPLICA_TABLE;
     if (trustedCascade && !isReplica) {
       throw new AccessDeniedException("Replication cascade is only permitted for replica tables");
+    }
+    if (trustedCascade && !trustedCascadeUUID.get().equals(tableDto.getTableUUID())) {
+      throw new AccessDeniedException("Replication cascade table UUID does not match replica");
     }
     authorizationUtils.checkTableDropPrivilege(tableDto, actingPrincipal, Privileges.DELETE_TABLE);
     if (serviceCascadeEnabled && !trustedCascade && !isReplica) {
@@ -312,9 +316,10 @@ public class TablesServiceImpl implements TablesService {
       String toDatabaseId,
       String toTableId,
       String tableCreatorUpdater) {
-    boolean trustedCascade =
-        replicationCascadeProof.isTrustedCascade(
+    Optional<String> trustedCascadeUUID =
+        replicationCascadeProof.getTrustedCascadeTableUUID(
             "RENAME", fromDatabaseId, fromTableId, toDatabaseId, toTableId, tableCreatorUpdater);
+    boolean trustedCascade = trustedCascadeUUID.isPresent();
     boolean serviceCascadeEnabled = isServiceCascadeEnabled();
     if (trustedCascade && !serviceCascadeEnabled) {
       throw new AccessDeniedException("Replication cascade is not enabled on this cluster");
@@ -325,6 +330,19 @@ public class TablesServiceImpl implements TablesService {
 
     if (!existingTableDto.isPresent()) {
       if (trustedCascade) {
+        Optional<TableDto> renamedTableDto =
+            openHouseInternalRepository.findById(
+                TableDtoPrimaryKey.builder().databaseId(toDatabaseId).tableId(toTableId).build());
+        if (renamedTableDto.isPresent()) {
+          TableDto renamedTable = renamedTableDto.get();
+          if (renamedTable.getTableType() != TableType.REPLICA_TABLE) {
+            throw new AccessDeniedException(
+                "Replication cascade is only permitted for replica tables");
+          }
+          if (!trustedCascadeUUID.get().equals(renamedTable.getTableUUID())) {
+            throw new AlreadyExistsException("Table", renamedTable.getTableUri());
+          }
+        }
         return;
       }
       throw new NoSuchUserTableException(fromDatabaseId, fromTableId);
@@ -333,6 +351,9 @@ public class TablesServiceImpl implements TablesService {
     boolean isReplica = tableDto.getTableType() == TableType.REPLICA_TABLE;
     if (trustedCascade && !isReplica) {
       throw new AccessDeniedException("Replication cascade is only permitted for replica tables");
+    }
+    if (trustedCascade && !trustedCascadeUUID.get().equals(tableDto.getTableUUID())) {
+      throw new AccessDeniedException("Replication cascade table UUID does not match replica");
     }
     Optional<TableDto> targetedTableDto =
         openHouseInternalRepository.findById(

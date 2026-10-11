@@ -146,8 +146,10 @@ different table names or existence state.
 
 The Tables Service cascade applies destination DDL before committing source DDL
 when `cluster.replication.cascade-mode` is `service`. The default `spark` mode
-leaves the existing Spark-owned cascade in control. Peer mappings are optional;
-without configured peers, service fan-out is disabled. This is not a distributed
+leaves the existing Spark-owned cascade in control. Peer mappings are optional
+for tables with no replication destinations; in service mode, every destination
+named by a source table's replication policy must have a configured peer mapping.
+A missing mapping fails the operation before local DDL. This is not a distributed
 transaction: a failure part-way through fan-out, or after remote success but
 before the source commit, can leave clusters out of sync. Retry the operation
 after resolving the reported peer or commit failure.
