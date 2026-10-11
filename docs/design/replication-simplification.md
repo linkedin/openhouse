@@ -1,6 +1,6 @@
 # Replication Simplification Design
 
-**Status:** Design in progress. This document captures the goal and agreed direction; it is not yet an implementation specification.
+**Status:** Design and implementation in progress. This document records the goal, agreed direction, current behavior, and outstanding work.
 
 ## Problem statement
 
@@ -50,6 +50,69 @@ The proposed phases are as follows.
 ### 1. HTS/catalog table fields
 
 Move OpenHouse table identity and catalog fields out of Iceberg properties because they already exist in the House Tables Service/catalog database. This avoids duplicating state and the inevitable issues caused by having two sources of truth.
+
+### Replicated table DDL coordination
+
+The source Tables Service now coordinates replicated-table `RENAME` and `DROP`: it authorizes the
+source request, calls each configured destination Tables API, and commits locally only after every
+destination succeeds. A destination `404` is not treated as success at the client boundary; a
+destination that receives a valid cascade assertion returns success when the replica is already
+absent. This makes retries idempotent without confusing a missing API route or database with a
+missing replica. A target-name conflict remains an error. If one destination succeeds and a later
+destination or the source commit fails, the response identifies successful peers and states that the
+operation can be retried; destinations may temporarily be ahead of the source.
+
+The source forwards the incoming Bearer credential unchanged, so each destination authenticates the
+same user and evaluates its own DDL ACL. A peer-specific HMAC assertion binds the trusted source
+cluster, authenticated principal, credential fingerprint, operation, table locators, source table
+UUID and creation time, and a short-lived timestamp. The destination resolves that signed source
+generation through its local replication association, which maps it to the destination's own UUID
+and creation time. Mutable source and destination locators in the association may lag a completed
+rename; the signed request still binds the exact DDL locators, while the destination resolves the
+current replica locator from its immutable destination generation. Source and destination UUIDs are
+independent; the destination validates its own generation and replica type before mutation, then
+applies the delegated user's normal `UPDATE_TABLE_METADATA` or `DELETE_TABLE` permission. The internal
+association lookup does not require `SYSTEM_ADMIN` from the forwarded user and does not replace the
+normal DDL ACL check. Missing replicas are an idempotent no-op only when the source-generation
+association exists and no conflicting table occupies the requested locator; missing or ambiguous
+associations fail closed before source mutation. Direct replica-local `RENAME` and `DROP` are
+allowed under normal ACLs in `service` mode for Spark dual-catalog DDL, but never initiate another
+service cascade. When Spark's destination step follows a service-owned source operation, an
+already-applied rename is accepted only when the destination generation matches the association;
+an already completed drop is also accepted. `spark` mode preserves the existing Spark-owned
+cascade and its normal ACL behavior. Peer signing keys must be provisioned and rotated as secrets;
+the fixed key in the local Docker recipe is for local development only. Deployments whose user
+tokens cannot be authenticated by peer clusters must use a trusted token-exchange mechanism before
+enabling service-owned cascades; no service-account fallback is used.
+
+Peer Tables API endpoints use the existing cluster YAML loaded from
+`OPENHOUSE_CLUSTER_CONFIG_PATH`. The typed binding accepts a dynamic peer ID:
+
+```yaml
+cluster:
+  replication:
+    cascade-mode: service
+    peers:
+      LocalHadoopClusterB:
+        tables-api-base-uri: "https://tables-b.example"
+        cascade-signing-key: "${REPLICATION_PEER_B_CASCADE_SIGNING_KEY}"
+```
+
+`cascade-mode` selects the service-side behavior: `spark` (the default) retains the existing
+Spark-owned cascade and does not call peer Tables APIs; `service` enables the Tables Service
+peer cascade. Spark's `spark.openhouse.replication.ddl.cascade` may remain enabled in service mode
+when Spark dual-catalog DDL is desired; the destination step is idempotent when the service cascade
+has already completed it. Setting it to `false` leaves service mode as the only cascade path. Peer
+configuration is optional for tables with no replication destinations. In service mode, every
+destination in a source table's replication policy must have a matching peer entry; a missing
+mapping fails rename/drop before local DDL rather than silently skipping remote fan-out.
+
+Peer IDs are the destination cluster IDs used by the table's replication policy, compared without
+case sensitivity. Base URIs must be absolute HTTP(S) URIs without embedded credentials, query
+parameters, or fragments. The Docker recipe configures `http://tables-b:8080` on cluster A and
+`http://tables-a:8080` on cluster B for its private local Compose network. The service-cascade
+reference scenario enables Spark dual-catalog DDL to verify idempotent destination operations;
+ordinary Docker jobs set `spark.openhouse.replication.ddl.cascade=false`.
 
 ### 2. Add replication source definition
 

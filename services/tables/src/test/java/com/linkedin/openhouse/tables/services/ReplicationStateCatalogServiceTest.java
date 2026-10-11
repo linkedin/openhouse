@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.services;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -33,6 +34,79 @@ class ReplicationStateCatalogServiceTest {
   @Mock private AuthorizationUtils authorizationUtils;
 
   @InjectMocks private ReplicationStateCatalogService service;
+
+  @InjectMocks private ReplicationCascadeAssociationResolver cascadeAssociationResolver;
+
+  @Test
+  void cascadeAssociationBindsDistinctSourceAndDestinationGenerationsWithoutSystemAdmin() {
+    ReplicationDestination destination =
+        new ReplicationDestination()
+            .sourceClusterId("source")
+            .sourceTableUUID("source-uuid")
+            .sourceCreationTime(10L)
+            .sourceDatabaseId("source-db")
+            .sourceTableId("source-table")
+            .destinationClusterId("destination")
+            .destinationTableUUID("different-destination-uuid")
+            .destinationCreationTime(20L)
+            .destinationDatabaseId("destination-db")
+            .destinationTableId("destination-table");
+    when(replicationStateApi.getDestinations("source", "source-uuid", 10L))
+        .thenReturn(Flux.just(new ReplicationEdgeState().destination(destination)));
+
+    ReplicationDestination result =
+        cascadeAssociationResolver.resolve("source", "source-uuid", 10L, "destination");
+
+    assertThat(result).isSameAs(destination);
+    assertThat(result.getSourceTableId()).isEqualTo("source-table");
+    verify(authorizationUtils, never()).checkTablePrivilege(any(), any(), any());
+    verify(tablesService, never()).getTable(any(), any(), any());
+    verify(tablesService, never()).getTableByIdentity(any(), any(), anyLong(), any());
+  }
+
+  @Test
+  void cascadeAssociationRejectsMissingOrAmbiguousDestination() {
+    when(replicationStateApi.getDestinations("source", "source-uuid", 10L))
+        .thenReturn(Flux.empty());
+
+    assertThatThrownBy(
+            () -> cascadeAssociationResolver.resolve("source", "source-uuid", 10L, "destination"))
+        .isInstanceOf(ResponseStatusException.class)
+        .extracting(error -> ((ResponseStatusException) error).getStatus())
+        .isEqualTo(HttpStatus.FORBIDDEN);
+
+    ReplicationDestination first =
+        new ReplicationDestination()
+            .sourceClusterId("source")
+            .sourceTableUUID("source-uuid")
+            .sourceCreationTime(10L)
+            .destinationClusterId("destination")
+            .destinationTableUUID("destination-uuid-1")
+            .destinationCreationTime(20L)
+            .destinationDatabaseId("destination-db")
+            .destinationTableId("destination-table-1");
+    ReplicationDestination second =
+        new ReplicationDestination()
+            .sourceClusterId("source")
+            .sourceTableUUID("source-uuid")
+            .sourceCreationTime(10L)
+            .destinationClusterId("destination")
+            .destinationTableUUID("destination-uuid-2")
+            .destinationCreationTime(21L)
+            .destinationDatabaseId("destination-db")
+            .destinationTableId("destination-table-2");
+    when(replicationStateApi.getDestinations("source", "source-uuid", 10L))
+        .thenReturn(
+            Flux.just(
+                new ReplicationEdgeState().destination(first),
+                new ReplicationEdgeState().destination(second)));
+
+    assertThatThrownBy(
+            () -> cascadeAssociationResolver.resolve("source", "source-uuid", 10L, "destination"))
+        .isInstanceOf(ResponseStatusException.class)
+        .extracting(error -> ((ResponseStatusException) error).getStatus())
+        .isEqualTo(HttpStatus.CONFLICT);
+  }
 
   @Test
   void getDestinationsRecoversCurrentLocatorAfterRenameBeforeAssociationUpdate() {

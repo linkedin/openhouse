@@ -25,6 +25,8 @@ dependencies {
 
     implementation "org.apache.logging.log4j:log4j-slf4j-impl:${log4jVersion}"
     implementation project(':libs:datalayout')
+    implementation project(':client:hts')
+    implementation project(':client:tableclient')
     // Exclude log4j-slf4j2-impl: incompatible with the log4j-slf4j-impl (1.x) bridge this app ships.
     implementation(project(':libs:optimizer:binpack')) {
         exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j2-impl'

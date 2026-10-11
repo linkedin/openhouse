@@ -4,12 +4,16 @@ set -euo pipefail
 export COMPOSE_PARALLEL_LIMIT=1
 
 recipe_dir="$(cd "$(dirname "$0")" && pwd)"
+repo_root="$(cd "$recipe_dir/../../../.." && pwd)"
 compose_file="$recipe_dir/docker-compose.yml"
 project_name="oh-multicluster-reference-replication-e2e-$$"
 database="replication_e2e_$$"
 source_table="source_$$"
 renamed_source_table="${source_table}_renamed"
 destination_table="destination_$$"
+service_source_table="${source_table}_service"
+renamed_service_source_table="${service_source_table}_renamed"
+service_destination_table="${destination_table}_service"
 output_file="$(mktemp)"
 stack_started_by_script=false
 source_created=false
@@ -51,6 +55,7 @@ export OH_MULTICLUSTER_OPA_PORT="${OH_MULTICLUSTER_OPA_PORT:-$((port_base + 99))
 spark_sql() {
   local token="$1"
   local statement="$2"
+  local ddl_cascade="${3:-true}"
 
   compose exec -T spark-livy /opt/spark/bin/spark-sql \
     --master spark://spark-master:7077 \
@@ -69,14 +74,18 @@ spark_sql() {
     --conf "spark.sql.catalog.openhouse_b.auth-token=$token" \
     --conf spark.hadoop.fs.defaultFS=hdfs://namenode-a:9000 \
     --conf spark.sql.warehouse.dir=file:///tmp/spark-reference-replication-warehouse \
-    --conf spark.openhouse.replication.ddl.cascade=true \
-    --conf spark.driver.memory=1g \
+    --conf "spark.openhouse.replication.ddl.cascade=$ddl_cascade" \
+    --conf spark.driver.memory=512m \
     --conf spark.executor.memory=512m \
     --silent \
     -e "$statement"
 }
 
 run_replicator() {
+  local source_cluster="${1:-$source_cluster_id}"
+  local source_uuid="${2:-$source_table_uuid}"
+  local source_created="${3:-$source_creation_time}"
+
   compose exec -T spark-livy /opt/spark/bin/spark-submit \
     --master spark://spark-master:7077 \
     --class com.linkedin.openhouse.jobs.spark.replication.ReferenceReplicatorSparkApp \
@@ -95,12 +104,12 @@ run_replicator() {
     --conf "spark.sql.catalog.openhouse_b.auth-token=$admin_token" \
     --conf spark.hadoop.fs.defaultFS=hdfs://namenode-a:9000 \
     --conf spark.sql.warehouse.dir=file:///tmp/spark-reference-replication-warehouse \
-    --conf spark.driver.memory=1g \
+    --conf spark.driver.memory=512m \
     --conf spark.executor.memory=512m \
     /opt/spark/openhouse-spark-apps_2.12-latest-all.jar \
-    --sourceClusterId "$source_cluster_id" \
-    --sourceTableUUID "$source_table_uuid" \
-    --sourceCreationTime "$source_creation_time" \
+    --sourceClusterId "$source_cluster" \
+    --sourceTableUUID "$source_uuid" \
+    --sourceCreationTime "$source_created" \
     --sourceCatalog openhouse_a \
     --sourceTablesApiUrl "http://tables-a:8080" \
     --destinationClusterId "$destination_cluster_id" \
@@ -113,7 +122,7 @@ get_table() {
   local port="$1"
   local table="$2"
   curl --silent --show-error --fail \
-    -H "Authorization: $admin_token" \
+    -H "Authorization: Bearer $admin_token" \
     "http://localhost:${port}/v1/databases/${database}/tables/${table}"
 }
 
@@ -148,10 +157,57 @@ wait_for_health() {
   return 1
 }
 
+set_cascade_mode() {
+  local mode="$1"
+  export OH_MULTICLUSTER_CASCADE_MODE="$mode"
+  compose up -d --force-recreate tables-a tables-b
+  wait_for_health "Tables service A ($mode cascade mode)" "$OH_MULTICLUSTER_TABLES_A_PORT"
+  wait_for_health "Tables service B ($mode cascade mode)" "$OH_MULTICLUSTER_TABLES_B_PORT"
+}
+
+register_destination() {
+  local source_table_id="$1"
+  local source_metadata="$2"
+  local destination_table_id="$3"
+  local destination_metadata="$4"
+  local request_body
+
+  request_body="$(
+    python3 - "$source_table_id" "$source_metadata" "$destination_table_id" \
+      "$destination_metadata" "$database" <<'PY'
+import json
+import sys
+source_id, source_json, destination_id, destination_json, database = sys.argv[1:]
+source = json.loads(source_json)
+destination = json.loads(destination_json)
+print(json.dumps({
+    "sourceClusterId": source["clusterId"],
+    "sourceTableUUID": source["tableUUID"],
+    "sourceCreationTime": int(source["creationTime"]),
+    "sourceDatabaseId": database,
+    "sourceTableId": source_id,
+    "destinationClusterId": destination["clusterId"],
+    "destinationTableUUID": destination["tableUUID"],
+    "destinationCreationTime": int(destination["creationTime"]),
+    "destinationDatabaseId": database,
+    "destinationTableId": destination_id,
+    "expectedVersion": 0,
+}))
+PY
+  )"
+  curl --silent --show-error --fail \
+    -X PUT \
+    -H "Authorization: Bearer $admin_token" \
+    -H "Content-Type: application/json" \
+    --data "$request_body" \
+    "http://localhost:${OH_MULTICLUSTER_TABLES_B_PORT}/v1/replication/destinations" >/dev/null
+}
+
 cleanup() {
   local exit_status="$?"
   if [[ "$exit_status" -ne 0 && "$stack_started_by_script" == true ]]; then
     echo "End-to-end test failed; recent isolated container logs follow." >&2
+    compose ps -a >&2 || true
     compose logs --no-color --tail=100 spark-livy spark-worker-a spark-master tables-a tables-b >&2 || true
   fi
   if [[ "$source_created" == true && -n "$admin_token" ]]; then
@@ -174,7 +230,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
+if [[ -x /usr/libexec/java_home && -z "${JAVA_HOME:-}" ]]; then
+  JAVA_HOME="$(/usr/libexec/java_home -v 17)"
+  export JAVA_HOME
+fi
+"$repo_root/gradlew" -p "$repo_root" dockerPrereqs -Precipe=oh-multicluster \
+  -x CopyGitHooksTask
 stack_started_by_script=true
+export OH_MULTICLUSTER_CASCADE_MODE=service
 compose up -d --build tables-a tables-b spark-livy spark-worker-a
 wait_for_health "House Tables service A" "$OH_MULTICLUSTER_HOUSETABLES_A_PORT"
 wait_for_health "Tables service A" "$OH_MULTICLUSTER_TABLES_A_PORT"
@@ -184,14 +247,19 @@ prepare_hdfs namenode-a
 prepare_hdfs namenode-b
 
 admin_token="$(compose exec -T spark-livy cat /var/config/openhouse.token | tr -d '\r\n')"
+echo "Running Spark-forwarded reference replication scenario."
+set_cascade_mode spark
 spark_sql "$admin_token" \
   "CREATE TABLE openhouse_a.$database.$source_table (id BIGINT, value STRING) USING iceberg"
 source_created=true
+echo "Spark-forwarded source table created."
 spark_sql "$admin_token" \
   "CREATE TABLE openhouse_b.$database.$destination_table (id BIGINT, value STRING) USING iceberg TBLPROPERTIES ('openhouse.tableType'='REPLICA_TABLE')"
 destination_created=true
+echo "Spark-forwarded replica table created."
 spark_sql "$admin_token" \
   "ALTER TABLE openhouse_a.$database.$source_table SET POLICY (REPLICATION = ({destination:'LocalHadoopClusterB'}))"
+echo "Spark-forwarded replication policy set."
 
 source_metadata="$(get_table "$OH_MULTICLUSTER_TABLES_A_PORT" "$source_table")"
 destination_metadata="$(get_table "$OH_MULTICLUSTER_TABLES_B_PORT" "$destination_table")"
@@ -203,34 +271,7 @@ destination_table_uuid="$(python3 -c 'import json,sys; print(json.load(sys.stdin
 destination_creation_time="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["creationTime"])' <<<"$destination_metadata")"
 python3 -c 'import json,sys; assert json.load(sys.stdin)["tableType"] == "REPLICA_TABLE"' <<<"$destination_metadata"
 
-destination_request="$(
-  python3 - "$source_cluster_id" "$source_table_uuid" "$source_creation_time" \
-    "$destination_cluster_id" "$destination_table_uuid" "$destination_creation_time" \
-    "$database" "$source_table" "$destination_table" <<'PY'
-import json
-import sys
-source_cluster, source_uuid, source_created, destination_cluster, destination_uuid, destination_created, database, source_table, destination_table = sys.argv[1:]
-print(json.dumps({
-    "sourceClusterId": source_cluster,
-    "sourceTableUUID": source_uuid,
-    "sourceCreationTime": int(source_created),
-    "sourceDatabaseId": database,
-    "sourceTableId": source_table,
-    "destinationClusterId": destination_cluster,
-    "destinationTableUUID": destination_uuid,
-    "destinationCreationTime": int(destination_created),
-    "destinationDatabaseId": database,
-    "destinationTableId": destination_table,
-    "expectedVersion": 0,
-}))
-PY
-)"
-curl --silent --show-error --fail \
-  -X PUT \
-  -H "Authorization: $admin_token" \
-  -H "Content-Type: application/json" \
-  --data "$destination_request" \
-  "http://localhost:${OH_MULTICLUSTER_TABLES_B_PORT}/v1/replication/destinations" >/dev/null
+register_destination "$source_table" "$source_metadata" "$destination_table" "$destination_metadata"
 
 spark_sql "$admin_token" "INSERT INTO openhouse_a.$database.$source_table VALUES (1, 'one')"
 run_replicator
@@ -253,7 +294,7 @@ assert destination["tableType"] == "REPLICA_TABLE", destination
 PY
 forwarded_old_destination_status="$(
   curl --silent --show-error \
-    -H "Authorization: $admin_token" \
+    -H "Authorization: Bearer $admin_token" \
     -o /dev/null -w '%{http_code}' \
     "http://localhost:${OH_MULTICLUSTER_TABLES_B_PORT}/v1/databases/${database}/tables/${destination_table}"
 )"
@@ -263,7 +304,7 @@ if [[ "$forwarded_old_destination_status" != "404" ]]; then
 fi
 old_source_status="$(
   curl --silent --show-error \
-    -H "Authorization: $admin_token" \
+    -H "Authorization: Bearer $admin_token" \
     -o /dev/null -w '%{http_code}' \
     "http://localhost:${OH_MULTICLUSTER_TABLES_A_PORT}/v1/databases/${database}/tables/${source_table}"
 )"
@@ -286,7 +327,7 @@ fi
 
 old_destination_status="$(
   curl --silent --show-error \
-    -H "Authorization: $admin_token" \
+    -H "Authorization: Bearer $admin_token" \
     -o /dev/null -w '%{http_code}' \
     "http://localhost:${OH_MULTICLUSTER_TABLES_B_PORT}/v1/databases/${database}/tables/${destination_table}"
 )"
@@ -321,7 +362,7 @@ destination_snapshot_id="$(
 )"
 checkpoint="$(
   curl --silent --show-error --fail --get \
-    -H "Authorization: $admin_token" \
+    -H "Authorization: Bearer $admin_token" \
     --data-urlencode "sourceClusterId=$source_cluster_id" \
     --data-urlencode "sourceTableUUID=$source_table_uuid" \
     --data-urlencode "sourceCreationTime=$source_creation_time" \
@@ -350,13 +391,13 @@ PY
 spark_sql "$admin_token" "DROP TABLE openhouse_a.$database.$renamed_source_table"
 source_after_drop_status="$(
   curl --silent --show-error \
-    -H "Authorization: $admin_token" \
+    -H "Authorization: Bearer $admin_token" \
     -o /dev/null -w '%{http_code}' \
     "http://localhost:${OH_MULTICLUSTER_TABLES_A_PORT}/v1/databases/${database}/tables/${renamed_source_table}"
 )"
 destination_after_drop_status="$(
   curl --silent --show-error \
-    -H "Authorization: $admin_token" \
+    -H "Authorization: Bearer $admin_token" \
     -o /dev/null -w '%{http_code}' \
     "http://localhost:${OH_MULTICLUSTER_TABLES_B_PORT}/v1/databases/${database}/tables/${renamed_source_table}"
 )"
@@ -364,5 +405,95 @@ if [[ "$source_after_drop_status" != "404" || "$destination_after_drop_status" !
   echo "Expected Spark catalog drop forwarding to remove the source and destination; got HTTP $source_after_drop_status and $destination_after_drop_status." >&2
   exit 1
 fi
+echo "Spark-forwarded rename/drop scenario passed."
 
-echo "Reference replication e2e passed: interleaved commits, Spark-forwarded rename/drop, replica identity, data, and checkpoint progress verified."
+echo "Running service-cascade reference replication scenario."
+set_cascade_mode service
+spark_sql "$admin_token" \
+  "CREATE TABLE openhouse_a.$database.$service_source_table (id BIGINT, value STRING) USING iceberg" \
+  false
+spark_sql "$admin_token" \
+  "CREATE TABLE openhouse_b.$database.$service_destination_table (id BIGINT, value STRING) USING iceberg TBLPROPERTIES ('openhouse.tableType'='REPLICA_TABLE')" \
+  false
+spark_sql "$admin_token" \
+  "ALTER TABLE openhouse_a.$database.$service_source_table SET POLICY (REPLICATION = ({destination:'LocalHadoopClusterB'}))" \
+  false
+service_source_metadata="$(get_table "$OH_MULTICLUSTER_TABLES_A_PORT" "$service_source_table")"
+service_destination_metadata="$(get_table "$OH_MULTICLUSTER_TABLES_B_PORT" "$service_destination_table")"
+service_source_cluster_id="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["clusterId"])' <<<"$service_source_metadata")"
+service_source_table_uuid="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["tableUUID"])' <<<"$service_source_metadata")"
+service_source_creation_time="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["creationTime"])' <<<"$service_source_metadata")"
+service_destination_table_uuid="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["tableUUID"])' <<<"$service_destination_metadata")"
+service_destination_creation_time="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["creationTime"])' <<<"$service_destination_metadata")"
+register_destination \
+  "$service_source_table" "$service_source_metadata" \
+  "$service_destination_table" "$service_destination_metadata"
+
+echo "Service-cascade replication association registered."
+spark_sql "$admin_token" \
+  "INSERT INTO openhouse_a.$database.$service_source_table VALUES (10, 'service-one')" false
+run_replicator \
+  "$service_source_cluster_id" "$service_source_table_uuid" "$service_source_creation_time"
+spark_sql "$admin_token" \
+  "ALTER TABLE openhouse_a.$database.$service_source_table RENAME TO openhouse_a.$database.$renamed_service_source_table"
+service_renamed_destination_metadata="$(
+  get_table "$OH_MULTICLUSTER_TABLES_B_PORT" "$renamed_service_source_table"
+)"
+python3 - "$service_destination_table_uuid" "$service_destination_creation_time" \
+  "$service_renamed_destination_metadata" <<'PY'
+import json
+import sys
+destination_uuid, destination_created, destination_json = sys.argv[1:]
+destination = json.loads(destination_json)
+assert destination["tableUUID"] == destination_uuid, destination
+assert int(destination["creationTime"]) == int(destination_created), destination
+assert destination["tableType"] == "REPLICA_TABLE", destination
+PY
+service_old_destination_status="$(
+  curl --silent --show-error \
+    -H "Authorization: Bearer $admin_token" \
+    -o /dev/null -w '%{http_code}' \
+    "http://localhost:${OH_MULTICLUSTER_TABLES_B_PORT}/v1/databases/${database}/tables/${service_destination_table}"
+)"
+if [[ "$service_old_destination_status" != "404" ]]; then
+  echo "Expected service cascade rename to remove the old destination locator, got HTTP $service_old_destination_status." >&2
+  exit 1
+fi
+spark_sql "$admin_token" \
+  "INSERT INTO openhouse_a.$database.$renamed_service_source_table VALUES (11, 'service-two')" false
+run_replicator \
+  "$service_source_cluster_id" "$service_source_table_uuid" "$service_source_creation_time"
+spark_sql "$admin_token" \
+  "SELECT id FROM openhouse_b.$database.$renamed_service_source_table ORDER BY id" \
+  false >"$output_file"
+service_actual_rows="$(
+  awk '/^[[:space:]]*[0-9]+[[:space:]]*$/ {gsub(/[[:space:]]/, ""); print}' "$output_file"
+)"
+if [[ "$service_actual_rows" != $'10\n11' ]]; then
+  echo "Service-mode destination data differs from source: $service_actual_rows" >&2
+  cat "$output_file" >&2
+  exit 1
+fi
+echo "Service-cascade source rename and replication passed."
+
+spark_sql "$admin_token" \
+  "DROP TABLE openhouse_a.$database.$renamed_service_source_table"
+service_source_after_drop_status="$(
+  curl --silent --show-error \
+    -H "Authorization: Bearer $admin_token" \
+    -o /dev/null -w '%{http_code}' \
+    "http://localhost:${OH_MULTICLUSTER_TABLES_A_PORT}/v1/databases/${database}/tables/${renamed_service_source_table}"
+)"
+service_destination_after_drop_status="$(
+  curl --silent --show-error \
+    -H "Authorization: Bearer $admin_token" \
+    -o /dev/null -w '%{http_code}' \
+    "http://localhost:${OH_MULTICLUSTER_TABLES_B_PORT}/v1/databases/${database}/tables/${renamed_service_source_table}"
+)"
+if [[ "$service_source_after_drop_status" != "404" \
+  || "$service_destination_after_drop_status" != "404" ]]; then
+  echo "Expected service cascade drop to remove source and destination; got HTTP $service_source_after_drop_status and $service_destination_after_drop_status." >&2
+  exit 1
+fi
+
+echo "Reference replication e2e passed: Spark-forwarded checkpoint progress and data, plus service-cascade rename/drop and data, verified."

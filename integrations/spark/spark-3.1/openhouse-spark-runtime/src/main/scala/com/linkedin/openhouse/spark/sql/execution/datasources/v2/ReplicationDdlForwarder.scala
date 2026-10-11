@@ -5,7 +5,7 @@ import com.linkedin.openhouse.spark.OpenHouseCatalog
 import com.linkedin.openhouse.spark.sql.execution.datasources.v2.mapper.IcebergCatalogMapper
 import org.apache.iceberg.spark.Spark3Util
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
+import org.apache.spark.sql.connector.catalog.{Identifier, Table, TableCatalog}
 
 import scala.collection.JavaConverters._
 
@@ -15,6 +15,7 @@ private[datasources] object ReplicationDdlForwarder {
   val CascadeConfig = "spark.openhouse.replication.ddl.cascade"
   private val CatalogConfigPrefix = "spark.sql.catalog."
   private val ClusterConfigSuffix = ".cluster"
+  private val TableUUIDProperty = "openhouse.tableUUID"
   private val mapper = new ObjectMapper()
 
   def isOpenHouseCatalog(catalog: TableCatalog): Boolean =
@@ -28,6 +29,44 @@ private[datasources] object ReplicationDdlForwarder {
       Identifier.of(namespace.drop(1), identifier.name())
     } else {
       identifier
+    }
+  }
+
+  def renameDestination(
+      destination: TableCatalog,
+      from: Identifier,
+      to: Identifier,
+      originalTable: Table): Unit = {
+    try {
+      destination.renameTable(from, to)
+    } catch {
+      case _: org.apache.iceberg.exceptions.NoSuchTableException
+          if destinationRenameAlreadyApplied(destination, to, originalTable) =>
+        ()
+      case _: org.apache.spark.sql.catalyst.analysis.NoSuchTableException
+          if destinationRenameAlreadyApplied(destination, to, originalTable) =>
+        ()
+    }
+  }
+
+  def dropDestination(destination: TableCatalog, identifier: Identifier, purge: Boolean): Unit = {
+    // The source service may already have cascaded this drop to the destination.
+    if (purge) destination.purgeTable(identifier) else destination.dropTable(identifier)
+    ()
+  }
+
+  private def destinationRenameAlreadyApplied(
+      destination: TableCatalog,
+      target: Identifier,
+      originalTable: Table): Boolean = {
+    try {
+      val renamedTable = destination.loadTable(target)
+      val originalUUID = Option(originalTable.properties().get(TableUUIDProperty))
+      originalUUID.exists(
+        uuid => Option(renamedTable.properties().get(TableUUIDProperty)).contains(uuid))
+    } catch {
+      case _: org.apache.iceberg.exceptions.NoSuchTableException => false
+      case _: org.apache.spark.sql.catalyst.analysis.NoSuchTableException => false
     }
   }
 

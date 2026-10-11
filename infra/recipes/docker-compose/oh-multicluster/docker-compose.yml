@@ -50,6 +50,8 @@ services:
       <<: *openhouse-otel
       OTEL_SERVICE_NAME: openhouse-tables-a
       OPENHOUSE_CLUSTER_CONFIG_PATH: /var/config/cluster-a.yaml
+      OPENHOUSE_REPLICATION_CASCADE_KEY: "local-only-multicluster-replication-signing-key"
+      CLUSTER_REPLICATION_CASCADE_MODE: "${OH_MULTICLUSTER_CASCADE_MODE:-service}"
     depends_on:
       - housetables-a
       - namenode-a
@@ -95,6 +97,8 @@ services:
       <<: *openhouse-otel
       OTEL_SERVICE_NAME: openhouse-tables-b
       OPENHOUSE_CLUSTER_CONFIG_PATH: /var/config/cluster-b.yaml
+      OPENHOUSE_REPLICATION_CASCADE_KEY: "local-only-multicluster-replication-signing-key"
+      CLUSTER_REPLICATION_CASCADE_MODE: "${OH_MULTICLUSTER_CASCADE_MODE:-service}"
     depends_on:
       - housetables-b
       - namenode-b
@@ -235,6 +239,7 @@ services:
       SPARK_MASTER: spark://spark-master:7077
       SPARK_WORKLOAD: livy
       LIVY_PORT: 8998
+      LIVY_SERVER_JAVA_OPTS: "-Xms64m -Xmx512m"
       CORE_CONF_fs_defaultFS: hdfs://namenode-a:9000
     depends_on:
       - spark-master

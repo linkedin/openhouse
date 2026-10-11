@@ -27,10 +27,12 @@ case class ReplicatedRenameTableExec(
     }
     catalog.renameTable(from, to)
     destinationTables.foreach {
-      case (destination, _) =>
-        destination.renameTable(
+      case (destination, destinationTable) =>
+        ReplicationDdlForwarder.renameDestination(
+          destination,
           from,
-          ReplicationDdlForwarder.identifierForDestination(catalog.name(), to))
+          ReplicationDdlForwarder.identifierForDestination(catalog.name(), to),
+          destinationTable)
     }
     Nil
   }

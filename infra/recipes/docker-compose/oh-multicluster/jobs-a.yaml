@@ -6,6 +6,7 @@ jobs:
       "spark.sql.catalog.openhouse.catalog-impl": "com.linkedin.openhouse.spark.OpenHouseCatalog"
       "spark.sql.catalog.openhouse.uri": "http://tables-a:8080"
       "spark.sql.catalog.openhouse.cluster": "LocalHadoopClusterA"
+      "spark.openhouse.replication.ddl.cascade": "false"
       "spark.sql.catalog.openhouse_a": "org.apache.iceberg.spark.SparkCatalog"
       "spark.sql.catalog.openhouse_a.catalog-impl": "com.linkedin.openhouse.spark.OpenHouseCatalog"
       "spark.sql.catalog.openhouse_a.uri": "http://tables-a:8080"
