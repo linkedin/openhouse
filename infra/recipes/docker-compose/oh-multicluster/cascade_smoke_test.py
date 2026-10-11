@@ -115,7 +115,7 @@ def create_replica(table_id, table_uuid):
         "baseTableVersion": "INITIAL_VERSION",
         "tableType": "REPLICA_TABLE",
     }
-    expect(
+    result = expect(
         f"create destination replica {table_id}",
         "b",
         "POST",
@@ -124,6 +124,30 @@ def create_replica(table_id, table_uuid):
         body=body,
     )
     created_tables["b"].add(table_id)
+    return result
+
+
+def register_replication_association(source, replica, source_table_id, replica_table_id):
+    expect(
+        f"register source-to-replica generation for {source_table_id}",
+        "b",
+        "PUT",
+        "/v1/replication/destinations",
+        200,
+        body={
+            "sourceClusterId": SOURCE_CLUSTER_ID,
+            "sourceTableUUID": source["tableUUID"],
+            "sourceCreationTime": source["creationTime"],
+            "sourceDatabaseId": DATABASE_ID,
+            "sourceTableId": source_table_id,
+            "destinationClusterId": DESTINATION_CLUSTER_ID,
+            "destinationTableUUID": replica["tableUUID"],
+            "destinationCreationTime": replica["creationTime"],
+            "destinationDatabaseId": DATABASE_ID,
+            "destinationTableId": replica_table_id,
+            "expectedVersion": 0,
+        },
+    )
 
 
 def verify_missing(cluster, table_id, label):
@@ -134,7 +158,8 @@ def test_authorization_and_fanout():
     source_id = "cascade_" + SUFFIX
     renamed_id = source_id + "_renamed"
     source = create_primary(source_id)
-    create_replica(source_id, source["tableUUID"])
+    replica = create_replica(source_id, uuid.uuid4().hex)
+    register_replication_association(source, replica, source_id, source_id)
 
     for role in ("TABLE_CREATOR", "TABLE_ADMIN"):
         grant_database_role("a", role)
@@ -212,10 +237,30 @@ def test_authorization_and_fanout():
 def test_missing_replicas_are_retry_safe():
     rename_source_id = "cascade_missing_rename_" + SUFFIX
     rename_target_id = rename_source_id + "_renamed"
-    create_primary(rename_source_id)
+    source = create_primary(rename_source_id)
     verify_missing("b", rename_source_id, "rename destination replica is absent")
     expect(
-        "rename succeeds when destination replica is absent",
+        "rename fails closed without a source-to-replica association",
+        "a",
+        "PATCH",
+        table_path(rename_source_id)
+        + f"/rename?toDatabaseId={DATABASE_ID}&toTableId={rename_target_id}",
+        403,
+    )
+    expect("source is unchanged without association", "a", "GET", table_path(rename_source_id), 200)
+    verify_missing("a", rename_target_id, "source target absent without association")
+    replica = create_replica(rename_source_id, uuid.uuid4().hex)
+    register_replication_association(source, replica, rename_source_id, rename_source_id)
+    expect(
+        "delete destination replica but retain its association",
+        "b",
+        "DELETE",
+        table_path(rename_source_id),
+        204,
+    )
+    created_tables["b"].discard(rename_source_id)
+    expect(
+        "rename succeeds when the associated destination replica is absent",
         "a",
         "PATCH",
         table_path(rename_source_id)
@@ -225,16 +270,46 @@ def test_missing_replicas_are_retry_safe():
     created_tables["a"].discard(rename_source_id)
     created_tables["a"].add(rename_target_id)
     expect("source rename committed", "a", "GET", table_path(rename_target_id), 200)
-    verify_missing("b", rename_target_id, "missing replica remains absent after rename")
-    expect("drop succeeds when destination replica is absent", "a", "DELETE", table_path(rename_target_id), 204)
+    verify_missing("b", rename_target_id, "associated missing replica remains absent after rename")
+    expect(
+        "drop succeeds when the associated destination replica is absent",
+        "a",
+        "DELETE",
+        table_path(rename_target_id),
+        204,
+    )
     created_tables["a"].discard(rename_target_id)
     verify_missing("a", rename_target_id, "source gone after missing-replica drop")
     verify_missing("b", rename_target_id, "destination still absent after drop")
 
     drop_source_id = "cascade_missing_drop_" + SUFFIX
-    create_primary(drop_source_id)
+    drop_source = create_primary(drop_source_id)
     verify_missing("b", drop_source_id, "drop destination replica is absent")
-    expect("drop succeeds when destination replica is absent", "a", "DELETE", table_path(drop_source_id), 204)
+    expect(
+        "drop fails closed without a source-to-replica association",
+        "a",
+        "DELETE",
+        table_path(drop_source_id),
+        403,
+    )
+    expect("source is unchanged without association", "a", "GET", table_path(drop_source_id), 200)
+    drop_replica = create_replica(drop_source_id, uuid.uuid4().hex)
+    register_replication_association(drop_source, drop_replica, drop_source_id, drop_source_id)
+    expect(
+        "delete destination replica but retain its association",
+        "b",
+        "DELETE",
+        table_path(drop_source_id),
+        204,
+    )
+    created_tables["b"].discard(drop_source_id)
+    expect(
+        "drop succeeds when the associated destination replica is absent",
+        "a",
+        "DELETE",
+        table_path(drop_source_id),
+        204,
+    )
     created_tables["a"].discard(drop_source_id)
     verify_missing("a", drop_source_id, "source gone after missing-replica drop")
     verify_missing("b", drop_source_id, "destination still absent after drop")

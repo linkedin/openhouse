@@ -174,10 +174,12 @@ It grants local HDFS test-directory permissions inside the temporary containers.
 The smoke test checks that destination ACL denial leaves both source and replica
 unchanged; that the same authenticated caller can rename and drop when granted
 permissions on both clusters; that direct replica rename/drop are allowed
-without initiating another service cascade; and that source rename/drop succeed
-when the destination replica is absent. It
-creates the replica as a test fixture using the source table UUID: this validates
-DDL coordination, not replication data movement or the Spark replication job.
+without initiating another service cascade; and that DDL fails closed when no
+source-to-replica association exists. It also verifies that an absent replica is
+an idempotent no-op after its generation association has been registered. The
+fixture uses distinct source and replica UUIDs and registers their association:
+this validates DDL coordination, not replication data movement or the Spark
+replication job.
 The generated table names are unique, and the script removes any remaining test
 tables. It stops only its isolated Compose project and retains its named volumes;
 remove those volumes explicitly if you want to discard the smoke-test catalog

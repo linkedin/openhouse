@@ -263,6 +263,9 @@ public class ReplicationCascadeClientTest {
             ReplicationCascadeProof.TABLE_UUID_HEADER,
             request.getHeader(ReplicationCascadeProof.TABLE_UUID_HEADER));
         peerRequest.addHeader(
+            ReplicationCascadeProof.TABLE_CREATION_TIME_HEADER,
+            request.getHeader(ReplicationCascadeProof.TABLE_CREATION_TIME_HEADER));
+        peerRequest.addHeader(
             ReplicationCascadeProof.SIGNATURE_HEADER,
             request.getHeader(ReplicationCascadeProof.SIGNATURE_HEADER));
         RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(peerRequest));
@@ -280,8 +283,12 @@ public class ReplicationCascadeClientTest {
               fixture == null
                   || fixture
                       .proof
-                      .getTrustedCascadeTableUUID(
+                      .getTrustedCascade(
                           operation, "db", "source", toDatabaseId, toTableId, "alice")
+                      .filter(
+                          trusted ->
+                              "source-table-uuid".equals(trusted.getSourceTableUUID())
+                                  && trusted.getSourceCreationTime() == 123L)
                       .isPresent();
           if (!valid) {
             return new MockResponse().setResponseCode(HttpStatus.FORBIDDEN.value());
@@ -300,6 +307,7 @@ public class ReplicationCascadeClientTest {
         .databaseId("db")
         .tableId("source")
         .tableUUID("source-table-uuid")
+        .creationTime(123L)
         .tableType(TableType.PRIMARY_TABLE)
         .policies(
             Policies.builder()

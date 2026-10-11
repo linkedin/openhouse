@@ -27,6 +27,8 @@ public class ReplicationCascadeProof {
   public static final String SOURCE_HEADER = "X-OpenHouse-Replication-Source";
   public static final String TIMESTAMP_HEADER = "X-OpenHouse-Replication-Timestamp";
   public static final String TABLE_UUID_HEADER = "X-OpenHouse-Replication-Table-UUID";
+  public static final String TABLE_CREATION_TIME_HEADER =
+      "X-OpenHouse-Replication-Table-Creation-Time";
   public static final String SIGNATURE_HEADER = "X-OpenHouse-Replication-Signature";
   public static final String AUTHORIZATION_HEADER = "Authorization";
   private static final long MAX_CLOCK_SKEW_MILLIS = 5 * 60 * 1000L;
@@ -44,6 +46,7 @@ public class ReplicationCascadeProof {
       String toDatabaseId,
       String toTableId,
       String tableUUID,
+      long tableCreationTime,
       String actingPrincipal) {
     String authorization = currentAuthorizationHeader();
     String sourceCluster = clusterProperties.getClusterName();
@@ -57,6 +60,7 @@ public class ReplicationCascadeProof {
             toDatabaseId,
             toTableId,
             tableUUID,
+            tableCreationTime,
             actingPrincipal,
             authorization,
             timestamp);
@@ -65,6 +69,7 @@ public class ReplicationCascadeProof {
         sourceCluster,
         timestamp,
         tableUUID,
+        Long.toString(tableCreationTime),
         hmac(peer.getCascadeSigningKey(), payload));
   }
 
@@ -72,7 +77,7 @@ public class ReplicationCascadeProof {
    * Validates the peer assertion against the authenticated caller and exact DDL request. Absence of
    * an assertion is not itself an error; an empty result identifies a direct operation.
    */
-  public Optional<String> getTrustedCascadeTableUUID(
+  public Optional<TrustedCascade> getTrustedCascade(
       String operation,
       String fromDatabaseId,
       String fromTableId,
@@ -99,12 +104,18 @@ public class ReplicationCascadeProof {
 
     String timestamp = request.getHeader(TIMESTAMP_HEADER);
     String tableUUID = request.getHeader(TABLE_UUID_HEADER);
-    if (timestamp == null || tableUUID == null || tableUUID.trim().isEmpty()) {
+    String tableCreationTime = request.getHeader(TABLE_CREATION_TIME_HEADER);
+    if (timestamp == null
+        || tableUUID == null
+        || tableUUID.trim().isEmpty()
+        || tableCreationTime == null) {
       throw new AccessDeniedException("Incomplete replication cascade assertion");
     }
     long timestampMillis;
+    long tableCreationTimeMillis;
     try {
       timestampMillis = Long.parseLong(timestamp);
+      tableCreationTimeMillis = Long.parseLong(tableCreationTime);
     } catch (NumberFormatException exception) {
       throw new AccessDeniedException("Invalid replication cascade timestamp");
     }
@@ -126,13 +137,14 @@ public class ReplicationCascadeProof {
                 toDatabaseId,
                 toTableId,
                 tableUUID,
+                tableCreationTimeMillis,
                 actingPrincipal,
                 authorization,
                 timestamp));
     if (!constantTimeEquals(expected, signature)) {
       throw new AccessDeniedException("Invalid replication cascade signature");
     }
-    return Optional.of(tableUUID);
+    return Optional.of(new TrustedCascade(sourceCluster, tableUUID, tableCreationTimeMillis));
   }
 
   private static String payload(
@@ -143,6 +155,7 @@ public class ReplicationCascadeProof {
       String toDatabaseId,
       String toTableId,
       String tableUUID,
+      long tableCreationTime,
       String actingPrincipal,
       String authorization,
       String timestamp) {
@@ -162,6 +175,8 @@ public class ReplicationCascadeProof {
     fieldNames.add("destination table");
     fields.add(tableUUID);
     fieldNames.add("table UUID");
+    fields.add(Long.toString(tableCreationTime));
+    fieldNames.add("table creation time");
     fields.add(actingPrincipal);
     fieldNames.add("authenticated principal");
     fields.add(sha256(authorization == null ? "" : authorization));
@@ -237,6 +252,7 @@ public class ReplicationCascadeProof {
     private final String sourceCluster;
     private final String timestamp;
     private final String tableUUID;
+    private final String tableCreationTime;
     private final String signature;
 
     SignedHeaders(
@@ -244,11 +260,13 @@ public class ReplicationCascadeProof {
         String sourceCluster,
         String timestamp,
         String tableUUID,
+        String tableCreationTime,
         String signature) {
       this.authorization = authorization;
       this.sourceCluster = sourceCluster;
       this.timestamp = timestamp;
       this.tableUUID = tableUUID;
+      this.tableCreationTime = tableCreationTime;
       this.signature = signature;
     }
 
@@ -268,8 +286,36 @@ public class ReplicationCascadeProof {
       return tableUUID;
     }
 
+    public String getTableCreationTime() {
+      return tableCreationTime;
+    }
+
     public String getSignature() {
       return signature;
+    }
+  }
+
+  public static final class TrustedCascade {
+    private final String sourceCluster;
+    private final String sourceTableUUID;
+    private final long sourceCreationTime;
+
+    public TrustedCascade(String sourceCluster, String sourceTableUUID, long sourceCreationTime) {
+      this.sourceCluster = sourceCluster;
+      this.sourceTableUUID = sourceTableUUID;
+      this.sourceCreationTime = sourceCreationTime;
+    }
+
+    public String getSourceCluster() {
+      return sourceCluster;
+    }
+
+    public String getSourceTableUUID() {
+      return sourceTableUUID;
+    }
+
+    public long getSourceCreationTime() {
+      return sourceCreationTime;
     }
   }
 }

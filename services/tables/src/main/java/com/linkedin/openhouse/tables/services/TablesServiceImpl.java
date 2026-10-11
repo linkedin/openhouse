@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.services;
 
 import static com.linkedin.openhouse.common.utils.PageableUtil.createPageable;
 
+import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
@@ -9,6 +10,7 @@ import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
+import com.linkedin.openhouse.housetables.client.model.ReplicationDestination;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
@@ -68,6 +70,10 @@ public class TablesServiceImpl implements TablesService {
   @Autowired ReplicationCascadeClient replicationCascadeClient;
 
   @Autowired ReplicationCascadeProof replicationCascadeProof;
+
+  @Autowired ReplicationCascadeAssociationResolver replicationCascadeAssociationResolver;
+
+  @Autowired ClusterProperties clusterProperties;
   /**
    * Lookup a table by databaseId and tableId in OpenHouse's Internal Catalog.
    *
@@ -266,36 +272,38 @@ public class TablesServiceImpl implements TablesService {
 
   @Override
   public void deleteTable(String databaseId, String tableId, String actingPrincipal) {
+    Optional<ReplicationCascadeProof.TrustedCascade> trustedCascade =
+        replicationCascadeProof.getTrustedCascade(
+            "DELETE", databaseId, tableId, null, null, actingPrincipal);
+    if (trustedCascade.isPresent()) {
+      if (!isServiceCascadeEnabled()) {
+        throw new AccessDeniedException("Replication cascade is not enabled on this cluster");
+      }
+      ReplicationCascadeProof.TrustedCascade cascade = trustedCascade.get();
+      ReplicationDestination destination =
+          replicationCascadeAssociationResolver.resolve(
+              cascade.getSourceCluster(),
+              cascade.getSourceTableUUID(),
+              cascade.getSourceCreationTime(),
+              databaseId,
+              tableId,
+              clusterProperties.getClusterName());
+      deleteTrustedReplica(databaseId, tableId, actingPrincipal, destination);
+      return;
+    }
+
     TableDtoPrimaryKey tableDtoPrimaryKey =
         TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build();
-    List<String> cascadedPeers = Collections.emptyList();
-
-    Optional<String> trustedCascadeUUID =
-        replicationCascadeProof.getTrustedCascadeTableUUID(
-            "DELETE", databaseId, tableId, null, null, actingPrincipal);
-    boolean trustedCascade = trustedCascadeUUID.isPresent();
-    boolean serviceCascadeEnabled = isServiceCascadeEnabled();
-    if (trustedCascade && !serviceCascadeEnabled) {
-      throw new AccessDeniedException("Replication cascade is not enabled on this cluster");
-    }
     // Replica status lives in table metadata today, so load it before a destructive operation.
     Optional<TableDto> tableDtoRef = openHouseInternalRepository.findById(tableDtoPrimaryKey);
     if (!tableDtoRef.isPresent()) {
-      if (trustedCascade) {
-        return;
-      }
       throw new NoSuchUserTableException(databaseId, tableId);
     }
     TableDto tableDto = tableDtoRef.get();
     boolean isReplica = tableDto.getTableType() == TableType.REPLICA_TABLE;
-    if (trustedCascade && !isReplica) {
-      throw new AccessDeniedException("Replication cascade is only permitted for replica tables");
-    }
-    if (trustedCascade && !trustedCascadeUUID.get().equals(tableDto.getTableUUID())) {
-      throw new AccessDeniedException("Replication cascade table UUID does not match replica");
-    }
     authorizationUtils.checkTableDropPrivilege(tableDto, actingPrincipal, Privileges.DELETE_TABLE);
-    if (serviceCascadeEnabled && !trustedCascade && !isReplica) {
+    List<String> cascadedPeers = Collections.emptyList();
+    if (isServiceCascadeEnabled() && !isReplica) {
       cascadedPeers = replicationCascadeClient.cascadeDrop(tableDto, actingPrincipal);
     }
 
@@ -316,45 +324,36 @@ public class TablesServiceImpl implements TablesService {
       String toDatabaseId,
       String toTableId,
       String tableCreatorUpdater) {
-    Optional<String> trustedCascadeUUID =
-        replicationCascadeProof.getTrustedCascadeTableUUID(
+    Optional<ReplicationCascadeProof.TrustedCascade> trustedCascade =
+        replicationCascadeProof.getTrustedCascade(
             "RENAME", fromDatabaseId, fromTableId, toDatabaseId, toTableId, tableCreatorUpdater);
-    boolean trustedCascade = trustedCascadeUUID.isPresent();
-    boolean serviceCascadeEnabled = isServiceCascadeEnabled();
-    if (trustedCascade && !serviceCascadeEnabled) {
-      throw new AccessDeniedException("Replication cascade is not enabled on this cluster");
+    if (trustedCascade.isPresent()) {
+      if (!isServiceCascadeEnabled()) {
+        throw new AccessDeniedException("Replication cascade is not enabled on this cluster");
+      }
+      ReplicationCascadeProof.TrustedCascade cascade = trustedCascade.get();
+      ReplicationDestination destination =
+          replicationCascadeAssociationResolver.resolve(
+              cascade.getSourceCluster(),
+              cascade.getSourceTableUUID(),
+              cascade.getSourceCreationTime(),
+              fromDatabaseId,
+              fromTableId,
+              clusterProperties.getClusterName());
+      renameTrustedReplica(
+          fromDatabaseId, fromTableId, toDatabaseId, toTableId, tableCreatorUpdater, destination);
+      return;
     }
+
     Optional<TableDto> existingTableDto =
         openHouseInternalRepository.findById(
             TableDtoPrimaryKey.builder().databaseId(fromDatabaseId).tableId(fromTableId).build());
 
     if (!existingTableDto.isPresent()) {
-      if (trustedCascade) {
-        Optional<TableDto> renamedTableDto =
-            openHouseInternalRepository.findById(
-                TableDtoPrimaryKey.builder().databaseId(toDatabaseId).tableId(toTableId).build());
-        if (renamedTableDto.isPresent()) {
-          TableDto renamedTable = renamedTableDto.get();
-          if (renamedTable.getTableType() != TableType.REPLICA_TABLE) {
-            throw new AccessDeniedException(
-                "Replication cascade is only permitted for replica tables");
-          }
-          if (!trustedCascadeUUID.get().equals(renamedTable.getTableUUID())) {
-            throw new AlreadyExistsException("Table", renamedTable.getTableUri());
-          }
-        }
-        return;
-      }
       throw new NoSuchUserTableException(fromDatabaseId, fromTableId);
     }
     TableDto tableDto = existingTableDto.get();
     boolean isReplica = tableDto.getTableType() == TableType.REPLICA_TABLE;
-    if (trustedCascade && !isReplica) {
-      throw new AccessDeniedException("Replication cascade is only permitted for replica tables");
-    }
-    if (trustedCascade && !trustedCascadeUUID.get().equals(tableDto.getTableUUID())) {
-      throw new AccessDeniedException("Replication cascade table UUID does not match replica");
-    }
     Optional<TableDto> targetedTableDto =
         openHouseInternalRepository.findById(
             TableDtoPrimaryKey.builder().databaseId(toDatabaseId).tableId(toTableId).build());
@@ -372,7 +371,7 @@ public class TablesServiceImpl implements TablesService {
     // Rename involves both modifying an existing table and creating a new one
     authorizationUtils.checkDatabasePrivilege(
         fromDatabaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
-    if (trustedCascade || isReplica) {
+    if (isReplica) {
       authorizationUtils.checkTablePrivilege(
           tableDto, tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
     } else {
@@ -382,7 +381,7 @@ public class TablesServiceImpl implements TablesService {
     authorizationUtils.checkSystemOnlyLockAccess(tableDto, tableCreatorUpdater);
 
     List<String> cascadedPeers = Collections.emptyList();
-    if (serviceCascadeEnabled && !trustedCascade && !isReplica) {
+    if (isServiceCascadeEnabled() && !isReplica) {
       cascadedPeers =
           replicationCascadeClient.cascadeRename(
               tableDto, toDatabaseId, toTableId, tableCreatorUpdater);
@@ -402,6 +401,126 @@ public class TablesServiceImpl implements TablesService {
 
   private boolean isServiceCascadeEnabled() {
     return replicationProperties.getCascadeMode() == ReplicationProperties.CascadeMode.SERVICE;
+  }
+
+  private void deleteTrustedReplica(
+      String sourceDatabaseId,
+      String sourceTableId,
+      String actingPrincipal,
+      ReplicationDestination destination) {
+    Optional<TableDto> replica = resolveCascadeReplica(destination);
+    if (!replica.isPresent()) {
+      ensureCascadeLocatorsUnoccupied(destination, sourceDatabaseId, sourceTableId);
+      return;
+    }
+    TableDto table = replica.get();
+    authorizationUtils.checkTableDropPrivilege(table, actingPrincipal, Privileges.DELETE_TABLE);
+    openHouseInternalRepository.deleteById(
+        TableDtoPrimaryKey.builder()
+            .databaseId(table.getDatabaseId())
+            .tableId(table.getTableId())
+            .build());
+  }
+
+  private void renameTrustedReplica(
+      String sourceDatabaseId,
+      String sourceTableId,
+      String toDatabaseId,
+      String toTableId,
+      String actingPrincipal,
+      ReplicationDestination destination) {
+    Optional<TableDto> replica = resolveCascadeReplica(destination);
+    TableDtoPrimaryKey targetKey =
+        TableDtoPrimaryKey.builder().databaseId(toDatabaseId).tableId(toTableId).build();
+    if (!replica.isPresent()) {
+      ensureCascadeLocatorsUnoccupied(destination, sourceDatabaseId, sourceTableId);
+      Optional<TableDto> target = openHouseInternalRepository.findById(targetKey);
+      if (target.isPresent()) {
+        throw new AlreadyExistsException("Table", target.get().getTableUri());
+      }
+      return;
+    }
+
+    TableDto table = replica.get();
+    TableDtoPrimaryKey currentKey =
+        TableDtoPrimaryKey.builder()
+            .databaseId(table.getDatabaseId())
+            .tableId(table.getTableId())
+            .build();
+    if (currentKey.equals(targetKey)) {
+      return;
+    }
+    Optional<TableDto> target = openHouseInternalRepository.findById(targetKey);
+    if (target.isPresent()) {
+      throw new AlreadyExistsException("Table", target.get().getTableUri());
+    }
+    if (LockPolicyValidator.isLegacyLocked(table)) {
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,
+          String.format(
+              "Table %s.%s is in locked state and cannot be renamed.",
+              table.getDatabaseId(), table.getTableId()));
+    }
+    authorizationUtils.checkDatabasePrivilege(
+        toDatabaseId, actingPrincipal, Privileges.CREATE_TABLE);
+    authorizationUtils.checkTablePrivilege(
+        table, actingPrincipal, Privileges.UPDATE_TABLE_METADATA);
+    authorizationUtils.checkSystemOnlyLockAccess(table, actingPrincipal);
+    openHouseInternalRepository.rename(currentKey, targetKey);
+  }
+
+  private Optional<TableDto> resolveCascadeReplica(ReplicationDestination destination) {
+    List<TableDto> matches =
+        openHouseInternalRepository.findTableRefsByIdentity(
+            destination.getDestinationClusterId(),
+            destination.getDestinationTableUUID(),
+            destination.getDestinationCreationTime());
+    if (matches.isEmpty()) {
+      return Optional.empty();
+    }
+    if (matches.size() != 1) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "Replication destination identity resolves to multiple tables");
+    }
+    TableDto reference = matches.get(0);
+    Optional<TableDto> table =
+        openHouseInternalRepository.findById(
+            TableDtoPrimaryKey.builder()
+                .databaseId(reference.getDatabaseId())
+                .tableId(reference.getTableId())
+                .build());
+    if (!table.isPresent()) {
+      return Optional.empty();
+    }
+    TableDto replica = table.get();
+    if (replica.getTableType() != TableType.REPLICA_TABLE
+        || !sameIdentityValue(replica.getClusterId(), destination.getDestinationClusterId())
+        || !sameIdentityValue(replica.getTableUUID(), destination.getDestinationTableUUID())
+        || replica.getCreationTime() != destination.getDestinationCreationTime()) {
+      throw new AccessDeniedException(
+          "Replication cascade association does not match the destination replica");
+    }
+    return Optional.of(replica);
+  }
+
+  private void ensureCascadeLocatorsUnoccupied(
+      ReplicationDestination destination, String sourceDatabaseId, String sourceTableId) {
+    List<TableDtoPrimaryKey> locators =
+        java.util.Arrays.asList(
+            TableDtoPrimaryKey.builder()
+                .databaseId(destination.getDestinationDatabaseId())
+                .tableId(destination.getDestinationTableId())
+                .build(),
+            TableDtoPrimaryKey.builder()
+                .databaseId(sourceDatabaseId)
+                .tableId(sourceTableId)
+                .build());
+    for (TableDtoPrimaryKey locator : locators) {
+      if (openHouseInternalRepository.findById(locator).isPresent()) {
+        throw new AccessDeniedException(
+            "Replication cascade has a conflicting table at an expected locator");
+      }
+    }
   }
 
   @Override

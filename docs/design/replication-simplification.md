@@ -64,19 +64,24 @@ operation can be retried; destinations may temporarily be ahead of the source.
 
 The source forwards the incoming Bearer credential unchanged, so each destination authenticates the
 same user and evaluates its own DDL ACL. A peer-specific HMAC assertion binds the trusted source
-cluster, authenticated principal, credential fingerprint, operation, table identifiers, source
-table UUID, and a short-lived timestamp. A valid assertion from a configured peer is required for
-service-cascaded replica `RENAME` or `DROP`; the destination verifies that the signed UUID matches
-the replica before mutation and still checks the delegated user's normal `UPDATE_TABLE_METADATA`
-or `DELETE_TABLE` permission. Direct replica-local `RENAME` and `DROP` are allowed under normal
-ACLs in `service` mode for Spark dual-catalog DDL, but never initiate another service cascade.
-When Spark's destination step follows a service-owned source operation, an already-applied rename
-is accepted only if the destination table UUID matches the originally loaded replica; an already
-completed drop is also accepted. `spark` mode preserves the existing Spark-owned cascade and its
-normal ACL behavior. Peer signing keys must be provisioned and rotated as secrets; the fixed key in
-the local Docker recipe is for local development only. Deployments whose user tokens cannot be
-authenticated by peer clusters must use a trusted token-exchange mechanism before enabling
-service-owned cascades; no service-account fallback is used.
+cluster, authenticated principal, credential fingerprint, operation, table locators, source table
+UUID and creation time, and a short-lived timestamp. The destination resolves that signed source
+generation through its local replication association, which maps it to the destination's own UUID,
+creation time, and current catalog locator. Source and destination UUIDs are independent; the
+destination validates its own generation and replica type before mutation, then applies the
+delegated user's normal `UPDATE_TABLE_METADATA` or `DELETE_TABLE` permission. The internal
+association lookup does not require `SYSTEM_ADMIN` from the forwarded user and does not replace the
+normal DDL ACL check. Missing replicas are an idempotent no-op only when the source-generation
+association exists and no conflicting table occupies the requested locator; missing or ambiguous
+associations fail closed before source mutation. Direct replica-local `RENAME` and `DROP` are
+allowed under normal ACLs in `service` mode for Spark dual-catalog DDL, but never initiate another
+service cascade. When Spark's destination step follows a service-owned source operation, an
+already-applied rename is accepted only when the destination generation matches the association;
+an already completed drop is also accepted. `spark` mode preserves the existing Spark-owned
+cascade and its normal ACL behavior. Peer signing keys must be provisioned and rotated as secrets;
+the fixed key in the local Docker recipe is for local development only. Deployments whose user
+tokens cannot be authenticated by peer clusters must use a trusted token-exchange mechanism before
+enabling service-owned cascades; no service-account fallback is used.
 
 Peer Tables API endpoints use the existing cluster YAML loaded from
 `OPENHOUSE_CLUSTER_CONFIG_PATH`. The typed binding accepts a dynamic peer ID:

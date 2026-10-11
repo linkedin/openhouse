@@ -14,6 +14,7 @@ import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
+import com.linkedin.openhouse.housetables.client.model.ReplicationDestination;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
@@ -32,6 +33,7 @@ import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
+import com.linkedin.openhouse.tables.services.ReplicationCascadeAssociationResolver;
 import com.linkedin.openhouse.tables.services.ReplicationCascadeClient;
 import com.linkedin.openhouse.tables.services.ReplicationCascadeException;
 import com.linkedin.openhouse.tables.services.ReplicationCascadeProof;
@@ -76,6 +78,8 @@ public class TablesServiceTest {
   @MockBean ReplicationCascadeClient replicationCascadeClient;
 
   @MockBean ReplicationCascadeProof replicationCascadeProof;
+
+  @MockBean ReplicationCascadeAssociationResolver replicationCascadeAssociationResolver;
 
   @Autowired ReplicationProperties replicationProperties;
 
@@ -155,6 +159,48 @@ public class TablesServiceTest {
                     TABLE_DTO.getDatabaseId()))
             .build();
     return verifyPutTableRequest(replica, null, true);
+  }
+
+  private void stubTrustedCascade(
+      String operation,
+      String sourceDatabaseId,
+      String sourceTableId,
+      String toDatabaseId,
+      String toTableId,
+      String sourceUUID,
+      long sourceCreationTime,
+      String destinationUUID,
+      long destinationCreationTime,
+      String destinationDatabaseId,
+      String destinationTableId,
+      String destinationClusterId) {
+    Mockito.when(
+            replicationCascadeProof.getTrustedCascade(
+                operation, sourceDatabaseId, sourceTableId, toDatabaseId, toTableId, TEST_USER))
+        .thenReturn(
+            Optional.of(
+                new ReplicationCascadeProof.TrustedCascade(
+                    "source-cluster", sourceUUID, sourceCreationTime)));
+    Mockito.when(
+            replicationCascadeAssociationResolver.resolve(
+                "source-cluster",
+                sourceUUID,
+                sourceCreationTime,
+                sourceDatabaseId,
+                sourceTableId,
+                destinationClusterId))
+        .thenReturn(
+            new ReplicationDestination()
+                .sourceClusterId("source-cluster")
+                .sourceTableUUID(sourceUUID)
+                .sourceCreationTime(sourceCreationTime)
+                .sourceDatabaseId(sourceDatabaseId)
+                .sourceTableId(sourceTableId)
+                .destinationClusterId(destinationClusterId)
+                .destinationTableUUID(destinationUUID)
+                .destinationCreationTime(destinationCreationTime)
+                .destinationDatabaseId(destinationDatabaseId)
+                .destinationTableId(destinationTableId));
   }
 
   private void verifyPutIdenticalTableRequest(TableDto tableDto, TableDto previousTableDto) {
@@ -920,15 +966,21 @@ public class TablesServiceTest {
     String tableId = "cascade_rename_" + UUID.randomUUID().toString().replace("-", "");
     TableDto created = createReplicaForCascade(tableId, UUID.randomUUID().toString());
     String renamedId = created.getTableId() + "_cascade_renamed";
-    Mockito.when(
-            replicationCascadeProof.getTrustedCascadeTableUUID(
-                "RENAME",
-                created.getDatabaseId(),
-                created.getTableId(),
-                created.getDatabaseId(),
-                renamedId,
-                TEST_USER))
-        .thenReturn(Optional.of(created.getTableUUID()));
+    String sourceUUID = UUID.randomUUID().toString();
+    Assertions.assertNotEquals(sourceUUID, created.getTableUUID());
+    stubTrustedCascade(
+        "RENAME",
+        created.getDatabaseId(),
+        created.getTableId(),
+        created.getDatabaseId(),
+        renamedId,
+        sourceUUID,
+        101L,
+        created.getTableUUID(),
+        created.getCreationTime(),
+        created.getDatabaseId(),
+        created.getTableId(),
+        created.getClusterId());
     Mockito.when(
             authorizationHandler.checkAccessDecision(
                 Mockito.eq(TEST_USER),
@@ -984,13 +1036,79 @@ public class TablesServiceTest {
   }
 
   @Test
+  public void trustedRenameResolvesDistinctReplicaGenerationAtItsCurrentLocator() {
+    String sourceTableId = "cascade_source_" + UUID.randomUUID().toString().replace("-", "");
+    String replicaTableId = sourceTableId + "_replica";
+    String renamedSourceTableId = sourceTableId + "_renamed";
+    TableDto replica = createReplicaForCascade(replicaTableId, UUID.randomUUID().toString());
+    String sourceUUID = UUID.randomUUID().toString();
+    Assertions.assertNotEquals(sourceUUID, replica.getTableUUID());
+    stubTrustedCascade(
+        "RENAME",
+        replica.getDatabaseId(),
+        sourceTableId,
+        replica.getDatabaseId(),
+        renamedSourceTableId,
+        sourceUUID,
+        109L,
+        replica.getTableUUID(),
+        replica.getCreationTime(),
+        replica.getDatabaseId(),
+        replica.getTableId(),
+        replica.getClusterId());
+
+    Assertions.assertDoesNotThrow(
+        () ->
+            tablesService.renameTable(
+                replica.getDatabaseId(),
+                sourceTableId,
+                replica.getDatabaseId(),
+                renamedSourceTableId,
+                TEST_USER));
+
+    Assertions.assertFalse(
+        openHouseInternalRepository
+            .findById(
+                TableDtoPrimaryKey.builder()
+                    .databaseId(replica.getDatabaseId())
+                    .tableId(replicaTableId)
+                    .build())
+            .isPresent());
+    TableDto renamedReplica =
+        openHouseInternalRepository
+            .findById(
+                TableDtoPrimaryKey.builder()
+                    .databaseId(replica.getDatabaseId())
+                    .tableId(renamedSourceTableId)
+                    .build())
+            .orElseThrow(AssertionError::new);
+    Assertions.assertEquals(replica.getTableUUID(), renamedReplica.getTableUUID());
+    openHouseInternalRepository.deleteById(
+        TableDtoPrimaryKey.builder()
+            .databaseId(replica.getDatabaseId())
+            .tableId(renamedSourceTableId)
+            .build());
+  }
+
+  @Test
   public void trustedDropCascadeChecksAclAndMissingReplicaIsIdempotent() {
     String tableId = "cascade_drop_" + UUID.randomUUID().toString().replace("-", "");
     TableDto created = createReplicaForCascade(tableId, UUID.randomUUID().toString());
-    Mockito.when(
-            replicationCascadeProof.getTrustedCascadeTableUUID(
-                "DELETE", created.getDatabaseId(), created.getTableId(), null, null, TEST_USER))
-        .thenReturn(Optional.of(created.getTableUUID()));
+    String sourceUUID = UUID.randomUUID().toString();
+    Assertions.assertNotEquals(sourceUUID, created.getTableUUID());
+    stubTrustedCascade(
+        "DELETE",
+        created.getDatabaseId(),
+        created.getTableId(),
+        null,
+        null,
+        sourceUUID,
+        102L,
+        created.getTableUUID(),
+        created.getCreationTime(),
+        created.getDatabaseId(),
+        created.getTableId(),
+        created.getClusterId());
     Mockito.when(
             authorizationHandler.checkAccessDecision(
                 Mockito.eq(TEST_USER),
@@ -1026,10 +1144,19 @@ public class TablesServiceTest {
   public void trustedDeleteRejectsReplicaWithMismatchedUUID() {
     String tableId = "cascade_delete_uuid_" + UUID.randomUUID().toString().replace("-", "");
     TableDto created = createReplicaForCascade(tableId, UUID.randomUUID().toString());
-    Mockito.when(
-            replicationCascadeProof.getTrustedCascadeTableUUID(
-                "DELETE", created.getDatabaseId(), created.getTableId(), null, null, TEST_USER))
-        .thenReturn(Optional.of(UUID.randomUUID().toString()));
+    stubTrustedCascade(
+        "DELETE",
+        created.getDatabaseId(),
+        created.getTableId(),
+        null,
+        null,
+        UUID.randomUUID().toString(),
+        103L,
+        UUID.randomUUID().toString(),
+        created.getCreationTime(),
+        created.getDatabaseId(),
+        created.getTableId(),
+        created.getClusterId());
 
     Assertions.assertThrows(
         AccessDeniedException.class,
@@ -1054,15 +1181,19 @@ public class TablesServiceTest {
     String tableId = "cascade_rename_uuid_" + UUID.randomUUID().toString().replace("-", "");
     TableDto created = createReplicaForCascade(tableId, UUID.randomUUID().toString());
     String renamedId = tableId + "_renamed";
-    Mockito.when(
-            replicationCascadeProof.getTrustedCascadeTableUUID(
-                "RENAME",
-                created.getDatabaseId(),
-                created.getTableId(),
-                created.getDatabaseId(),
-                renamedId,
-                TEST_USER))
-        .thenReturn(Optional.of(UUID.randomUUID().toString()));
+    stubTrustedCascade(
+        "RENAME",
+        created.getDatabaseId(),
+        created.getTableId(),
+        created.getDatabaseId(),
+        renamedId,
+        UUID.randomUUID().toString(),
+        104L,
+        UUID.randomUUID().toString(),
+        created.getCreationTime(),
+        created.getDatabaseId(),
+        created.getTableId(),
+        created.getClusterId());
 
     Assertions.assertThrows(
         AccessDeniedException.class,
@@ -1101,15 +1232,21 @@ public class TablesServiceTest {
     String tableId = "cascade_rename_target_" + UUID.randomUUID().toString().replace("-", "");
     String tableUUID = UUID.randomUUID().toString();
     TableDto target = createReplicaForCascade(tableId + "_renamed", tableUUID);
-    Mockito.when(
-            replicationCascadeProof.getTrustedCascadeTableUUID(
-                "RENAME",
-                target.getDatabaseId(),
-                tableId,
-                target.getDatabaseId(),
-                target.getTableId(),
-                TEST_USER))
-        .thenReturn(Optional.of(tableUUID));
+    String sourceUUID = UUID.randomUUID().toString();
+    Assertions.assertNotEquals(sourceUUID, tableUUID);
+    stubTrustedCascade(
+        "RENAME",
+        target.getDatabaseId(),
+        tableId,
+        target.getDatabaseId(),
+        target.getTableId(),
+        sourceUUID,
+        105L,
+        target.getTableUUID(),
+        target.getCreationTime(),
+        target.getDatabaseId(),
+        tableId,
+        target.getClusterId());
 
     Assertions.assertDoesNotThrow(
         () ->
@@ -1139,15 +1276,19 @@ public class TablesServiceTest {
     String tableId = "cascade_rename_conflict_" + UUID.randomUUID().toString().replace("-", "");
     String targetUUID = UUID.randomUUID().toString();
     TableDto target = createReplicaForCascade(tableId + "_renamed", targetUUID);
-    Mockito.when(
-            replicationCascadeProof.getTrustedCascadeTableUUID(
-                "RENAME",
-                target.getDatabaseId(),
-                tableId,
-                target.getDatabaseId(),
-                target.getTableId(),
-                TEST_USER))
-        .thenReturn(Optional.of(UUID.randomUUID().toString()));
+    stubTrustedCascade(
+        "RENAME",
+        target.getDatabaseId(),
+        tableId,
+        target.getDatabaseId(),
+        target.getTableId(),
+        UUID.randomUUID().toString(),
+        106L,
+        UUID.randomUUID().toString(),
+        target.getCreationTime(),
+        target.getDatabaseId(),
+        tableId,
+        target.getClusterId());
 
     Assertions.assertThrows(
         AlreadyExistsException.class,
@@ -1177,15 +1318,19 @@ public class TablesServiceTest {
   public void trustedRenameAllowsMissingReplicaWhenTargetDoesNotExist() {
     String tableId = "cascade_rename_missing_" + UUID.randomUUID().toString().replace("-", "");
     String targetTableId = tableId + "_renamed";
-    Mockito.when(
-            replicationCascadeProof.getTrustedCascadeTableUUID(
-                "RENAME",
-                TABLE_DTO.getDatabaseId(),
-                tableId,
-                TABLE_DTO.getDatabaseId(),
-                targetTableId,
-                TEST_USER))
-        .thenReturn(Optional.of(UUID.randomUUID().toString()));
+    stubTrustedCascade(
+        "RENAME",
+        TABLE_DTO.getDatabaseId(),
+        tableId,
+        TABLE_DTO.getDatabaseId(),
+        targetTableId,
+        UUID.randomUUID().toString(),
+        107L,
+        UUID.randomUUID().toString(),
+        108L,
+        TABLE_DTO.getDatabaseId(),
+        tableId,
+        TABLE_DTO.getClusterId());
 
     Assertions.assertDoesNotThrow(
         () ->

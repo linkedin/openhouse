@@ -103,12 +103,14 @@ public class ReplicationCascadeClient {
             toDatabaseId,
             toTableId,
             table.getTableUUID(),
+            table.getCreationTime(),
             actingPrincipal);
     HttpHeaders headers = new HttpHeaders();
     headers.set(HttpHeaders.AUTHORIZATION, signed.getAuthorization());
     headers.set(ReplicationCascadeProof.SOURCE_HEADER, signed.getSourceCluster());
     headers.set(ReplicationCascadeProof.TIMESTAMP_HEADER, signed.getTimestamp());
     headers.set(ReplicationCascadeProof.TABLE_UUID_HEADER, signed.getTableUUID());
+    headers.set(ReplicationCascadeProof.TABLE_CREATION_TIME_HEADER, signed.getTableCreationTime());
     headers.set(ReplicationCascadeProof.SIGNATURE_HEADER, signed.getSignature());
 
     URI uri =

@@ -446,6 +446,9 @@ public class ReplicationCascadeEndToEndTest {
               ReplicationCascadeProof.TABLE_UUID_HEADER,
               request.getHeader(ReplicationCascadeProof.TABLE_UUID_HEADER));
           peerRequest.addHeader(
+              ReplicationCascadeProof.TABLE_CREATION_TIME_HEADER,
+              request.getHeader(ReplicationCascadeProof.TABLE_CREATION_TIME_HEADER));
+          peerRequest.addHeader(
               ReplicationCascadeProof.SIGNATURE_HEADER,
               request.getHeader(ReplicationCascadeProof.SIGNATURE_HEADER));
           RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(peerRequest));
@@ -462,7 +465,7 @@ public class ReplicationCascadeEndToEndTest {
                 PROOF.get() != null
                     && PROOF
                         .get()
-                        .getTrustedCascadeTableUUID(
+                        .getTrustedCascade(
                             rename ? "RENAME" : "DELETE",
                             databaseId,
                             fromTableId,
