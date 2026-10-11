@@ -158,7 +158,7 @@ public class ReplicationCascadeEndToEndTest {
       peer.tables.add(replicaKey(source.getTableId()));
     }
     String newTableId = source.getTableId() + "_renamed";
-    ResponseEntity<Void> rename =
+    ResponseEntity<String> rename =
         request(HttpMethod.PATCH, renameUri(source.getTableId(), newTableId), authorization);
 
     Assertions.assertEquals(
@@ -174,7 +174,7 @@ public class ReplicationCascadeEndToEndTest {
       Assertions.assertNotNull(outbound.getHeader(ReplicationCascadeProof.SIGNATURE_HEADER));
     }
 
-    ResponseEntity<Void> drop = request(HttpMethod.DELETE, tableUri(newTableId), authorization);
+    ResponseEntity<String> drop = request(HttpMethod.DELETE, tableUri(newTableId), authorization);
     Assertions.assertEquals(HttpStatus.NO_CONTENT, drop.getStatusCode());
     tableIdsToClean.remove(newTableId);
     Assertions.assertThrows(
@@ -198,10 +198,10 @@ public class ReplicationCascadeEndToEndTest {
         .add(TEST_USER);
     String newTableId = source.getTableId() + "_denied";
 
-    ResponseEntity<Void> response =
+    ResponseEntity<String> response =
         request(HttpMethod.PATCH, renameUri(source.getTableId(), newTableId), authorization);
 
-    Assertions.assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode());
+    Assertions.assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode(), response.getBody());
     Assertions.assertEquals("peer denied the authenticated user", PEERS.get(0).failureReason.get());
     Assertions.assertNotNull(
         tablesService.getTable(source.getDatabaseId(), source.getTableId(), TEST_USER));
@@ -216,11 +216,13 @@ public class ReplicationCascadeEndToEndTest {
     TableDto source = createSource("clusterB");
     String newTableId = source.getTableId() + "_missing";
 
-    ResponseEntity<Void> response =
+    ResponseEntity<String> response =
         request(HttpMethod.PATCH, renameUri(source.getTableId(), newTableId), authorization);
 
     Assertions.assertEquals(
-        HttpStatus.NO_CONTENT, response.getStatusCode(), PEERS.get(0).failureReason.get());
+        HttpStatus.NO_CONTENT,
+        response.getStatusCode(),
+        response.getBody() + " peer=" + PEERS.get(0).failureReason.get());
     replaceTrackedTableId(source.getTableId(), newTableId);
     Assertions.assertNotNull(tablesService.getTable(source.getDatabaseId(), newTableId, TEST_USER));
     Assertions.assertTrue(PEERS.get(0).tables.isEmpty());
@@ -259,12 +261,12 @@ public class ReplicationCascadeEndToEndTest {
             .getFirst();
     tableIdsToClean.add(replica.getTableId());
 
-    ResponseEntity<Void> rename =
+    ResponseEntity<String> rename =
         request(
             HttpMethod.PATCH,
             renameUri(replica.getTableId(), replica.getTableId() + "_renamed"),
             authorization);
-    ResponseEntity<Void> drop =
+    ResponseEntity<String> drop =
         request(HttpMethod.DELETE, tableUri(replica.getTableId()), authorization);
 
     Assertions.assertEquals(HttpStatus.FORBIDDEN, rename.getStatusCode());
@@ -286,6 +288,9 @@ public class ReplicationCascadeEndToEndTest {
         tablesService
             .putTable(buildCreateUpdateTableRequestBody(source), TEST_USER, true)
             .getFirst();
+    Assertions.assertTrue(
+        created.getTableUUID() != null || created.getTableLocation() != null,
+        "source table must expose a UUID or a location for cascade signing");
     tableIdsToClean.add(tableId);
     return created;
   }
@@ -299,10 +304,10 @@ public class ReplicationCascadeEndToEndTest {
     tableIdsToClean.add(newTableId);
   }
 
-  private ResponseEntity<Void> request(HttpMethod method, URI uri, String bearer) {
+  private ResponseEntity<String> request(HttpMethod method, URI uri, String bearer) {
     HttpHeaders headers = new HttpHeaders();
     headers.set(HttpHeaders.AUTHORIZATION, bearer);
-    return restTemplate.exchange(uri, method, new HttpEntity<>(headers), Void.class);
+    return restTemplate.exchange(uri, method, new HttpEntity<>(headers), String.class);
   }
 
   private URI tableUri(String tableId) {

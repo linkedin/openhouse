@@ -65,14 +65,17 @@ operation can be retried; destinations may temporarily be ahead of the source.
 The source forwards the incoming Bearer credential unchanged, so each destination authenticates the
 same user and evaluates its own DDL ACL. A peer-specific HMAC assertion binds the trusted source
 cluster, authenticated principal, credential fingerprint, operation, table identifiers, source
-table UUID, and a short-lived timestamp. Only a configured peer with a valid assertion can perform
-replica `RENAME` or `DROP`; the destination still checks the delegated user's normal
-`UPDATE_TABLE_METADATA` or `DELETE_TABLE` permission. Direct replica DDL is denied, including to
-users with those ACLs, and cascade requests cannot fan out again from a replica. Peer signing keys
-must be provisioned and rotated as secrets; the fixed key in the local Docker recipe is for local
-development only. Deployments whose user tokens cannot be authenticated by peer clusters must use a
-trusted token-exchange mechanism before enabling service-owned cascades; no service-account
-fallback is used.
+table identity token, and a short-lived timestamp. The token is the catalog table UUID when
+available and otherwise the source table location, which keeps the assertion usable when UUID
+metadata is not exposed by the active catalog schema. Only a configured peer with a valid
+assertion can perform replica `RENAME` or `DROP`; the destination still checks the delegated user's normal
+`UPDATE_TABLE_METADATA` or `DELETE_TABLE` permission. In `service` mode, direct replica DDL is
+denied, including to users with those ACLs, and cascade requests cannot fan out again from a
+replica. `spark` mode preserves the existing Spark-owned cascade and its normal ACL behavior. Peer
+signing keys must be provisioned and rotated as secrets; the fixed key in the local Docker recipe
+is for local development only. Deployments whose user tokens cannot be authenticated by peer
+clusters must use a trusted token-exchange mechanism before enabling service-owned cascades; no
+service-account fallback is used.
 
 Peer Tables API endpoints use the existing cluster YAML loaded from
 `OPENHOUSE_CLUSTER_CONFIG_PATH`. The typed binding accepts a dynamic peer ID:

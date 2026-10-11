@@ -26,6 +26,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitio
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.common.TableType;
+import com.linkedin.openhouse.tables.config.ReplicationProperties;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
@@ -74,10 +75,13 @@ public class TablesServiceTest {
 
   @MockBean ReplicationCascadeProof replicationCascadeProof;
 
+  @Autowired ReplicationProperties replicationProperties;
+
   @Autowired AuthorizationUtils authorizationUtils;
 
   @BeforeEach
   public void setup() {
+    replicationProperties.setCascadeMode(ReplicationProperties.CascadeMode.SERVICE);
     Mockito.when(
             authorizationHandler.checkAccessDecision(
                 Mockito.any(), (DatabaseDto) Mockito.any(), Mockito.any()))
@@ -778,6 +782,71 @@ public class TablesServiceTest {
             .databaseId(created.getDatabaseId())
             .tableId(created.getTableId())
             .build());
+  }
+
+  @Test
+  public void sparkModeLeavesReplicaDdlToSparkForwarder() {
+    replicationProperties.setCascadeMode(ReplicationProperties.CascadeMode.SPARK);
+    String tableId = "spark_mode_" + UUID.randomUUID().toString().replace("-", "");
+    Policies replicationPolicies =
+        Policies.builder()
+            .replication(
+                Replication.builder()
+                    .config(
+                        Collections.singletonList(
+                            ReplicationConfig.builder().destination("clusterB").build()))
+                    .build())
+            .build();
+    TableDto source = TABLE_DTO.toBuilder().tableId(tableId).policies(replicationPolicies).build();
+    TableDto created =
+        tablesService
+            .putTable(buildCreateUpdateTableRequestBody(source), TEST_USER, true)
+            .getFirst();
+    String renamedId = tableId + "_renamed";
+
+    Assertions.assertDoesNotThrow(
+        () ->
+            tablesService.renameTable(
+                created.getDatabaseId(),
+                created.getTableId(),
+                created.getDatabaseId(),
+                renamedId,
+                TEST_USER));
+    Assertions.assertDoesNotThrow(
+        () -> tablesService.deleteTable(created.getDatabaseId(), renamedId, TEST_USER));
+
+    TableDto replica =
+        TABLE_DTO
+            .toBuilder()
+            .tableId(tableId + "_replica")
+            .tableType(TableType.REPLICA_TABLE)
+            .tableProperties(
+                ImmutableMap.of(
+                    CatalogConstants.OPENHOUSE_UUID_KEY,
+                    UUID.randomUUID().toString(),
+                    "openhouse.tableId",
+                    tableId + "_replica",
+                    "openhouse.databaseId",
+                    TABLE_DTO.getDatabaseId()))
+            .build();
+    TableDto replicaCreated =
+        tablesService
+            .putTable(buildCreateUpdateTableRequestBody(replica), TEST_USER, true)
+            .getFirst();
+    String renamedReplicaId = replicaCreated.getTableId() + "_renamed";
+    Assertions.assertDoesNotThrow(
+        () ->
+            tablesService.renameTable(
+                replicaCreated.getDatabaseId(),
+                replicaCreated.getTableId(),
+                replicaCreated.getDatabaseId(),
+                renamedReplicaId,
+                TEST_USER));
+    Assertions.assertDoesNotThrow(
+        () ->
+            tablesService.deleteTable(replicaCreated.getDatabaseId(), renamedReplicaId, TEST_USER));
+
+    Mockito.verifyNoInteractions(replicationCascadeClient);
   }
 
   @Test

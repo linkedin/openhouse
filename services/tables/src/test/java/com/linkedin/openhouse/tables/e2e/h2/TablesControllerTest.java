@@ -92,7 +92,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
-@SpringBootTest
+@SpringBootTest(properties = "cluster.replication.cascade-mode=service")
 @AutoConfigureMockMvc
 @ContextConfiguration(
     initializers = {

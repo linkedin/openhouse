@@ -98,7 +98,7 @@ public class ReplicationCascadeProof {
 
     String timestamp = request.getHeader(TIMESTAMP_HEADER);
     String tableUUID = request.getHeader(TABLE_UUID_HEADER);
-    if (timestamp == null || tableUUID == null) {
+    if (timestamp == null || tableUUID == null || tableUUID.trim().isEmpty()) {
       throw new AccessDeniedException("Incomplete replication cascade assertion");
     }
     long timestampMillis;
@@ -146,19 +146,35 @@ public class ReplicationCascadeProof {
       String authorization,
       String timestamp) {
     List<String> fields = new ArrayList<>();
+    List<String> fieldNames = new ArrayList<>();
     fields.add(sourceCluster);
+    fieldNames.add("source cluster");
     fields.add(operation);
+    fieldNames.add("operation");
     fields.add(fromDatabaseId);
+    fieldNames.add("source database");
     fields.add(fromTableId);
+    fieldNames.add("source table");
     fields.add(toDatabaseId == null ? "" : toDatabaseId);
+    fieldNames.add("destination database");
     fields.add(toTableId == null ? "" : toTableId);
+    fieldNames.add("destination table");
     fields.add(tableUUID);
+    fieldNames.add("table identity token");
     fields.add(actingPrincipal);
+    fieldNames.add("authenticated principal");
     fields.add(sha256(authorization == null ? "" : authorization));
+    fieldNames.add("credential fingerprint");
     fields.add(timestamp);
+    fieldNames.add("timestamp");
     Base64.Encoder encoder = Base64.getUrlEncoder().withoutPadding();
     StringBuilder result = new StringBuilder();
-    for (String field : fields) {
+    for (int i = 0; i < fields.size(); i++) {
+      String field = fields.get(i);
+      if (field == null) {
+        throw new IllegalStateException(
+            String.format("Replication cascade assertion is missing %s", fieldNames.get(i)));
+      }
       if (result.length() > 0) {
         result.append('.');
       }

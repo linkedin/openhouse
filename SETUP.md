@@ -129,13 +129,13 @@ spark.sql("SHOW TABLES IN openhouse_b.db").show()
 After the rename, both clusters should list `replication_ddl_renamed`; after
 the drop, neither should list it. Spark forwarding applies only when the
 source table has an OpenHouse replication destination configured and does not
-apply to replica tables. It is enabled by default. The multi-cluster recipe
-disables it so the Tables Service owns the cascade and the operation is not
-applied twice. To run DDL only on the source cluster for the current Spark
-session, run:
+apply to replica tables. The Spark compatibility path is enabled by default.
+The multi-cluster recipe disables it in service mode so the Tables Service owns
+the cascade and the operation is not applied twice. To explicitly enable the
+Spark compatibility path for a Spark session, run:
 
 ```scala
-spark.conf.set("spark.openhouse.replication.ddl.cascade", "false")
+spark.conf.set("spark.openhouse.replication.ddl.cascade", "true")
 ```
 
 The source DDL runs before destination DDL, so forwarding is not transactional;
@@ -169,7 +169,8 @@ It grants local HDFS test-directory permissions inside the temporary containers.
 
 The smoke test checks that destination ACL denial leaves both source and replica
 unchanged; that the same authenticated caller can rename and drop when granted
-permissions on both clusters; that direct replica rename/drop are rejected; and
+permissions on both clusters; that direct replica rename/drop are rejected in
+service mode; and
 that source rename/drop succeed when the destination replica is absent. It
 creates the replica as a test fixture using the source table UUID: this validates
 DDL coordination, not replication data movement or the Spark replication job.
