@@ -21,9 +21,25 @@ public class MySqlContainerInitializer
   /** The MySQL image the tests run on: MySQL 8.0, the release line production runs. */
   public static final DockerImageName MYSQL_IMAGE = DockerImageName.parse("mysql:8.0.46");
 
+  /**
+   * How long a test waits for MySQL to answer a request before failing. Connector/J has no read
+   * timeout by default, so a server that accepts the connection and never answers would hang the
+   * build.
+   */
+  public static final int SOCKET_TIMEOUT_MILLIS = 60_000;
+
+  /**
+   * A container for {@link #MYSQL_IMAGE} whose JDBC URL sets {@link #SOCKET_TIMEOUT_MILLIS}, so the
+   * startup check and the connections made from {@code getJdbcUrl()} fail instead of hanging.
+   */
+  public static MySQLContainer<?> newContainer() {
+    return new MySQLContainer<>(MYSQL_IMAGE)
+        .withUrlParam("socketTimeout", String.valueOf(SOCKET_TIMEOUT_MILLIS));
+  }
+
   @Override
   public void initialize(ConfigurableApplicationContext context) {
-    MySQLContainer<?> mysql = new MySQLContainer<>(MYSQL_IMAGE);
+    MySQLContainer<?> mysql = newContainer();
     mysql.start();
     context.addApplicationListener(new StopOnClose(mysql));
     TestPropertyValues.of(
