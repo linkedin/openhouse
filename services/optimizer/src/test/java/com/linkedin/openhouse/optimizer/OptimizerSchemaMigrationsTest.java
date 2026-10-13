@@ -28,7 +28,7 @@ import org.testcontainers.containers.MySQLContainer;
 class OptimizerSchemaMigrationsTest {
 
   private static final MySQLContainer<?> MYSQL =
-      new MySQLContainer<>(MySqlContainerInitializer.MYSQL_IMAGE).withUsername("root");
+      MySqlContainerInitializer.newContainer().withUsername("root");
 
   /** A stand-in for HouseTables' tables, with a row. */
   private static final String HOUSE_TABLES_TABLE = "user_table_row";
@@ -151,6 +151,7 @@ class OptimizerSchemaMigrationsTest {
         + MYSQL.getMappedPort(MySQLContainer.MYSQL_PORT)
         + "/"
         + database
-        + "?useSSL=false&allowPublicKeyRetrieval=true";
+        + "?useSSL=false&allowPublicKeyRetrieval=true&socketTimeout="
+        + MySqlContainerInitializer.SOCKET_TIMEOUT_MILLIS;
   }
 }
