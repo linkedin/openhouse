@@ -117,7 +117,8 @@ class SchedulerRunnerTest {
 
     empty.schedule(ORPHAN_FILES_DELETION);
 
-    verify(jobsClient, never()).launch(anyString(), anyString(), anyList(), anyList(), anyString());
+    verify(jobsClient, never())
+        .launch(anyString(), anyString(), anyString(), anyList(), anyList(), anyString());
   }
 
   @Test
@@ -131,7 +132,8 @@ class SchedulerRunnerTest {
 
     runner.schedule(ORPHAN_FILES_DELETION);
 
-    verify(jobsClient, never()).launch(anyString(), anyString(), anyList(), anyList(), anyString());
+    verify(jobsClient, never())
+        .launch(anyString(), anyString(), anyString(), anyList(), anyList(), anyString());
   }
 
   @Test
@@ -142,7 +144,8 @@ class SchedulerRunnerTest {
 
     runner.schedule(ORPHAN_FILES_DELETION);
 
-    verify(jobsClient, never()).launch(anyString(), anyString(), anyList(), anyList(), anyString());
+    verify(jobsClient, never())
+        .launch(anyString(), anyString(), anyString(), anyList(), anyList(), anyString());
   }
 
   @Test
@@ -159,7 +162,8 @@ class SchedulerRunnerTest {
     when(operationsRepo.updateBatch(
             anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.SCHEDULED), any(), any()))
         .thenReturn(1);
-    when(jobsClient.launch(anyString(), anyString(), anyList(), anyList(), anyString()))
+    when(jobsClient.launch(
+            anyString(), anyString(), anyString(), anyList(), anyList(), anyString()))
         .thenReturn(Optional.of("job-123"));
 
     runner.schedule(ORPHAN_FILES_DELETION);
@@ -179,7 +183,8 @@ class SchedulerRunnerTest {
     verify(jobsClient)
         .launch(
             anyString(),
-            eq(ORPHAN_FILES_DELETION.name()),
+            eq(ORPHAN_FILES_DELETION.name() + "_BATCH"),
+            anyString(),
             tableNames.capture(),
             anyList(),
             anyString());
@@ -197,7 +202,8 @@ class SchedulerRunnerTest {
             anyList(), eq(OperationStatus.PENDING), eq(OperationStatus.SCHEDULING), any(), any()))
         .thenReturn(1);
     stubFindClaimed(List.of(schedulingRow(row)));
-    when(jobsClient.launch(anyString(), anyString(), anyList(), anyList(), anyString()))
+    when(jobsClient.launch(
+            anyString(), anyString(), anyString(), anyList(), anyList(), anyString()))
         .thenReturn(Optional.empty());
     when(operationsRepo.updateBatch(
             anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.PENDING), any(), any()))
@@ -231,7 +237,8 @@ class SchedulerRunnerTest {
 
     runner.schedule(ORPHAN_FILES_DELETION);
 
-    verify(jobsClient, never()).launch(anyString(), anyString(), anyList(), anyList(), anyString());
+    verify(jobsClient, never())
+        .launch(anyString(), anyString(), anyString(), anyList(), anyList(), anyString());
     verify(operationsRepo, never())
         .updateBatch(
             anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.SCHEDULED), any(), any());
@@ -260,7 +267,8 @@ class SchedulerRunnerTest {
     when(operationsRepo.updateBatch(
             anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.SCHEDULED), any(), any()))
         .thenReturn(1);
-    when(jobsClient.launch(anyString(), anyString(), anyList(), anyList(), anyString()))
+    when(jobsClient.launch(
+            anyString(), anyString(), anyString(), anyList(), anyList(), anyString()))
         .thenReturn(Optional.of("job-dedup"));
 
     runner.schedule(ORPHAN_FILES_DELETION);
@@ -288,7 +296,8 @@ class SchedulerRunnerTest {
     when(operationsRepo.updateBatch(
             anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.SCHEDULED), any(), any()))
         .thenReturn(1);
-    when(jobsClient.launch(anyString(), anyString(), anyList(), anyList(), anyString()))
+    when(jobsClient.launch(
+            anyString(), anyString(), anyString(), anyList(), anyList(), anyString()))
         .thenReturn(Optional.of("job-partial"));
 
     runner.schedule(ORPHAN_FILES_DELETION);
@@ -297,6 +306,7 @@ class SchedulerRunnerTest {
     ArgumentCaptor<List<String>> launchedOpIds = ArgumentCaptor.forClass(List.class);
     verify(jobsClient)
         .launch(
+            anyString(),
             anyString(),
             anyString(),
             launchedTableNames.capture(),
@@ -330,7 +340,8 @@ class SchedulerRunnerTest {
     when(operationsRepo.updateBatch(
             anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.SCHEDULED), any(), any()))
         .thenReturn(1);
-    when(jobsClient.launch(anyString(), anyString(), anyList(), anyList(), anyString()))
+    when(jobsClient.launch(
+            anyString(), anyString(), anyString(), anyList(), anyList(), anyString()))
         .thenReturn(Optional.of("job-skip"));
 
     runner.schedule(ORPHAN_FILES_DELETION);

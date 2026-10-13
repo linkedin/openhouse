@@ -12,7 +12,9 @@ import org.springframework.web.reactive.function.client.WebClient;
 /**
  * Client for the OpenHouse Jobs Service.
  *
- * <p>Submits one {@code BatchedOrphanFilesDeletionSparkApp} job per bin via {@code POST /jobs}.
+ * <p>Submits one batched Spark app job per bin via {@code POST /jobs} — the batched variant of the
+ * bin's operation (e.g. {@code BatchedOrphanFilesDeletionSparkApp}, {@code
+ * BatchedTableStatsCollectionSparkApp}).
  */
 @Slf4j
 public class JobsServiceClient {
@@ -32,7 +34,9 @@ public class JobsServiceClient {
    * Submit a batched Spark job for the given tables.
    *
    * @param jobName human-readable name for the job
-   * @param jobType operation type string (e.g. "ORPHAN_FILES_DELETION")
+   * @param jobType jobs-service job type for the bin — the batched variant (e.g.
+   *     "ORPHAN_FILES_DELETION_BATCH", "TABLE_STATS_COLLECTION_BATCH")
+   * @param proxyUser identity the job runs as (the Grid Gateway executing identity)
    * @param tableNames fully-qualified table names (db.table)
    * @param operationIds operation UUIDs — parallel to tableNames
    * @param resultsEndpoint base URL the Spark app PATCHes results back to
@@ -41,6 +45,7 @@ public class JobsServiceClient {
   public Optional<String> launch(
       String jobName,
       String jobType,
+      String proxyUser,
       List<String> tableNames,
       List<String> operationIds,
       String resultsEndpoint) {
@@ -51,6 +56,7 @@ public class JobsServiceClient {
 
       ObjectNode jobConf = body.putObject("jobConf");
       jobConf.put("jobType", jobType);
+      jobConf.put("proxyUser", proxyUser);
 
       ArrayNode args = jobConf.putArray("args");
       args.add("--tableNames");

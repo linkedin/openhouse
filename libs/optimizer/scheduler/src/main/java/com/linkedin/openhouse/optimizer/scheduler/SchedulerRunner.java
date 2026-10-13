@@ -48,6 +48,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 public class SchedulerRunner {
 
+  // TODO: replace with the per-bin proxyUser once bin packing carries it; GGW runs the job as this
+  // identity. Until then every batched job is submitted under this placeholder.
+  private static final String PLACEHOLDER_PROXY_USER = "REPLACE_ME";
+
   private final TableOperationsRepository operationsRepo;
   private final TableStatsRepository statsRepo;
   private final JobsServiceClient jobsClient;
@@ -180,7 +184,10 @@ public class SchedulerRunner {
             String.format(
                 "batched-%s-%d",
                 bin.getOperationType().name().toLowerCase(), claimedAt.toEpochMilli()),
-            bin.getOperationType().name(),
+            batchJobType(bin.getOperationType()),
+            // TODO: proxyUser will be derived per-bin once it is carried on the bin items (bin
+            // packing change in progress). Placeholder until then.
+            PLACEHOLDER_PROXY_USER,
             claimedItems.stream()
                 .map(BinItem::getFullyQualifiedTableName)
                 .collect(Collectors.toList()),
@@ -214,6 +221,16 @@ public class SchedulerRunner {
                       + " next pass",
                   reverted);
             });
+  }
+
+  /**
+   * Jobs Service job type for a <i>bin</i> of this operation — always the batched variant, since
+   * the scheduler only ever submits bin-packed jobs. The Jobs Service names batched types {@code
+   * <OPERATION>_BATCH} (e.g. {@code ORPHAN_FILES_DELETION_BATCH}, {@code
+   * TABLE_STATS_COLLECTION_BATCH}); the single-table types run only the legacy per-table path.
+   */
+  private static String batchJobType(OperationTypeDto operationType) {
+    return operationType.name() + "_BATCH";
   }
 
   /**
