@@ -18,6 +18,8 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableCallerException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
+import com.linkedin.openhouse.internal.catalog.view.ViewSourceDialectMismatchException;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
 import com.linkedin.openhouse.tables.audit.ViewOperationAuditEmitter;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
@@ -923,6 +925,40 @@ public class ViewsServiceImplTest {
   }
 
   @ParameterizedTest
+  @MethodSource("replaceFailureMappings")
+  public void replaceFailureMappingsPreserveCauseAndFailedAuditWithoutRetry(
+      RuntimeException source, ViewErrorCode expected, HttpStatus expectedStatus) {
+    existingEnabledDatabase();
+    PreparedViewOperation prepared = PreparedViewOperation.view(capturedViewRow());
+    CreateUpdateViewRequestBody request =
+        ViewModelConstants.fullyPopulatedRequest()
+            .toBuilder()
+            .baseMetadataLocation(ViewModelConstants.METADATA_LOCATION)
+            .build();
+    when(viewRepository.prepareWrite(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID))
+        .thenReturn(prepared);
+    when(privilegeMapper.forPut(true)).thenReturn(Privileges.UPDATE_TABLE_METADATA);
+    when(viewRepository.commitReplace(request, prepared, ACTING_PRINCIPAL)).thenThrow(source);
+
+    ViewApiException thrown =
+        assertThrows(
+            ViewApiException.class, () -> service.putView(request, ACTING_PRINCIPAL, false));
+
+    assertEquals(expected, thrown.getErrorCode());
+    assertEquals(expectedStatus, thrown.getHttpStatus());
+    assertSame(source, thrown.getCause());
+    verify(viewRepository, times(1)).commitReplace(request, prepared, ACTING_PRINCIPAL);
+    verify(viewRepository, never()).commitCreate(any(), any(), any());
+    verify(viewRepository, never()).deleteById(any(), any());
+    verify(viewOperationAuditEmitter)
+        .emitFailed(
+            prepared.withRequestedIdentity(
+                ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID),
+            ACTING_PRINCIPAL,
+            ViewModelConstants.SOURCE_DIALECT);
+  }
+
+  @ParameterizedTest
   @MethodSource("readFailureMappings")
   public void getFailureMappingsPreserveCauseAndStatus(
       RuntimeException source, ViewErrorCode expected, HttpStatus expectedStatus) {
@@ -1060,6 +1096,16 @@ public class ViewsServiceImplTest {
     assertEquals(ACTING_PRINCIPAL, principal.getValue());
     assertEquals(ViewModelConstants.DATABASE_ID, database.getValue().getDatabaseId());
     assertEquals(privilege, checkedPrivilege.getValue());
+  }
+
+  private static Stream<Arguments> replaceFailureMappings() {
+    return Stream.concat(
+        Stream.of(
+            Arguments.of(
+                new ViewSourceDialectMismatchException("private_database", "private_view"),
+                ViewErrorCode.INVALID_VIEW_DEFINITION,
+                HttpStatus.BAD_REQUEST)),
+        writeFailureMappings());
   }
 
   private static Stream<Arguments> writeFailureMappings() {

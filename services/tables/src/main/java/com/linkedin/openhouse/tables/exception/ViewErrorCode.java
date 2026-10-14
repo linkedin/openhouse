@@ -31,7 +31,8 @@ public enum ViewErrorCode {
   /**
    * Unexpected or corrupt server-side failure: trusted-input validation failures from the engine,
    * corrupt persisted metadata, and caller-translated HTS 4xx on a trusted server call. Never a
-   * caller-input error — the API validator owns every caller-input 400.
+   * caller-input error — the API validator handles static validation; a typed source-dialect
+   * mismatch against valid stored metadata maps to {@link #INVALID_VIEW_DEFINITION} instead.
    */
   INTERNAL_VIEW_ERROR(HttpStatus.INTERNAL_SERVER_ERROR),
 

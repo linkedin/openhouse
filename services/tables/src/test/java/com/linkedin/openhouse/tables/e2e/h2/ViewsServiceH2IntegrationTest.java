@@ -16,10 +16,12 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.ViewRepresentation;
 import com.linkedin.openhouse.tables.audit.model.OperationStatus;
 import com.linkedin.openhouse.tables.audit.model.ViewAuditEvent;
 import com.linkedin.openhouse.tables.exception.ViewApiException;
 import com.linkedin.openhouse.tables.exception.ViewErrorCode;
+import com.linkedin.openhouse.tables.exception.ViewExceptionHandler;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
@@ -33,6 +35,9 @@ import java.nio.file.Paths;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
@@ -41,6 +46,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
@@ -48,8 +54,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
-@SpringBootTest(classes = SpringH2Application.class)
+@SpringBootTest(
+    classes = SpringH2Application.class,
+    properties = "cluster.tables.views.supported-dialects=spark,trino")
 @AutoConfigureMockMvc
+@Import(ViewExceptionHandler.class)
 @ContextConfiguration(
     initializers = {
       PropertyOverrideContextInitializer.class,
@@ -184,6 +193,119 @@ public class ViewsServiceH2IntegrationTest {
     assertOperationAudit(
         audited.get(1), viewUuid, baseMetadataLocation, replacementMetadataLocation);
     assertOperationAudit(audited.get(2), viewUuid, replacementMetadataLocation, null);
+  }
+
+  @Test
+  public void changedSourceDialectReturns400WithoutPublicationAndSameDialectStillReplaces()
+      throws Exception {
+    String viewId = "immutable_source_view";
+    createView(viewId);
+    try {
+      HouseTable before = findViewRow(viewId);
+      String pointer = before.getTableLocation();
+      String privateSql = "SELECT private_dialect_sql FROM private_table";
+      CreateUpdateViewRequestBody changed =
+          ViewModelConstants.createRequestWithoutBaseVersion()
+              .toBuilder()
+              .viewId(viewId)
+              .baseMetadataLocation(pointer)
+              .sourceDialect("trino")
+              .representations(
+                  java.util.Collections.singletonList(
+                      ViewRepresentation.builder()
+                          .type("sql")
+                          .dialect("trino")
+                          .sql(privateSql)
+                          .build()))
+              .build();
+      Mockito.clearInvocations(viewAuditHandler, storageSelector);
+
+      MvcResult rejected =
+          mvc.perform(
+                  MockMvcRequestBuilders.put(VIEWS_PATH + "/" + viewId)
+                      .contentType(MediaType.APPLICATION_JSON)
+                      .content(changed.toJson())
+                      .accept(MediaType.APPLICATION_JSON)
+                      .header("Authorization", "Bearer " + jwtAccessToken))
+              .andExpect(status().isBadRequest())
+              .andExpect(jsonPath("$.status").value("BAD_REQUEST"))
+              .andExpect(jsonPath("$.error").value("Bad Request"))
+              .andExpect(jsonPath("$.message").value("sourceDialect must match the current view"))
+              .andExpect(jsonPath("$.cause").doesNotExist())
+              .andExpect(jsonPath("$.stacktrace").doesNotExist())
+              .andReturn();
+      String response = responseBody(rejected);
+      org.junit.jupiter.api.Assertions.assertFalse(response.contains(privateSql));
+      org.junit.jupiter.api.Assertions.assertFalse(response.contains(changed.getSchema()));
+      org.junit.jupiter.api.Assertions.assertFalse(response.contains("DUMMY_ANONYMOUS_USER"));
+      org.junit.jupiter.api.Assertions.assertFalse(response.contains(pointer));
+      org.junit.jupiter.api.Assertions.assertFalse(response.contains("Exception"));
+      org.junit.jupiter.api.Assertions.assertEquals(
+          pointer, findViewRow(viewId).getTableLocation());
+      Mockito.verifyNoInteractions(storageSelector);
+      ArgumentCaptor<ViewAuditEvent> events = ArgumentCaptor.forClass(ViewAuditEvent.class);
+      Mockito.verify(viewAuditHandler, Mockito.times(1)).audit(events.capture());
+      org.junit.jupiter.api.Assertions.assertEquals(
+          OperationStatus.FAILED, events.getValue().getOperationStatus());
+      org.junit.jupiter.api.Assertions.assertEquals(
+          pointer, events.getValue().getOldMetadataLocation());
+      org.junit.jupiter.api.Assertions.assertNull(events.getValue().getNewMetadataLocation());
+
+      mvc.perform(
+              MockMvcRequestBuilders.put(VIEWS_PATH + "/" + viewId)
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(
+                      changed
+                          .toBuilder()
+                          .sourceDialect(ViewModelConstants.SOURCE_DIALECT)
+                          .representations(
+                              java.util.Collections.singletonList(
+                                  ViewRepresentation.builder()
+                                      .type("sql")
+                                      .dialect(ViewModelConstants.SOURCE_DIALECT)
+                                      .sql(privateSql)
+                                      .build()))
+                          .build()
+                          .toJson())
+                  .accept(MediaType.APPLICATION_JSON)
+                  .header("Authorization", "Bearer " + jwtAccessToken))
+          .andExpect(status().isOk());
+      org.junit.jupiter.api.Assertions.assertNotEquals(
+          pointer, findViewRow(viewId).getTableLocation());
+    } finally {
+      deleteViewIfPresent(viewId);
+    }
+  }
+
+  @ParameterizedTest
+  @NullAndEmptySource
+  @ValueSource(strings = {"   ", "unsupported", "SPARK"})
+  public void invalidCreateSourceDialectReturns400BeforeAdmissionOrAllocation(String dialect)
+      throws Exception {
+    String viewId = "invalid_source_view";
+    Mockito.clearInvocations(storageSelector);
+    mvc.perform(
+            MockMvcRequestBuilders.post(VIEWS_PATH)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    ViewModelConstants.createRequestWithoutBaseVersion()
+                        .toBuilder()
+                        .viewId(viewId)
+                        .sourceDialect(dialect)
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isBadRequest());
+    Mockito.verifyNoInteractions(admissionService, storageSelector, viewAuditHandler);
+    org.junit.jupiter.api.Assertions.assertFalse(
+        houseTableRepository
+            .findEntityById(
+                HouseTablePrimaryKey.builder()
+                    .databaseId(ViewModelConstants.DATABASE_ID)
+                    .tableId(viewId)
+                    .build())
+            .isPresent());
   }
 
   @Test

@@ -944,8 +944,8 @@ public class ViewCommitEngineCommitTest {
 
   /**
    * Equality is exact and case-sensitive, and the guard runs before no-op detection, candidate
-   * build, write, and CAS. The representation set stays valid and unique in every source-only case,
-   * so no other BadRequestException can satisfy the pinned message.
+   * build, write, and CAS. The typed failure distinguishes this caller error from invalid
+   * server-owned prepared inputs.
    */
   @ParameterizedTest(name = "{0}")
   @MethodSource("sourceDialectChangingReplacements")
@@ -961,9 +961,10 @@ public class ViewCommitEngineCommitTest {
             .build();
     RejectedReplaceBaseline baseline = captureRejectedReplaceBaseline();
 
-    BadRequestException thrown =
+    ViewSourceDialectMismatchException thrown =
         Assertions.assertThrows(
-            BadRequestException.class, () -> harness.getViewCommitEngine().commit(intent));
+            ViewSourceDialectMismatchException.class,
+            () -> harness.getViewCommitEngine().commit(intent));
 
     Assertions.assertEquals(SOURCE_MISMATCH_MESSAGE, thrown.getMessage(), caseName);
     assertRejectedReplaceOnlyReadTheCapturedFile(base, baseline);

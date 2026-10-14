@@ -5,6 +5,7 @@ import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import com.linkedin.openhouse.internal.catalog.view.ViewNameOccupiedException;
+import com.linkedin.openhouse.internal.catalog.view.ViewSourceDialectMismatchException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
 import com.linkedin.openhouse.tables.audit.ViewOperationAuditEmitter;
 import com.linkedin.openhouse.tables.authorization.Privileges;
@@ -232,6 +233,10 @@ public class ViewsServiceImpl implements ViewsService {
   }
 
   private static ViewApiException translateWriteFailure(RuntimeException e) {
+    if (e instanceof ViewSourceDialectMismatchException) {
+      return new ViewApiException(
+          ViewErrorCode.INVALID_VIEW_DEFINITION, "sourceDialect must match the current view", e);
+    }
     if (e instanceof AlreadyExistsException) {
       return new ViewApiException(ViewErrorCode.VIEW_ALREADY_EXISTS, "View already exists", e);
     }
@@ -250,9 +255,8 @@ public class ViewsServiceImpl implements ViewsService {
       return new ViewApiException(
           ViewErrorCode.VIEW_SERVICE_UNAVAILABLE, "View service unavailable", e);
     }
-    // engine BadRequestException (trusted server input), HouseTableCallerException, corrupt-row
-    // IllegalStateException, and any other unexpected failure are server faults: caller-input 400s
-    // are owned entirely by the API validator before the service is reached.
+    // Other engine BadRequestException (trusted server input), HouseTableCallerException,
+    // corrupt-row IllegalStateException, and unexpected failures remain server faults.
     return new ViewApiException(
         ViewErrorCode.INTERNAL_VIEW_ERROR, "Unexpected view service failure", e);
   }
