@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.javaclient.api;
 
-import com.linkedin.openhouse.javaclient.exception.UnlockValidationException;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateLockRequestBody.ReasonEnum;
 
 public interface SupportsUnlock {
@@ -16,7 +15,6 @@ public interface SupportsUnlock {
    *
    * @param target validated database/table target
    * @param reason non-null lock reason; SQL defaults an omitted reason to LEGACY
-   * @throws UnlockValidationException if the reason is null
    */
-  void unlockTable(UnlockTableTarget target, ReasonEnum reason) throws UnlockValidationException;
+  void unlockTable(UnlockTableTarget target, ReasonEnum reason);
 }

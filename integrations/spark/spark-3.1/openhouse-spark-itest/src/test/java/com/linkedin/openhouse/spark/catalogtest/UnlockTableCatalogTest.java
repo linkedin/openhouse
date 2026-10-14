@@ -7,7 +7,6 @@ import com.linkedin.openhouse.gen.tables.client.model.LockState;
 import com.linkedin.openhouse.gen.tables.client.model.Policies;
 import com.linkedin.openhouse.javaclient.api.SupportsUnlock;
 import com.linkedin.openhouse.javaclient.api.UnlockTableTarget;
-import com.linkedin.openhouse.javaclient.exception.UnlockValidationException;
 import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.spark.sql.catalyst.parser.extensions.OpenhouseParseException;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
@@ -56,8 +55,7 @@ class UnlockTableCatalogTest extends OpenHouseSparkITest {
         Assertions.assertTrue(policiesProperty(spark, table).contains("LEGACY"));
         UnlockTableTarget target = UnlockTableTarget.of(id.namespace().levels(), id.name());
         Assertions.assertThrows(
-            UnlockValidationException.class,
-            () -> ((SupportsUnlock) catalog).unlockTable(target, null));
+            NullPointerException.class, () -> ((SupportsUnlock) catalog).unlockTable(target, null));
         Assertions.assertEquals(LockState.ReasonEnum.LEGACY, lockState(controls, id).getReason());
         assertUnlockFails(
             spark,

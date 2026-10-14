@@ -11,7 +11,6 @@ import com.linkedin.openhouse.javaclient.api.SupportsUnlock;
 import com.linkedin.openhouse.javaclient.api.UnlockTableTarget;
 import com.linkedin.openhouse.javaclient.builder.ClusteringSpecBuilder;
 import com.linkedin.openhouse.javaclient.builder.TimePartitionSpecBuilder;
-import com.linkedin.openhouse.javaclient.exception.UnlockValidationException;
 import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageException;
 import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.javaclient.mapper.Privileges;
@@ -553,12 +552,8 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
   }
 
   @Override
-  public void unlockTable(UnlockTableTarget target, ReasonEnum reason)
-      throws UnlockValidationException {
+  public void unlockTable(UnlockTableTarget target, ReasonEnum reason) {
     log.debug("Calling unlockTable with identifier: {}, reason: {}", target, reason);
-    if (reason == null) {
-      throw new UnlockValidationException("Lock reason must not be null");
-    }
     String databaseId = target.getDatabaseId();
     String tableId = target.getTableId();
     (reason == ReasonEnum.LEGACY
