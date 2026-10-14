@@ -227,6 +227,16 @@ mysql|3306
 spark-livy|8998
 opa|8181
 
+In the `oh-multicluster` recipe, MySQL A/B and Spark Livy use dynamically assigned host ports to avoid collisions. From the recipe directory, discover the assigned ports with:
+
+```
+docker compose port mysql-a 3306
+docker compose port mysql-b 3306
+docker compose port spark-livy 8998
+```
+
+These commands print the host address and port for each service. Containers in the Compose network should continue using `mysql-a:3306`, `mysql-b:3306`, and `spark-livy:8998`.
+
 ## Test Services
 
 ### Tables REST Service
