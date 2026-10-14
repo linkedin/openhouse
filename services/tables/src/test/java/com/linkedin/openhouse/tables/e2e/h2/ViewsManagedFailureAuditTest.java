@@ -38,6 +38,7 @@ import com.linkedin.openhouse.tables.services.ViewPageTokenCodec;
 import com.linkedin.openhouse.tables.services.ViewPaginationAdapter;
 import com.linkedin.openhouse.tables.services.ViewsFeatureGate;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Metrics;
 import java.lang.reflect.Method;
 import java.net.URI;
@@ -104,6 +105,7 @@ public class ViewsManagedFailureAuditTest {
   };
 
   @Autowired private MockMvc mvc;
+  @Autowired private MeterRegistry meterRegistry;
 
   @MockBean private ViewsFeatureGate viewsFeatureGate;
   @MockBean private DatabasesService databasesService;
@@ -899,9 +901,9 @@ public class ViewsManagedFailureAuditTest {
       org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request,
       int expectedStatus)
       throws Exception {
-    assertFalse(
-        Metrics.globalRegistry.getRegistries().isEmpty(),
-        "Precondition: a meter registry backs the global registry in this context.");
+    assertTrue(
+        Metrics.globalRegistry.getRegistries().contains(meterRegistry),
+        "Precondition: this context's active meter registry backs the global registry.");
     Mockito.doThrow(
             new IllegalStateException(
                 SINK_FAILURE + " " + SECRET_SQL,
@@ -937,9 +939,9 @@ public class ViewsManagedFailureAuditTest {
     assertEquals(expectedStatus, captureServiceAudit().getStatusCode());
   }
 
-  private static double failedServiceAuditCount() {
+  private double failedServiceAuditCount() {
     Counter counter =
-        Metrics.globalRegistry
+        meterRegistry
             .find(MetricsConstant.SERVICE_AUDIT + "_" + MetricsConstant.FAILED_SERVICE_AUDIT)
             .counter();
     return counter == null ? 0.0 : counter.count();
