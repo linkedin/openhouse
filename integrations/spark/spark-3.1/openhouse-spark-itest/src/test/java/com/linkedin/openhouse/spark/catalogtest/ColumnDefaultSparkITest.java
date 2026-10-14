@@ -14,13 +14,12 @@ import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Catalog → ReadBridge overlay → Spark's Iceberg table. The Spark ORC row reader fills {@code
- * initial-default} (linkedin/iceberg#267–269); Spark Parquet readers do not, so the Parquet/ORC
- * backfill matrix stays disabled.
+ * initial-default} (linkedin/iceberg#267–269), so the ORC backfill cases run; Spark Parquet readers
+ * do not, so the Parquet cases are disabled.
  */
 public class ColumnDefaultSparkITest extends OpenHouseSparkITest {
 
@@ -100,12 +99,21 @@ public class ColumnDefaultSparkITest extends OpenHouseSparkITest {
     }
   }
 
+  @ParameterizedTest(name = "vectorized={0}")
+  @ValueSource(booleans = {false, true})
+  public void orcBackfillsColumnDefaultsViaReadBridge(boolean vectorized) throws Exception {
+    assertBackfillViaReadBridge("orc", vectorized);
+  }
+
   /** Enable once Spark Parquet readers fill {@code initial-default}; #267–269 added ORC only. */
   @Disabled("Spark Parquet readers do not fill initial-default")
-  @ParameterizedTest(name = "format={0}, vectorized={1}")
-  @CsvSource({"parquet, false", "parquet, true", "orc, false", "orc, true"})
-  public void columnDefaultBackfillViaReadBridge(String fileFormat, boolean vectorized)
-      throws Exception {
+  @ParameterizedTest(name = "vectorized={0}")
+  @ValueSource(booleans = {false, true})
+  public void parquetBackfillsColumnDefaultsViaReadBridge(boolean vectorized) throws Exception {
+    assertBackfillViaReadBridge("parquet", vectorized);
+  }
+
+  private void assertBackfillViaReadBridge(String fileFormat, boolean vectorized) throws Exception {
     String vectorizationProp =
         "parquet".equals(fileFormat)
             ? "read.parquet.vectorization.enabled"
