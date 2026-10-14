@@ -1,6 +1,9 @@
 package com.linkedin.openhouse.spark.statementtest;
 
+import com.linkedin.openhouse.gen.tables.client.model.CreateUpdateLockRequestBody.ReasonEnum;
 import com.linkedin.openhouse.javaclient.api.SupportsUnlock;
+import com.linkedin.openhouse.javaclient.api.UnlockTableTarget;
+import com.linkedin.openhouse.javaclient.exception.UnlockValidationException;
 import com.linkedin.openhouse.spark.sql.catalyst.parser.extensions.OpenhouseParseException;
 import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.UnlockTable;
 import java.nio.file.Files;
@@ -8,10 +11,10 @@ import java.util.Collections;
 import java.util.Locale;
 import lombok.SneakyThrows;
 import org.apache.hadoop.fs.Path;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.catalyst.parser.ParseException;
+import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -22,24 +25,138 @@ import org.junit.jupiter.api.TestInstance;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class UnlockTableStatementTest {
 
+  private static final String UNLOCK_ENABLED = "spark.sql.openhouse.unlock.enabled";
   private static SparkSession spark = null;
+
+  @Test
+  public void testOmittedReasonIsTypedLegacy() throws ParseException {
+    UnlockTable plan =
+        (UnlockTable)
+            spark.sessionState().sqlParser().parsePlan("ALTER TABLE openhouse.db.table UNLOCK");
+    Assertions.assertEquals(ReasonEnum.LEGACY, plan.reason());
+  }
+
+  @Test
+  public void testExplicitReasonsAreTyped() throws ParseException {
+    for (ReasonEnum reason : ReasonEnum.values()) {
+      UnlockTable plan =
+          (UnlockTable)
+              spark
+                  .sessionState()
+                  .sqlParser()
+                  .parsePlan(
+                      "ALTER TABLE openhouse.db.table UNLOCK REASON `"
+                          + reason.getValue().toLowerCase(Locale.ROOT)
+                          + "`");
+      Assertions.assertEquals(reason, plan.reason());
+    }
+  }
+
+  @Test
+  public void testUnlockDisabledByDefault() {
+    spark.conf().unset(UNLOCK_ENABLED);
+    assertDisabled();
+  }
+
+  @Test
+  public void testUnlockExplicitlyDisabled() {
+    spark.conf().set(UNLOCK_ENABLED, false);
+    assertDisabled();
+  }
+
+  private void assertDisabled() {
+    for (String suffix : new String[] {"", " REASON SYSTEM_ONLY"}) {
+      UnsupportedOperationException failure =
+          Assertions.assertThrows(
+              UnsupportedOperationException.class,
+              () -> spark.sql("ALTER TABLE openhouse.db.table UNLOCK" + suffix));
+      Assertions.assertTrue(failure.getMessage().contains(UNLOCK_ENABLED), failure.getMessage());
+    }
+    Assertions.assertNull(UnlockHadoopCatalog.checkedTarget);
+    Assertions.assertNull(UnlockHadoopCatalog.unlockedTarget);
+  }
+
+  @Test
+  public void testAnalysisChecksAuthorizationWithoutUnlocking() throws ParseException {
+    LogicalPlan parsed =
+        spark
+            .sessionState()
+            .sqlParser()
+            .parsePlan("ALTER TABLE openhouse.db.table UNLOCK REASON SYSTEM_ONLY");
+    spark.sessionState().analyzer().checkAnalysis(spark.sessionState().analyzer().execute(parsed));
+    Assertions.assertEquals("db.table", String.valueOf(UnlockHadoopCatalog.checkedTarget));
+    Assertions.assertNull(UnlockHadoopCatalog.unlockedTarget);
+  }
+
+  @Test
+  public void testTargetDoesNotRetainMutableNamespace() throws UnlockValidationException {
+    String[] namespace = {"my db"};
+    UnlockTableTarget target = UnlockTableTarget.of(namespace, "ta`ble");
+    namespace[0] = "..";
+    Assertions.assertEquals("my db", target.getDatabaseId());
+    Assertions.assertEquals("ta`ble", target.getTableId());
+  }
+
+  @Test
+  public void testTargetFactoryRejectsInvalidComponents() {
+    String[][] invalidNamespaces = {null, {}, {"db", "extra"}, {null}, {""}, {"."}, {".."}};
+    for (String[] namespace : invalidNamespaces) {
+      Assertions.assertThrows(
+          UnlockValidationException.class, () -> UnlockTableTarget.of(namespace, "table"));
+    }
+    for (String table : new String[] {null, "", ".", ".."}) {
+      Assertions.assertThrows(
+          UnlockValidationException.class, () -> UnlockTableTarget.of(new String[] {"db"}, table));
+    }
+  }
+
+  @Test
+  public void testPlanningKeepsTheAnalyzedNamespace() throws ParseException {
+    spark.sql("CREATE NAMESPACE IF NOT EXISTS openhouse.original");
+    spark.sql("CREATE NAMESPACE IF NOT EXISTS openhouse.changed");
+    spark.sql("USE openhouse.original");
+    try {
+      LogicalPlan analyzed =
+          spark
+              .sessionState()
+              .analyzer()
+              .execute(spark.sessionState().sqlParser().parsePlan("ALTER TABLE target UNLOCK"));
+      spark.sessionState().analyzer().checkAnalysis(analyzed);
+      Assertions.assertNull(UnlockHadoopCatalog.unlockedTarget);
+      spark.sql("USE openhouse.changed");
+      spark.sessionState().planner().plan(analyzed).next().executeCollect();
+      assertUnlocked("original.target", ReasonEnum.LEGACY);
+    } finally {
+      spark.sql("USE spark_catalog");
+    }
+  }
+
+  @Test
+  public void testAuthorizationFailurePreventsUnlock() {
+    UnlockHadoopCatalog.authorized = false;
+    Assertions.assertThrows(
+        SecurityException.class,
+        () -> spark.sql("ALTER TABLE openhouse.db.table UNLOCK REASON SYSTEM_ONLY"));
+    Assertions.assertEquals("db.table", String.valueOf(UnlockHadoopCatalog.checkedTarget));
+    Assertions.assertNull(UnlockHadoopCatalog.unlockedTarget);
+  }
 
   @Test
   public void testUnlockLegacyLock() {
     spark.sql("ALTER TABLE openhouse.db.table UNLOCK");
-    assertUnlocked("db.table", null);
+    assertUnlocked("db.table", ReasonEnum.LEGACY);
   }
 
   @Test
   public void testUnlockWithReason() {
     spark.sql("ALTER TABLE openhouse.db.table UNLOCK REASON SYSTEM_ONLY");
-    assertUnlocked("db.table", "SYSTEM_ONLY");
+    assertUnlocked("db.table", ReasonEnum.SYSTEM_ONLY);
   }
 
   @Test
   public void testUnlockLowerCase() {
     spark.sql("alter table openhouse.db.table unlock reason system_only");
-    assertUnlocked("db.table", "SYSTEM_ONLY");
+    assertUnlocked("db.table", ReasonEnum.SYSTEM_ONLY);
   }
 
   @Test
@@ -49,8 +166,12 @@ public class UnlockTableStatementTest {
     Locale formatLocale = Locale.getDefault(Locale.Category.FORMAT);
     Locale.setDefault(new Locale("tr", "TR"));
     try {
-      spark.sql("ALTER TABLE openhouse.db.table UNLOCK REASON tier3_auto_cleanup");
-      assertUnlocked("db.table", "TIER3_AUTO_CLEANUP");
+      for (ReasonEnum reason : ReasonEnum.values()) {
+        spark.sql(
+            "ALTER TABLE openhouse.db.table UNLOCK REASON "
+                + reason.getValue().toLowerCase(Locale.ROOT));
+        assertUnlocked("db.table", reason);
+      }
     } finally {
       Locale.setDefault(defaultLocale);
       Locale.setDefault(Locale.Category.DISPLAY, displayLocale);
@@ -63,7 +184,7 @@ public class UnlockTableStatementTest {
     spark.sql("USE openhouse");
     try {
       spark.sql("ALTER TABLE db.table UNLOCK");
-      assertUnlocked("db.table", null);
+      assertUnlocked("db.table", ReasonEnum.LEGACY);
     } finally {
       spark.sql("USE spark_catalog");
     }
@@ -72,33 +193,33 @@ public class UnlockTableStatementTest {
   @Test
   public void testUnlockQuotedAndKeywordIdentifiers() {
     spark.sql("ALTER TABLE openhouse.`my db`.`unlock` UNLOCK REASON `system_only`");
-    assertUnlocked("my db.unlock", "SYSTEM_ONLY");
+    assertUnlocked("my db.unlock", ReasonEnum.SYSTEM_ONLY);
     spark.sql("ALTER TABLE openhouse.reason.unlock /* comment */ UNLOCK");
-    assertUnlocked("reason.unlock", null);
+    assertUnlocked("reason.unlock", ReasonEnum.LEGACY);
   }
 
   @Test
   public void testUnlockSpacedAndCommentedIdentifiers() {
     spark.sql("ALTER TABLE openhouse . db . table UNLOCK");
-    assertUnlocked("db.table", null);
+    assertUnlocked("db.table", ReasonEnum.LEGACY);
     setup();
     spark.sql("ALTER TABLE openhouse./* comment */db.table UNLOCK--comment");
-    assertUnlocked("db.table", null);
+    assertUnlocked("db.table", ReasonEnum.LEGACY);
     setup();
     spark.sql("ALTER /* outer /* inner */ comment */ TABLE openhouse.db.table UNLOCK");
-    assertUnlocked("db.table", null);
+    assertUnlocked("db.table", ReasonEnum.LEGACY);
     setup();
     spark.sql("--comment\rALTER --comment\rTABLE openhouse.db.table UNLOCK");
-    assertUnlocked("db.table", null);
+    assertUnlocked("db.table", ReasonEnum.LEGACY);
     setup();
     spark.sql("ALTER TABLE openhouse.db.`a/*` UNLOCK /* comment */");
-    assertUnlocked("db.a/*", null);
+    assertUnlocked("db.a/*", ReasonEnum.LEGACY);
   }
 
   @Test
   public void testUnlockKeepsEscapedBackticks() {
-    spark.sql("ALTER TABLE openhouse.db.`ta``ble` UNLOCK REASON `SYSTEM``ONLY`");
-    assertUnlocked("db.ta`ble", "SYSTEM`ONLY");
+    spark.sql("ALTER TABLE openhouse.db.`ta``ble` UNLOCK REASON `system_only`");
+    assertUnlocked("db.ta`ble", ReasonEnum.SYSTEM_ONLY);
   }
 
   @Test
@@ -111,7 +232,7 @@ public class UnlockTableStatementTest {
                 .parsePlan("ALTER TABLE openhouse.db.`" + name + "` SET TBLPROPERTIES ('k' = 'v')")
             instanceof UnlockTable);
     spark.sql("ALTER TABLE openhouse.db.`" + name + "` UNLOCK");
-    assertUnlocked("db." + name.replace("``", "`"), null);
+    assertUnlocked("db." + name.replace("``", "`"), ReasonEnum.LEGACY);
   }
 
   @Test
@@ -127,7 +248,7 @@ public class UnlockTableStatementTest {
         () -> spark.sql("ALTER TABLE openhouse.db.table UNLOCK REASON SYSTEM_ONLY NOW"));
     Assertions.assertThrows(
         ParseException.class, () -> spark.sql("ALTER TABLE openhouse.db.table UNLOCKED"));
-    Assertions.assertNull(UnlockHadoopCatalog.tableName);
+    Assertions.assertNull(UnlockHadoopCatalog.unlockedTarget);
   }
 
   @Test
@@ -178,7 +299,10 @@ public class UnlockTableStatementTest {
 
   @BeforeEach
   public void setup() {
-    UnlockHadoopCatalog.tableName = null;
+    spark.conf().set(UNLOCK_ENABLED, true);
+    UnlockHadoopCatalog.checkedTarget = null;
+    UnlockHadoopCatalog.unlockedTarget = null;
+    UnlockHadoopCatalog.authorized = true;
     UnlockHadoopCatalog.reason = null;
   }
 
@@ -187,18 +311,32 @@ public class UnlockTableStatementTest {
     spark.close();
   }
 
-  private void assertUnlocked(String tableName, String reason) {
-    Assertions.assertEquals(tableName, UnlockHadoopCatalog.tableName, "Table mismatch");
+  private void assertUnlocked(String tableName, ReasonEnum reason) {
+    Assertions.assertNotNull(UnlockHadoopCatalog.checkedTarget, "Authorization missing");
+    Assertions.assertEquals(
+        tableName, UnlockHadoopCatalog.checkedTarget.toString(), "Table mismatch");
+    Assertions.assertSame(
+        UnlockHadoopCatalog.checkedTarget, UnlockHadoopCatalog.unlockedTarget, "Target mismatch");
     Assertions.assertEquals(reason, UnlockHadoopCatalog.reason, "Reason mismatch");
   }
 
   public static class UnlockHadoopCatalog extends HadoopCatalog implements SupportsUnlock {
-    public static String tableName;
-    public static String reason;
+    public static UnlockTableTarget checkedTarget;
+    public static UnlockTableTarget unlockedTarget;
+    public static boolean authorized;
+    public static ReasonEnum reason;
 
     @Override
-    public void unlockTable(TableIdentifier tableIdentifier, String lockReason) {
-      tableName = tableIdentifier.toString();
+    public void checkUnlockAuthorization(UnlockTableTarget target) {
+      checkedTarget = target;
+      if (!authorized) {
+        throw new SecurityException("Not authorized to unlock " + target);
+      }
+    }
+
+    @Override
+    public void unlockTable(UnlockTableTarget target, ReasonEnum lockReason) {
+      unlockedTarget = target;
       reason = lockReason;
     }
   }

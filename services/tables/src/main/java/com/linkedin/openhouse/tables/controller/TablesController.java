@@ -28,6 +28,8 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -395,6 +397,34 @@ public class TablesController {
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
         tablesApiHandler.createLock(
             databaseId, tableId, createUpdateLockRequestBody, extractAuthenticatedUserPrincipal());
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Check table lock authorization",
+      description =
+          "Check the authenticated caller's LOCK_ADMIN privilege without changing the table or "
+              + "lock. Works on SYSTEM_ONLY-locked tables. Unlock rechecks authorization.",
+      tags = {"Table"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "204", description = "lock HEAD: AUTHORIZED"),
+        @ApiResponse(responseCode = "400", description = "lock HEAD: BAD_REQUEST"),
+        @ApiResponse(responseCode = "401", description = "lock HEAD: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "403", description = "lock HEAD: FORBIDDEN"),
+        @ApiResponse(responseCode = "404", description = "lock HEAD: TABLE_NOT_FOUND")
+      })
+  @RequestMapping(
+      method = RequestMethod.HEAD,
+      value = "/v1/databases/{databaseId}/tables/{tableId}/lock")
+  @Secured(value = Privileges.Privilege.LOCK_ADMIN)
+  public ResponseEntity<Void> checkLockAuthorization(
+      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
+      @Parameter(description = "Table ID", required = true) @PathVariable String tableId) {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
+        tablesApiHandler.checkLockAuthorization(
+            databaseId, tableId, extractAuthenticatedUserPrincipal());
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

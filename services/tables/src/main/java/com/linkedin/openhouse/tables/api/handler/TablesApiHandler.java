@@ -165,6 +165,10 @@ public interface TablesApiHandler {
       CreateUpdateLockRequestBody createUpdateLockRequestBody,
       String tableCreatorUpdator);
 
+  /** Check lock-administration permission without changing the table or its lock. */
+  ApiResponse<Void> checkLockAuthorization(
+      String databaseId, String tableId, String actingPrincipal);
+
   /**
    * Function to Delete a Table lock Resource identified by tableId in a given databaseId
    *

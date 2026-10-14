@@ -1,18 +1,22 @@
 package com.linkedin.openhouse.javaclient.api;
 
-import org.apache.iceberg.catalog.TableIdentifier;
+import com.linkedin.openhouse.javaclient.exception.UnlockValidationException;
+import com.linkedin.openhouse.tables.client.model.CreateUpdateLockRequestBody.ReasonEnum;
 
 public interface SupportsUnlock {
 
   /**
-   * Unlock an OH table without loading it.
-   *
-   * <p>The following SQL command: ALTER TABLE [db.table] UNLOCK [REASON [reason]]
-   *
-   * <p>can be converted into following parameters
-   *
-   * @param tableIdentifier identifier for the table, ex: db.table
-   * @param reason lock reason, or null to remove only a legacy lock, ex: SYSTEM_ONLY
+   * Check LOCK_ADMIN for the authenticated caller without loading or mutation. Fail closed if the
+   * check cannot be completed.
    */
-  void unlockTable(TableIdentifier tableIdentifier, String reason);
+  void checkUnlockAuthorization(UnlockTableTarget target);
+
+  /**
+   * Unlock without loading the table; recheck authorization before mutation.
+   *
+   * @param target validated database/table target
+   * @param reason non-null lock reason; SQL defaults an omitted reason to LEGACY
+   * @throws UnlockValidationException if the reason is null
+   */
+  void unlockTable(UnlockTableTarget target, ReasonEnum reason) throws UnlockValidationException;
 }

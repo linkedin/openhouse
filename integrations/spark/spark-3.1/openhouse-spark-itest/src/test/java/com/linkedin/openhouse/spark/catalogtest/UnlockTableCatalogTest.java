@@ -5,13 +5,17 @@ import com.linkedin.openhouse.gen.tables.client.invoker.ApiClient;
 import com.linkedin.openhouse.gen.tables.client.model.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.gen.tables.client.model.LockState;
 import com.linkedin.openhouse.gen.tables.client.model.Policies;
+import com.linkedin.openhouse.javaclient.api.SupportsUnlock;
+import com.linkedin.openhouse.javaclient.api.UnlockTableTarget;
+import com.linkedin.openhouse.javaclient.exception.UnlockValidationException;
 import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
+import com.linkedin.openhouse.spark.sql.catalyst.parser.extensions.OpenhouseParseException;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
-import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.types.Types;
+import org.apache.spark.sql.AnalysisException;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -22,6 +26,7 @@ class UnlockTableCatalogTest extends OpenHouseSparkITest {
   @Test
   void sqlUnlockRemovesOnlyTheMatchingLock() throws Exception {
     try (SparkSession spark = getSparkSession()) {
+      spark.conf().set("spark.sql.openhouse.unlock.enabled", true);
       Catalog catalog = getOpenHouseCatalog(spark);
       TableIdentifier id = TableIdentifier.of(DATABASE, "matching_lock");
       catalog.createTable(
@@ -49,30 +54,29 @@ class UnlockTableCatalogTest extends OpenHouseSparkITest {
 
         lock(controls, id, null);
         Assertions.assertTrue(policiesProperty(spark, table).contains("LEGACY"));
+        UnlockTableTarget target = UnlockTableTarget.of(id.namespace().levels(), id.name());
+        Assertions.assertThrows(
+            UnlockValidationException.class,
+            () -> ((SupportsUnlock) catalog).unlockTable(target, null));
+        Assertions.assertEquals(LockState.ReasonEnum.LEGACY, lockState(controls, id).getReason());
         assertUnlockFails(
             spark,
             "ALTER TABLE " + table + " UNLOCK REASON SYSTEM_ONLY",
             409,
             "Table unlock_catalog.matching_lock has a LEGACY lock, not SYSTEM_ONLY.");
-        assertUnlockFails(
-            spark,
-            "ALTER TABLE " + table + " UNLOCK REASON UNKNOWN",
-            400,
-            "Invalid reason 'UNKNOWN'. Expected one of: LEGACY, SYSTEM_ONLY.");
-        for (String reason : new String[] {"``", "` `"}) {
+        for (String reason : new String[] {"UNKNOWN", "``", "` `", "`.`", "`..`"}) {
           Assertions.assertThrows(
-              IllegalArgumentException.class,
+              OpenhouseParseException.class,
               () -> spark.sql("ALTER TABLE " + table + " UNLOCK REASON " + reason));
         }
         // A normalizing proxy could turn these into a table drop.
         for (String dots : new String[] {"`.`", "`..`"}) {
           for (String sql :
               new String[] {
-                "ALTER TABLE " + table + " UNLOCK REASON " + dots,
                 "ALTER TABLE openhouse." + DATABASE + "." + dots + " UNLOCK",
                 "ALTER TABLE openhouse." + dots + "." + id.name() + " UNLOCK"
               }) {
-            Assertions.assertThrows(IllegalArgumentException.class, () -> spark.sql(sql), sql);
+            Assertions.assertThrows(AnalysisException.class, () -> spark.sql(sql), sql);
           }
         }
         for (String sql :
@@ -80,10 +84,10 @@ class UnlockTableCatalogTest extends OpenHouseSparkITest {
               "ALTER TABLE openhouse." + id.name() + " UNLOCK",
               "ALTER TABLE openhouse.``." + id.name() + " UNLOCK"
             }) {
-          Assertions.assertThrows(IllegalArgumentException.class, () -> spark.sql(sql), sql);
+          Assertions.assertThrows(AnalysisException.class, () -> spark.sql(sql), sql);
         }
         Assertions.assertThrows(
-            ValidationException.class,
+            AnalysisException.class,
             () ->
                 spark.sql("ALTER TABLE openhouse." + DATABASE + ".extra." + id.name() + " UNLOCK"));
         Assertions.assertEquals(LockState.ReasonEnum.LEGACY, lockState(controls, id).getReason());

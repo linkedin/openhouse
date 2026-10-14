@@ -1,8 +1,8 @@
 package com.linkedin.openhouse.spark.sql.execution.datasources.v2
 
-import com.linkedin.openhouse.javaclient.api.SupportsUnlock
+import com.linkedin.openhouse.gen.tables.client.model.CreateUpdateLockRequestBody.ReasonEnum
+import com.linkedin.openhouse.javaclient.api.{SupportsUnlock, UnlockTableTarget}
 import com.linkedin.openhouse.spark.sql.execution.datasources.v2.mapper.IcebergCatalogMapper
-import org.apache.iceberg.spark.Spark3Util
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
@@ -10,8 +10,8 @@ import org.apache.spark.sql.execution.datasources.v2.LeafV2CommandExec
 
 case class UnlockTableExec(
   catalog: TableCatalog,
-  ident: Identifier,
-  reason: Option[String]) extends LeafV2CommandExec {
+  target: UnlockTableTarget,
+  reason: ReasonEnum) extends LeafV2CommandExec {
 
   override lazy val output: Seq[Attribute] = Nil
 
@@ -19,9 +19,9 @@ case class UnlockTableExec(
     // Skips loading, which fails on a SYSTEM_ONLY lock.
     IcebergCatalogMapper.toIcebergCatalog(catalog) match {
       case unlockableCatalog: SupportsUnlock =>
-        unlockableCatalog.unlockTable(Spark3Util.identifierToTableIdentifier(ident), reason.orNull)
+        unlockableCatalog.unlockTable(target, reason)
         // Clear the session's cached lock.
-        catalog.invalidateTable(ident)
+        catalog.invalidateTable(Identifier.of(Array(target.getDatabaseId), target.getTableId))
       case _ =>
         throw new UnsupportedOperationException(s"Catalog '${catalog.name()}' does not support UNLOCK")
     }
@@ -29,6 +29,6 @@ case class UnlockTableExec(
   }
 
   override def simpleString(maxFields: Int): String = {
-    s"UnlockTableExec: ${catalog.name()} $ident ${reason.getOrElse("")}"
+    s"UnlockTableExec: ${catalog.name()} $target $reason"
   }
 }

@@ -12,8 +12,6 @@ import org.apache.spark.sql.catalyst.parser.extensions.IcebergSqlExtensionsPostP
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.types.{DataType, StructType}
 
-import java.util.Locale
-
 class OpenhouseSparkSqlExtensionsParser (delegate: ParserInterface) extends ParserInterface {
   private lazy val astBuilder = new OpenhouseSqlExtensionsAstBuilder(delegate)
 
@@ -54,45 +52,29 @@ class OpenhouseSparkSqlExtensionsParser (delegate: ParserInterface) extends Pars
   }
 
   private def isOpenhouseCommand(sqlText: String): Boolean = {
-    val normalized = sqlText.toLowerCase(Locale.ROOT)
-      // Strip simple SQL comments that terminate a line, e.g. comments starting with `--` .
-      .replaceAll("--.*?\\n", " ")
-      // Strip newlines.
-      .replaceAll("\\s+", " ")
-      // Strip comments of the form  /* ... */. This must come after stripping newlines so that
-      // comments that span multiple lines are caught.
-      .replaceAll("/\\*.*?\\*/", " ")
-      // Strip doubles spaces post comments extraction, ex: ALTER /* ... \n ...*/ TABLE
-      .replaceAll("\\s+", " ")
-      .trim()
-    (normalized.startsWith("alter table") &&
-      (normalized.contains("set policy")) ||
-      (normalized.contains("unset policy")) ||
-      (normalized.contains("modify column") &&
-        normalized.contains("set tag"))) ||
-      normalized.startsWith("grant") ||
-      normalized.startsWith("revoke") ||
-      normalized.startsWith("show grants") ||
-      isUnlockTableCommand(sqlText)
+    import OpenhouseSqlExtensionsLexer._
 
-  }
-
-  // Matches ALTER TABLE <name> UNLOCK.
-  private def isUnlockTableCommand(sqlText: String): Boolean = {
-    sqlText.toLowerCase(Locale.ROOT).contains("unlock") && {
-      val lexer = new OpenhouseSqlExtensionsLexer(new UpperCaseCharStream(CharStreams.fromString(sqlText)))
-      lexer.removeErrorListeners()
-      val tokens = Iterator.continually(lexer.nextToken()).filter(_.getChannel == Token.DEFAULT_CHANNEL)
-      tokens.next().getType == OpenhouseSqlExtensionsLexer.ALTER &&
-        tokens.next().getType == OpenhouseSqlExtensionsLexer.TABLE && {
+    val lexer = new OpenhouseSqlExtensionsLexer(new UpperCaseCharStream(CharStreams.fromString(sqlText)))
+    lexer.removeErrorListeners()
+    val tokens = Iterator.continually(lexer.nextToken()).filter(_.getChannel == Token.DEFAULT_CHANNEL)
+    tokens.next().getType match {
+      case ALTER if tokens.next().getType == TABLE =>
+        // Skip the multipart table name; inspect only the following action.
+        tokens.next()
+        var action = tokens.next()
+        while (action.getText == ".") {
           tokens.next()
-          var token = tokens.next()
-          while (token.getText == ".") {
-            tokens.next()
-            token = tokens.next()
-          }
-          token.getType == OpenhouseSqlExtensionsLexer.UNLOCK
+          action = tokens.next()
         }
+        action.getType match {
+          case UNLOCK => true
+          case SET | UNSET => tokens.next().getType == POLICY
+          case MODIFY => tokens.next().getType == COLUMN
+          case _ => false
+        }
+      case GRANT | REVOKE => true
+      case SHOW => tokens.next().getType == GRANTS
+      case _ => false
     }
   }
 
@@ -158,6 +140,7 @@ case object OpenhouseSqlExtensionsPostProcessor extends OpenhouseSqlExtensionsBa
   override def exitQuotedIdentifier(ctx: QuotedIdentifierContext): Unit = {
     val token = ctx.BACKQUOTED_IDENTIFIER.getSymbol().asInstanceOf[CommonToken]
     val text = token.getText
+    // Match Spark: remove outer quotes and unescape doubled backticks once.
     token.setText(text.substring(1, text.length - 1).replace("``", "`"))
   }
 }

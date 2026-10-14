@@ -77,6 +77,7 @@ The quickest way to run OpenHouse locally:
 ```
 
 For detailed configuration options and testing instructions, see the [SETUP](SETUP.md) guide.
+For SQL command configuration and authorization, see the [Spark SQL extensions](integrations/spark/README.md) guide.
 
 ### Deploying OpenHouse to Kubernetes
 

@@ -48,6 +48,38 @@ class TablesLockServiceTest {
   }
 
   @Test
+  void authorizationPreflightDoesNotReadOrMutateLockedTable() {
+    withLock(systemOnlyLock());
+    service.checkLockAuthorization("db", "table", OWNER);
+    verify(service.authorizationUtils).checkLockTablePrivilege(table, OWNER, Privileges.LOCK_ADMIN);
+    verifyNoMoreInteractions(service.authorizationUtils);
+    verify(service.openHouseInternalRepository, never()).save(any());
+  }
+
+  @Test
+  void authorizationPreflightPropagatesDenialWithoutMutation() {
+    withLock(systemOnlyLock());
+    doThrow(new AccessDeniedException("denied"))
+        .when(service.authorizationUtils)
+        .checkLockTablePrivilege(table, OWNER, Privileges.LOCK_ADMIN);
+    assertThrows(
+        AccessDeniedException.class, () -> service.checkLockAuthorization("db", "table", OWNER));
+    verify(service.openHouseInternalRepository, never()).save(any());
+  }
+
+  @Test
+  void authorizationPreflightRejectsMissingTablesAndReplicas() {
+    table = table.toBuilder().tableType(TableType.REPLICA_TABLE).build();
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> service.checkLockAuthorization("db", "table", OWNER));
+    when(service.openHouseInternalRepository.findById(any())).thenReturn(Optional.empty());
+    assertThrows(
+        NoSuchUserTableException.class, () -> service.checkLockAuthorization("db", "table", OWNER));
+    verify(service.openHouseInternalRepository, never()).save(any());
+  }
+
+  @Test
   void systemOnlyUsesExistingLockAuthorizationAndMetadataVersion() {
     service.createLock("db", "table", systemOnlyRequest(), OWNER);
     TableDto saved = savedTable();

@@ -34,6 +34,12 @@ import org.springframework.stereotype.Component;
 @Primary
 public class MockTablesApiHandler implements TablesApiHandler {
   @Override
+  public ApiResponse<Void> checkLockAuthorization(
+      String databaseId, String tableId, String actingPrincipal) {
+    throw new UnsupportedOperationException("Lock authorization is not configured in this mock");
+  }
+
+  @Override
   public ApiResponse<Void> deleteLock(
       String databaseId,
       String tableId,

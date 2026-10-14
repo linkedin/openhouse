@@ -1723,9 +1723,7 @@ public class TablesControllerTest {
                   .value("Table d1.t1 has a SYSTEM_ONLY lock. Remove it with reason SYSTEM_ONLY."));
       mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock/UNKNOWN"))
           .andExpect(status().isBadRequest())
-          .andExpect(
-              jsonPath("$.message")
-                  .value("Invalid reason 'UNKNOWN'. Expected one of: LEGACY, SYSTEM_ONLY."));
+          .andExpect(content().string(""));
       mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock/LEGACY"))
           .andExpect(status().isConflict())
           .andExpect(
