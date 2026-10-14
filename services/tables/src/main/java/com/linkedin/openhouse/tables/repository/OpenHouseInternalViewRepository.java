@@ -11,8 +11,10 @@ import org.springframework.data.domain.Pageable;
  * without reusing its implementation: no snapshots, partition specs, sort orders, or retention
  * semantics. Owns the single pre-admission snapshot capture ({@link #prepareWrite}/{@link
  * #prepareDelete}), UUID/storage/root allocation (create only, after admission), the {@code
- * ViewCommitEngine} call, and result mapping. Surfaces engine and HTS exceptions unwrapped: typed,
- * cause-preserving translation is the calling service's responsibility.
+ * ViewCommitEngine} call for create and replace, direct typed House Table reads and delete, and
+ * result mapping. Surfaces engine and HTS exceptions unwrapped, except that an unacknowledged
+ * {@link #deleteById} attempt is reported as {@code CommitStateUnknownException}: typed,
+ * cause-preserving translation is otherwise the calling service's responsibility.
  */
 public interface OpenHouseInternalViewRepository {
 
@@ -49,6 +51,15 @@ public interface OpenHouseInternalViewRepository {
       PreparedViewOperation prepared,
       String actingPrincipal);
 
-  /** Name-based hard delete, matching table DELETE semantics. */
+  /**
+   * Name-based hard delete, matching table DELETE semantics: one typed House Table attempt, no
+   * retry or refresh.
+   *
+   * @throws com.linkedin.openhouse.tables.exception.ViewApiException with {@link
+   *     com.linkedin.openhouse.tables.exception.ViewErrorCode#NO_SUCH_VIEW} if the key no longer
+   *     names a view.
+   * @throws org.apache.iceberg.exceptions.CommitStateUnknownException if House Table could not
+   *     confirm whether the delete was applied.
+   */
   void deleteById(String databaseId, String viewId);
 }

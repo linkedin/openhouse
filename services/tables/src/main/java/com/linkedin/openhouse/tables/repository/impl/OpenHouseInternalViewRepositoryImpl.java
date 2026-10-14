@@ -7,6 +7,7 @@ import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import com.linkedin.openhouse.internal.catalog.view.ViewCommitEngine;
 import com.linkedin.openhouse.internal.catalog.view.model.SqlViewRepresentationIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
@@ -28,6 +29,7 @@ import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -105,17 +107,17 @@ public class OpenHouseInternalViewRepositoryImpl implements OpenHouseInternalVie
 
   @Override
   public Page<ViewDto> searchViews(String databaseId, Pageable pageable) {
-    Page<ViewPointer> enginePage = viewCommitEngine.listViews(databaseId, pageable);
+    Page<HouseTable> rows = houseTableRepository.findAllViewsByDatabaseId(databaseId, pageable);
     List<ViewDto> dtos =
-        enginePage.getContent().stream()
+        rows.getContent().stream()
             .map(
-                pointer ->
+                row ->
                     ViewDto.builder()
-                        .viewId(pointer.getViewId())
-                        .databaseId(pointer.getDatabaseId())
+                        .viewId(row.getTableId())
+                        .databaseId(row.getDatabaseId())
                         .build())
             .collect(Collectors.toList());
-    return new PageImpl<>(dtos, pageable, enginePage.getTotalElements());
+    return new PageImpl<>(dtos, pageable, rows.getTotalElements());
   }
 
   @Override
@@ -178,13 +180,18 @@ public class OpenHouseInternalViewRepositoryImpl implements OpenHouseInternalVie
 
   @Override
   public void deleteById(String databaseId, String viewId) {
-    boolean dropped = viewCommitEngine.dropView(databaseId, viewId);
+    boolean dropped;
+    try {
+      dropped = houseTableRepository.deleteViewById(primaryKey(databaseId, viewId));
+    } catch (HouseTableRepositoryStateUnknownException e) {
+      throw new CommitStateUnknownException(e);
+    }
     if (!dropped) {
       // A permitted concurrent writer dropped this view (or replaced it with a differently-typed
-      // occupant) between this operation's capture and the one attempt the frozen name-based
-      // engine makes here: no refresh, no retry, no new UUID-conditional-delete contract. The key
-      // no longer names a view, which is exactly the existing typed NO_SUCH_VIEW contract
-      // findById already uses for the same observation, not a server fault.
+      // occupant) between this operation's capture and the one attempt made here: no refresh, no
+      // retry, no new UUID-conditional-delete contract. The key no longer names a view, which is
+      // exactly the existing typed NO_SUCH_VIEW contract findById already uses for the same
+      // observation, not a server fault.
       throw noSuchView(databaseId, viewId);
     }
   }
