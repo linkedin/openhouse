@@ -670,7 +670,7 @@ public class TablesControllerTest {
             .columnPattern(
                 RetentionColumnPattern.builder()
                     .pattern("yyyy-MM-dd-HH")
-                    .columnName("timestampCol")
+                    .columnName("name")
                     .build())
             .build();
     Policies newPolicies = Policies.builder().retention(retention).build();
@@ -698,7 +698,7 @@ public class TablesControllerTest {
     Assertions.assertEquals(updatedPolicies.get("retention").get("count"), 4);
     Assertions.assertEquals(
         ((HashMap) updatedPolicies.get("retention").get("columnPattern")).get("columnName"),
-        "timestampCol");
+        "name");
     Assertions.assertEquals(
         ((HashMap) updatedPolicies.get("retention").get("columnPattern")).get("pattern"),
         "yyyy-MM-dd-HH");
@@ -1467,10 +1467,7 @@ public class TablesControllerTest {
             .count(4)
             .granularity(TimePartitionSpec.Granularity.HOUR)
             .columnPattern(
-                RetentionColumnPattern.builder()
-                    .pattern("yyyy-MM-dd")
-                    .columnName("timestampCol")
-                    .build())
+                RetentionColumnPattern.builder().pattern("yyyy-MM-dd").columnName("name").build())
             .build();
     Policies newPolicies = Policies.builder().replication(replication).retention(retention).build();
 
@@ -1497,7 +1494,7 @@ public class TablesControllerTest {
     Assertions.assertEquals(updatedPolicies.get("retention").get("count"), 4);
     Assertions.assertEquals(
         ((HashMap) updatedPolicies.get("retention").get("columnPattern")).get("columnName"),
-        "timestampCol");
+        "name");
     Assertions.assertEquals(
         ((HashMap) updatedPolicies.get("retention").get("columnPattern")).get("pattern"),
         "yyyy-MM-dd");
