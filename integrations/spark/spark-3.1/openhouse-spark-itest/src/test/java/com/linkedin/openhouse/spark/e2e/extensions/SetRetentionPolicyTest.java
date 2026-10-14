@@ -176,8 +176,7 @@ public class SetRetentionPolicyTest {
   @Test
   public void testSetRetentionPolicyNonOpenHouseTable() throws Exception {
     spark.sql("CREATE DATABASE IF NOT EXISTS testhelper.dbSetRetention");
-    spark.sql(
-        "CREATE TABLE testhelper.dbSetRetention.t3 (id INT) USING iceberg");
+    spark.sql("CREATE TABLE testhelper.dbSetRetention.t3 (id INT) USING iceberg");
     String ddlWithSchema = "ALTER TABLE testhelper.dbSetRetention.t3 SET POLICY (RETENTION=300d)";
     Assertions.assertThrows(UnsupportedOperationException.class, () -> spark.sql(ddlWithSchema));
   }
