@@ -847,9 +847,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    * silent-rebase variant of the stale-base bug class, where {@code applyUpdates} re-stamps the
    * writer's original (non-null) {@code COMMIT_KEY} on top of a concurrently-advanced base.
    *
-   * <p>Commits that leave {@code COMMIT_KEY} unset (wholesale replace / create — replaceTable,
-   * stage-create, stage-replace) are authoritative over the snapshot set and are intentionally not
-   * defended: there is no stale base to compare against.
+   * <p>This also protects versioned property-only writes, including guarded lock changes. Commits
+   * that leave {@code COMMIT_KEY} unset (create, replace, or unversioned internal updates) retain
+   * their existing behavior: there is no declared base to compare against.
    *
    * <p>Must run before failIfRetryUpdate, which strips COMMIT_KEY from the doCommit-local
    * properties copy.
@@ -861,13 +861,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     if (base == null || base.metadataFileLocation() == null) {
       // No persisted catalog state to defend (initial CREATE, or mid-CREATE constructed
       // metadata before any metadata.json has been written).
-      return;
-    }
-    if (!metadata.properties().containsKey(CatalogConstants.SNAPSHOTS_JSON_KEY)) {
-      // Not a snapshot-bearing writer commit (e.g. rename, property-only update, internal
-      // metadata-field write). These paths legitimately have no COMMIT_KEY because they don't
-      // go through OpenHouseInternalRepositoryImpl.save:187, and they don't carry the
-      // stale-snapshot-list payload that the subtractive merge would silently expire.
       return;
     }
     String actualBase = base.metadataFileLocation();

@@ -39,6 +39,24 @@ authenticated `lockOwner`. DELETE requires all three values and preserves
 nonmatching locks. Both operations retain existing `LOCK_ADMIN` authorization.
 The original lock endpoints remain available for explicit owner/admin operations.
 
+Versioned writes, including property-only lock changes, check their captured
+metadata version at the actual catalog commit. A concurrent update returns a
+conflict instead of silently rebasing a previously validated lock change.
+
+### Rollout and rollback
+
+Keep callers of the opt-in guarded endpoints disabled until **every table-service
+instance** has been upgraded. Older instances discard `lockOwner`, `tableUUID`,
+and `lockId` when rewriting policies, even through ordinary metadata updates;
+an active lock can then lose the identity required for guarded retry or unlock.
+Deploy the identity-preserving readers and writers fleet-wide first, then enable
+guarded callers.
+
+Before rolling back to binaries without these fields, stop new guarded workflows,
+drain in-flight operations, and remove outstanding guarded locks through guarded
+DELETE while upgraded instances are still available. Do not roll back while
+guarded locks remain.
+
 The focused reference is generated with the same Widdershins command above,
 selecting this route and its `CreateGuardedLockRequestBody` and `LockState` schemas
 from `build/tables/specs/tables.json`.
