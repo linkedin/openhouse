@@ -46,10 +46,12 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.support.TestPropertySourceUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
@@ -61,7 +63,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 @Import(ViewExceptionHandler.class)
 @ContextConfiguration(
     initializers = {
-      PropertyOverrideContextInitializer.class,
+      ViewsServiceH2IntegrationTest.StorageInitializer.class,
       AuthorizationPropertiesInitializer.class
     })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_CLASS)
@@ -317,6 +319,8 @@ public class ViewsServiceH2IntegrationTest {
     try {
       HouseTable existingBefore = findViewRow(existingViewId);
       long filesBefore = metadataFileCount();
+      org.junit.jupiter.api.Assertions.assertTrue(
+          filesBefore > 0, "The isolated storage root must contain the seeded view's metadata.");
       Mockito.doThrow(
               new ViewApiException(ViewErrorCode.VIEW_ADMISSION_FAILED, "View admission rejected"))
           .when(admissionService)
@@ -685,14 +689,25 @@ public class ViewsServiceH2IntegrationTest {
   private long metadataFileCount() throws Exception {
     java.nio.file.Path rootPath =
         Paths.get(storageManager.getDefaultStorage().getClient().getRootPrefix());
-    if (!Files.exists(rootPath)) {
-      return 0;
-    }
     try (java.util.stream.Stream<java.nio.file.Path> paths = Files.walk(rootPath)) {
       return paths
           .filter(Files::isRegularFile)
           .filter(path -> path.getFileName().toString().endsWith(".metadata.json"))
           .count();
+    }
+  }
+
+  public static final class StorageInitializer extends PropertyOverrideContextInitializer {
+    @Override
+    public void initialize(ConfigurableApplicationContext applicationContext) {
+      super.initialize(applicationContext);
+      String root =
+          applicationContext.getEnvironment().getRequiredProperty("cluster.storage.root-path");
+      TestPropertySourceUtils.addInlinedPropertiesToEnvironment(
+          applicationContext,
+          "cluster.storages.default-type=local",
+          "cluster.storages.types.local.endpoint=file:",
+          "cluster.storages.types.local.root-path=" + root);
     }
   }
 }
