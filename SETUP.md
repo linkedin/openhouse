@@ -111,6 +111,7 @@ container|Exposed ports
 /tables|8000
 /housetables|8001
 /jobs|8002
+/optimizer (oh-hadoop-spark)|8003
 prometheus|9090
 spark-master|9001
 livy-server|9003
@@ -651,6 +652,45 @@ The batched OFD scheduler runs orphan-files-deletion across multiple tables in a
 > ```
 > docker exec -it local.namenode hdfs dfs -ls -R /data/openhouse/db/tb
 > ```
+
+### Test Optimizer, Analyzer, and Scheduler
+
+The `oh-hadoop-spark` recipe supplies the [database configuration](DEPLOY.md#mysql-for-optimizer).
+Build from the repository root:
+
+```bash
+docker compose up -d
+```
+
+Populate table_stats through optimizer without creating a table. Then verify analyzer can create a pending job and scheduler can schedule the job.
+
+```bash
+TABLE_UUID=$(uuidgen)
+
+# Write table stats with maintenance enabled.
+curl --fail -X PUT "http://localhost:8003/v1/optimizer/stats/$TABLE_UUID" \
+  -H 'Content-Type: application/json' \
+  --data-raw '{
+    "databaseName": "optimizer_analyzer_test",
+    "tableName": "table_01",
+    "stats": {"snapshot": {"numCurrentFiles": 1, "tableSizeBytes": 1024}},
+    "tableProperties": {"maintenance.optimizer.ofd.enabled": "true"}
+  }'
+
+# Run one analysis pass with OFD enabled (disabled by default).
+docker compose run --rm --no-deps -e ANALYZER_OFD_ENABLED=true openhouse-optimizer-analyzer
+
+# Read the PENDING operation created by Analyzer.
+curl --fail \
+  "http://localhost:8003/v1/optimizer/operations?tableUuid=$TABLE_UUID&status=PENDING&limit=10"
+
+# Run one scheduler pass.
+docker compose run --rm --no-deps openhouse-optimizer-scheduler
+
+# Read the SCHEDULED operation created by Scheduler.
+curl --fail \
+  "http://localhost:8003/v1/optimizer/operations?tableUuid=$TABLE_UUID&status=SCHEDULED&limit=10"
+```
 
 ## FAQs
 

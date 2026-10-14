@@ -31,7 +31,7 @@ import org.hibernate.annotations.TypeDef;
 @Table(
     name = "table_stats_history",
     indexes = {
-      @Index(name = "idx_tsh_table_uuid", columnList = "table_uuid"),
+      @Index(name = "idx_tsh_table_uuid_recorded", columnList = "table_uuid, recorded_at"),
       @Index(name = "idx_tsh_recorded_at", columnList = "recorded_at")
     })
 @Getter
