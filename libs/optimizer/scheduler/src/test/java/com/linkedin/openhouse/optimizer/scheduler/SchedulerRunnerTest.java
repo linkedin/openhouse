@@ -179,15 +179,17 @@ class SchedulerRunnerTest {
         .updateBatch(
             anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.PENDING), any(), any());
 
+    ArgumentCaptor<String> jobName = ArgumentCaptor.forClass(String.class);
     ArgumentCaptor<List<String>> tableNames = ArgumentCaptor.forClass(List.class);
     verify(jobsClient)
         .launch(
-            anyString(),
+            jobName.capture(),
             eq(ORPHAN_FILES_DELETION.name() + "_BATCH"),
-            anyString(),
+            eq("REPLACE_ME"),
             tableNames.capture(),
-            anyList(),
-            anyString());
+            eq(List.of(row.getId())),
+            eq(RESULTS_ENDPOINT));
+    assertThat(jobName.getValue()).startsWith("batched-orphan_files_deletion-");
     assertThat(tableNames.getValue()).containsExactly("db1.tbl1");
   }
 

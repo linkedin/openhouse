@@ -12,9 +12,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 /**
  * Client for the OpenHouse Jobs Service.
  *
- * <p>Submits one batched Spark app job per bin via {@code POST /jobs} — the batched variant of the
- * bin's operation (e.g. {@code BatchedOrphanFilesDeletionSparkApp}, {@code
- * BatchedTableStatsCollectionSparkApp}).
+ * <p>Submits one {@code BatchedOrphanFilesDeletionSparkApp} job per bin via {@code POST /jobs}.
  */
 @Slf4j
 public class JobsServiceClient {
@@ -34,8 +32,7 @@ public class JobsServiceClient {
    * Submit a batched Spark job for the given tables.
    *
    * @param jobName human-readable name for the job
-   * @param jobType jobs-service job type for the bin — the batched variant (e.g.
-   *     "ORPHAN_FILES_DELETION_BATCH", "TABLE_STATS_COLLECTION_BATCH")
+   * @param jobType operation type string (e.g. "ORPHAN_FILES_DELETION")
    * @param proxyUser identity the job runs as (the Grid Gateway executing identity)
    * @param tableNames fully-qualified table names (db.table)
    * @param operationIds operation UUIDs — parallel to tableNames
