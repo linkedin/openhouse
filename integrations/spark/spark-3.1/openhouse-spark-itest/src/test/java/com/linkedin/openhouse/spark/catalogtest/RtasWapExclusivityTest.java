@@ -10,9 +10,9 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Black-box tests (real embedded OpenHouse server + real Spark SQL) that RTAS ({@code
- * replace.enabled}) cannot be enabled on a table alongside WAP ({@code write.wap.enabled}) or
- * replication. A staged WAP write, or a replicated table, does not compose with a whole-table
- * replace, so enabling one is rejected while the other is enabled.
+ * replace.enabled}) requires WAP ({@code write.wap.enabled}) and replication to remain disabled.
+ * Staged WAP writes and replicated metadata use commit semantics that are separate from whole-table
+ * replacement.
  */
 public class RtasWapExclusivityTest extends OpenHouseSparkITest {
 

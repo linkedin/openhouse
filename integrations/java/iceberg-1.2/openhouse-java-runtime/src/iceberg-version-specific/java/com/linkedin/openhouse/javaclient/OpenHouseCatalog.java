@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.javaclient;
 
+import static com.linkedin.openhouse.client.ssl.WebClientFactory.ACTION_TYPE_SYSTEM;
+import static com.linkedin.openhouse.client.ssl.WebClientFactory.HTTP_HEADER_ACTION_TYPE;
 import static com.linkedin.openhouse.javaclient.OpenHouseTableOperations.*;
 
 import com.linkedin.openhouse.client.ssl.HttpConnectionStrategy;
@@ -24,6 +26,7 @@ import com.linkedin.openhouse.tables.client.model.UpdateAclPoliciesRequestBody;
 import java.net.MalformedURLException;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -104,6 +107,8 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
   public static final String CLIENT_VERSION = "client-version";
 
+  public static final String ACTION_TYPE = "action-type";
+
   @Override
   public void initialize(String name, Map<String, String> properties) {
     this.name = name;
@@ -116,6 +121,10 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     String httpConnectionStrategy = properties.getOrDefault(HTTP_CONNECTION_STRATEGY, null);
     String clientName = properties.getOrDefault(CLIENT_NAME, null);
     String clientVersion = properties.getOrDefault(CLIENT_VERSION, null);
+    String actionType = properties.get(ACTION_TYPE);
+    Preconditions.checkArgument(
+        actionType == null || ACTION_TYPE_SYSTEM.equalsIgnoreCase(actionType),
+        "action-type must be SYSTEM when supplied");
     try {
       TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
       tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
@@ -128,6 +137,9 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     } catch (MalformedURLException | SSLException e) {
       throw new RuntimeException(
           "OpenHouse Catalog initialization failed: Failure while initializing ApiClient", e);
+    }
+    if (actionType != null) {
+      this.apiClient.addDefaultHeader(HTTP_HEADER_ACTION_TYPE, actionType.toUpperCase(Locale.ROOT));
     }
     this.tableApi = new TableApi(apiClient);
     this.snapshotApi = new SnapshotApi(apiClient);
@@ -279,7 +291,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
   }
 
   @Override
-  public TableOperations newTableOps(TableIdentifier tableIdentifier) {
+  public OpenHouseTableOperations newTableOps(TableIdentifier tableIdentifier) {
     return OpenHouseTableOperations.builder()
         .tableIdentifier(tableIdentifier)
         .fileIO(fileIO)
@@ -600,7 +612,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
      */
     @Override
     public Transaction createOrReplaceTransaction() {
-      TableOperations ops = newTableOps(this.identifier);
+      OpenHouseTableOperations ops = newTableOps(this.identifier);
       if (ops.current() == null) {
         return createTransaction();
       } else {
@@ -615,11 +627,16 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
      */
     @Override
     public Transaction replaceTransaction() {
-      TableOperations ops = newTableOps(this.identifier);
+      OpenHouseTableOperations ops = newTableOps(this.identifier);
       if (ops.current() == null) {
         throw new NoSuchTableException("Table does not exist: %s", new Object[] {this.identifier});
       }
       TableMetadata metadata = replaceStagedMetadata(ops);
+      // Record the replace intent on the very instance that will receive the commit. This is the
+      // only place where RTAS is unambiguously known: by the time doCommit runs, a replace and an
+      // ordinary metadata-plus-snapshot transaction look identical. Every Catalog replace entry
+      // point (including Catalog#newReplaceTableTransaction) funnels through this builder.
+      ops.markReplaceTransaction();
       return Transactions.replaceTableTransaction(this.identifier.toString(), ops, metadata);
     }
 
@@ -630,7 +647,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
      */
     @Override
     public Transaction createTransaction() {
-      TableOperations ops = newTableOps(this.identifier);
+      OpenHouseTableOperations ops = newTableOps(this.identifier);
       if (ops.current() != null) {
         throw new AlreadyExistsException(
             "Table already exists: %s", new Object[] {this.identifier});

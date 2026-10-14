@@ -2,11 +2,17 @@ package com.linkedin.openhouse.tables.e2e.h2;
 
 import static com.linkedin.openhouse.tables.model.TableModelConstants.CLUSTER_NAME;
 import static com.linkedin.openhouse.tables.model.TableModelConstants.GET_TABLE_RESPONSE_BODY;
+import static com.linkedin.openhouse.tables.model.TableModelConstants.buildCreateUpdateTableRequestBody;
+import static com.linkedin.openhouse.tables.model.TableModelConstants.buildGetTableResponseBody;
 import static org.hamcrest.Matchers.is;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.jayway.jsonpath.JsonPath;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
@@ -23,6 +29,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import org.apache.iceberg.SchemaParser;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,7 +61,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
     })
 public class ReadBridgeColumnDefaultE2ETest {
 
-  private static final String CONFIG_KEY = ReadBridgeConfigResolver.COLUMN_DEFAULT_PREFIX + "5";
+  private static final String CONFIG_KEY = ReadBridgeConfigResolver.COLUMN_DEFAULT_PREFIX + "2";
   private static final String ENABLED_PROP =
       ReadBridgeConfigResolver.COLUMN_DEFAULT_FEATURE_ID
           + TableFeatureToggle.ENABLED_PROPERTY_SUFFIX;
@@ -63,7 +70,7 @@ public class ReadBridgeColumnDefaultE2ETest {
   static class StubDefaults {
     @Bean
     ColumnDefaultsSource stubColumnDefaults() {
-      return tableDto -> Collections.singletonMap(5, TextNode.valueOf("US"));
+      return tableDto -> Collections.singletonMap(2, TextNode.valueOf("US"));
     }
   }
 
@@ -151,6 +158,49 @@ public class ReadBridgeColumnDefaultE2ETest {
     getTable()
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.config['" + CONFIG_KEY + "']").doesNotExist());
+  }
+
+  /**
+   * Iceberg 1.5 {@code sameSchema} includes {@code initial-default}, so this PUT cannot go through
+   * {@code updateTableAndValidateResponse}. Create without overlay, PUT a matching handshake, then
+   * assert persist dropped it.
+   */
+  @Test
+  public void putWithMatchingOverlay_doesNotPersistInitialDefault() throws Exception {
+    created = create(uniqueTable("persist_drop"), Collections.singletonMap(ENABLED_PROP, "true"));
+    RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
+
+    MvcResult get = getTable().andExpect(status().isOk()).andReturn();
+    GetTableResponseBody current = buildGetTableResponseBody(get);
+    ObjectMapper mapper = new ObjectMapper();
+    JsonNode root = mapper.readTree(current.getSchema());
+    for (JsonNode field : root.get("fields")) {
+      if (field.get("id").asInt() == 2) {
+        ((ObjectNode) field).put("initial-default", "US");
+      }
+    }
+    GetTableResponseBody overlay =
+        current.toBuilder().schema(mapper.writeValueAsString(root)).build();
+
+    mvc.perform(
+            MockMvcRequestBuilders.put(
+                    String.format(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                            + "/databases/%s/tables/%s",
+                        overlay.getDatabaseId(),
+                        overlay.getTableId()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(buildCreateUpdateTableRequestBody(overlay).toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk());
+
+    MvcResult after =
+        getTable()
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.config['" + CONFIG_KEY + "']", is("\"US\"")))
+            .andReturn();
+    String schemaJson = JsonPath.read(after.getResponse().getContentAsString(), "$.schema");
+    assertNull(SchemaParser.fromJson(schemaJson).findField(2).initialDefault());
   }
 
   private void activateHtsToggle(GetTableResponseBody table) {

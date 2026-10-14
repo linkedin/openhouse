@@ -23,11 +23,14 @@ import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitial
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
+import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
+import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.History;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.PolicyTag;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
@@ -104,6 +107,8 @@ public class TablesControllerTest {
   @Autowired MockMvc mvc;
 
   @Autowired StorageManager storageManager;
+
+  @Autowired HouseTableRepository houseTablesRepository;
 
   @Captor private ArgumentCaptor<ServiceAuditEvent> argCaptorServiceAudit;
 
@@ -396,6 +401,54 @@ public class TablesControllerTest {
                         + "/databases/not_found/tables/not_found")
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isNotFound());
+  }
+
+  /** The user-visible half of the fix: a clean 409, not a commit-failed surprise. */
+  @Test
+  public void testCreateTableOverAViewIsAConflictNamingTheView() throws Exception {
+    String databaseId = GET_TABLE_RESPONSE_BODY.getDatabaseId();
+    String tableId = "held_by_a_view";
+    HouseTablePrimaryKey key =
+        HouseTablePrimaryKey.builder().databaseId(databaseId).tableId(tableId).build();
+    houseTablesRepository.saveView(
+        HouseTable.builder()
+            .databaseId(databaseId)
+            .tableId(tableId)
+            .tableLocation("/loc/" + tableId + "/00001-a.metadata.json")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .storageType("local")
+            .build());
+    HouseTable before = houseTablesRepository.findEntityById(key).get();
+
+    try {
+      mvc.perform(
+              MockMvcRequestBuilders.post(
+                      String.format(
+                          ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                              + "/databases/%s/tables/",
+                          databaseId))
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(
+                      buildCreateUpdateTableRequestBody(
+                              GET_TABLE_RESPONSE_BODY.toBuilder().tableId(tableId).build())
+                          .toJson())
+                  .accept(MediaType.APPLICATION_JSON))
+          .andExpect(status().isConflict())
+          .andExpect(
+              jsonPath("$.status", is(equalToIgnoringCase(HttpStatus.CONFLICT.getReasonPhrase()))))
+          .andExpect(
+              jsonPath(
+                  "$.message",
+                  is(equalTo(String.format("VIEW %s.%s already exists", databaseId, tableId)))));
+
+      HouseTable after = houseTablesRepository.findEntityById(key).get();
+      Assertions.assertEquals("VIEW", after.getEntityType());
+      Assertions.assertEquals(before.getTableLocation(), after.getTableLocation());
+    } finally {
+      if (houseTablesRepository.findEntityById(key).isPresent()) {
+        houseTablesRepository.deleteById(key);
+      }
+    }
   }
 
   @Test
@@ -1630,6 +1683,105 @@ public class TablesControllerTest {
     Assertions.assertNotNull(updatedPolicies.get("lockState").get("creationTime"));
     RequestAndValidateHelper.deleteLockOnTableAndValidate(mvc, GET_TABLE_RESPONSE_BODY);
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+  }
+
+  @Test
+  public void systemOnlyLockRequiresSystemActionForTableReads() throws Exception {
+    RequestAndValidateHelper.createTableAndValidateResponse(
+        GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+    try {
+      String tablePath =
+          ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+              + "/databases/"
+              + GET_TABLE_RESPONSE_BODY.getDatabaseId()
+              + "/tables/"
+              + GET_TABLE_RESPONSE_BODY.getTableId();
+      mvc.perform(
+              MockMvcRequestBuilders.post(tablePath + "/lock")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content("{\"locked\":true,\"reason\":\"SYSTEM_ONLY\"}"))
+          .andExpect(status().isCreated());
+      mvc.perform(
+              MockMvcRequestBuilders.post(tablePath + "/lock")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content("{\"locked\":true,\"reason\":\"SYSTEM_ONLY\"}"))
+          .andExpect(status().isCreated());
+      mvc.perform(
+              MockMvcRequestBuilders.post(tablePath + "/lock")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content("{\"locked\":true}"))
+          .andExpect(status().isConflict());
+      mvc.perform(MockMvcRequestBuilders.get(tablePath))
+          .andExpect(status().isLocked())
+          .andExpect(jsonPath("$.message", containsString("SYSTEM_ONLY")))
+          .andExpect(jsonPath("$.message", containsString("reason-targeted OpenHouse unlock")));
+      mvc.perform(MockMvcRequestBuilders.get(tablePath).header(HTTP_HEADER_ACTION_TYPE, "SYSTEM"))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.policies.lockState.reason").value("SYSTEM_ONLY"));
+      mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock"))
+          .andExpect(status().isConflict());
+      mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock/UNKNOWN"))
+          .andExpect(status().isBadRequest());
+      mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock/LEGACY"))
+          .andExpect(status().isConflict());
+      mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock/SYSTEM_ONLY"))
+          .andExpect(status().isNoContent());
+      mvc.perform(MockMvcRequestBuilders.get(tablePath))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.policies.lockState").value(nullValue()));
+    } finally {
+      RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+    }
+  }
+
+  @Test
+  public void systemOnlyLockDoesNotBlockDrop() throws Exception {
+    RequestAndValidateHelper.createTableAndValidateResponse(
+        GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+    String tablePath =
+        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+            + "/databases/"
+            + GET_TABLE_RESPONSE_BODY.getDatabaseId()
+            + "/tables/"
+            + GET_TABLE_RESPONSE_BODY.getTableId();
+    mvc.perform(
+            MockMvcRequestBuilders.post(tablePath + "/lock")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"locked\":true,\"reason\":\"SYSTEM_ONLY\"}"))
+        .andExpect(status().isCreated());
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+    mvc.perform(MockMvcRequestBuilders.get(tablePath).header(HTTP_HEADER_ACTION_TYPE, "SYSTEM"))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  public void inactiveLockStateHasNoDefaultReason() throws Exception {
+    RequestAndValidateHelper.createTableAndValidateResponse(
+        GET_TABLE_RESPONSE_BODY
+            .toBuilder()
+            .policies(
+                GET_TABLE_RESPONSE_BODY
+                    .getPolicies()
+                    .toBuilder()
+                    .lockState(LockState.builder().locked(false).build())
+                    .build())
+            .build(),
+        mvc,
+        storageManager);
+    try {
+      mvc.perform(
+              MockMvcRequestBuilders.get(
+                  CURRENT_MAJOR_VERSION_PREFIX
+                      + "/databases/"
+                      + GET_TABLE_RESPONSE_BODY.getDatabaseId()
+                      + "/tables/"
+                      + GET_TABLE_RESPONSE_BODY.getTableId()))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.policies.lockState.locked").value(false))
+          .andExpect(jsonPath("$.policies.lockState.reason").value(nullValue()));
+    } finally {
+      RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+    }
   }
 
   @Test

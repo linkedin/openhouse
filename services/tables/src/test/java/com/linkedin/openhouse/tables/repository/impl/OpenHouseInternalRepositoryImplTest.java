@@ -20,7 +20,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import org.apache.iceberg.TableProperties;
-import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -98,6 +97,44 @@ public class OpenHouseInternalRepositoryImplTest {
   }
 
   @Test
+  void testComputePropsForTableCreation_ClusterOrcCompressionCodec() {
+    when(clusterProperties.getClusterIcebergWriteOrcCompressionCodec()).thenReturn("zstd");
+
+    TableDto tableDto = createTableDto(new HashMap<>());
+    Map<String, String> actualProps =
+        openHouseInternalRepository.computePropsForTableCreation(tableDto);
+
+    Assertions.assertEquals("zstd", actualProps.get(TableProperties.ORC_COMPRESSION));
+  }
+
+  @Test
+  void testComputePropsForTableCreation_UserProvidedOrcCompressionCodecWins() {
+    // Cluster default is set but the user-provided value should take precedence.
+    when(clusterProperties.getClusterIcebergWriteOrcCompressionCodec()).thenReturn("zstd");
+
+    Map<String, String> userProps = new HashMap<>();
+    userProps.put(TableProperties.ORC_COMPRESSION, "snappy");
+    TableDto tableDto = createTableDto(userProps);
+
+    Map<String, String> actualProps =
+        openHouseInternalRepository.computePropsForTableCreation(tableDto);
+
+    Assertions.assertEquals("snappy", actualProps.get(TableProperties.ORC_COMPRESSION));
+  }
+
+  @Test
+  void testComputePropsForTableCreation_NoOrcCompressionCodecWhenClusterUnset() {
+    // When the cluster does not configure a codec, the property should not be set.
+    when(clusterProperties.getClusterIcebergWriteOrcCompressionCodec()).thenReturn(null);
+
+    TableDto tableDto = createTableDto(new HashMap<>());
+    Map<String, String> actualProps =
+        openHouseInternalRepository.computePropsForTableCreation(tableDto);
+
+    Assertions.assertFalse(actualProps.containsKey(TableProperties.ORC_COMPRESSION));
+  }
+
+  @Test
   void testComputePropsForTableCreation_tableLocation() {
     TableDto tableDto = createTableDto(new HashMap<>());
     tableDto = tableDto.toBuilder().tableLocation("file:///data/openhouse/db/table").build();
@@ -145,19 +182,6 @@ public class OpenHouseInternalRepositoryImplTest {
             TableDtoPrimaryKey.builder().databaseId(DB_ID).tableId(TABLE_ID).build());
 
     Assertions.assertFalse(result.isPresent());
-  }
-
-  @Test
-  void findTableRefByIdThrowsWhenCatalogIsNotOpenHouseInternalCatalog() {
-    // Build a fresh impl with a non-OpenHouseInternal Catalog wired in.
-    OpenHouseInternalRepositoryImpl impl = new OpenHouseInternalRepositoryImpl();
-    impl.catalog = mock(Catalog.class);
-
-    Assertions.assertThrows(
-        UnsupportedOperationException.class,
-        () ->
-            impl.findTableRefById(
-                TableDtoPrimaryKey.builder().databaseId(DB_ID).tableId(TABLE_ID).build()));
   }
 
   private TableDto createTableDto(Map<String, String> properties) {

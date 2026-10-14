@@ -28,10 +28,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
-import javax.validation.ConstraintViolation;
 import javax.validation.Validator;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang.StringUtils;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SortOrder;
@@ -105,18 +103,13 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     }
   }
 
-  @SuppressWarnings("checkstyle:OperatorWrap")
   @Override
   public void validateCreateTable(
       String clusterId,
       String databaseId,
       CreateUpdateTableRequestBody createUpdateTableRequestBody) {
     List<String> validationFailures = new ArrayList<>();
-    for (ConstraintViolation<CreateUpdateTableRequestBody> violation :
-        validator.validate(createUpdateTableRequestBody)) {
-      validationFailures.add(
-          String.format("%s : %s", ApiValidatorUtil.getField(violation), violation.getMessage()));
-    }
+    ApiValidatorUtil.collectViolations(validator, createUpdateTableRequestBody, validationFailures);
     if (!createUpdateTableRequestBody.getClusterId().equals(clusterId)) {
       validationFailures.add(
           String.format(
@@ -240,10 +233,6 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     }
   }
 
-  /**
-   * A table feature that participates in mutual-exclusivity checks: a human-readable {@code label}
-   * and a predicate that reports whether the request would enable the feature.
-   */
   private static final class Feature {
     private final String label;
     private final Predicate<CreateUpdateTableRequestBody> enabled;
@@ -252,90 +241,74 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
       this.label = label;
       this.enabled = enabled;
     }
-
-    private boolean isEnabledOn(CreateUpdateTableRequestBody body) {
-      return enabled.test(body);
-    }
   }
 
-  /**
-   * An ordered pair of features that cannot both be enabled on the same table: enabling {@link
-   * #feature} while {@link #conflictsWith} is enabled is rejected, and the client is told to
-   * disable {@link #conflictsWith}.
-   */
   private static final class IncompatibleFeatures {
     private final Feature feature;
-    private final Feature conflictsWith;
+    private final Feature conflictingFeature;
 
-    private IncompatibleFeatures(Feature feature, Feature conflictsWith) {
+    private IncompatibleFeatures(Feature feature, Feature conflictingFeature) {
       this.feature = feature;
-      this.conflictsWith = conflictsWith;
+      this.conflictingFeature = conflictingFeature;
     }
   }
 
-  private static boolean isTablePropEnabled(CreateUpdateTableRequestBody body, String property) {
-    Map<String, String> props = body.getTableProperties();
-    return props != null && Boolean.parseBoolean(props.get(property));
-  }
-
-  private static boolean isReplicationConfigured(CreateUpdateTableRequestBody body) {
-    return Optional.ofNullable(body.getPolicies())
-        .map(Policies::getReplication)
-        .map(Replication::getConfig)
-        .map(config -> !config.isEmpty())
-        .orElse(false);
+  private static boolean isTablePropertyEnabled(
+      CreateUpdateTableRequestBody requestBody, String propertyName) {
+    return Boolean.parseBoolean(requestBody.getTableProperties().get(propertyName));
   }
 
   private static final Feature RTAS_FEATURE =
       new Feature(
-          "RTAS", body -> isTablePropEnabled(body, CatalogConstants.RTAS_ENABLED_TABLE_PROP));
+          String.format("RTAS ('%s=true')", CatalogConstants.RTAS_ENABLED_TABLE_PROP),
+          requestBody ->
+              isTablePropertyEnabled(requestBody, CatalogConstants.RTAS_ENABLED_TABLE_PROP));
   private static final Feature WAP_FEATURE =
-      new Feature("WAP", body -> isTablePropEnabled(body, CatalogConstants.WAP_ENABLED_TABLE_PROP));
+      new Feature(
+          String.format("WAP ('%s=true')", CatalogConstants.WAP_ENABLED_TABLE_PROP),
+          requestBody ->
+              isTablePropertyEnabled(requestBody, CatalogConstants.WAP_ENABLED_TABLE_PROP));
   private static final Feature REPLICATION_FEATURE =
-      new Feature("replication", OpenHouseTablesApiValidator::isReplicationConfigured);
+      new Feature(
+          "replication",
+          requestBody ->
+              Optional.ofNullable(requestBody.getPolicies())
+                  .map(Policies::getReplication)
+                  .map(Replication::getConfig)
+                  .filter(config -> !config.isEmpty())
+                  .isPresent());
 
-  /**
-   * The feature-compatibility matrix: pairs of features that cannot be enabled on the same table.
-   * Adding a new mutually-exclusive relationship is just adding a tuple here. This is
-   * enable/disable validation on the requested table metadata; the replace-time gate that inspects
-   * the persisted table lives in the repository.
-   */
   private static final List<IncompatibleFeatures> MUTUALLY_EXCLUSIVE_FEATURES =
       Arrays.asList(
           new IncompatibleFeatures(RTAS_FEATURE, WAP_FEATURE),
           new IncompatibleFeatures(RTAS_FEATURE, REPLICATION_FEATURE));
 
-  /**
-   * Rejects a create or update whose requested metadata would enable two mutually-exclusive
-   * features on the same table. The incompatibilities to enforce are supplied by the caller (see
-   * {@link #MUTUALLY_EXCLUSIVE_FEATURES}), so this method stays generic over the feature-pair
-   * rules.
-   *
-   * @param body the requested table metadata
-   * @param incompatibleFeatures the ordered feature pairs that cannot both be enabled on a table
-   */
   private void validateFeatureCompatibility(
-      CreateUpdateTableRequestBody body, List<IncompatibleFeatures> incompatibleFeatures) {
-    if (isTablePropEnabled(
-        body, CatalogConstants.FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP)) {
+      CreateUpdateTableRequestBody requestBody, List<IncompatibleFeatures> incompatibleFeatures) {
+    if (isTablePropertyEnabled(
+        requestBody, CatalogConstants.FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP)) {
       return;
     }
-    for (IncompatibleFeatures pair : incompatibleFeatures) {
-      if (pair.feature.isEnabledOn(body) && pair.conflictsWith.isEnabledOn(body)) {
-        throw new RequestValidationFailureException(
-            String.format(
-                "Table %s.%s cannot enable %s while %s is enabled. Disable %s to enable %s.",
-                body.getDatabaseId(),
-                body.getTableId(),
-                pair.feature.label,
-                pair.conflictsWith.label,
-                pair.conflictsWith.label,
-                pair.feature.label));
-      }
-    }
+
+    incompatibleFeatures.stream()
+        .filter(
+            incompatibleFeature ->
+                incompatibleFeature.feature.enabled.test(requestBody)
+                    && incompatibleFeature.conflictingFeature.enabled.test(requestBody))
+        .findFirst()
+        .ifPresent(
+            incompatibleFeature -> {
+              throw new RequestValidationFailureException(
+                  String.format(
+                      "Table %s.%s cannot enable %s and %s together. "
+                          + "Disable either feature so only one remains enabled.",
+                      requestBody.getDatabaseId(),
+                      requestBody.getTableId(),
+                      incompatibleFeature.feature.label,
+                      incompatibleFeature.conflictingFeature.label));
+            });
   }
 
-  @SuppressWarnings("checkstyle:OperatorWrap")
   @Override
   public void validateUpdateTable(
       String clusterId,
@@ -343,11 +316,7 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
       String tableId,
       CreateUpdateTableRequestBody createUpdateTableRequestBody) {
     List<String> validationFailures = new ArrayList<>();
-    for (ConstraintViolation<CreateUpdateTableRequestBody> violation :
-        validator.validate(createUpdateTableRequestBody)) {
-      validationFailures.add(
-          String.format("%s : %s", ApiValidatorUtil.getField(violation), violation.getMessage()));
-    }
+    ApiValidatorUtil.collectViolations(validator, createUpdateTableRequestBody, validationFailures);
     if (!createUpdateTableRequestBody.getClusterId().equals(clusterId)) {
       validationFailures.add(
           String.format(
@@ -437,7 +406,6 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     }
   }
 
-  @SuppressWarnings("checkstyle:OperatorWrap")
   @Override
   public void validateUpdateAclPolicies(
       String databaseId,
@@ -445,11 +413,7 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
       UpdateAclPoliciesRequestBody updateAclPoliciesRequestBody) {
     List<String> validationFailures = new ArrayList<>();
 
-    for (ConstraintViolation<UpdateAclPoliciesRequestBody> violation :
-        validator.validate(updateAclPoliciesRequestBody)) {
-      validationFailures.add(
-          String.format("%s : %s", ApiValidatorUtil.getField(violation), violation.getMessage()));
-    }
+    ApiValidatorUtil.collectViolations(validator, updateAclPoliciesRequestBody, validationFailures);
     if (!validationFailures.isEmpty()) {
       throw new RequestValidationFailureException(validationFailures);
     }
@@ -624,22 +588,11 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
   }
 
   private void validateDatabaseId(String databaseId, List<String> validationFailures) {
-    if (StringUtils.isEmpty(databaseId)) {
-      validationFailures.add("databaseId : Cannot be empty");
-    } else if (!databaseId.matches(ALPHA_NUM_UNDERSCORE_REGEX)) {
-      validationFailures.add(
-          String.format(
-              "databaseId : provided %s, %s", databaseId, ALPHA_NUM_UNDERSCORE_ERROR_MSG));
-    }
+    ApiValidatorUtil.validateIdentifier("databaseId", databaseId, validationFailures);
   }
 
   private void validateTableId(String tableId, List<String> validationFailures) {
-    if (StringUtils.isEmpty(tableId)) {
-      validationFailures.add("tableId : Cannot be empty");
-    } else if (!tableId.matches(ALPHA_NUM_UNDERSCORE_REGEX)) {
-      validationFailures.add(
-          String.format("tableId : provided %s, %s", tableId, ALPHA_NUM_UNDERSCORE_ERROR_MSG));
-    }
+    ApiValidatorUtil.validateIdentifier("tableId", tableId, validationFailures);
   }
 
   private void validateSortOrder(String sortOrder, String schema, List<String> validationFailures) {

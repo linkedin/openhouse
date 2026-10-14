@@ -1,4 +1,8 @@
 version: "3.3"
+x-optimizer-environment: &optimizer-environment
+  OPTIMIZER_DB_USER: oh_user
+  OPTIMIZER_DB_PASSWORD: oh_password
+
 services:
   openhouse-tables:
     container_name: local.openhouse-tables
@@ -58,6 +62,48 @@ services:
 
     profiles:
       - with_jobs_scheduler
+
+  openhouse-optimizer:
+    container_name: local.openhouse-optimizer
+    extends:
+      file: ../common/oh-services.yml
+      service: openhouse-optimizer
+    volumes:
+      - ./:/var/config/
+    environment: *optimizer-environment
+    depends_on:
+      - mysql
+
+  openhouse-optimizer-analyzer:
+    extends:
+      file: ../common/oh-services.yml
+      service: openhouse-optimizer-analyzer
+    volumes:
+      - ./:/var/config/
+    environment:
+      <<: *optimizer-environment
+      SPRING_SQL_INIT_MODE: never
+    depends_on:
+      - openhouse-optimizer
+    profiles:
+      - with_optimizer_jobs
+
+  openhouse-optimizer-scheduler:
+    extends:
+      file: ../common/oh-services.yml
+      service: openhouse-optimizer-scheduler
+    volumes:
+      - ./:/var/config/
+    environment:
+      <<: *optimizer-environment
+      SPRING_SQL_INIT_MODE: never
+      JOBS_BASE_URI: http://openhouse-jobs:8080
+      SCHEDULER_RESULTS_ENDPOINT: http://openhouse-optimizer:8080
+    depends_on:
+      - openhouse-optimizer
+      - openhouse-jobs
+    profiles:
+      - with_optimizer_jobs
 
   openhouse-housetables:
     container_name: local.openhouse-housetables

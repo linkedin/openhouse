@@ -2,6 +2,8 @@ package com.linkedin.openhouse.internal.catalog;
 
 /** Constants used across service and catalog layer. */
 public final class CatalogConstants {
+  public static final String ENTITY_TYPE_TABLE = "TABLE";
+  public static final String ENTITY_TYPE_VIEW = "VIEW";
   public static final String SNAPSHOTS_JSON_KEY = "snapshotsJsonToBePut";
   public static final String SNAPSHOTS_REFS_KEY = "snapshotsRefs";
   public static final String INTERMEDIATE_SCHEMAS_KEY = "newIntermediateSchemas";

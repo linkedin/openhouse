@@ -1575,7 +1575,7 @@ public class TablesValidatorTest {
 
   @Test
   public void validateCreateTableRejectsRtasWithWap() {
-    RequestValidationFailureException e =
+    RequestValidationFailureException exception =
         assertThrows(
             RequestValidationFailureException.class,
             () ->
@@ -1594,7 +1594,14 @@ public class TablesValidatorTest {
                         .baseTableVersion("base")
                         .build()));
     Assertions.assertTrue(
-        e.getMessage().contains("Disable"), "expected an actionable disable message: " + e);
+        exception.getMessage().contains("RTAS ('replace.enabled=true')"),
+        "expected the RTAS property in the compatibility message: " + exception);
+    Assertions.assertTrue(
+        exception.getMessage().contains("WAP ('write.wap.enabled=true')"),
+        "expected the WAP property in the compatibility message: " + exception);
+    Assertions.assertTrue(
+        exception.getMessage().contains("Disable either feature"),
+        "expected an actionable compatibility message: " + exception);
   }
 
   @Test
@@ -1667,5 +1674,61 @@ public class TablesValidatorTest {
                         ImmutableMap.of(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true"))
                     .baseTableVersion("base")
                     .build()));
+  }
+
+  @Test
+  public void validateCreateTableAllowsExplicitCompatibilityValidationDisable() {
+    assertDoesNotThrow(
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(HEALTH_SCHEMA_LITERAL)
+                    .tableProperties(
+                        ImmutableMap.of(
+                            CatalogConstants.RTAS_ENABLED_TABLE_PROP,
+                            "true",
+                            CatalogConstants.WAP_ENABLED_TABLE_PROP,
+                            "true",
+                            CatalogConstants.FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP,
+                            "true"))
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
+  /** Table search retains numeric pagination and its existing validation messages. */
+  @Test
+  public void validateSearchTablesKeepsNumericPageValidation() {
+    assertDoesNotThrow(() -> tablesApiValidator.validateSearchTables("d", 0, 50, null, null));
+    assertDoesNotThrow(
+        () -> tablesApiValidator.validateSearchTables("d", 3, 10000, "tableId", null));
+
+    Assertions.assertTrue(
+        assertThrows(
+                RequestValidationFailureException.class,
+                () -> tablesApiValidator.validateSearchTables("d", -1, 50, null, null))
+            .getMessage()
+            .contains("page : provided -1, cannot be negative"));
+
+    Assertions.assertTrue(
+        assertThrows(
+                RequestValidationFailureException.class,
+                () -> tablesApiValidator.validateSearchTables("d", 0, 0, null, null))
+            .getMessage()
+            .contains("size : provided 0, must be greater than 0"));
+
+    Assertions.assertTrue(
+        assertThrows(
+                RequestValidationFailureException.class,
+                () ->
+                    tablesApiValidator.validateSearchTables("d", 0, 50, "tableId,databaseId", null))
+            .getMessage()
+            .contains(
+                "sortBy : provided tableId,databaseId, does not support multiple sort fields or"
+                    + " directions"));
   }
 }

@@ -9,6 +9,8 @@ import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
+import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
@@ -31,6 +33,8 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
   @Autowired TableUUIDGenerator tableUUIDGenerator;
 
   @Autowired AuthorizationUtils authorizationUtils;
+
+  @Autowired ReadBridgeStripProtection readBridgeStripProtection;
 
   @Override
   public Pair<TableDto, Boolean> putIcebergSnapshots(
@@ -69,22 +73,24 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
       // A locked table must reject every write, including CREATE OR REPLACE (RTAS). The lock is
       // checked here — before the replace-vs-update split — so the replace path can no longer
       // bypass it and silently overwrite a locked table.
-      if (isTableLocked(tableDto.get())) {
+      if (LockPolicyValidator.isLegacyLocked(tableDto.get())) {
         throw new UnsupportedClientOperationException(
             UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,
             String.format(
                 "Table %s.%s is in locked state and cannot be written to", databaseId, tableId));
       }
-      if (icebergSnapshotRequestBody.getCreateUpdateTableRequestBody().isReplaceCommit()) {
-        // Check if table creator has the privilege to replace the table.
-        authorizationUtils.checkReplaceTablePrivilege(tableDto.get(), tableCreatorUpdater);
-      } else {
-        authorizationUtils.checkTableWritePathPrivileges(
-            tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
-      }
+      authorizationUtils.checkTableWritePathPrivileges(
+          tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
+      authorizationUtils.checkSystemOnlyLockAccess(tableDto.get(), tableCreatorUpdater);
     } else {
       authorizationUtils.checkDatabasePrivilege(
           databaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
+    }
+    tableDtoToSave = LockPolicyValidator.prepare(tableDto.orElse(null), tableDtoToSave);
+    try {
+      tableDtoToSave = readBridgeStripProtection.prepare(tableDto.orElse(null), tableDtoToSave);
+    } catch (ColumnDefaultException e) {
+      throw e.toUnsupportedClient();
     }
     try {
       return Pair.of(openHouseInternalRepository.save(tableDtoToSave), !tableDto.isPresent());
@@ -107,11 +113,5 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
               "The requested table has been modified/created by other processes."),
           ce);
     }
-  }
-
-  private boolean isTableLocked(TableDto tableDto) {
-    return tableDto.getPolicies() != null
-        && tableDto.getPolicies().getLockState() != null
-        && tableDto.getPolicies().getLockState().isLocked();
   }
 }
