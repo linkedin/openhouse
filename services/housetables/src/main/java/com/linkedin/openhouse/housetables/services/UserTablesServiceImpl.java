@@ -112,6 +112,8 @@ public class UserTablesServiceImpl implements UserTablesService {
       return listDatabases();
     } else if (isListTables(userTable)) {
       return listTables(userTable);
+    } else if (isGetTableByName(userTable)) {
+      return getTableByName(userTable);
     } else if (isListTablesWithPattern(userTable)) {
       return listTablesWithPattern(userTable);
     } else {
@@ -126,6 +128,8 @@ public class UserTablesServiceImpl implements UserTablesService {
       return listDatabases(page, size, sortBy);
     } else if (isListTables(userTable)) {
       return listTables(userTable, page, size, sortBy);
+    } else if (isGetTableByName(userTable)) {
+      return getTableByName(userTable, page, size, sortBy);
     } else if (isListTablesWithPattern(userTable)) {
       return listTablesWithPattern(userTable, page, size, sortBy);
     } else {
@@ -389,6 +393,55 @@ public class UserTablesServiceImpl implements UserTablesService {
         MetricsConstant.HTS_PAGE_TABLES_TIME);
   }
 
+  /**
+   * Exact-name lookup, the point read behind a single-table search. It deliberately does not reach
+   * {@link #listTablesWithPattern}: that path compares with SQL {@code LIKE}, where {@code _} is a
+   * single-character wildcard and is never escaped, so {@code my_table} would also match {@code
+   * myXtable}. OpenHouse table names are underscore-heavy, which makes that over-match the common
+   * case rather than a corner case.
+   *
+   * <p>The equality predicate here is also the indexed one — {@code upper(databaseId)}, {@code
+   * upper(tableId)} matches the MySQL functional index.
+   */
+  private List<UserTableDto> getTableByName(UserTable userTable) {
+    METRICS_REPORTER.count(MetricsConstant.HTS_LOOKUP_TABLE_REQUEST);
+    return METRICS_REPORTER.executeWithStats(
+        () ->
+            StreamSupport.stream(
+                    htsJdbcRepository
+                        .findAllTablesByFilters(
+                            userTable.getDatabaseId(),
+                            userTable.getTableId(),
+                            null,
+                            null,
+                            null,
+                            null)
+                        .spliterator(),
+                    false)
+                .map(userTablesMapper::toUserTableDto)
+                .collect(Collectors.toList()),
+        MetricsConstant.HTS_LOOKUP_TABLE_TIME);
+  }
+
+  private Page<UserTableDto> getTableByName(
+      UserTable userTable, int page, int size, String sortBy) {
+    METRICS_REPORTER.count(MetricsConstant.HTS_PAGE_LOOKUP_TABLE_REQUEST);
+    Pageable pageable = createPageable(page, size, sortBy, "tableId");
+    return METRICS_REPORTER.executeWithStats(
+        () ->
+            htsJdbcRepository
+                .findAllTablesByFilters(
+                    userTable.getDatabaseId(),
+                    userTable.getTableId(),
+                    null,
+                    null,
+                    null,
+                    null,
+                    pageable)
+                .map(userTablesMapper::toUserTableDto),
+        MetricsConstant.HTS_PAGE_LOOKUP_TABLE_TIME);
+  }
+
   private List<UserTableDto> listTablesWithPattern(UserTable userTable) {
     METRICS_REPORTER.count(MetricsConstant.HTS_LIST_TABLES_REQUEST);
     return METRICS_REPORTER.executeWithStats(
@@ -475,6 +528,15 @@ public class UserTablesServiceImpl implements UserTablesService {
     return isNonKeyFieldsNullForUserTable(userTable)
         && userTable.getDatabaseId() != null
         && userTable.getTableId() != null;
+  }
+
+  /**
+   * A fully-qualified name with no {@code %} is an exact lookup, not a pattern. {@code %} is the
+   * only way a caller can express a pattern through this API, so its absence is what separates the
+   * two; {@code _} cannot serve that role because it is a legal character in a table name.
+   */
+  private boolean isGetTableByName(UserTable userTable) {
+    return isListTablesWithPattern(userTable) && !userTable.getTableId().contains("%");
   }
 
   private boolean isNonKeyFieldsNullForUserTable(UserTable userTable) {
