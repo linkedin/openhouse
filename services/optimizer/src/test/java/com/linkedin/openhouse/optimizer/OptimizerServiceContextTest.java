@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.linkedin.openhouse.optimizer.analyzer.CadenceBasedOrphanFilesDeletionAnalyzer;
 import com.linkedin.openhouse.optimizer.analyzer.CadenceBasedStatsCollectionAnalyzer;
 import com.linkedin.openhouse.optimizer.config.OptimizerDatabaseConfiguration;
+import com.linkedin.openhouse.optimizer.testing.MySqlContainerInitializer;
 import com.zaxxer.hikari.HikariDataSource;
 import java.nio.file.Path;
 import javax.sql.DataSource;
@@ -17,14 +18,14 @@ import org.springframework.boot.test.context.ConfigDataApplicationContextInitial
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.ApplicationContext;
-import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.ContextConfiguration;
 
 /**
  * Validates the service's datasource defaults and Spring application context, including schema
  * initialization and repository wiring.
  */
 @SpringBootTest
-@ActiveProfiles("test")
+@ContextConfiguration(initializers = MySqlContainerInitializer.class)
 class OptimizerServiceContextTest {
 
   @Autowired ApplicationContext context;
@@ -36,9 +37,8 @@ class OptimizerServiceContextTest {
     assertThat(context.getBeansOfType(DataSource.class)).hasSize(1);
     HikariDataSource dataSource = context.getBean(HikariDataSource.class);
     assertThat(dataSource.getJdbcUrl())
-        .isEqualTo(
-            "jdbc:h2:mem:optimizer_test;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1");
-    assertThat(dataSource.getDriverClassName()).isEqualTo("org.h2.Driver");
+        .isEqualTo(context.getEnvironment().getProperty("cluster.optimizer.database.url"));
+    assertThat(dataSource.getDriverClassName()).isEqualTo("com.mysql.cj.jdbc.Driver");
     assertThat(dataSource.getMaximumPoolSize()).isEqualTo(20);
   }
 
