@@ -37,6 +37,7 @@ x-hadoop-datanode: &hadoop-datanode
   restart: always
 
 x-spark-build: &spark-build
+  platform: linux/amd64
   build:
     context: ../../../..
     dockerfile: infra/recipes/docker-compose/common/spark/spark-base-hadoop2.8.dockerfile
@@ -179,7 +180,7 @@ services:
   mysql-a:
     image: mysql:8
     ports:
-      - "3306:3306"
+      - target: 3306
     environment:
       MYSQL_ROOT_PASSWORD: oh_root_password
       MYSQL_PASSWORD: oh_password
@@ -191,7 +192,7 @@ services:
   mysql-b:
     image: mysql:8
     ports:
-      - "3307:3306"
+      - target: 3306
     environment:
       MYSQL_ROOT_PASSWORD: oh_root_password
       MYSQL_PASSWORD: oh_password
@@ -230,7 +231,7 @@ services:
   spark-livy:
     <<: *spark-build
     ports:
-      - "9003:8998"
+      - target: 8998
     environment:
       SPARK_MASTER: spark://spark-master:7077
       SPARK_WORKLOAD: livy
