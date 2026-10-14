@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.repository.impl;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
@@ -10,6 +11,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.linkedin.openhouse.cluster.storage.Storage;
@@ -18,6 +21,8 @@ import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import com.linkedin.openhouse.internal.catalog.view.ViewCommitEngine;
 import com.linkedin.openhouse.internal.catalog.view.model.SqlViewRepresentationIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
@@ -26,11 +31,13 @@ import com.linkedin.openhouse.internal.catalog.view.model.ViewPointer;
 import com.linkedin.openhouse.tables.model.ViewDto;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
 import com.linkedin.openhouse.tables.repository.ViewCommitOutcome;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Optional;
 import java.util.UUID;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
@@ -63,7 +70,7 @@ public class OpenHouseInternalViewRepositoryImplTest {
 
     verify(houseTableRepository, times(1)).findViewById(any(HouseTablePrimaryKey.class));
     verify(houseTableRepository, never()).findEntityById(any(HouseTablePrimaryKey.class));
-    verify(engine, never()).loadView(any(), any());
+    verifyNoInteractions(engine);
     org.junit.jupiter.api.Assertions.assertEquals(ViewModelConstants.VIEW_ID, result.getViewId());
     org.junit.jupiter.api.Assertions.assertEquals(CAPTURED_POINTER, result.getMetadataLocation());
   }
@@ -105,71 +112,126 @@ public class OpenHouseInternalViewRepositoryImplTest {
 
     verify(houseTableRepository, times(1)).findViewById(any(HouseTablePrimaryKey.class));
     verify(houseTableRepository, never()).findEntityById(any(HouseTablePrimaryKey.class));
-    verify(engine, never()).loadView(any(), any());
+    verifyNoInteractions(engine);
     assertSame(viewRow, prepared.getViewBaseRow().get());
     org.junit.jupiter.api.Assertions.assertEquals(
         CAPTURED_POINTER, prepared.getViewBaseRow().get().getTableLocation());
   }
 
+  /**
+   * Listing reads the typed HTS view page directly: identifiers only, in source order, framed by
+   * the caller's requested pageable even when the source page reports a different one.
+   */
   @Test
-  public void searchViewsMapsEnginePointerPageAndPreservesContinuationMetadata() {
-    ViewCommitEngine engine = Mockito.mock(ViewCommitEngine.class);
-    Pageable requested = PageRequest.of(0, 2, Sort.by("tableId"));
-    when(engine.listViews(eq(ViewModelConstants.DATABASE_ID), any(Pageable.class)))
+  public void searchViewsReadsTypedHtsViewPageOnceAndMapsIdentifiersOnlyInSourceOrder() {
+    Pageable requested = PageRequest.of(1, 2, Sort.by("tableId"));
+    Pageable differentSourcePageable = PageRequest.of(0, 2, Sort.by("databaseId"));
+    HouseTableRepository houseTableRepository = Mockito.mock(HouseTableRepository.class);
+    when(houseTableRepository.findAllViewsByDatabaseId(ViewModelConstants.DATABASE_ID, requested))
         .thenReturn(
             new PageImpl<>(
-                Collections.singletonList(
-                    ViewPointer.builder()
-                        .databaseId(ViewModelConstants.DATABASE_ID)
-                        .viewId(ViewModelConstants.VIEW_ID)
-                        .metadataLocation(CAPTURED_POINTER)
-                        .storageType("local")
-                        .creationTime(ViewModelConstants.CREATION_TIME)
-                        .build()),
-                requested,
+                Arrays.asList(listedViewRow("view_b"), listedViewRow("view_a")),
+                differentSourcePageable,
                 5));
+    ViewCommitEngine engine = Mockito.mock(ViewCommitEngine.class);
     OpenHouseInternalViewRepositoryImpl repository =
-        newRepository(
-            Mockito.mock(HouseTableRepository.class), engine, Mockito.mock(StorageSelector.class));
+        newRepository(houseTableRepository, engine, Mockito.mock(StorageSelector.class));
 
     Page<ViewDto> results = repository.searchViews(ViewModelConstants.DATABASE_ID, requested);
 
-    ArgumentCaptor<Pageable> forwarded = ArgumentCaptor.forClass(Pageable.class);
-    verify(engine).listViews(eq(ViewModelConstants.DATABASE_ID), forwarded.capture());
-    assertEquals(requested, forwarded.getValue());
-    verify(engine, never()).loadView(any(), any());
-    assertEquals(1, results.getContent().size());
-    assertEquals(ViewModelConstants.VIEW_ID, results.getContent().get(0).getViewId());
-    assertEquals(ViewModelConstants.DATABASE_ID, results.getContent().get(0).getDatabaseId());
-    assertEquals(0, results.getNumber());
+    verify(houseTableRepository, times(1))
+        .findAllViewsByDatabaseId(ViewModelConstants.DATABASE_ID, requested);
+    verifyNoMoreInteractions(houseTableRepository);
+    verifyNoInteractions(engine);
+    assertEquals(
+        Arrays.asList(
+            ViewDto.builder().viewId("view_b").databaseId(ViewModelConstants.DATABASE_ID).build(),
+            ViewDto.builder().viewId("view_a").databaseId(ViewModelConstants.DATABASE_ID).build()),
+        results.getContent(),
+        "List entries stay identifier-only in source order; pointer and creator fields are unset.");
+    assertEquals(requested, results.getPageable());
+    assertEquals(1, results.getNumber());
     assertEquals(2, results.getSize());
-    assertTrue(
-        results.hasNext(),
-        "A short source page with remaining rows must stay nonterminal for the cursor adapter.");
+    assertEquals(Sort.by("tableId"), results.getSort());
+    assertEquals(5, results.getTotalElements());
+    assertEquals(3, results.getTotalPages());
+    assertTrue(results.hasNext());
   }
 
   @Test
-  public void searchViewsKeepsEmptyNonterminalAndTerminalPagesDistinct() {
-    ViewCommitEngine engine = Mockito.mock(ViewCommitEngine.class);
+  public void searchViewsKeepsShortAndEmptyNonterminalAndTerminalPagesDistinct() {
+    Pageable shortNonterminal = PageRequest.of(0, 2, Sort.by("tableId"));
     Pageable emptyNonterminal = PageRequest.of(1, 2, Sort.by("tableId"));
     Pageable terminal = PageRequest.of(2, 2, Sort.by("tableId"));
-    when(engine.listViews(ViewModelConstants.DATABASE_ID, emptyNonterminal))
+    HouseTableRepository houseTableRepository = Mockito.mock(HouseTableRepository.class);
+    when(houseTableRepository.findAllViewsByDatabaseId(
+            ViewModelConstants.DATABASE_ID, shortNonterminal))
+        .thenReturn(
+            new PageImpl<>(
+                Collections.singletonList(listedViewRow(ViewModelConstants.VIEW_ID)),
+                shortNonterminal,
+                5));
+    when(houseTableRepository.findAllViewsByDatabaseId(
+            ViewModelConstants.DATABASE_ID, emptyNonterminal))
         .thenReturn(new PageImpl<>(Collections.emptyList(), emptyNonterminal, 6));
-    when(engine.listViews(ViewModelConstants.DATABASE_ID, terminal))
+    when(houseTableRepository.findAllViewsByDatabaseId(ViewModelConstants.DATABASE_ID, terminal))
         .thenReturn(new PageImpl<>(Collections.emptyList(), terminal, 4));
+    ViewCommitEngine engine = Mockito.mock(ViewCommitEngine.class);
     OpenHouseInternalViewRepositoryImpl repository =
-        newRepository(
-            Mockito.mock(HouseTableRepository.class), engine, Mockito.mock(StorageSelector.class));
+        newRepository(houseTableRepository, engine, Mockito.mock(StorageSelector.class));
 
+    Page<ViewDto> shortPage =
+        repository.searchViews(ViewModelConstants.DATABASE_ID, shortNonterminal);
     Page<ViewDto> empty = repository.searchViews(ViewModelConstants.DATABASE_ID, emptyNonterminal);
     Page<ViewDto> last = repository.searchViews(ViewModelConstants.DATABASE_ID, terminal);
 
+    assertEquals(1, shortPage.getContent().size());
+    assertEquals(0, shortPage.getNumber());
+    assertEquals(5, shortPage.getTotalElements());
+    assertTrue(
+        shortPage.hasNext(),
+        "A short source page with remaining rows must stay nonterminal for the cursor adapter.");
     assertTrue(empty.getContent().isEmpty());
     assertEquals(1, empty.getNumber());
+    assertEquals(6, empty.getTotalElements());
     assertTrue(empty.hasNext(), "An empty page is not proof of the end of the listing.");
     assertTrue(last.getContent().isEmpty());
+    assertEquals(2, last.getNumber());
+    assertEquals(4, last.getTotalElements());
     assertFalse(last.hasNext());
-    verify(engine, never()).loadView(any(), any());
+    verifyNoInteractions(engine);
+  }
+
+  /**
+   * A typed-list contract violation or outage is neither an empty page nor a commit outcome: the
+   * same exception surfaces after one read.
+   */
+  @Test
+  public void searchViewsPropagatesTypedHtsListFailuresUntouchedAfterOneRead() {
+    Pageable requested = PageRequest.of(0, 2, Sort.by("tableId"));
+    RuntimeException[] failures = {
+      new IllegalStateException("House Table listed a non-view row for the view route"),
+      new HouseTableRepositoryStateUnknownException("", new RuntimeException("504"))
+    };
+    for (RuntimeException failure : failures) {
+      HouseTableRepository houseTableRepository = Mockito.mock(HouseTableRepository.class);
+      when(houseTableRepository.findAllViewsByDatabaseId(ViewModelConstants.DATABASE_ID, requested))
+          .thenThrow(failure);
+      ViewCommitEngine engine = Mockito.mock(ViewCommitEngine.class);
+      OpenHouseInternalViewRepositoryImpl repository =
+          newRepository(houseTableRepository, engine, Mockito.mock(StorageSelector.class));
+
+      RuntimeException thrown =
+          assertThrows(
+              RuntimeException.class,
+              () -> repository.searchViews(ViewModelConstants.DATABASE_ID, requested));
+
+      assertSame(failure, thrown);
+      verify(houseTableRepository, times(1))
+          .findAllViewsByDatabaseId(ViewModelConstants.DATABASE_ID, requested);
+      verifyNoMoreInteractions(houseTableRepository);
+      verifyNoInteractions(engine);
+    }
   }
 
   @Test
@@ -306,17 +368,32 @@ public class OpenHouseInternalViewRepositoryImplTest {
     verify(houseTableRepository, never()).findViewById(any(HouseTablePrimaryKey.class));
   }
 
+  @Test
+  public void deleteByIdIsOneTypedHardDeleteWithNoReadsOrEngineWork() {
+    HouseTableRepository houseTableRepository = Mockito.mock(HouseTableRepository.class);
+    when(houseTableRepository.deleteViewById(any(HouseTablePrimaryKey.class))).thenReturn(true);
+    ViewCommitEngine engine = Mockito.mock(ViewCommitEngine.class);
+    OpenHouseInternalViewRepositoryImpl repository =
+        newRepository(houseTableRepository, engine, Mockito.mock(StorageSelector.class));
+
+    repository.deleteById(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID);
+
+    // No reread, generic/table delete overload, or purge: exactly the one typed hard delete.
+    verify(houseTableRepository, times(1)).deleteViewById(viewKey());
+    verifyNoMoreInteractions(houseTableRepository);
+    verifyNoInteractions(engine);
+  }
+
   /**
-   * The engine's name-based drop returns false when, after the service's typed capture, the name
-   * became absent or now holds a table. That is the ordinary NO_SUCH_VIEW outcome, with one attempt
-   * and no refresh, not a server fault.
+   * The typed delete returns false when, after the service's typed capture, the name became absent
+   * or now holds a table. That is the ordinary NO_SUCH_VIEW outcome, with one attempt and no
+   * refresh, not a server fault.
    */
   @Test
-  public void dropThatFindsNoViewAfterCaptureIsNoSuchViewWithOneAttemptAndNoRefresh() {
+  public void deleteThatFindsNoViewAfterCaptureIsNoSuchViewWithOneAttemptAndNoRefresh() {
     HouseTableRepository houseTableRepository = Mockito.mock(HouseTableRepository.class);
+    when(houseTableRepository.deleteViewById(any(HouseTablePrimaryKey.class))).thenReturn(false);
     ViewCommitEngine engine = Mockito.mock(ViewCommitEngine.class);
-    when(engine.dropView(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID))
-        .thenReturn(false);
     OpenHouseInternalViewRepositoryImpl repository =
         newRepository(houseTableRepository, engine, Mockito.mock(StorageSelector.class));
 
@@ -329,8 +406,84 @@ public class OpenHouseInternalViewRepositoryImplTest {
     assertEquals(
         com.linkedin.openhouse.tables.exception.ViewErrorCode.NO_SUCH_VIEW, thrown.getErrorCode());
     assertEquals(org.springframework.http.HttpStatus.NOT_FOUND, thrown.getHttpStatus());
-    verify(engine, times(1)).dropView(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID);
-    Mockito.verifyNoInteractions(houseTableRepository);
+    verify(houseTableRepository, times(1)).deleteViewById(viewKey());
+    verifyNoMoreInteractions(houseTableRepository);
+    verifyNoInteractions(engine);
+  }
+
+  /** An ambiguous delete may have landed, so it is unknown mutation state, not failure. */
+  @Test
+  public void ambiguousDeleteIsCommitStateUnknownCarryingTheHtsCauseAfterOneAttempt() {
+    HouseTableRepositoryStateUnknownException ambiguous =
+        new HouseTableRepositoryStateUnknownException("", new RuntimeException("504"));
+    HouseTableRepository houseTableRepository = Mockito.mock(HouseTableRepository.class);
+    when(houseTableRepository.deleteViewById(any(HouseTablePrimaryKey.class))).thenThrow(ambiguous);
+    ViewCommitEngine engine = Mockito.mock(ViewCommitEngine.class);
+    OpenHouseInternalViewRepositoryImpl repository =
+        newRepository(houseTableRepository, engine, Mockito.mock(StorageSelector.class));
+
+    CommitStateUnknownException thrown =
+        assertThrows(
+            CommitStateUnknownException.class,
+            () ->
+                repository.deleteById(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID));
+
+    assertSame(ambiguous, thrown.getCause());
+    verify(houseTableRepository, times(1)).deleteViewById(viewKey());
+    verifyNoMoreInteractions(houseTableRepository);
+    verifyNoInteractions(engine);
+  }
+
+  /**
+   * Only the state-unknown subtype is ambiguous. A sibling repository failure (here the common
+   * supertype, so a catch widened to it or to RuntimeException is caught) propagates as itself.
+   */
+  @Test
+  public void otherDeleteFailuresPropagateUntouchedAfterOneAttempt() {
+    HouseTableRepositoryException failure =
+        new HouseTableRepositoryException("rejected", new RuntimeException("400"));
+    HouseTableRepository houseTableRepository = Mockito.mock(HouseTableRepository.class);
+    when(houseTableRepository.deleteViewById(any(HouseTablePrimaryKey.class))).thenThrow(failure);
+    ViewCommitEngine engine = Mockito.mock(ViewCommitEngine.class);
+    OpenHouseInternalViewRepositoryImpl repository =
+        newRepository(houseTableRepository, engine, Mockito.mock(StorageSelector.class));
+
+    HouseTableRepositoryException thrown =
+        assertThrows(
+            HouseTableRepositoryException.class,
+            () ->
+                repository.deleteById(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID));
+
+    assertSame(failure, thrown);
+    verify(houseTableRepository, times(1)).deleteViewById(viewKey());
+    verifyNoMoreInteractions(houseTableRepository);
+    verifyNoInteractions(engine);
+  }
+
+  /**
+   * The delete-time wrapper must not reach preparation: a precommit HTS outage stays raw, so the
+   * service can tell it apart from an unacknowledged delete.
+   */
+  @Test
+  public void prepareDeleteLeavesAPrecommitHtsOutageRaw() {
+    HouseTableRepositoryStateUnknownException outage =
+        new HouseTableRepositoryStateUnknownException("", new RuntimeException("503"));
+    HouseTableRepository houseTableRepository = Mockito.mock(HouseTableRepository.class);
+    when(houseTableRepository.findViewById(any(HouseTablePrimaryKey.class))).thenThrow(outage);
+    ViewCommitEngine engine = Mockito.mock(ViewCommitEngine.class);
+    OpenHouseInternalViewRepositoryImpl repository =
+        newRepository(houseTableRepository, engine, Mockito.mock(StorageSelector.class));
+
+    RuntimeException thrown =
+        assertThrows(
+            RuntimeException.class,
+            () ->
+                repository.prepareDelete(
+                    ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID));
+
+    assertSame(outage, thrown);
+    verify(houseTableRepository, never()).deleteViewById(any(HouseTablePrimaryKey.class));
+    verifyNoInteractions(engine);
   }
 
   /**
@@ -382,6 +535,24 @@ public class OpenHouseInternalViewRepositoryImplTest {
         .tableLocation(CAPTURED_POINTER)
         .storageType("local")
         .entityType("VIEW")
+        .build();
+  }
+
+  /** A fully populated row, so the list DTO's unset pointer/creator fields are meaningful. */
+  private static HouseTable listedViewRow(String viewId) {
+    return capturedViewRow()
+        .toBuilder()
+        .tableId(viewId)
+        .tableCreator("alice")
+        .creationTime(ViewModelConstants.CREATION_TIME)
+        .lastModifiedTime(ViewModelConstants.LAST_MODIFIED_TIME)
+        .build();
+  }
+
+  private static HouseTablePrimaryKey viewKey() {
+    return HouseTablePrimaryKey.builder()
+        .databaseId(ViewModelConstants.DATABASE_ID)
+        .tableId(ViewModelConstants.VIEW_ID)
         .build();
   }
 
