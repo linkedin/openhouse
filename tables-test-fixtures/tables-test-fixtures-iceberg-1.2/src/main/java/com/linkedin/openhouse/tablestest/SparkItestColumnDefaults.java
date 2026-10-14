@@ -14,10 +14,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Local-server stand-in for a deployment {@link ColumnDefaultsSource}. OSS OpenHouse has no
- * encoder; Spark catalog itests need one so ReadBridge can stamp {@code initial-default} on load.
- * Scoped to {@link #DATABASE} so other catalog tests stay on empty maps. Stamps {@code country} and
- * {@code tier} at any depth, including fields of structs inside list elements and map values.
+ * Test-only configuration that supplies column defaults. Used by Spark catalog itests that validate
+ * ReadBridge end to end with a stubbed {@link ColumnDefaultsSource}. Scoped to {@link #DATABASE} so
+ * other catalog tests stay on empty maps. Stamps {@code country} and {@code tier} at any depth,
+ * including fields of structs inside list elements and map values.
  */
 @Configuration
 public class SparkItestColumnDefaults {
