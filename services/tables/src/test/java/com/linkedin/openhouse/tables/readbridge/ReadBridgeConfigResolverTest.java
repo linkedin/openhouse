@@ -26,7 +26,6 @@ import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -205,18 +204,15 @@ public class ReadBridgeConfigResolverTest {
    */
   @Test
   public void testEmptyWhenSourceReturnsNoDefaults() {
-    AtomicInteger asked = new AtomicInteger();
-    ColumnDefaultsSource emptySource =
-        tableDto -> {
-          asked.incrementAndGet();
-          return Collections.emptyMap();
-        };
+    ColumnDefaultsSource emptySource = mock(ColumnDefaultsSource.class);
+    Assertions.assertDoesNotThrow(
+        () -> when(emptySource.defaults(any())).thenReturn(Collections.emptyMap()));
 
     Assertions.assertTrue(
         resolverFor(emptySource)
             .resolve(TableDto.builder().databaseId("db").tableId("tbl").build())
             .isEmpty());
-    Assertions.assertEquals(1, asked.get());
+    Assertions.assertDoesNotThrow(() -> verify(emptySource).defaults(any()));
   }
 
   /**
