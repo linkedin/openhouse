@@ -11,8 +11,10 @@ import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.optimizer.model.TableStatsDto;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
+import com.linkedin.openhouse.optimizer.scheduler.account.AccountResolver;
 import com.linkedin.openhouse.optimizer.scheduler.client.JobsServiceClient;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -20,9 +22,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Pageable;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 /**
  * Generic scheduler. Operation types are registered at construction via {@link #registerOperation},
@@ -48,9 +52,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 public class SchedulerRunner {
 
+  private static final String TABLE_CREATOR_PROPERTY = "openhouse.tableCreator";
+
   private final TableOperationsRepository operationsRepo;
   private final TableStatsRepository statsRepo;
   private final JobsServiceClient jobsClient;
+  private final AccountResolver accountResolver;
   private final String resultsEndpoint;
   private final Map<OperationTypeDto, BinPacker> registry;
 
@@ -58,19 +65,22 @@ public class SchedulerRunner {
       TableOperationsRepository operationsRepo,
       TableStatsRepository statsRepo,
       JobsServiceClient jobsClient,
+      AccountResolver accountResolver,
       String resultsEndpoint) {
-    this(operationsRepo, statsRepo, jobsClient, resultsEndpoint, Map.of());
+    this(operationsRepo, statsRepo, jobsClient, accountResolver, resultsEndpoint, Map.of());
   }
 
   private SchedulerRunner(
       TableOperationsRepository operationsRepo,
       TableStatsRepository statsRepo,
       JobsServiceClient jobsClient,
+      AccountResolver accountResolver,
       String resultsEndpoint,
       Map<OperationTypeDto, BinPacker> registry) {
     this.operationsRepo = operationsRepo;
     this.statsRepo = statsRepo;
     this.jobsClient = jobsClient;
+    this.accountResolver = accountResolver;
     this.resultsEndpoint = resultsEndpoint;
     this.registry = registry;
   }
@@ -84,7 +94,7 @@ public class SchedulerRunner {
     HashMap<OperationTypeDto, BinPacker> next = new HashMap<>(registry);
     next.put(type, packer);
     return new SchedulerRunner(
-        operationsRepo, statsRepo, jobsClient, resultsEndpoint, Map.copyOf(next));
+        operationsRepo, statsRepo, jobsClient, accountResolver, resultsEndpoint, Map.copyOf(next));
   }
 
   public Set<OperationTypeDto> getRegisteredOperationTypes() {
@@ -136,20 +146,58 @@ public class SchedulerRunner {
     // Read stats, bin pack, and schedule the operations per bin.
     Optional.ofNullable(registry.get(type))
         .ifPresent(
-            packer ->
-                packer
-                    .pack(
-                        byTableUuid.values().stream()
-                            .map(rows -> rows.stream().min(oldestFirst).orElseThrow())
-                            .map(TableOperationDto::fromRow)
-                            .collect(Collectors.toList()),
-                        statsRepo.findAllById(byTableUuid.keySet()).stream()
-                            .collect(
-                                Collectors.toMap(
-                                    TableStatsRow::getTableUuid, TableStatsDto::fromRow)))
-                    .stream()
-                    .map(grouping -> new Bin(type, grouping))
-                    .forEach(this::scheduleBin));
+            packer -> {
+              Map<String, TableStatsDto> statsByTableUuid =
+                  statsRepo.findAllById(byTableUuid.keySet()).stream()
+                      .collect(
+                          Collectors.toMap(TableStatsRow::getTableUuid, TableStatsDto::fromRow));
+              List<TableOperationDto> operations =
+                  byTableUuid.values().stream()
+                      .map(rows -> rows.stream().min(oldestFirst).orElseThrow())
+                      .map(TableOperationDto::fromRow)
+                      .collect(Collectors.toList());
+              groupOperations(operations, statsByTableUuid)
+                  .forEach(
+                      (group, groupedOperations) ->
+                          packer
+                              .pack(groupedOperations, statsByTableUuid)
+                              .forEach(
+                                  items -> scheduleBin(new Bin(type, items), group.getAccount())));
+            });
+  }
+
+  private Map<SchedulingGroup, List<TableOperationDto>> groupOperations(
+      List<TableOperationDto> operations, Map<String, TableStatsDto> statsByTableUuid) {
+    Map<SchedulingGroup, List<TableOperationDto>> groups = new HashMap<>();
+    for (TableOperationDto operation : operations) {
+      TableStatsDto stats = statsByTableUuid.get(operation.getTableUuid());
+      if (stats == null) {
+        log.warn("Skipping operation {}: missing table stats", operation.getId());
+        continue;
+      }
+      String creator = stats.getTableProperties().get(TABLE_CREATOR_PROPERTY);
+      if (!StringUtils.hasText(creator)) {
+        log.warn("Skipping operation {}: missing {}", operation.getId(), TABLE_CREATOR_PROPERTY);
+        continue;
+      }
+      String account = accountResolver.resolve(creator);
+      if (!StringUtils.hasText(account)) {
+        log.warn("Skipping operation {}: creator resolved to an empty account", operation.getId());
+        continue;
+      }
+      groups
+          .computeIfAbsent(
+              new SchedulingGroup(operation.getDatabaseName(), account),
+              ignored -> new ArrayList<>())
+          .add(operation);
+    }
+    return groups;
+  }
+
+  @Value
+  private static class SchedulingGroup {
+    String databaseName;
+    String account;
   }
 
   /**
@@ -157,7 +205,7 @@ public class SchedulerRunner {
    * the claimed subset, and mark SCHEDULED — or revert to PENDING if launch failed.
    */
   @Transactional
-  void scheduleBin(Bin bin) {
+  void scheduleBin(Bin bin, String account) {
     Instant claimedAt = Instant.now();
     List<BinItem> claimedItems = claim(bin, claimedAt);
 
@@ -181,6 +229,7 @@ public class SchedulerRunner {
                 "batched-%s-%d",
                 bin.getOperationType().name().toLowerCase(), claimedAt.toEpochMilli()),
             bin.getOperationType().name(),
+            account,
             claimedItems.stream()
                 .map(BinItem::getFullyQualifiedTableName)
                 .collect(Collectors.toList()),
