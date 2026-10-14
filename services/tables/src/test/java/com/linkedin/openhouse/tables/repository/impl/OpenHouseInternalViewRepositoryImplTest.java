@@ -134,8 +134,10 @@ public class OpenHouseInternalViewRepositoryImplTest {
                 differentSourcePageable,
                 5));
     ViewCommitEngine engine = Mockito.mock(ViewCommitEngine.class);
+    StorageSelector storageSelector = Mockito.mock(StorageSelector.class);
+    Storage defaultStorage = Mockito.mock(Storage.class);
     OpenHouseInternalViewRepositoryImpl repository =
-        newRepository(houseTableRepository, engine, Mockito.mock(StorageSelector.class));
+        newRepository(houseTableRepository, engine, storageSelector, defaultStorage);
 
     Page<ViewDto> results = repository.searchViews(ViewModelConstants.DATABASE_ID, requested);
 
@@ -143,6 +145,7 @@ public class OpenHouseInternalViewRepositoryImplTest {
         .findAllViewsByDatabaseId(ViewModelConstants.DATABASE_ID, requested);
     verifyNoMoreInteractions(houseTableRepository);
     verifyNoInteractions(engine);
+    verifyNoInteractions(storageSelector, defaultStorage);
     assertEquals(
         Arrays.asList(
             ViewDto.builder().viewId("view_b").databaseId(ViewModelConstants.DATABASE_ID).build(),
@@ -156,6 +159,42 @@ public class OpenHouseInternalViewRepositoryImplTest {
     assertEquals(5, results.getTotalElements());
     assertEquals(3, results.getTotalPages());
     assertTrue(results.hasNext());
+  }
+
+  /**
+   * The requested size frames the result, not the source page's, and a nonempty page keeps the
+   * existing request-framed PageImpl total adjustment: requested offset 4 plus one row reports 5
+   * total even though the source reported 4.
+   */
+  @Test
+  public void searchViewsFramesNonemptyPageBySizeOfRequestIncludingPageImplTotalAdjustment() {
+    Pageable requested = PageRequest.of(2, 2, Sort.by("tableId"));
+    Pageable sourcePageable = PageRequest.of(0, 4, Sort.by("databaseId"));
+    HouseTableRepository houseTableRepository = Mockito.mock(HouseTableRepository.class);
+    when(houseTableRepository.findAllViewsByDatabaseId(ViewModelConstants.DATABASE_ID, requested))
+        .thenReturn(
+            new PageImpl<>(Collections.singletonList(listedViewRow("view_a")), sourcePageable, 4));
+    ViewCommitEngine engine = Mockito.mock(ViewCommitEngine.class);
+    OpenHouseInternalViewRepositoryImpl repository =
+        newRepository(houseTableRepository, engine, Mockito.mock(StorageSelector.class));
+
+    Page<ViewDto> results = repository.searchViews(ViewModelConstants.DATABASE_ID, requested);
+
+    verify(houseTableRepository, times(1))
+        .findAllViewsByDatabaseId(ViewModelConstants.DATABASE_ID, requested);
+    verifyNoMoreInteractions(houseTableRepository);
+    verifyNoInteractions(engine);
+    assertEquals(
+        Collections.singletonList(
+            ViewDto.builder().viewId("view_a").databaseId(ViewModelConstants.DATABASE_ID).build()),
+        results.getContent());
+    assertEquals(requested, results.getPageable());
+    assertEquals(2, results.getNumber());
+    assertEquals(2, results.getSize());
+    assertEquals(Sort.by("tableId"), results.getSort());
+    assertEquals(5, results.getTotalElements());
+    assertEquals(3, results.getTotalPages());
+    assertFalse(results.hasNext());
   }
 
   @Test
@@ -373,8 +412,10 @@ public class OpenHouseInternalViewRepositoryImplTest {
     HouseTableRepository houseTableRepository = Mockito.mock(HouseTableRepository.class);
     when(houseTableRepository.deleteViewById(any(HouseTablePrimaryKey.class))).thenReturn(true);
     ViewCommitEngine engine = Mockito.mock(ViewCommitEngine.class);
+    StorageSelector storageSelector = Mockito.mock(StorageSelector.class);
+    Storage defaultStorage = Mockito.mock(Storage.class);
     OpenHouseInternalViewRepositoryImpl repository =
-        newRepository(houseTableRepository, engine, Mockito.mock(StorageSelector.class));
+        newRepository(houseTableRepository, engine, storageSelector, defaultStorage);
 
     repository.deleteById(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID);
 
@@ -382,6 +423,7 @@ public class OpenHouseInternalViewRepositoryImplTest {
     verify(houseTableRepository, times(1)).deleteViewById(viewKey());
     verifyNoMoreInteractions(houseTableRepository);
     verifyNoInteractions(engine);
+    verifyNoInteractions(storageSelector, defaultStorage);
   }
 
   /**
@@ -577,7 +619,16 @@ public class OpenHouseInternalViewRepositoryImplTest {
       HouseTableRepository houseTableRepository,
       ViewCommitEngine engine,
       StorageSelector storageSelector) {
-    return new OpenHouseInternalViewRepositoryImpl(
+    return newRepository(
         houseTableRepository, engine, storageSelector, Mockito.mock(Storage.class));
+  }
+
+  private static OpenHouseInternalViewRepositoryImpl newRepository(
+      HouseTableRepository houseTableRepository,
+      ViewCommitEngine engine,
+      StorageSelector storageSelector,
+      Storage defaultStorage) {
+    return new OpenHouseInternalViewRepositoryImpl(
+        houseTableRepository, engine, storageSelector, defaultStorage);
   }
 }
