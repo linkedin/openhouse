@@ -61,6 +61,8 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
 
   private static final int DEFAULT_MAX_ORPHAN_FILE_SAMPLE_SIZE = 20000;
   private static final int DEFAULT_MIN_OFD_TTL_IN_DAYS = 3;
+  /** Keep the reported failure reason within the optimizer {@code failure_reason} column bound. */
+  private static final int MAX_FAILURE_REASON_LENGTH = 1024;
 
   private final List<BatchEntry> entries;
   private final String resultsEndpoint;
@@ -164,7 +166,11 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
           "Worker threw outside its own catch for fqtn={} — reporting FAILED",
           entry.getFqtn(),
           e.getCause());
-      reportResult(entry, UpdateOperationRequest.StatusEnum.FAILED, client);
+      reportResult(
+          entry,
+          UpdateOperationRequest.StatusEnum.FAILED,
+          "worker leaked: " + describeFailure(e.getCause()),
+          client);
       return 0;
     }
   }
@@ -204,6 +210,7 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
   private void reportResult(
       BatchEntry entry,
       UpdateOperationRequest.StatusEnum status,
+      String failureReason,
       Optional<OptimizerServiceClient> client) {
     if (!client.isPresent()) {
       return;
@@ -215,7 +222,9 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
             .tableUuid(entry.getTableUuid().orElse(null))
             .databaseName(entry.getDatabaseName())
             .tableName(entry.getTableName())
-            .operationType(UpdateOperationRequest.OperationTypeEnum.ORPHAN_FILES_DELETION);
+            .operationType(UpdateOperationRequest.OperationTypeEnum.ORPHAN_FILES_DELETION)
+            .failureReason(
+                status == UpdateOperationRequest.StatusEnum.FAILED ? failureReason : null);
     if (!client.get().updateOperation(entry.getOperationId().orElse(null), body).isPresent()) {
       log.error(
           "Failed to report operation result after retries; row will stay SCHEDULED until stale-timeout: operationId={} fqtn={}",
@@ -227,6 +236,22 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
           1,
           Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), entry.getFqtn()));
     }
+  }
+
+  /**
+   * Compact, bounded failure description for the optimizer history ({@code exceptionClass:
+   * message}), so dashboards can show why a table failed without a full stack trace. Truncated to
+   * fit the {@code failure_reason} column.
+   */
+  private static String describeFailure(Throwable t) {
+    if (t == null) {
+      return null;
+    }
+    String msg = t.getMessage();
+    String reason = t.getClass().getSimpleName() + (msg == null ? "" : ": " + msg);
+    return reason.length() > MAX_FAILURE_REASON_LENGTH
+        ? reason.substring(0, MAX_FAILURE_REASON_LENGTH)
+        : reason;
   }
 
   /** One unit of work in a batched OFD job. */
@@ -245,6 +270,7 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
     public Boolean call() {
       String fqtn = entry.getFqtn();
       UpdateOperationRequest.StatusEnum status = UpdateOperationRequest.StatusEnum.FAILED;
+      String failureReason = null;
       try {
         log.info("OFD start: fqtn={} operationId={}", fqtn, entry.getOperationId().orElse(""));
         Table table = ops.getTable(fqtn);
@@ -271,12 +297,13 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
         status = UpdateOperationRequest.StatusEnum.SUCCESS;
         log.info("OFD success: fqtn={} orphansDetected={}", fqtn, orphanCount);
       } catch (Throwable t) {
+        failureReason = describeFailure(t);
         log.error("OFD failed: fqtn={} operationId={}", fqtn, entry.getOperationId().orElse(""), t);
       } finally {
         // Defensive: reportResult must not throw out of the finally block, since that would mask
         // the original failure and propagate up to awaitOne, which would then report FAILED again.
         try {
-          reportResult(entry, status, client);
+          reportResult(entry, status, failureReason, client);
         } catch (Throwable t) {
           log.error(
               "reportResult itself threw; operation row will stay SCHEDULED until stale-timeout: fqtn={}",

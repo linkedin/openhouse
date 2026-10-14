@@ -75,7 +75,7 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
   @Override
   @Transactional
   public Optional<TableOperationsHistoryDto> updateOperation(
-      String operationId, HistoryStatusDto status) {
+      String operationId, HistoryStatusDto status, String failureReason) {
     return operationsRepository
         .findById(operationId)
         .map(
@@ -88,6 +88,7 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
                     .operationType(OperationTypeDto.fromDb(row.getOperationType()))
                     .completedAt(Instant.now())
                     .status(status)
+                    .failureReason(status == HistoryStatusDto.FAILED ? failureReason : null)
                     .build())
         .map(history -> TableOperationsHistoryDto.fromRow(historyRepository.save(history.toRow())));
   }
