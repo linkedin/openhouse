@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.linkedin.openhouse.common.exception.DependencyUnavailableException;
+import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -60,15 +62,19 @@ public class ReadBridgeStripProtection {
    * incoming} so overlays cannot land in Iceberg metadata. Ramp-off still strips. Returns {@code
    * incoming} unchanged when there is nothing to check or drop.
    *
-   * @throws ColumnDefaultException Type 1, Type 2, or unusable
+   * @throws ColumnDefaultException Type 1, Type 2, a default {@code incoming} declares that cannot
+   *     be applied, or {@code incoming} data this protection cannot read
+   * @throws TableConfigUnavailableException if a default {@code existing} declares cannot be
+   *     applied
+   * @throws DependencyUnavailableException if the ramp lookup cannot answer
    */
   public TableDto prepare(TableDto existing, TableDto incoming) throws ColumnDefaultException {
     if (incoming == null) {
       return incoming;
     }
     Map<Integer, String> previousStamped =
-        existing == null ? Collections.emptyMap() : resolver.stampedColumnDefaults(existing);
-    Map<Integer, String> incomingStamped = resolver.stampedColumnDefaults(incoming);
+        existing == null ? Collections.emptyMap() : resolver.storedColumnDefaults(existing);
+    Map<Integer, String> incomingStamped = resolver.incomingColumnDefaults(incoming);
     if (existing != null) {
       rejectRemovedDefaults(previousStamped, incomingStamped, incoming);
       rejectUnawareRewrite(previousStamped, incoming);
@@ -83,7 +89,7 @@ public class ReadBridgeStripProtection {
   private void rejectRemovedDefaults(
       Map<Integer, String> previousStamped, Map<Integer, String> incomingStamped, TableDto incoming)
       throws ColumnDefaultException {
-    if (previousStamped.isEmpty() || !resolver.isRampedForCommit(incoming)) {
+    if (previousStamped.isEmpty() || !resolver.isBridged(incoming)) {
       return;
     }
     JsonNode schema = tree(incoming.getSchema(), incoming);
@@ -91,7 +97,6 @@ public class ReadBridgeStripProtection {
     for (Integer fieldId : previousStamped.keySet()) {
       if (remaining.contains(fieldId) && !incomingStamped.containsKey(fieldId)) {
         throw new ColumnDefaultException(
-            ColumnDefaultException.Operation.REMOVED,
             String.format(
                 "COLUMN_DEFAULT_REMOVED: %s.%s still has a column default on %s. This commit"
                     + " omitted it. Retry from Spark 3.1 or Spark 3.5 using the jars on the"
@@ -119,7 +124,6 @@ public class ReadBridgeStripProtection {
       JsonNode actual = initialDefault(schema, stamp.getKey());
       if (!tree(stamp.getValue(), incoming).equals(actual)) {
         throw new ColumnDefaultException(
-            ColumnDefaultException.Operation.REWRITE,
             String.format(
                 "COLUMN_DEFAULT_REWRITE: %s.%s still has a column default on %s. This"
                     + " overwrite/replace did not send a matching initial-default. Retry from"
@@ -170,8 +174,7 @@ public class ReadBridgeStripProtection {
           return snapshot;
         }
       }
-      throw ColumnDefaultException.unusable(
-          incoming, "main-branch snapshot is missing from the request", null);
+      throw unusable(incoming, "main-branch snapshot is missing from the request", null);
     }
     return snapshot(jsonSnapshots.get(jsonSnapshots.size() - 1), incoming);
   }
@@ -188,18 +191,18 @@ public class ReadBridgeStripProtection {
     try {
       return SnapshotRefParser.fromJson(main).snapshotId();
     } catch (RuntimeException e) {
-      throw ColumnDefaultException.unusable(incoming, "unreadable snapshot ref", e);
+      throw unusable(incoming, "unreadable snapshot ref", e);
     }
   }
 
   private static Snapshot snapshot(String json, TableDto incoming) throws ColumnDefaultException {
     if (json == null || json.isEmpty()) {
-      throw ColumnDefaultException.unusable(incoming, "unreadable snapshot", null);
+      throw unusable(incoming, "unreadable snapshot", null);
     }
     try {
       return SnapshotParser.fromJson(json);
     } catch (RuntimeException e) {
-      throw ColumnDefaultException.unusable(incoming, "unreadable snapshot", e);
+      throw unusable(incoming, "unreadable snapshot", e);
     }
   }
 
@@ -225,8 +228,7 @@ public class ReadBridgeStripProtection {
     try {
       return MAPPER.writeValueAsString(root);
     } catch (JsonProcessingException e) {
-      throw ColumnDefaultException.unusable(
-          incoming, "failed to strip initial-default from schema", e);
+      throw unusable(incoming, "failed to strip initial-default from schema", e);
     }
   }
 
@@ -284,12 +286,24 @@ public class ReadBridgeStripProtection {
 
   private static JsonNode tree(String json, TableDto incoming) throws ColumnDefaultException {
     if (json == null || json.isEmpty()) {
-      throw ColumnDefaultException.unusable(incoming, "unreadable json", null);
+      throw unusable(incoming, "unreadable json", null);
     }
     try {
       return MAPPER.readTree(json);
     } catch (JsonProcessingException e) {
-      throw ColumnDefaultException.unusable(incoming, "unreadable json", e);
+      throw unusable(incoming, "unreadable json", e);
     }
+  }
+
+  /** {@code incoming} data this protection cannot read. */
+  private static ColumnDefaultException unusable(
+      TableDto incoming, String reason, Throwable cause) {
+    return new ColumnDefaultException(
+        String.format(
+            "COLUMN_DEFAULT_UNUSABLE: OpenHouse could not validate column defaults on %s.%s"
+                + " (metadata %s). Cause: %s. Contact the OpenHouse team with the Spark"
+                + " application logs.",
+            incoming.getDatabaseId(), incoming.getTableId(), incoming.getTableLocation(), reason),
+        cause);
   }
 }
