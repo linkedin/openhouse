@@ -43,18 +43,20 @@ public class ReadBridgeStripProtectionTest {
       tableDto -> Collections.singletonMap(2, TextNode.valueOf("US"));
 
   @Test
-  public void noneSource_stillStripsInitialDefault() throws ColumnDefaultException {
+  public void noneSource_stillStripsInitialDefault() {
     TableDto incoming = ramped(SCHEMA_WITH_DEFAULT, overwrite(10));
     ReadBridgeStripProtection protection =
         new ReadBridgeStripProtection(
             new ReadBridgeConfigResolver(ColumnDefaultsSource.NONE, ALL_ON));
 
-    TableDto prepared = protection.prepare(ramped(SCHEMA_WITHOUT_DEFAULT), incoming);
+    TableDto prepared =
+        Assertions.assertDoesNotThrow(
+            () -> protection.prepare(ramped(SCHEMA_WITHOUT_DEFAULT), incoming));
     Assertions.assertFalse(prepared.getSchema().contains("initial-default"));
   }
 
   @Test
-  public void overwriteWithoutInitialDefault_rejectedWhenRamped() throws ColumnDefaultException {
+  public void overwriteWithoutInitialDefault_rejectedWhenRamped() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming = ramped(SCHEMA_WITHOUT_DEFAULT, overwrite(10));
@@ -68,7 +70,7 @@ public class ReadBridgeStripProtectionTest {
   }
 
   @Test
-  public void overwriteWithDummyInitialDefault_rejected() throws ColumnDefaultException {
+  public void overwriteWithDummyInitialDefault_rejected() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming = ramped(SCHEMA_WITH_DUMMY_DEFAULT, overwrite(10));
@@ -82,39 +84,39 @@ public class ReadBridgeStripProtectionTest {
   }
 
   @Test
-  public void overwriteWithMatchingInitialDefault_stripsBeforeReturning()
-      throws ColumnDefaultException {
+  public void overwriteWithMatchingInitialDefault_stripsBeforeReturning() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming = ramped(SCHEMA_WITH_DEFAULT, overwrite(10));
 
-    TableDto prepared = protection.prepare(existing, incoming);
+    TableDto prepared = Assertions.assertDoesNotThrow(() -> protection.prepare(existing, incoming));
     Assertions.assertFalse(prepared.getSchema().contains("initial-default"));
     Assertions.assertTrue(prepared.getSchema().contains("\"id\":2"));
   }
 
   @Test
-  public void appendWithoutInitialDefault_allowedWhenRamped() throws ColumnDefaultException {
+  public void appendWithoutInitialDefault_allowedWhenRamped() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming = ramped(SCHEMA_WITHOUT_DEFAULT, append(10));
 
-    Assertions.assertSame(incoming, protection.prepare(existing, incoming));
+    Assertions.assertSame(
+        incoming, Assertions.assertDoesNotThrow(() -> protection.prepare(existing, incoming)));
   }
 
   @Test
-  public void historicalOverwriteDoesNotGateCurrentAppend() throws ColumnDefaultException {
+  public void historicalOverwriteDoesNotGateCurrentAppend() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming =
         ramped(SCHEMA_WITHOUT_DEFAULT, snapshots(overwriteJson(1), appendJson(10)), refs(10));
 
-    Assertions.assertSame(incoming, protection.prepare(existing, incoming));
+    Assertions.assertSame(
+        incoming, Assertions.assertDoesNotThrow(() -> protection.prepare(existing, incoming)));
   }
 
   @Test
-  public void replaceCommitWithoutInitialDefault_rejectedWhenRamped()
-      throws ColumnDefaultException {
+  public void replaceCommitWithoutInitialDefault_rejectedWhenRamped() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming =
@@ -131,7 +133,7 @@ public class ReadBridgeStripProtectionTest {
   }
 
   @Test
-  public void unrampedOverwriteWithoutInitialDefault_allowed() throws ColumnDefaultException {
+  public void unrampedOverwriteWithoutInitialDefault_allowed() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     Map<String, String> optedOut = Collections.singletonMap(ENABLED_PROP, "false");
     TableDto existing =
@@ -151,11 +153,12 @@ public class ReadBridgeStripProtectionTest {
             .snapshotRefs(refs(10))
             .build();
 
-    Assertions.assertSame(incoming, protection.prepare(existing, incoming));
+    Assertions.assertSame(
+        incoming, Assertions.assertDoesNotThrow(() -> protection.prepare(existing, incoming)));
   }
 
   @Test
-  public void optOutSchemaOnly_doesNotType1() throws ColumnDefaultException {
+  public void optOutSchemaOnly_doesNotType1() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming =
@@ -166,11 +169,12 @@ public class ReadBridgeStripProtectionTest {
             .tableProperties(Collections.singletonMap(ENABLED_PROP, "false"))
             .build();
 
-    Assertions.assertSame(incoming, protection.prepare(existing, incoming));
+    Assertions.assertSame(
+        incoming, Assertions.assertDoesNotThrow(() -> protection.prepare(existing, incoming)));
   }
 
   @Test
-  public void optOutOverwriteWithoutOverlay_stillType2() throws ColumnDefaultException {
+  public void optOutOverwriteWithoutOverlay_stillType2() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming =
@@ -188,24 +192,26 @@ public class ReadBridgeStripProtectionTest {
   }
 
   @Test
-  public void createWithOverlay_stripsStampedIds() throws ColumnDefaultException {
+  public void createWithOverlay_stripsStampedIds() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto incoming = ramped(SCHEMA_WITH_DEFAULT);
 
-    TableDto prepared = protection.prepare(null, incoming);
+    TableDto prepared = Assertions.assertDoesNotThrow(() -> protection.prepare(null, incoming));
     Assertions.assertFalse(prepared.getSchema().contains("initial-default"));
   }
 
   @Test
-  public void unstampedWriterDefault_stripped() throws ColumnDefaultException {
+  public void unstampedWriterDefault_stripped() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
-    TableDto prepared = protection.prepare(null, ramped(SCHEMA_UNSTAMPED_WRITER_DEFAULTS));
+    TableDto prepared =
+        Assertions.assertDoesNotThrow(
+            () -> protection.prepare(null, ramped(SCHEMA_UNSTAMPED_WRITER_DEFAULTS)));
 
     Assertions.assertFalse(prepared.getSchema().contains("initial-default"));
   }
 
   @Test
-  public void unrampedWithInitialDefault_stillStrips() throws ColumnDefaultException {
+  public void unrampedWithInitialDefault_stillStrips() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     Map<String, String> optedOut = Collections.singletonMap(ENABLED_PROP, "false");
     TableDto existing =
@@ -223,22 +229,23 @@ public class ReadBridgeStripProtectionTest {
             .tableProperties(optedOut)
             .build();
 
-    TableDto prepared = protection.prepare(existing, incoming);
+    TableDto prepared = Assertions.assertDoesNotThrow(() -> protection.prepare(existing, incoming));
     Assertions.assertFalse(prepared.getSchema().contains("initial-default"));
   }
 
   @Test
-  public void nestedStampedDefault_stripped() throws ColumnDefaultException {
+  public void nestedStampedDefault_stripped() {
     ColumnDefaultsSource nested = tableDto -> Collections.singletonMap(10, TextNode.valueOf("US"));
     ReadBridgeStripProtection protection = protection(nested);
-    TableDto prepared = protection.prepare(null, ramped(NESTED_WITH_DEFAULT));
+    TableDto prepared =
+        Assertions.assertDoesNotThrow(() -> protection.prepare(null, ramped(NESTED_WITH_DEFAULT)));
 
     Assertions.assertFalse(prepared.getSchema().contains("initial-default"));
     Assertions.assertTrue(prepared.getSchema().contains("\"id\":10"));
   }
 
   @Test
-  public void droppingLiveDefault_rejected() throws ColumnDefaultException {
+  public void droppingLiveDefault_rejected() {
     ColumnDefaultsSource fromProp =
         tableDto -> {
           String raw =
@@ -278,7 +285,7 @@ public class ReadBridgeStripProtectionTest {
   }
 
   @Test
-  public void droppingColumnThatHadDefault_allowed() throws ColumnDefaultException {
+  public void droppingColumnThatHadDefault_allowed() {
     ColumnDefaultsSource fromProp =
         tableDto -> {
           String raw =
@@ -309,16 +316,18 @@ public class ReadBridgeStripProtectionTest {
             .tableProperties(optIn())
             .build();
 
-    Assertions.assertSame(incoming, protection.prepare(existing, incoming));
+    Assertions.assertSame(
+        incoming, Assertions.assertDoesNotThrow(() -> protection.prepare(existing, incoming)));
   }
 
   @Test
-  public void schemaOnlyUpdate_doesNotGate() throws ColumnDefaultException {
+  public void schemaOnlyUpdate_doesNotGate() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming = ramped(SCHEMA_WITHOUT_DEFAULT);
 
-    Assertions.assertSame(incoming, protection.prepare(existing, incoming));
+    Assertions.assertSame(
+        incoming, Assertions.assertDoesNotThrow(() -> protection.prepare(existing, incoming)));
   }
 
   /** A buggy source fails the write closed, as itself rather than as anyone's unusable default. */
@@ -372,7 +381,7 @@ public class ReadBridgeStripProtectionTest {
   }
 
   @Test
-  public void unreadableSchema_failsClosedWhenRampedRewrite() throws ColumnDefaultException {
+  public void unreadableSchema_failsClosedWhenRampedRewrite() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming = ramped("{", overwrite(10));
@@ -386,7 +395,7 @@ public class ReadBridgeStripProtectionTest {
   }
 
   @Test
-  public void unreadableSnapshots_failsClosedWhenRamped() throws ColumnDefaultException {
+  public void unreadableSnapshots_failsClosedWhenRamped() {
     ReadBridgeStripProtection protection = protection(FIELD_2);
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming =
