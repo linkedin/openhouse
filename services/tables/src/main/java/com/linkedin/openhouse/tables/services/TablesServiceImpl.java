@@ -11,6 +11,7 @@ import com.linkedin.openhouse.common.exception.RequestValidationFailureException
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateGuardedLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
@@ -41,6 +42,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.util.Pair;
 import org.springframework.stereotype.Component;
+import org.springframework.util.Assert;
 
 /** Default Table Service Implementation for /tables REST endpoint. */
 @Component
@@ -466,6 +468,80 @@ public class TablesServiceImpl implements TablesService {
       throw lockConflict(tableDto, "The active lock reason does not match.");
     }
     removeLock(tableDto);
+  }
+
+  @Override
+  public void createGuardedSystemLock(
+      String databaseId,
+      String tableId,
+      CreateGuardedLockRequestBody request,
+      String actingPrincipal) {
+    Assert.hasText(request.getLockId(), "lockId is required");
+    TableDto tableDto =
+        guardedLockTable(databaseId, tableId, request.getExpectedTableUUID(), actingPrincipal);
+    if (isTableLocked(tableDto)) {
+      requireMatchingGuardedLock(tableDto, actingPrincipal, request.getLockId());
+      return;
+    }
+    LockState lock =
+        LockState.builder()
+            .locked(true)
+            .reason(LockReason.SYSTEM_ONLY)
+            .lockOwner(actingPrincipal)
+            .tableUUID(tableDto.getTableUUID())
+            .lockId(request.getLockId())
+            .message(request.getMessage())
+            .build();
+    Policies policies =
+        Optional.ofNullable(tableDto.getPolicies()).orElseGet(() -> Policies.builder().build());
+    saveTableDto(
+        tableDto
+            .toBuilder()
+            .policies(policies.toBuilder().lockState(lock).build())
+            .tableVersion(tableDto.getTableLocation())
+            .build(),
+        Optional.of(tableDto));
+  }
+
+  @Override
+  public void deleteGuardedSystemLock(
+      String databaseId,
+      String tableId,
+      String expectedTableUUID,
+      String lockOwner,
+      String lockId,
+      String actingPrincipal) {
+    Assert.hasText(lockOwner, "lockOwner is required");
+    Assert.hasText(lockId, "lockId is required");
+    TableDto tableDto = guardedLockTable(databaseId, tableId, expectedTableUUID, actingPrincipal);
+    if (!isTableLocked(tableDto)) {
+      return;
+    }
+    requireMatchingGuardedLock(tableDto, lockOwner, lockId);
+    removeLock(tableDto);
+  }
+
+  private TableDto guardedLockTable(
+      String databaseId, String tableId, String expectedTableUUID, String actingPrincipal) {
+    Assert.hasText(expectedTableUUID, "expectedTableUUID is required");
+    TableDto tableDto = getTableOrThrow(databaseId, tableId);
+    checkReplicaTable(tableDto);
+    authorizationUtils.checkLockTablePrivilege(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
+    if (!expectedTableUUID.equals(tableDto.getTableUUID())) {
+      throw lockConflict(tableDto, "The table generation does not match.");
+    }
+    return tableDto;
+  }
+
+  private static void requireMatchingGuardedLock(
+      TableDto tableDto, String lockOwner, String lockId) {
+    LockState lock = tableDto.getPolicies().getLockState();
+    if (lock.getReason() != LockReason.SYSTEM_ONLY
+        || !tableDto.getTableUUID().equals(lock.getTableUUID())
+        || !lockOwner.equals(lock.getLockOwner())
+        || !lockId.equals(lock.getLockId())) {
+      throw lockConflict(tableDto, "The active lock identity does not match.");
+    }
   }
 
   private static EntityConcurrentModificationException lockConflict(

@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.controller;
 import static com.linkedin.openhouse.common.security.AuthenticationUtils.*;
 
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateGuardedLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
@@ -449,6 +450,65 @@ public class TablesController {
             databaseId, tableId, reason, extractAuthenticatedUserPrincipal());
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      operationId = "createGuardedSystemLock",
+      summary = "Create a guarded SYSTEM_ONLY lock",
+      description =
+          "Requires LOCK_ADMIN and the expected table UUID. An existing lock is a no-op only "
+              + "when its generation, authenticated owner and caller-selected lockId all match.",
+      tags = {"Table"})
+  @ApiResponses({
+    @ApiResponse(responseCode = "201", description = "Matching lock established"),
+    @ApiResponse(responseCode = "400", description = "Missing or invalid guards"),
+    @ApiResponse(responseCode = "403", description = "Lock administration denied"),
+    @ApiResponse(responseCode = "404", description = "Table not found"),
+    @ApiResponse(responseCode = "409", description = "Generation, identity or metadata conflict")
+  })
+  @PostMapping("/v1/databases/{databaseId}/tables/{tableId}/lock/SYSTEM_ONLY/guarded")
+  public ResponseEntity<Void> createGuardedSystemLock(
+      @PathVariable String databaseId,
+      @PathVariable String tableId,
+      @RequestBody CreateGuardedLockRequestBody request) {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> response =
+        tablesApiHandler.createGuardedSystemLock(
+            databaseId, tableId, request, extractAuthenticatedUserPrincipal());
+    return new ResponseEntity<>(
+        response.getResponseBody(), response.getHttpHeaders(), response.getHttpStatus());
+  }
+
+  @Operation(
+      operationId = "deleteGuardedSystemLock",
+      summary = "Remove a guarded SYSTEM_ONLY lock",
+      description =
+          "Requires LOCK_ADMIN, the expected table UUID and the recorded lockOwner/lockId. "
+              + "An inactive lock is a no-op only after checking the table generation.",
+      tags = {"Table"})
+  @ApiResponses({
+    @ApiResponse(responseCode = "204", description = "Matching lock removed or already inactive"),
+    @ApiResponse(responseCode = "400", description = "Missing or invalid guards"),
+    @ApiResponse(responseCode = "403", description = "Lock administration denied"),
+    @ApiResponse(responseCode = "404", description = "Table not found"),
+    @ApiResponse(responseCode = "409", description = "Generation, identity or metadata conflict")
+  })
+  @DeleteMapping("/v1/databases/{databaseId}/tables/{tableId}/lock/SYSTEM_ONLY/guarded")
+  public ResponseEntity<Void> deleteGuardedSystemLock(
+      @PathVariable String databaseId,
+      @PathVariable String tableId,
+      @RequestParam String expectedTableUUID,
+      @RequestParam String lockOwner,
+      @RequestParam String lockId) {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> response =
+        tablesApiHandler.deleteGuardedSystemLock(
+            databaseId,
+            tableId,
+            expectedTableUUID,
+            lockOwner,
+            lockId,
+            extractAuthenticatedUserPrincipal());
+    return new ResponseEntity<>(
+        response.getResponseBody(), response.getHttpHeaders(), response.getHttpStatus());
   }
 
   @Operation(

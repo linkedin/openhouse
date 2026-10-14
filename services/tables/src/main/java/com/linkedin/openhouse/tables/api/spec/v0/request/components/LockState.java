@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.api.spec.v0.request.components;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -28,6 +29,18 @@ public class LockState {
               + "remain null. Explicit reasons are preserved.",
       nullable = true)
   LockReason reason;
+
+  @Schema(description = "Authenticated principal that created a guarded lock.", nullable = true)
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+  String lockOwner;
+
+  @Schema(description = "Table generation pinned by a guarded lock.", nullable = true)
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+  String tableUUID;
+
+  @Schema(description = "Caller-selected identity of a guarded lock.", nullable = true)
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+  String lockId;
 
   @Schema(
       description = "lock creation epoch time measured in UTC milliseconds for a table",

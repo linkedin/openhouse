@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.tables.services;
 
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateGuardedLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
@@ -173,6 +174,22 @@ public interface TablesService {
    * @param actingPrincipal authenticated caller requiring LOCK_ADMIN permission
    */
   void deleteLock(String databaseId, String tableId, LockReason reason, String actingPrincipal);
+
+  /** Create a generation-bound SYSTEM_ONLY lock, preserving every nonmatching active lock. */
+  void createGuardedSystemLock(
+      String databaseId,
+      String tableId,
+      CreateGuardedLockRequestBody request,
+      String actingPrincipal);
+
+  /** Remove only the expected generation's matching guarded SYSTEM_ONLY lock. */
+  void deleteGuardedSystemLock(
+      String databaseId,
+      String tableId,
+      String expectedTableUUID,
+      String lockOwner,
+      String lockId,
+      String actingPrincipal);
 
   /**
    * Given a databaseId, return a paginated list of soft deleted {@link TableDto}s.

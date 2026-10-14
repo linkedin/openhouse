@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.tables.api.handler;
 
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateGuardedLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
@@ -186,6 +187,20 @@ public interface TablesApiHandler {
    */
   ApiResponse<Void> deleteLock(
       String databaseId, String tableId, LockReason reason, String tableCreatorUpdator);
+
+  ApiResponse<Void> createGuardedSystemLock(
+      String databaseId,
+      String tableId,
+      CreateGuardedLockRequestBody request,
+      String actingPrincipal);
+
+  ApiResponse<Void> deleteGuardedSystemLock(
+      String databaseId,
+      String tableId,
+      String expectedTableUUID,
+      String lockOwner,
+      String lockId,
+      String actingPrincipal);
 
   /**
    * Function to perform a paginated search on soft deleted tables in a given database ID, with

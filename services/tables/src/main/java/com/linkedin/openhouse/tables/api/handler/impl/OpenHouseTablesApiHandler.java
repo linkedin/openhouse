@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.api.handler.impl;
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateGuardedLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
@@ -211,6 +212,31 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
       String databaseId, String tableId, LockReason reason, String tableCreatorUpdator) {
     tablesApiValidator.validateGetTable(databaseId, tableId);
     tableService.deleteLock(databaseId, tableId, reason, tableCreatorUpdator);
+    return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
+  }
+
+  @Override
+  public ApiResponse<Void> createGuardedSystemLock(
+      String databaseId,
+      String tableId,
+      CreateGuardedLockRequestBody request,
+      String actingPrincipal) {
+    tablesApiValidator.validateGetTable(databaseId, tableId);
+    tableService.createGuardedSystemLock(databaseId, tableId, request, actingPrincipal);
+    return ApiResponse.<Void>builder().httpStatus(HttpStatus.CREATED).build();
+  }
+
+  @Override
+  public ApiResponse<Void> deleteGuardedSystemLock(
+      String databaseId,
+      String tableId,
+      String expectedTableUUID,
+      String lockOwner,
+      String lockId,
+      String actingPrincipal) {
+    tablesApiValidator.validateGetTable(databaseId, tableId);
+    tableService.deleteGuardedSystemLock(
+        databaseId, tableId, expectedTableUUID, lockOwner, lockId, actingPrincipal);
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
   }
 

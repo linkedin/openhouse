@@ -28,3 +28,17 @@ npm install -g widdershins
 4. Commit the changes to the specs directory.
 
 You could also use the [script](scripts/spec_update.sh) to update the specs.
+
+## Guarded SYSTEM_ONLY locks
+
+[Guarded lock operations](guarded-system-locks.md) use the distinct
+`/v1/databases/{databaseId}/tables/{tableId}/lock/SYSTEM_ONLY/guarded` route so older
+servers cannot silently ignore generation or identity guards. POST requires
+`expectedTableUUID` and a stable, caller-selected `lockId`; the server records the
+authenticated `lockOwner`. DELETE requires all three values and preserves
+nonmatching locks. Both operations retain existing `LOCK_ADMIN` authorization.
+The original lock endpoints remain available for explicit owner/admin operations.
+
+The focused reference is generated with the same Widdershins command above,
+selecting this route and its `CreateGuardedLockRequestBody` and `LockState` schemas
+from `build/tables/specs/tables.json`.

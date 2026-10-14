@@ -13,6 +13,7 @@ import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableExcep
 import com.linkedin.openhouse.common.exception.UnprocessableEntityException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateGuardedLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
@@ -33,6 +34,26 @@ import org.springframework.stereotype.Component;
 @Component
 @Primary
 public class MockTablesApiHandler implements TablesApiHandler {
+  @Override
+  public ApiResponse<Void> createGuardedSystemLock(
+      String databaseId,
+      String tableId,
+      CreateGuardedLockRequestBody request,
+      String actingPrincipal) {
+    throw new UnsupportedOperationException("Guarded lock tests use the real handler");
+  }
+
+  @Override
+  public ApiResponse<Void> deleteGuardedSystemLock(
+      String databaseId,
+      String tableId,
+      String expectedTableUUID,
+      String lockOwner,
+      String lockId,
+      String actingPrincipal) {
+    throw new UnsupportedOperationException("Guarded lock tests use the real handler");
+  }
+
   @Override
   public ApiResponse<Void> deleteLock(
       String databaseId,
