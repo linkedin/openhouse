@@ -16,6 +16,17 @@ tasks.withType(GenerateModuleMetadata) {
   enabled = false
 }
 
+// Re-enable module metadata for modules with test fixtures so that consumers
+// can resolve testFixtures() dependencies. Shadow jar modules remain unaffected
+// since they never apply the java-test-fixtures plugin.
+afterEvaluate {
+  if (plugins.hasPlugin('java-test-fixtures')) {
+    tasks.withType(GenerateModuleMetadata) {
+      enabled = true
+    }
+  }
+}
+
 [jar, sourcesJar, javadocJar].each { task ->
   task.from(rootDir) {
     include 'LICENSE'
