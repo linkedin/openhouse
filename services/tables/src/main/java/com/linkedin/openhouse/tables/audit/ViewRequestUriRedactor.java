@@ -8,7 +8,6 @@ import java.util.ArrayList;
 import java.util.List;
 import javax.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Component;
-import org.springframework.util.AntPathMatcher;
 
 /**
  * Keeps the view listing {@code pageToken} out of service audit events.
@@ -30,20 +29,20 @@ import org.springframework.util.AntPathMatcher;
  * parameter whose name is undecodable or whose decoded name exactly matches {@code pageToken} has
  * its value replaced; every other parameter (and the rest of a mixed query) is left exactly as
  * sent.
+ *
+ * <p>The view list route is recognized by {@link ViewRequestRouteMatcher}, which reuses MVC's
+ * parsed {@code RequestPath} and path patterns, so every spelling MVC dispatches to the list
+ * handler (trailing separator, percent-encoded literal segment) is redacted too. The path is used
+ * for classification only; the audited path spelling is left as sent.
  */
 @Component
 public class ViewRequestUriRedactor implements ServiceAuditUriRedactor {
-
-  private static final String VIEW_COLLECTION_PATTERN = "/v1/databases/*/views";
-
-  private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
 
   private static final String PAGE_TOKEN_PARAM_NAME = "pageToken";
 
   @Override
   public boolean appliesTo(HttpServletRequest request) {
-    String uri = request.getRequestURI();
-    return uri != null && PATH_MATCHER.match(VIEW_COLLECTION_PATTERN, uri);
+    return ViewRequestRouteMatcher.isViewCollection(request);
   }
 
   @Override
