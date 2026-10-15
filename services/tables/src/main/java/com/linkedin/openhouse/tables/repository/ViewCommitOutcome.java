@@ -7,7 +7,7 @@ import lombok.Getter;
 import lombok.ToString;
 
 /**
- * The view commit result that {@code OpenHouseInternalViewRepository} returns to the views service.
+ * The view commit result that {@link OpenHouseInternalViewRepository} returns to ViewsServiceImpl.
  * Not the engine's {@code ViewCommitResult}, and never serialized.
  *
  * <p>It is shared instead of passing just a {@link ViewDto} because the service needs two values
