@@ -13,8 +13,7 @@ import com.linkedin.openhouse.tables.audit.model.OperationStatus;
 import com.linkedin.openhouse.tables.audit.model.ViewAuditEvent;
 import com.linkedin.openhouse.tables.model.ViewDto;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
-import com.linkedin.openhouse.tables.repository.ViewCommitOutcome;
-import com.linkedin.openhouse.tables.repository.impl.PreparedViewOperation;
+import com.linkedin.openhouse.tables.services.PreparedViewOperation;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -30,7 +29,7 @@ public class ViewOperationAuditContractTest {
         new RuntimeException("SQL secret, schema secret, file:/secret-token.metadata.json");
 
     emitter.emitUnknown(
-        prepared, null, ACTING_PRINCIPAL, ViewModelConstants.SOURCE_DIALECT, sensitiveCause);
+        prepared, ACTING_PRINCIPAL, ViewModelConstants.SOURCE_DIALECT, sensitiveCause);
 
     ArgumentCaptor<ViewAuditEvent> event = ArgumentCaptor.forClass(ViewAuditEvent.class);
     verify(auditHandler, times(1)).audit(event.capture());
@@ -51,14 +50,15 @@ public class ViewOperationAuditContractTest {
   }
 
   @Test
-  public void successfulCreateTakesUuidAndNewPointerFromTheCommittedOutcome() {
+  public void successfulCreateTakesUuidAndNewPointerFromTheCommittedDtoAndUuid() {
     @SuppressWarnings("unchecked")
     AuditHandler<ViewAuditEvent> auditHandler = mock(AuditHandler.class);
     ViewOperationAuditEmitter emitter = new ViewOperationAuditEmitter(auditHandler);
 
     emitter.emitSuccess(
         PreparedViewOperation.observedAbsence(),
-        outcome(COMMITTED_POINTER, "committed-create-uuid", true),
+        committedDto(COMMITTED_POINTER),
+        "committed-create-uuid",
         ACTING_PRINCIPAL,
         ViewModelConstants.SOURCE_DIALECT);
 
@@ -72,14 +72,15 @@ public class ViewOperationAuditContractTest {
   }
 
   @Test
-  public void successfulReplaceTakesOldPointerFromCaptureAndNewPointerFromOutcome() {
+  public void successfulReplaceTakesOldPointerFromCaptureAndNewPointerFromCommittedDto() {
     @SuppressWarnings("unchecked")
     AuditHandler<ViewAuditEvent> auditHandler = mock(AuditHandler.class);
     ViewOperationAuditEmitter emitter = new ViewOperationAuditEmitter(auditHandler);
 
     emitter.emitSuccess(
         PreparedViewOperation.view(capturedRow()),
-        outcome(COMMITTED_POINTER, "view-uuid", false),
+        committedDto(COMMITTED_POINTER),
+        "view-uuid",
         ACTING_PRINCIPAL,
         ViewModelConstants.SOURCE_DIALECT);
 
@@ -91,12 +92,13 @@ public class ViewOperationAuditContractTest {
   }
 
   @Test
-  public void successfulDropWithoutOutcomeUsesCapturedIdentityAndNoNewPointer() {
+  public void successfulDropWithoutCommittedDtoUsesCapturedIdentityAndNoNewPointer() {
     @SuppressWarnings("unchecked")
     AuditHandler<ViewAuditEvent> auditHandler = mock(AuditHandler.class);
     ViewOperationAuditEmitter emitter = new ViewOperationAuditEmitter(auditHandler);
 
-    emitter.emitSuccess(PreparedViewOperation.view(capturedRow()), null, ACTING_PRINCIPAL, null);
+    emitter.emitSuccess(
+        PreparedViewOperation.view(capturedRow()), null, null, ACTING_PRINCIPAL, null);
 
     ViewAuditEvent event = captureSingle(auditHandler);
     assertEquals(OperationStatus.SUCCESS, event.getOperationStatus());
@@ -120,7 +122,8 @@ public class ViewOperationAuditContractTest {
         () ->
             emitter.emitSuccess(
                 prepared,
-                outcome(COMMITTED_POINTER, "view-uuid", false),
+                committedDto(COMMITTED_POINTER),
+                "view-uuid",
                 ACTING_PRINCIPAL,
                 ViewModelConstants.SOURCE_DIALECT));
     org.junit.jupiter.api.Assertions.assertDoesNotThrow(
@@ -129,11 +132,48 @@ public class ViewOperationAuditContractTest {
         () ->
             emitter.emitUnknown(
                 prepared,
-                null,
                 ACTING_PRINCIPAL,
                 ViewModelConstants.SOURCE_DIALECT,
                 new RuntimeException("ambiguous")));
     verify(auditHandler, times(3)).audit(org.mockito.ArgumentMatchers.any(ViewAuditEvent.class));
+  }
+
+  /**
+   * An acknowledged create/replace is named by the committed DTO, which carries the caller's
+   * requested ids; failure and drop are named by the captured row. The two can differ in case
+   * because House Table identity is case-insensitive.
+   */
+  @Test
+  public void successUsesCommittedDtoIdentityWhileFailureAndDropUseCapturedIdentity() {
+    @SuppressWarnings("unchecked")
+    AuditHandler<ViewAuditEvent> auditHandler = mock(AuditHandler.class);
+    ViewOperationAuditEmitter emitter = new ViewOperationAuditEmitter(auditHandler);
+    PreparedViewOperation captured =
+        PreparedViewOperation.view(capturedRow())
+            .withRequestedIdentity(REQUESTED_DATABASE_ID, REQUESTED_VIEW_ID);
+
+    emitter.emitSuccess(
+        captured,
+        committedDto(COMMITTED_POINTER)
+            .toBuilder()
+            .databaseId(REQUESTED_DATABASE_ID)
+            .viewId(REQUESTED_VIEW_ID)
+            .build(),
+        "view-uuid",
+        ACTING_PRINCIPAL,
+        ViewModelConstants.SOURCE_DIALECT);
+    emitter.emitFailed(captured, ACTING_PRINCIPAL, ViewModelConstants.SOURCE_DIALECT);
+    emitter.emitSuccess(captured, null, null, ACTING_PRINCIPAL, null);
+
+    ArgumentCaptor<ViewAuditEvent> events = ArgumentCaptor.forClass(ViewAuditEvent.class);
+    verify(auditHandler, times(3)).audit(events.capture());
+    ViewAuditEvent replaced = events.getAllValues().get(0);
+    assertEquals(REQUESTED_DATABASE_ID, replaced.getDatabaseName());
+    assertEquals(REQUESTED_VIEW_ID, replaced.getViewName());
+    for (ViewAuditEvent capturedNamed : events.getAllValues().subList(1, 3)) {
+      assertEquals(ViewModelConstants.DATABASE_ID, capturedNamed.getDatabaseName());
+      assertEquals(ViewModelConstants.VIEW_ID, capturedNamed.getViewName());
+    }
   }
 
   /** Outside an HTTP request there is no inbound session-id, as for the request audit. */
@@ -158,17 +198,15 @@ public class ViewOperationAuditContractTest {
   private static final String COMMITTED_POINTER =
       "file:/warehouse/my_database/my_view/metadata/00002-committed.metadata.json";
 
-  private static ViewCommitOutcome outcome(String pointer, String uuid, boolean created) {
-    return ViewCommitOutcome.builder()
-        .dto(
-            ViewDto.builder()
-                .databaseId(ViewModelConstants.DATABASE_ID)
-                .viewId(ViewModelConstants.VIEW_ID)
-                .metadataLocation(pointer)
-                .viewVersion(pointer)
-                .build())
-        .committedViewUuid(uuid)
-        .created(created)
+  private static final String REQUESTED_DATABASE_ID = "My_Database";
+  private static final String REQUESTED_VIEW_ID = "My_View";
+
+  private static ViewDto committedDto(String pointer) {
+    return ViewDto.builder()
+        .databaseId(ViewModelConstants.DATABASE_ID)
+        .viewId(ViewModelConstants.VIEW_ID)
+        .metadataLocation(pointer)
+        .viewVersion(pointer)
         .build();
   }
 
