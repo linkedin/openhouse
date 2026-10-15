@@ -42,7 +42,7 @@ public class ReadBridgeConfigResolverTest {
   }
 
   /** A table carrying an explicit {@code read-bridge.column-default.enabled} value. */
-  private static TableDto tableWithOverride(String value) {
+  private static TableDto tableWithOptIn(String value) {
     return TableDto.builder()
         .databaseId("db")
         .tableId("tbl")
@@ -54,7 +54,7 @@ public class ReadBridgeConfigResolverTest {
   /** Gate 1: no deployment-supplied source => inert, even for a table that opts in. */
   @Test
   public void testInertWhenNoSourceSupplied() {
-    Assertions.assertTrue(resolverFor(NONE).resolve(tableWithOverride("true")).isEmpty());
+    Assertions.assertTrue(resolverFor(NONE).resolve(tableWithOptIn("true")).isEmpty());
   }
 
   /**
@@ -69,7 +69,7 @@ public class ReadBridgeConfigResolverTest {
             tableDto -> {
               throw bug;
             });
-    TableDto table = tableWithOverride("true");
+    TableDto table = tableWithOptIn("true");
 
     Assertions.assertSame(
         bug, Assertions.assertThrows(IllegalStateException.class, () -> resolver.resolve(table)));
@@ -85,7 +85,7 @@ public class ReadBridgeConfigResolverTest {
    */
   @Test
   public void testUnusableDefaultIsBlamedOnTheTableThatDeclaresIt() {
-    TableDto table = tableWithOverride("true");
+    TableDto table = tableWithOptIn("true");
     ColumnDefaultException reported =
         new ColumnDefaultException("column country: default is not a long");
     ReadBridgeConfigResolver resolver =
@@ -106,8 +106,8 @@ public class ReadBridgeConfigResolverTest {
   }
 
   /**
-   * Gate 2: a table is bridged only when it carries {@code true}. No HouseTables rule turns column
-   * defaults on, and the source of a table that is not opted in is never asked.
+   * Gate 2: a table is bridged only when it carries {@code true}, and the source of a table that is
+   * not opted in is never asked.
    */
   @Test
   public void testOnlyTheTablePropertyTurnsColumnDefaultsOn() {
@@ -116,13 +116,13 @@ public class ReadBridgeConfigResolverTest {
 
     Assertions.assertTrue(
         resolver.resolve(TableDto.builder().databaseId("db").tableId("tbl").build()).isEmpty());
-    Assertions.assertTrue(resolver.resolve(tableWithOverride("false")).isEmpty());
-    Assertions.assertTrue(resolver.resolve(tableWithOverride("sometimes")).isEmpty());
+    Assertions.assertTrue(resolver.resolve(tableWithOptIn("false")).isEmpty());
+    Assertions.assertTrue(resolver.resolve(tableWithOptIn("sometimes")).isEmpty());
     // Deriving defaults can be expensive (a deployment may parse a schema); gate first.
     verifyNoInteractions(source);
 
     Assertions.assertEquals(
-        "\"US\"", resolverFor(oneDefault()).resolve(tableWithOverride(" TRUE ")).get(PREFIX + "5"));
+        "\"US\"", resolverFor(oneDefault()).resolve(tableWithOptIn(" TRUE ")).get(PREFIX + "5"));
   }
 
   /**
@@ -135,15 +135,15 @@ public class ReadBridgeConfigResolverTest {
     Assertions.assertDoesNotThrow(
         () -> when(emptySource.defaults(any())).thenReturn(Collections.emptyMap()));
 
-    Assertions.assertTrue(resolverFor(emptySource).resolve(tableWithOverride("true")).isEmpty());
+    Assertions.assertTrue(resolverFor(emptySource).resolve(tableWithOptIn("true")).isEmpty());
     Assertions.assertDoesNotThrow(() -> verify(emptySource).defaults(any()));
   }
 
   /**
-   * The capability's feature id, its self-service property and its wire keys are one token. Pinned
-   * as literals because all three are external contracts: the property is set on customer tables,
-   * and the prefix is mirrored by the client decoder. Deriving them from each other keeps them
-   * consistent; asserting the literals keeps a refactor from silently renaming all three at once.
+   * The capability's id, its opt-in property and its wire keys are one token. Pinned as literals
+   * because all three are external contracts: the property is set on customer tables, and the
+   * prefix is mirrored by the client decoder. Deriving them from each other keeps them consistent;
+   * asserting the literals keeps a refactor from silently renaming all three at once.
    */
   @Test
   public void testFeatureIdPropertyAndKeysAreOneToken() {
@@ -155,29 +155,10 @@ public class ReadBridgeConfigResolverTest {
         "openhouse.read-bridge.column-default.", ReadBridgeConfigResolver.COLUMN_DEFAULT_PREFIX);
   }
 
-  /**
-   * Rollout is per capability, never for read-bridge as a whole: capabilities share only the
-   * transport. A table opted out of column defaults must not thereby be opted out of a capability
-   * added later, and vice versa. Pinned because the id is baked into a customer-set property, so
-   * splitting it after the fact means a migration.
-   *
-   * <p>The bare "read-bridge" id staying unclaimed is also the room a future superset ramp (e.g.
-   * "v3-read-bridge", activating every capability at once) needs in order to exist without
-   * colliding with a capability's own id.
-   */
-  @Test
-  public void testRolloutIdIsScopedToTheCapabilityNotTheMechanism() {
-    Assertions.assertNotEquals("read-bridge", ReadBridgeConfigResolver.COLUMN_DEFAULT_FEATURE_ID);
-    Assertions.assertNotEquals(
-        "v3-read-bridge", ReadBridgeConfigResolver.COLUMN_DEFAULT_FEATURE_ID);
-    Assertions.assertTrue(
-        ReadBridgeConfigResolver.COLUMN_DEFAULT_FEATURE_ID.startsWith("read-bridge."));
-  }
-
   @Test
   public void testStampsColumnDefaultEntry() {
     ColumnDefaultsSource source = tableDto -> Collections.singletonMap(5, TextNode.valueOf("US"));
-    Map<String, String> config = resolverFor(source).resolve(tableWithOverride("true"));
+    Map<String, String> config = resolverFor(source).resolve(tableWithOptIn("true"));
     // value is the single-value JSON for the default ("US" -> "\"US\"").
     Assertions.assertEquals("\"US\"", config.get(PREFIX + "5"));
   }
@@ -191,7 +172,7 @@ public class ReadBridgeConfigResolverTest {
           defaults.put(7, IntNode.valueOf(0));
           return defaults;
         };
-    Map<String, String> config = resolverFor(source).resolve(tableWithOverride("true"));
+    Map<String, String> config = resolverFor(source).resolve(tableWithOptIn("true"));
     Assertions.assertEquals(2, config.size());
     Assertions.assertEquals("\"US\"", config.get(PREFIX + "5"));
     Assertions.assertEquals("0", config.get(PREFIX + "7"));

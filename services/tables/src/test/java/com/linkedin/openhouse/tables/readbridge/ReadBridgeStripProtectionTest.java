@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.node.TextNode;
 import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
 import com.linkedin.openhouse.tables.model.TableDto;
-import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.Arrays;
@@ -25,9 +24,7 @@ public class ReadBridgeStripProtectionTest {
   private static final String SCHEMA_UNSTAMPED_WRITER_DEFAULTS =
       schema("schema_unstamped_writer_defaults.json");
 
-  private static final String ENABLED_PROP =
-      ReadBridgeConfigResolver.COLUMN_DEFAULT_FEATURE_ID
-          + TableFeatureToggle.ENABLED_PROPERTY_SUFFIX;
+  private static final String ENABLED_PROP = ReadBridgeConfigResolver.COLUMN_DEFAULT_ENABLED_PROP;
   private static final String METADATA_LOCATION =
       "file:/data/openhouse/db/tbl-uuid/00001-x.metadata.json";
 
