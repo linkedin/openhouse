@@ -13,6 +13,8 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.ServiceAuditPayloadRedactor;
 import com.linkedin.openhouse.common.audit.ServiceAuditUriRedactor;
@@ -50,6 +52,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -101,8 +104,23 @@ public class ViewsManagedFailureAuditTest {
   private static final String SECRET_SCHEMA = "very_secret_schema";
   private static final String SECRET_BASE = "file:/very-secret-base.metadata.json";
   private static final String SECRET_PAGE_TOKEN = "very-secret-page-token";
+  /**
+   * Forbidden on every diagnostic surface (responses, rendered logs including thrown causes) and in
+   * the identity-only operation audit event.
+   */
   private static final String[] SECRETS = {
     SECRET_SQL, SECRET_SCHEMA, SECRET_BASE, SECRET_PAGE_TOKEN
+  };
+
+  /**
+   * Forbidden in the request audit event. The request audit keeps the supplied view definition
+   * (schema and SQL) as request provenance, so only the CAS and page tokens are listed here.
+   */
+  private static final String[] REQUEST_TOKEN_SECRETS = {SECRET_BASE, SECRET_PAGE_TOKEN};
+
+  private static final String REQUEST_SINK_FAILURE = "request-audit-sink-failure-marker";
+  private static final String[] PARSER_DETAILS = {
+    "com.google.gson", "MalformedJsonException", "JsonSyntaxException", "End of input"
   };
   private static final String CAPTURED_UUID = "view-uuid";
   private static final String SESSION_ID_HEADER = "session-id";
@@ -154,6 +172,11 @@ public class ViewsManagedFailureAuditTest {
         .thenReturn(Optional.empty());
   }
 
+  /**
+   * A body that Gson (the request-audit parser) also rejects, not merely Jackson, so the audit's
+   * parse-failure path runs: the payload is dropped rather than retained raw, the existing parsing
+   * failure metric is counted, and neither the body nor parser details reach the logs.
+   */
   @Test
   public void malformedJsonHasRequestAuditNoOperationAuditAndNoSensitiveWireOrLogs()
       throws Exception {
@@ -165,6 +188,7 @@ public class ViewsManagedFailureAuditTest {
             + "\",\"representations\":[{\"sql\":\""
             + SECRET_SQL
             + "\"}],";
+    double parseFailuresBefore = serviceAuditCount(MetricsConstant.FAILED_PARSING_REQUEST_PAYLOAD);
 
     try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
       MvcResult result =
@@ -179,8 +203,17 @@ public class ViewsManagedFailureAuditTest {
               .andReturn();
 
       assertNoSensitive(result.getResponse().getContentAsString(), logs.renderedEvents());
+      for (String parserDetail : PARSER_DETAILS) {
+        assertFalse(logs.renderedEvents().contains(parserDetail), logs.renderedEvents());
+      }
     }
-    AuditEventInspection.assertNoSensitiveProperties(captureServiceAudit(), SECRETS);
+    ServiceAuditEvent event = captureServiceAudit();
+    assertNull(event.getRequestPayload(), "An unparseable body is dropped, never audited raw.");
+    AuditEventInspection.assertNoSensitiveProperties(event, SECRETS);
+    assertEquals(
+        parseFailuresBefore + 1,
+        serviceAuditCount(MetricsConstant.FAILED_PARSING_REQUEST_PAYLOAD),
+        "The audit's parse-failure path ran and was counted.");
     verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
   }
 
@@ -201,7 +234,7 @@ public class ViewsManagedFailureAuditTest {
                 .header(SESSION_ID_HEADER, sessionId))
         .andExpect(status().isCreated());
 
-    AuditEventInspection.assertNoSensitiveProperties(captureServiceAudit(), SECRETS);
+    assertRequestAuditKeepsSuppliedDefinition(captureServiceAudit(), requestWithSensitiveMarkers());
     ViewAuditEvent viewEvent = captureViewAudit();
     assertEquals(OperationStatus.SUCCESS, viewEvent.getOperationStatus());
     assertEquals(
@@ -241,7 +274,8 @@ public class ViewsManagedFailureAuditTest {
                 .header("Authorization", "Bearer " + jwtAccessToken))
         .andExpect(status().isOk());
 
-    AuditEventInspection.assertNoSensitiveProperties(captureServiceAudit(), SECRETS);
+    assertRequestAuditKeepsSuppliedDefinition(
+        captureServiceAudit(), ViewModelConstants.fullyPopulatedRequest().toJson());
     ViewAuditEvent viewEvent = captureViewAudit();
     assertEquals(OperationStatus.SUCCESS, viewEvent.getOperationStatus());
     assertEquals(CAPTURED_UUID, viewEvent.getViewUUID());
@@ -294,7 +328,7 @@ public class ViewsManagedFailureAuditTest {
       assertNoSensitive(result.getResponse().getContentAsString(), logs.renderedEvents());
     }
     verify(viewCommitEngine, never()).commit(any());
-    AuditEventInspection.assertNoSensitiveProperties(captureServiceAudit(), SECRETS);
+    assertRequestAuditKeepsSuppliedDefinition(captureServiceAudit(), requestWithSensitiveMarkers());
     ViewAuditEvent viewEvent = captureViewAudit();
     assertEquals(OperationStatus.FAILED, viewEvent.getOperationStatus());
     assertNull(viewEvent.getNewMetadataLocation());
@@ -459,7 +493,7 @@ public class ViewsManagedFailureAuditTest {
       assertNoSensitive(result.getResponse().getContentAsString(), logs.renderedEvents());
     }
     verify(viewCommitEngine, never()).commit(any());
-    AuditEventInspection.assertNoSensitiveProperties(captureServiceAudit(), SECRETS);
+    assertRequestAuditKeepsSuppliedDefinition(captureServiceAudit(), requestWithSensitiveMarkers());
     ViewAuditEvent viewEvent = captureViewAudit();
     assertEquals(OperationStatus.FAILED, viewEvent.getOperationStatus());
     assertNull(viewEvent.getNewMetadataLocation());
@@ -495,7 +529,7 @@ public class ViewsManagedFailureAuditTest {
     verify(viewCommitEngine, times(1)).commit(intent.capture());
     assertEquals(Boolean.TRUE, intent.getValue().getIsCreate());
     verify(houseTableRepository, never()).deleteViewById(any());
-    AuditEventInspection.assertNoSensitiveProperties(captureServiceAudit(), SECRETS);
+    assertRequestAuditKeepsSuppliedDefinition(captureServiceAudit(), requestWithSensitiveMarkers());
     ViewAuditEvent viewEvent = captureViewAudit();
     assertEquals(OperationStatus.UNKNOWN, viewEvent.getOperationStatus());
     // Observed absence supplies no identity or prior pointer, and an unacknowledged commit
@@ -710,19 +744,19 @@ public class ViewsManagedFailureAuditTest {
 
   /**
    * A create at an MVC-accepted encoded collection alias succeeds normally, and its request audit
-   * carries the redacted definition, never the schema or SQL.
+   * keeps the supplied definition exactly as on the canonical route.
    */
   @ParameterizedTest
   @ValueSource(strings = {"/%76iews", "/%76iews/"})
-  public void createOnAnEncodedCollectionAliasRedactsTheRequestAuditPayload(String routeSuffix)
+  public void createOnAnEncodedCollectionAliasKeepsTheDefinitionInRequestAudit(String routeSuffix)
       throws Exception {
     when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
     when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
         .thenReturn(ViewsManagedAuthMatrixBase.createdResult());
 
-    assertWritePayloadRedacted(
-        MockMvcRequestBuilders.post(URI.create(DATABASE_ROUTE + routeSuffix))
-            .content(requestWithSensitiveMarkers()),
+    assertWriteAliasRequestAudit(
+        MockMvcRequestBuilders.post(URI.create(DATABASE_ROUTE + routeSuffix)),
+        requestWithSensitiveMarkers(),
         201);
 
     verify(viewCommitEngine, times(1)).commit(any(ViewCommitIntent.class));
@@ -730,11 +764,12 @@ public class ViewsManagedFailureAuditTest {
   }
 
   /**
-   * A replace at an MVC-accepted encoded item alias succeeds normally, and its request audit
-   * carries neither the schema, the SQL, nor the CAS base metadata location.
+   * A replace at an MVC-accepted encoded item alias succeeds normally, and its request audit keeps
+   * the supplied definition while the CAS base metadata location is redacted.
    */
   @Test
-  public void replaceOnAnEncodedItemAliasRedactsTheRequestAuditPayload() throws Exception {
+  public void replaceOnAnEncodedItemAliasKeepsTheDefinitionAndRedactsTheCasToken()
+      throws Exception {
     when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
     when(houseTableRepository.findEntityById(ViewsManagedAuthMatrixBase.viewKey()))
         .thenReturn(
@@ -746,10 +781,10 @@ public class ViewsManagedFailureAuditTest {
     when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
         .thenReturn(ViewsManagedAuthMatrixBase.replacedResult());
 
-    assertWritePayloadRedacted(
+    assertWriteAliasRequestAudit(
         MockMvcRequestBuilders.put(
-                URI.create(DATABASE_ROUTE + "/%76iews/" + ViewModelConstants.VIEW_ID))
-            .content(sensitiveRequest(SECRET_BASE)),
+            URI.create(DATABASE_ROUTE + "/%76iews/" + ViewModelConstants.VIEW_ID)),
+        sensitiveRequest(SECRET_BASE),
         200);
 
     verify(viewCommitEngine, times(1)).commit(any(ViewCommitIntent.class));
@@ -758,11 +793,11 @@ public class ViewsManagedFailureAuditTest {
 
   /**
    * A structurally invalid definition at an encoded alias is rejected before service entry; the
-   * exception-advice request audit still carries the redacted definition, and no operation audit is
-   * emitted.
+   * exception-advice request audit still keeps the supplied definition with the CAS token redacted,
+   * and no operation audit is emitted.
    */
   @Test
-  public void invalidDefinitionOnAnEncodedCollectionAliasRedactsTheFailureRequestAudit()
+  public void invalidDefinitionOnAnEncodedCollectionAliasKeepsTheDefinitionInFailureRequestAudit()
       throws Exception {
     String invalid =
         com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody.builder()
@@ -784,15 +819,16 @@ public class ViewsManagedFailureAuditTest {
             .build()
             .toJson();
 
-    assertWritePayloadRedacted(
-        MockMvcRequestBuilders.post(URI.create(DATABASE_ROUTE + "/%76iews")).content(invalid), 400);
+    assertWriteAliasRequestAudit(
+        MockMvcRequestBuilders.post(URI.create(DATABASE_ROUTE + "/%76iews")), invalid, 400);
 
     Mockito.verifyNoInteractions(houseTableRepository, viewCommitEngine, opaHandler);
     verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
   }
 
-  private void assertWritePayloadRedacted(
+  private void assertWriteAliasRequestAudit(
       org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request,
+      String body,
       int expectedStatus)
       throws Exception {
     try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
@@ -802,6 +838,7 @@ public class ViewsManagedFailureAuditTest {
                       withToken(
                           request
                               .contentType(MediaType.APPLICATION_JSON)
+                              .content(body)
                               .accept(MediaType.APPLICATION_JSON))))
               .andReturn();
 
@@ -815,12 +852,8 @@ public class ViewsManagedFailureAuditTest {
       assertNoSensitive(result.getResponse().getContentAsString(), logs.renderedEvents());
     }
     ServiceAuditEvent event = captureServiceAudit();
-    AuditEventInspection.assertNoSensitiveProperties(event, SECRETS);
     assertEquals(expectedStatus, event.getStatusCode());
-    assertTrue(
-        String.valueOf(event.getRequestPayload())
-            .contains(ServiceAuditPayloadRedactor.REDACTED_VALUE),
-        "The definition is redacted in place, not dropped: " + event.getRequestPayload());
+    assertRequestAuditKeepsSuppliedDefinition(event, body);
   }
 
   /**
@@ -901,10 +934,12 @@ public class ViewsManagedFailureAuditTest {
 
   /**
    * A syntactically valid body whose representations is an object fails Jackson binding, but the
-   * request audit still parses it; its SQL must not reach any surface.
+   * request audit still parses it and keeps it exactly as supplied; its SQL must not reach the
+   * response or the logs.
    */
   @Test
-  public void objectShapedRepresentationsSqlNeverReachesAuditWireOrLogs() throws Exception {
+  public void objectShapedRepresentationsAreKeptInRequestAuditButNeverReachWireOrLogs()
+      throws Exception {
     String body =
         "{\"databaseId\":\""
             + ViewModelConstants.DATABASE_ID
@@ -930,7 +965,7 @@ public class ViewsManagedFailureAuditTest {
 
       assertNoSensitive(result.getResponse().getContentAsString(), logs.renderedEvents());
     }
-    AuditEventInspection.assertNoSensitiveProperties(captureServiceAudit(), SECRETS);
+    assertRequestAuditKeepsSuppliedDefinition(captureServiceAudit(), body);
     verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
     Mockito.verifyNoInteractions(houseTableRepository, viewCommitEngine, opaHandler);
   }
@@ -1216,11 +1251,117 @@ public class ViewsManagedFailureAuditTest {
   }
 
   private double failedServiceAuditCount() {
-    Counter counter =
-        meterRegistry
-            .find(MetricsConstant.SERVICE_AUDIT + "_" + MetricsConstant.FAILED_SERVICE_AUDIT)
-            .counter();
+    return serviceAuditCount(MetricsConstant.FAILED_SERVICE_AUDIT);
+  }
+
+  private double serviceAuditCount(String metric) {
+    Counter counter = meterRegistry.find(MetricsConstant.SERVICE_AUDIT + "_" + metric).counter();
     return counter == null ? 0.0 : counter.count();
+  }
+
+  // --- Request-audit sink failure: the event it received may echo the definition ---
+
+  @Test
+  public void requestAuditSinkFailureAfterAcknowledgedCreateKeepsCreatedAndLogsNoDetails()
+      throws Exception {
+    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
+    when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
+        .thenReturn(ViewsManagedAuthMatrixBase.createdResult());
+
+    assertRequestAuditSinkFailureKeepsOutcome(201);
+
+    verify(viewCommitEngine, times(1)).commit(any(ViewCommitIntent.class));
+    assertEquals(OperationStatus.SUCCESS, captureViewAudit().getOperationStatus());
+  }
+
+  @Test
+  public void requestAuditSinkFailureAfterAFailedResponseKeepsForbiddenAndLogsNoDetails()
+      throws Exception {
+    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(false);
+
+    assertRequestAuditSinkFailureKeepsOutcome(403);
+
+    verify(viewCommitEngine, never()).commit(any());
+    assertEquals(OperationStatus.FAILED, captureViewAudit().getOperationStatus());
+  }
+
+  /**
+   * The request-audit sink receives the full event once and throws an exception whose message,
+   * cause and suppressed exception echo that event's JSON. The HTTP outcome and correlation stay as
+   * they were, the existing failed-audit metric is counted, and no diagnostic carries the
+   * definition, a token, the sink's message, or the raw throwable.
+   */
+  private void assertRequestAuditSinkFailureKeepsOutcome(int expectedStatus) throws Exception {
+    String sessionId = "view-session-request-sink-failure";
+    String body = requestWithSensitiveMarkers();
+    AtomicReference<ServiceAuditEvent> delivered = new AtomicReference<>();
+    Mockito.doAnswer(
+            invocation -> {
+              ServiceAuditEvent event = invocation.getArgument(0);
+              delivered.set(event);
+              IllegalStateException failure =
+                  new IllegalStateException(
+                      REQUEST_SINK_FAILURE + " " + event.toJson() + " " + SECRET_SQL,
+                      new RuntimeException(event.toJson() + " " + SECRET_SCHEMA));
+              failure.addSuppressed(new RuntimeException(event.toJson() + " " + SECRET_BASE));
+              throw failure;
+            })
+        .when(serviceAuditHandler)
+        .audit(any(ServiceAuditEvent.class));
+    double failedAuditsBefore = failedServiceAuditCount();
+
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      MvcResult result =
+          mvc.perform(
+                  withToken(
+                      MockMvcRequestBuilders.post(VIEWS_PATH)
+                          .contentType(MediaType.APPLICATION_JSON)
+                          .content(body)
+                          .accept(MediaType.APPLICATION_JSON)
+                          .header(SESSION_ID_HEADER, sessionId)))
+              .andReturn();
+
+      assertEquals(expectedStatus, result.getResponse().getStatus());
+      String wire = result.getResponse().getContentAsString();
+      String renderedLogs = logs.renderedEvents();
+      assertNoSensitive(wire, renderedLogs);
+      String[] sinkFailureDetails = {
+        REQUEST_SINK_FAILURE, "java.lang.IllegalStateException", "java.lang.RuntimeException"
+      };
+      for (String forbidden : sinkFailureDetails) {
+        assertFalse(wire.contains(forbidden), wire);
+        assertFalse(renderedLogs.contains(forbidden), renderedLogs);
+      }
+    }
+
+    verify(serviceAuditHandler, times(1)).audit(any(ServiceAuditEvent.class));
+    assertEquals(
+        failedAuditsBefore + 1,
+        failedServiceAuditCount(),
+        "The request-audit delivery failure is reported through the existing metric.");
+    ServiceAuditEvent event = delivered.get();
+    assertEquals(expectedStatus, event.getStatusCode());
+    assertEquals(sessionId, event.getSessionId());
+    assertRequestAuditKeepsSuppliedDefinition(event, body);
+  }
+
+  /**
+   * The request audit keeps the supplied definition exactly: the parsed body as sent, with only a
+   * supplied CAS token value replaced (its key kept). No CAS or page token survives anywhere in the
+   * event.
+   */
+  private static void assertRequestAuditKeepsSuppliedDefinition(
+      ServiceAuditEvent event, String sentBody) {
+    JsonObject expected = JsonParser.parseString(sentBody).getAsJsonObject();
+    if (expected.has("baseMetadataLocation")) {
+      expected.addProperty("baseMetadataLocation", ServiceAuditPayloadRedactor.REDACTED_VALUE);
+    }
+    assertEquals(
+        expected, event.getRequestPayload(), "Request audit keeps the definition as sent.");
+    String audited = String.valueOf(event.getRequestPayload());
+    assertTrue(audited.contains(SECRET_SQL), audited);
+    assertTrue(audited.contains(SECRET_SCHEMA), audited);
+    AuditEventInspection.assertNoSensitiveProperties(event, REQUEST_TOKEN_SECRETS);
   }
 
   // --- F10: SUCCESS, FAILED and UNKNOWN correlation is asserted in their primary audit cases ---
@@ -1281,10 +1422,11 @@ public class ViewsManagedFailureAuditTest {
 
   /**
    * A representations array whose elements are bare or nested SQL strings fails binding, but the
-   * request audit still parses the body; that SQL must not reach any surface.
+   * request audit still parses the body and keeps it exactly as supplied; that SQL must not reach
+   * the response or the logs.
    */
   @Test
-  public void primitiveAndNestedArrayRepresentationsSqlNeverReachesAuditWireOrLogs()
+  public void primitiveAndNestedArrayRepresentationsAreKeptInRequestAuditButNeverReachWireOrLogs()
       throws Exception {
     for (String representations :
         new String[] {
@@ -1318,7 +1460,7 @@ public class ViewsManagedFailureAuditTest {
 
         assertNoSensitive(result.getResponse().getContentAsString(), logs.renderedEvents());
       }
-      AuditEventInspection.assertNoSensitiveProperties(captureServiceAudit(), SECRETS);
+      assertRequestAuditKeepsSuppliedDefinition(captureServiceAudit(), body);
     }
     verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
     Mockito.verifyNoInteractions(houseTableRepository, viewCommitEngine, opaHandler);
