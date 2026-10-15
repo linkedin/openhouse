@@ -57,6 +57,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -312,6 +313,42 @@ public class TablesControllerTest {
     Assertions.assertFalse(
         actualEvent.getRequestPayload().toString().contains(REDACTED_VALUE),
         "Nothing in a table request payload may be redacted by the views change.");
+  }
+
+  /**
+   * Non-view control for the view audit route classification: a table create sent on a
+   * percent-encoded table route, with a {@code pageToken} query value, is still a table request.
+   * Its raw URI and query and its table schema are audited exactly as sent.
+   */
+  @Test
+  public void encodedTableRouteAuditKeepsItsRawQueryAndSchemaUnredacted() throws Exception {
+    String rawUri =
+        CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/%74ables?pageToken=table-query-value&x=1";
+    CreateUpdateTableRequestBody requestBody =
+        RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY
+            .toBuilder()
+            .schema(TABLE_SCHEMA_WITH_MARKER)
+            .build();
+
+    MvcResult result =
+        mvc.perform(
+                MockMvcRequestBuilders.post(java.net.URI.create(rawUri))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(requestBody.toJson())
+                    .accept(MediaType.APPLICATION_JSON)
+                    .header("Authorization", "Bearer " + jwtAccessToken))
+            .andReturn();
+
+    Assertions.assertEquals(
+        TablesController.class,
+        ((org.springframework.web.method.HandlerMethod) result.getHandler()).getBeanType());
+    Mockito.verify(serviceAuditHandler, Mockito.atLeastOnce()).audit(argCaptor.capture());
+    ServiceAuditEvent actualEvent = argCaptor.getValue();
+    Assertions.assertEquals(rawUri, actualEvent.getUri());
+    Assertions.assertEquals(
+        TABLE_SCHEMA_WITH_MARKER,
+        actualEvent.getRequestPayload().getAsJsonObject().get("schema").getAsString());
+    Assertions.assertFalse(actualEvent.getRequestPayload().toString().contains(REDACTED_VALUE));
   }
 
   @Test
