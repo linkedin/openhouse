@@ -230,11 +230,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     if (tableDto.isStageCreate() || tableDto.isStageReplace()) {
       houseTable = houseTableForStagedOperation(tableIdentifier, tableDto, table);
     } else {
-      Optional<HouseTable> existingHouseTable = findHouseTable(tableIdentifier);
-      if (!existingHouseTable.isPresent()) {
-        throw new IllegalStateException("Catalog entry is missing for table " + tableIdentifier);
-      }
-      houseTable = existingHouseTable.get();
+      houseTable = getHouseTable(tableIdentifier);
     }
     return convertToTableDto(
         table, houseTable, fileIOManager, partitionSpecMapper, policiesMapper, tableTypeMapper);
@@ -303,11 +299,10 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   private boolean skipEligibilityCheck(
       HouseTable existingHouseTable,
       TableDto newTableDto,
-      String newClusterId,
       Map<String, String> existingTableProps) {
     // If on the same cluster, table update is primary -> primary and must check all keys, so don't
     // skip validation
-    if (Objects.equals(existingHouseTable.getClusterId(), newClusterId)) {
+    if (Objects.equals(existingHouseTable.getClusterId(), newTableDto.getClusterId())) {
       return false;
     }
 
@@ -450,8 +445,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   protected void updateEligibilityCheck(Table existingTable, TableDto tableDto) {
     HouseTable existingHouseTable =
         getHouseTable(TableIdentifier.of(tableDto.getDatabaseId(), tableDto.getTableId()));
-    if (!skipEligibilityCheck(
-        existingHouseTable, tableDto, tableDto.getClusterId(), existingTable.properties())) {
+    if (!skipEligibilityCheck(existingHouseTable, tableDto, existingTable.properties())) {
       // eligibility check is relaxed for request from replication flow since preserved properties
       // & tableType will differ in tableDto and existing table.
       PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
