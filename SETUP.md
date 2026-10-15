@@ -403,11 +403,15 @@ scala> spark.sql("SHOW TBLPROPERTIES openhouse.db.tb").show()
 #### Default-value client compatibility
 
 Tables with `read-bridge.column-default.enabled=true` require `X-Client-Name: spark` and
-`User-Agent: openhouse-java-client/<version>` for table loads, metadata-location searches, and
-metadata/snapshot commits. Configure `cluster.read-bridge.column-default.minimum-client-version`
-to a verified compatible JAR release. Unset/invalid minima and missing/unknown/prerelease client
-versions fail closed with HTTP **422**. Numeric versions are compared only within the same major
-release family, so LI `4.x` is not mistakenly treated as newer than OSS `0.x`.
+`User-Agent: openhouse-java-client/<version>` for table loads and metadata/snapshot commits. Table
+searches, and updates that change nothing, are not gated. Tables without that property are never
+checked.
+
+Configure `cluster.read-bridge.column-default.minimum-client-version` to a verified compatible JAR
+release. Leaving it unset does not turn the gate off: until it is set to a valid release, every load
+and commit of an opted-in table fails with HTTP **422**. Missing, unknown and prerelease client
+versions also fail with 422. Numeric versions are compared only within the same major release
+family, so LI `4.x` is not mistakenly treated as newer than OSS `0.x`.
 
 Use `spark.sql.catalog.openhouse.client-name=spark` if the Spark catalog does not already identify
 itself. Telemetry is self-reported: `client-version` must reflect the actual JAR, not a fabricated

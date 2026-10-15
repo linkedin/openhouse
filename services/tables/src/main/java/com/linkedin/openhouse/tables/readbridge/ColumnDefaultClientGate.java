@@ -9,16 +9,26 @@ import org.springframework.data.util.Version;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
-/** Admission for explicitly opted-in tables; called after authorization, before reads or writes. */
+/**
+ * Admission for explicitly opted-in tables; called after authorization, before reads or writes.
+ * Tables without {@code read-bridge.column-default.enabled=true} are never checked.
+ */
 public class ColumnDefaultClientGate {
   private static final String ENABLED =
       ReadBridgeConfigResolver.COLUMN_DEFAULT_FEATURE_ID + ".enabled";
   private static final String PRODUCT = "openhouse-java-client/";
   private static final Pattern RELEASE = Pattern.compile("[0-9]{1,9}(?:\\.[0-9]{1,9}){2,3}");
   private final String minimum;
+  /** Null when no valid minimum is configured: then no client is admitted to opted-in tables. */
   private final Version minimumVersion;
+
   private final String majorPrefix;
 
+  /**
+   * @param minimum oldest admitted {@code openhouse-java-client} release, such as {@code 4.2.150}.
+   *     Empty or invalid fails closed: every request to an opted-in table is rejected unless it
+   *     carries the column-default policy bypass. It does not turn the gate off.
+   */
   public ColumnDefaultClientGate(String minimum) {
     this.minimum = minimum;
     this.minimumVersion = RELEASE.matcher(minimum).matches() ? Version.parse(minimum) : null;
@@ -50,14 +60,23 @@ public class ColumnDefaultClientGate {
         }
       }
     }
+    String bypassHint =
+        " To bypass column-default policy checks, set header."
+            + TablesMvcConstants.HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS
+            + "=true on the client catalog; incorrect reads or writes may result.";
+    if (minimumVersion == null) {
+      throw new ColumnDefaultClientRejectedException(
+          "Column-default tables admit no client: this server has no valid "
+              + "cluster.read-bridge.column-default.minimum-client-version (got '"
+              + minimum
+              + "')."
+              + bypassHint);
+    }
     throw new ColumnDefaultClientRejectedException(
         "Column-default tables require client-name=spark and openhouse-java-client/"
             + minimum
-            + " or newer in the same major release family. Configure "
-            + "cluster.read-bridge.column-default.minimum-client-version and use a compatible client. "
-            + "To bypass column-default policy checks, set header."
-            + TablesMvcConstants.HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS
-            + "=true on the client catalog; incorrect reads or writes may result.");
+            + " or newer in the same major release family."
+            + bypassHint);
   }
 
   private static HttpServletRequest currentRequest() {
