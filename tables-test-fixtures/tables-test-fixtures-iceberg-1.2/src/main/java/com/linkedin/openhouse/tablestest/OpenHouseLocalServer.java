@@ -16,9 +16,9 @@ import org.springframework.context.ConfigurableApplicationContext;
 public class OpenHouseLocalServer {
 
   /**
-   * Oldest client release this server admits for tables opted into column defaults. A test that
-   * reads or writes such a table identifies its catalog as client-name {@code spark} with this
-   * client-version.
+   * Oldest client release this server admits for tables opted into column defaults. {@link
+   * TestSparkSessionUtil#configureCatalogs} identifies every itest catalog as client-name {@code
+   * spark} with this client-version; the locally built runtime does not advertise a release.
    */
   public static final String COLUMN_DEFAULT_MINIMUM_CLIENT_VERSION = "0.5.100";
 
