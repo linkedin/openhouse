@@ -136,30 +136,10 @@ public class ReadBridgeColumnDefaultE2ETest {
         .andExpect(jsonPath("$.config['" + CONFIG_KEY + "']").doesNotExist());
   }
 
+  /** A HouseTables rule alone does not turn column defaults on; only the table property does. */
   @Test
-  public void get_omitsConfigWhenNoPropertyAndNoHtsToggle() throws Exception {
-    created = create(uniqueTable("no_ramp"), Collections.emptyMap());
-    RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
-    getTable()
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.config['" + CONFIG_KEY + "']").doesNotExist());
-  }
-
-  @Test
-  public void get_stampsWhenHtsToggleActiveAndNoProperty() throws Exception {
-    String tableId = uniqueTable("hts_on");
-    created = create(tableId, Collections.emptyMap());
-    activateHtsToggle(created);
-    RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
-    getTable()
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.config['" + CONFIG_KEY + "']", is("\"US\"")));
-  }
-
-  @Test
-  public void get_propertyFalseOptsOutEvenWhenHtsToggleActive() throws Exception {
-    created =
-        create(uniqueTable("hts_on_prop_off"), Collections.singletonMap(ENABLED_PROP, "false"));
+  public void get_omitsConfigWhenOnlyAHouseTablesRuleIsActive() throws Exception {
+    created = create(uniqueTable("hts_only"), Collections.emptyMap());
     activateHtsToggle(created);
     RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
     getTable()
@@ -168,9 +148,8 @@ public class ReadBridgeColumnDefaultE2ETest {
   }
 
   @Test
-  public void get_unparseablePropertyFailsClosedEvenIfHtsActive() throws Exception {
+  public void get_unparseablePropertyFailsClosed() throws Exception {
     created = create(uniqueTable("bad_prop"), Collections.singletonMap(ENABLED_PROP, "sometimes"));
-    activateHtsToggle(created);
     RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
     getTable()
         .andExpect(status().isOk())

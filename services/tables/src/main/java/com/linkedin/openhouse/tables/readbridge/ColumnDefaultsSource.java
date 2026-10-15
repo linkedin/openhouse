@@ -7,11 +7,11 @@ import java.util.Map;
 
 /**
  * Deployment-supplied column defaults (data only). Keyed by Iceberg field-id; values are Iceberg
- * single-value JSON. Policy/ramp lives in {@link ReadBridgeConfigResolver}.
+ * single-value JSON. Policy (the opt-in) lives in {@link ReadBridgeConfigResolver}.
  */
 public interface ColumnDefaultsSource {
 
-  /** Sentinel when no deployment bean is registered; resolver short-circuits before HTS. */
+  /** Sentinel when no deployment bean is registered; the resolver never consults it. */
   ColumnDefaultsSource NONE = tableDto -> Collections.emptyMap();
 
   /**

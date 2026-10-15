@@ -3,9 +3,7 @@ package com.linkedin.openhouse.tables.readbridge;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -14,7 +12,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.IntNode;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
-import com.linkedin.openhouse.common.exception.DependencyUnavailableException;
 import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.tables.api.handler.impl.OpenHouseTablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
@@ -22,7 +19,6 @@ import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.services.TablesService;
-import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -37,75 +33,28 @@ public class ReadBridgeConfigResolverTest {
 
   private static final String PREFIX = ReadBridgeConfigResolver.COLUMN_DEFAULT_PREFIX;
 
-  /** A toggle that ramps everything, so a test isolates the encoder rather than the ramp. */
-  private static final TableFeatureToggle ALL_ON =
-      new TableFeatureToggle() {
-        @Override
-        public boolean isFeatureActivated(String databaseId, String tableId, String featureId) {
-          return true;
-        }
-      };
-
   private static ReadBridgeConfigResolver resolverFor(ColumnDefaultsSource source) {
-    return new ReadBridgeConfigResolver(source, ALL_ON);
+    return new ReadBridgeConfigResolver(source);
   }
 
   private static ColumnDefaultsSource oneDefault() {
     return tableDto -> Collections.singletonMap(5, TextNode.valueOf("US"));
   }
 
-  /** A table carrying an explicit self-service opt-in/opt-out property. */
+  /** A table carrying an explicit {@code read-bridge.column-default.enabled} value. */
   private static TableDto tableWithOverride(String value) {
     return TableDto.builder()
         .databaseId("db")
         .tableId("tbl")
         .tableProperties(
-            Collections.singletonMap(
-                ReadBridgeConfigResolver.COLUMN_DEFAULT_FEATURE_ID
-                    + TableFeatureToggle.ENABLED_PROPERTY_SUFFIX,
-                value))
+            Collections.singletonMap(ReadBridgeConfigResolver.COLUMN_DEFAULT_ENABLED_PROP, value))
         .build();
   }
 
-  /** Gate 1: no deployment-supplied source => inert, and crucially no toggle lookup at all. */
+  /** Gate 1: no deployment-supplied source => inert, even for a table that opts in. */
   @Test
-  public void testInertAndSkipsToggleWhenNoSourceSupplied() {
-    TableFeatureToggle toggle = mock(TableFeatureToggle.class);
-    ReadBridgeConfigResolver resolver =
-        new ReadBridgeConfigResolver(ColumnDefaultsSource.NONE, toggle);
-
-    Assertions.assertTrue(resolver.resolve(mock(TableDto.class)).isEmpty());
-    // The toggle is a remote HouseTables call on the table-load path; it must not be made.
-    verifyNoInteractions(toggle);
-  }
-
-  /**
-   * The ramp lookup is a blocking HouseTables call on the table-load and commit paths. An outage
-   * fails reads and writes as itself (503): serving the table without its defaults would silently
-   * read NULL, and calling it an unusable default would blame the table for an outage.
-   */
-  @Test
-  public void testRampLookupOutageFailsReadsAndWritesAsItself() {
-    DependencyUnavailableException outage =
-        new DependencyUnavailableException("housetables is down", new IllegalStateException());
-    TableFeatureToggle down =
-        new TableFeatureToggle() {
-          @Override
-          public boolean isFeatureActivated(String databaseId, String tableId, String featureId) {
-            throw outage;
-          }
-        };
-    ReadBridgeConfigResolver resolver = new ReadBridgeConfigResolver(oneDefault(), down);
-    TableDto table = TableDto.builder().databaseId("db").tableId("tbl").build();
-
-    Assertions.assertSame(
-        outage,
-        Assertions.assertThrows(
-            DependencyUnavailableException.class, () -> resolver.resolve(table)));
-    Assertions.assertSame(
-        outage,
-        Assertions.assertThrows(
-            DependencyUnavailableException.class, () -> resolver.incomingColumnDefaults(table)));
+  public void testInertWhenNoSourceSupplied() {
+    Assertions.assertTrue(resolverFor(NONE).resolve(tableWithOverride("true")).isEmpty());
   }
 
   /**
@@ -120,7 +69,7 @@ public class ReadBridgeConfigResolverTest {
             tableDto -> {
               throw bug;
             });
-    TableDto table = TableDto.builder().databaseId("db").tableId("tbl").build();
+    TableDto table = tableWithOverride("true");
 
     Assertions.assertSame(
         bug, Assertions.assertThrows(IllegalStateException.class, () -> resolver.resolve(table)));
@@ -136,7 +85,7 @@ public class ReadBridgeConfigResolverTest {
    */
   @Test
   public void testUnusableDefaultIsBlamedOnTheTableThatDeclaresIt() {
-    TableDto table = TableDto.builder().databaseId("db").tableId("tbl").build();
+    TableDto table = tableWithOverride("true");
     ColumnDefaultException reported =
         new ColumnDefaultException("column country: default is not a long");
     ReadBridgeConfigResolver resolver =
@@ -156,51 +105,29 @@ public class ReadBridgeConfigResolverTest {
             ColumnDefaultException.class, () -> resolver.incomingColumnDefaults(table)));
   }
 
-  /** Gate 3: a table the ramp has not activated is not bridged, and its source is never asked. */
+  /**
+   * Gate 2: a table is bridged only when it carries {@code true}. No HouseTables rule turns column
+   * defaults on, and the source of a table that is not opted in is never asked.
+   */
   @Test
-  public void testUnrampedTableIsNotBridgedAndSourceNotConsulted() {
+  public void testOnlyTheTablePropertyTurnsColumnDefaultsOn() {
     ColumnDefaultsSource source = mock(ColumnDefaultsSource.class);
-    TableFeatureToggle allOff =
-        new TableFeatureToggle() {
-          @Override
-          public boolean isFeatureActivated(String databaseId, String tableId, String featureId) {
-            return false;
-          }
-        };
+    ReadBridgeConfigResolver resolver = resolverFor(source);
 
     Assertions.assertTrue(
-        new ReadBridgeConfigResolver(source, allOff)
-            .resolve(TableDto.builder().databaseId("db").tableId("tbl").build())
-            .isEmpty());
+        resolver.resolve(TableDto.builder().databaseId("db").tableId("tbl").build()).isEmpty());
+    Assertions.assertTrue(resolver.resolve(tableWithOverride("false")).isEmpty());
+    Assertions.assertTrue(resolver.resolve(tableWithOverride("sometimes")).isEmpty());
     // Deriving defaults can be expensive (a deployment may parse a schema); gate first.
     verifyNoInteractions(source);
-  }
 
-  /** The self-service property opts a table in even when the server-managed ramp says no. */
-  @Test
-  public void testTablePropertyOptsInOverServerToggle() {
-    // CALLS_REAL_METHODS so the override-honoring default reads the table property; stub the
-    // server-side form so an accidental HTS call would return false.
-    TableFeatureToggle toggle = mock(TableFeatureToggle.class, CALLS_REAL_METHODS);
-    when(toggle.isFeatureActivated(anyString(), anyString(), anyString())).thenReturn(false);
-
-    Map<String, String> config =
-        new ReadBridgeConfigResolver(oneDefault(), toggle).resolve(tableWithOverride("true"));
-
-    Assertions.assertEquals("\"US\"", config.get(PREFIX + "5"));
-    // Explicit opt-in is decided from the table property alone; no HouseTables round-trip.
-    verify(toggle, never()).isFeatureActivated(anyString(), anyString(), anyString());
-  }
-
-  /** ...and opts it out even when the server-managed ramp says yes. */
-  @Test
-  public void testTablePropertyOptsOutOverServerToggle() {
-    Assertions.assertTrue(resolverFor(oneDefault()).resolve(tableWithOverride("false")).isEmpty());
+    Assertions.assertEquals(
+        "\"US\"", resolverFor(oneDefault()).resolve(tableWithOverride(" TRUE ")).get(PREFIX + "5"));
   }
 
   /**
-   * Source present and table ramped, but the source has nothing to stamp — still empty config. Not
-   * the same as {@link ColumnDefaultsSource#NONE}: the toggle ran and the source was asked.
+   * Source present and table opted in, but the source has nothing to stamp — still empty config.
+   * Not the same as {@link ColumnDefaultsSource#NONE}: the source was asked.
    */
   @Test
   public void testEmptyWhenSourceReturnsNoDefaults() {
@@ -208,28 +135,22 @@ public class ReadBridgeConfigResolverTest {
     Assertions.assertDoesNotThrow(
         () -> when(emptySource.defaults(any())).thenReturn(Collections.emptyMap()));
 
-    Assertions.assertTrue(
-        resolverFor(emptySource)
-            .resolve(TableDto.builder().databaseId("db").tableId("tbl").build())
-            .isEmpty());
+    Assertions.assertTrue(resolverFor(emptySource).resolve(tableWithOverride("true")).isEmpty());
     Assertions.assertDoesNotThrow(() -> verify(emptySource).defaults(any()));
   }
 
   /**
    * The capability's feature id, its self-service property and its wire keys are one token. Pinned
-   * as literals because all three are external contracts: the id is stored in HouseTables toggle
-   * rules, the property is set on customer tables, and the prefix is mirrored by the client
-   * decoder. Deriving them from each other keeps them consistent; asserting the literals keeps a
-   * refactor from silently renaming all three at once.
+   * as literals because all three are external contracts: the property is set on customer tables,
+   * and the prefix is mirrored by the client decoder. Deriving them from each other keeps them
+   * consistent; asserting the literals keeps a refactor from silently renaming all three at once.
    */
   @Test
   public void testFeatureIdPropertyAndKeysAreOneToken() {
     Assertions.assertEquals(
         "read-bridge.column-default", ReadBridgeConfigResolver.COLUMN_DEFAULT_FEATURE_ID);
     Assertions.assertEquals(
-        "read-bridge.column-default.enabled",
-        ReadBridgeConfigResolver.COLUMN_DEFAULT_FEATURE_ID
-            + TableFeatureToggle.ENABLED_PROPERTY_SUFFIX);
+        "read-bridge.column-default.enabled", ReadBridgeConfigResolver.COLUMN_DEFAULT_ENABLED_PROP);
     Assertions.assertEquals(
         "openhouse.read-bridge.column-default.", ReadBridgeConfigResolver.COLUMN_DEFAULT_PREFIX);
   }
@@ -254,14 +175,9 @@ public class ReadBridgeConfigResolverTest {
   }
 
   @Test
-  public void testEmptyWhenNoColumnDefaults() {
-    Assertions.assertTrue(resolverFor(NONE).resolve(mock(TableDto.class)).isEmpty());
-  }
-
-  @Test
   public void testStampsColumnDefaultEntry() {
     ColumnDefaultsSource source = tableDto -> Collections.singletonMap(5, TextNode.valueOf("US"));
-    Map<String, String> config = resolverFor(source).resolve(mock(TableDto.class));
+    Map<String, String> config = resolverFor(source).resolve(tableWithOverride("true"));
     // value is the single-value JSON for the default ("US" -> "\"US\"").
     Assertions.assertEquals("\"US\"", config.get(PREFIX + "5"));
   }
@@ -275,7 +191,7 @@ public class ReadBridgeConfigResolverTest {
           defaults.put(7, IntNode.valueOf(0));
           return defaults;
         };
-    Map<String, String> config = resolverFor(source).resolve(mock(TableDto.class));
+    Map<String, String> config = resolverFor(source).resolve(tableWithOverride("true"));
     Assertions.assertEquals(2, config.size());
     Assertions.assertEquals("\"US\"", config.get(PREFIX + "5"));
     Assertions.assertEquals("0", config.get(PREFIX + "7"));

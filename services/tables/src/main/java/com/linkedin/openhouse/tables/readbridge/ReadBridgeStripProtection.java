@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.linkedin.openhouse.common.exception.DependencyUnavailableException;
 import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.ArrayList;
@@ -66,7 +65,6 @@ public class ReadBridgeStripProtection {
    *     be applied, or {@code incoming} data this protection cannot read
    * @throws TableConfigUnavailableException if a default {@code existing} declares cannot be
    *     applied
-   * @throws DependencyUnavailableException if the ramp lookup cannot answer
    */
   public TableDto prepare(TableDto existing, TableDto incoming) throws ColumnDefaultException {
     if (incoming == null) {

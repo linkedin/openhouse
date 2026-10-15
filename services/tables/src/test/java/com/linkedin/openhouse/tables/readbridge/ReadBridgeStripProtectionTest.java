@@ -31,23 +31,13 @@ public class ReadBridgeStripProtectionTest {
   private static final String METADATA_LOCATION =
       "file:/data/openhouse/db/tbl-uuid/00001-x.metadata.json";
 
-  private static final TableFeatureToggle ALL_ON =
-      new TableFeatureToggle() {
-        @Override
-        public boolean isFeatureActivated(String databaseId, String tableId, String featureId) {
-          return true;
-        }
-      };
-
   private static final ColumnDefaultsSource FIELD_2 =
       tableDto -> Collections.singletonMap(2, TextNode.valueOf("US"));
 
   @Test
   public void noneSource_stillStripsInitialDefault() {
     TableDto incoming = ramped(SCHEMA_WITH_DEFAULT, overwrite(10));
-    ReadBridgeStripProtection protection =
-        new ReadBridgeStripProtection(
-            new ReadBridgeConfigResolver(ColumnDefaultsSource.NONE, ALL_ON));
+    ReadBridgeStripProtection protection = protection(ColumnDefaultsSource.NONE);
 
     TableDto prepared =
         Assertions.assertDoesNotThrow(
@@ -426,7 +416,7 @@ public class ReadBridgeStripProtectionTest {
   }
 
   private static ReadBridgeStripProtection protection(ColumnDefaultsSource source) {
-    return new ReadBridgeStripProtection(new ReadBridgeConfigResolver(source, ALL_ON));
+    return new ReadBridgeStripProtection(new ReadBridgeConfigResolver(source));
   }
 
   /** Rejects only {@code declaring}; every other table has a usable default on field 2. */
