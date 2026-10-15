@@ -20,6 +20,11 @@ public class ApiConfig {
     return new OpenHouseTablesApiHandler();
   }
 
+  /**
+   * Unset defaults to empty, which fails closed: every request to a table with {@code
+   * read-bridge.column-default.enabled=true} is rejected until a minimum is configured. Tables
+   * without that property are unaffected.
+   */
   @Bean
   public ColumnDefaultClientGate columnDefaultClientGate(
       @Value("${cluster.read-bridge.column-default.minimum-client-version:}") String minimum) {

@@ -210,7 +210,7 @@ public class ReadBridgeColumnDefaultE2ETest {
   }
 
   @Test
-  public void incompatibleClientsCannotReadOrExposeMetadataLocations() throws Exception {
+  public void incompatibleClientsCannotLoadOptedInTables() throws Exception {
     created = create(uniqueTable("client_gate"), Collections.singletonMap(ENABLED_PROP, "true"));
     createTable();
     String path = "/v1/databases/" + created.getDatabaseId() + "/tables/" + created.getTableId();
@@ -239,11 +239,10 @@ public class ReadBridgeColumnDefaultE2ETest {
                 .header("Authorization", "")
                 .header("X-OpenHouse-Dangerously-Bypass-Column-Default-Policy", "true"))
         .andExpect(status().isUnauthorized());
+    // Search is not gated: many systems search, and every client loads before reading or writing.
     mvc.perform(
             MockMvcRequestBuilders.post("/v2/databases/d1/tables/search")
                 .param("fields", "tableLocation"))
-        .andExpect(status().isUnprocessableEntity());
-    mvc.perform(MockMvcRequestBuilders.post("/v2/databases/d1/tables/search"))
         .andExpect(status().isOk());
   }
 
