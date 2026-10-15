@@ -80,10 +80,14 @@ public class ServiceAuditAspect {
     Object result = null;
     try {
       result = point.proceed();
+      // Safe until the policy is evaluated: a failure before then must not log request details.
+      boolean suppressDetails = true;
       try {
         RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
         if (requestAttributes != null) {
           HttpServletRequest request = ((ServletRequestAttributes) requestAttributes).getRequest();
+          suppressDetails =
+              ServiceAuditDiagnosticPolicy.suppressDiagnosticDetails(payloadRedactors, request);
           ResponseEntity<?> response = (ResponseEntity<?>) result;
           ServiceAuditEvent event =
               buildServiceAuditEvent(
@@ -91,11 +95,16 @@ public class ServiceAuditAspect {
                   Instant.now(),
                   request,
                   response,
-                  false);
+                  false,
+                  suppressDetails);
           serviceAuditHandler.audit(event);
         }
       } catch (Exception e) {
-        log.error("Exception during auditing successful requests:\n", e);
+        if (suppressDetails) {
+          log.error("Exception during auditing successful requests (details omitted)");
+        } else {
+          log.error("Exception during auditing successful requests:\n", e);
+        }
         METRICS_REPORTER.count(MetricsConstant.FAILED_SERVICE_AUDIT);
       }
     } catch (Throwable t) {
@@ -122,10 +131,14 @@ public class ServiceAuditAspect {
     Object result = null;
     try {
       result = point.proceed();
+      // Safe until the policy is evaluated: a failure before then must not log request details.
+      boolean suppressDetails = true;
       try {
         RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
         if (requestAttributes != null) {
           HttpServletRequest request = ((ServletRequestAttributes) requestAttributes).getRequest();
+          suppressDetails =
+              ServiceAuditDiagnosticPolicy.suppressDiagnosticDetails(payloadRedactors, request);
           ResponseEntity<ErrorResponseBody> response = (ResponseEntity<ErrorResponseBody>) result;
           ServiceAuditEvent event =
               buildServiceAuditEvent(
@@ -133,12 +146,17 @@ public class ServiceAuditAspect {
                   Instant.now(),
                   request,
                   response,
-                  true);
+                  true,
+                  suppressDetails);
           serviceAuditHandler.audit(event);
           return buildUpdatedResponseEntity(response);
         }
       } catch (Exception e) {
-        log.error("Exception during auditing failed requests:\n", e);
+        if (suppressDetails) {
+          log.error("Exception during auditing failed requests (details omitted)");
+        } else {
+          log.error("Exception during auditing failed requests:\n", e);
+        }
         METRICS_REPORTER.count(MetricsConstant.FAILED_SERVICE_AUDIT);
       }
     } catch (Throwable t) {
@@ -154,7 +172,8 @@ public class ServiceAuditAspect {
       Instant endTime,
       HttpServletRequest request,
       ResponseEntity<?> response,
-      boolean isFailed) {
+      boolean isFailed,
+      boolean suppressDetails) {
 
     // Get request payload
     JsonElement requestPayload = null;
@@ -169,7 +188,11 @@ public class ServiceAuditAspect {
     } catch (Exception e) {
       // Fail closed. A payload that could not be parsed or could not be redacted is dropped rather
       // than audited raw, so a broken redactor cannot leak the values it was meant to remove.
-      log.error("Exception during parsing request payload:\n", e);
+      if (suppressDetails) {
+        log.error("Exception during parsing request payload (details omitted)");
+      } else {
+        log.error("Exception during parsing request payload:\n", e);
+      }
       METRICS_REPORTER.count(MetricsConstant.FAILED_PARSING_REQUEST_PAYLOAD);
     }
     // Get response error message
