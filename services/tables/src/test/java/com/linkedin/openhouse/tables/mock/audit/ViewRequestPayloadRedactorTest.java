@@ -96,164 +96,126 @@ public class ViewRequestPayloadRedactorTest {
     Assertions.assertFalse(redactor.appliesTo(requestFor(uri)));
   }
 
+  /**
+   * Request audit keeps the supplied view definition: schema, every representation and all other
+   * fields stay exactly as sent. Only the write CAS token is replaced, keeping its key.
+   */
   @Test
-  public void redactsSchemaAndEverySqlRepresentation() {
+  public void keepsTheSuppliedDefinitionAndReplacesOnlyTheCasToken() {
     JsonElement payload =
         JsonParser.parseString(
             "{\"viewId\": \"my_view\", \"databaseId\": \"my_database\","
                 + " \"baseMetadataLocation\": \"file:/secret/base-token.metadata.json\","
-                + " \"schema\": \"secret schema\","
+                + " \"schema\": \"exact schema\","
                 + " \"representations\": ["
-                + "{\"type\": \"sql\", \"sql\": \"secret sql one\", \"dialect\": \"spark\"},"
-                + "{\"type\": \"sql\", \"sql\": \"secret sql two\", \"dialect\": \"trino\"}],"
+                + "{\"type\": \"sql\", \"sql\": \"exact sql one\", \"dialect\": \"spark\"},"
+                + "{\"type\": \"sql\", \"sql\": \"exact sql two\", \"dialect\": \"trino\"}],"
                 + " \"sourceDialect\": \"spark\"}");
+    JsonObject expected = payload.deepCopy().getAsJsonObject();
+    expected.addProperty("baseMetadataLocation", ServiceAuditPayloadRedactor.REDACTED_VALUE);
+
+    JsonElement redacted = redactor.redact(payload);
+
+    Assertions.assertEquals(expected, redacted);
+    Assertions.assertFalse(redacted.toString().contains("base-token"));
+  }
+
+  /** The CAS key is kept and its value replaced whatever JSON shape the caller sent for it. */
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "\"file:/secret/base-token.metadata.json\"",
+        "null",
+        "{\"nested\": \"base-token\"}",
+        "[\"base-token\"]",
+        "7"
+      })
+  public void replacesTheCasTokenOfAnyJsonShape(String casValue) {
+    JsonElement payload =
+        JsonParser.parseString(
+            "{\"schema\": \"exact schema\", \"baseMetadataLocation\": " + casValue + "}");
 
     JsonObject redacted = redactor.redact(payload).getAsJsonObject();
 
     Assertions.assertEquals(
-        ServiceAuditPayloadRedactor.REDACTED_VALUE, redacted.get("schema").getAsString());
-    Assertions.assertEquals(
-        ServiceAuditPayloadRedactor.REDACTED_VALUE,
-        redacted.get("baseMetadataLocation").getAsString(),
-        "The write CAS token is as sensitive as schema and SQL and must not be retained.");
-    JsonArray representations = redacted.getAsJsonArray("representations");
-    for (JsonElement representation : representations) {
-      Assertions.assertEquals(
-          ServiceAuditPayloadRedactor.REDACTED_VALUE,
-          representation.getAsJsonObject().get("sql").getAsString(),
-          "Every representation is redacted, not only the first.");
-    }
-    Assertions.assertFalse(redacted.toString().contains("secret"));
-    Assertions.assertFalse(redacted.toString().contains("base-token"));
+        new JsonPrimitive(ServiceAuditPayloadRedactor.REDACTED_VALUE),
+        redacted.get("baseMetadataLocation"));
+    Assertions.assertEquals("exact schema", redacted.get("schema").getAsString());
+    Assertions.assertEquals(2, redacted.size());
+  }
 
-    // Identifiers and dialect metadata survive.
-    Assertions.assertEquals("my_view", redacted.get("viewId").getAsString());
-    Assertions.assertEquals("my_database", redacted.get("databaseId").getAsString());
-    Assertions.assertEquals("spark", redacted.get("sourceDialect").getAsString());
-    Assertions.assertEquals(
-        "trino", representations.get(1).getAsJsonObject().get("dialect").getAsString());
+  /** An absent CAS token is not introduced, and a payload without one is an equal copy. */
+  @Test
+  public void addsNoCasFieldWhenNoneWasSent() {
+    JsonElement payload =
+        JsonParser.parseString(
+            "{\"schema\": \"exact schema\","
+                + " \"representations\": [{\"type\": \"sql\", \"sql\": \"exact sql\"}]}");
+
+    JsonElement redacted = redactor.redact(payload);
+
+    Assertions.assertEquals(payload, redacted);
+    Assertions.assertFalse(redacted.getAsJsonObject().has("baseMetadataLocation"));
   }
 
   @Test
   public void leavesTheArgumentUntouched() {
     JsonElement payload =
         JsonParser.parseString(
-            "{\"schema\": \"secret schema\","
-                + " \"representations\": [{\"type\": \"sql\", \"sql\": \"secret sql\"}]}");
+            "{\"schema\": \"exact schema\", \"baseMetadataLocation\": \"base-token\","
+                + " \"representations\": [{\"type\": \"sql\", \"sql\": \"exact sql\"}]}");
     String before = payload.toString();
 
-    redactor.redact(payload);
+    JsonElement redacted = redactor.redact(payload);
 
     Assertions.assertEquals(
         before,
         payload.toString(),
         "Redacting must return a copy so one redactor cannot observe another's rewrite.");
+    Assertions.assertNotSame(payload, redacted);
   }
 
   /**
-   * A request whose body is absent, malformed or simply not shaped like a view request still
-   * reaches the redactor, because the aspect audits whatever the caller sent.
+   * A request whose body is absent or not an object still reaches the redactor, because the aspect
+   * audits whatever the caller sent; it carries no CAS field and is returned unchanged.
    */
   @Test
-  public void toleratesPayloadsThatCarryNoViewDefinition() {
+  public void toleratesPayloadsThatAreNotObjects() {
     Assertions.assertNull(redactor.redact(null));
     Assertions.assertEquals(JsonNull.INSTANCE, redactor.redact(JsonNull.INSTANCE));
     Assertions.assertEquals(
         new JsonPrimitive("not an object"), redactor.redact(new JsonPrimitive("not an object")));
-    Assertions.assertEquals(new JsonArray(), redactor.redact(new JsonArray()));
+    JsonArray array = JsonParser.parseString("[\"SELECT kept\"]").getAsJsonArray();
+    Assertions.assertEquals(array, redactor.redact(array));
 
     JsonObject withoutDefinition = new JsonObject();
     withoutDefinition.addProperty("viewId", "my_view");
     Assertions.assertEquals(
         withoutDefinition,
         redactor.redact(withoutDefinition),
-        "An object carrying neither field is returned as an equal copy.");
+        "An object carrying no CAS field is returned as an equal copy.");
   }
 
   /**
-   * {@code representations} is caller-supplied JSON, so it can be any element. Redaction must skip
-   * what it cannot interpret rather than fail and lose the whole payload to the aspect's
-   * fail-closed handler.
-   */
-  @Test
-  public void skipsRepresentationsThatAreNotSqlObjects() {
-    JsonElement payload =
-        JsonParser.parseString(
-            "{\"schema\": \"secret schema\","
-                + " \"representations\": [\"not an object\", {\"type\": \"sql\"}, null]}");
-
-    JsonObject redacted = redactor.redact(payload).getAsJsonObject();
-
-    Assertions.assertEquals(
-        ServiceAuditPayloadRedactor.REDACTED_VALUE, redacted.get("schema").getAsString());
-    Assertions.assertEquals(3, redacted.getAsJsonArray("representations").size());
-  }
-
-  @Test
-  public void redactsAnObjectRepresentationsFieldThatIsNotAnArray() {
-    JsonElement payload =
-        JsonParser.parseString(
-            "{\"schema\": \"secret schema\", \"representations\": \"nonsense\"}");
-
-    JsonObject redacted = redactor.redact(payload).getAsJsonObject();
-
-    Assertions.assertEquals(
-        ServiceAuditPayloadRedactor.REDACTED_VALUE,
-        redacted.get("schema").getAsString(),
-        "A malformed representations field must not stop the schema from being redacted.");
-  }
-
-  /**
-   * Jackson rejects these representation shapes, but the request audit still parses the body, so a
-   * sensitive representations subtree must not survive in any shape. Failing closed (throwing, so
-   * the audit drops the payload) is equally acceptable.
+   * Request audit is provenance of what the caller sent, so a representations subtree that is not a
+   * well-formed array of representation objects (rejected later by validation) is kept exactly as
+   * supplied, not reshaped or replaced.
    */
   @ParameterizedTest
   @ValueSource(
       strings = {
-        "{\"representations\": {\"sql\": \"SQL_SECRET\"}, \"schema\": \"SCHEMA_SECRET\"}",
-        "{\"representations\": {\"type\": \"sql\", \"sql\": \"SQL_SECRET\"},"
-            + " \"schema\": \"SCHEMA_SECRET\", \"viewId\": \"v\"}",
-        "{\"representations\": \"SQL_SECRET\", \"schema\": \"SCHEMA_SECRET\"}"
-      })
-  public void malformedRepresentationsShapesNeverRetainSql(String body) {
-    JsonElement redacted;
-    try {
-      redacted = redactor.redact(JsonParser.parseString(body));
-    } catch (RuntimeException failClosed) {
-      return;
-    }
-
-    String rendered = redacted.toString();
-    Assertions.assertFalse(rendered.contains("SQL_SECRET"), rendered);
-    Assertions.assertFalse(rendered.contains("SCHEMA_SECRET"), rendered);
-  }
-
-  /**
-   * Inside a representations array, a malformed element that is not a representation object (a bare
-   * SQL string, or SQL nested in another array) must not carry SQL into the audit. Failing closed
-   * (throwing, so the audit drops the payload) is equally acceptable.
-   */
-  @ParameterizedTest
-  @ValueSource(
-      strings = {
-        "{\"representations\": [\"SELECT SQL_ARRAY_SECRET\"], \"schema\": \"SCHEMA_SECRET\"}",
-        "{\"representations\": [[\"SELECT SQL_ARRAY_SECRET\"]], \"schema\": \"SCHEMA_SECRET\"}",
-        "{\"representations\": [[{\"sql\": \"SELECT SQL_ARRAY_SECRET\"}]],"
-            + " \"schema\": \"SCHEMA_SECRET\"}",
+        "{\"representations\": {\"sql\": \"SQL_KEPT\"}, \"schema\": \"SCHEMA_KEPT\"}",
+        "{\"representations\": \"SQL_KEPT\", \"schema\": \"SCHEMA_KEPT\"}",
+        "{\"representations\": [\"SELECT SQL_KEPT\"], \"schema\": \"SCHEMA_KEPT\"}",
+        "{\"representations\": [[{\"sql\": \"SELECT SQL_KEPT\"}]], \"schema\": \"SCHEMA_KEPT\"}",
         "{\"representations\": [{\"type\": \"sql\", \"sql\": \"ok\"},"
-            + " \"SELECT SQL_ARRAY_SECRET\"], \"schema\": \"SCHEMA_SECRET\"}"
+            + " \"SELECT SQL_KEPT\", null, 3], \"schema\": \"SCHEMA_KEPT\"}",
+        "{\"representations\": [\"not an object\", {\"type\": \"sql\"}, null],"
+            + " \"schema\": {\"type\": \"struct\"}}"
       })
-  public void malformedRepresentationArrayElementsNeverRetainSql(String body) {
-    JsonElement redacted;
-    try {
-      redacted = redactor.redact(JsonParser.parseString(body));
-    } catch (RuntimeException failClosed) {
-      return;
-    }
+  public void keepsMalformedDefinitionShapesExactlyAsSupplied(String body) {
+    JsonElement payload = JsonParser.parseString(body);
 
-    String rendered = redacted.toString();
-    Assertions.assertFalse(rendered.contains("SQL_ARRAY_SECRET"), rendered);
-    Assertions.assertFalse(rendered.contains("SCHEMA_SECRET"), rendered);
+    Assertions.assertEquals(payload, redactor.redact(payload));
   }
 }

@@ -351,6 +351,41 @@ public class TablesControllerTest {
     Assertions.assertFalse(actualEvent.getRequestPayload().toString().contains(REDACTED_VALUE));
   }
 
+  /**
+   * Non-view diagnostic control: the view diagnostic policy is route-scoped, so a table request
+   * whose request-audit delivery fails keeps the existing diagnostic log of that failure, and its
+   * request still succeeds.
+   */
+  @Test
+  public void tableRequestAuditDeliveryFailureKeepsItsExistingDiagnosticLog() throws Exception {
+    String sinkFailure = "table-request-audit-sink-failure-marker";
+    Mockito.doThrow(new IllegalStateException(sinkFailure))
+        .when(serviceAuditHandler)
+        .audit(Mockito.any(ServiceAuditEvent.class));
+    CreateUpdateTableRequestBody requestBody =
+        RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY
+            .toBuilder()
+            .schema(TABLE_SCHEMA_WITH_MARKER)
+            .build();
+
+    try (com.linkedin.openhouse.tables.mock.logging.Log4j2LogCapture logs =
+        new com.linkedin.openhouse.tables.mock.logging.Log4j2LogCapture()) {
+      MvcResult result =
+          mvc.perform(
+                  MockMvcRequestBuilders.post(
+                          CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/tables")
+                      .contentType(MediaType.APPLICATION_JSON)
+                      .content(requestBody.toJson())
+                      .accept(MediaType.APPLICATION_JSON)
+                      .header("Authorization", "Bearer " + jwtAccessToken))
+              .andReturn();
+
+      Assertions.assertEquals(201, result.getResponse().getStatus());
+      Assertions.assertTrue(logs.renderedEvents().contains(sinkFailure), logs.renderedEvents());
+    }
+    Mockito.verify(serviceAuditHandler, Mockito.times(1)).audit(Mockito.any());
+  }
+
   @Test
   public void findTableById401() throws Exception {
     mvc.perform(
