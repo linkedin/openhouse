@@ -7,19 +7,12 @@ import lombok.Getter;
 import lombok.ToString;
 
 /**
- * Internal, never-serialized carrier for the result of a create/replace commit.
+ * The view commit result that {@code OpenHouseInternalViewRepository} returns to the views service.
+ * Not the engine's {@code ViewCommitResult}, and never serialized.
  *
- * <p>{@link ViewDto} has no UUID field (the pointer-only read contract deliberately omits it), but
- * the create-operation audit must record the view UUID the engine assigned. The UUID exists only in
- * the engine's {@code ViewCommitResult.viewUuid}, and on create there is no captured row to read it
- * from afterward. This carrier threads that value from {@code
- * OpenHouseInternalViewRepository#commitCreate}/{@code #commitReplace} to the service's audit
- * emission, without a reread and without parsing the UUID out of the metadata path.
- *
- * <p>Lives in the repository package: it is an internal repository-to-service boundary type, not a
- * wire/response type. {@link #getDto()} is the unchanged public service/wire response shape; {@link
- * #getCommittedViewUuid()} and {@link #isCreated()} exist only for audit emission and the public
- * {@code Pair<ViewDto, Boolean>} status selection.
+ * <p>It is shared instead of passing just a {@link ViewDto} because the service needs two values
+ * the DTO cannot carry: the committed view UUID, which audit records but the pointer-only response
+ * omits, and whether the commit created the view, which selects the response status.
  */
 @Builder(toBuilder = true)
 @Getter
