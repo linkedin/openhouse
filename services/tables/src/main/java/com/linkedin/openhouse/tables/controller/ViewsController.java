@@ -83,7 +83,7 @@ public class ViewsController {
   @GetMapping(
       value = {"/v1/databases/{databaseId}/views/{viewId}"},
       produces = {"application/json"})
-  @Secured(value = Privileges.Privilege.SELECT)
+  @Secured(value = Privileges.Privilege.AUTHENTICATED)
   public ResponseEntity<GetViewResponseBody> getView(
       @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
       @Parameter(description = "View ID", required = true) @PathVariable String viewId) {
@@ -122,7 +122,7 @@ public class ViewsController {
   @GetMapping(
       value = {"/v1/databases/{databaseId}/views"},
       produces = {"application/json"})
-  @Secured(value = Privileges.Privilege.LIST_VIEW)
+  @Secured(value = Privileges.Privilege.AUTHENTICATED)
   public ResponseEntity<GetAllViewsResponseBody> getAllViews(
       @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
       @Parameter(
@@ -136,7 +136,10 @@ public class ViewsController {
           // separately. Keep in sync with the client listViews pagination loop.
           @RequestParam(name = "size", required = false, defaultValue = "100")
           int size,
-      @Parameter(description = "Optional single field to sort the results by")
+      @Parameter(
+              description =
+                  "Field to sort results by. Only \"viewId\" is supported (case-insensitive);"
+                      + " omit for the default sort. Any other value is rejected with 400.")
           @RequestParam(name = "sortBy", required = false)
           String sortBy,
       HttpServletRequest request) {
@@ -218,7 +221,7 @@ public class ViewsController {
       value = {"/v1/databases/{databaseId}/views"},
       produces = {"application/json"},
       consumes = {"application/json"})
-  @Secured(value = Privileges.Privilege.CREATE_VIEW)
+  @Secured(value = Privileges.Privilege.AUTHENTICATED)
   public ResponseEntity<GetViewResponseBody> createView(
       @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
       @Parameter(
@@ -270,7 +273,7 @@ public class ViewsController {
       value = {"/v1/databases/{databaseId}/views/{viewId}"},
       produces = {"application/json"},
       consumes = {"application/json"})
-  @Secured(value = Privileges.Privilege.UPDATE_VIEW_METADATA)
+  @Secured(value = Privileges.Privilege.AUTHENTICATED)
   public ResponseEntity<GetViewResponseBody> updateView(
       @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
       @Parameter(description = "View ID", required = true) @PathVariable String viewId,
@@ -317,7 +320,7 @@ public class ViewsController {
   @DeleteMapping(
       value = {"/v1/databases/{databaseId}/views/{viewId}"},
       produces = {"application/json"})
-  @Secured(value = Privileges.Privilege.DELETE_VIEW)
+  @Secured(value = Privileges.Privilege.AUTHENTICATED)
   public ResponseEntity<Void> deleteView(
       @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
       @Parameter(description = "View ID", required = true) @PathVariable String viewId) {

@@ -224,9 +224,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
               intent.getDatabaseId(), intent.getViewId()));
     }
     if (!currentSourceDialect.equals(intent.getSourceDialect())) {
-      throw new BadRequestException(
-          "Cannot replace view %s.%s: sourceDialect must match the current view",
-          intent.getDatabaseId(), intent.getViewId());
+      throw new ViewSourceDialectMismatchException(intent.getDatabaseId(), intent.getViewId());
     }
   }
 

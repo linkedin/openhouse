@@ -15,11 +15,12 @@ import org.springframework.security.access.annotation.Secured;
 import org.springframework.web.bind.annotation.RequestMapping;
 
 /**
- * Pins the privilege each /v1 views route is guarded by.
+ * Pins the authentication-only guard each /v1 views route is guarded by.
  *
  * <p>{@code @Secured} is enforced by a proxy at runtime, so a route that loses its annotation, or
- * has it silently retargeted at the wrong privilege, still compiles and still serves traffic. This
- * test freezes the mapping so that drift is a build failure rather than an authorization hole.
+ * has it silently retargeted at a resource privilege, still compiles and still serves traffic. This
+ * test freezes the allow-all-read / service-authorized-write policy so that drift is a build
+ * failure rather than an authorization regression.
  *
  * <p>Runs as a plain JUnit 5 reflection test: no Spring context is loaded, so the mapping stays
  * pinned independently of how method security happens to be wired.
@@ -27,11 +28,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 public class ViewsControllerPrivilegeTest {
 
   @Test
-  public void everyViewRouteDeclaresItsExpectedPrivilege() throws NoSuchMethodException {
+  public void everyViewRouteDeclaresOnlyTheAuthenticationGuard() throws NoSuchMethodException {
     Map<Method, String> expected = new LinkedHashMap<>();
     expected.put(
         ViewsController.class.getMethod("getView", String.class, String.class),
-        Privileges.Privilege.SELECT);
+        Privileges.Privilege.AUTHENTICATED);
     expected.put(
         ViewsController.class.getMethod(
             "getAllViews",
@@ -40,18 +41,18 @@ public class ViewsControllerPrivilegeTest {
             int.class,
             String.class,
             HttpServletRequest.class),
-        Privileges.Privilege.LIST_VIEW);
+        Privileges.Privilege.AUTHENTICATED);
     expected.put(
         ViewsController.class.getMethod(
             "createView", String.class, CreateUpdateViewRequestBody.class),
-        Privileges.Privilege.CREATE_VIEW);
+        Privileges.Privilege.AUTHENTICATED);
     expected.put(
         ViewsController.class.getMethod(
             "updateView", String.class, String.class, CreateUpdateViewRequestBody.class),
-        Privileges.Privilege.UPDATE_VIEW_METADATA);
+        Privileges.Privilege.AUTHENTICATED);
     expected.put(
         ViewsController.class.getMethod("deleteView", String.class, String.class),
-        Privileges.Privilege.DELETE_VIEW);
+        Privileges.Privilege.AUTHENTICATED);
 
     for (Map.Entry<Method, String> route : expected.entrySet()) {
       Secured secured = route.getKey().getAnnotation(Secured.class);
@@ -63,9 +64,8 @@ public class ViewsControllerPrivilegeTest {
           secured.value(),
           "ViewsController."
               + route.getKey().getName()
-              + " must require exactly the "
-              + route.getValue()
-              + " privilege.");
+              + " must require authentication only; reads perform no privilege check and writes are"
+              + " authorized in ViewsServiceImpl.");
     }
 
     Assertions.assertEquals(
