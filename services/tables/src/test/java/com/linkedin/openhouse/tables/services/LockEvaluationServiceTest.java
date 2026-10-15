@@ -15,6 +15,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.common.TableType;
+import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PoliciesSpecMapper;
@@ -72,7 +73,7 @@ class LockEvaluationServiceTest {
     ReadBridgeStripProtection protection = mock(ReadBridgeStripProtection.class);
     when(protection.prepare(any(), any())).thenAnswer(invocation -> invocation.getArgument(1));
     // No table here opts into column defaults, so the gate admits every request.
-    ColumnDefaultClientGate gate = new ColumnDefaultClientGate("");
+    ColumnDefaultClientGate gate = new ColumnDefaultClientGate("", new CatalogRequestContext() {});
     repository = mock(OpenHouseInternalRepository.class);
     current =
         TableDto.builder()

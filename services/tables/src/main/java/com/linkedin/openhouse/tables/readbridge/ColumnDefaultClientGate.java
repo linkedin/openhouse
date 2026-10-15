@@ -1,8 +1,10 @@
 package com.linkedin.openhouse.tables.readbridge;
 
+import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Pattern;
 import javax.servlet.http.HttpServletRequest;
 import org.springframework.data.util.Version;
@@ -24,28 +26,30 @@ public class ColumnDefaultClientGate {
 
   private final String majorPrefix;
 
+  private final CatalogRequestContext requestContext;
+
   /**
    * @param minimum oldest admitted {@code openhouse-java-client} release, such as {@code 4.2.150}.
    *     Empty or invalid fails closed: every request to an opted-in table is rejected unless it
    *     carries the column-default policy bypass. It does not turn the gate off.
+   * @param requestContext whether the request carries the column-default policy bypass
    */
-  public ColumnDefaultClientGate(String minimum) {
+  public ColumnDefaultClientGate(String minimum, CatalogRequestContext requestContext) {
     this.minimum = minimum;
     this.minimumVersion = RELEASE.matcher(minimum).matches() ? Version.parse(minimum) : null;
     this.majorPrefix = minimumVersion == null ? "" : minimum.substring(0, minimum.indexOf('.') + 1);
+    this.requestContext = Objects.requireNonNull(requestContext, "requestContext");
   }
 
   public void check(TableDto existing, Map<String, String> proposed) {
     if (!enabled(existing == null ? null : existing.getTableProperties()) && !enabled(proposed)) {
       return;
     }
+    if (requestContext.columnDefaultPolicyBypass()) {
+      return;
+    }
     HttpServletRequest request = currentRequest();
     if (request != null) {
-      String bypass =
-          request.getHeader(TablesMvcConstants.HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS);
-      if ("true".equalsIgnoreCase(bypass)) {
-        return;
-      }
       String userAgent = request.getHeader("User-Agent");
       if (minimumVersion != null
           && "spark".equals(request.getHeader("X-Client-Name"))
@@ -60,23 +64,19 @@ public class ColumnDefaultClientGate {
         }
       }
     }
-    String bypassHint =
-        " To bypass column-default policy checks, set header."
-            + TablesMvcConstants.HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS
-            + "=true on the client catalog; incorrect reads or writes may result.";
     if (minimumVersion == null) {
       throw new ColumnDefaultClientRejectedException(
           "Column-default tables admit no client: this server has no valid "
               + "cluster.read-bridge.column-default.minimum-client-version (got '"
               + minimum
               + "')."
-              + bypassHint);
+              + TablesMvcConstants.COLUMN_DEFAULT_POLICY_BYPASS_HINT);
     }
     throw new ColumnDefaultClientRejectedException(
         "Column-default tables require client-name=spark and openhouse-java-client/"
             + minimum
             + " or newer in the same major release family."
-            + bypassHint);
+            + TablesMvcConstants.COLUMN_DEFAULT_POLICY_BYPASS_HINT);
   }
 
   private static HttpServletRequest currentRequest() {
