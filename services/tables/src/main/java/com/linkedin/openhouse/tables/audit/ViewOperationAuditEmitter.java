@@ -6,8 +6,8 @@ import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.tables.audit.model.OperationStatus;
 import com.linkedin.openhouse.tables.audit.model.ViewAuditEvent;
-import com.linkedin.openhouse.tables.repository.ViewCommitOutcome;
-import com.linkedin.openhouse.tables.repository.impl.PreparedViewOperation;
+import com.linkedin.openhouse.tables.model.ViewDto;
+import com.linkedin.openhouse.tables.services.PreparedViewOperation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -18,14 +18,14 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 /**
  * Service-boundary operation-audit emitter. Emitted directly from {@code ViewsServiceImpl} using
- * the prepared capture and the commit outcome; never a handler aspect, which cannot recover a
+ * the prepared capture and the committed view; never a handler aspect, which cannot recover a
  * DELETE's UUID/old pointer from a void response, or see the pre-write pointer for REPLACE, without
  * a forbidden second read.
  *
- * <p>Every field is populated only from context actually reached: an outcome supplies the new
- * pointer and the create UUID; the prepared capture supplies the prior identity/pointer when a row
- * was found. Nothing is fabricated for a field whose source was never reached (an ambiguous create
- * from observed absence has no identity and no new pointer, and none is invented here).
+ * <p>Every field is populated only from context actually reached: a committed view supplies the new
+ * pointer and the acknowledged UUID; the prepared capture supplies the prior identity/pointer when
+ * a row was found. Nothing is fabricated for a field whose source was never reached (an ambiguous
+ * create from observed absence has no identity and no new pointer, and none is invented here).
  */
 @Slf4j
 @Component
@@ -47,31 +47,34 @@ public class ViewOperationAuditEmitter {
     this.auditHandler = auditHandler;
   }
 
-  /** Emits a SUCCESS event. {@code outcome} is null only for a successful DROP. */
+  /**
+   * Emits a SUCCESS event. {@code committedView} and {@code committedViewUuid} are null only for a
+   * successful DROP.
+   */
   public void emitSuccess(
       PreparedViewOperation prepared,
-      ViewCommitOutcome outcome,
+      ViewDto committedView,
+      String committedViewUuid,
       String actingPrincipal,
       String sourceDialect) {
     auditSafely(
-        baseBuilder(prepared, outcome, actingPrincipal, sourceDialect)
+        baseBuilder(prepared, committedView, committedViewUuid, actingPrincipal, sourceDialect)
             .operationStatus(OperationStatus.SUCCESS)
             .build());
   }
 
   /**
-   * Emits exactly one UNKNOWN event for an ambiguous commit. {@code outcome} is always null: an
-   * unacknowledged publish returns no committed result, so no new pointer is fabricated. The cause
-   * is accepted only to document the caller's classification; it is never rendered into the event.
+   * Emits exactly one UNKNOWN event for an ambiguous commit. An unacknowledged publish returns no
+   * committed result, so no new pointer is fabricated. The cause is accepted only to document the
+   * caller's classification; it is never rendered into the event.
    */
   public void emitUnknown(
       PreparedViewOperation prepared,
-      ViewCommitOutcome outcome,
       String actingPrincipal,
       String sourceDialect,
       Throwable cause) {
     auditSafely(
-        baseBuilder(prepared, outcome, actingPrincipal, sourceDialect)
+        baseBuilder(prepared, null, null, actingPrincipal, sourceDialect)
             .operationStatus(OperationStatus.UNKNOWN)
             .build());
   }
@@ -80,7 +83,7 @@ public class ViewOperationAuditEmitter {
   public void emitFailed(
       PreparedViewOperation prepared, String actingPrincipal, String sourceDialect) {
     auditSafely(
-        baseBuilder(prepared, null, actingPrincipal, sourceDialect)
+        baseBuilder(prepared, null, null, actingPrincipal, sourceDialect)
             .operationStatus(OperationStatus.FAILED)
             .build());
   }
@@ -110,19 +113,20 @@ public class ViewOperationAuditEmitter {
 
   private ViewAuditEvent.ViewAuditEventBuilder baseBuilder(
       PreparedViewOperation prepared,
-      ViewCommitOutcome outcome,
+      ViewDto committedView,
+      String committedViewUuid,
       String actingPrincipal,
       String sourceDialect) {
     HouseTable capturedRow = prepared.getViewBaseRow().orElse(null);
     String databaseName =
-        outcome != null ? outcome.getDto().getDatabaseId() : prepared.auditDatabaseId();
-    String viewName = outcome != null ? outcome.getDto().getViewId() : prepared.auditViewId();
+        committedView != null ? committedView.getDatabaseId() : prepared.auditDatabaseId();
+    String viewName = committedView != null ? committedView.getViewId() : prepared.auditViewId();
     String viewUuid =
-        outcome != null
-            ? outcome.getCommittedViewUuid()
+        committedView != null
+            ? committedViewUuid
             : capturedRow == null ? null : capturedRow.getTableUUID();
     String oldPointer = prepared.getCapturedTableLocation();
-    String newPointer = outcome == null ? null : outcome.getDto().getMetadataLocation();
+    String newPointer = committedView == null ? null : committedView.getMetadataLocation();
 
     return ViewAuditEvent.builder()
         .databaseName(databaseName)
