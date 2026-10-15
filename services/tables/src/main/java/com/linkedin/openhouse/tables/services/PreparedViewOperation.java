@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.tables.repository.impl;
+package com.linkedin.openhouse.tables.services;
 
 import static com.linkedin.openhouse.internal.catalog.CatalogConstants.ENTITY_TYPE_VIEW;
 
