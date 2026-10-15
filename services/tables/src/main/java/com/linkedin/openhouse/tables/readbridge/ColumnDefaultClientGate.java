@@ -1,7 +1,7 @@
 package com.linkedin.openhouse.tables.readbridge;
 
 import com.linkedin.openhouse.common.exception.UnprocessableEntityException;
-import com.linkedin.openhouse.internal.catalog.CatalogConstants;
+import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -32,7 +32,8 @@ public class ColumnDefaultClientGate {
     }
     HttpServletRequest request = currentRequest();
     if (request != null) {
-      String bypass = request.getHeader(CatalogConstants.COLUMN_DEFAULT_POLICY_BYPASS_HEADER);
+      String bypass =
+          request.getHeader(TablesMvcConstants.HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS);
       if ("true".equalsIgnoreCase(bypass)) {
         return;
       }
@@ -56,7 +57,7 @@ public class ColumnDefaultClientGate {
             + " or newer in the same major release family. Configure "
             + "cluster.read-bridge.column-default.minimum-client-version and use a compatible client. "
             + "To bypass column-default policy checks, set header."
-            + CatalogConstants.COLUMN_DEFAULT_POLICY_BYPASS_HEADER
+            + TablesMvcConstants.HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS
             + "=true on the client catalog; incorrect reads or writes may result.");
   }
 
