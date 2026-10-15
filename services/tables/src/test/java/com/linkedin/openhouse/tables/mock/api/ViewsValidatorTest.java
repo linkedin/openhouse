@@ -25,6 +25,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpStatus;
 
 /**
  * Coverage of {@link ViewsApiValidator}: the requests it must accept, and every structural rule it
@@ -668,17 +669,27 @@ public class ViewsValidatorTest {
    */
   @Test
   public void validateRejectsTheServerOwnedDropDialectKeyExactlyOnCreateAndReplace() {
-    for (String value : new String[] {"false", "true", "anything"}) {
+    String sentinelValue = "drop-dialect-value-sentinel";
+    for (String value : new String[] {"false", "true", sentinelValue}) {
       Map<String, String> serverOwned = new LinkedHashMap<>();
       serverOwned.put("replace.drop-dialect.allowed", value);
-      assertRejected(
-          createOf(validCreateRequest().toBuilder().viewProperties(serverOwned).build()),
-          ViewErrorCode.INVALID_VIEW_DEFINITION,
-          "viewProperties : reserved keys are not allowed: replace.drop-dialect.allowed");
-      assertRejected(
-          updateOf(validUpdateRequest().toBuilder().viewProperties(serverOwned).build()),
-          ViewErrorCode.INVALID_VIEW_DEFINITION,
-          "viewProperties : reserved keys are not allowed: replace.drop-dialect.allowed");
+      Map<String, String> sent = new LinkedHashMap<>(serverOwned);
+      Executable[] validations = {
+        createOf(validCreateRequest().toBuilder().viewProperties(serverOwned).build()),
+        updateOf(validUpdateRequest().toBuilder().viewProperties(serverOwned).build())
+      };
+      for (Executable validation : validations) {
+        ViewRequestValidationFailureException rejected =
+            assertRejected(
+                validation,
+                ViewErrorCode.INVALID_VIEW_DEFINITION,
+                "viewProperties : reserved keys are not allowed: replace.drop-dialect.allowed");
+        Assertions.assertEquals(HttpStatus.BAD_REQUEST, rejected.getHttpStatus());
+        Assertions.assertFalse(
+            rejected.getMessage().contains(sentinelValue),
+            "The supplied value is not echoed: " + rejected.getMessage());
+        Assertions.assertEquals(sent, serverOwned, "The request map is rejected, not rewritten.");
+      }
     }
 
     Map<String, String> withOtherReservedKeys = new LinkedHashMap<>();
@@ -694,6 +705,7 @@ public class ViewsValidatorTest {
     Map<String, String> userOwned = new LinkedHashMap<>();
     userOwned.put("Replace.Drop-Dialect.Allowed", "false");
     userOwned.put("replace.drop-dialect.allowed.note", "user");
+    userOwned.put("replace.drop-dialect.allowed ", "user");
     assertDoesNotThrow(
         createOf(validCreateRequest().toBuilder().viewProperties(userOwned).build()),
         "Only the exact server-owned key is reserved.");
