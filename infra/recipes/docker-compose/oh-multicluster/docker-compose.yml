@@ -70,9 +70,12 @@ services:
       OTEL_SERVICE_NAME: openhouse-housetables-a
       OPENHOUSE_CLUSTER_CONFIG_PATH: /var/config/cluster-a.yaml
     depends_on:
-      - mysql-a
-      - prometheus
-      - jaeger
+      mysql-a:
+        condition: service_healthy
+      prometheus:
+        condition: service_started
+      jaeger:
+        condition: service_started
 
   jobs-a:
     <<: *openhouse-jobs
@@ -115,9 +118,12 @@ services:
       OTEL_SERVICE_NAME: openhouse-housetables-b
       OPENHOUSE_CLUSTER_CONFIG_PATH: /var/config/cluster-b.yaml
     depends_on:
-      - mysql-b
-      - prometheus
-      - jaeger
+      mysql-b:
+        condition: service_healthy
+      prometheus:
+        condition: service_started
+      jaeger:
+        condition: service_started
 
   jobs-b:
     <<: *openhouse-jobs
@@ -181,6 +187,12 @@ services:
     image: mysql:8
     ports:
       - target: 3306
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$${MYSQL_ROOT_PASSWORD}\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     environment:
       MYSQL_ROOT_PASSWORD: oh_root_password
       MYSQL_PASSWORD: oh_password
@@ -193,6 +205,12 @@ services:
     image: mysql:8
     ports:
       - target: 3306
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$${MYSQL_ROOT_PASSWORD}\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     environment:
       MYSQL_ROOT_PASSWORD: oh_root_password
       MYSQL_PASSWORD: oh_password
@@ -206,6 +224,12 @@ services:
     ports:
       - target: 8080
       - target: 7077
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-sS", "--max-time", "3", "-o", "/dev/null", "http://spark-master:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     environment:
       SPARK_LOCAL_IP: spark-master
       SPARK_WORKLOAD: master
@@ -216,6 +240,12 @@ services:
     ports:
       - target: 8080
       - target: 7000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-sS", "--max-time", "3", "-o", "/dev/null", "http://spark-worker-a:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     environment:
       SPARK_MASTER: spark://spark-master:7077
       SPARK_WORKER_CORES: 1
@@ -232,6 +262,12 @@ services:
     <<: *spark-build
     ports:
       - target: 8998
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-sS", "--max-time", "3", "-o", "/dev/null", "http://localhost:8998/sessions"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     environment:
       SPARK_MASTER: spark://spark-master:7077
       SPARK_WORKLOAD: livy
