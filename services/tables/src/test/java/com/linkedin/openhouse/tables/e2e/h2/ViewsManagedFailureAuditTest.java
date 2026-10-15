@@ -857,6 +857,71 @@ public class ViewsManagedFailureAuditTest {
   }
 
   /**
+   * The server-owned {@code replace.drop-dialect.allowed} view property is rejected by the API
+   * validator as a sanitized 400 on create and replace, before the service is entered: no House
+   * Table capture, authorization, admission, storage allocation, engine commit, or operation audit.
+   * The request audit records the 400 and keeps the supplied definition.
+   */
+  @ParameterizedTest
+  @ValueSource(strings = {"POST", "PUT"})
+  public void serverOwnedDropDialectPropertyIsASanitized400BeforeTheService(String method)
+      throws Exception {
+    String body =
+        ViewModelConstants.fullyPopulatedRequest()
+            .toBuilder()
+            .baseMetadataLocation(
+                "POST".equals(method) ? null : ViewModelConstants.METADATA_LOCATION)
+            .viewProperties(Collections.singletonMap("replace.drop-dialect.allowed", "false"))
+            .build()
+            .toJson();
+    org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request =
+        "POST".equals(method)
+            ? MockMvcRequestBuilders.post(VIEWS_PATH)
+            : MockMvcRequestBuilders.put(VIEW_PATH);
+    // Were the request to reach the service, it would be authorized, capture a view (PUT) and
+    // reach the engine, which rejects this caller-supplied server-owned key as the real engine
+    // does. The validator must reject it first.
+    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
+    if ("PUT".equals(method)) {
+      when(houseTableRepository.findEntityById(ViewsManagedAuthMatrixBase.viewKey()))
+          .thenReturn(Optional.of(ViewsManagedAuthMatrixBase.viewRow()));
+    }
+    when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
+        .thenThrow(
+            new org.apache.iceberg.exceptions.BadRequestException(
+                "Property %s is owned by OpenHouse and cannot be set by a caller",
+                "replace.drop-dialect.allowed"));
+
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      MvcResult result =
+          expectNoCauseOrStacktrace(
+                  mvc.perform(
+                      withToken(
+                          request
+                              .contentType(MediaType.APPLICATION_JSON)
+                              .content(body)
+                              .accept(MediaType.APPLICATION_JSON))))
+              .andExpect(status().isBadRequest())
+              .andExpect(
+                  jsonPath("$.message")
+                      .value(
+                          org.hamcrest.Matchers.containsString(
+                              "viewProperties : reserved keys are not allowed:"
+                                  + " replace.drop-dialect.allowed")))
+              .andReturn();
+
+      assertNoSensitive(result.getResponse().getContentAsString(), logs.renderedEvents());
+    }
+    verify(opaHandler, never()).checkAccessDecision(any(), any(DatabaseDto.class), any());
+    verify(houseTableRepository, never()).findEntityById(any());
+    verify(viewCommitEngine, never()).commit(any());
+    verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
+    ServiceAuditEvent event = captureServiceAudit();
+    assertEquals(400, event.getStatusCode());
+    assertRequestAuditKeepsSuppliedDefinition(event, body);
+  }
+
+  /**
    * Servlet binding percent-decodes parameter names, so {@code %70ageToken} binds as {@code
    * pageToken}. The continuation must reach the backend, yet the request audit must not keep it.
    */
