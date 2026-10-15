@@ -15,6 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
 import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.ServiceAuditPayloadRedactor;
 import com.linkedin.openhouse.common.audit.ServiceAuditUriRedactor;
@@ -38,6 +39,7 @@ import com.linkedin.openhouse.tables.mock.logging.Log4j2LogCapture;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
 import com.linkedin.openhouse.tables.services.DatabasesService;
+import com.linkedin.openhouse.tables.services.ViewAdmissionService;
 import com.linkedin.openhouse.tables.services.ViewPageCursor;
 import com.linkedin.openhouse.tables.services.ViewPageTokenCodec;
 import com.linkedin.openhouse.tables.services.ViewPaginationAdapter;
@@ -65,6 +67,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -118,6 +121,7 @@ public class ViewsManagedFailureAuditTest {
    */
   private static final String[] REQUEST_TOKEN_SECRETS = {SECRET_BASE, SECRET_PAGE_TOKEN};
 
+  private static final String DROP_DIALECT_SENTINEL = "drop-dialect-value-sentinel";
   private static final String REQUEST_SINK_FAILURE = "request-audit-sink-failure-marker";
   private static final String[] PARSER_DETAILS = {
     "com.google.gson", "MalformedJsonException", "JsonSyntaxException", "End of input"
@@ -142,6 +146,12 @@ public class ViewsManagedFailureAuditTest {
   private HouseTablesH2Repository houseTableRepository;
 
   @MockBean private ViewCommitEngine viewCommitEngine;
+  // Real behavior, observed: the service's admission check and its primary storage selector.
+  @SpyBean private ViewAdmissionService viewAdmissionService;
+
+  @SpyBean(name = "provideStorageSelector")
+  private StorageSelector storageSelector;
+
   @MockBean private OpaHandler opaHandler;
   // SpringH2Application defines bean "serviceAuditHandler" and the scanned DummyServiceAuditHandler
   // is a second candidate; ServiceAuditAspect injects by that field name, so replace that bean.
@@ -235,6 +245,10 @@ public class ViewsManagedFailureAuditTest {
         .andExpect(status().isCreated());
 
     assertRequestAuditKeepsSuppliedDefinition(captureServiceAudit(), requestWithSensitiveMarkers());
+    // Positive anchors for the observed admission and storage seams used by negative cases.
+    verify(viewAdmissionService, times(1)).admit(any());
+    verify(storageSelector, times(1))
+        .selectStorage(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID);
     ViewAuditEvent viewEvent = captureViewAudit();
     assertEquals(OperationStatus.SUCCESS, viewEvent.getOperationStatus());
     assertEquals(
@@ -871,9 +885,11 @@ public class ViewsManagedFailureAuditTest {
             .toBuilder()
             .baseMetadataLocation(
                 "POST".equals(method) ? null : ViewModelConstants.METADATA_LOCATION)
-            .viewProperties(Collections.singletonMap("replace.drop-dialect.allowed", "false"))
+            .viewProperties(
+                Collections.singletonMap("replace.drop-dialect.allowed", DROP_DIALECT_SENTINEL))
             .build()
             .toJson();
+    String sessionId = "view-session-reserved-property-" + method;
     org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request =
         "POST".equals(method)
             ? MockMvcRequestBuilders.post(VIEWS_PATH)
@@ -900,7 +916,8 @@ public class ViewsManagedFailureAuditTest {
                           request
                               .contentType(MediaType.APPLICATION_JSON)
                               .content(body)
-                              .accept(MediaType.APPLICATION_JSON))))
+                              .accept(MediaType.APPLICATION_JSON)
+                              .header(SESSION_ID_HEADER, sessionId))))
               .andExpect(status().isBadRequest())
               .andExpect(
                   jsonPath("$.message")
@@ -910,14 +927,21 @@ public class ViewsManagedFailureAuditTest {
                                   + " replace.drop-dialect.allowed")))
               .andReturn();
 
-      assertNoSensitive(result.getResponse().getContentAsString(), logs.renderedEvents());
+      String wire = result.getResponse().getContentAsString();
+      String renderedLogs = logs.renderedEvents();
+      assertNoSensitive(wire, renderedLogs);
+      assertFalse(wire.contains(DROP_DIALECT_SENTINEL), wire);
+      assertFalse(renderedLogs.contains(DROP_DIALECT_SENTINEL), renderedLogs);
+      assertFalse(renderedLogs.contains("owned by OpenHouse"), renderedLogs);
     }
     verify(opaHandler, never()).checkAccessDecision(any(), any(DatabaseDto.class), any());
-    verify(houseTableRepository, never()).findEntityById(any());
-    verify(viewCommitEngine, never()).commit(any());
+    Mockito.verifyNoInteractions(houseTableRepository, viewCommitEngine);
+    verify(viewAdmissionService, never()).admit(any());
+    verify(storageSelector, never()).selectStorage(any(), any());
     verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
     ServiceAuditEvent event = captureServiceAudit();
     assertEquals(400, event.getStatusCode());
+    assertEquals(sessionId, event.getSessionId());
     assertRequestAuditKeepsSuppliedDefinition(event, body);
   }
 
