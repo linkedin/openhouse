@@ -5,14 +5,20 @@ import com.linkedin.openhouse.tables.exception.ViewApiException;
 import com.linkedin.openhouse.tables.exception.ViewErrorCode;
 import com.linkedin.openhouse.tables.model.ViewDto;
 import com.linkedin.openhouse.tables.model.ViewListResult;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingClass;
 import org.springframework.data.util.Pair;
 import org.springframework.stereotype.Component;
 
 /**
  * Disabled {@link ViewsService} implementation. Every operation reports {@link
  * ViewErrorCode#VIEWS_DISABLED}, producing HTTP 404 without reading or writing view state.
+ *
+ * <p>Registered only when the Iceberg view API is absent from the runtime ({@link ViewsServiceImpl}
+ * is registered otherwise), so exactly one {@code ViewsService} bean exists per runtime and both
+ * emit the identical 404 shape whether views are runtime-absent or per-database-disabled.
  */
 @Component
+@ConditionalOnMissingClass("org.apache.iceberg.view.ViewMetadata")
 public class ViewsDisabledService implements ViewsService {
 
   /**

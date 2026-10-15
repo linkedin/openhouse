@@ -67,13 +67,20 @@ public class ViewRequestPayloadRedactorTest {
     JsonElement payload =
         JsonParser.parseString(
             "{\"viewId\": \"my_view\", \"databaseId\": \"my_database\","
-                + " \"schema\": \"the schema document\","
+                + " \"baseMetadataLocation\": \"file:/secret/base-token.metadata.json\","
+                + " \"schema\": \"secret schema\","
                 + " \"representations\": ["
                 + "{\"type\": \"sql\", \"sql\": \"secret sql one\", \"dialect\": \"spark\"},"
                 + "{\"type\": \"sql\", \"sql\": \"secret sql two\", \"dialect\": \"trino\"}]}");
 
     JsonObject redacted = redactor.redact(payload).getAsJsonObject();
 
+    Assertions.assertEquals(
+        ServiceAuditPayloadRedactor.REDACTED_VALUE, redacted.get("schema").getAsString());
+    Assertions.assertEquals(
+        ServiceAuditPayloadRedactor.REDACTED_VALUE,
+        redacted.get("baseMetadataLocation").getAsString(),
+        "The write CAS token is as sensitive as schema and SQL and must not be retained.");
     JsonArray representations = redacted.getAsJsonArray("representations");
     for (JsonElement representation : representations) {
       Assertions.assertEquals(
@@ -81,11 +88,8 @@ public class ViewRequestPayloadRedactorTest {
           representation.getAsJsonObject().get("sql").getAsString(),
           "Every representation is redacted, not only the first.");
     }
-    Assertions.assertFalse(
-        redacted.toString().contains("secret"), "No representation SQL may survive redaction.");
-
-    // The schema is structural metadata (column names and types), not query logic, so it is kept.
-    Assertions.assertEquals("the schema document", redacted.get("schema").getAsString());
+    Assertions.assertFalse(redacted.toString().contains("secret"));
+    Assertions.assertFalse(redacted.toString().contains("base-token"));
 
     // Identifiers and dialect metadata survive.
     Assertions.assertEquals("my_view", redacted.get("viewId").getAsString());
@@ -160,5 +164,59 @@ public class ViewRequestPayloadRedactorTest {
         "the schema document",
         redacted.get("schema").getAsString(),
         "A malformed representations field must not disturb the retained schema.");
+  }
+
+  /**
+   * Jackson rejects these representation shapes, but the request audit still parses the body, so a
+   * sensitive representations subtree must not survive in any shape. Failing closed (throwing, so
+   * the audit drops the payload) is equally acceptable.
+   */
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "{\"representations\": {\"sql\": \"SQL_SECRET\"}, \"schema\": \"SCHEMA_SECRET\"}",
+        "{\"representations\": {\"type\": \"sql\", \"sql\": \"SQL_SECRET\"},"
+            + " \"schema\": \"SCHEMA_SECRET\", \"viewId\": \"v\"}",
+        "{\"representations\": \"SQL_SECRET\", \"schema\": \"SCHEMA_SECRET\"}"
+      })
+  public void malformedRepresentationsShapesNeverRetainSql(String body) {
+    JsonElement redacted;
+    try {
+      redacted = redactor.redact(JsonParser.parseString(body));
+    } catch (RuntimeException failClosed) {
+      return;
+    }
+
+    String rendered = redacted.toString();
+    Assertions.assertFalse(rendered.contains("SQL_SECRET"), rendered);
+    Assertions.assertFalse(rendered.contains("SCHEMA_SECRET"), rendered);
+  }
+
+  /**
+   * Inside a representations array, a malformed element that is not a representation object (a bare
+   * SQL string, or SQL nested in another array) must not carry SQL into the audit. Failing closed
+   * (throwing, so the audit drops the payload) is equally acceptable.
+   */
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "{\"representations\": [\"SELECT SQL_ARRAY_SECRET\"], \"schema\": \"SCHEMA_SECRET\"}",
+        "{\"representations\": [[\"SELECT SQL_ARRAY_SECRET\"]], \"schema\": \"SCHEMA_SECRET\"}",
+        "{\"representations\": [[{\"sql\": \"SELECT SQL_ARRAY_SECRET\"}]],"
+            + " \"schema\": \"SCHEMA_SECRET\"}",
+        "{\"representations\": [{\"type\": \"sql\", \"sql\": \"ok\"},"
+            + " \"SELECT SQL_ARRAY_SECRET\"], \"schema\": \"SCHEMA_SECRET\"}"
+      })
+  public void malformedRepresentationArrayElementsNeverRetainSql(String body) {
+    JsonElement redacted;
+    try {
+      redacted = redactor.redact(JsonParser.parseString(body));
+    } catch (RuntimeException failClosed) {
+      return;
+    }
+
+    String rendered = redacted.toString();
+    Assertions.assertFalse(rendered.contains("SQL_ARRAY_SECRET"), rendered);
+    Assertions.assertFalse(rendered.contains("SCHEMA_SECRET"), rendered);
   }
 }
