@@ -8,11 +8,14 @@ import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 import com.linkedin.openhouse.common.audit.ServiceAuditPayloadRedactor;
 import com.linkedin.openhouse.tables.audit.ViewRequestPayloadRedactor;
+import java.util.Set;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.util.ServletRequestPathUtils;
 
 /**
  * Unit coverage of {@link ViewRequestPayloadRedactor}. The controller-level proof that the redactor
@@ -28,6 +31,37 @@ public class ViewRequestPayloadRedactorTest {
     MockHttpServletRequest request = new MockHttpServletRequest();
     request.setRequestURI(uri);
     return request;
+  }
+
+  /**
+   * The payload redactor claims exactly the request paths MVC routes to the view collection or
+   * item, whether MVC has already parsed the request path or not. Classification leaves the request
+   * untouched: the raw URI and attributes are unchanged, and a standalone request gains no parsed
+   * path.
+   */
+  @ParameterizedTest
+  @MethodSource("com.linkedin.openhouse.tables.mock.audit.ViewAuditRouteCases#routes")
+  public void claimsExactlyTheMvcViewRoutes(
+      String contextPath, String rawRequestUri, boolean collection, boolean viewRoute) {
+    for (boolean cached : new boolean[] {false, true}) {
+      MockHttpServletRequest request =
+          ViewAuditRouteCases.request(contextPath, rawRequestUri, cached);
+      Set<String> attributesBefore = ViewAuditRouteCases.attributeNames(request);
+
+      Assertions.assertEquals(
+          viewRoute, redactor.appliesTo(request), rawRequestUri + " cached=" + cached);
+
+      Assertions.assertEquals(rawRequestUri, request.getRequestURI());
+      Assertions.assertEquals(attributesBefore, ViewAuditRouteCases.attributeNames(request));
+      Assertions.assertEquals(cached, ServletRequestPathUtils.hasParsedRequestPath(request));
+    }
+  }
+
+  /** A view route reached through MVC's parsed servlet mapping is classified by MVC's path. */
+  @Test
+  public void claimsAViewRouteWithinMvcsParsedServletMapping() {
+    Assertions.assertTrue(
+        redactor.appliesTo(ViewAuditRouteCases.servletPrefixedCollectionRequest()));
   }
 
   @ParameterizedTest

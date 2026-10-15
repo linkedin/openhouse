@@ -1,12 +1,19 @@
 package com.linkedin.openhouse.tables.mock.audit;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.linkedin.openhouse.common.audit.ServiceAuditUriRedactor;
 import com.linkedin.openhouse.tables.audit.ViewRequestUriRedactor;
+import java.util.Set;
+import javax.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.util.ServletRequestPathUtils;
 
 /**
  * Servlet binding percent-decodes query parameter names, so every spelling that binds to {@code
@@ -19,6 +26,66 @@ public class ViewRequestUriRedactorTest {
   private static final String SECRET_B = "TOKEN_SECRET_B";
 
   private final ViewRequestUriRedactor redactor = new ViewRequestUriRedactor();
+
+  /**
+   * The URI redactor claims exactly the request paths MVC routes to the view list, whether MVC has
+   * already parsed the request path or not. Classification leaves the request untouched: the raw
+   * URI and attributes are unchanged, and a standalone request gains no parsed path.
+   */
+  @ParameterizedTest
+  @MethodSource("com.linkedin.openhouse.tables.mock.audit.ViewAuditRouteCases#routes")
+  public void claimsExactlyTheMvcViewListRoutes(
+      String contextPath, String rawRequestUri, boolean collection, boolean viewRoute) {
+    for (boolean cached : new boolean[] {false, true}) {
+      MockHttpServletRequest request =
+          ViewAuditRouteCases.request(contextPath, rawRequestUri, cached);
+      Set<String> attributesBefore = ViewAuditRouteCases.attributeNames(request);
+
+      assertEquals(collection, redactor.appliesTo(request), rawRequestUri + " cached=" + cached);
+
+      assertEquals(rawRequestUri, request.getRequestURI());
+      assertEquals(attributesBefore, ViewAuditRouteCases.attributeNames(request));
+      assertEquals(cached, ServletRequestPathUtils.hasParsedRequestPath(request));
+    }
+  }
+
+  /** A view list reached through MVC's parsed servlet mapping is classified by MVC's path. */
+  @Test
+  public void claimsTheViewListWithinMvcsParsedServletMapping() {
+    HttpServletRequest request = ViewAuditRouteCases.servletPrefixedCollectionRequest();
+
+    assertTrue(redactor.appliesTo(request));
+  }
+
+  /**
+   * Classification never rewrites the audited path: an accepted alias keeps its raw spelling and
+   * every safe field, and only the bound token value is replaced.
+   */
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "/v1/databases/db/views/",
+        "/v1/databases/db/%76iews",
+        "/v1/databases/db/%76iews/"
+      })
+  public void claimedAliasKeepsItsRawSpellingWhileTheTokenIsReplaced(String rawRequestUri) {
+    assertTrue(redactor.appliesTo(ViewAuditRouteCases.request("", rawRequestUri, false)));
+
+    assertEquals(
+        rawRequestUri
+            + "?pageToken="
+            + ServiceAuditUriRedactor.REDACTED_VALUE
+            + "&sortBy=viewId&%70ageToken="
+            + ServiceAuditUriRedactor.REDACTED_VALUE
+            + "&size=1",
+        redactor.redact(
+            rawRequestUri
+                + "?pageToken="
+                + SECRET_A
+                + "&sortBy=viewId&%70ageToken="
+                + SECRET_B
+                + "&size=1"));
+  }
 
   @Test
   public void literalPageTokenIsRedactedAndSafeFieldsAreKept() {

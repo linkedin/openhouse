@@ -14,6 +14,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.linkedin.openhouse.common.audit.AuditHandler;
+import com.linkedin.openhouse.common.audit.ServiceAuditPayloadRedactor;
+import com.linkedin.openhouse.common.audit.ServiceAuditUriRedactor;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
@@ -26,6 +28,7 @@ import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
 import com.linkedin.openhouse.tables.audit.model.OperationStatus;
 import com.linkedin.openhouse.tables.audit.model.ViewAuditEvent;
 import com.linkedin.openhouse.tables.authorization.OpaHandler;
+import com.linkedin.openhouse.tables.controller.ViewsController;
 import com.linkedin.openhouse.tables.exception.ViewApiException;
 import com.linkedin.openhouse.tables.exception.ViewExceptionHandler;
 import com.linkedin.openhouse.tables.mock.audit.AuditEventInspection;
@@ -50,6 +53,8 @@ import java.util.Set;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -71,6 +76,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.method.annotation.ExceptionHandlerMethodResolver;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.util.NestedServletException;
@@ -90,6 +96,7 @@ public class ViewsManagedFailureAuditTest {
   private static final String VIEWS_PATH =
       "/v1/databases/" + ViewModelConstants.DATABASE_ID + "/views";
   private static final String VIEW_PATH = VIEWS_PATH + "/" + ViewModelConstants.VIEW_ID;
+  private static final String DATABASE_ROUTE = "/v1/databases/" + ViewModelConstants.DATABASE_ID;
   private static final String SECRET_SQL = "select very_secret_sql";
   private static final String SECRET_SCHEMA = "very_secret_schema";
   private static final String SECRET_BASE = "file:/very-secret-base.metadata.json";
@@ -558,6 +565,262 @@ public class ViewsManagedFailureAuditTest {
     verify(houseTableRepository, never()).findAllViewsByDatabaseId(any(), any());
     AuditEventInspection.assertNoSensitiveProperties(captureServiceAudit(), SECRETS);
     verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
+  }
+
+  /**
+   * Spring MVC routes a trailing-slash, a percent-encoded view segment, and both combined to the
+   * same view list handler as the canonical path. The request audit records the raw request URI, so
+   * on every accepted spelling the continuation must be replaced while the raw route and the other
+   * fields are kept. Requests use {@code URI.create} so the {@code %76} is sent once-encoded.
+   */
+  @ParameterizedTest
+  @ValueSource(strings = {"/views", "/views/", "/%76iews", "/%76iews/"})
+  public void validContinuationOnEveryListAliasIsRedactedFromRequestAudit(String routeSuffix)
+      throws Exception {
+    String rawRoute = DATABASE_ROUTE + routeSuffix;
+    String token = validContinuation(3);
+    when(houseTableRepository.findAllViewsByDatabaseId(any(), any()))
+        .thenAnswer(
+            invocation ->
+                new PageImpl<HouseTable>(
+                    Collections.emptyList(), invocation.<Pageable>getArgument(1), 0));
+
+    MvcResult result =
+        assertListAliasAudit(
+            rawRoute,
+            "?pageToken=" + token + "&sortBy=viewId&size=1",
+            "?pageToken=" + ServiceAuditUriRedactor.REDACTED_VALUE + "&sortBy=viewId&size=1",
+            200,
+            token);
+
+    assertTrue(result.getResponse().getContentAsString().contains("\"results\""));
+    ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+    verify(houseTableRepository).findAllViewsByDatabaseId(any(), pageable.capture());
+    assertEquals(3, pageable.getValue().getPageNumber(), "The continuation must bind and apply.");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"/views", "/views/", "/%76iews", "/%76iews/"})
+  public void malformedContinuationOnEveryListAliasIsRedactedFromFailureRequestAudit(
+      String routeSuffix) throws Exception {
+    assertListAliasAudit(
+        DATABASE_ROUTE + routeSuffix,
+        "?pageToken=" + SECRET_PAGE_TOKEN + "&sortBy=viewId&size=1",
+        "?pageToken=" + ServiceAuditUriRedactor.REDACTED_VALUE + "&sortBy=viewId&size=1",
+        400,
+        SECRET_PAGE_TOKEN);
+
+    verify(houseTableRepository, never()).findAllViewsByDatabaseId(any(), any());
+  }
+
+  @Test
+  public void backendFailureOnAnEncodedListAliasIsRedactedFromFailureRequestAudit()
+      throws Exception {
+    String token = validContinuation(0);
+    when(houseTableRepository.findAllViewsByDatabaseId(any(), any()))
+        .thenThrow(new RuntimeException(SECRET_SQL + " " + token));
+
+    assertListAliasAudit(
+        DATABASE_ROUTE + "/%76iews",
+        "?pageToken=" + token + "&sortBy=viewId&size=1",
+        "?pageToken=" + ServiceAuditUriRedactor.REDACTED_VALUE + "&sortBy=viewId&size=1",
+        500,
+        token);
+  }
+
+  /** The existing duplicate literal/encoded name policy still applies on an alias route. */
+  @Test
+  public void mixedDuplicatePageTokensOnAnEncodedTrailingAliasAreAllRedacted() throws Exception {
+    String literal = SECRET_PAGE_TOKEN + "-literal";
+    String encoded = SECRET_PAGE_TOKEN + "-encoded";
+
+    assertListAliasAudit(
+        DATABASE_ROUTE + "/%76iews/",
+        "?pageToken=" + literal + "&sortBy=viewId&%70ageToken=" + encoded,
+        "?pageToken="
+            + ServiceAuditUriRedactor.REDACTED_VALUE
+            + "&sortBy=viewId&%70ageToken="
+            + ServiceAuditUriRedactor.REDACTED_VALUE,
+        400,
+        literal,
+        encoded);
+
+    verify(houseTableRepository, never()).findAllViewsByDatabaseId(any(), any());
+  }
+
+  /**
+   * Performs a list request on a raw route, proves real dispatch to the view list handler, and
+   * asserts one request audit with the expected redacted URI, no operation audit, and no secret in
+   * the event, body, or logs.
+   */
+  private MvcResult assertListAliasAudit(
+      String rawRoute,
+      String rawQuery,
+      String expectedAuditedQuery,
+      int expectedStatus,
+      String... secrets)
+      throws Exception {
+    MvcResult result;
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      result =
+          expectNoCauseOrStacktrace(
+                  mvc.perform(
+                      withToken(
+                          MockMvcRequestBuilders.get(URI.create(rawRoute + rawQuery))
+                              .accept(MediaType.APPLICATION_JSON))))
+              .andReturn();
+
+      assertEquals(expectedStatus, result.getResponse().getStatus(), rawRoute);
+      assertEquals(rawRoute, result.getRequest().getRequestURI(), "The raw path is preserved.");
+      assertViewListHandler(result);
+      String wire = result.getResponse().getContentAsString();
+      String renderedLogs = logs.renderedEvents();
+      assertNoSensitive(wire, renderedLogs);
+      for (String secret : secrets) {
+        assertFalse(wire.contains(secret), wire);
+        assertFalse(renderedLogs.contains(secret), renderedLogs);
+      }
+    }
+    ServiceAuditEvent event = captureServiceAudit();
+    AuditEventInspection.assertNoSensitiveProperties(event, secrets);
+    AuditEventInspection.assertNoSensitiveProperties(event, SECRETS);
+    assertEquals(rawRoute + expectedAuditedQuery, event.getUri());
+    assertEquals(expectedStatus, event.getStatusCode());
+    verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
+    return result;
+  }
+
+  private static void assertViewListHandler(MvcResult result) {
+    assertTrue(result.getHandler() instanceof HandlerMethod, String.valueOf(result.getHandler()));
+    HandlerMethod handler = (HandlerMethod) result.getHandler();
+    assertEquals(ViewsController.class, handler.getBeanType());
+    assertEquals("getAllViews", handler.getMethod().getName());
+  }
+
+  private static String validContinuation(int sourcePageIndex) {
+    return new ViewPageTokenCodec()
+        .encode(
+            new ViewPageCursor(
+                ViewModelConstants.DATABASE_ID,
+                "viewId",
+                ViewPaginationAdapter.DEFAULT_SOURCE_PAGE_SIZE,
+                sourcePageIndex,
+                0));
+  }
+
+  /**
+   * A create at an MVC-accepted encoded collection alias succeeds normally, and its request audit
+   * carries the redacted definition, never the schema or SQL.
+   */
+  @ParameterizedTest
+  @ValueSource(strings = {"/%76iews", "/%76iews/"})
+  public void createOnAnEncodedCollectionAliasRedactsTheRequestAuditPayload(String routeSuffix)
+      throws Exception {
+    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
+    when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
+        .thenReturn(ViewsManagedAuthMatrixBase.createdResult());
+
+    assertWritePayloadRedacted(
+        MockMvcRequestBuilders.post(URI.create(DATABASE_ROUTE + routeSuffix))
+            .content(requestWithSensitiveMarkers()),
+        201);
+
+    verify(viewCommitEngine, times(1)).commit(any(ViewCommitIntent.class));
+    assertEquals(OperationStatus.SUCCESS, captureViewAudit().getOperationStatus());
+  }
+
+  /**
+   * A replace at an MVC-accepted encoded item alias succeeds normally, and its request audit
+   * carries neither the schema, the SQL, nor the CAS base metadata location.
+   */
+  @Test
+  public void replaceOnAnEncodedItemAliasRedactsTheRequestAuditPayload() throws Exception {
+    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
+    when(houseTableRepository.findEntityById(ViewsManagedAuthMatrixBase.viewKey()))
+        .thenReturn(
+            Optional.of(
+                ViewsManagedAuthMatrixBase.viewRow()
+                    .toBuilder()
+                    .tableLocation(SECRET_BASE)
+                    .build()));
+    when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
+        .thenReturn(ViewsManagedAuthMatrixBase.replacedResult());
+
+    assertWritePayloadRedacted(
+        MockMvcRequestBuilders.put(
+                URI.create(DATABASE_ROUTE + "/%76iews/" + ViewModelConstants.VIEW_ID))
+            .content(sensitiveRequest(SECRET_BASE)),
+        200);
+
+    verify(viewCommitEngine, times(1)).commit(any(ViewCommitIntent.class));
+    assertEquals(OperationStatus.SUCCESS, captureViewAudit().getOperationStatus());
+  }
+
+  /**
+   * A structurally invalid definition at an encoded alias is rejected before service entry; the
+   * exception-advice request audit still carries the redacted definition, and no operation audit is
+   * emitted.
+   */
+  @Test
+  public void invalidDefinitionOnAnEncodedCollectionAliasRedactsTheFailureRequestAudit()
+      throws Exception {
+    String invalid =
+        com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody.builder()
+            .databaseId(ViewModelConstants.DATABASE_ID)
+            .viewId(ViewModelConstants.VIEW_ID)
+            .schema(validSensitiveSchema())
+            .representations(
+                Collections.singletonList(
+                    com.linkedin.openhouse.tables.api.spec.v0.request.components.ViewRepresentation
+                        .builder()
+                        .type("sql")
+                        .dialect("spark")
+                        .sql(SECRET_SQL)
+                        .build()))
+            .sourceDialect("trino")
+            .defaultCatalog(ViewModelConstants.DEFAULT_CATALOG)
+            .defaultNamespace(ViewModelConstants.DEFAULT_NAMESPACE)
+            .baseMetadataLocation(SECRET_BASE)
+            .build()
+            .toJson();
+
+    assertWritePayloadRedacted(
+        MockMvcRequestBuilders.post(URI.create(DATABASE_ROUTE + "/%76iews")).content(invalid), 400);
+
+    Mockito.verifyNoInteractions(houseTableRepository, viewCommitEngine, opaHandler);
+    verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
+  }
+
+  private void assertWritePayloadRedacted(
+      org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request,
+      int expectedStatus)
+      throws Exception {
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      MvcResult result =
+          expectNoCauseOrStacktrace(
+                  mvc.perform(
+                      withToken(
+                          request
+                              .contentType(MediaType.APPLICATION_JSON)
+                              .accept(MediaType.APPLICATION_JSON))))
+              .andReturn();
+
+      assertEquals(
+          expectedStatus,
+          result.getResponse().getStatus(),
+          "The alias must reach the view write handler: "
+              + result.getResponse().getContentAsString());
+      assertTrue(result.getHandler() instanceof HandlerMethod, String.valueOf(result.getHandler()));
+      assertEquals(ViewsController.class, ((HandlerMethod) result.getHandler()).getBeanType());
+      assertNoSensitive(result.getResponse().getContentAsString(), logs.renderedEvents());
+    }
+    ServiceAuditEvent event = captureServiceAudit();
+    AuditEventInspection.assertNoSensitiveProperties(event, SECRETS);
+    assertEquals(expectedStatus, event.getStatusCode());
+    assertTrue(
+        String.valueOf(event.getRequestPayload())
+            .contains(ServiceAuditPayloadRedactor.REDACTED_VALUE),
+        "The definition is redacted in place, not dropped: " + event.getRequestPayload());
   }
 
   /**
@@ -1068,6 +1331,10 @@ public class ViewsManagedFailureAuditTest {
   }
 
   private static String requestWithSensitiveMarkers() {
+    return sensitiveRequest(null);
+  }
+
+  private static String sensitiveRequest(String baseMetadataLocation) {
     return ViewModelConstants.fullyPopulatedRequest()
         .toBuilder()
         .schema(validSensitiveSchema())
@@ -1079,7 +1346,7 @@ public class ViewsManagedFailureAuditTest {
                     .dialect("spark")
                     .sql(SECRET_SQL)
                     .build()))
-        .baseMetadataLocation(null)
+        .baseMetadataLocation(baseMetadataLocation)
         .build()
         .toJson();
   }
