@@ -11,14 +11,13 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Builds the per-table {@code config} that read-bridge clients apply. Owns policy (feature id,
+ * Builds the per-table {@code config} that read-bridge clients apply. Owns policy (capability id,
  * opt-in, keys); deployments supply data via {@link ColumnDefaultsSource}.
  *
  * <p>Column defaults apply only to a table that carries {@code
- * read-bridge.column-default.enabled=true}; no HouseTables rule turns them on. Turning them on is
- * therefore a table commit like any other: a writer that loaded the table earlier conflicts on its
- * next commit and reloads the table, defaults included. It also keeps reads and writes from
- * depending on HouseTables.
+ * read-bridge.column-default.enabled=true}. Turning them on is therefore a table commit like any
+ * other: a writer that loaded the table earlier conflicts on its next commit and reloads the table,
+ * defaults included.
  */
 public class ReadBridgeConfigResolver {
 
