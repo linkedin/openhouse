@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.mock;
 
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
+import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultClientGate;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
@@ -70,7 +71,7 @@ public class MockTablesApplication {
 
   /** Services require the client gate from {@code ApiConfig}; no mock table opts in. */
   @Bean
-  public ColumnDefaultClientGate columnDefaultClientGate() {
-    return new ColumnDefaultClientGate("");
+  public ColumnDefaultClientGate columnDefaultClientGate(CatalogRequestContext requestContext) {
+    return new ColumnDefaultClientGate("", requestContext);
   }
 }
