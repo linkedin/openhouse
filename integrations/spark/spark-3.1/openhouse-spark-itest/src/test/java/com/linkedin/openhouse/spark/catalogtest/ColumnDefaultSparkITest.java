@@ -46,7 +46,7 @@ public class ColumnDefaultSparkITest extends OpenHouseSparkITest {
       assertEquals(
           "true",
           table.properties().get(ENABLED_PROP),
-          "ramp property missing; props=" + table.properties());
+          "opt-in property missing; props=" + table.properties());
       assertEquals(
           "US",
           table.schema().findField("country").initialDefault(),
