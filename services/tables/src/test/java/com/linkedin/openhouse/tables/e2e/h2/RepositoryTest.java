@@ -576,6 +576,44 @@ public class RepositoryTest {
     Assertions.assertFalse(openHouseInternalRepository.existsById(key));
   }
 
+  /** A commit a table property rule rejects reaches the caller as a client error, unpersisted. */
+  @Test
+  void testTablePropertyRuleRejectionIsClientError() {
+    TableDto created =
+        openHouseInternalRepository.save(
+            TABLE_DTO
+                .toBuilder()
+                .tableId("tablePropertyRule")
+                .tableVersion(INITIAL_TABLE_VERSION)
+                .build());
+    TableDtoPrimaryKey key = getPrimaryKey(created);
+    try {
+      Map<String, String> properties = new HashMap<>(created.getTableProperties());
+      properties.put(TableProperties.MAX_REF_AGE_MS, "0");
+      TableDto update =
+          created
+              .toBuilder()
+              .tableVersion(created.getTableLocation())
+              .tableProperties(properties)
+              .build();
+      UnsupportedClientOperationException exception =
+          Assertions.assertThrows(
+              UnsupportedClientOperationException.class,
+              () -> openHouseInternalRepository.save(update));
+      Assertions.assertTrue(
+          exception.getMessage().contains("must be a positive number of milliseconds"));
+      Assertions.assertEquals(
+          created.getTableProperties().get(TableProperties.MAX_REF_AGE_MS),
+          openHouseInternalRepository
+              .findById(key)
+              .get()
+              .getTableProperties()
+              .get(TableProperties.MAX_REF_AGE_MS));
+    } finally {
+      openHouseInternalRepository.deleteById(key);
+    }
+  }
+
   /**
    * Testing edge cases for tblprops. For normal behavior see {@link
    * TablesControllerTest#testUpdateProperties()}
