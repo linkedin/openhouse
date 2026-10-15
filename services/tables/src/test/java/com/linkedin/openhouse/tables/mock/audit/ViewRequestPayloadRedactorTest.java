@@ -63,20 +63,17 @@ public class ViewRequestPayloadRedactorTest {
   }
 
   @Test
-  public void redactsSchemaAndEverySqlRepresentation() {
+  public void redactsEverySqlRepresentationButRetainsSchema() {
     JsonElement payload =
         JsonParser.parseString(
             "{\"viewId\": \"my_view\", \"databaseId\": \"my_database\","
-                + " \"schema\": \"secret schema\","
+                + " \"schema\": \"the schema document\","
                 + " \"representations\": ["
                 + "{\"type\": \"sql\", \"sql\": \"secret sql one\", \"dialect\": \"spark\"},"
-                + "{\"type\": \"sql\", \"sql\": \"secret sql two\", \"dialect\": \"trino\"}],"
-                + " \"sourceDialect\": \"spark\"}");
+                + "{\"type\": \"sql\", \"sql\": \"secret sql two\", \"dialect\": \"trino\"}]}");
 
     JsonObject redacted = redactor.redact(payload).getAsJsonObject();
 
-    Assertions.assertEquals(
-        ServiceAuditPayloadRedactor.REDACTED_VALUE, redacted.get("schema").getAsString());
     JsonArray representations = redacted.getAsJsonArray("representations");
     for (JsonElement representation : representations) {
       Assertions.assertEquals(
@@ -84,12 +81,15 @@ public class ViewRequestPayloadRedactorTest {
           representation.getAsJsonObject().get("sql").getAsString(),
           "Every representation is redacted, not only the first.");
     }
-    Assertions.assertFalse(redacted.toString().contains("secret"));
+    Assertions.assertFalse(
+        redacted.toString().contains("secret"), "No representation SQL may survive redaction.");
+
+    // The schema is structural metadata (column names and types), not query logic, so it is kept.
+    Assertions.assertEquals("the schema document", redacted.get("schema").getAsString());
 
     // Identifiers and dialect metadata survive.
     Assertions.assertEquals("my_view", redacted.get("viewId").getAsString());
     Assertions.assertEquals("my_database", redacted.get("databaseId").getAsString());
-    Assertions.assertEquals("spark", redacted.get("sourceDialect").getAsString());
     Assertions.assertEquals(
         "trino", representations.get(1).getAsJsonObject().get("dialect").getAsString());
   }
@@ -139,27 +139,26 @@ public class ViewRequestPayloadRedactorTest {
   public void skipsRepresentationsThatAreNotSqlObjects() {
     JsonElement payload =
         JsonParser.parseString(
-            "{\"schema\": \"secret schema\","
+            "{\"schema\": \"the schema document\","
                 + " \"representations\": [\"not an object\", {\"type\": \"sql\"}, null]}");
 
     JsonObject redacted = redactor.redact(payload).getAsJsonObject();
 
-    Assertions.assertEquals(
-        ServiceAuditPayloadRedactor.REDACTED_VALUE, redacted.get("schema").getAsString());
+    Assertions.assertEquals("the schema document", redacted.get("schema").getAsString());
     Assertions.assertEquals(3, redacted.getAsJsonArray("representations").size());
   }
 
   @Test
-  public void redactsAnObjectRepresentationsFieldThatIsNotAnArray() {
+  public void toleratesAnObjectRepresentationsFieldThatIsNotAnArray() {
     JsonElement payload =
         JsonParser.parseString(
-            "{\"schema\": \"secret schema\", \"representations\": \"nonsense\"}");
+            "{\"schema\": \"the schema document\", \"representations\": \"nonsense\"}");
 
     JsonObject redacted = redactor.redact(payload).getAsJsonObject();
 
     Assertions.assertEquals(
-        ServiceAuditPayloadRedactor.REDACTED_VALUE,
+        "the schema document",
         redacted.get("schema").getAsString(),
-        "A malformed representations field must not stop the schema from being redacted.");
+        "A malformed representations field must not disturb the retained schema.");
   }
 }

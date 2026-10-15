@@ -64,10 +64,6 @@ public class CreateUpdateViewRequestBody {
   @Valid
   private List<ViewRepresentation> representations;
 
-  @Schema(description = "Dialect of the representation the view was authored in", example = "spark")
-  @NotEmpty(message = "sourceDialect cannot be empty")
-  private String sourceDialect;
-
   @Schema(
       nullable = true,
       description = "Catalog used to resolve unqualified identifiers in the view SQL",
