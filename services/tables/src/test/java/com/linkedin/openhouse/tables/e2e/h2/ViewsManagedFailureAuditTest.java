@@ -1358,9 +1358,15 @@ public class ViewsManagedFailureAuditTest {
     }
     assertEquals(
         expected, event.getRequestPayload(), "Request audit keeps the definition as sent.");
-    String audited = String.valueOf(event.getRequestPayload());
-    assertTrue(audited.contains(SECRET_SQL), audited);
-    assertTrue(audited.contains(SECRET_SCHEMA), audited);
+    JsonObject sent = JsonParser.parseString(sentBody).getAsJsonObject();
+    JsonObject audited = event.getRequestPayload().getAsJsonObject();
+    for (String definitionField : new String[] {"schema", "representations"}) {
+      assertTrue(sent.has(definitionField), "Fixture must supply " + definitionField);
+      assertEquals(
+          sent.get(definitionField),
+          audited.get(definitionField),
+          "The supplied " + definitionField + " is kept exactly as sent.");
+    }
     AuditEventInspection.assertNoSensitiveProperties(event, REQUEST_TOKEN_SECRETS);
   }
 
