@@ -251,9 +251,9 @@ services:
   jaeger:
     image: jaegertracing/all-in-one:1.54
     ports:
-      - "16686:16686"
-      - "4317:4317"
-      - "4318:4318"
+      - target: 16686
+      - target: 4317
+      - target: 4318
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
 

@@ -70,13 +70,18 @@ The recipe exposes both clusters and their Spark job APIs independently:
 Jobs APIs are available at `http://localhost:8002` (A) and
 `http://localhost:8012` (B). Each cluster has its own HDFS NameNode/DataNode and
 named storage volumes, MySQL-backed catalog, OpenHouse services, and Spark
-catalog configuration. The shared Spark master/worker and Livy endpoint are at
-`localhost:9001`, `localhost:9002`, and `localhost:9003`. Both jobs configs
+catalog configuration. The shared Spark master and worker endpoints are at
+`localhost:9001` and `localhost:9002`. Livy, both MySQL databases, and Jaeger
+use dynamically assigned host ports; discover them from the recipe directory
+with `docker compose port` (including `spark-livy 8998`, `mysql-a 3306`,
+`mysql-b 3306`, and Jaeger ports `16686`, `4317`, and `4318`). Both jobs configs
 define `openhouse_a` and `openhouse_b` Spark catalog aliases for accessing either
-cluster from Spark. OPA (`localhost:8181`), Prometheus (`localhost:9090`), and
-Jaeger (`localhost:16686`) are shared dependencies. Cluster services are also
+cluster from Spark. OPA (`localhost:8181`) and Prometheus (`localhost:9090`) are
+shared dependencies. Cluster services are also
 addressable by their Compose names (`tables-a`, `housetables-a`, `jobs-a`,
 `namenode-a`, and the corresponding `-b` names) from the Compose network.
+Their internal endpoints remain stable: `spark-livy:8998`, `mysql-a:3306`,
+`mysql-b:3306`, and Jaeger's OTLP endpoint `jaeger:4318`.
 
 To seed both clusters with Spark, open a Spark shell from the recipe directory:
 
@@ -228,15 +233,18 @@ mysql|3306
 spark-livy|8998
 opa|8181
 
-In the `oh-multicluster` recipe, MySQL A/B and Spark Livy use dynamically assigned host ports to avoid collisions. From the recipe directory, discover the assigned ports with:
+In the `oh-multicluster` recipe, MySQL A/B, Spark Livy, and Jaeger use dynamically assigned host ports to avoid collisions. From the recipe directory, discover the assigned ports with:
 
-```
+```bash
 docker compose port mysql-a 3306
 docker compose port mysql-b 3306
 docker compose port spark-livy 8998
+docker compose port jaeger 16686
+docker compose port jaeger 4317
+docker compose port jaeger 4318
 ```
 
-These commands print the host address and port for each service. Containers in the Compose network should continue using `mysql-a:3306`, `mysql-b:3306`, and `spark-livy:8998`.
+These commands print the host address and port for each service. Containers in the Compose network should continue using `mysql-a:3306`, `mysql-b:3306`, `spark-livy:8998`, and `jaeger:4318`.
 
 ## Test Services
 
