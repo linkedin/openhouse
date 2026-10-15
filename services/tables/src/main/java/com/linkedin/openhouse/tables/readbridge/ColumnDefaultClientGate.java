@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.tables.readbridge;
 
-import com.linkedin.openhouse.common.exception.UnprocessableEntityException;
 import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.Map;
@@ -51,7 +50,7 @@ public class ColumnDefaultClientGate {
         }
       }
     }
-    throw new UnprocessableEntityException(
+    throw new ColumnDefaultClientRejectedException(
         "Column-default tables require client-name=spark and openhouse-java-client/"
             + minimum
             + " or newer in the same major release family. Configure "
