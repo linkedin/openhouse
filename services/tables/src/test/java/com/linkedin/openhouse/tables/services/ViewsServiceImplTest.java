@@ -690,14 +690,17 @@ public class ViewsServiceImplTest {
     CommitStateUnknownException unknown =
         assertInstanceOf(CommitStateUnknownException.class, thrown.getCause());
     assertSame(ambiguous, unknown.getCause());
+    // One typed capture and one typed delete only: no refresh, generic delete, or purge.
+    verify(houseTableRepository, times(1)).findViewById(viewKey());
     verify(houseTableRepository, times(1)).deleteViewById(viewKey());
+    verifyNoMoreInteractions(houseTableRepository);
     ArgumentCaptor<PreparedViewOperation> audited =
         ArgumentCaptor.forClass(PreparedViewOperation.class);
-    verify(viewOperationAuditEmitter)
+    verify(viewOperationAuditEmitter, times(1))
         .emitUnknown(audited.capture(), eq(ACTING_PRINCIPAL), isNull(), eq(unknown));
     assertSame(row, audited.getValue().getViewBaseRow().get());
     assertEquals(CAPTURED_POINTER, audited.getValue().getCapturedTableLocation());
-    verify(viewOperationAuditEmitter, never()).emitFailed(any(), any(), any());
+    verifyNoMoreInteractions(viewOperationAuditEmitter);
     verifyNoInteractions(viewCommitEngine, storageSelector);
   }
 
@@ -786,9 +789,12 @@ public class ViewsServiceImplTest {
     assertEquals(ViewErrorCode.INTERNAL_VIEW_ERROR, thrown.getErrorCode());
     assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, thrown.getHttpStatus());
     assertSame(failure, thrown.getCause());
+    // One typed capture and one typed delete only: no refresh, generic delete, or purge.
+    verify(houseTableRepository, times(1)).findViewById(viewKey());
     verify(houseTableRepository, times(1)).deleteViewById(viewKey());
+    verifyNoMoreInteractions(houseTableRepository);
     verify(viewOperationAuditEmitter, times(1)).emitFailed(any(), eq(ACTING_PRINCIPAL), isNull());
-    verify(viewOperationAuditEmitter, never()).emitUnknown(any(), any(), any(), any());
+    verifyNoMoreInteractions(viewOperationAuditEmitter);
     verifyNoInteractions(viewCommitEngine);
   }
 
