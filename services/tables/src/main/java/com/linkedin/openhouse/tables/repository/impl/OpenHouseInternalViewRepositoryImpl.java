@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.tables.repository.impl;
 
+import static com.linkedin.openhouse.internal.catalog.CatalogConstants.ENTITY_TYPE_VIEW;
+
 import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
@@ -46,8 +48,6 @@ import org.springframework.data.domain.Pageable;
  */
 public class OpenHouseInternalViewRepositoryImpl implements OpenHouseInternalViewRepository {
 
-  private static final String VIEW_ENTITY_TYPE = "VIEW";
-
   private final HouseTableRepository houseTableRepository;
 
   private final ViewCommitEngine viewCommitEngine;
@@ -81,7 +81,7 @@ public class OpenHouseInternalViewRepositoryImpl implements OpenHouseInternalVie
       return PreparedViewOperation.observedAbsence();
     }
     HouseTable row = occupant.get();
-    return VIEW_ENTITY_TYPE.equals(row.getEntityType())
+    return ENTITY_TYPE_VIEW.equals(row.getEntityType())
         ? PreparedViewOperation.view(row)
         : PreparedViewOperation.tableOccupant(row);
   }
