@@ -27,8 +27,18 @@ public final class ViewModelConstants {
 
   public static final String VIEW_ID = "my_view";
   public static final String DATABASE_ID = "my_database";
-  public static final String CLUSTER_ID = "my-cluster";
-  public static final String VIEW_URI = "my-cluster.my_database.my_view";
+
+  /**
+   * Must equal the cluster name the test server is configured with. {@code ClusterProperties}
+   * defaults {@code cluster.name} to {@code local-cluster} and no view {@code @SpringBootTest} sets
+   * it otherwise, so this is the name {@code OpenHouseViewsApiValidator.validateClusterId} compares
+   * the request's {@code clusterId} against. Aligning the fixture to it lets every create/update
+   * request pass the server-side cross-cluster assertion without any per-test property override. Do
+   * not change this back to an arbitrary value without also configuring {@code cluster.name}.
+   */
+  public static final String CLUSTER_ID = "local-cluster";
+
+  public static final String VIEW_URI = "local-cluster.my_database.my_view";
   public static final String METADATA_LOCATION =
       "file:/tmp/openhouse/my_database/my_view/metadata/00000-fixed.metadata.json";
   public static final String VIEW_VERSION =
@@ -79,9 +89,22 @@ public final class ViewModelConstants {
   public static final Map<String, String> VIEW_PROPERTIES;
 
   static {
+    VIEW_PROPERTIES = viewPropertiesWithSourceDialect(SOURCE_DIALECT);
+  }
+
+  /**
+   * The user view property every create/replace body must now carry, plus the required reserved
+   * source-dialect property set to {@code dialect}. {@link ReservedViewProperties#SOURCE_DIALECT}
+   * is a server-managed reserved key the client sets once at create, so the validator requires it
+   * and checks its value against the supported dialects and the supplied representations; fixtures
+   * aiming a request at a non-default dialect pass that dialect here so the value still names a
+   * supplied representation.
+   */
+  public static Map<String, String> viewPropertiesWithSourceDialect(String dialect) {
     Map<String, String> properties = new LinkedHashMap<>();
     properties.put("owner", "openhouse");
-    VIEW_PROPERTIES = Collections.unmodifiableMap(properties);
+    properties.put(ReservedViewProperties.SOURCE_DIALECT, dialect);
+    return Collections.unmodifiableMap(properties);
   }
 
   /** Every field populated, including both nullable optional fields and a replace token. */
@@ -296,9 +319,9 @@ public final class ViewModelConstants {
     return CreateUpdateViewRequestBody.builder()
         .viewId(VIEW_ID)
         .databaseId(DATABASE_ID)
+        .clusterId(CLUSTER_ID)
         .schema(VIEW_SCHEMA_LITERAL)
         .representations(Collections.singletonList(SPARK_REPRESENTATION))
-        .sourceDialect(SOURCE_DIALECT)
         .defaultCatalog(DEFAULT_CATALOG)
         .defaultNamespace(DEFAULT_NAMESPACE)
         .viewProperties(VIEW_PROPERTIES);

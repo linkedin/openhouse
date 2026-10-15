@@ -36,7 +36,6 @@ public class ViewsMapperTest {
     Assertions.assertEquals(requestBody.getDatabaseId(), viewDto.getDatabaseId());
     Assertions.assertEquals(requestBody.getSchema(), viewDto.getSchema());
     Assertions.assertEquals(requestBody.getRepresentations(), viewDto.getRepresentations());
-    Assertions.assertEquals(requestBody.getSourceDialect(), viewDto.getSourceDialect());
     Assertions.assertEquals(requestBody.getDefaultCatalog(), viewDto.getDefaultCatalog());
     Assertions.assertEquals(requestBody.getDefaultNamespace(), viewDto.getDefaultNamespace());
     Assertions.assertEquals(requestBody.getViewProperties(), viewDto.getViewProperties());
@@ -71,7 +70,6 @@ public class ViewsMapperTest {
             .viewVersion(ViewModelConstants.DISTINCT_VIEW_VERSION)
             // Definition fields have no counterpart on the pointer-only read contract.
             .schema(ViewModelConstants.VIEW_SCHEMA_LITERAL)
-            .sourceDialect(ViewModelConstants.SOURCE_DIALECT)
             .build();
 
     GetViewResponseBody responseBody = viewsMapper.toGetViewResponseBody(viewDto);

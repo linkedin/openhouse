@@ -35,6 +35,25 @@ public interface ViewsService {
   ViewListResult getAllViews(
       String databaseId, String pageToken, int size, String sortBy, String actingPrincipal);
 
+  // TODO: give view properties the reserved-key lifecycle tables already have, centralized in a
+  // view
+  // analog of PreservedKeyChecker instead of split across layers. For openhouse.view.sourceDialect
+  // (the view counterpart of a client-supplied, then frozen, reserved table key like
+  // openhouse.tableUUID) mirror tables:
+  //   1. identity: openhouse.-prefixed keys are reserved (reuse
+  // HouseTableSerdeUtils.IS_OH_PREFIXED);
+  //   2. create: allow this one key to be set once, still rejecting every other reserved key
+  //      (allowKeyInCreation analog);
+  //   3. replace: reject any add/alter/drop of a reserved key (checkIfPreservedViewPropsModified,
+  //      mirroring OpenHouseInternalRepositoryImpl.checkIfPreservedTblPropsModified ->
+  //      ALTER_RESERVED_TBLPROPS);
+  //   4. persist it in the view's standard Iceberg properties map and strip reserved keys from user
+  //      properties on read (getUserTblProps analog).
+  // The create-time allow currently lives as a carve-out in OpenHouseViewsApiValidator because
+  // there
+  // is no view repository yet; move it here once persistence exists so the whole lifecycle is in
+  // one
+  // place, as it is for tables.
   /**
    * Create or replace a view.
    *

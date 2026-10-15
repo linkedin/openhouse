@@ -565,17 +565,45 @@ public class ViewsPaginationControllerTest {
 
   // Cluster identity on the write routes
 
-  // Exercise omitted/forged clusters through real validation; response identity remains
+  // A clusterId that is omitted or that names a different cluster is rejected before the service is
+  // reached; a request naming the serving cluster is accepted and the response identity stays
   // service-owned.
-  private static Stream<Arguments> requestBodyClusterIds() {
+  private static Stream<Arguments> rejectedClusterIds() {
     return Stream.of(
         Arguments.of("omitted", null),
         Arguments.of("forged", "a-cluster-this-server-does-not-serve"));
   }
 
-  @ParameterizedTest(name = "create accepts a {0} clusterId")
-  @MethodSource("requestBodyClusterIds")
-  public void createIgnoresAnyRequestBodyClusterId(String name, String clusterId) throws Exception {
+  @ParameterizedTest(name = "create rejects a {0} clusterId before reaching the service")
+  @MethodSource("rejectedClusterIds")
+  public void createRejectsAnOmittedOrForgedClusterId(String name, String clusterId)
+      throws Exception {
+    mvc.perform(
+            authorize(MockMvcRequestBuilders.post(VIEWS_PATH))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    bodyWithClusterId(
+                        ViewModelConstants.createRequestWithoutBaseVersion(), clusterId)))
+        .andExpect(status().isBadRequest());
+
+    Mockito.verifyNoInteractions(viewsService);
+  }
+
+  @ParameterizedTest(name = "replace rejects a {0} clusterId before reaching the service")
+  @MethodSource("rejectedClusterIds")
+  public void updateRejectsAnOmittedOrForgedClusterId(String name, String clusterId)
+      throws Exception {
+    mvc.perform(
+            authorize(MockMvcRequestBuilders.put(VIEWS_PATH + "/" + ViewModelConstants.VIEW_ID))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(bodyWithClusterId(ViewModelConstants.fullyPopulatedRequest(), clusterId)))
+        .andExpect(status().isBadRequest());
+
+    Mockito.verifyNoInteractions(viewsService);
+  }
+
+  @Test
+  public void createAcceptsTheServingClusterIdAndReturnsServiceOwnedIdentity() throws Exception {
     Mockito.when(
             viewsService.putView(Mockito.any(), Mockito.eq(ACTING_PRINCIPAL), Mockito.eq(true)))
         .thenReturn(Pair.of(serviceOwnedPointerDto(), true));
@@ -583,9 +611,7 @@ public class ViewsPaginationControllerTest {
     mvc.perform(
             authorize(MockMvcRequestBuilders.post(VIEWS_PATH))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    bodyWithClusterId(
-                        ViewModelConstants.createRequestWithoutBaseVersion(), clusterId)))
+                .content(ViewModelConstants.createRequestWithoutBaseVersion().toJson()))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.clusterId", Matchers.is(ViewModelConstants.CLUSTER_ID)));
 
@@ -593,9 +619,8 @@ public class ViewsPaginationControllerTest {
         .putView(Mockito.any(), Mockito.eq(ACTING_PRINCIPAL), Mockito.eq(true));
   }
 
-  @ParameterizedTest(name = "replace accepts a {0} clusterId")
-  @MethodSource("requestBodyClusterIds")
-  public void updateIgnoresAnyRequestBodyClusterId(String name, String clusterId) throws Exception {
+  @Test
+  public void updateAcceptsTheServingClusterIdAndReturnsServiceOwnedIdentity() throws Exception {
     Mockito.when(
             viewsService.putView(Mockito.any(), Mockito.eq(ACTING_PRINCIPAL), Mockito.eq(false)))
         .thenReturn(Pair.of(serviceOwnedPointerDto(), false));
@@ -603,7 +628,7 @@ public class ViewsPaginationControllerTest {
     mvc.perform(
             authorize(MockMvcRequestBuilders.put(VIEWS_PATH + "/" + ViewModelConstants.VIEW_ID))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(bodyWithClusterId(ViewModelConstants.fullyPopulatedRequest(), clusterId)))
+                .content(ViewModelConstants.fullyPopulatedRequest().toJson()))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.clusterId", Matchers.is(ViewModelConstants.CLUSTER_ID)));
 
