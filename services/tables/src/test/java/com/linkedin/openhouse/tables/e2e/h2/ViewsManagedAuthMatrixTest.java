@@ -7,7 +7,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -18,20 +21,22 @@ import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
+import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
+import com.linkedin.openhouse.internal.catalog.view.ViewCommitEngine;
+import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
+import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
+import com.linkedin.openhouse.internal.catalog.view.model.ViewPointer;
 import com.linkedin.openhouse.tables.authorization.OpaHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.model.TableModelConstants;
-import com.linkedin.openhouse.tables.model.ViewDto;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
-import com.linkedin.openhouse.tables.repository.OpenHouseInternalViewRepository;
-import com.linkedin.openhouse.tables.repository.ViewCommitOutcome;
-import com.linkedin.openhouse.tables.repository.impl.PreparedViewOperation;
 import com.linkedin.openhouse.tables.services.ViewsFeatureGate;
 import java.util.Collections;
+import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,6 +46,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
@@ -64,6 +70,11 @@ import org.springframework.web.util.ServletRequestPathUtils;
  * Shared fixture for the four authentication configurations: token interceptor (axis A) on/off
  * crossed with method security (axis B) on/off. Every concrete context below is its own top-level
  * class so JUnit discovers it independently.
+ *
+ * <p>The real primary H2 House Table repository (the bean the views service injects) is spied, not
+ * replaced, so the anchor table and database enumeration stay real; only its view methods at the
+ * view key are stubbed. The view commit engine is mocked with explicit results; storage selection
+ * and allocation are the real local storage.
  */
 abstract class ViewsManagedAuthMatrixBase {
 
@@ -81,7 +92,11 @@ abstract class ViewsManagedAuthMatrixBase {
 
   @MockBean OpaHandler opaHandler;
   @MockBean ViewsFeatureGate viewsFeatureGate;
-  @MockBean OpenHouseInternalViewRepository viewRepository;
+
+  @SpyBean(name = "houseTablesH2Repository")
+  HouseTablesH2Repository houseTableRepository;
+
+  @MockBean ViewCommitEngine viewCommitEngine;
   @Autowired OpenHouseInternalRepository openHouseInternalRepository;
 
   String jwtAccessToken;
@@ -92,21 +107,24 @@ abstract class ViewsManagedAuthMatrixBase {
     jwtAccessToken = new DummyTokenInterceptor.DummySecurityJWT(PRINCIPAL).buildNoopJWT();
     ensureDatabaseExists();
     when(viewsFeatureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(true);
-    when(viewRepository.findById(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID))
-        .thenReturn(listedView());
-    when(viewRepository.searchViews(eq(ViewModelConstants.DATABASE_ID), any(Pageable.class)))
-        .thenAnswer(
+    doReturn(Optional.of(viewRow())).when(houseTableRepository).findViewById(viewKey());
+    doAnswer(
             invocation ->
                 new PageImpl<>(
-                    Collections.singletonList(listedView()),
-                    invocation.<Pageable>getArgument(1),
-                    1));
-    when(viewRepository.prepareWrite(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID))
-        .thenReturn(PreparedViewOperation.observedAbsence());
-    when(viewRepository.prepareDelete(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID))
-        .thenReturn(PreparedViewOperation.view(viewRow()));
-    when(viewRepository.commitCreate(any(), any(), any())).thenReturn(createdOutcome());
-    when(viewRepository.commitReplace(any(), any(), any())).thenReturn(replacedOutcome());
+                    Collections.singletonList(viewRow()), invocation.<Pageable>getArgument(1), 1))
+        .when(houseTableRepository)
+        .findAllViewsByDatabaseId(eq(ViewModelConstants.DATABASE_ID), any(Pageable.class));
+    doReturn(Optional.empty()).when(houseTableRepository).findEntityById(viewKey());
+    doReturn(true).when(houseTableRepository).deleteViewById(viewKey());
+    when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
+        .thenAnswer(
+            invocation ->
+                Boolean.TRUE.equals(invocation.<ViewCommitIntent>getArgument(0).getIsCreate())
+                    ? createdResult()
+                    : replacedResult());
+    // Stubbing through the Spring proxy around the spied bean is recorded as invocations; start
+    // every test from zero so never()/times() count only the request under test.
+    clearInvocations(houseTableRepository);
   }
 
   @AfterEach
@@ -195,9 +213,8 @@ abstract class ViewsManagedAuthMatrixBase {
   }
 
   void assertNoWriteEffects() {
-    verify(viewRepository, never()).commitCreate(any(), any(), any());
-    verify(viewRepository, never()).commitReplace(any(), any(), any());
-    verify(viewRepository, never()).deleteById(any(), any());
+    verify(viewCommitEngine, never()).commit(any());
+    verify(houseTableRepository, never()).deleteViewById(any());
   }
 
   void assertCreateTableDatabaseAuthorization() {
@@ -221,45 +238,41 @@ abstract class ViewsManagedAuthMatrixBase {
     verifyNoInteractions(opaHandler);
   }
 
-  static ViewDto listedView() {
-    return ViewDto.builder()
-        .databaseId(ViewModelConstants.DATABASE_ID)
-        .viewId(ViewModelConstants.VIEW_ID)
-        .build();
-  }
-
-  static ViewDto createdView() {
-    return ViewDto.builder()
-        .databaseId(ViewModelConstants.DATABASE_ID)
-        .viewId(ViewModelConstants.VIEW_ID)
-        .metadataLocation(ViewModelConstants.METADATA_LOCATION)
-        .viewVersion(ViewModelConstants.METADATA_LOCATION)
-        .build();
-  }
-
-  static ViewDto replacedView() {
-    return createdView()
-        .toBuilder()
-        .metadataLocation("file:/warehouse/replaced.metadata.json")
-        .viewVersion("file:/warehouse/replaced.metadata.json")
-        .build();
-  }
-
+  /** Deliberately not a UUID, so it can never equal the tentative allocation UUID. */
   static final String CREATED_VIEW_UUID = "committed-create-uuid";
 
-  static ViewCommitOutcome createdOutcome() {
-    return ViewCommitOutcome.builder()
-        .dto(createdView())
-        .committedViewUuid(CREATED_VIEW_UUID)
-        .created(true)
+  static final String REPLACED_POINTER = "file:/warehouse/replaced.metadata.json";
+
+  static ViewCommitResult createdResult() {
+    return committedResult(ViewModelConstants.METADATA_LOCATION, CREATED_VIEW_UUID, true);
+  }
+
+  static ViewCommitResult replacedResult() {
+    return committedResult(REPLACED_POINTER, "view-uuid", false);
+  }
+
+  private static ViewCommitResult committedResult(
+      String pointer, String viewUuid, boolean created) {
+    return ViewCommitResult.builder()
+        .pointer(
+            ViewPointer.builder()
+                .databaseId(ViewModelConstants.DATABASE_ID)
+                .viewId(ViewModelConstants.VIEW_ID)
+                .metadataLocation(pointer)
+                .storageType("local")
+                .creationTime(ViewModelConstants.CREATION_TIME)
+                .build())
+        .viewUuid(viewUuid)
+        .lastModifiedTime(ViewModelConstants.LAST_MODIFIED_TIME)
+        .created(created)
+        .metadataChanged(true)
         .build();
   }
 
-  static ViewCommitOutcome replacedOutcome() {
-    return ViewCommitOutcome.builder()
-        .dto(replacedView())
-        .committedViewUuid("view-uuid")
-        .created(false)
+  static HouseTablePrimaryKey viewKey() {
+    return HouseTablePrimaryKey.builder()
+        .databaseId(ViewModelConstants.DATABASE_ID)
+        .tableId(ViewModelConstants.VIEW_ID)
         .build();
   }
 
@@ -312,7 +325,7 @@ class ViewsManagedAuthMatrixTokenAndMethodSecurityTest extends ViewsManagedAuthM
     assertMissingCredentialsAreUnauthorized();
 
     assertNoOpaInteractions();
-    verify(viewRepository, never()).prepareWrite(any(), any());
+    verify(houseTableRepository, never()).findEntityById(viewKey());
     assertNoWriteEffects();
   }
 
@@ -337,7 +350,7 @@ class ViewsManagedAuthMatrixTokenAndMethodSecurityTest extends ViewsManagedAuthM
 
     mvc.perform(withToken(deleteView())).andExpect(status().isForbidden());
     assertDatabaseAuthorization(Privileges.DELETE_TABLE);
-    verify(viewRepository, never()).prepareDelete(any(), any());
+    verify(houseTableRepository, never()).findViewById(viewKey());
     assertNoWriteEffects();
   }
 
@@ -357,8 +370,7 @@ class ViewsManagedAuthMatrixTokenAndMethodSecurityTest extends ViewsManagedAuthM
     clearInvocations(opaHandler);
 
     HouseTable captured = viewRow();
-    when(viewRepository.prepareWrite(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID))
-        .thenReturn(PreparedViewOperation.view(captured));
+    doReturn(Optional.of(captured)).when(houseTableRepository).findEntityById(viewKey());
     mvc.perform(
             withToken(
                 MockMvcRequestBuilders.put(VIEW_PATH)
@@ -367,15 +379,17 @@ class ViewsManagedAuthMatrixTokenAndMethodSecurityTest extends ViewsManagedAuthM
                     .accept(MediaType.APPLICATION_JSON)))
         .andExpect(status().isOk());
     assertDatabaseAuthorization(Privileges.UPDATE_TABLE_METADATA);
-    ArgumentCaptor<PreparedViewOperation> replaced =
-        ArgumentCaptor.forClass(PreparedViewOperation.class);
-    verify(viewRepository).commitReplace(any(), replaced.capture(), eq(PRINCIPAL));
-    assertSame(captured, replaced.getValue().getViewBaseRow().get());
+    ArgumentCaptor<ViewCommitIntent> committed = ArgumentCaptor.forClass(ViewCommitIntent.class);
+    verify(viewCommitEngine, times(2)).commit(committed.capture());
+    assertEquals(Boolean.TRUE, committed.getAllValues().get(0).getIsCreate());
+    assertEquals(Boolean.FALSE, committed.getAllValues().get(1).getIsCreate());
+    assertSame(captured, committed.getAllValues().get(1).getBaseRow());
+    assertEquals(PRINCIPAL, committed.getAllValues().get(1).getCreator());
     clearInvocations(opaHandler);
 
     mvc.perform(withToken(deleteView())).andExpect(status().isNoContent());
     assertDatabaseAuthorization(Privileges.DELETE_TABLE);
-    verify(viewRepository).deleteById(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID);
+    verify(houseTableRepository).deleteViewById(viewKey());
   }
 }
 
@@ -403,7 +417,7 @@ class ViewsManagedAuthMatrixTokenOnlyTest extends ViewsManagedAuthMatrixBase {
         .andExpect(status().isUnauthorized());
 
     assertNoOpaInteractions();
-    verify(viewRepository, never()).prepareWrite(any(), any());
+    verify(houseTableRepository, never()).findEntityById(viewKey());
     assertNoWriteEffects();
   }
 
@@ -444,7 +458,7 @@ class ViewsManagedAuthMatrixMethodSecurityOnlyTest extends ViewsManagedAuthMatri
     mvc.perform(withoutCredentials(postView())).andExpect(status().isForbidden());
 
     assertNoOpaInteractions();
-    verify(viewRepository, never()).prepareWrite(any(), any());
+    verify(houseTableRepository, never()).findEntityById(viewKey());
     assertNoWriteEffects();
   }
 
@@ -491,6 +505,6 @@ class ViewsManagedAuthMatrixBothOffTest extends ViewsManagedAuthMatrixBase {
     mvc.perform(withoutCredentials(postView())).andExpect(status().isCreated());
 
     assertNoOpaInteractions();
-    verify(viewRepository).commitCreate(any(), any(), any());
+    verify(viewCommitEngine).commit(any(ViewCommitIntent.class));
   }
 }
