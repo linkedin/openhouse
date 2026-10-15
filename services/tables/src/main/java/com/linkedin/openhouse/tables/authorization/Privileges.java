@@ -20,7 +20,8 @@ public enum Privileges {
   CREATE_VIEW(Privilege.CREATE_VIEW),
   LIST_VIEW(Privilege.LIST_VIEW),
   UPDATE_VIEW_METADATA(Privilege.UPDATE_VIEW_METADATA),
-  DELETE_VIEW(Privilege.DELETE_VIEW);
+  DELETE_VIEW(Privilege.DELETE_VIEW),
+  AUTHENTICATED(Privilege.AUTHENTICATED);
 
   private String privilege;
 
@@ -60,6 +61,16 @@ public enum Privileges {
     public static final String UPDATE_VIEW_METADATA = "UPDATE_VIEW_METADATA";
 
     public static final String DELETE_VIEW = "DELETE_VIEW";
+
+    /**
+     * Authentication-only route guard for the /v1 views routes (reads are allow-all under the
+     * resolved authorization model; writes are authorized in {@code ViewsServiceImpl} against the
+     * database-level table privileges, not this sentinel). {@link
+     * com.linkedin.openhouse.tables.authorization.AuthorizationInterceptor} treats this value as
+     * "require authentication, never consult a resource privilege" — durable even if a later PR
+     * completes resource-privilege enforcement for the interceptor.
+     */
+    public static final String AUTHENTICATED = "AUTHENTICATED";
 
     private static final Set<String> SUPPORTED_PRIVILEGES =
         Stream.of(Privileges.values()).map(Privileges::getPrivilege).collect(Collectors.toSet());

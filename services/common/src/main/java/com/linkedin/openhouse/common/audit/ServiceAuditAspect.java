@@ -52,6 +52,13 @@ public class ServiceAuditAspect {
   @Autowired(required = false)
   private List<ServiceAuditPayloadRedactor> payloadRedactors = Collections.emptyList();
 
+  /**
+   * URI redactors contributed by the running service, if any. Left empty when the service registers
+   * none, in which case the URI and query string are audited exactly as sent.
+   */
+  @Autowired(required = false)
+  private List<ServiceAuditUriRedactor> uriRedactors = Collections.emptyList();
+
   private static final MetricsReporter METRICS_REPORTER =
       MetricsReporter.of(MetricsConstant.SERVICE_AUDIT);
 
@@ -107,7 +114,10 @@ public class ServiceAuditAspect {
    * @return Result of the exception handler method
    * @throws Throwable Any exception during execution of the exception handler method
    */
-  @Around("execution(* com.linkedin.openhouse.common.exception.handler.*.*(..))")
+  @Around(
+      "execution(* com.linkedin.openhouse.common.exception.handler.*.*(..)) "
+          + "|| (execution(* com.linkedin.openhouse.tables.exception.ViewExceptionHandler*.*(..)) "
+          + "&& @annotation(org.springframework.web.bind.annotation.ExceptionHandler))")
   protected Object auditFailedRequests(ProceedingJoinPoint point) throws Throwable {
     Object result = null;
     try {
@@ -180,6 +190,7 @@ public class ServiceAuditAspect {
         request.getQueryString() == null
             ? request.getRequestURI()
             : request.getRequestURI() + "?" + request.getQueryString();
+    uriAndQueryString = redactUri(request, uriAndQueryString);
     // Build ServiceAuditEvent
     return ServiceAuditEvent.builder()
         .startTimestamp(startTime)
@@ -211,6 +222,24 @@ public class ServiceAuditAspect {
     }
     JsonElement redacted = requestPayload;
     for (ServiceAuditPayloadRedactor redactor : payloadRedactors) {
+      if (redactor.appliesTo(request)) {
+        redacted = redactor.redact(redacted);
+      }
+    }
+    return redacted;
+  }
+
+  /**
+   * Apply every registered URI redactor that claims this request. With no redactor registered — the
+   * case for every service that has not contributed one — the URI and query string are returned
+   * unchanged, so existing audit URIs are byte-identical.
+   */
+  private String redactUri(HttpServletRequest request, String uriAndQueryString) {
+    if (uriAndQueryString == null || uriRedactors == null) {
+      return uriAndQueryString;
+    }
+    String redacted = uriAndQueryString;
+    for (ServiceAuditUriRedactor redactor : uriRedactors) {
       if (redactor.appliesTo(request)) {
         redacted = redactor.redact(redacted);
       }
