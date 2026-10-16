@@ -32,7 +32,7 @@ public class ViewsControllerPrivilegeTest {
     Map<Method, String> expected = new LinkedHashMap<>();
     expected.put(
         ViewsController.class.getMethod("getView", String.class, String.class),
-        Privileges.Privilege.AUTHENTICATED);
+        Privileges.Privilege.AUTHENTICATED_VIEWS_OPS);
     expected.put(
         ViewsController.class.getMethod(
             "getAllViews",
@@ -41,18 +41,18 @@ public class ViewsControllerPrivilegeTest {
             int.class,
             String.class,
             HttpServletRequest.class),
-        Privileges.Privilege.AUTHENTICATED);
+        Privileges.Privilege.AUTHENTICATED_VIEWS_OPS);
     expected.put(
         ViewsController.class.getMethod(
             "createView", String.class, CreateUpdateViewRequestBody.class),
-        Privileges.Privilege.AUTHENTICATED);
+        Privileges.Privilege.AUTHENTICATED_VIEWS_OPS);
     expected.put(
         ViewsController.class.getMethod(
             "updateView", String.class, String.class, CreateUpdateViewRequestBody.class),
-        Privileges.Privilege.AUTHENTICATED);
+        Privileges.Privilege.AUTHENTICATED_VIEWS_OPS);
     expected.put(
         ViewsController.class.getMethod("deleteView", String.class, String.class),
-        Privileges.Privilege.AUTHENTICATED);
+        Privileges.Privilege.AUTHENTICATED_VIEWS_OPS);
 
     for (Map.Entry<Method, String> route : expected.entrySet()) {
       Secured secured = route.getKey().getAnnotation(Secured.class);
