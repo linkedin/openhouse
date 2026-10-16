@@ -46,11 +46,10 @@ public enum Privileges {
     public static final String SELECT = "SELECT";
 
     /**
-     * Authentication-only route guard for the /v1 views routes (reads are allow-all under the
-     * resolved authorization model; writes are authorized in {@code ViewsServiceImpl} against the
-     * database-level table privileges, not this sentinel). It names no resource privilege, so
-     * {@link com.linkedin.openhouse.tables.authorization.AuthorizationInterceptor} only requires
-     * authentication for it.
+     * Route guard for the /v1 views routes that only requires an authenticated caller. Views are
+     * globally readable, so reads need no further check. Writes are authorized in {@code
+     * ViewsServiceImpl} against the database's table privileges, which the deployed {@link
+     * AuthorizationHandler} resolves (e.g. from HDFS permissions on the database).
      */
     public static final String AUTHENTICATED_VIEWS_OPS = "AUTHENTICATED_VIEWS_OPS";
 
