@@ -17,7 +17,6 @@ import com.linkedin.openhouse.common.exception.MetadataRefreshFailureContext;
 import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
-import com.linkedin.openhouse.internal.catalog.exception.CommitRejectedException;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
@@ -424,6 +423,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     // Handle all schema-related processing (client schema, evolved schema, intermediate schemas)
     metadata = processSchemas(base, metadata);
 
+    Map<String, String> properties = new HashMap<>(metadata.properties());
+    checkBeforeWriting(base, metadata, properties);
+
     int version = currentVersion() + 1;
     CommitStatus commitStatus = CommitStatus.FAILURE;
     Optional<TableMetadata> committedMetadata = Optional.empty();
@@ -434,16 +436,6 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     HouseTable houseTable = HouseTable.builder().build();
     try {
       // Now that we have metadataLocation we stamp it in metadata property.
-      Map<String, String> properties = new HashMap<>(metadata.properties());
-
-      abortIfWriterBaseDivergedFromCatalog(base, metadata);
-
-      restoreOverriddenProperties(properties);
-      enforcePropertyRules(base, properties);
-      // After the stale-base check, so a snapshot commit built on an older table version gets the
-      // retryable conflict instead, and before failIfRetryUpdate, so a rejected commit does not
-      // mark the unchanged table version as attempted.
-      commitPolicy.check(TableCommit.of(tableIdentifier, base, metadata.schema(), properties));
       properties.remove(CatalogConstants.IS_REPLACE_COMMIT_KEY);
       failIfRetryUpdate(properties);
 
@@ -620,11 +612,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         throw new CommitFailedException(e);
       }
       throw new BadRequestException(e, e.getMessage());
-    } catch (CommitFailedException | UnsupportedClientOperationException e) {
+    } catch (CommitFailedException e) {
       throw e;
-    } catch (CommitRejectedException e) {
-      // Nothing has been written, so there is no commit status to recover.
-      throw e.getCause();
     } catch (HouseTableCallerException
         | HouseTableNotFoundException
         | HouseTableConcurrentUpdateException e) {
@@ -668,6 +657,26 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         default:
           break; /*should never happen, kept to silence SpotBugs*/
       }
+    }
+  }
+
+  /**
+   * Checks a commit before anything is written, so a rejection reaches the caller as thrown, with
+   * no commit status to recover: the stale-base check, then OpenHouse's table property rules, then
+   * the {@link CommitPolicy}. The policy runs after the stale-base check, so a snapshot commit
+   * built on an older table version gets the retryable conflict instead, and sees the properties
+   * the commit leaves. A rejected commit still counts as a failed commit.
+   */
+  private void checkBeforeWriting(
+      TableMetadata base, TableMetadata metadata, Map<String, String> properties) {
+    try {
+      abortIfWriterBaseDivergedFromCatalog(base, metadata);
+      restoreOverriddenProperties(properties);
+      enforcePropertyRules(base, properties);
+      commitPolicy.check(TableCommit.of(tableIdentifier, base, metadata.schema(), properties));
+    } catch (RuntimeException e) {
+      metricsReporter.count(InternalCatalogMetricsConstant.COMMIT_FAILED_CTR);
+      throw e;
     }
   }
 
