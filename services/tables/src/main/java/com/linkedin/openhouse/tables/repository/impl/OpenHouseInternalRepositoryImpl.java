@@ -611,6 +611,10 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       propertiesMap.put(IS_STAGE_REPLACE_KEY, String.valueOf(tableDto.isStageReplace()));
     }
 
+    if (tableDto.isReplaceCommit()) {
+      propertiesMap.put(CatalogConstants.IS_REPLACE_COMMIT_KEY, Boolean.TRUE.toString());
+    }
+
     propertiesMap.put(
         TableProperties.METADATA_DELETE_AFTER_COMMIT_ENABLED,
         Boolean.toString(
