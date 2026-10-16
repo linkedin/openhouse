@@ -32,9 +32,9 @@ public class ReadBridgeStripProtectionTest {
       tableDto -> Collections.singletonMap(2, TextNode.valueOf("US"));
 
   @Test
-  public void noneSource_stillStripsInitialDefault() {
+  public void noDefaultsSource_stillStripsInitialDefault() {
     TableDto incoming = ramped(SCHEMA_WITH_DEFAULT, overwrite(10));
-    ReadBridgeStripProtection protection = protection(ColumnDefaultsSource.NONE);
+    ReadBridgeStripProtection protection = protection(tableDto -> Collections.emptyMap());
 
     TableDto prepared =
         Assertions.assertDoesNotThrow(

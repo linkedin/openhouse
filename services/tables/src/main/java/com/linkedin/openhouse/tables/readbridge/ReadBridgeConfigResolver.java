@@ -55,7 +55,7 @@ public class ReadBridgeConfigResolver {
 
   /**
    * The column defaults declared by a table a write sends, as Iceberg single-value JSON keyed by
-   * field ID. Empty when there is no source or the table is not bridged.
+   * field ID. Empty when the table is not bridged or the source declares none.
    *
    * @throws ColumnDefaultException if a default the table declares cannot be applied
    */
@@ -78,10 +78,7 @@ public class ReadBridgeConfigResolver {
     }
   }
 
-  /**
-   * Whether read-bridge applies to the table: it opts in. {@code ColumnDefaultsSource.NONE} is
-   * never bridged.
-   */
+  /** Whether read-bridge applies to the table: it opts in. */
   public boolean isBridged(TableDto tableDto) {
     Objects.requireNonNull(tableDto, "tableDto");
     return isColumnDefaultEnabled(tableDto);
@@ -90,9 +87,6 @@ public class ReadBridgeConfigResolver {
   private Map<Integer, String> columnDefaultsByFieldId(TableDto tableDto)
       throws ColumnDefaultException {
     Objects.requireNonNull(tableDto, "tableDto");
-    if (columnDefaultsSource == ColumnDefaultsSource.NONE) {
-      return Collections.emptyMap();
-    }
     if (!isColumnDefaultEnabled(tableDto)) {
       return Collections.emptyMap();
     }
@@ -117,9 +111,6 @@ public class ReadBridgeConfigResolver {
    * off.
    */
   private boolean isColumnDefaultEnabled(TableDto tableDto) {
-    if (columnDefaultsSource == ColumnDefaultsSource.NONE) {
-      return false;
-    }
     Map<String, String> properties = tableDto.getTableProperties();
     String value = properties == null ? null : properties.get(COLUMN_DEFAULT_ENABLED_PROP);
     return value != null && "true".equalsIgnoreCase(value.trim());

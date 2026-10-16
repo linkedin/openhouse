@@ -2,10 +2,10 @@ package com.linkedin.openhouse.tables.mock;
 
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
-import com.linkedin.openhouse.tables.readbridge.ColumnDefaultsSource;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
+import java.util.Collections;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.actuate.autoconfigure.security.servlet.ManagementWebSecurityAutoConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -63,6 +63,7 @@ public class MockTablesApplication {
    */
   @Bean
   public ReadBridgeStripProtection readBridgeStripProtection() {
-    return new ReadBridgeStripProtection(new ReadBridgeConfigResolver(ColumnDefaultsSource.NONE));
+    return new ReadBridgeStripProtection(
+        new ReadBridgeConfigResolver(tableDto -> Collections.emptyMap()));
   }
 }

@@ -7,7 +7,6 @@ import com.linkedin.openhouse.tables.readbridge.ColumnDefaultCommitPolicy;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultsSource;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -19,15 +18,10 @@ public class ApiConfig {
     return new OpenHouseTablesApiHandler();
   }
 
-  /**
-   * Prefer {@link ObjectProvider} over a {@code @ConditionalOnMissingBean} noop so a deployment
-   * {@code @Bean} source cannot collide with an OSS default.
-   */
   @Bean
   public ReadBridgeConfigResolver readBridgeConfigResolver(
-      ObjectProvider<ColumnDefaultsSource> columnDefaultsSource) {
-    return new ReadBridgeConfigResolver(
-        columnDefaultsSource.getIfAvailable(() -> ColumnDefaultsSource.NONE));
+      ColumnDefaultsSource columnDefaultsSource) {
+    return new ReadBridgeConfigResolver(columnDefaultsSource);
   }
 
   @Bean
