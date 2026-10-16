@@ -28,8 +28,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 public class ReadBridgeConfigResolverTest {
 
-  /** Open-source default source: supplies nothing, so the feature is inert. */
-  private static final ColumnDefaultsSource NONE = ColumnDefaultsSource.NONE;
+  /** The tables service's default source: no column defaults. */
+  private static final ColumnDefaultsSource NO_DEFAULTS = tableDto -> Collections.emptyMap();
 
   private static final String PREFIX = ReadBridgeConfigResolver.COLUMN_DEFAULT_PREFIX;
 
@@ -49,12 +49,6 @@ public class ReadBridgeConfigResolverTest {
         .tableProperties(
             Collections.singletonMap(ReadBridgeConfigResolver.COLUMN_DEFAULT_ENABLED_PROP, value))
         .build();
-  }
-
-  /** Gate 1: no deployment-supplied source => inert, even for a table that opts in. */
-  @Test
-  public void testInertWhenNoSourceSupplied() {
-    Assertions.assertTrue(resolverFor(NONE).resolve(tableWithOptIn("true")).isEmpty());
   }
 
   /**
@@ -125,10 +119,7 @@ public class ReadBridgeConfigResolverTest {
         "\"US\"", resolverFor(oneDefault()).resolve(tableWithOptIn(" TRUE ")).get(PREFIX + "5"));
   }
 
-  /**
-   * Source present and table opted in, but the source has nothing to stamp — still empty config.
-   * Not the same as {@link ColumnDefaultsSource#NONE}: the source was asked.
-   */
+  /** A table that opts in, with a source that has nothing to stamp, gets empty config. */
   @Test
   public void testEmptyWhenSourceReturnsNoDefaults() {
     ColumnDefaultsSource emptySource = mock(ColumnDefaultsSource.class);
@@ -211,7 +202,8 @@ public class ReadBridgeConfigResolverTest {
     when(tablesMapper.toGetTableResponseBody(any()))
         .thenReturn(GetTableResponseBody.builder().tableId("tbl").databaseId("db").build());
 
-    OpenHouseTablesApiHandler handler = handlerWith(tableService, tablesMapper, resolverFor(NONE));
+    OpenHouseTablesApiHandler handler =
+        handlerWith(tableService, tablesMapper, resolverFor(NO_DEFAULTS));
 
     ApiResponse<GetTableResponseBody> response = handler.getTable("db", "tbl", "principal");
 
