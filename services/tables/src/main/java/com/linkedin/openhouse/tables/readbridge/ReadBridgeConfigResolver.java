@@ -1,19 +1,21 @@
 package com.linkedin.openhouse.tables.readbridge;
 
+import static java.util.stream.Collectors.toMap;
+
 import com.fasterxml.jackson.databind.JsonNode;
+import com.linkedin.openhouse.common.exception.DependencyUnavailableException;
+import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
-import lombok.extern.slf4j.Slf4j;
 
 /**
- * Stamps per-table {@code config} for read-bridge capabilities. Owns policy (feature id, ramp,
- * keys); deployments supply data via {@link ColumnDefaultsSource}.
+ * Builds the per-table {@code config} that read-bridge clients apply. Owns policy (feature id,
+ * ramp, keys); deployments supply data via {@link ColumnDefaultsSource}.
  */
-@Slf4j
 public class ReadBridgeConfigResolver {
 
   /** Capability id; also names {@code <id>.enabled} and the config key prefix below. */
@@ -33,67 +35,60 @@ public class ReadBridgeConfigResolver {
     this.featureToggle = Objects.requireNonNull(featureToggle, "featureToggle");
   }
 
-  /** Merges independently gated capabilities; empty when nothing is bridged. */
+  /**
+   * Merges the config of every read-bridge capability that applies to the table; empty when none
+   * does. Config that cannot be produced fails instead of being left out: the client would silently
+   * run without it.
+   *
+   * @throws TableConfigUnavailableException if the table's stored settings cannot be applied
+   * @throws DependencyUnavailableException if the ramp lookup cannot answer
+   */
   public Map<String, String> resolve(TableDto tableDto) {
-    Objects.requireNonNull(tableDto, "tableDto");
-    Map<String, String> config = new HashMap<>();
-    config.putAll(columnDefaultConfig(tableDto));
-    return config;
+    return storedColumnDefaults(tableDto).entrySet().stream()
+        .collect(toMap(e -> COLUMN_DEFAULT_PREFIX + e.getKey(), Map.Entry::getValue));
   }
 
   /**
-   * Write-path stamps, keyed by Iceberg field-id. Empty when there is no source or the table is not
-   * ramped. Toggle or source failure throws — the write path fail-closes; {@link #resolve} does
-   * not.
+   * The column defaults declared by a table a write sends, as Iceberg single-value JSON keyed by
+   * field ID. Empty when there is no source or the table is not bridged.
    *
-   * @throws ColumnDefaultException if the source or ramp lookup cannot answer
+   * @throws ColumnDefaultException if a default the table declares cannot be applied
+   * @throws DependencyUnavailableException if the ramp lookup cannot answer
    */
-  public Map<Integer, String> stampedColumnDefaults(TableDto tableDto)
+  public Map<Integer, String> incomingColumnDefaults(TableDto incoming)
+      throws ColumnDefaultException {
+    return columnDefaultsByFieldId(incoming);
+  }
+
+  /**
+   * The column defaults declared by a stored table, as Iceberg single-value JSON keyed by field ID.
+   * A stored default that cannot be applied leaves the table's config unavailable.
+   *
+   * @throws TableConfigUnavailableException if a stored default cannot be applied
+   * @throws DependencyUnavailableException if the ramp lookup cannot answer
+   */
+  public Map<Integer, String> storedColumnDefaults(TableDto storedTable) {
+    try {
+      return columnDefaultsByFieldId(storedTable);
+    } catch (ColumnDefaultException e) {
+      throw new TableConfigUnavailableException(e.getMessage(), e);
+    }
+  }
+
+  /**
+   * Whether read-bridge applies to the table: its capability is ramped or the table opts in. {@code
+   * ColumnDefaultsSource.NONE} is never bridged, so the toggle is not consulted.
+   *
+   * @throws DependencyUnavailableException if the ramp lookup cannot answer
+   */
+  public boolean isBridged(TableDto tableDto) {
+    Objects.requireNonNull(tableDto, "tableDto");
+    return isColumnDefaultRamped(tableDto);
+  }
+
+  private Map<Integer, String> columnDefaultsByFieldId(TableDto tableDto)
       throws ColumnDefaultException {
     Objects.requireNonNull(tableDto, "tableDto");
-    try {
-      return columnDefaultsByFieldId(tableDto);
-    } catch (RuntimeException e) {
-      throw ColumnDefaultException.unusable(tableDto, e);
-    }
-  }
-
-  /**
-   * Write-path ramp. Toggle failure throws. {@code ColumnDefaultsSource.NONE} is never ramped, so
-   * the toggle is not consulted.
-   *
-   * @throws ColumnDefaultException if the ramp lookup cannot answer
-   */
-  public boolean isRampedForCommit(TableDto tableDto) throws ColumnDefaultException {
-    Objects.requireNonNull(tableDto, "tableDto");
-    try {
-      return isColumnDefaultRamped(tableDto);
-    } catch (RuntimeException e) {
-      throw ColumnDefaultException.unusable(tableDto, e);
-    }
-  }
-
-  private Map<String, String> columnDefaultConfig(TableDto tableDto) {
-    Map<Integer, String> byId;
-    try {
-      byId = columnDefaultsByFieldId(tableDto);
-    } catch (RuntimeException e) {
-      log.warn(
-          "read-bridge: column-defaults lookup failed for {}.{}; treating as not bridged",
-          tableDto.getDatabaseId(),
-          tableDto.getTableId(),
-          e);
-      return Collections.emptyMap();
-    }
-    if (byId.isEmpty()) {
-      return Collections.emptyMap();
-    }
-    Map<String, String> config = new HashMap<>();
-    byId.forEach((fieldId, json) -> config.put(COLUMN_DEFAULT_PREFIX + fieldId, json));
-    return config;
-  }
-
-  private Map<Integer, String> columnDefaultsByFieldId(TableDto tableDto) {
     if (columnDefaultsSource == ColumnDefaultsSource.NONE) {
       return Collections.emptyMap();
     }
@@ -116,8 +111,7 @@ public class ReadBridgeConfigResolver {
 
   /**
    * Uses {@link TableFeatureToggle#isFeatureActivatedWithOverride} so {@code
-   * read-bridge.column-default.enabled} can opt in/out without HTS. GET fail-opens on lookup
-   * errors: not bridging equals today's NULL reads. The write path fail-closes instead.
+   * read-bridge.column-default.enabled} can opt in/out without HTS.
    */
   private boolean isColumnDefaultRamped(TableDto tableDto) {
     if (columnDefaultsSource == ColumnDefaultsSource.NONE) {

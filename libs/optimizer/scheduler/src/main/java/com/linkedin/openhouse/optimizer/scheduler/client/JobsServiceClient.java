@@ -33,7 +33,7 @@ public class JobsServiceClient {
    *
    * @param jobName human-readable name for the job
    * @param jobType operation type string (e.g. "ORPHAN_FILES_DELETION")
-   * @param proxyUser identity the job runs as (the Grid Gateway executing identity)
+   * @param proxyUser resolved execution account shared by all tables in the bin
    * @param tableNames fully-qualified table names (db.table)
    * @param operationIds operation UUIDs — parallel to tableNames
    * @param resultsEndpoint base URL the Spark app PATCHes results back to

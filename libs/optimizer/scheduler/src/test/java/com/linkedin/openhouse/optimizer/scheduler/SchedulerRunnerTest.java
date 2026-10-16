@@ -8,6 +8,8 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.linkedin.openhouse.optimizer.binpack.FirstFitDecreasingBinPacker;
@@ -18,14 +20,24 @@ import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
 import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
+import com.linkedin.openhouse.optimizer.scheduler.account.AccountResolver;
+import com.linkedin.openhouse.optimizer.scheduler.account.DummyAccountResolver;
 import com.linkedin.openhouse.optimizer.scheduler.client.JobsServiceClient;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -45,15 +57,18 @@ class SchedulerRunnerTest {
   void setUp() {
     // A real packer — the runner exercises the full pipeline against actual bucketing and the
     // packer's projection logic, while the IO is mocked.
-    runner =
-        new SchedulerRunner(operationsRepo, statsRepo, jobsClient, RESULTS_ENDPOINT)
-            .registerOperation(
-                ORPHAN_FILES_DELETION,
-                FirstFitDecreasingBinPacker.<TotalFilesBinItem>builder()
-                    .binItemSupplier(TotalFilesBinItem::new)
-                    .maxWeightPerBin(1_000_000L)
-                    .maxItemsPerBin(50)
-                    .build());
+    runner = newRunner(new DummyAccountResolver());
+  }
+
+  private SchedulerRunner newRunner(AccountResolver resolver) {
+    return new SchedulerRunner(operationsRepo, statsRepo, jobsClient, resolver, RESULTS_ENDPOINT)
+        .registerOperation(
+            ORPHAN_FILES_DELETION,
+            FirstFitDecreasingBinPacker.<TotalFilesBinItem>builder()
+                .binItemSupplier(TotalFilesBinItem::new)
+                .maxWeightPerBin(1_000_000L)
+                .maxItemsPerBin(50)
+                .build());
   }
 
   // ---- Stubbing helpers ----
@@ -101,8 +116,13 @@ class SchedulerRunnerTest {
   }
 
   private TableStatsRow statsRow(String uuid, long numCurrentFiles) {
+    return statsRow(uuid, numCurrentFiles, "alice");
+  }
+
+  private TableStatsRow statsRow(String uuid, long numCurrentFiles, String creator) {
     return TableStatsRow.builder()
         .tableUuid(uuid)
+        .tableProperties(Map.of("openhouse.tableCreator", creator))
         .snapshot(SnapshotMetrics.builder().numCurrentFiles(numCurrentFiles).build())
         .build();
   }
@@ -112,11 +132,13 @@ class SchedulerRunnerTest {
   @Test
   void schedule_unknownOperationType_doesNotLaunch() {
     SchedulerRunner empty =
-        new SchedulerRunner(operationsRepo, statsRepo, jobsClient, RESULTS_ENDPOINT);
+        new SchedulerRunner(
+            operationsRepo, statsRepo, jobsClient, new DummyAccountResolver(), RESULTS_ENDPOINT);
     stubFindPending(List.of(pendingRow(UUID.randomUUID().toString(), "db1", "tbl1")));
 
     empty.schedule(ORPHAN_FILES_DELETION);
 
+    // verifyNoInteractions(jobsClient);
     verify(jobsClient, never())
         .launch(anyString(), anyString(), anyString(), anyList(), anyList(), anyString());
   }
@@ -185,7 +207,7 @@ class SchedulerRunnerTest {
         .launch(
             jobName.capture(),
             eq(ORPHAN_FILES_DELETION.name() + "_BATCH"),
-            eq("REPLACE_ME"),
+            eq("alice"),
             tableNames.capture(),
             eq(List.of(row.getId())),
             eq(RESULTS_ENDPOINT));
@@ -309,11 +331,11 @@ class SchedulerRunnerTest {
     verify(jobsClient)
         .launch(
             anyString(),
-            anyString(),
-            anyString(),
+            eq(ORPHAN_FILES_DELETION.name() + "_BATCH"),
+            eq("alice"),
             launchedTableNames.capture(),
             launchedOpIds.capture(),
-            anyString());
+            eq(RESULTS_ENDPOINT));
     assertThat(launchedTableNames.getValue()).containsExactly("db1.tblA");
     assertThat(launchedOpIds.getValue()).containsExactly(rowA.getId());
 
@@ -357,5 +379,102 @@ class SchedulerRunnerTest {
             any(),
             any());
     assertThat(ids.getValue()).containsExactly(withStatsRow.getId());
+  }
+
+  @Test
+  void schedule_packsWithinDatabaseAndResolvedAccount() {
+    runner =
+        newRunner(Map.of("creator-a", "alice", "creator-b", "alice", "headless", "headless")::get);
+    TableOperationsRow a = pendingRow("a", "db1", "a");
+    TableOperationsRow b = pendingRow("b", "db1", "b");
+    TableOperationsRow c = pendingRow("c", "db1", "c");
+    TableOperationsRow d = pendingRow("d", "db1", "d");
+    TableOperationsRow e = pendingRow("e", "db2", "e");
+    List<TableOperationsRow> rows = List.of(a, b, c, d, e);
+    stubFindPending(rows);
+    when(statsRepo.findAllById(any()))
+        .thenReturn(
+            List.of(
+                statsRow("a", 600_000L, "creator-a"),
+                statsRow("b", 500_000L, "creator-a"),
+                statsRow("c", 400_000L, "creator-b"),
+                statsRow("d", 10L, "headless"),
+                statsRow("e", 10L, "creator-a")));
+    stubFindClaimed(rows.stream().map(this::schedulingRow).collect(Collectors.toList()));
+    when(jobsClient.launch(
+            anyString(), anyString(), anyString(), anyList(), anyList(), anyString()))
+        .thenReturn(Optional.of("job"));
+
+    runner.schedule(ORPHAN_FILES_DELETION);
+
+    verify(jobsClient)
+        .launch(
+            anyString(),
+            eq(ORPHAN_FILES_DELETION.name() + "_BATCH"),
+            eq("alice"),
+            eq(List.of("db1.a", "db1.c")),
+            eq(List.of(a.getId(), c.getId())),
+            eq(RESULTS_ENDPOINT));
+    verify(jobsClient)
+        .launch(
+            anyString(),
+            eq(ORPHAN_FILES_DELETION.name() + "_BATCH"),
+            eq("alice"),
+            eq(List.of("db1.b")),
+            eq(List.of(b.getId())),
+            eq(RESULTS_ENDPOINT));
+    verify(jobsClient)
+        .launch(
+            anyString(),
+            eq(ORPHAN_FILES_DELETION.name() + "_BATCH"),
+            eq("headless"),
+            eq(List.of("db1.d")),
+            eq(List.of(d.getId())),
+            eq(RESULTS_ENDPOINT));
+    verify(jobsClient)
+        .launch(
+            anyString(),
+            eq(ORPHAN_FILES_DELETION.name() + "_BATCH"),
+            eq("alice"),
+            eq(List.of("db2.e")),
+            eq(List.of(e.getId())),
+            eq(RESULTS_ENDPOINT));
+    verifyNoMoreInteractions(jobsClient);
+  }
+
+  @ParameterizedTest
+  @MethodSource("missingCreatorProperties")
+  void schedule_missingCreator_doesNotClaim(Map<String, String> properties) {
+    stubFindPending(List.of(pendingRow("a", "db1", "a")));
+    when(statsRepo.findAllById(any()))
+        .thenReturn(List.of(statsRow("a", 10L).toBuilder().tableProperties(properties).build()));
+
+    runner.schedule(ORPHAN_FILES_DELETION);
+
+    verifyNoInteractions(jobsClient);
+    verify(operationsRepo, never()).updateBatch(anyList(), any(), any(), any(), any());
+  }
+
+  private static Stream<Map<String, String>> missingCreatorProperties() {
+    return Stream.of(
+        null,
+        Map.of(),
+        Collections.singletonMap("openhouse.tableCreator", null),
+        Map.of("openhouse.tableCreator", ""),
+        Map.of("openhouse.tableCreator", " "));
+  }
+
+  @ParameterizedTest
+  @NullAndEmptySource
+  @ValueSource(strings = " ")
+  void schedule_emptyResolvedAccount_doesNotClaim(String account) {
+    runner = newRunner(creator -> account);
+    stubFindPending(List.of(pendingRow("a", "db1", "a")));
+    when(statsRepo.findAllById(any())).thenReturn(List.of(statsRow("a", 10L)));
+
+    runner.schedule(ORPHAN_FILES_DELETION);
+
+    verifyNoInteractions(jobsClient);
+    verify(operationsRepo, never()).updateBatch(anyList(), any(), any(), any(), any());
   }
 }
