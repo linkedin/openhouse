@@ -3,9 +3,12 @@ package com.linkedin.openhouse.tables.readbridge;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.model.TableDto;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import javax.servlet.http.HttpServletRequest;
 import org.springframework.data.util.Version;
 import org.springframework.web.context.request.RequestContextHolder;
@@ -21,6 +24,8 @@ public class ColumnDefaultClientGate {
   private static final String PRODUCT = "openhouse-java-client/";
   private static final Pattern RELEASE = Pattern.compile("[0-9]{1,9}(?:\\.[0-9]{1,9}){2,3}");
   private final String minimum;
+  /** Client names ({@code X-Client-Name}) admitted when their version is at least the minimum. */
+  private final Set<String> admittedClientNames;
   /** Null when no valid minimum is configured: then no client is admitted to opted-in tables. */
   private final Version minimumVersion;
 
@@ -32,12 +37,20 @@ public class ColumnDefaultClientGate {
    * @param minimum oldest admitted {@code openhouse-java-client} release, such as {@code 4.2.150}.
    *     Empty or invalid fails closed: every request to an opted-in table is rejected unless it
    *     carries the column-default policy bypass. It does not turn the gate off.
+   * @param admittedClientNames comma-separated {@code X-Client-Name} values admitted at or above
+   *     the minimum. Entries are trimmed and empty entries ignored; an empty list admits no client.
    * @param requestContext whether the request carries the column-default policy bypass
    */
-  public ColumnDefaultClientGate(String minimum, CatalogRequestContext requestContext) {
+  public ColumnDefaultClientGate(
+      String minimum, String admittedClientNames, CatalogRequestContext requestContext) {
     this.minimum = minimum;
     this.minimumVersion = RELEASE.matcher(minimum).matches() ? Version.parse(minimum) : null;
     this.majorPrefix = minimumVersion == null ? "" : minimum.substring(0, minimum.indexOf('.') + 1);
+    this.admittedClientNames =
+        Arrays.stream(admittedClientNames.split(","))
+            .map(String::trim)
+            .filter(name -> !name.isEmpty())
+            .collect(Collectors.toSet());
     this.requestContext = Objects.requireNonNull(requestContext, "requestContext");
   }
 
@@ -52,7 +65,7 @@ public class ColumnDefaultClientGate {
     if (request != null) {
       String userAgent = request.getHeader("User-Agent");
       if (minimumVersion != null
-          && "spark".equals(request.getHeader("X-Client-Name"))
+          && admittedClientNames.contains(request.getHeader("X-Client-Name"))
           && userAgent != null
           && userAgent.startsWith(PRODUCT)) {
         String version = userAgent.substring(PRODUCT.length());
@@ -73,7 +86,9 @@ public class ColumnDefaultClientGate {
               + TablesMvcConstants.COLUMN_DEFAULT_POLICY_BYPASS_HINT);
     }
     throw new ColumnDefaultClientRejectedException(
-        "Column-default tables require client-name=spark and openhouse-java-client/"
+        "Column-default tables require X-Client-Name to be one of "
+            + admittedClientNames
+            + " and openhouse-java-client/"
             + minimum
             + " or newer in the same major release family."
             + TablesMvcConstants.COLUMN_DEFAULT_POLICY_BYPASS_HINT);

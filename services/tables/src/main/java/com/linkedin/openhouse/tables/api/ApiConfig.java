@@ -28,8 +28,10 @@ public class ApiConfig {
   @Bean
   public ColumnDefaultClientGate columnDefaultClientGate(
       @Value("${cluster.read-bridge.column-default.minimum-client-version:}") String minimum,
+      @Value("${cluster.read-bridge.column-default.admitted-client-names:spark}")
+          String admittedClientNames,
       CatalogRequestContext requestContext) {
-    return new ColumnDefaultClientGate(minimum, requestContext);
+    return new ColumnDefaultClientGate(minimum, admittedClientNames, requestContext);
   }
 
   @Bean
