@@ -43,7 +43,6 @@ public class ViewsServiceStartupTest {
   private final ViewMetadataCodec viewMetadataCodec = mock(ViewMetadataCodec.class);
   private final StorageType storageType = mock(StorageType.class);
   private final AuthorizationUtils authorizationUtils = mock(AuthorizationUtils.class);
-  private final ViewAdmissionService admissionService = mock(ViewAdmissionService.class);
   private final ViewWritePrivilegeMapper privilegeMapper = mock(ViewWritePrivilegeMapper.class);
   private final ClusterProperties clusterProperties = mock(ClusterProperties.class);
 
@@ -98,7 +97,6 @@ public class ViewsServiceStartupTest {
     beanFactory.registerSingleton("viewMetadataCodec", viewMetadataCodec);
     beanFactory.registerSingleton("storageType", storageType);
     beanFactory.registerSingleton("authorizationUtils", authorizationUtils);
-    beanFactory.registerSingleton("viewAdmissionService", admissionService);
     beanFactory.registerSingleton("viewWritePrivilegeMapper", privilegeMapper);
     beanFactory.registerSingleton("clusterProperties", clusterProperties);
     context.register(ViewsServiceImpl.class);

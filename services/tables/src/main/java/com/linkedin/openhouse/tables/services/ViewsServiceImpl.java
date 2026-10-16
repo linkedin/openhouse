@@ -68,7 +68,7 @@ import org.springframework.stereotype.Component;
  * LIST: gate -> database existence -> HTS read (no authorization)
  *
  * POST / PUT: gate -> database existence -> prepared capture -> authorization
- *             -> resource type / base-version -> admission -> allocate (create only)
+ *             -> resource type / base-version -> allocate (create only)
  *             -> commit
  *
  * DELETE:     gate -> database existence -> authorization -> prepared capture
@@ -105,8 +105,6 @@ public class ViewsServiceImpl implements ViewsService {
   @Autowired private StorageManager storageManager;
 
   @Autowired private AuthorizationUtils authorizationUtils;
-
-  @Autowired private ViewAdmissionService admissionService;
 
   @Autowired private ViewWritePrivilegeMapper privilegeMapper;
 
@@ -197,8 +195,6 @@ public class ViewsServiceImpl implements ViewsService {
         checkBaseVersion(
             databaseId, viewId, requestBody.getBaseMetadataLocation(), prepared, viewAlreadyExists);
       }
-
-      admissionService.admit(requestBody);
 
       result = commitView(requestBody, prepared, actingPrincipal, !viewAlreadyExists);
       dto = toCommittedDto(databaseId, viewId, result);

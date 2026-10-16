@@ -12,7 +12,6 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -114,7 +113,6 @@ public class ViewsServiceImplTest {
   private StorageManager storageManager;
   private AuthorizationUtils authorizationUtils;
   private AuthorizationHandler authorizationHandler;
-  private ViewAdmissionService admissionService;
   private ViewWritePrivilegeMapper privilegeMapper;
   private ClusterProperties clusterProperties;
   private ViewsServiceImpl service;
@@ -150,7 +148,6 @@ public class ViewsServiceImplTest {
         .thenReturn(true);
     authorizationUtils = new AuthorizationUtils();
     ReflectionTestUtils.setField(authorizationUtils, "authorizationHandler", authorizationHandler);
-    admissionService = mock(ViewAdmissionService.class);
     privilegeMapper = mock(ViewWritePrivilegeMapper.class);
     clusterProperties = mock(ClusterProperties.class);
     when(clusterProperties.getClusterName()).thenReturn(ViewModelConstants.CLUSTER_ID);
@@ -158,7 +155,6 @@ public class ViewsServiceImplTest {
     ReflectionTestUtils.setField(service, "featureGate", featureGate);
     ReflectionTestUtils.setField(service, "databasesService", databasesService);
     ReflectionTestUtils.setField(service, "authorizationUtils", authorizationUtils);
-    ReflectionTestUtils.setField(service, "admissionService", admissionService);
     ReflectionTestUtils.setField(service, "privilegeMapper", privilegeMapper);
     ReflectionTestUtils.setField(service, "clusterProperties", clusterProperties);
     // The direct collaborators replacing the view repository are injected by type, not name.
@@ -228,8 +224,7 @@ public class ViewsServiceImplTest {
         houseTableRepository,
         viewCommitEngine,
         storageSelector,
-        authorizationHandler,
-        admissionService);
+        authorizationHandler);
   }
 
   @Test
@@ -245,8 +240,7 @@ public class ViewsServiceImplTest {
                     ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL));
 
     assertEquals(ViewErrorCode.DATABASE_NOT_FOUND, thrown.getErrorCode());
-    verifyNoInteractions(
-        houseTableRepository, viewCommitEngine, authorizationHandler, admissionService);
+    verifyNoInteractions(houseTableRepository, viewCommitEngine, authorizationHandler);
   }
 
   @Test
@@ -323,7 +317,7 @@ public class ViewsServiceImplTest {
   }
 
   @Test
-  public void createAuthorizesAtDatabaseLevelBeforeAdmissionAllocationAndCommit() {
+  public void createAuthorizesAtDatabaseLevelBeforeAllocationAndCommit() {
     existingEnabledDatabase();
     captureForWrite(Optional.empty());
     when(privilegeMapper.forCreate()).thenReturn(Privileges.CREATE_TABLE);
@@ -345,7 +339,6 @@ public class ViewsServiceImplTest {
             houseTableRepository,
             privilegeMapper,
             authorizationHandler,
-            admissionService,
             storageSelector,
             selectedStorage,
             viewCommitEngine);
@@ -354,7 +347,6 @@ public class ViewsServiceImplTest {
     order.verify(houseTableRepository).findEntityById(viewKey());
     order.verify(privilegeMapper).forCreate();
     order.verify(authorizationHandler).checkAccessDecision(any(), any(DatabaseDto.class), any());
-    order.verify(admissionService).admit(ViewModelConstants.createRequestWithoutBaseVersion());
     order
         .verify(storageSelector)
         .selectStorage(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID);
@@ -449,12 +441,11 @@ public class ViewsServiceImplTest {
             service.putView(
                 ViewModelConstants.createRequestWithoutBaseVersion(), ACTING_PRINCIPAL, true));
 
-    verify(admissionService, never()).admit(any());
     verifyNoInteractions(storageSelector, viewCommitEngine);
   }
 
   @Test
-  public void absentPutCreatesOnlyWithInitialVersionAndRejectsStaleTokensBeforeAdmission() {
+  public void absentPutCreatesOnlyWithInitialVersionAndRejectsStaleTokensBeforeCommit() {
     existingEnabledDatabase();
     captureForWrite(Optional.empty());
     when(privilegeMapper.forPut(false)).thenReturn(Privileges.CREATE_TABLE);
@@ -466,7 +457,7 @@ public class ViewsServiceImplTest {
             ViewModelConstants.createRequestWithInitialBaseVersion(), ACTING_PRINCIPAL, false);
 
     assertEquals(Boolean.TRUE, initialResult.getSecond());
-    clearInvocations(admissionService, storageSelector, viewCommitEngine);
+    clearInvocations(storageSelector, viewCommitEngine);
 
     ViewApiException stale =
         assertThrows(
@@ -475,12 +466,11 @@ public class ViewsServiceImplTest {
                 service.putView(
                     ViewModelConstants.fullyPopulatedRequest(), ACTING_PRINCIPAL, false));
     assertEquals(ViewErrorCode.CONCURRENT_VIEW_MODIFICATION, stale.getErrorCode());
-    verify(admissionService, never()).admit(any());
     verifyNoInteractions(storageSelector, viewCommitEngine);
   }
 
   @Test
-  public void existingPutWithStaleBaseTokenRejectsBeforeAdmissionOrCommit() {
+  public void existingPutWithStaleBaseTokenRejectsBeforeCommit() {
     existingEnabledDatabase();
     captureForWrite(
         Optional.of(
@@ -499,7 +489,6 @@ public class ViewsServiceImplTest {
 
     assertEquals(ViewErrorCode.CONCURRENT_VIEW_MODIFICATION, stale.getErrorCode());
     assertDatabaseAuthorization(Privileges.UPDATE_TABLE_METADATA);
-    verify(admissionService, never()).admit(any());
     verifyNoInteractions(storageSelector, viewCommitEngine);
   }
 
@@ -605,7 +594,7 @@ public class ViewsServiceImplTest {
   }
 
   @Test
-  public void missingDefaultNamespaceDatabaseFailsBeforeCaptureOrAdmission() {
+  public void missingDefaultNamespaceDatabaseFailsBeforeCapture() {
     existingEnabledDatabase();
 
     ViewApiException thrown =
@@ -622,7 +611,6 @@ public class ViewsServiceImplTest {
 
     assertEquals(ViewErrorCode.DATABASE_NOT_FOUND, thrown.getErrorCode());
     verifyNoInteractions(houseTableRepository, viewCommitEngine);
-    verify(admissionService, never()).admit(any());
   }
 
   @Test
@@ -647,7 +635,6 @@ public class ViewsServiceImplTest {
 
     assertEquals(Boolean.TRUE, result.getSecond());
     assertEquals(COMMITTED_POINTER, result.getFirst().getMetadataLocation());
-    verify(admissionService).admit(request);
     verify(viewCommitEngine, times(1)).commit(any(ViewCommitIntent.class));
   }
 
@@ -1031,12 +1018,11 @@ public class ViewsServiceImplTest {
 
     assertEquals(ViewErrorCode.NAME_ALREADY_EXISTS_AS_TABLE, thrown.getErrorCode());
     assertDatabaseAuthorization(Privileges.CREATE_TABLE);
-    verify(admissionService, never()).admit(any());
     verifyNoInteractions(storageSelector, viewCommitEngine);
   }
 
   @Test
-  public void existingViewPostConflictsAfterAuthorizationAndBeforeAdmission() {
+  public void existingViewPostConflictsAfterAuthorizationAndBeforeCommit() {
     existingEnabledDatabase();
     captureForWrite(Optional.of(capturedViewRow()));
     when(privilegeMapper.forCreate()).thenReturn(Privileges.CREATE_TABLE);
@@ -1050,38 +1036,6 @@ public class ViewsServiceImplTest {
 
     assertEquals(ViewErrorCode.VIEW_ALREADY_EXISTS, thrown.getErrorCode());
     assertDatabaseAuthorization(Privileges.CREATE_TABLE);
-    verify(admissionService, never()).admit(any());
-    verifyNoInteractions(storageSelector, viewCommitEngine);
-  }
-
-  @Test
-  public void admissionRejectionPreventsAllocationAndCreateAndReplaceCommits() {
-    existingEnabledDatabase();
-    when(privilegeMapper.forPut(false)).thenReturn(Privileges.CREATE_TABLE);
-    when(privilegeMapper.forPut(true)).thenReturn(Privileges.UPDATE_TABLE_METADATA);
-    when(houseTableRepository.findEntityById(viewKey()))
-        .thenReturn(Optional.empty())
-        .thenReturn(Optional.of(capturedViewRow()));
-    ViewApiException admissionFailure =
-        new ViewApiException(ViewErrorCode.VIEW_ADMISSION_FAILED, "rejected");
-    doThrow(admissionFailure).when(admissionService).admit(any());
-
-    assertSame(
-        admissionFailure,
-        assertThrows(
-            ViewApiException.class,
-            () ->
-                service.putView(
-                    ViewModelConstants.createRequestWithInitialBaseVersion(),
-                    ACTING_PRINCIPAL,
-                    false)));
-    assertSame(
-        admissionFailure,
-        assertThrows(
-            ViewApiException.class,
-            () ->
-                service.putView(
-                    ViewModelConstants.fullyPopulatedRequest(), ACTING_PRINCIPAL, false)));
     verifyNoInteractions(storageSelector, viewCommitEngine);
   }
 
@@ -1107,7 +1061,6 @@ public class ViewsServiceImplTest {
 
     assertEquals(ViewErrorCode.INTERNAL_VIEW_ERROR, thrown.getErrorCode());
     assertSame(allocationFault, thrown.getCause());
-    verify(admissionService).admit(ViewModelConstants.createRequestWithoutBaseVersion());
     verifyNoInteractions(viewCommitEngine);
   }
 
@@ -1293,7 +1246,6 @@ public class ViewsServiceImplTest {
             service.putView(
                 ViewModelConstants.createRequestWithoutBaseVersion(), ACTING_PRINCIPAL, true));
 
-    verify(admissionService, never()).admit(any());
     verifyNoInteractions(storageSelector, viewCommitEngine);
   }
 
