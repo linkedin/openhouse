@@ -13,6 +13,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.Optional;
+import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.types.Types;
 import org.springframework.stereotype.Component;
@@ -39,84 +40,123 @@ public class RetentionPolicySpecValidator extends PolicySpecValidator {
   @Override
   public boolean validate(
       CreateUpdateTableRequestBody createUpdateTableRequestBody, TableUri tableUri) {
-    Retention retention = createUpdateTableRequestBody.getPolicies().getRetention();
-    TimePartitionSpec timePartitioning = createUpdateTableRequestBody.getTimePartitioning();
-    String schema = createUpdateTableRequestBody.getSchema();
+    Optional<Violation> violation =
+        findViolation(
+            createUpdateTableRequestBody.getPolicies().getRetention(),
+            createUpdateTableRequestBody.getTimePartitioning(),
+            createUpdateTableRequestBody.getSchema(),
+            tableUri);
+    if (violation.isPresent()) {
+      failureMessage = violation.get().getMessage();
+      errorField = violation.get().getField();
+      return false;
+    }
+    return true;
+  }
 
-    if (retention != null) {
-      // Two invalid case for timePartitioned table
-      if (timePartitioning != null) {
-        if (retention.getColumnPattern() != null) {
-          failureMessage =
-              String.format(
-                  "You can only specify retention column pattern on non-timestampPartitioned table (table[%s] is time-partitioned by[%s])",
-                  tableUri, timePartitioning.getColumnName());
-          return false;
-        }
-        if (!retention.getGranularity().equals(timePartitioning.getGranularity())) {
-          failureMessage =
-              String.format(
-                  "invalid policies retention granularity format for table %s. Policies granularity must be equal to or lesser than"
-                      + " time partition spec granularity",
-                  tableUri);
-          errorField = "retention";
-          return false;
-        }
-      }
+  /**
+   * Stateless equivalent of {@link #validate(CreateUpdateTableRequestBody, TableUri)} that checks a
+   * retention policy for compatibility with the given schema and time-partitioning spec. Callers
+   * that do not operate on a {@link CreateUpdateTableRequestBody}, such as the REPLACE TABLE path
+   * where retention is carried over from the existing table, should use this method.
+   *
+   * @param retention retention policy to check, a null retention is always compatible
+   * @param timePartitioning time-partitioning spec of the table, null when not time-partitioned
+   * @param schema Iceberg schema of the table in its JSON representation
+   * @param tableUri identifier of the table used in failure messages
+   * @return the {@link Violation} found, or {@link Optional#empty()} when retention is compatible
+   */
+  public Optional<Violation> findViolation(
+      Retention retention, TimePartitionSpec timePartitioning, String schema, TableUri tableUri) {
+    if (retention == null) {
+      return Optional.empty();
+    }
 
-      // invalid cases regarding the integrity of retention object.
-      if (!validateGranularityWithPattern(retention)) {
-        failureMessage =
-            String.format(
-                "Provided Retention Granularity[%s] is not supported with default pattern. "
-                    + "Please define pattern in retention config or use one of supported granularity: %s",
-                retention.getGranularity().name(), Arrays.toString(DefaultColumnPattern.values()));
-        return false;
+    // Two invalid case for timePartitioned table
+    if (timePartitioning != null) {
+      if (retention.getColumnPattern() != null) {
+        return Optional.of(
+            new Violation(
+                "",
+                String.format(
+                    "You can only specify retention column pattern on non-timestampPartitioned table (table[%s] is time-partitioned by[%s])",
+                    tableUri, timePartitioning.getColumnName())));
       }
-      if (!validatePatternIfPresent(retention, tableUri, schema)) {
-        failureMessage =
-            String.format(
-                "Provided pattern[%s] is not recognizable by OpenHouse for the table[%s]; Also please make sure the declared column is part of table schema.",
-                retention.getColumnPattern(), tableUri);
-        return false;
-      }
-      if (timePartitioning == null && retention.getColumnPattern() == null) {
-        failureMessage =
-            String.format(
-                "For non timestamp-partitioned table %s, column pattern in retention policy is mandatory",
-                tableUri);
-        return false;
-      }
-      if (!validateTimeZoneIfPresent(retention)) {
-        failureMessage =
-            String.format(
-                "Provided retention time zone[%s] is not a valid IANA zone id or fixed offset for the table[%s]",
-                retention.getTimeZone(), tableUri);
-        errorField = "retention";
-        return false;
-      }
-      if (!validateTimeZoneScope(retention)) {
-        failureMessage =
-            String.format(
-                "Retention time zone[%s] requires a string column pattern with no zone field for table[%s]",
-                retention.getTimeZone(), tableUri);
-        errorField = "retention";
-        return false;
-      }
-      if (Optional.ofNullable(retention.getTimeZone()).isPresent()
-          && !Optional.ofNullable(retention.getColumnPattern())
-              .map(RetentionColumnPattern::getColumnName)
-              .map(columnName -> getSchemaFromSchemaJson(schema).findType(columnName))
-              .filter(Types.StringType.get()::equals)
-              .isPresent()) {
-        failureMessage =
-            String.format("Retention time zone requires a string column for table[%s]", tableUri);
-        errorField = "retention";
-        return false;
+      if (!retention.getGranularity().equals(timePartitioning.getGranularity())) {
+        return Optional.of(
+            new Violation(
+                "retention",
+                String.format(
+                    "invalid policies retention granularity format for table %s. Policies granularity must be equal to or lesser than"
+                        + " time partition spec granularity",
+                    tableUri)));
       }
     }
 
-    return true;
+    // invalid cases regarding the integrity of retention object.
+    if (!validateGranularityWithPattern(retention)) {
+      return Optional.of(
+          new Violation(
+              "",
+              String.format(
+                  "Provided Retention Granularity[%s] is not supported with default pattern. "
+                      + "Please define pattern in retention config or use one of supported granularity: %s",
+                  retention.getGranularity().name(),
+                  Arrays.toString(DefaultColumnPattern.values()))));
+    }
+    if (!validatePatternIfPresent(retention, tableUri, schema)) {
+      return Optional.of(
+          new Violation(
+              "",
+              String.format(
+                  "Provided pattern[%s] is not recognizable by OpenHouse for the table[%s]; Also please make sure the declared column is part of table schema.",
+                  retention.getColumnPattern(), tableUri)));
+    }
+    if (timePartitioning == null && retention.getColumnPattern() == null) {
+      return Optional.of(
+          new Violation(
+              "",
+              String.format(
+                  "For non timestamp-partitioned table %s, column pattern in retention policy is mandatory",
+                  tableUri)));
+    }
+    if (!validateTimeZoneIfPresent(retention)) {
+      return Optional.of(
+          new Violation(
+              "retention",
+              String.format(
+                  "Provided retention time zone[%s] is not a valid IANA zone id or fixed offset for the table[%s]",
+                  retention.getTimeZone(), tableUri)));
+    }
+    if (!validateTimeZoneScope(retention)) {
+      return Optional.of(
+          new Violation(
+              "retention",
+              String.format(
+                  "Retention time zone[%s] requires a string column pattern with no zone field for table[%s]",
+                  retention.getTimeZone(), tableUri)));
+    }
+    if (Optional.ofNullable(retention.getTimeZone()).isPresent()
+        && !Optional.ofNullable(retention.getColumnPattern())
+            .map(RetentionColumnPattern::getColumnName)
+            .map(columnName -> getSchemaFromSchemaJson(schema).findType(columnName))
+            .filter(Types.StringType.get()::equals)
+            .isPresent()) {
+      return Optional.of(
+          new Violation(
+              "retention",
+              String.format(
+                  "Retention time zone requires a string column for table[%s]", tableUri)));
+    }
+
+    return Optional.empty();
+  }
+
+  /** Immutable description of an incompatible retention policy. */
+  @Value
+  public static class Violation {
+    String field;
+    String message;
   }
 
   /**

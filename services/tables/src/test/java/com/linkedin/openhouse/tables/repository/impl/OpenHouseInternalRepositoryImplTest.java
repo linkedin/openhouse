@@ -19,9 +19,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 import org.apache.iceberg.TableProperties;
-import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -96,30 +94,6 @@ public class OpenHouseInternalRepositoryImplTest {
     Assertions.assertEquals(
         userProvidedMaxMetadataVersions,
         actualProps.get(TableProperties.METADATA_PREVIOUS_VERSIONS_MAX));
-  }
-
-  @Test
-  void testComputePropsForTableCreation_DefaultMaximumReferenceAge() {
-    // Table creation stamps the seven-day reference age when the request omits the property.
-    Map<String, String> actualProps =
-        openHouseInternalRepository.computePropsForTableCreation(createTableDto(new HashMap<>()));
-
-    Assertions.assertEquals(
-        String.valueOf(TimeUnit.DAYS.toMillis(7)), actualProps.get(TableProperties.MAX_REF_AGE_MS));
-  }
-
-  @Test
-  void testComputePropsForTableCreation_UserProvidedMaximumReferenceAge() {
-    // Table creation preserves an accepted caller-provided reference age instead of defaulting it.
-    String userProvidedMaximumReferenceAge = String.valueOf(TimeUnit.DAYS.toMillis(14));
-    Map<String, String> userProps = new HashMap<>();
-    userProps.put(TableProperties.MAX_REF_AGE_MS, userProvidedMaximumReferenceAge);
-
-    Map<String, String> actualProps =
-        openHouseInternalRepository.computePropsForTableCreation(createTableDto(userProps));
-
-    Assertions.assertEquals(
-        userProvidedMaximumReferenceAge, actualProps.get(TableProperties.MAX_REF_AGE_MS));
   }
 
   @Test
@@ -208,19 +182,6 @@ public class OpenHouseInternalRepositoryImplTest {
             TableDtoPrimaryKey.builder().databaseId(DB_ID).tableId(TABLE_ID).build());
 
     Assertions.assertFalse(result.isPresent());
-  }
-
-  @Test
-  void findTableRefByIdThrowsWhenCatalogIsNotOpenHouseInternalCatalog() {
-    // Build a fresh impl with a non-OpenHouseInternal Catalog wired in.
-    OpenHouseInternalRepositoryImpl impl = new OpenHouseInternalRepositoryImpl();
-    impl.catalog = mock(Catalog.class);
-
-    Assertions.assertThrows(
-        UnsupportedOperationException.class,
-        () ->
-            impl.findTableRefById(
-                TableDtoPrimaryKey.builder().databaseId(DB_ID).tableId(TABLE_ID).build()));
   }
 
   private TableDto createTableDto(Map<String, String> properties) {

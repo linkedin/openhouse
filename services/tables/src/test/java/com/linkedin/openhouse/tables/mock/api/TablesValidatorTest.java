@@ -1572,4 +1572,36 @@ public class TablesValidatorTest {
                     .tableType(TableType.PRIMARY_TABLE)
                     .build()));
   }
+
+  /** Table search retains numeric pagination and its existing validation messages. */
+  @Test
+  public void validateSearchTablesKeepsNumericPageValidation() {
+    assertDoesNotThrow(() -> tablesApiValidator.validateSearchTables("d", 0, 50, null, null));
+    assertDoesNotThrow(
+        () -> tablesApiValidator.validateSearchTables("d", 3, 10000, "tableId", null));
+
+    Assertions.assertTrue(
+        assertThrows(
+                RequestValidationFailureException.class,
+                () -> tablesApiValidator.validateSearchTables("d", -1, 50, null, null))
+            .getMessage()
+            .contains("page : provided -1, cannot be negative"));
+
+    Assertions.assertTrue(
+        assertThrows(
+                RequestValidationFailureException.class,
+                () -> tablesApiValidator.validateSearchTables("d", 0, 0, null, null))
+            .getMessage()
+            .contains("size : provided 0, must be greater than 0"));
+
+    Assertions.assertTrue(
+        assertThrows(
+                RequestValidationFailureException.class,
+                () ->
+                    tablesApiValidator.validateSearchTables("d", 0, 50, "tableId,databaseId", null))
+            .getMessage()
+            .contains(
+                "sortBy : provided tableId,databaseId, does not support multiple sort fields or"
+                    + " directions"));
+  }
 }

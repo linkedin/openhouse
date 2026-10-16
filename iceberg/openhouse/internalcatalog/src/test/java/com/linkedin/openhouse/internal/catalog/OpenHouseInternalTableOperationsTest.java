@@ -9,6 +9,8 @@ import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorage;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
+import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableException;
+import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
@@ -38,6 +40,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -59,6 +62,7 @@ import org.apache.iceberg.SortDirection;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.common.DynFields;
 import org.apache.iceberg.exceptions.BadRequestException;
@@ -81,6 +85,7 @@ import org.mockito.MockitoAnnotations;
 
 public class OpenHouseInternalTableOperationsTest {
   private static final String TEST_LOCATION = "test_location";
+  private static final String SEVEN_DAYS_MS = String.valueOf(TimeUnit.DAYS.toMillis(7));
   private static final TableIdentifier TEST_TABLE_IDENTIFIER =
       TableIdentifier.of("test_db", "test_table");
   private static final TableMetadata BASE_TABLE_METADATA =
@@ -101,10 +106,12 @@ public class OpenHouseInternalTableOperationsTest {
   @Mock private LocalStorageClient mockLocalStorageClient;
   @Mock private FSDataInputStream mockFSDataInputStream;
   @Mock private FSDataOutputStream mockFSDataOutputStream;
+  @Mock private PostCommitOperationRunner mockPostCommitOperationRunner;
 
   private TableMetadataCache tableMetadataCache;
   private OpenHouseInternalTableOperations openHouseInternalTableOperations;
   private OpenHouseInternalTableOperations openHouseInternalTableOperationsWithMockMetrics;
+  private OpenHouseInternalTableOperations openHouseInternalTableOperationsWithPostCommit;
 
   @SneakyThrows
   private static String getTempLocation() {
@@ -141,6 +148,19 @@ public class OpenHouseInternalTableOperationsTest {
             fileIOManager,
             tableMetadataCache);
 
+    // Instance wired with a post-commit operation runner for testing the post-commit seam.
+    Mockito.when(mockPostCommitOperationRunner.isEnabled()).thenReturn(true);
+    openHouseInternalTableOperationsWithPostCommit =
+        new OpenHouseInternalTableOperations(
+            mockHouseTableRepository,
+            fileIO,
+            mockHouseTableMapper,
+            TEST_TABLE_IDENTIFIER,
+            metricsReporter,
+            fileIOManager,
+            tableMetadataCache,
+            mockPostCommitOperationRunner);
+
     LocalStorage localStorage = mock(LocalStorage.class);
     when(fileIOManager.getStorage(fileIO)).thenReturn(localStorage);
     when(localStorage.getType()).thenReturn(StorageType.LOCAL);
@@ -169,10 +189,8 @@ public class OpenHouseInternalTableOperationsTest {
       Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
 
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
-      Assertions.assertEquals(
-          4,
-          updatedProperties
-              .size()); /*write.parquet.compression-codec, location, lastModifiedTime, version*/
+      Assertions.assertFalse(updatedProperties.containsKey(CatalogConstants.SNAPSHOTS_JSON_KEY));
+      Assertions.assertFalse(updatedProperties.containsKey(CatalogConstants.SNAPSHOTS_REFS_KEY));
       Assertions.assertEquals(
           "INITIAL_VERSION", updatedProperties.get(getCanonicalFieldName("tableVersion")));
       Assertions.assertTrue(updatedProperties.containsKey(getCanonicalFieldName("tableLocation")));
@@ -181,9 +199,99 @@ public class OpenHouseInternalTableOperationsTest {
   }
 
   /**
-   * Tests committing additional snapshots to a table that already has existing snapshots. Verifies
-   * that only new snapshots are appended to the table metadata.
+   * A successful commit must dispatch registered post-commit operations exactly once, handing them
+   * a context that carries the table identity and the committed metadata.
    */
+  @Test
+  void testPostCommitOperationsRunOnSuccessfulCommit() throws IOException {
+    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      properties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(testSnapshots));
+      properties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.createMainBranchRefPointingTo(
+                  testSnapshots.get(testSnapshots.size() - 1))));
+
+      TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+      openHouseInternalTableOperationsWithPostCommit.doCommit(BASE_TABLE_METADATA, metadata);
+
+      ArgumentCaptor<PostCommitContext> contextCaptor =
+          ArgumentCaptor.forClass(PostCommitContext.class);
+      Mockito.verify(mockPostCommitOperationRunner, Mockito.times(1))
+          .runAll(contextCaptor.capture());
+      PostCommitContext context = contextCaptor.getValue();
+      Assertions.assertEquals(TEST_TABLE_IDENTIFIER, context.getTableIdentifier());
+      Assertions.assertNotNull(context.getCommittedMetadata());
+      Assertions.assertTrue(
+          context
+              .getCommittedMetadata()
+              .properties()
+              .containsKey(getCanonicalFieldName("tableLocation")));
+    }
+  }
+
+  /**
+   * A failed commit must NOT dispatch post-commit operations: they run only in the finally SUCCESS
+   * path, so risk is never bundled onto an unsuccessful commit.
+   */
+  @Test
+  void testPostCommitOperationsNotRunOnFailedCommit() throws IOException {
+    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      properties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(testSnapshots));
+      properties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.createMainBranchRefPointingTo(
+                  testSnapshots.get(testSnapshots.size() - 1))));
+      TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+
+      Mockito.doThrow(HouseTableCallerException.class)
+          .when(mockHouseTableRepository)
+          .save(Mockito.any());
+
+      Assertions.assertThrows(
+          CommitFailedException.class,
+          () ->
+              openHouseInternalTableOperationsWithPostCommit.doCommit(
+                  BASE_TABLE_METADATA, metadata));
+      Mockito.verify(mockPostCommitOperationRunner, Mockito.never()).runAll(Mockito.any());
+    }
+  }
+
+  /**
+   * When the runner is disabled via server config, a successful commit must not dispatch any
+   * post-commit operation (the seam is gated at the call site).
+   */
+  @Test
+  void testPostCommitOperationsSkippedWhenRunnerDisabled() throws IOException {
+    Mockito.when(mockPostCommitOperationRunner.isEnabled()).thenReturn(false);
+    List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      properties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(testSnapshots));
+      properties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.createMainBranchRefPointingTo(
+                  testSnapshots.get(testSnapshots.size() - 1))));
+
+      TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+      openHouseInternalTableOperationsWithPostCommit.doCommit(BASE_TABLE_METADATA, metadata);
+
+      Mockito.verify(mockPostCommitOperationRunner, Mockito.never()).runAll(Mockito.any());
+    }
+  }
+
   @Test
   void testDoCommitAppendSnapshotsExistingVersion() throws IOException {
     List<Snapshot> testSnapshots = IcebergTestUtil.getSnapshots();
@@ -210,10 +318,8 @@ public class OpenHouseInternalTableOperationsTest {
       Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
 
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
-      Assertions.assertEquals(
-          4,
-          updatedProperties
-              .size()); /*write.parquet.compression-codec, location, lastModifiedTime, version*/
+      Assertions.assertFalse(updatedProperties.containsKey(CatalogConstants.SNAPSHOTS_JSON_KEY));
+      Assertions.assertFalse(updatedProperties.containsKey(CatalogConstants.SNAPSHOTS_REFS_KEY));
       Assertions.assertEquals(
           TEST_LOCATION, updatedProperties.get(getCanonicalFieldName("tableVersion")));
 
@@ -536,10 +642,8 @@ public class OpenHouseInternalTableOperationsTest {
       Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
 
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
-      Assertions.assertEquals(
-          4,
-          updatedProperties
-              .size()); /*write.parquet.compression-codec, location, lastModifiedTime, version*/
+      Assertions.assertFalse(updatedProperties.containsKey(CatalogConstants.SNAPSHOTS_JSON_KEY));
+      Assertions.assertFalse(updatedProperties.containsKey(CatalogConstants.SNAPSHOTS_REFS_KEY));
       Assertions.assertEquals(
           TEST_LOCATION, updatedProperties.get(getCanonicalFieldName("tableVersion")));
 
@@ -732,6 +836,93 @@ public class OpenHouseInternalTableOperationsTest {
             openHouseInternalTableOperations.doCommit(
                 metadataWithSnapshots, metadataWithSnapshotsDeleted),
         "Should throw exception when trying to delete referenced snapshots");
+  }
+
+  /** Tables created without the property, or committed before OpenHouse owned it, get 7 days. */
+  @Test
+  void testDoCommitStampsMissingMaxRefAge() {
+    Assertions.assertEquals(SEVEN_DAYS_MS, committedMaxRefAge(null, BASE_TABLE_METADATA));
+    Assertions.assertEquals(
+        SEVEN_DAYS_MS,
+        committedMaxRefAge(
+            BASE_TABLE_METADATA,
+            BASE_TABLE_METADATA.replaceProperties(ImmutableMap.of("random", "value"))));
+  }
+
+  /** A commit may set any value in (0, 7 days], both bounds included. */
+  @Test
+  void testDoCommitAcceptsMaxRefAgeWithinLimit() {
+    TableMetadata oneMs = withMaxRefAge(BASE_TABLE_METADATA, "1");
+    Assertions.assertEquals("1", committedMaxRefAge(BASE_TABLE_METADATA, oneMs));
+    Assertions.assertEquals(
+        SEVEN_DAYS_MS, committedMaxRefAge(oneMs, withMaxRefAge(oneMs, SEVEN_DAYS_MS)));
+  }
+
+  /** A commit that sets a value outside (0, 7 days] is a bad request and persists nothing. */
+  @Test
+  void testDoCommitRejectsMaxRefAgeOutsideLimit() {
+    for (String maxRefAgeMs :
+        Arrays.asList("0", String.valueOf(TimeUnit.DAYS.toMillis(7) + 1), "7 days")) {
+      TableMetadata metadata = withMaxRefAge(BASE_TABLE_METADATA, maxRefAgeMs);
+      try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+          Mockito.mockStatic(TableMetadataParser.class)) {
+        Assertions.assertThrows(
+            UnsupportedClientOperationException.class,
+            () -> openHouseInternalTableOperations.doCommit(BASE_TABLE_METADATA, metadata),
+            maxRefAgeMs);
+      }
+    }
+    Mockito.verify(mockHouseTableRepository, Mockito.never()).save(Mockito.any());
+  }
+
+  /** A rejected commit leaves its base usable: the corrected commit on the same base lands. */
+  @Test
+  void testDoCommitAfterRejectedMaxRefAgeSucceedsOnSameBase() {
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    properties.put(CatalogConstants.COMMIT_KEY, "/base/" + UUID.randomUUID() + ".metadata.json");
+    TableMetadata writerMetadata = BASE_TABLE_METADATA.replaceProperties(properties);
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      Assertions.assertThrows(
+          UnsupportedClientOperationException.class,
+          () ->
+              openHouseInternalTableOperations.doCommit(
+                  BASE_TABLE_METADATA,
+                  withMaxRefAge(writerMetadata, String.valueOf(TimeUnit.DAYS.toMillis(14)))));
+    }
+    Assertions.assertEquals(
+        "1", committedMaxRefAge(BASE_TABLE_METADATA, withMaxRefAge(writerMetadata, "1")));
+  }
+
+  /**
+   * An out-of-bound value the table already held is brought into bound by an unrelated commit
+   * instead of failing it.
+   */
+  @Test
+  void testDoCommitBoundsCommittedMaxRefAgeOutsideLimit() {
+    TableMetadata base =
+        withMaxRefAge(BASE_TABLE_METADATA, String.valueOf(TimeUnit.DAYS.toMillis(30)));
+    Map<String, String> properties = new HashMap<>(base.properties());
+    properties.put("random", "value");
+    Assertions.assertEquals(
+        SEVEN_DAYS_MS, committedMaxRefAge(base, base.replaceProperties(properties)));
+  }
+
+  private static TableMetadata withMaxRefAge(TableMetadata metadata, String maxRefAgeMs) {
+    Map<String, String> properties = new HashMap<>(metadata.properties());
+    properties.put(TableProperties.MAX_REF_AGE_MS, maxRefAgeMs);
+    return metadata.replaceProperties(properties);
+  }
+
+  /** Commits {@code metadata} over {@code base} and returns the persisted max-ref-age. */
+  private String committedMaxRefAge(TableMetadata base, TableMetadata metadata) {
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      openHouseInternalTableOperations.doCommit(base, metadata);
+    }
+    Mockito.verify(mockHouseTableMapper, Mockito.atLeastOnce())
+        .toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
+    return tblMetadataCaptor.getValue().properties().get(TableProperties.MAX_REF_AGE_MS);
   }
 
   /**
@@ -2100,11 +2291,11 @@ public class OpenHouseInternalTableOperationsTest {
   /**
    * Simulates the real-world bug where a table's metadata file references a schema ID that doesn't
    * exist in the schemas list. Iceberg's TableMetadataParser throws IllegalArgumentException:
-   * "Cannot find schema with current-schema-id=6 from schemas". Verifies that this is wrapped as
-   * InvalidTableMetadataException.
+   * "Cannot find schema with current-schema-id=6 from schemas". Verifies that this malformed
+   * metadata preserves the parser's original IllegalArgumentException.
    */
   @Test
-  void testRefreshMetadataCorruptSchemaIdThrowsInvalidTableMetadataException() throws IOException {
+  void testRefreshMetadataCorruptSchemaIdPreservesOriginalException() throws IOException {
     // Write a valid metadata file from BASE_TABLE_METADATA, then corrupt the current-schema-id
     java.nio.file.Path tempDir = Files.createTempDirectory("corrupt-metadata-test");
     java.nio.file.Path metadataFile = tempDir.resolve("00001-abc.metadata.json");
@@ -2115,17 +2306,151 @@ public class OpenHouseInternalTableOperationsTest {
     Files.write(metadataFile, corruptJson.getBytes());
 
     Assertions.assertThrows(
-        InvalidTableMetadataException.class,
+        IllegalArgumentException.class,
         () -> openHouseInternalTableOperations.refreshMetadata(metadataFile.toString()));
   }
 
-  /** Verifies that a missing metadata file is surfaced as InvalidTableMetadataException. */
+  /**
+   * Verifies that a metadata pointer to a badly-named / non-loadable metadata file is surfaced as
+   * the original IllegalArgumentException.
+   */
   @Test
-  void testRefreshMetadataMissingFileThrowsInvalidTableMetadataException() {
+  void testRefreshMetadataInvalidFileNamePreservesOriginalException() {
     String nonExistentPath = "/tmp/non-existent-" + UUID.randomUUID() + "/metadata.json";
 
     Assertions.assertThrows(
-        InvalidTableMetadataException.class,
+        IllegalArgumentException.class,
         () -> openHouseInternalTableOperations.refreshMetadata(nonExistentPath));
+  }
+
+  // classification of metadata-refresh failures into accurate exceptions/HTTP statuses.
+
+  @Test
+  void testClassifyIcebergServiceUnavailableReturns503() {
+    Throwable e =
+        new org.apache.iceberg.exceptions.ServiceUnavailableException(
+            new IOException("boom"), "storage unavailable");
+    Assertions.assertInstanceOf(
+        StorageDependencyUnavailableException.class,
+        openHouseInternalTableOperations.classifyMetadataRefreshFailure(e));
+  }
+
+  @Test
+  void testClassifyRetriableRuntimeIOReturns503() {
+    Throwable e =
+        new org.apache.iceberg.exceptions.RuntimeIOException(
+            new java.net.SocketTimeoutException("Read timed out"), "Failed to read metadata");
+    Assertions.assertInstanceOf(
+        StorageDependencyUnavailableException.class,
+        openHouseInternalTableOperations.classifyMetadataRefreshFailure(e));
+  }
+
+  @Test
+  void testClassifyStandbyNameNodeReturns503() {
+    // NameNode standby surfaces as a message on a (wrapped) IOException.
+    Throwable e =
+        new java.io.UncheckedIOException(
+            new IOException("Operation category READ is not supported in state standby"));
+    Assertions.assertInstanceOf(
+        StorageDependencyUnavailableException.class,
+        openHouseInternalTableOperations.classifyMetadataRefreshFailure(e));
+  }
+
+  @Test
+  void testClassifyMissingFilePreservesOriginalException() {
+    Throwable e =
+        new org.apache.iceberg.exceptions.NotFoundException(
+            new java.io.FileNotFoundException(
+                "File does not exist: /data/openhouse/x.metadata.json"),
+            "Failed to open input stream for file");
+    Assertions.assertSame(
+        e,
+        Assertions.assertThrows(
+            org.apache.iceberg.exceptions.NotFoundException.class,
+            () -> openHouseInternalTableOperations.classifyMetadataRefreshFailure(e)));
+  }
+
+  @Test
+  void testClassifyValidationPreservesOriginalException() {
+    Throwable e =
+        new org.apache.iceberg.exceptions.ValidationException(
+            "Invalid update timestamp 1701212674865: before last snapshot log entry at 1722214349871");
+    Assertions.assertSame(
+        e,
+        Assertions.assertThrows(
+            org.apache.iceberg.exceptions.ValidationException.class,
+            () -> openHouseInternalTableOperations.classifyMetadataRefreshFailure(e)));
+  }
+
+  @Test
+  void testClassifyMalformedMetadataPreservesOriginalException() {
+    Throwable e =
+        new IllegalArgumentException("Cannot find schema with current-schema-id=6 from schemas");
+    Assertions.assertSame(
+        e,
+        Assertions.assertThrows(
+            IllegalArgumentException.class,
+            () -> openHouseInternalTableOperations.classifyMetadataRefreshFailure(e)));
+  }
+
+  @Test
+  void testClassifyCorruptionPreservesCauseAndReason() {
+    Throwable cause =
+        new IllegalStateException("Inconsistent metadata UUID", new RuntimeException("cause"));
+    Assertions.assertSame(
+        cause,
+        Assertions.assertThrows(
+            IllegalStateException.class,
+            () -> openHouseInternalTableOperations.classifyMetadataRefreshFailure(cause)));
+  }
+
+  @Test
+  void testClassifyCheckedMissingFilePreservesOriginalException() {
+    Throwable failure = new java.io.FileNotFoundException("Missing metadata");
+    Assertions.assertSame(
+        failure,
+        Assertions.assertThrows(
+            java.io.FileNotFoundException.class,
+            () -> openHouseInternalTableOperations.classifyMetadataRefreshFailure(failure)));
+  }
+
+  @Test
+  void testClassifyMetadataFailureMarksOnlyOriginalExceptionInRequest() {
+    org.springframework.web.context.request.ServletRequestAttributes attributes =
+        new org.springframework.web.context.request.ServletRequestAttributes(
+            new org.springframework.mock.web.MockHttpServletRequest());
+    org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(attributes);
+    try {
+      IllegalArgumentException failure = new IllegalArgumentException("Invalid stored schema");
+      Assertions.assertSame(
+          failure,
+          Assertions.assertThrows(
+              IllegalArgumentException.class,
+              () -> openHouseInternalTableOperations.classifyMetadataRefreshFailure(failure)));
+      Assertions.assertTrue(
+          com.linkedin.openhouse.common.exception.MetadataRefreshFailureContext.matches(failure));
+      Assertions.assertFalse(
+          com.linkedin.openhouse.common.exception.MetadataRefreshFailureContext.matches(
+              new IllegalArgumentException("Invalid caller input")));
+    } finally {
+      org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+      attributes.requestCompleted();
+    }
+    Assertions.assertFalse(
+        com.linkedin.openhouse.common.exception.MetadataRefreshFailureContext.matches(
+            new IllegalArgumentException("Different request")));
+  }
+
+  @Test
+  void testClassifyUnknownFailureReturns500InvalidTableMetadata() {
+    // A failure whose type matches no known category (not I/O, NotFound, Validation,
+    // IllegalArgument
+    // or IllegalState) is kept as InvalidTableMetadataException (500) — an OpenHouse implementation
+    // defect — and must NOT be reported as 422/503.
+    RuntimeException classified =
+        openHouseInternalTableOperations.classifyMetadataRefreshFailure(
+            new NullPointerException("totally unexpected"));
+    Assertions.assertInstanceOf(InvalidTableMetadataException.class, classified);
+    Assertions.assertFalse(classified instanceof StorageDependencyUnavailableException);
   }
 }
