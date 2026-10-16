@@ -112,6 +112,24 @@ public class SetRetentionTimeZoneStatementTest extends OpenHouseSparkITest {
     }
   }
 
+  @Test
+  public void testSetRetentionRejectsZoneEncodingPatternBeforeTableLookup() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      AnalysisException thrown =
+          Assertions.assertThrows(
+              AnalysisException.class,
+              () ->
+                  spark.sql(
+                      "ALTER TABLE openhouse."
+                          + DATABASE
+                          + ".missing_frontend_validation"
+                          + " SET POLICY (RETENTION=30d WITH TIMEZONE 'America/Los_Angeles'"
+                          + " ON COLUMN name WHERE PATTERN='yyyy-MM-dd-X')"));
+      Assertions.assertTrue(
+          thrown.getMessage().contains("already encodes a time zone"), thrown.getMessage());
+    }
+  }
+
   @ParameterizedTest
   @CsvSource(
       value = {"invalid,Not/AZone", "empty,''", "blank,' '"},
