@@ -4,18 +4,19 @@ import com.linkedin.openhouse.client.ssl.WebClientFactory;
 import java.util.ArrayList;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.util.PropertyUtil;
 import org.springframework.http.HttpHeaders;
 
 /**
- * Request headers configured as {@code header.<name>=<value>} catalog properties, the convention of
- * Iceberg's REST catalog: it sends each such property as a {@code <name>: <value>} header on every
- * request. In Spark, that is {@code spark.sql.catalog.<catalog>.header.<name>=<value>}. They let a
- * caller send headers the server defines without a new client release.
+ * Reads request headers from {@code header.<name>=<value>} catalog properties. Iceberg's REST
+ * catalog defines this convention and sends each such property as a {@code <name>: <value>} header
+ * on every request. In Spark, set {@code spark.sql.catalog.<catalog>.header.<name>=<value>}. A
+ * caller can then send a header the server defines without a new client release.
  *
- * <p>Iceberg implements this only in its REST catalog; {@code OpenHouseCatalog} has its own API
- * client, so it adds the headers to that client. Other catalogs in the same JVM do not send them.
+ * <p>Iceberg implements this only in its REST catalog. {@code OpenHouseCatalog} has its own API
+ * client, so it adds the headers to that client; other catalogs in the same JVM do not send them.
  */
 @Slf4j
 final class CatalogRequestHeaders {
@@ -27,7 +28,8 @@ final class CatalogRequestHeaders {
           HttpHeaders.AUTHORIZATION, OpenHouseCatalog.AUTH_TOKEN,
           HttpHeaders.USER_AGENT, OpenHouseCatalog.CLIENT_VERSION,
           WebClientFactory.HTTP_HEADER_CLIENT_NAME, OpenHouseCatalog.CLIENT_NAME,
-          WebClientFactory.HTTP_HEADER_ACTION_TYPE, OpenHouseCatalog.ACTION_TYPE);
+          WebClientFactory.HTTP_HEADER_ACTION_TYPE, OpenHouseCatalog.ACTION_TYPE,
+          WebClientFactory.HTTP_HEADER_SESSION_ID, CatalogProperties.APP_ID);
 
   private CatalogRequestHeaders() {}
 
