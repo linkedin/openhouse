@@ -30,6 +30,8 @@ public class ColumnDefaultCommitPolicyTest {
           Types.NestedField.required(1, "id", Types.LongType.get()),
           Types.NestedField.optional(2, "country", Types.StringType.get()));
 
+  private static final CatalogRequestContext NO_BYPASS = new CatalogRequestContext() {};
+
   private static final CatalogRequestContext BYPASS =
       new CatalogRequestContext() {
         @Override
@@ -44,9 +46,7 @@ public class ColumnDefaultCommitPolicyTest {
     CommitRejectedException rejected =
         Assertions.assertThrows(
             CommitRejectedException.class,
-            () ->
-                policy(CatalogRequestContext.NONE)
-                    .check(commit(table(committed), optIn(proposed))));
+            () -> policy(NO_BYPASS).check(commit(table(committed), optIn(proposed))));
     UnsupportedClientOperationException error =
         Assertions.assertInstanceOf(UnsupportedClientOperationException.class, rejected.getCause());
     Assertions.assertTrue(error.getMessage().contains(ENABLED));
@@ -66,7 +66,7 @@ public class ColumnDefaultCommitPolicyTest {
   @MethodSource("changesToCommittedFalseOrInvalid")
   void optInFalseOrInvalidCanBeChangedOrRemoved(String committed, String proposed) {
     Assertions.assertDoesNotThrow(
-        () -> policy(CatalogRequestContext.NONE).check(commit(table(committed), optIn(proposed))));
+        () -> policy(NO_BYPASS).check(commit(table(committed), optIn(proposed))));
   }
 
   static Stream<Arguments> changesToCommittedFalseOrInvalid() {
@@ -81,8 +81,7 @@ public class ColumnDefaultCommitPolicyTest {
   @ParameterizedTest
   @MethodSource("firstAssignmentsAndUnchangedValues")
   void optInAllowsFirstAssignmentAndUnchangedValues(TableMetadata base, String proposed) {
-    Assertions.assertDoesNotThrow(
-        () -> policy(CatalogRequestContext.NONE).check(commit(base, optIn(proposed))));
+    Assertions.assertDoesNotThrow(() -> policy(NO_BYPASS).check(commit(base, optIn(proposed))));
   }
 
   static Stream<Arguments> firstAssignmentsAndUnchangedValues() {
