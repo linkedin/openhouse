@@ -1,19 +1,23 @@
 package com.linkedin.openhouse.tables.services;
 
 import static com.linkedin.openhouse.internal.catalog.CatalogConstants.ENTITY_TYPE_VIEW;
+import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.getCanonicalFieldName;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
+import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
 import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
 import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
+import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import com.linkedin.openhouse.internal.catalog.view.ViewCommitEngine;
+import com.linkedin.openhouse.internal.catalog.view.ViewMetadataCodec;
 import com.linkedin.openhouse.internal.catalog.view.ViewNameOccupiedException;
 import com.linkedin.openhouse.internal.catalog.view.ViewSourceDialectMismatchException;
 import com.linkedin.openhouse.internal.catalog.view.model.SqlViewRepresentationIntent;
@@ -33,6 +37,7 @@ import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -44,6 +49,7 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
+import org.apache.iceberg.io.FileIO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.data.domain.Page;
@@ -59,7 +65,8 @@ import org.springframework.stereotype.Component;
  * snapshots, partition specs, sort orders, or retention semantics. Per-intent order:
  *
  * <pre>
- * GET / LIST: gate -> database existence -> read (no authorization)
+ * GET:  gate -> database existence -> HTS read -> metadata read (no authorization)
+ * LIST: gate -> database existence -> HTS read (no authorization)
  *
  * POST / PUT: gate -> database existence -> prepared capture -> authorization
  *             -> resource type / base-version -> admission -> allocate (create only)
@@ -89,6 +96,12 @@ public class ViewsServiceImpl implements ViewsService {
   @Autowired private ViewCommitEngine viewCommitEngine;
 
   @Autowired private StorageSelector storageSelector;
+
+  @Autowired private FileIOManager fileIOManager;
+
+  @Autowired private ViewMetadataCodec viewMetadataCodec;
+
+  @Autowired private StorageType storageType;
 
   @Autowired private StorageManager storageManager;
 
@@ -193,15 +206,7 @@ public class ViewsServiceImpl implements ViewsService {
       admissionService.admit(requestBody);
 
       result = commitView(requestBody, prepared, actingPrincipal, !viewAlreadyExists);
-      // A replace keeps the captured row's creator, read only after the engine has committed.
-      dto =
-          toCommittedDto(
-              databaseId,
-              viewId,
-              viewAlreadyExists
-                  ? prepared.getViewBaseRow().get().getTableCreator()
-                  : actingPrincipal,
-              result);
+      dto = toCommittedDto(databaseId, viewId, result);
     } catch (RuntimeException e) {
       throw handleWriteFailure(e, prepared, databaseId, viewId, actingPrincipal, sourceDialect);
     }
@@ -460,36 +465,45 @@ public class ViewsServiceImpl implements ViewsService {
     return Namespace.of(defaultNamespace.toArray(new String[0]));
   }
 
-  private static ViewDto toCommittedDto(
-      String databaseId, String viewId, String creator, ViewCommitResult result) {
+  private static ViewDto toCommittedDto(String databaseId, String viewId, ViewCommitResult result) {
     ViewPointer pointer = result.getPointer();
     return ViewDto.builder()
         .databaseId(databaseId)
         .viewId(viewId)
         .metadataLocation(pointer.getMetadataLocation())
         .viewVersion(pointer.getMetadataLocation())
-        .viewCreator(creator)
+        .viewCreator(result.getViewCreator())
         .creationTime(pointer.getCreationTime())
         .lastModifiedTime(result.getLastModifiedTime())
         .build();
   }
 
-  private static ViewDto toPointerDto(HouseTable row) {
+  /** HTS stores only the pointer; creator and modification time live in the view metadata. */
+  private ViewDto toPointerDto(HouseTable row) {
+    FileIO fileIO = fileIOManager.getFileIO(storageType.fromString(row.getStorageType()));
+    Map<String, String> properties =
+        viewMetadataCodec.read(fileIO.newInputFile(row.getTableLocation())).properties();
+    String creator = properties.get(getCanonicalFieldName("tableCreator"));
+    if (StringUtils.isBlank(creator)) {
+      throw new IllegalStateException(
+          "Corrupt view metadata for " + row.getDatabaseId() + "." + row.getTableId());
+    }
+    String lastModifiedTime = properties.get(getCanonicalFieldName("lastModifiedTime"));
     return ViewDto.builder()
         .viewId(row.getTableId())
         .databaseId(row.getDatabaseId())
         .metadataLocation(row.getTableLocation())
         .viewVersion(row.getTableLocation())
-        .viewCreator(row.getTableCreator())
+        .viewCreator(creator)
         .creationTime(row.getCreationTime())
-        .lastModifiedTime(row.getLastModifiedTime())
+        .lastModifiedTime(lastModifiedTime == null ? 0L : Long.parseLong(lastModifiedTime))
         .build();
   }
 
   /**
    * A valid persisted VIEW row always carries both facts; requiring both is this completeness
    * invariant, not an optional new field. Corrupt persisted metadata is a sanitized server fault,
-   * never reinterpreted as absence; this loads no view metadata, only the already-fetched HTS row.
+   * never reinterpreted as absence. Checked on the HTS row before any metadata is read.
    */
   private static void requireCompletePersistedPointer(HouseTable row) {
     if (StringUtils.isBlank(row.getTableLocation()) || StringUtils.isBlank(row.getStorageType())) {

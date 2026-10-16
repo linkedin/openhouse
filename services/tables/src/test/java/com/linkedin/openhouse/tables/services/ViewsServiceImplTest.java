@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.clearInvocations;
@@ -29,6 +30,7 @@ import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
+import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
@@ -37,6 +39,7 @@ import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNo
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import com.linkedin.openhouse.internal.catalog.view.ViewCommitEngine;
+import com.linkedin.openhouse.internal.catalog.view.ViewMetadataCodec;
 import com.linkedin.openhouse.internal.catalog.view.ViewSourceDialectMismatchException;
 import com.linkedin.openhouse.internal.catalog.view.model.SqlViewRepresentationIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
@@ -65,6 +68,10 @@ import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.view.ViewMetadata;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -102,6 +109,10 @@ public class ViewsServiceImplTest {
   private DatabasesService databasesService;
   private HouseTableRepository houseTableRepository;
   private ViewCommitEngine viewCommitEngine;
+  private FileIOManager fileIOManager;
+  private ViewMetadataCodec viewMetadataCodec;
+  private InputFile capturedMetadataFile;
+  private ViewMetadata storedMetadata;
   private StorageSelector storageSelector;
   private Storage selectedStorage;
   private StorageManager storageManager;
@@ -119,6 +130,23 @@ public class ViewsServiceImplTest {
     databasesService = mock(DatabasesService.class);
     houseTableRepository = mock(HouseTableRepository.class);
     viewCommitEngine = mock(ViewCommitEngine.class);
+    fileIOManager = mock(FileIOManager.class);
+    FileIO fileIO = mock(FileIO.class);
+    when(fileIOManager.getFileIO(any())).thenReturn(fileIO);
+    capturedMetadataFile = mock(InputFile.class);
+    when(fileIO.newInputFile(anyString()))
+        .thenThrow(new AssertionError("GET reads only the captured pointer"));
+    doReturn(capturedMetadataFile).when(fileIO).newInputFile(CAPTURED_POINTER);
+    storedMetadata = mock(ViewMetadata.class);
+    when(storedMetadata.properties())
+        .thenReturn(
+            ImmutableMap.of(
+                "openhouse.tableCreator",
+                ViewModelConstants.VIEW_CREATOR,
+                "openhouse.lastModifiedTime",
+                String.valueOf(ViewModelConstants.LAST_MODIFIED_TIME)));
+    viewMetadataCodec = mock(ViewMetadataCodec.class);
+    when(viewMetadataCodec.read(capturedMetadataFile)).thenReturn(storedMetadata);
     storageSelector = mock(StorageSelector.class);
     selectedStorage = mock(Storage.class);
     storageManager = mock(StorageManager.class);
@@ -145,6 +173,9 @@ public class ViewsServiceImplTest {
     ReflectionTestUtils.setField(service, null, viewCommitEngine, ViewCommitEngine.class);
     ReflectionTestUtils.setField(service, null, storageSelector, StorageSelector.class);
     ReflectionTestUtils.setField(service, null, storageManager, StorageManager.class);
+    ReflectionTestUtils.setField(service, null, fileIOManager, FileIOManager.class);
+    ReflectionTestUtils.setField(service, null, viewMetadataCodec, ViewMetadataCodec.class);
+    ReflectionTestUtils.setField(service, null, new StorageType(), StorageType.class);
   }
 
   @Test
@@ -239,9 +270,12 @@ public class ViewsServiceImplTest {
     verifyNoInteractions(authorizationHandler);
   }
 
-  /** GET is served from the one typed House Table row, pointer fields only, no metadata read. */
+  /**
+   * GET maps the pointer from the one typed House Table row and reads creator and modification time
+   * from the metadata file it points to: HTS persists neither field.
+   */
   @Test
-  public void getViewUsesOneTypedLookupAndMapsOnlyThePersistedPointerRow() {
+  public void getViewMapsThePointerRowAndReadsCreatorAndModifiedTimeFromItsMetadata() {
     existingEnabledDatabase();
     captureForDelete(Optional.of(capturedViewRow()));
 
@@ -263,7 +297,36 @@ public class ViewsServiceImplTest {
         result);
     verify(houseTableRepository, times(1)).findViewById(viewKey());
     verifyNoMoreInteractions(houseTableRepository);
+    verify(viewMetadataCodec, times(1)).read(capturedMetadataFile);
+    verifyNoMoreInteractions(viewMetadataCodec);
     verifyNoInteractions(viewCommitEngine, storageSelector, storageManager);
+  }
+
+  @Test
+  public void getViewWithUnreadableOrCreatorlessMetadataIsAnInternalErrorWithCause() {
+    existingEnabledDatabase();
+    captureForDelete(Optional.of(capturedViewRow()));
+    when(storedMetadata.properties()).thenReturn(ImmutableMap.of());
+
+    ViewApiException missingCreator =
+        assertThrows(
+            ViewApiException.class,
+            () ->
+                service.getView(
+                    ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL));
+    assertEquals(ViewErrorCode.INTERNAL_VIEW_ERROR, missingCreator.getErrorCode());
+    assertTrue(missingCreator.getCause() instanceof IllegalStateException);
+
+    RuntimeException unreadable = new RuntimeException("metadata file missing");
+    when(viewMetadataCodec.read(capturedMetadataFile)).thenThrow(unreadable);
+    ViewApiException readFailure =
+        assertThrows(
+            ViewApiException.class,
+            () ->
+                service.getView(
+                    ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL));
+    assertEquals(ViewErrorCode.INTERNAL_VIEW_ERROR, readFailure.getErrorCode());
+    assertSame(unreadable, readFailure.getCause());
   }
 
   @Test
@@ -487,7 +550,7 @@ public class ViewsServiceImplTest {
 
   /**
    * Replace commits the exact captured row as its CAS token, once, with no House Table refresh and
-   * no storage selection, allocation, or new UUID. Its creator is the captured row's.
+   * no storage selection, allocation, or new UUID. Its creator is the one the engine kept.
    */
   @Test
   public void replaceCommitsTheExactCapturedRowOnceWithoutRefreshOrAllocation() {
@@ -532,14 +595,13 @@ public class ViewsServiceImplTest {
 
   /**
    * The managed captured row may be updated in place by the CAS publish. The old pointer is a
-   * capture-time snapshot, while the response creator is read from the same captured row only after
-   * the engine returns; there is no second read and no separate replacement copy.
+   * capture-time snapshot. The response creator is the engine's: an HTS row carries no creator, so
+   * it must never come from the captured row. There is no second read and no replacement copy.
    */
   @Test
-  public void replaceReadsCreatorAfterCommitWhileAuditKeepsTheCapturedOldPointer() {
+  public void replaceTakesCreatorFromTheEngineWhileAuditKeepsTheCapturedOldPointer() {
     existingEnabledDatabase();
     AtomicReference<String> location = new AtomicReference<>(CAPTURED_POINTER);
-    AtomicReference<String> creator = new AtomicReference<>(ViewModelConstants.VIEW_CREATOR);
     HouseTable managed = mock(HouseTable.class);
     when(managed.getEntityType()).thenReturn("VIEW");
     when(managed.getDatabaseId()).thenReturn(ViewModelConstants.DATABASE_ID);
@@ -547,7 +609,7 @@ public class ViewsServiceImplTest {
     when(managed.getTableUUID()).thenReturn(CAPTURED_VIEW_UUID);
     when(managed.getStorageType()).thenReturn("local");
     when(managed.getTableLocation()).thenAnswer(invocation -> location.get());
-    when(managed.getTableCreator()).thenAnswer(invocation -> creator.get());
+    when(managed.getTableCreator()).thenReturn(null);
     captureForWrite(Optional.of(managed));
     when(privilegeMapper.forPut(true)).thenReturn(Privileges.UPDATE_TABLE_METADATA);
     when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
@@ -555,14 +617,16 @@ public class ViewsServiceImplTest {
             invocation -> {
               assertSame(managed, invocation.<ViewCommitIntent>getArgument(0).getBaseRow());
               location.set(COMMITTED_POINTER);
-              creator.set("post-commit-creator");
-              return replacedResult(COMMITTED_POINTER, true);
+              return replacedResult(COMMITTED_POINTER, true)
+                  .toBuilder()
+                  .viewCreator("engine-kept-creator")
+                  .build();
             });
 
     Pair<ViewDto, Boolean> result =
         service.putView(ViewModelConstants.fullyPopulatedRequest(), ACTING_PRINCIPAL, false);
 
-    assertEquals("post-commit-creator", result.getFirst().getViewCreator());
+    assertEquals("engine-kept-creator", result.getFirst().getViewCreator());
     ArgumentCaptor<PreparedViewOperation> audited =
         ArgumentCaptor.forClass(PreparedViewOperation.class);
     ArgumentCaptor<ViewDto> auditedDto = ArgumentCaptor.forClass(ViewDto.class);
@@ -575,7 +639,7 @@ public class ViewsServiceImplTest {
             eq(ViewModelConstants.SOURCE_DIALECT));
     assertEquals(CAPTURED_POINTER, audited.getValue().getCapturedTableLocation());
     assertSame(managed, audited.getValue().getViewBaseRow().get());
-    assertEquals("post-commit-creator", auditedDto.getValue().getViewCreator());
+    assertEquals("engine-kept-creator", auditedDto.getValue().getViewCreator());
     assertEquals(COMMITTED_POINTER, auditedDto.getValue().getMetadataLocation());
     verify(houseTableRepository, times(1)).findEntityById(viewKey());
     verifyNoMoreInteractions(houseTableRepository);
@@ -1582,6 +1646,7 @@ public class ViewsServiceImplTest {
                 .creationTime(ViewModelConstants.CREATION_TIME)
                 .build())
         .viewUuid(COMMITTED_CREATE_UUID)
+        .viewCreator(ACTING_PRINCIPAL)
         .lastModifiedTime(ViewModelConstants.LAST_MODIFIED_TIME)
         .created(true)
         .metadataChanged(true)
@@ -1599,6 +1664,7 @@ public class ViewsServiceImplTest {
                 .creationTime(ViewModelConstants.CREATION_TIME)
                 .build())
         .viewUuid(CAPTURED_VIEW_UUID)
+        .viewCreator(ViewModelConstants.VIEW_CREATOR)
         .lastModifiedTime(ViewModelConstants.LAST_MODIFIED_TIME)
         .created(false)
         .metadataChanged(metadataChanged)
@@ -1618,16 +1684,17 @@ public class ViewsServiceImplTest {
         .build();
   }
 
-  /** Its creator differs from the acting principal to catch creator substitution. */
+  /**
+   * Mirrors a real HTS row: no creator or modification time, which live only in view metadata. The
+   * stored metadata's creator differs from the acting principal to catch creator substitution.
+   */
   private static HouseTable capturedViewRow() {
     return HouseTable.builder()
         .databaseId(ViewModelConstants.DATABASE_ID)
         .tableId(ViewModelConstants.VIEW_ID)
         .tableUUID(CAPTURED_VIEW_UUID)
         .tableLocation(CAPTURED_POINTER)
-        .tableCreator(ViewModelConstants.VIEW_CREATOR)
         .creationTime(ViewModelConstants.CREATION_TIME)
-        .lastModifiedTime(ViewModelConstants.LAST_MODIFIED_TIME)
         .storageType("local")
         .entityType("VIEW")
         .build();
@@ -1635,7 +1702,12 @@ public class ViewsServiceImplTest {
 
   /** A fully populated row, so the list DTO's unset pointer/creator fields are meaningful. */
   private static HouseTable listedViewRow(String viewId) {
-    return capturedViewRow().toBuilder().tableId(viewId).build();
+    return capturedViewRow()
+        .toBuilder()
+        .tableId(viewId)
+        .tableCreator(ViewModelConstants.VIEW_CREATOR)
+        .lastModifiedTime(ViewModelConstants.LAST_MODIFIED_TIME)
+        .build();
   }
 
   /**
