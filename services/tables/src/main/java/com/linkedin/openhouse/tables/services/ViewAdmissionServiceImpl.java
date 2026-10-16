@@ -14,6 +14,6 @@ public class ViewAdmissionServiceImpl implements ViewAdmissionService {
 
   @Override
   public void admit(CreateUpdateViewRequestBody requestBody) {
-    // Pass-through for M1. Future Spark/Trino validation and Coral generation attach here.
+    // Pass-through.
   }
 }
