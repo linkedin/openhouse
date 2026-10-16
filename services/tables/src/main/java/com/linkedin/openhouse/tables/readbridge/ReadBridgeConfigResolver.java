@@ -21,6 +21,14 @@ public class ReadBridgeConfigResolver {
   /** Capability id; also names {@code <id>.enabled} and the config key prefix below. */
   public static final String COLUMN_DEFAULT_FEATURE_ID = "read-bridge.column-default";
 
+  /**
+   * Table property: {@code true} turns column defaults on for the table and {@code false} turns
+   * them off; without it, the rollout toggle decides. {@link ColumnDefaultCommitPolicy} keeps a
+   * committed {@code true} from being changed or removed unless the request carries the
+   * column-default policy bypass.
+   */
+  public static final String COLUMN_DEFAULT_ENABLED_PROP = COLUMN_DEFAULT_FEATURE_ID + ".enabled";
+
   /** Client contract: {@code openhouse.read-bridge.column-default.<fieldId>}. */
   public static final String COLUMN_DEFAULT_PREFIX = "openhouse." + COLUMN_DEFAULT_FEATURE_ID + ".";
 
@@ -111,7 +119,10 @@ public class ReadBridgeConfigResolver {
 
   /**
    * Uses {@link TableFeatureToggle#isFeatureActivatedWithOverride} so {@code
-   * read-bridge.column-default.enabled} can opt in/out without HTS.
+   * read-bridge.column-default.enabled} can opt in/out without HTS. The table property may be set
+   * at creation or on an existing table. A committed {@code true} is immutable unless the client
+   * sends the column-default policy bypass; {@code false} and an absent property remain changeable,
+   * and absence still follows the ramp.
    */
   private boolean isColumnDefaultRamped(TableDto tableDto) {
     if (columnDefaultsSource == ColumnDefaultsSource.NONE) {
