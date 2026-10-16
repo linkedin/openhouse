@@ -52,13 +52,6 @@ public class ServiceAuditAspect {
   @Autowired(required = false)
   private List<ServiceAuditPayloadRedactor> payloadRedactors = Collections.emptyList();
 
-  /**
-   * URI redactors contributed by the running service, if any. Left empty when the service registers
-   * none, in which case the URI and query string are audited exactly as sent.
-   */
-  @Autowired(required = false)
-  private List<ServiceAuditUriRedactor> uriRedactors = Collections.emptyList();
-
   private static final MetricsReporter METRICS_REPORTER =
       MetricsReporter.of(MetricsConstant.SERVICE_AUDIT);
 
@@ -80,14 +73,10 @@ public class ServiceAuditAspect {
     Object result = null;
     try {
       result = point.proceed();
-      // Safe until the policy is evaluated: a failure before then must not log request details.
-      boolean suppressDetails = true;
       try {
         RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
         if (requestAttributes != null) {
           HttpServletRequest request = ((ServletRequestAttributes) requestAttributes).getRequest();
-          suppressDetails =
-              ServiceAuditDiagnosticPolicy.suppressDiagnosticDetails(payloadRedactors, request);
           ResponseEntity<?> response = (ResponseEntity<?>) result;
           ServiceAuditEvent event =
               buildServiceAuditEvent(
@@ -95,16 +84,11 @@ public class ServiceAuditAspect {
                   Instant.now(),
                   request,
                   response,
-                  false,
-                  suppressDetails);
+                  false);
           serviceAuditHandler.audit(event);
         }
       } catch (Exception e) {
-        if (suppressDetails) {
-          log.error("Exception during auditing successful requests (details omitted)");
-        } else {
-          log.error("Exception during auditing successful requests:\n", e);
-        }
+        log.error("Exception during auditing successful requests:\n", e);
         METRICS_REPORTER.count(MetricsConstant.FAILED_SERVICE_AUDIT);
       }
     } catch (Throwable t) {
@@ -131,14 +115,10 @@ public class ServiceAuditAspect {
     Object result = null;
     try {
       result = point.proceed();
-      // Safe until the policy is evaluated: a failure before then must not log request details.
-      boolean suppressDetails = true;
       try {
         RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
         if (requestAttributes != null) {
           HttpServletRequest request = ((ServletRequestAttributes) requestAttributes).getRequest();
-          suppressDetails =
-              ServiceAuditDiagnosticPolicy.suppressDiagnosticDetails(payloadRedactors, request);
           ResponseEntity<ErrorResponseBody> response = (ResponseEntity<ErrorResponseBody>) result;
           ServiceAuditEvent event =
               buildServiceAuditEvent(
@@ -146,17 +126,12 @@ public class ServiceAuditAspect {
                   Instant.now(),
                   request,
                   response,
-                  true,
-                  suppressDetails);
+                  true);
           serviceAuditHandler.audit(event);
           return buildUpdatedResponseEntity(response);
         }
       } catch (Exception e) {
-        if (suppressDetails) {
-          log.error("Exception during auditing failed requests (details omitted)");
-        } else {
-          log.error("Exception during auditing failed requests:\n", e);
-        }
+        log.error("Exception during auditing failed requests:\n", e);
         METRICS_REPORTER.count(MetricsConstant.FAILED_SERVICE_AUDIT);
       }
     } catch (Throwable t) {
@@ -172,8 +147,7 @@ public class ServiceAuditAspect {
       Instant endTime,
       HttpServletRequest request,
       ResponseEntity<?> response,
-      boolean isFailed,
-      boolean suppressDetails) {
+      boolean isFailed) {
 
     // Get request payload
     JsonElement requestPayload = null;
@@ -188,11 +162,7 @@ public class ServiceAuditAspect {
     } catch (Exception e) {
       // Fail closed. A payload that could not be parsed or could not be redacted is dropped rather
       // than audited raw, so a broken redactor cannot leak the values it was meant to remove.
-      if (suppressDetails) {
-        log.error("Exception during parsing request payload (details omitted)");
-      } else {
-        log.error("Exception during parsing request payload:\n", e);
-      }
+      log.error("Exception during parsing request payload:\n", e);
       METRICS_REPORTER.count(MetricsConstant.FAILED_PARSING_REQUEST_PAYLOAD);
     }
     // Get response error message
@@ -213,7 +183,6 @@ public class ServiceAuditAspect {
         request.getQueryString() == null
             ? request.getRequestURI()
             : request.getRequestURI() + "?" + request.getQueryString();
-    uriAndQueryString = redactUri(request, uriAndQueryString);
     // Build ServiceAuditEvent
     return ServiceAuditEvent.builder()
         .startTimestamp(startTime)
@@ -245,24 +214,6 @@ public class ServiceAuditAspect {
     }
     JsonElement redacted = requestPayload;
     for (ServiceAuditPayloadRedactor redactor : payloadRedactors) {
-      if (redactor.appliesTo(request)) {
-        redacted = redactor.redact(redacted);
-      }
-    }
-    return redacted;
-  }
-
-  /**
-   * Apply every registered URI redactor that claims this request. With no redactor registered — the
-   * case for every service that has not contributed one — the URI and query string are returned
-   * unchanged, so existing audit URIs are byte-identical.
-   */
-  private String redactUri(HttpServletRequest request, String uriAndQueryString) {
-    if (uriAndQueryString == null || uriRedactors == null) {
-      return uriAndQueryString;
-    }
-    String redacted = uriAndQueryString;
-    for (ServiceAuditUriRedactor redactor : uriRedactors) {
       if (redactor.appliesTo(request)) {
         redacted = redactor.redact(redacted);
       }
