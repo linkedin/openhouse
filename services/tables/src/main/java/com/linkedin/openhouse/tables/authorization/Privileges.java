@@ -17,11 +17,7 @@ public enum Privileges {
   SYSTEM_ADMIN(Privilege.SYSTEM_ADMIN),
   LOCK_ADMIN(Privilege.LOCK_ADMIN),
   SELECT(Privilege.SELECT),
-  CREATE_VIEW(Privilege.CREATE_VIEW),
-  LIST_VIEW(Privilege.LIST_VIEW),
-  UPDATE_VIEW_METADATA(Privilege.UPDATE_VIEW_METADATA),
-  DELETE_VIEW(Privilege.DELETE_VIEW),
-  AUTHENTICATED(Privilege.AUTHENTICATED);
+  AUTHENTICATED_VIEWS_OPS(Privilege.AUTHENTICATED_VIEWS_OPS);
 
   private String privilege;
 
@@ -50,26 +46,13 @@ public enum Privileges {
     public static final String SELECT = "SELECT";
 
     /**
-     * View privileges. Reads of a single view reuse {@link #SELECT}; the remaining view operations
-     * get their own constants so a later authorization implementation can grant them independently
-     * of the table privileges.
-     */
-    public static final String CREATE_VIEW = "CREATE_VIEW";
-
-    public static final String LIST_VIEW = "LIST_VIEW";
-
-    public static final String UPDATE_VIEW_METADATA = "UPDATE_VIEW_METADATA";
-
-    public static final String DELETE_VIEW = "DELETE_VIEW";
-
-    /**
      * Authentication-only route guard for the /v1 views routes (reads are allow-all under the
      * resolved authorization model; writes are authorized in {@code ViewsServiceImpl} against the
      * database-level table privileges, not this sentinel). It names no resource privilege, so
      * {@link com.linkedin.openhouse.tables.authorization.AuthorizationInterceptor} only requires
      * authentication for it.
      */
-    public static final String AUTHENTICATED = "AUTHENTICATED";
+    public static final String AUTHENTICATED_VIEWS_OPS = "AUTHENTICATED_VIEWS_OPS";
 
     private static final Set<String> SUPPORTED_PRIVILEGES =
         Stream.of(Privileges.values()).map(Privileges::getPrivilege).collect(Collectors.toSet());
