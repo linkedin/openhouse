@@ -54,11 +54,6 @@ public class ReadBridgeStripProtection {
 
   private final CatalogRequestContext requestContext;
 
-  /** Outside a request: the column-default policy bypass is never set. */
-  public ReadBridgeStripProtection(ReadBridgeConfigResolver resolver) {
-    this(resolver, new CatalogRequestContext() {});
-  }
-
   public ReadBridgeStripProtection(
       ReadBridgeConfigResolver resolver, CatalogRequestContext requestContext) {
     this.resolver = Objects.requireNonNull(resolver, "resolver");

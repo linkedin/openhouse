@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.mock;
 
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
+import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
@@ -62,8 +63,8 @@ public class MockTablesApplication {
    * not loaded. Wire a no-op strip guard rather than component-scanning {@code tables.readbridge}.
    */
   @Bean
-  public ReadBridgeStripProtection readBridgeStripProtection() {
+  public ReadBridgeStripProtection readBridgeStripProtection(CatalogRequestContext requestContext) {
     return new ReadBridgeStripProtection(
-        new ReadBridgeConfigResolver(tableDto -> Collections.emptyMap()));
+        new ReadBridgeConfigResolver(tableDto -> Collections.emptyMap()), requestContext);
   }
 }
