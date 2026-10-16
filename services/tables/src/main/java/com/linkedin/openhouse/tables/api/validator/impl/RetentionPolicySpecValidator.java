@@ -5,13 +5,17 @@ import static com.linkedin.openhouse.common.schema.IcebergSchemaHelper.*;
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.common.DefaultColumnPattern;
+import java.time.DateTimeException;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.Optional;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.iceberg.types.Types;
 import org.springframework.stereotype.Component;
 
 /**
@@ -116,6 +120,34 @@ public class RetentionPolicySpecValidator extends PolicySpecValidator {
                   "For non timestamp-partitioned table %s, column pattern in retention policy is mandatory",
                   tableUri)));
     }
+    if (!validateTimeZoneIfPresent(retention)) {
+      return Optional.of(
+          new Violation(
+              "retention",
+              String.format(
+                  "Provided retention time zone[%s] is not a valid IANA zone id or fixed offset for the table[%s]",
+                  retention.getTimeZone(), tableUri)));
+    }
+    if (!validateTimeZoneScope(retention)) {
+      return Optional.of(
+          new Violation(
+              "retention",
+              String.format(
+                  "Retention time zone[%s] requires a string column pattern with no zone field for table[%s]",
+                  retention.getTimeZone(), tableUri)));
+    }
+    if (Optional.ofNullable(retention.getTimeZone()).isPresent()
+        && !Optional.ofNullable(retention.getColumnPattern())
+            .map(RetentionColumnPattern::getColumnName)
+            .map(columnName -> getSchemaFromSchemaJson(schema).findType(columnName))
+            .filter(Types.StringType.get()::equals)
+            .isPresent()) {
+      return Optional.of(
+          new Violation(
+              "retention",
+              String.format(
+                  "Retention time zone requires a string column for table[%s]", tableUri)));
+    }
 
     return Optional.empty();
   }
@@ -171,5 +203,43 @@ public class RetentionPolicySpecValidator extends PolicySpecValidator {
     }
 
     return true;
+  }
+
+  /** An omitted time zone uses UTC; an explicit value must resolve through {@link ZoneId}. */
+  protected boolean validateTimeZoneIfPresent(Retention retention) {
+    return Optional.ofNullable(retention.getTimeZone())
+        .map(
+            timeZone -> {
+              try {
+                ZoneId.of(timeZone);
+                return true;
+              } catch (DateTimeException dateTimeException) {
+                log.warn("The retention time zone {} cannot be resolved to a valid zone", timeZone);
+                return false;
+              }
+            })
+        .orElse(true);
+  }
+
+  /** A declared time zone supplies the zone omitted from the string's date pattern. */
+  protected boolean validateTimeZoneScope(Retention retention) {
+    if (Optional.ofNullable(retention.getTimeZone()).isEmpty()) {
+      return true;
+    }
+    return Optional.ofNullable(retention.getColumnPattern())
+        .map(RetentionColumnPattern::getPattern)
+        .filter(pattern -> !patternEncodesZone(pattern))
+        .isPresent();
+  }
+
+  // DateTimeFormatter zone and offset pattern letters: V and v zone id and generic name, z zone
+  // name, O localized offset, X x Z numeric offset. A retention time zone plus any of these is two
+  // zones on one policy.
+  private static final String ZONE_PATTERN_LETTERS = "VvzOXxZ";
+
+  /** True when the pattern contains a DateTimeFormatter zone or offset field outside a literal. */
+  protected boolean patternEncodesZone(String pattern) {
+    String withoutLiterals = pattern.replaceAll("'[^']*'", "");
+    return withoutLiterals.chars().anyMatch(c -> ZONE_PATTERN_LETTERS.indexOf(c) >= 0);
   }
 }
