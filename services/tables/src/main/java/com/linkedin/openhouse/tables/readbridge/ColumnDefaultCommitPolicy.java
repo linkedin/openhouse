@@ -3,7 +3,6 @@ package com.linkedin.openhouse.tables.readbridge;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.CommitPolicy;
 import com.linkedin.openhouse.internal.catalog.TableCommit;
-import com.linkedin.openhouse.internal.catalog.exception.CommitRejectedException;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 
@@ -26,11 +25,10 @@ public class ColumnDefaultCommitPolicy implements CommitPolicy {
   }
 
   /**
-   * @throws CommitRejectedException with an {@link UnsupportedClientOperationException} if the
-   *     commit changes or removes a committed opt-in
+   * @throws UnsupportedClientOperationException if the commit changes or removes a committed opt-in
    */
   @Override
-  public void check(TableCommit commit) throws CommitRejectedException {
+  public void check(TableCommit commit) {
     if (requestContext.columnDefaultPolicyBypass()) {
       return;
     }
@@ -43,18 +41,17 @@ public class ColumnDefaultCommitPolicy implements CommitPolicy {
    * remain mutable so a table can still opt in later. Comparing with the commit's base keeps
    * transaction retries from overwriting a value committed concurrently.
    */
-  private static void keepOptIn(TableCommit commit) throws CommitRejectedException {
+  private static void keepOptIn(TableCommit commit) {
     String committed = commit.getBase().map(base -> base.properties().get(ENABLED)).orElse(null);
     if (committed != null
         && "true".equalsIgnoreCase(committed.trim())
         && !committed.equals(commit.getProperties().get(ENABLED))) {
-      throw new CommitRejectedException(
-          new UnsupportedClientOperationException(
-              UnsupportedClientOperationException.Operation.ALTER_RESERVED_TBLPROPS,
-              String.format(
-                  "Table property %s is immutable once set to true on table %s; cannot change or"
-                      + " remove it without the column-default policy override.",
-                  ENABLED, commit.getTableIdentifier())));
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.ALTER_RESERVED_TBLPROPS,
+          String.format(
+              "Table property %s is immutable once set to true on table %s; cannot change or"
+                  + " remove it without the column-default policy override.",
+              ENABLED, commit.getTableIdentifier()));
     }
   }
 }

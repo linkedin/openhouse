@@ -77,16 +77,24 @@ public class ReadBridgeConfigResolver {
     }
   }
 
-  /** Whether read-bridge applies to the table: it opts in. */
-  public boolean isBridged(TableDto tableDto) {
-    Objects.requireNonNull(tableDto, "tableDto");
-    return isColumnDefaultEnabled(tableDto);
+  /**
+   * Whether read-bridge applies to a table with these properties: it carries {@code
+   * read-bridge.column-default.enabled=true}, which may be set at creation or on an existing table.
+   * A committed {@code true} is immutable unless the client sends the column-default policy bypass;
+   * {@code false}, an absent property and any other value mean off.
+   */
+  public boolean isBridged(Map<String, String> tableProperties) {
+    if (tableProperties == null) {
+      return false;
+    }
+    String value = tableProperties.get(COLUMN_DEFAULT_ENABLED_PROP);
+    return value != null && "true".equalsIgnoreCase(value.trim());
   }
 
   private Map<Integer, String> columnDefaultsByFieldId(TableDto tableDto)
       throws ColumnDefaultException {
     Objects.requireNonNull(tableDto, "tableDto");
-    if (!isColumnDefaultEnabled(tableDto)) {
+    if (!isBridged(tableDto.getTableProperties())) {
       return Collections.emptyMap();
     }
     Map<Integer, JsonNode> columnDefaults = columnDefaultsSource.defaults(tableDto);
@@ -101,17 +109,5 @@ public class ReadBridgeConfigResolver {
           }
         });
     return byId;
-  }
-
-  /**
-   * Whether the table carries {@code read-bridge.column-default.enabled=true}, which may be set at
-   * creation or on an existing table. A committed {@code true} is immutable unless the client sends
-   * the column-default policy bypass; {@code false}, an absent property and any other value mean
-   * off.
-   */
-  private boolean isColumnDefaultEnabled(TableDto tableDto) {
-    Map<String, String> properties = tableDto.getTableProperties();
-    String value = properties == null ? null : properties.get(COLUMN_DEFAULT_ENABLED_PROP);
-    return value != null && "true".equalsIgnoreCase(value.trim());
   }
 }

@@ -87,7 +87,7 @@ public class ReadBridgeStripProtection {
   private void rejectRemovedDefaults(
       Map<Integer, String> previousStamped, Map<Integer, String> incomingStamped, TableDto incoming)
       throws ColumnDefaultException {
-    if (previousStamped.isEmpty() || !resolver.isBridged(incoming)) {
+    if (previousStamped.isEmpty() || !resolver.isBridged(incoming.getTableProperties())) {
       return;
     }
     JsonNode schema = tree(incoming.getSchema(), incoming);

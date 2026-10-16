@@ -3,7 +3,6 @@ package com.linkedin.openhouse.tables.readbridge;
 import com.google.common.collect.ImmutableMap;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.TableCommit;
-import com.linkedin.openhouse.internal.catalog.exception.CommitRejectedException;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import java.util.Collections;
 import java.util.Map;
@@ -43,12 +42,10 @@ public class ColumnDefaultCommitPolicyTest {
   @ParameterizedTest
   @MethodSource("changesToCommittedTrue")
   void optInCannotBeChangedOrRemovedOnceTrue(String committed, String proposed) {
-    CommitRejectedException rejected =
-        Assertions.assertThrows(
-            CommitRejectedException.class,
-            () -> policy(NO_BYPASS).check(commit(table(committed), optIn(proposed))));
     UnsupportedClientOperationException error =
-        Assertions.assertInstanceOf(UnsupportedClientOperationException.class, rejected.getCause());
+        Assertions.assertThrows(
+            UnsupportedClientOperationException.class,
+            () -> policy(NO_BYPASS).check(commit(table(committed), optIn(proposed))));
     Assertions.assertTrue(error.getMessage().contains(ENABLED));
     Assertions.assertTrue(error.getMessage().contains("immutable once set to true"));
   }
