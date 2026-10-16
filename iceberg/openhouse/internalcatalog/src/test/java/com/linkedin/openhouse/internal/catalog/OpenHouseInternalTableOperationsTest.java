@@ -12,7 +12,6 @@ import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
-import com.linkedin.openhouse.internal.catalog.exception.CommitRejectedException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -200,14 +199,15 @@ public class OpenHouseInternalTableOperationsTest {
 
   /**
    * A rejection fails the commit with the policy's error, unchanged and before anything is written:
-   * not as a bad request, and not as a commit failure after a commit-status check.
+   * not as a bad request, and not as a commit failure after a commit-status check. It still counts
+   * as a failed commit.
    */
   @Test
   void testCommitPolicyRejectionPassesThroughUnchanged() {
     IllegalArgumentException error = new IllegalArgumentException("policy rejected");
-    openHouseInternalTableOperations.commitPolicy =
+    openHouseInternalTableOperationsWithMockMetrics.commitPolicy =
         commit -> {
-          throw new CommitRejectedException(error);
+          throw error;
         };
 
     try (MockedStatic<TableMetadataParser> metadataFiles = mockStatic(TableMetadataParser.class)) {
@@ -216,11 +216,12 @@ public class OpenHouseInternalTableOperationsTest {
           Assertions.assertThrows(
               IllegalArgumentException.class,
               () ->
-                  openHouseInternalTableOperations.doCommit(
+                  openHouseInternalTableOperationsWithMockMetrics.doCommit(
                       BASE_TABLE_METADATA, BASE_TABLE_METADATA)));
       metadataFiles.verify(() -> TableMetadataParser.write(any(), any()), never());
       verifyNoInteractions(mockHouseTableRepository);
     }
+    verify(mockMetricsReporter).count(InternalCatalogMetricsConstant.COMMIT_FAILED_CTR);
   }
 
   enum CommitKind {
