@@ -576,7 +576,10 @@ public class RepositoryTest {
     Assertions.assertFalse(openHouseInternalRepository.existsById(key));
   }
 
-  /** A commit a table property rule rejects reaches the caller as a client error, unpersisted. */
+  /**
+   * When a table property rule rejects a commit, the caller receives a client error and nothing is
+   * persisted.
+   */
   @Test
   void testTablePropertyRuleRejectionIsClientError() {
     TableDto created =
@@ -600,8 +603,14 @@ public class RepositoryTest {
           Assertions.assertThrows(
               UnsupportedClientOperationException.class,
               () -> openHouseInternalRepository.save(update));
-      Assertions.assertTrue(
-          exception.getMessage().contains("must be a positive number of milliseconds"));
+      Assertions.assertEquals(
+          String.format(
+              "Table property %s on table %s.%s must be a positive number of milliseconds no greater"
+                  + " than 604800000 (7 days).",
+              TableProperties.MAX_REF_AGE_MS, key.getDatabaseId(), key.getTableId()),
+          exception.getMessage());
+      // Without a cause, the error body's cause stays "Not Available", as before this refactor.
+      Assertions.assertNull(exception.getCause());
       Assertions.assertEquals(
           created.getTableProperties().get(TableProperties.MAX_REF_AGE_MS),
           openHouseInternalRepository
