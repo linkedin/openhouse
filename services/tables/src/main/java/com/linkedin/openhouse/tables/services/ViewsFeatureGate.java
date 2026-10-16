@@ -7,22 +7,23 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
- * Database-scoped {@code views.enabled} gate.
+ * Per-database on/off switch for the /v1 views API. Off by default: when a database is not enabled,
+ * every view get, list, put and delete in it fails with {@code VIEWS_DISABLED} (404).
  *
- * <p>Default off: with no matching {@code views} {@link
- * com.linkedin.openhouse.tables.toggle.model.TableToggleRule} the gate reports disabled. Enabling a
- * database is an external administrative rollout prerequisite: an operator provisions the rule
- * directly in the HTS toggle-rule store out of band; there is no supported write API and none is
- * added here.
+ * <p>The switch is a {@code views} feature rule in the House Tables {@code table_toggle_rule} MySQL
+ * table; there is no API to write rules. To enable views for database {@code db1}, insert:
  *
- * <p>Calls only {@link TableFeatureToggle#isFeatureActivated(String, String, String)}, never {@link
- * TableFeatureToggle#isFeatureActivatedWithOverride}, so a user-writable {@code views.enabled}
- * table property can never toggle views on.
+ * <pre>
+ * INSERT INTO table_toggle_rule (feature, database_pattern, table_pattern)
+ * VALUES ('views', 'db1', '*');
+ * </pre>
  *
- * <p>The underlying rule matcher ({@code WildcardTableToggleRuleMatcher}, via {@code
- * AntPathMatcher}) is case-sensitive, while HTS identity is case-insensitive, so the database id is
- * canonicalized with {@link Locale#ROOT} (never the default-locale form) before the probe, and
- * provisioning uses the matching lower-case literal {@code databasePattern}.
+ * <p>{@code database_pattern} is a case-sensitive glob matched against the lower-cased database id,
+ * so write it in lower case; {@code '*'} enables every database. To disable, delete the row. Rules
+ * are read on every request, so changes take effect immediately.
+ *
+ * <p>A {@code views.enabled} table property cannot turn views on: the gate never consults table
+ * property overrides.
  */
 @Component
 public class ViewsFeatureGate {
