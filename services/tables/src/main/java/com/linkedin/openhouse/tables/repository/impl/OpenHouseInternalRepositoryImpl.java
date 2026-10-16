@@ -120,8 +120,9 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       return saveTable(tableDto);
     } catch (TablePropertyRuleException e) {
       // The commit broke a table property rule: the request's fault, like a preserved-key change.
+      // No cause: the error handler sends a cause's message to the client, which got none before.
       throw new UnsupportedClientOperationException(
-          UnsupportedClientOperationException.Operation.ALTER_RESERVED_TBLPROPS, e.getMessage(), e);
+          UnsupportedClientOperationException.Operation.ALTER_RESERVED_TBLPROPS, e.getMessage());
     }
   }
 
