@@ -50,6 +50,16 @@ dependencies {
   testImplementation testFixtures(project(':libs:optimizer:optimizer-common'))
 }
 
+// OptimizerSchemaMigrationsTest has Hibernate write the DDL of the tables the entities define here,
+// where libs/optimizer/optimizer-common/atlas.hcl reads it.
+def entitySchema = layout.buildDirectory.file('entity-schema.sql')
+
 test {
   useJUnitPlatform()
+  outputs.file(entitySchema)
+  doFirst {
+    // Set here, not as an input: the absolute path differs between checkouts that share the build
+    // cache.
+    systemProperty 'optimizer.entity-schema', entitySchema.get().asFile.absolutePath
+  }
 }
