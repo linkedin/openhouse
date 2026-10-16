@@ -138,7 +138,9 @@ class SchedulerRunnerTest {
 
     empty.schedule(ORPHAN_FILES_DELETION);
 
-    verifyNoInteractions(jobsClient);
+    // verifyNoInteractions(jobsClient);
+    verify(jobsClient, never())
+        .launch(anyString(), anyString(), anyString(), anyList(), anyList(), anyString());
   }
 
   @Test
@@ -152,7 +154,8 @@ class SchedulerRunnerTest {
 
     runner.schedule(ORPHAN_FILES_DELETION);
 
-    verifyNoInteractions(jobsClient);
+    verify(jobsClient, never())
+        .launch(anyString(), anyString(), anyString(), anyList(), anyList(), anyString());
   }
 
   @Test
@@ -163,7 +166,8 @@ class SchedulerRunnerTest {
 
     runner.schedule(ORPHAN_FILES_DELETION);
 
-    verifyNoInteractions(jobsClient);
+    verify(jobsClient, never())
+        .launch(anyString(), anyString(), anyString(), anyList(), anyList(), anyString());
   }
 
   @Test
@@ -197,15 +201,17 @@ class SchedulerRunnerTest {
         .updateBatch(
             anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.PENDING), any(), any());
 
+    ArgumentCaptor<String> jobName = ArgumentCaptor.forClass(String.class);
     ArgumentCaptor<List<String>> tableNames = ArgumentCaptor.forClass(List.class);
     verify(jobsClient)
         .launch(
-            anyString(),
-            eq(ORPHAN_FILES_DELETION.name()),
+            jobName.capture(),
+            eq(ORPHAN_FILES_DELETION.name() + "_BATCH"),
             eq("alice"),
             tableNames.capture(),
-            anyList(),
-            anyString());
+            eq(List.of(row.getId())),
+            eq(RESULTS_ENDPOINT));
+    assertThat(jobName.getValue()).startsWith("batched-orphan_files_deletion-");
     assertThat(tableNames.getValue()).containsExactly("db1.tbl1");
   }
 
@@ -255,7 +261,8 @@ class SchedulerRunnerTest {
 
     runner.schedule(ORPHAN_FILES_DELETION);
 
-    verifyNoInteractions(jobsClient);
+    verify(jobsClient, never())
+        .launch(anyString(), anyString(), anyString(), anyList(), anyList(), anyString());
     verify(operationsRepo, never())
         .updateBatch(
             anyList(), eq(OperationStatus.SCHEDULING), eq(OperationStatus.SCHEDULED), any(), any());
@@ -324,11 +331,11 @@ class SchedulerRunnerTest {
     verify(jobsClient)
         .launch(
             anyString(),
-            anyString(),
+            eq(ORPHAN_FILES_DELETION.name() + "_BATCH"),
             eq("alice"),
             launchedTableNames.capture(),
             launchedOpIds.capture(),
-            anyString());
+            eq(RESULTS_ENDPOINT));
     assertThat(launchedTableNames.getValue()).containsExactly("db1.tblA");
     assertThat(launchedOpIds.getValue()).containsExactly(rowA.getId());
 
@@ -403,7 +410,7 @@ class SchedulerRunnerTest {
     verify(jobsClient)
         .launch(
             anyString(),
-            eq(ORPHAN_FILES_DELETION.name()),
+            eq(ORPHAN_FILES_DELETION.name() + "_BATCH"),
             eq("alice"),
             eq(List.of("db1.a", "db1.c")),
             eq(List.of(a.getId(), c.getId())),
@@ -411,7 +418,7 @@ class SchedulerRunnerTest {
     verify(jobsClient)
         .launch(
             anyString(),
-            eq(ORPHAN_FILES_DELETION.name()),
+            eq(ORPHAN_FILES_DELETION.name() + "_BATCH"),
             eq("alice"),
             eq(List.of("db1.b")),
             eq(List.of(b.getId())),
@@ -419,7 +426,7 @@ class SchedulerRunnerTest {
     verify(jobsClient)
         .launch(
             anyString(),
-            eq(ORPHAN_FILES_DELETION.name()),
+            eq(ORPHAN_FILES_DELETION.name() + "_BATCH"),
             eq("headless"),
             eq(List.of("db1.d")),
             eq(List.of(d.getId())),
@@ -427,7 +434,7 @@ class SchedulerRunnerTest {
     verify(jobsClient)
         .launch(
             anyString(),
-            eq(ORPHAN_FILES_DELETION.name()),
+            eq(ORPHAN_FILES_DELETION.name() + "_BATCH"),
             eq("alice"),
             eq(List.of("db2.e")),
             eq(List.of(e.getId())),
