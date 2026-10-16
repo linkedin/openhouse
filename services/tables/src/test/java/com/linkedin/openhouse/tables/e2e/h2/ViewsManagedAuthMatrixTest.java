@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -23,6 +24,7 @@ import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitial
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.view.ViewCommitEngine;
+import com.linkedin.openhouse.internal.catalog.view.ViewMetadataCodec;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewPointer;
@@ -37,6 +39,8 @@ import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.services.ViewsFeatureGate;
 import java.util.Collections;
 import java.util.Optional;
+import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.view.ViewMetadata;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -97,6 +101,10 @@ abstract class ViewsManagedAuthMatrixBase {
   HouseTablesH2Repository houseTableRepository;
 
   @MockBean ViewCommitEngine viewCommitEngine;
+
+  /** The stubbed pointer has no metadata file; GET reads creator and modified time from here. */
+  @MockBean ViewMetadataCodec viewMetadataCodec;
+
   @Autowired OpenHouseInternalRepository openHouseInternalRepository;
 
   String jwtAccessToken;
@@ -116,6 +124,10 @@ abstract class ViewsManagedAuthMatrixBase {
         .findAllViewsByDatabaseId(eq(ViewModelConstants.DATABASE_ID), any(Pageable.class));
     doReturn(Optional.empty()).when(houseTableRepository).findEntityById(viewKey());
     doReturn(true).when(houseTableRepository).deleteViewById(viewKey());
+    ViewMetadata storedMetadata = mock(ViewMetadata.class);
+    when(storedMetadata.properties())
+        .thenReturn(ImmutableMap.of("openhouse.tableCreator", ViewModelConstants.VIEW_CREATOR));
+    when(viewMetadataCodec.read(any())).thenReturn(storedMetadata);
     when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
         .thenAnswer(
             invocation ->
