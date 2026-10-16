@@ -49,34 +49,34 @@ class ColumnDefaultClientGateTest {
   void defaultListAdmitsSparkOnly() {
     ColumnDefaultClientGate gate = gate("spark");
     assertAdmitted(gate, "spark", MINIMUM);
-    assertRefused(gate, "ddm-replication", MINIMUM);
+    assertRefused(gate, "replicator", MINIMUM);
     assertRefused(gate, null, MINIMUM);
   }
 
   @Test
   void configuredSecondNameIsAdmittedAtMinimumAndRefusedBelow() {
-    ColumnDefaultClientGate gate = gate("spark,ddm-replication");
+    ColumnDefaultClientGate gate = gate("spark,replicator");
     assertAdmitted(gate, "spark", MINIMUM);
-    assertAdmitted(gate, "ddm-replication", MINIMUM);
-    assertAdmitted(gate, "ddm-replication", "4.2.168");
-    assertRefused(gate, "ddm-replication", "4.2.149");
-    assertRefused(gate, "ddm-replication", "4.2.150-SNAPSHOT");
+    assertAdmitted(gate, "replicator", MINIMUM);
+    assertAdmitted(gate, "replicator", "4.2.168");
+    assertRefused(gate, "replicator", "4.2.149");
+    assertRefused(gate, "replicator", "4.2.150-SNAPSHOT");
     assertRefused(gate, "spark", "4.2.149");
   }
 
   @Test
   void nameNotOnListIsRefused() {
-    ColumnDefaultClientGate gate = gate("spark,ddm-replication");
+    ColumnDefaultClientGate gate = gate("spark,replicator");
     assertRefused(gate, "trino", MINIMUM);
-    assertRefused(gate, "ddm", MINIMUM);
+    assertRefused(gate, "repl", MINIMUM);
     assertRefused(gate, "SPARK", MINIMUM);
   }
 
   @Test
   void entriesAreTrimmedAndEmptyEntriesIgnored() {
-    ColumnDefaultClientGate gate = gate(" spark ,, ddm-replication ,  ,");
+    ColumnDefaultClientGate gate = gate(" spark ,, replicator ,  ,");
     assertAdmitted(gate, "spark", MINIMUM);
-    assertAdmitted(gate, "ddm-replication", MINIMUM);
+    assertAdmitted(gate, "replicator", MINIMUM);
     assertRefused(gate, "", MINIMUM);
     assertRefused(gate, " ", MINIMUM);
   }
