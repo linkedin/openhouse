@@ -1,9 +1,7 @@
 package com.linkedin.openhouse.tables.services;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -12,7 +10,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -46,7 +43,6 @@ import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewPointer;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
-import com.linkedin.openhouse.tables.audit.ViewOperationAuditEmitter;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.exception.ViewApiException;
@@ -120,7 +116,6 @@ public class ViewsServiceImplTest {
   private AuthorizationHandler authorizationHandler;
   private ViewAdmissionService admissionService;
   private ViewWritePrivilegeMapper privilegeMapper;
-  private ViewOperationAuditEmitter viewOperationAuditEmitter;
   private ClusterProperties clusterProperties;
   private ViewsServiceImpl service;
 
@@ -157,7 +152,6 @@ public class ViewsServiceImplTest {
     ReflectionTestUtils.setField(authorizationUtils, "authorizationHandler", authorizationHandler);
     admissionService = mock(ViewAdmissionService.class);
     privilegeMapper = mock(ViewWritePrivilegeMapper.class);
-    viewOperationAuditEmitter = mock(ViewOperationAuditEmitter.class);
     clusterProperties = mock(ClusterProperties.class);
     when(clusterProperties.getClusterName()).thenReturn(ViewModelConstants.CLUSTER_ID);
     service = new ViewsServiceImpl();
@@ -166,7 +160,6 @@ public class ViewsServiceImplTest {
     ReflectionTestUtils.setField(service, "authorizationUtils", authorizationUtils);
     ReflectionTestUtils.setField(service, "admissionService", admissionService);
     ReflectionTestUtils.setField(service, "privilegeMapper", privilegeMapper);
-    ReflectionTestUtils.setField(service, "viewOperationAuditEmitter", viewOperationAuditEmitter);
     ReflectionTestUtils.setField(service, "clusterProperties", clusterProperties);
     // The direct collaborators replacing the view repository are injected by type, not name.
     ReflectionTestUtils.setField(service, null, houseTableRepository, HouseTableRepository.class);
@@ -378,7 +371,7 @@ public class ViewsServiceImplTest {
   }
 
   @Test
-  public void createAuditReceivesTheMappedDtoAndTheEngineCommittedUuid() {
+  public void createReturnsTheMappedDtoAfterOneNeutralCapture() {
     existingEnabledDatabase();
     captureForWrite(Optional.empty());
     when(privilegeMapper.forCreate()).thenReturn(Privileges.CREATE_TABLE);
@@ -390,25 +383,16 @@ public class ViewsServiceImplTest {
             ViewModelConstants.createRequestWithoutBaseVersion(), ACTING_PRINCIPAL, true);
 
     assertEquals(Boolean.TRUE, result.getSecond());
-    ArgumentCaptor<ViewDto> audited = ArgumentCaptor.forClass(ViewDto.class);
-    verify(viewOperationAuditEmitter)
-        .emitSuccess(
-            eq(PreparedViewOperation.observedAbsence()),
-            audited.capture(),
-            eq(COMMITTED_CREATE_UUID),
-            eq(ACTING_PRINCIPAL),
-            eq(ViewModelConstants.SOURCE_DIALECT));
-    assertEquals(ViewModelConstants.DATABASE_ID, audited.getValue().getDatabaseId());
-    assertEquals(ViewModelConstants.VIEW_ID, audited.getValue().getViewId());
-    assertEquals(COMMITTED_POINTER, audited.getValue().getMetadataLocation());
+    assertEquals(ViewModelConstants.DATABASE_ID, result.getFirst().getDatabaseId());
+    assertEquals(ViewModelConstants.VIEW_ID, result.getFirst().getViewId());
+    assertEquals(COMMITTED_POINTER, result.getFirst().getMetadataLocation());
     verify(houseTableRepository, times(1)).findEntityById(viewKey());
     verify(houseTableRepository, never()).findViewById(any());
   }
 
   /**
    * Create generates one UUID, allocates the bare root from the per-request selected storage (not
-   * the default), and forwards the caller's whole definition; the acknowledged UUID returned by the
-   * engine, not the tentative allocation UUID, identifies the success.
+   * the default), and forwards the caller's whole definition.
    */
   @Test
   public void createAllocatesFromTheSelectedStorageAndForwardsUuidRootAndTypeToTheEngine() {
@@ -443,11 +427,6 @@ public class ViewsServiceImplTest {
     assertEquals(
         allocatedRoot(intent.getValue().getViewUuid()), intent.getValue().getViewLocation());
 
-    ArgumentCaptor<String> auditedUuid = ArgumentCaptor.forClass(String.class);
-    verify(viewOperationAuditEmitter)
-        .emitSuccess(any(), any(), auditedUuid.capture(), any(), any());
-    assertEquals(COMMITTED_CREATE_UUID, auditedUuid.getValue());
-    assertNotEquals(intent.getValue().getViewUuid(), auditedUuid.getValue());
     assertEquals(Boolean.TRUE, result.getSecond());
     assertEquals(COMMITTED_POINTER, result.getFirst().getMetadataLocation());
     assertEquals(ViewModelConstants.VIEW_ID, result.getFirst().getViewId());
@@ -583,23 +562,16 @@ public class ViewsServiceImplTest {
             .build(),
         result.getFirst());
     assertEquals(Boolean.FALSE, result.getSecond());
-    verify(viewOperationAuditEmitter)
-        .emitSuccess(
-            any(),
-            any(),
-            eq(CAPTURED_VIEW_UUID),
-            eq(ACTING_PRINCIPAL),
-            eq(ViewModelConstants.SOURCE_DIALECT));
     verifyNoInteractions(storageSelector, selectedStorage, storageManager);
   }
 
   /**
-   * The managed captured row may be updated in place by the CAS publish. The old pointer is a
-   * capture-time snapshot. The response creator is the engine's: an HTS row carries no creator, so
-   * it must never come from the captured row. There is no second read and no replacement copy.
+   * The managed captured row may be updated in place by the CAS publish. The response creator is
+   * the engine's: an HTS row carries no creator, so it must never come from the captured row. There
+   * is no second read and no replacement copy.
    */
   @Test
-  public void replaceTakesCreatorFromTheEngineWhileAuditKeepsTheCapturedOldPointer() {
+  public void replaceTakesCreatorAndNewPointerFromTheEngineWithoutRefreshingTheManagedRow() {
     existingEnabledDatabase();
     AtomicReference<String> location = new AtomicReference<>(CAPTURED_POINTER);
     HouseTable managed = mock(HouseTable.class);
@@ -627,20 +599,7 @@ public class ViewsServiceImplTest {
         service.putView(ViewModelConstants.fullyPopulatedRequest(), ACTING_PRINCIPAL, false);
 
     assertEquals("engine-kept-creator", result.getFirst().getViewCreator());
-    ArgumentCaptor<PreparedViewOperation> audited =
-        ArgumentCaptor.forClass(PreparedViewOperation.class);
-    ArgumentCaptor<ViewDto> auditedDto = ArgumentCaptor.forClass(ViewDto.class);
-    verify(viewOperationAuditEmitter)
-        .emitSuccess(
-            audited.capture(),
-            auditedDto.capture(),
-            eq(CAPTURED_VIEW_UUID),
-            eq(ACTING_PRINCIPAL),
-            eq(ViewModelConstants.SOURCE_DIALECT));
-    assertEquals(CAPTURED_POINTER, audited.getValue().getCapturedTableLocation());
-    assertSame(managed, audited.getValue().getViewBaseRow().get());
-    assertEquals("engine-kept-creator", auditedDto.getValue().getViewCreator());
-    assertEquals(COMMITTED_POINTER, auditedDto.getValue().getMetadataLocation());
+    assertEquals(COMMITTED_POINTER, result.getFirst().getMetadataLocation());
     verify(houseTableRepository, times(1)).findEntityById(viewKey());
     verifyNoMoreInteractions(houseTableRepository);
   }
@@ -730,10 +689,10 @@ public class ViewsServiceImplTest {
 
   /**
    * Only the one delete attempt is wrapped: an ambiguous typed delete may have landed, so it is an
-   * unknown mutation carrying the House Table cause, audited once as UNKNOWN from the capture.
+   * unknown mutation carrying the House Table cause.
    */
   @Test
-  public void ambiguousDropIsOneAttemptUnknownCarryingTheHtsCauseWithCapturedOldPointerOnly() {
+  public void ambiguousDropIsOneAttemptUnknownCarryingTheHtsCause() {
     existingEnabledDatabase();
     HouseTable row = capturedViewRow();
     captureForDelete(Optional.of(row));
@@ -758,13 +717,6 @@ public class ViewsServiceImplTest {
     verify(houseTableRepository, times(1)).findViewById(viewKey());
     verify(houseTableRepository, times(1)).deleteViewById(viewKey());
     verifyNoMoreInteractions(houseTableRepository);
-    ArgumentCaptor<PreparedViewOperation> audited =
-        ArgumentCaptor.forClass(PreparedViewOperation.class);
-    verify(viewOperationAuditEmitter, times(1))
-        .emitUnknown(audited.capture(), eq(ACTING_PRINCIPAL), isNull(), eq(unknown));
-    assertSame(row, audited.getValue().getViewBaseRow().get());
-    assertEquals(CAPTURED_POINTER, audited.getValue().getCapturedTableLocation());
-    verifyNoMoreInteractions(viewOperationAuditEmitter);
     verifyNoInteractions(viewCommitEngine, storageSelector);
   }
 
@@ -783,20 +735,11 @@ public class ViewsServiceImplTest {
     service.deleteView(
         ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL);
 
-    InOrder order =
-        inOrder(
-            privilegeMapper, authorizationHandler, houseTableRepository, viewOperationAuditEmitter);
+    InOrder order = inOrder(privilegeMapper, authorizationHandler, houseTableRepository);
     order.verify(privilegeMapper).forDelete();
     order.verify(authorizationHandler).checkAccessDecision(any(), any(DatabaseDto.class), any());
     order.verify(houseTableRepository).findViewById(viewKey());
     order.verify(houseTableRepository).deleteViewById(viewKey());
-    ArgumentCaptor<PreparedViewOperation> audited =
-        ArgumentCaptor.forClass(PreparedViewOperation.class);
-    order
-        .verify(viewOperationAuditEmitter)
-        .emitSuccess(audited.capture(), isNull(), isNull(), eq(ACTING_PRINCIPAL), isNull());
-    assertSame(row, audited.getValue().getViewBaseRow().get());
-    assertEquals(CAPTURED_POINTER, audited.getValue().getCapturedTableLocation());
     assertDatabaseAuthorization(Privileges.DELETE_TABLE);
     verifyNoMoreInteractions(houseTableRepository);
     verifyNoInteractions(viewCommitEngine, storageSelector, storageManager);
@@ -825,8 +768,6 @@ public class ViewsServiceImplTest {
     verify(houseTableRepository, times(1)).findViewById(viewKey());
     verify(houseTableRepository, times(1)).deleteViewById(viewKey());
     verifyNoMoreInteractions(houseTableRepository);
-    verify(viewOperationAuditEmitter, times(1)).emitFailed(any(), eq(ACTING_PRINCIPAL), isNull());
-    verify(viewOperationAuditEmitter, never()).emitSuccess(any(), any(), any(), any(), any());
     verifyNoInteractions(viewCommitEngine);
   }
 
@@ -857,13 +798,11 @@ public class ViewsServiceImplTest {
     verify(houseTableRepository, times(1)).findViewById(viewKey());
     verify(houseTableRepository, times(1)).deleteViewById(viewKey());
     verifyNoMoreInteractions(houseTableRepository);
-    verify(viewOperationAuditEmitter, times(1)).emitFailed(any(), eq(ACTING_PRINCIPAL), isNull());
-    verifyNoMoreInteractions(viewOperationAuditEmitter);
     verifyNoInteractions(viewCommitEngine);
   }
 
   @Test
-  public void databaseProbeOutageOnReadsIsTypedUnavailableWithCauseAndNoAudit() {
+  public void databaseProbeOutageOnReadsIsTypedUnavailableWithCause() {
     when(featureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(true);
     HouseTableRepositoryStateUnknownException outage =
         new HouseTableRepositoryStateUnknownException("down", new RuntimeException("503"));
@@ -887,11 +826,11 @@ public class ViewsServiceImplTest {
       assertEquals(HttpStatus.SERVICE_UNAVAILABLE, thrown.getHttpStatus());
       assertSame(outage, thrown.getCause());
     }
-    verifyNoInteractions(viewOperationAuditEmitter, houseTableRepository);
+    verifyNoInteractions(houseTableRepository);
   }
 
   @Test
-  public void genericCaptureFailuresAreInternalErrorsAuditedAsFailed() {
+  public void genericCaptureFailuresAreInternalErrors() {
     existingEnabledDatabase();
     when(privilegeMapper.forDelete()).thenReturn(Privileges.DELETE_TABLE);
     IllegalStateException writeFault = new IllegalStateException("capture write fault");
@@ -917,13 +856,11 @@ public class ViewsServiceImplTest {
     assertSame(writeFault, write.getCause());
     assertEquals(ViewErrorCode.INTERNAL_VIEW_ERROR, delete.getErrorCode());
     assertSame(deleteFault, delete.getCause());
-    verify(viewOperationAuditEmitter, times(2)).emitFailed(any(), eq(ACTING_PRINCIPAL), any());
-    verify(viewOperationAuditEmitter, never()).emitUnknown(any(), any(), any(), any());
     verifyNoInteractions(viewCommitEngine);
   }
 
   @Test
-  public void genericDatabaseProbeFailureOnReadsIsInternalErrorWithCauseAndNoAudit() {
+  public void genericDatabaseProbeFailureOnReadsIsInternalErrorWithCause() {
     when(featureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(true);
     IllegalStateException fault = new IllegalStateException("probe fault");
     when(databasesService.getAllDatabases()).thenThrow(fault);
@@ -946,11 +883,11 @@ public class ViewsServiceImplTest {
       assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, thrown.getHttpStatus());
       assertSame(fault, thrown.getCause());
     }
-    verifyNoInteractions(viewOperationAuditEmitter, houseTableRepository);
+    verifyNoInteractions(houseTableRepository);
   }
 
   @Test
-  public void writeCaptureOutageIsTypedUnavailableAndAuditedAsFailedNotUnknown() {
+  public void writeCaptureOutageIsTypedUnavailableNotUnknown() {
     existingEnabledDatabase();
     HouseTableRepositoryStateUnknownException outage =
         new HouseTableRepositoryStateUnknownException("down", new RuntimeException("503"));
@@ -966,18 +903,15 @@ public class ViewsServiceImplTest {
     assertEquals(ViewErrorCode.VIEW_SERVICE_UNAVAILABLE, thrown.getErrorCode());
     assertEquals(HttpStatus.SERVICE_UNAVAILABLE, thrown.getHttpStatus());
     assertSame(outage, thrown.getCause());
-    verify(viewOperationAuditEmitter, times(1)).emitFailed(any(), eq(ACTING_PRINCIPAL), any());
-    verify(viewOperationAuditEmitter, never()).emitUnknown(any(), any(), any(), any());
-    verify(viewOperationAuditEmitter, never()).emitSuccess(any(), any(), any(), any(), any());
     verifyNoInteractions(storageSelector, viewCommitEngine);
   }
 
   /**
    * The delete-attempt wrapper must not reach the capture: a precommit House Table outage stays the
-   * raw cause of a known, FAILED-audited unavailability, never an unknown mutation.
+   * raw cause of a known unavailability, never an unknown mutation.
    */
   @Test
-  public void deleteCaptureOutageIsTypedUnavailableAuditedAsFailedAndNeverWrappedAsUnknown() {
+  public void deleteCaptureOutageIsTypedUnavailableAndNeverWrappedAsUnknown() {
     existingEnabledDatabase();
     when(privilegeMapper.forDelete()).thenReturn(Privileges.DELETE_TABLE);
     HouseTableRepositoryStateUnknownException outage =
@@ -993,14 +927,12 @@ public class ViewsServiceImplTest {
 
     assertEquals(ViewErrorCode.VIEW_SERVICE_UNAVAILABLE, thrown.getErrorCode());
     assertSame(outage, thrown.getCause());
-    verify(viewOperationAuditEmitter, times(1)).emitFailed(any(), eq(ACTING_PRINCIPAL), any());
-    verify(viewOperationAuditEmitter, never()).emitUnknown(any(), any(), any(), any());
     verify(houseTableRepository, never()).deleteViewById(any());
     verifyNoInteractions(viewCommitEngine);
   }
 
   @Test
-  public void disabledAndMissingDatabaseWritesAreAuditedAsFailedWithoutCapture() {
+  public void disabledAndMissingDatabaseWritesFailWithoutCapture() {
     when(featureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(false);
     assertEquals(
         ViewErrorCode.VIEWS_DISABLED,
@@ -1022,9 +954,7 @@ public class ViewsServiceImplTest {
                         ViewModelConstants.VIEW_ID,
                         ACTING_PRINCIPAL))
             .getErrorCode());
-    verify(viewOperationAuditEmitter, times(2)).emitFailed(any(), eq(ACTING_PRINCIPAL), any());
 
-    clearInvocations(viewOperationAuditEmitter);
     when(featureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(true);
     when(databasesService.getAllDatabases()).thenReturn(Collections.emptyList());
     assertEquals(
@@ -1037,7 +967,6 @@ public class ViewsServiceImplTest {
                         ACTING_PRINCIPAL,
                         true))
             .getErrorCode());
-    verify(viewOperationAuditEmitter, times(1)).emitFailed(any(), eq(ACTING_PRINCIPAL), any());
     verifyNoInteractions(houseTableRepository, viewCommitEngine);
   }
 
@@ -1103,11 +1032,6 @@ public class ViewsServiceImplTest {
     assertEquals(ViewErrorCode.NAME_ALREADY_EXISTS_AS_TABLE, thrown.getErrorCode());
     assertDatabaseAuthorization(Privileges.CREATE_TABLE);
     verify(admissionService, never()).admit(any());
-    ArgumentCaptor<PreparedViewOperation> audited =
-        ArgumentCaptor.forClass(PreparedViewOperation.class);
-    verify(viewOperationAuditEmitter).emitFailed(audited.capture(), eq(ACTING_PRINCIPAL), any());
-    assertSame(tableOccupant, audited.getValue().getOccupantRow().get());
-    assertFalse(audited.getValue().getViewBaseRow().isPresent());
     verifyNoInteractions(storageSelector, viewCommitEngine);
   }
 
@@ -1161,9 +1085,9 @@ public class ViewsServiceImplTest {
     verifyNoInteractions(storageSelector, viewCommitEngine);
   }
 
-  /** Allocation is part of the audited write lifecycle: a failure there is FAILED, not UNKNOWN. */
+  /** An allocation failure is a known internal error, not an unknown commit. */
   @Test
-  public void createAllocationFailureIsAuditedFailedInternalErrorWithoutCommit() {
+  public void createAllocationFailureIsInternalErrorWithoutCommit() {
     existingEnabledDatabase();
     captureForWrite(Optional.empty());
     when(privilegeMapper.forCreate()).thenReturn(Privileges.CREATE_TABLE);
@@ -1184,9 +1108,6 @@ public class ViewsServiceImplTest {
     assertEquals(ViewErrorCode.INTERNAL_VIEW_ERROR, thrown.getErrorCode());
     assertSame(allocationFault, thrown.getCause());
     verify(admissionService).admit(ViewModelConstants.createRequestWithoutBaseVersion());
-    verify(viewOperationAuditEmitter, times(1))
-        .emitFailed(any(), eq(ACTING_PRINCIPAL), eq(ViewModelConstants.SOURCE_DIALECT));
-    verify(viewOperationAuditEmitter, never()).emitUnknown(any(), any(), any(), any());
     verifyNoInteractions(viewCommitEngine);
   }
 
@@ -1209,21 +1130,12 @@ public class ViewsServiceImplTest {
     assertEquals(Boolean.FALSE, result.getSecond());
     verify(houseTableRepository, times(1)).findEntityById(viewKey());
     verify(viewCommitEngine, times(1)).commit(any(ViewCommitIntent.class));
-    ArgumentCaptor<ViewDto> audited = ArgumentCaptor.forClass(ViewDto.class);
-    verify(viewOperationAuditEmitter)
-        .emitSuccess(
-            eq(PreparedViewOperation.view(captured)),
-            audited.capture(),
-            eq(CAPTURED_VIEW_UUID),
-            eq(ACTING_PRINCIPAL),
-            eq(ViewModelConstants.SOURCE_DIALECT));
-    assertEquals(CAPTURED_POINTER, audited.getValue().getMetadataLocation());
     verifyNoMoreInteractions(houseTableRepository);
     verifyNoInteractions(storageSelector);
   }
 
   @Test
-  public void commitStateUnknownMapsTo503PreservesCauseAndEmitsOneUnknownAudit() {
+  public void commitStateUnknownMapsTo503PreservesCauseAfterOneAttempt() {
     existingEnabledDatabase();
     captureForWrite(Optional.empty());
     when(privilegeMapper.forCreate()).thenReturn(Privileges.CREATE_TABLE);
@@ -1243,13 +1155,6 @@ public class ViewsServiceImplTest {
     assertEquals(HttpStatus.SERVICE_UNAVAILABLE, thrown.getHttpStatus());
     assertSame(unknown, thrown.getCause());
     verify(viewCommitEngine, times(1)).commit(any(ViewCommitIntent.class));
-    verify(viewOperationAuditEmitter)
-        .emitUnknown(
-            PreparedViewOperation.observedAbsence(),
-            ACTING_PRINCIPAL,
-            ViewModelConstants.SOURCE_DIALECT,
-            unknown);
-    verify(viewOperationAuditEmitter, never()).emitFailed(any(), any(), any());
     verify(houseTableRepository, never()).deleteViewById(any());
   }
 
@@ -1283,7 +1188,7 @@ public class ViewsServiceImplTest {
 
   @ParameterizedTest
   @MethodSource("replaceFailureMappings")
-  public void replaceFailureMappingsPreserveCauseAndFailedAuditWithoutRetry(
+  public void replaceFailureMappingsPreserveCauseWithoutRetry(
       RuntimeException source, ViewErrorCode expected, HttpStatus expectedStatus) {
     existingEnabledDatabase();
     HouseTable captured = capturedViewRow();
@@ -1309,12 +1214,6 @@ public class ViewsServiceImplTest {
     assertSame(captured, intent.getValue().getBaseRow());
     verify(houseTableRepository, never()).deleteViewById(any());
     verifyNoInteractions(storageSelector);
-    verify(viewOperationAuditEmitter)
-        .emitFailed(
-            PreparedViewOperation.view(captured)
-                .withRequestedIdentity(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID),
-            ACTING_PRINCIPAL,
-            ViewModelConstants.SOURCE_DIALECT);
   }
 
   @ParameterizedTest
@@ -1437,12 +1336,7 @@ public class ViewsServiceImplTest {
     verify(houseTableRepository, times(1))
         .findAllViewsByDatabaseId(ViewModelConstants.DATABASE_ID, requested);
     verifyNoMoreInteractions(houseTableRepository);
-    verifyNoInteractions(
-        viewCommitEngine,
-        storageSelector,
-        storageManager,
-        authorizationHandler,
-        viewOperationAuditEmitter);
+    verifyNoInteractions(viewCommitEngine, storageSelector, storageManager, authorizationHandler);
   }
 
   /** Short and empty nonterminal pages keep their reported totals; only the terminal page ends. */
@@ -1512,16 +1406,16 @@ public class ViewsServiceImplTest {
     verify(houseTableRepository, times(1))
         .findAllViewsByDatabaseId(eq(ViewModelConstants.DATABASE_ID), any(Pageable.class));
     verifyNoMoreInteractions(houseTableRepository);
-    verifyNoInteractions(viewOperationAuditEmitter, viewCommitEngine);
+    verifyNoInteractions(viewCommitEngine);
   }
 
   /**
    * House Table identity is case-insensitive, so request ids may differ in case from the stored row
-   * and the engine's pointer. Acknowledged create/replace responses and their SUCCESS audit are
-   * named by the requested ids; a failure after capture and a drop are named by the captured row.
+   * and the engine's pointer. Acknowledged create/replace responses are named by the requested ids;
+   * a failed replace and a drop at the same requested key still complete as typed outcomes.
    */
   @Test
-  public void successIdentityUsesRequestedIdsWhileFailureAndDropUseCapturedIds() {
+  public void acknowledgedWriteResponsesUseRequestedIdsForACaseDifferentStoredRow() {
     String requestedDatabaseId = "My_Database";
     String requestedViewId = "My_View";
     HouseTablePrimaryKey requestedKey = primaryKey(requestedDatabaseId, requestedViewId);
@@ -1567,24 +1461,8 @@ public class ViewsServiceImplTest {
       assertEquals(requestedDatabaseId, response.getDatabaseId());
       assertEquals(requestedViewId, response.getViewId());
     }
-    ArgumentCaptor<PreparedViewOperation> succeeded =
-        ArgumentCaptor.forClass(PreparedViewOperation.class);
-    ArgumentCaptor<ViewDto> successDtos = ArgumentCaptor.forClass(ViewDto.class);
-    verify(viewOperationAuditEmitter, times(3))
-        .emitSuccess(succeeded.capture(), successDtos.capture(), any(), any(), any());
-    for (ViewDto audited : successDtos.getAllValues().subList(0, 2)) {
-      assertEquals(requestedDatabaseId, audited.getDatabaseId());
-      assertEquals(requestedViewId, audited.getViewId());
-    }
-    assertNull(successDtos.getAllValues().get(2), "A drop has no committed DTO.");
-    PreparedViewOperation dropped = succeeded.getAllValues().get(2);
-    ArgumentCaptor<PreparedViewOperation> failed =
-        ArgumentCaptor.forClass(PreparedViewOperation.class);
-    verify(viewOperationAuditEmitter, times(1)).emitFailed(failed.capture(), any(), any());
-    for (PreparedViewOperation capturedNamed : Arrays.asList(failed.getValue(), dropped)) {
-      assertEquals(ViewModelConstants.DATABASE_ID, capturedNamed.auditDatabaseId());
-      assertEquals(ViewModelConstants.VIEW_ID, capturedNamed.auditViewId());
-    }
+    verify(viewCommitEngine, times(3)).commit(any(ViewCommitIntent.class));
+    verify(houseTableRepository, times(1)).deleteViewById(requestedKey);
   }
 
   private void existingEnabledDatabase() {

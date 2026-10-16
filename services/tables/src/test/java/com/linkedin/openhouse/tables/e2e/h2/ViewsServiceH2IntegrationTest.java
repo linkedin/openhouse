@@ -9,7 +9,6 @@ import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
 import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
-import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -17,8 +16,6 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ViewRepresentation;
-import com.linkedin.openhouse.tables.audit.model.OperationStatus;
-import com.linkedin.openhouse.tables.audit.model.ViewAuditEvent;
 import com.linkedin.openhouse.tables.exception.ViewApiException;
 import com.linkedin.openhouse.tables.exception.ViewErrorCode;
 import com.linkedin.openhouse.tables.exception.ViewExceptionHandler;
@@ -32,13 +29,11 @@ import com.linkedin.openhouse.tables.services.ViewAdmissionService;
 import com.linkedin.openhouse.tables.services.ViewsFeatureGate;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -79,7 +74,6 @@ public class ViewsServiceH2IntegrationTest {
   @Autowired private OpenHouseInternalRepository openHouseInternalRepository;
   @Autowired private HouseTableRepository houseTableRepository;
   @MockBean private ViewsFeatureGate viewsFeatureGate;
-  @MockBean private AuditHandler<ViewAuditEvent> viewAuditHandler;
   // Mock admission is a no-op pass-through unless a test scripts a rejection.
   @MockBean private ViewAdmissionService admissionService;
   @SpyBean private StorageSelector storageSelector;
@@ -186,15 +180,6 @@ public class ViewsServiceH2IntegrationTest {
                 .accept(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + jwtAccessToken))
         .andExpect(status().isNoContent());
-
-    ArgumentCaptor<ViewAuditEvent> events = ArgumentCaptor.forClass(ViewAuditEvent.class);
-    Mockito.verify(viewAuditHandler, Mockito.times(3)).audit(events.capture());
-    List<ViewAuditEvent> audited = events.getAllValues();
-    String viewUuid = createdRow.getTableUUID();
-    assertOperationAudit(audited.get(0), viewUuid, null, baseMetadataLocation);
-    assertOperationAudit(
-        audited.get(1), viewUuid, baseMetadataLocation, replacementMetadataLocation);
-    assertOperationAudit(audited.get(2), viewUuid, replacementMetadataLocation, null);
   }
 
   @Test
@@ -220,7 +205,7 @@ public class ViewsServiceH2IntegrationTest {
                           .sql(privateSql)
                           .build()))
               .build();
-      Mockito.clearInvocations(viewAuditHandler, storageSelector);
+      Mockito.clearInvocations(storageSelector);
 
       MvcResult rejected =
           mvc.perform(
@@ -245,13 +230,6 @@ public class ViewsServiceH2IntegrationTest {
       org.junit.jupiter.api.Assertions.assertEquals(
           pointer, findViewRow(viewId).getTableLocation());
       Mockito.verifyNoInteractions(storageSelector);
-      ArgumentCaptor<ViewAuditEvent> events = ArgumentCaptor.forClass(ViewAuditEvent.class);
-      Mockito.verify(viewAuditHandler, Mockito.times(1)).audit(events.capture());
-      org.junit.jupiter.api.Assertions.assertEquals(
-          OperationStatus.FAILED, events.getValue().getOperationStatus());
-      org.junit.jupiter.api.Assertions.assertEquals(
-          pointer, events.getValue().getOldMetadataLocation());
-      org.junit.jupiter.api.Assertions.assertNull(events.getValue().getNewMetadataLocation());
 
       mvc.perform(
               MockMvcRequestBuilders.put(VIEWS_PATH + "/" + viewId)
@@ -299,7 +277,7 @@ public class ViewsServiceH2IntegrationTest {
                 .accept(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + jwtAccessToken))
         .andExpect(status().isBadRequest());
-    Mockito.verifyNoInteractions(admissionService, storageSelector, viewAuditHandler);
+    Mockito.verifyNoInteractions(admissionService, storageSelector);
     org.junit.jupiter.api.Assertions.assertFalse(
         houseTableRepository
             .findEntityById(
@@ -671,19 +649,6 @@ public class ViewsServiceH2IntegrationTest {
                 .tableId(viewId)
                 .build())
         .orElseThrow(() -> new AssertionError("Expected view row to exist"));
-  }
-
-  private static void assertOperationAudit(
-      ViewAuditEvent event, String viewUuid, String oldPointer, String newPointer) {
-    org.junit.jupiter.api.Assertions.assertEquals(
-        OperationStatus.SUCCESS, event.getOperationStatus());
-    org.junit.jupiter.api.Assertions.assertEquals(
-        ViewModelConstants.DATABASE_ID, event.getDatabaseName());
-    org.junit.jupiter.api.Assertions.assertEquals(ViewModelConstants.VIEW_ID, event.getViewName());
-    org.junit.jupiter.api.Assertions.assertEquals("DUMMY_ANONYMOUS_USER", event.getUser());
-    org.junit.jupiter.api.Assertions.assertEquals(viewUuid, event.getViewUUID());
-    org.junit.jupiter.api.Assertions.assertEquals(oldPointer, event.getOldMetadataLocation());
-    org.junit.jupiter.api.Assertions.assertEquals(newPointer, event.getNewMetadataLocation());
   }
 
   private long metadataFileCount() throws Exception {
