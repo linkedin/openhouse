@@ -70,7 +70,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       prepareTableWithRetentionAndSharingPolicies(ops, tableName, "1d", true);
       populateTable(ops, tableName, 3);
       populateTable(ops, tableName, 2, 2);
-      ops.runRetention(tableName, "ts", "", "day", 1, false, "", ZonedDateTime.now(ZoneOffset.UTC));
+      ops.runRetention(tableName, "ts", "", "day", 1, false, "", ZonedDateTime.now());
       verifyRowCount(ops, tableName, 3);
       verifyPolicies(ops, tableName, 1, Retention.GranularityEnum.DAY, true);
     }
@@ -183,7 +183,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       List<Long> snapshots = getSnapshotIds(ops, tableName);
       // check if there are existing snapshots
       Assertions.assertTrue(snapshots.size() > 0);
-      ops.runRetention(tableName, "ts", "", "day", 2, false, "", ZonedDateTime.now(ZoneOffset.UTC));
+      ops.runRetention(tableName, "ts", "", "day", 2, false, "", ZonedDateTime.now());
       verifyRowCount(ops, tableName, 4);
       List<Long> snapshotsAfter = getSnapshotIds(ops, tableName);
       Assertions.assertEquals(snapshots.size() + 1, snapshotsAfter.size());
@@ -296,7 +296,7 @@ public class OperationsTest extends OpenHouseSparkITest {
               String.format(
                   "insert into %s values ('b', cast('%s' as timestamp)), ('b', cast('%s' as timestamp))",
                   tableName, today, twoDayAgo));
-      ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+      ZonedDateTime now = ZonedDateTime.now();
       ops.runRetention(
           tableName, columnName, columnPattern, granularity, count, true, ".backup", now);
       // verify data_manifest.json

@@ -20,7 +20,6 @@ import org.apache.iceberg.Table;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
@@ -170,10 +169,8 @@ public class AppsTest extends OpenHouseSparkITest {
     Assertions.assertEquals(ZoneOffset.UTC, nowCaptor.getValue().getZone());
   }
 
-  @ParameterizedTest
-  @CsvSource({"America/Los_Angeles,America/Los_Angeles", "UTC,Z", "+00:00,Z"})
-  public void testRetentionSparkAppPassesTimeZoneDeclarationToRunRetention(
-      String configuredTimeZone, String expectedEvaluationTimeZone) {
+  @Test
+  public void testRetentionSparkAppPassesTimeZoneDeclarationToRunRetention() {
     final String tableName = "db.test_retention_app_zoned";
     Operations ops = Mockito.mock(Operations.class);
     Table table = Mockito.mock(Table.class);
@@ -192,7 +189,7 @@ public class AppsTest extends OpenHouseSparkITest {
             7,
             otelEmitter,
             ".backup",
-            Optional.of(configuredTimeZone));
+            Optional.of("America/Los_Angeles"));
 
     Assertions.assertDoesNotThrow(() -> app.runInner(ops));
 
@@ -207,7 +204,46 @@ public class AppsTest extends OpenHouseSparkITest {
             Mockito.eq(true),
             Mockito.eq(".backup"),
             nowCaptor.capture());
-    Assertions.assertEquals(ZoneId.of(expectedEvaluationTimeZone), nowCaptor.getValue().getZone());
+    Assertions.assertEquals(ZoneId.of("America/Los_Angeles"), nowCaptor.getValue().getZone());
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"UTC", "+00:00"})
+  public void testRetentionSparkAppNormalizesUtcTimeZone(String timeZone) {
+    final String tableName = "db.test_retention_app_utc_zone";
+    Operations ops = Mockito.mock(Operations.class);
+    Table table = Mockito.mock(Table.class);
+    StateManager stateManagerMock = Mockito.mock(StateManager.class);
+    Mockito.when(ops.getTable(tableName)).thenReturn(table);
+    Mockito.when(table.properties()).thenReturn(Map.of(AppConstants.BACKUP_ENABLED_KEY, "true"));
+
+    RetentionSparkApp app =
+        new RetentionSparkApp(
+            "test-job-id",
+            stateManagerMock,
+            tableName,
+            "ts",
+            "yyyy-MM-dd-HH",
+            "DAY",
+            7,
+            otelEmitter,
+            ".backup",
+            Optional.of(timeZone));
+
+    Assertions.assertDoesNotThrow(() -> app.runInner(ops));
+
+    ArgumentCaptor<ZonedDateTime> nowCaptor = ArgumentCaptor.forClass(ZonedDateTime.class);
+    Mockito.verify(ops)
+        .runRetention(
+            Mockito.eq(tableName),
+            Mockito.eq("ts"),
+            Mockito.eq("yyyy-MM-dd-HH"),
+            Mockito.eq("DAY"),
+            Mockito.eq(7),
+            Mockito.eq(true),
+            Mockito.eq(".backup"),
+            nowCaptor.capture());
+    Assertions.assertEquals(ZoneOffset.UTC, nowCaptor.getValue().getZone());
   }
 
   @ParameterizedTest
