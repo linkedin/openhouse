@@ -51,14 +51,8 @@ public class ViewPageTokenCodec {
       if (!expectedChecksum.equals(fields[5])) {
         throw new IllegalArgumentException("View page token failed integrity check");
       }
-      // A checksum computed over the decoded payload cannot by itself detect every single-
-      // character edit to a padding-less Base64 token: Base64's final character in a partial
-      // 4-character group carries some bits that never map into any decoded byte, so a flip
-      // confined to those don't-care bits can leave the decoded bytes (and therefore this
-      // checksum) unchanged. Re-deriving the canonical encoding and requiring an exact match
-      // against the supplied token closes that gap, since any edit the decoder cannot ignore
-      // changes the decoded bytes (and so the checksum above), while any edit it can ignore
-      // still changes the token's own characters away from the one canonical encoding.
+      // Alternate padding bits in the last Base64 character decode to the same bytes, so require
+      // the token to equal its canonical encoding.
       String canonical = encodeFields(payload, expectedChecksum);
       if (!canonical.equals(token)) {
         throw new IllegalArgumentException("View page token failed integrity check");

@@ -62,10 +62,7 @@ public class AuthorizationInterceptor implements AuthorizationManager<MethodInvo
     }
     String[] privileges = ((Secured) securedAnnotation.get()).value();
 
-    // AUTHENTICATED is a route guard only: authentication (checked above) is sufficient and no
-    // resource privilege is consulted, even if every other declared privilege were present too.
-    // This holds durably, independent of whether a later PR completes resource-privilege
-    // enforcement for the other privileges below.
+    // AUTHENTICATED is authentication-only: no resource authorization is performed.
     if (privileges.length == 1 && Privileges.Privilege.AUTHENTICATED.equals(privileges[0])) {
       return new AuthorizationDecision(true);
     }
