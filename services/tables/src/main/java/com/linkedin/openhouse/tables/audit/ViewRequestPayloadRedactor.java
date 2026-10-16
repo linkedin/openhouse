@@ -6,54 +6,68 @@ import com.google.gson.JsonPrimitive;
 import com.linkedin.openhouse.common.audit.ServiceAuditPayloadRedactor;
 import javax.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Component;
+import org.springframework.util.AntPathMatcher;
 
 /**
- * Keeps the write CAS token out of service audit events and marks view requests as diagnostic-
- * sensitive.
+ * Keeps view definitions out of service audit events.
  *
  * <p>{@link com.linkedin.openhouse.common.audit.ServiceAuditAspect} audits the complete cached
- * request body of every controller call. For the view create and replace routes this replaces only
- * {@code baseMetadataLocation} with {@link #REDACTED_VALUE}, keeping the key. The supplied {@code
- * schema}, every {@code representations} entry (including its SQL) and all other fields stay in the
- * event exactly as parsed, so a custom audit handler records which definition was requested.
+ * request body of every controller call, which for the view create and replace routes would retain
+ * the caller's full SQL text and schema document. This replaces {@code schema} and every {@code
+ * representations[*].sql} value with {@link #REDACTED_VALUE} before the event is built. The keys
+ * are kept, so an auditor still sees that the fields were sent.
  *
- * <p>The built-in {@link com.linkedin.openhouse.common.audit.DummyServiceAuditHandler} only logs,
- * and request definitions must stay out of ordinary logs, so {@link #suppressDiagnosticDetails()}
- * is true: for these routes it logs a fixed summary and the aspect's failure logs omit details.
- * That means the default handler does not retain definitions; a deployment that needs them must
- * supply its own handler, which must in turn keep them out of diagnostic logs.
+ * <p>Scoped by request URI rather than by field name on purpose. {@code
+ * CreateUpdateTableRequestBody} also carries a {@code schema}, and redacting by name alone would
+ * silently change table, database and snapshot audit payloads. Matching the view routes leaves
+ * every other route's payload exactly as it was.
  *
- * <p>Scoped by request route rather than by field name on purpose: {@code
- * CreateUpdateTableRequestBody} has a field that must keep its current audit behavior. The view
- * routes (the collection POST creates against and the item PUT replaces against) are classified
- * like MVC by {@link ViewRequestRouteMatcher}, so every other route's payload is left exactly as it
- * was.
+ * <p>Every field that is not part of the view definition — {@code viewId}, {@code databaseId},
+ * {@code sourceDialect}, {@code defaultCatalog}, {@code defaultNamespace}, {@code viewProperties}
+ * and {@code baseMetadataLocation} — is left intact, so an audit event still identifies what was
+ * operated on and by whom.
  */
 @Component
 public class ViewRequestPayloadRedactor implements ServiceAuditPayloadRedactor {
 
-  static final String BASE_METADATA_LOCATION_FIELD = "baseMetadataLocation";
+  static final String SCHEMA_FIELD = "schema";
+  static final String REPRESENTATIONS_FIELD = "representations";
+  static final String SQL_FIELD = "sql";
+
+  /** The view collection route, which POST creates against. */
+  private static final String VIEW_COLLECTION_PATTERN = "/v1/databases/*/views";
+
+  /** The view item route, which PUT replaces against. */
+  private static final String VIEW_ITEM_PATTERN = "/v1/databases/*/views/*";
+
+  private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
 
   @Override
   public boolean appliesTo(HttpServletRequest request) {
-    return ViewRequestRouteMatcher.isViewCollectionOrItem(request);
-  }
-
-  @Override
-  public boolean suppressDiagnosticDetails() {
-    return true;
+    String uri = request.getRequestURI();
+    return uri != null
+        && (PATH_MATCHER.match(VIEW_COLLECTION_PATTERN, uri)
+            || PATH_MATCHER.match(VIEW_ITEM_PATTERN, uri));
   }
 
   @Override
   public JsonElement redact(JsonElement requestPayload) {
     if (requestPayload == null || !requestPayload.isJsonObject()) {
       // A bodyless request parses to JsonNull, and a malformed body can be any other element.
-      // Neither carries a CAS token, so there is nothing to remove.
+      // Neither carries a view definition, so there is nothing to remove.
       return requestPayload;
     }
     JsonObject redacted = requestPayload.deepCopy().getAsJsonObject();
-    if (redacted.has(BASE_METADATA_LOCATION_FIELD)) {
-      redacted.add(BASE_METADATA_LOCATION_FIELD, new JsonPrimitive(REDACTED_VALUE));
+    if (redacted.has(SCHEMA_FIELD)) {
+      redacted.add(SCHEMA_FIELD, new JsonPrimitive(REDACTED_VALUE));
+    }
+    JsonElement representations = redacted.get(REPRESENTATIONS_FIELD);
+    if (representations != null && representations.isJsonArray()) {
+      for (JsonElement representation : representations.getAsJsonArray()) {
+        if (representation.isJsonObject() && representation.getAsJsonObject().has(SQL_FIELD)) {
+          representation.getAsJsonObject().add(SQL_FIELD, new JsonPrimitive(REDACTED_VALUE));
+        }
+      }
     }
     return redacted;
   }
