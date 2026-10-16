@@ -80,9 +80,7 @@ services:
       service: openhouse-optimizer-analyzer
     volumes:
       - ./:/var/config/
-    environment:
-      <<: *optimizer-environment
-      SPRING_SQL_INIT_MODE: never
+    environment: *optimizer-environment
     depends_on:
       - openhouse-optimizer
     profiles:
@@ -96,7 +94,6 @@ services:
       - ./:/var/config/
     environment:
       <<: *optimizer-environment
-      SPRING_SQL_INIT_MODE: never
       JOBS_BASE_URI: http://openhouse-jobs:8080
       SCHEDULER_RESULTS_ENDPOINT: http://openhouse-optimizer:8080
     depends_on:
