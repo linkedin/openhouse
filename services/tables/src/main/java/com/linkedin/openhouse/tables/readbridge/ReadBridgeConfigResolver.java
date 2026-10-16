@@ -37,8 +37,7 @@ public class ReadBridgeConfigResolver {
   private final ColumnDefaultsSource columnDefaultsSource;
 
   public ReadBridgeConfigResolver(ColumnDefaultsSource columnDefaultsSource) {
-    this.columnDefaultsSource =
-        Objects.requireNonNull(columnDefaultsSource, "columnDefaultsSource");
+    this.columnDefaultsSource = columnDefaultsSource;
   }
 
   /**

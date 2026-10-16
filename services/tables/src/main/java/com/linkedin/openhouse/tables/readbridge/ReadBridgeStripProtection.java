@@ -53,7 +53,7 @@ public class ReadBridgeStripProtection {
   private final ReadBridgeConfigResolver resolver;
 
   public ReadBridgeStripProtection(ReadBridgeConfigResolver resolver) {
-    this.resolver = Objects.requireNonNull(resolver, "resolver");
+    this.resolver = resolver;
   }
 
   /**

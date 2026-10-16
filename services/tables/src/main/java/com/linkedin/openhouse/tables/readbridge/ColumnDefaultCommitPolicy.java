@@ -6,7 +6,6 @@ import com.linkedin.openhouse.internal.catalog.TableCommit;
 import com.linkedin.openhouse.internal.catalog.exception.CommitRejectedException;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import com.linkedin.openhouse.tables.config.TablesMvcConstants;
-import java.util.Objects;
 
 /**
  * The internal catalog's {@link CommitPolicy}: the column-default rules every table commit must
@@ -23,7 +22,7 @@ public class ColumnDefaultCommitPolicy implements CommitPolicy {
   private final CatalogRequestContext requestContext;
 
   public ColumnDefaultCommitPolicy(CatalogRequestContext requestContext) {
-    this.requestContext = Objects.requireNonNull(requestContext, "requestContext");
+    this.requestContext = requestContext;
   }
 
   /**
