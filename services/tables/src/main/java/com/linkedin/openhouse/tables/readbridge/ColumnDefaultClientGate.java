@@ -4,7 +4,6 @@ import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.Map;
-import java.util.Objects;
 import java.util.regex.Pattern;
 import javax.servlet.http.HttpServletRequest;
 import org.springframework.data.util.Version;
@@ -38,7 +37,7 @@ public class ColumnDefaultClientGate {
     this.minimum = minimum;
     this.minimumVersion = RELEASE.matcher(minimum).matches() ? Version.parse(minimum) : null;
     this.majorPrefix = minimumVersion == null ? "" : minimum.substring(0, minimum.indexOf('.') + 1);
-    this.requestContext = Objects.requireNonNull(requestContext, "requestContext");
+    this.requestContext = requestContext;
   }
 
   public void check(TableDto existing, Map<String, String> proposed) {
