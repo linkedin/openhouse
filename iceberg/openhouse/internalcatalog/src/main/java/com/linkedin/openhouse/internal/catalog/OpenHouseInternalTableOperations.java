@@ -17,6 +17,7 @@ import com.linkedin.openhouse.common.exception.MetadataRefreshFailureContext;
 import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
+import com.linkedin.openhouse.internal.catalog.exception.CommitRejectedException;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
@@ -96,9 +97,12 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
   PostCommitOperationRunner postCommitOperationRunner;
 
+  CommitPolicy commitPolicy;
+
   /**
-   * Backward-compatible constructor without a {@link PostCommitOperationRunner}. Post-commit
-   * operations are disabled (no runner wired).
+   * Backward-compatible constructor without a {@link PostCommitOperationRunner} or {@link
+   * CommitPolicy}: post-commit operations are disabled (no runner wired) and every commit passes
+   * the policy check.
    */
   public OpenHouseInternalTableOperations(
       HouseTableRepository houseTableRepository,
@@ -116,7 +120,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         metricsReporter,
         fileIOManager,
         tableMetadataCache,
-        null);
+        null,
+        CommitPolicy.NONE);
   }
 
   public OpenHouseInternalTableOperations(
@@ -127,7 +132,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       MetricsReporter metricsReporter,
       FileIOManager fileIOManager,
       TableMetadataCache tableMetadataCache,
-      PostCommitOperationRunner postCommitOperationRunner) {
+      PostCommitOperationRunner postCommitOperationRunner,
+      CommitPolicy commitPolicy) {
     this.houseTableRepository = houseTableRepository;
     this.fileIO = fileIO;
     this.houseTableMapper = houseTableMapper;
@@ -136,6 +142,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     this.fileIOManager = fileIOManager;
     this.tableMetadataCache = tableMetadataCache;
     this.postCommitOperationRunner = postCommitOperationRunner;
+    this.commitPolicy = commitPolicy;
   }
 
   private static final Gson GSON = new Gson();
@@ -433,7 +440,11 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
       restoreOverriddenProperties(properties);
       enforcePropertyRules(base, properties);
-      // A rejected property change must not mark the unchanged table version as attempted.
+      // After the stale-base check, so a snapshot commit built on an older table version gets the
+      // retryable conflict instead, and before failIfRetryUpdate, so a rejected commit does not
+      // mark the unchanged table version as attempted.
+      commitPolicy.check(TableCommit.of(tableIdentifier, base, metadata.schema(), properties));
+      properties.remove(CatalogConstants.IS_REPLACE_COMMIT_KEY);
       failIfRetryUpdate(properties);
 
       properties.put(
@@ -611,6 +622,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       throw new BadRequestException(e, e.getMessage());
     } catch (CommitFailedException | UnsupportedClientOperationException e) {
       throw e;
+    } catch (CommitRejectedException e) {
+      // Nothing has been written, so there is no commit status to recover.
+      throw e.getCause();
     } catch (HouseTableCallerException
         | HouseTableNotFoundException
         | HouseTableConcurrentUpdateException e) {

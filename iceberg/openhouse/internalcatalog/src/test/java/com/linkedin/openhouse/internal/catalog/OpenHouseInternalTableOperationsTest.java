@@ -12,6 +12,7 @@ import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
+import com.linkedin.openhouse.internal.catalog.exception.CommitRejectedException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -76,6 +77,8 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
@@ -159,11 +162,111 @@ public class OpenHouseInternalTableOperationsTest {
             metricsReporter,
             fileIOManager,
             tableMetadataCache,
-            mockPostCommitOperationRunner);
+            mockPostCommitOperationRunner,
+            CommitPolicy.NONE);
 
     LocalStorage localStorage = mock(LocalStorage.class);
     when(fileIOManager.getStorage(fileIO)).thenReturn(localStorage);
     when(localStorage.getType()).thenReturn(StorageType.LOCAL);
+  }
+
+  /**
+   * The policy judges only commits built on the table's current version: a snapshot commit built on
+   * an older version gets the retryable conflict from the stale-base check first.
+   */
+  @Test
+  void testCommitPolicyNeverJudgesAStaleSnapshotCommit() throws IOException {
+    java.nio.file.Path persisted =
+        Files.createTempDirectory("oh-commit-policy").resolve("00002-current.metadata.json");
+    Files.write(persisted, TableMetadataParser.toJson(BASE_TABLE_METADATA).getBytes());
+    TableMetadata base =
+        TableMetadataParser.read(new HadoopFileIO(new Configuration()), persisted.toString());
+    Map<String, String> properties = new HashMap<>(base.properties());
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY,
+        SnapshotsUtil.serializedSnapshots(IcebergTestUtil.getSnapshots()));
+    properties.put(CatalogConstants.COMMIT_KEY, "/test_db/test_table/00001-older.metadata.json");
+    AtomicReference<TableCommit> judged = new AtomicReference<>();
+    openHouseInternalTableOperations.commitPolicy = judged::set;
+
+    try (MockedStatic<TableMetadataParser> metadataFiles = mockStatic(TableMetadataParser.class)) {
+      Assertions.assertThrows(
+          CommitFailedException.class,
+          () ->
+              openHouseInternalTableOperations.doCommit(base, base.replaceProperties(properties)));
+    }
+    Assertions.assertNull(judged.get());
+  }
+
+  /**
+   * A rejection fails the commit with the policy's error, unchanged and before anything is written:
+   * not as a bad request, and not as a commit failure after a commit-status check.
+   */
+  @Test
+  void testCommitPolicyRejectionPassesThroughUnchanged() {
+    IllegalArgumentException error = new IllegalArgumentException("policy rejected");
+    openHouseInternalTableOperations.commitPolicy =
+        commit -> {
+          throw new CommitRejectedException(error);
+        };
+
+    try (MockedStatic<TableMetadataParser> metadataFiles = mockStatic(TableMetadataParser.class)) {
+      Assertions.assertSame(
+          error,
+          Assertions.assertThrows(
+              IllegalArgumentException.class,
+              () ->
+                  openHouseInternalTableOperations.doCommit(
+                      BASE_TABLE_METADATA, BASE_TABLE_METADATA)));
+      metadataFiles.verify(() -> TableMetadataParser.write(any(), any()), never());
+      verifyNoInteractions(mockHouseTableRepository);
+    }
+  }
+
+  enum CommitKind {
+    SNAPSHOTS,
+    REPLACE,
+    PROPERTIES
+  }
+
+  /**
+   * The policy sees the properties the commit leaves, after transient overrides are restored, and
+   * whether it puts snapshots or replaces the table. The replace marker is never persisted.
+   */
+  @ParameterizedTest
+  @EnumSource(CommitKind.class)
+  void testCommitPolicySeesWhatTheCommitLeaves(CommitKind kind) throws IOException {
+    AtomicReference<TableCommit> judged = new AtomicReference<>();
+    openHouseInternalTableOperations.commitPolicy = judged::set;
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    properties.put("owner", "overridden");
+    properties.put(CatalogConstants.TRANSIENT_RESTORE_PREFIX + "owner", "original");
+    properties.put("added", "temporarily");
+    properties.put(CatalogConstants.TRANSIENT_ADDED_PREFIX + "added", "true");
+    if (kind == CommitKind.SNAPSHOTS) {
+      List<Snapshot> snapshots = IcebergTestUtil.getSnapshots();
+      properties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(snapshots));
+      properties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.createMainBranchRefPointingTo(snapshots.get(snapshots.size() - 1))));
+    } else if (kind == CommitKind.REPLACE) {
+      properties.put(CatalogConstants.IS_REPLACE_COMMIT_KEY, "true");
+    }
+
+    try (MockedStatic<TableMetadataParser> metadataFiles = mockStatic(TableMetadataParser.class)) {
+      openHouseInternalTableOperations.doCommit(
+          BASE_TABLE_METADATA, BASE_TABLE_METADATA.replaceProperties(properties));
+      verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), any());
+    }
+    TableCommit judgedCommit = judged.get();
+    Assertions.assertEquals(kind != CommitKind.PROPERTIES, judgedCommit.isSnapshotCommit());
+    Map<String, String> judgedProperties = judgedCommit.getProperties();
+    Assertions.assertEquals("original", judgedProperties.get("owner"));
+    Assertions.assertFalse(judgedProperties.containsKey("added"));
+    Map<String, String> persisted = tblMetadataCaptor.getValue().properties();
+    Assertions.assertFalse(persisted.containsKey(CatalogConstants.IS_REPLACE_COMMIT_KEY));
   }
 
   /**
