@@ -31,6 +31,8 @@ public class ReadBridgeStripProtectionTest {
   private static final ColumnDefaultsSource FIELD_2 =
       tableDto -> Collections.singletonMap(2, TextNode.valueOf("US"));
 
+  private static final CatalogRequestContext NO_BYPASS = new CatalogRequestContext() {};
+
   @Test
   public void noDefaultsSource_stillStripsInitialDefault() {
     TableDto incoming = ramped(SCHEMA_WITH_DEFAULT, overwrite(10));
@@ -409,7 +411,7 @@ public class ReadBridgeStripProtectionTest {
   }
 
   private static ReadBridgeStripProtection protection(ColumnDefaultsSource source) {
-    return new ReadBridgeStripProtection(new ReadBridgeConfigResolver(source));
+    return new ReadBridgeStripProtection(new ReadBridgeConfigResolver(source), NO_BYPASS);
   }
 
   /** Rejects only {@code declaring}; every other table has a usable default on field 2. */
