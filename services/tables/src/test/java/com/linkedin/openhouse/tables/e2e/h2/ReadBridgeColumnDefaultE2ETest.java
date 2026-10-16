@@ -66,7 +66,11 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
  * default is a bad request. Create and update responses omit {@code config}. Resolver unit tests
  * cover the same matrix.
  */
-@SpringBootTest(properties = "cluster.read-bridge.column-default.minimum-client-version=0.5.100")
+@SpringBootTest(
+    properties = {
+      "cluster.read-bridge.column-default.minimum-client-version=0.5.100",
+      "cluster.read-bridge.column-default.admitted-client-names= spark, ,replicator ,"
+    })
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_CLASS)
 @Import(ReadBridgeColumnDefaultE2ETest.StubDefaults.class)
@@ -252,6 +256,28 @@ public class ReadBridgeColumnDefaultE2ETest {
             MockMvcRequestBuilders.post("/v2/databases/d1/tables/search")
                 .param("fields", "tableLocation"))
         .andExpect(status().isOk());
+  }
+
+  @Test
+  public void configuredClientNamesAreAdmittedAtTheMinimumVersion() throws Exception {
+    created = create(uniqueTable("client_names"), Collections.singletonMap(ENABLED_PROP, "true"));
+    createTable();
+    String path = "/v1/databases/" + created.getDatabaseId() + "/tables/" + created.getTableId();
+    mvc.perform(
+            MockMvcRequestBuilders.get(path)
+                .header("X-Client-Name", "replicator")
+                .header("User-Agent", "openhouse-java-client/0.5.100"))
+        .andExpect(status().isOk());
+    mvc.perform(
+            MockMvcRequestBuilders.get(path)
+                .header("X-Client-Name", "replicator")
+                .header("User-Agent", "openhouse-java-client/0.5.99"))
+        .andExpect(status().isUnprocessableEntity());
+    mvc.perform(
+            MockMvcRequestBuilders.get(path)
+                .header("X-Client-Name", "unlisted")
+                .header("User-Agent", "openhouse-java-client/0.5.100"))
+        .andExpect(status().isUnprocessableEntity());
   }
 
   @Test
