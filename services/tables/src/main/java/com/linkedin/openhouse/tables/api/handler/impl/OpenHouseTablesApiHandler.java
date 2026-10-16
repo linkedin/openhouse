@@ -6,6 +6,7 @@ import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
@@ -38,7 +39,11 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
 
   @Autowired private ReadBridgeConfigResolver readBridgeConfigResolver;
 
-  /** Request-time {@code config} stamp; mapper leaves it null. */
+  /**
+   * Adds {@code config}, the per-table client settings such as column defaults, to a table
+   * response. GET only: clients read it when they load a table, so create and update responses omit
+   * it.
+   */
   private GetTableResponseBody withConfig(GetTableResponseBody body, TableDto tableDto) {
     return body.toBuilder().config(readBridgeConfigResolver.resolve(tableDto)).build();
   }
@@ -102,7 +107,7 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
     TableDto tableDto = putResult.getFirst();
     return ApiResponse.<GetTableResponseBody>builder()
         .httpStatus(HttpStatus.CREATED)
-        .responseBody(withConfig(tablesMapper.toGetTableResponseBody(tableDto), tableDto))
+        .responseBody(tablesMapper.toGetTableResponseBody(tableDto))
         .build();
   }
 
@@ -120,7 +125,7 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
     TableDto tableDto = putResult.getFirst();
     return ApiResponse.<GetTableResponseBody>builder()
         .httpStatus(status)
-        .responseBody(withConfig(tablesMapper.toGetTableResponseBody(tableDto), tableDto))
+        .responseBody(tablesMapper.toGetTableResponseBody(tableDto))
         .build();
   }
 
@@ -202,6 +207,14 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
       String databaseId, String tableId, String tableCreatorUpdator) {
     tablesApiValidator.validateGetTable(databaseId, tableId);
     tableService.deleteLock(databaseId, tableId, tableCreatorUpdator);
+    return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
+  }
+
+  @Override
+  public ApiResponse<Void> deleteLock(
+      String databaseId, String tableId, LockReason reason, String tableCreatorUpdator) {
+    tablesApiValidator.validateGetTable(databaseId, tableId);
+    tableService.deleteLock(databaseId, tableId, reason, tableCreatorUpdator);
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
   }
 

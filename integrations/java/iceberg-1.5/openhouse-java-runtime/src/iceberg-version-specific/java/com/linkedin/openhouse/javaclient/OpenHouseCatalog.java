@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.javaclient;
 
+import static com.linkedin.openhouse.client.ssl.WebClientFactory.ACTION_TYPE_SYSTEM;
+import static com.linkedin.openhouse.client.ssl.WebClientFactory.HTTP_HEADER_ACTION_TYPE;
 import static com.linkedin.openhouse.javaclient.OpenHouseTableOperations.*;
 
 import com.linkedin.openhouse.client.ssl.HttpConnectionStrategy;
@@ -24,6 +26,7 @@ import com.linkedin.openhouse.tables.client.model.UpdateAclPoliciesRequestBody;
 import java.net.MalformedURLException;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -130,6 +133,8 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
 
   public static final String CLIENT_VERSION = "client-version";
 
+  public static final String ACTION_TYPE = "action-type";
+
   /** Catalog property that gates view support. Off by default. */
   private static final String VIEWS_ENABLED_PROPERTY = "iceberg-views-enabled";
 
@@ -155,6 +160,10 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     String httpConnectionStrategy = properties.getOrDefault(HTTP_CONNECTION_STRATEGY, null);
     String clientName = properties.getOrDefault(CLIENT_NAME, null);
     String clientVersion = properties.getOrDefault(CLIENT_VERSION, null);
+    String actionType = properties.get(ACTION_TYPE);
+    Preconditions.checkArgument(
+        actionType == null || ACTION_TYPE_SYSTEM.equalsIgnoreCase(actionType),
+        "action-type must be SYSTEM when supplied");
     try {
       TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
       tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
@@ -167,6 +176,9 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     } catch (MalformedURLException | SSLException e) {
       throw new RuntimeException(
           "OpenHouse Catalog initialization failed: Failure while initializing ApiClient", e);
+    }
+    if (actionType != null) {
+      this.apiClient.addDefaultHeader(HTTP_HEADER_ACTION_TYPE, actionType.toUpperCase(Locale.ROOT));
     }
     this.tableApi = new TableApi(apiClient);
     this.snapshotApi = new SnapshotApi(apiClient);

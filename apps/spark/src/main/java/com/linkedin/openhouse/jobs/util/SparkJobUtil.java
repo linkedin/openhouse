@@ -1,15 +1,12 @@
 package com.linkedin.openhouse.jobs.util;
 
-import com.linkedin.openhouse.jobs.exception.RetentionConfigurationException;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import java.io.IOException;
-import java.time.DateTimeException;
-import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
-import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
@@ -18,6 +15,8 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
+import org.apache.spark.sql.catalyst.expressions.Literal;
+import org.apache.spark.sql.types.DataTypes;
 
 /** * Utility class to provide spark apps action semantics and SQL statements. */
 @Slf4j
@@ -58,7 +57,7 @@ public final class SparkJobUtil {
       result: records will be filtered from deletion
   */
   private static final String RETENTION_CONDITION_WITH_PATTERN_TEMPLATE =
-      "%s < cast(date_format(timestamp '%s' - INTERVAL %s %ss, '%s') as string)";
+      "%s < cast(date_format(timestamp '%s' - INTERVAL %s %ss, %s) as string)";
 
   public static String createDeleteStatement(
       String fqtn,
@@ -78,7 +77,9 @@ public final class SparkJobUtil {
                   now.toLocalDateTime(),
                   count,
                   granularity,
-                  columnPattern));
+                  ZoneOffset.UTC.equals(now.getZone())
+                      ? "'" + columnPattern + "'"
+                      : Literal.create(columnPattern, DataTypes.StringType).sql()));
       log.info(
           "Table: {}. Column pattern: {}, columnName {}, granularity {}s, " + "retention query: {}",
           fqtn,
@@ -108,43 +109,19 @@ public final class SparkJobUtil {
       String columnName, String columnPattern, String granularity, int count, ZonedDateTime now) {
     ChronoUnit timeUnitGranularity =
         ChronoUnit.valueOf(convertGranularityToChrono(granularity.toUpperCase()).name());
-    ZonedDateTime cutoffDate = now.minus(timeUnitGranularity.getDuration().multipliedBy(count));
     if (!StringUtils.isBlank(columnPattern)) {
-      String formattedCutoffDate = DateTimeFormatter.ofPattern(columnPattern).format(cutoffDate);
+      String formattedCutoffDate =
+          DateTimeFormatter.ofPattern(columnPattern)
+              .format(
+                  ZoneOffset.UTC.equals(now.getZone())
+                      ? now.minus(timeUnitGranularity.getDuration().multipliedBy(count))
+                      : now.toLocalDateTime().minus(count, timeUnitGranularity));
       return Expressions.lessThan(columnName, formattedCutoffDate);
     } else {
+      ZonedDateTime cutoffDate = now.minus(timeUnitGranularity.getDuration().multipliedBy(count));
       long formattedCutoffDate =
-          cutoffDate.truncatedTo(timeUnitGranularity).toEpochSecond() * 1000 * 1000;
+          cutoffDate.truncatedTo(timeUnitGranularity).toEpochSecond() * 1000 * 1000; // microsecond
       return Expressions.lessThan(columnName, formattedCutoffDate);
-    }
-  }
-
-  /** Formats the calendar cutoff in the declared convention of the stored date strings. */
-  public static String createZonedStringCutoff(
-      String columnPattern,
-      String granularity,
-      int count,
-      ZonedDateTime evaluationTime,
-      ZoneId timeZone)
-      throws RetentionConfigurationException {
-    if (StringUtils.isBlank(columnPattern)
-        || columnPattern
-            .replaceAll("'[^']*'", "")
-            .chars()
-            .anyMatch(character -> "VvzOXxZ".indexOf(character) >= 0)) {
-      throw new RetentionConfigurationException(
-          "Retention time zone requires a date pattern with no zone field");
-    }
-    try {
-      return DateTimeFormatter.ofPattern(columnPattern)
-          .format(
-              evaluationTime
-                  .withZoneSameInstant(timeZone)
-                  .toLocalDateTime()
-                  .minus(count, convertGranularityToChrono(granularity.toUpperCase(Locale.ROOT))));
-    } catch (DateTimeException | IllegalArgumentException cause) {
-      throw new RetentionConfigurationException(
-          "Invalid zoned retention date configuration", cause);
     }
   }
 

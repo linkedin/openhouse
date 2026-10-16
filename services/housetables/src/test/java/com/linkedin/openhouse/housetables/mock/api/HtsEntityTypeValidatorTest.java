@@ -70,9 +70,7 @@ public class HtsEntityTypeValidatorTest {
 
     Assertions.assertEquals(
         String.format(
-            HtsEntityTypeValidator.TYPE_MISMATCH_MESSAGE_FORMAT,
-            declared,
-            routeEntityType.name()),
+            HtsEntityTypeValidator.TYPE_MISMATCH_MESSAGE_FORMAT, declared, routeEntityType.name()),
         thrown.getMessage());
   }
 

@@ -73,7 +73,7 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
       // A locked table must reject every write, including CREATE OR REPLACE (RTAS). The lock is
       // checked here — before the replace-vs-update split — so the replace path can no longer
       // bypass it and silently overwrite a locked table.
-      if (isTableLocked(tableDto.get())) {
+      if (LockPolicyValidator.isLegacyLocked(tableDto.get())) {
         throw new UnsupportedClientOperationException(
             UnsupportedClientOperationException.Operation.LOCKED_TABLE_OPERATION,
             String.format(
@@ -81,14 +81,17 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
       }
       authorizationUtils.checkTableWritePathPrivileges(
           tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
+      authorizationUtils.checkSystemOnlyLockAccess(tableDto.get(), tableCreatorUpdater);
     } else {
       authorizationUtils.checkDatabasePrivilege(
           databaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
     }
+    tableDtoToSave = LockPolicyValidator.prepare(tableDto.orElse(null), tableDtoToSave);
     try {
       tableDtoToSave = readBridgeStripProtection.prepare(tableDto.orElse(null), tableDtoToSave);
     } catch (ColumnDefaultException e) {
-      throw e.toUnsupportedClient();
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.COLUMN_DEFAULT, e.getMessage(), e);
     }
     try {
       return Pair.of(openHouseInternalRepository.save(tableDtoToSave), !tableDto.isPresent());
@@ -111,11 +114,5 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
               "The requested table has been modified/created by other processes."),
           ce);
     }
-  }
-
-  private boolean isTableLocked(TableDto tableDto) {
-    return tableDto.getPolicies() != null
-        && tableDto.getPolicies().getLockState() != null
-        && tableDto.getPolicies().getLockState().isLocked();
   }
 }

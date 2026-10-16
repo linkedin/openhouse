@@ -1,22 +1,27 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.linkedin.openhouse.common.JobState;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
-import com.linkedin.openhouse.jobs.exception.RetentionConfigurationException;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
+import com.linkedin.openhouse.tables.client.api.TableApi;
+import com.linkedin.openhouse.tables.client.invoker.ApiClient;
+import com.linkedin.openhouse.tables.client.model.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.Arrays;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.relocated.com.google.common.collect.Iterables;
+import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -133,7 +138,85 @@ public class AppsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testRetentionSparkAppPassesUtcNowToRunRetention() throws Exception {
+  public void testSnapshotsExpirationSparkAppMaintainsSystemOnlyLockedTable() throws Exception {
+    assertFinalStateOnSystemOnlyLockedTable(
+        "test_se_system_only_lock",
+        (jobId, stateManager, fqtn) ->
+            new SnapshotsExpirationSparkApp(
+                jobId, stateManager, fqtn, 0, "", 1, false, ".backup", otelEmitter),
+        JobState.SUCCEEDED,
+        1);
+  }
+
+  @Test
+  public void testTableStatsCollectionSparkAppIsDeniedOnSystemOnlyLockedTable() throws Exception {
+    assertFinalStateOnSystemOnlyLockedTable(
+        "test_stats_system_only_lock",
+        (jobId, stateManager, fqtn) ->
+            new TableStatsCollectionSparkApp(jobId, stateManager, fqtn, otelEmitter),
+        JobState.FAILED,
+        2);
+  }
+
+  private interface AppFactory {
+    BaseSparkApp create(String jobId, StateManager stateManager, String fqtn);
+  }
+
+  private void assertFinalStateOnSystemOnlyLockedTable(
+      String tableName, AppFactory appFactory, JobState expectedState, int expectedSnapshots)
+      throws Exception {
+    final String database = "db";
+    final String fqtn = database + "." + tableName;
+    final String jobId = "job-" + tableName;
+    SparkSession spark = getSparkSession();
+    spark.sql(String.format("CREATE TABLE openhouse.%s (id int)", fqtn));
+    TableApi controls = controls(spark);
+    try {
+      spark.sql(String.format("INSERT INTO openhouse.%s VALUES (1)", fqtn));
+      spark.sql(String.format("INSERT INTO openhouse.%s VALUES (2)", fqtn));
+      long currentSnapshotId =
+          getOpenHouseCatalog(spark)
+              .loadTable(TableIdentifier.parse(fqtn))
+              .currentSnapshot()
+              .snapshotId();
+      controls
+          .createLockV1(
+              database,
+              tableName,
+              new CreateUpdateLockRequestBody()
+                  .locked(true)
+                  .reason(CreateUpdateLockRequestBody.ReasonEnum.SYSTEM_ONLY))
+          .block();
+      // The shared session has already loaded the openhouse catalog, so run the app on a new
+      // session whose catalog is created with the app's configuration.
+      SparkSession.setActiveSession(spark.newSession());
+      StateManager stateManagerMock = Mockito.mock(StateManager.class);
+
+      appFactory.create(jobId, stateManagerMock, fqtn).run();
+
+      Mockito.verify(stateManagerMock).updateState(jobId, expectedState);
+      SparkSession reader = getSparkSession().newSession();
+      reader.conf().set("spark.sql.catalog.openhouse.action-type", "SYSTEM");
+      Table table = getOpenHouseCatalog(reader).loadTable(TableIdentifier.parse(fqtn));
+      Assertions.assertEquals(currentSnapshotId, table.currentSnapshot().snapshotId());
+      Assertions.assertEquals(expectedSnapshots, Iterables.size(table.snapshots()));
+    } finally {
+      SparkSession.clearActiveSession();
+      controls.deleteLockByReasonV1(database, tableName, "SYSTEM_ONLY").block();
+      getSparkSession().sql(String.format("DROP TABLE openhouse.%s", fqtn));
+    }
+  }
+
+  private TableApi controls(SparkSession spark) {
+    ApiClient client = new ApiClient();
+    client.setBasePath(getOpenHouseLocalServerURI().toString());
+    client.addDefaultHeader(
+        "Authorization", "Bearer " + spark.conf().get("spark.sql.catalog.openhouse.auth-token"));
+    return new TableApi(client);
+  }
+
+  @Test
+  public void testRetentionSparkAppPassesUtcNowToRunRetention() {
     final String tableName = "db.test_retention_app";
     Operations ops = Mockito.mock(Operations.class);
     Table table = Mockito.mock(Table.class);
@@ -153,7 +236,7 @@ public class AppsTest extends OpenHouseSparkITest {
             otelEmitter,
             ".backup");
 
-    app.runInner(ops);
+    Assertions.assertDoesNotThrow(() -> app.runInner(ops));
 
     ArgumentCaptor<ZonedDateTime> nowCaptor = ArgumentCaptor.forClass(ZonedDateTime.class);
     Mockito.verify(ops)
@@ -170,7 +253,7 @@ public class AppsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testRetentionSparkAppPassesTimeZoneDeclarationToRunRetention() throws Exception {
+  public void testRetentionSparkAppPassesTimeZoneDeclarationToRunRetention() {
     final String tableName = "db.test_retention_app_zoned";
     Operations ops = Mockito.mock(Operations.class);
     Table table = Mockito.mock(Table.class);
@@ -189,9 +272,9 @@ public class AppsTest extends OpenHouseSparkITest {
             7,
             otelEmitter,
             ".backup",
-            Optional.of("America/Los_Angeles"));
+            ZoneId.of("America/Los_Angeles"));
 
-    app.runInner(ops);
+    Assertions.assertDoesNotThrow(() -> app.runInner(ops));
 
     ArgumentCaptor<ZonedDateTime> nowCaptor = ArgumentCaptor.forClass(ZonedDateTime.class);
     Mockito.verify(ops)
@@ -203,15 +286,14 @@ public class AppsTest extends OpenHouseSparkITest {
             Mockito.eq(7),
             Mockito.eq(true),
             Mockito.eq(".backup"),
-            nowCaptor.capture(),
-            Mockito.eq(ZoneId.of("America/Los_Angeles")));
-    Assertions.assertEquals(ZoneOffset.UTC, nowCaptor.getValue().getZone());
+            nowCaptor.capture());
+    Assertions.assertEquals(ZoneId.of("America/Los_Angeles"), nowCaptor.getValue().getZone());
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"Not/AZone", "", " "})
-  public void testRetentionSparkAppRejectsInvalidTimeZone(String timeZone) {
-    final String tableName = "db.test_retention_app_invalid_zone";
+  @ValueSource(strings = {"UTC", "+00:00"})
+  public void testRetentionSparkAppNormalizesUtcTimeZone(String timeZone) {
+    final String tableName = "db.test_retention_app_utc_zone";
     Operations ops = Mockito.mock(Operations.class);
     Table table = Mockito.mock(Table.class);
     StateManager stateManagerMock = Mockito.mock(StateManager.class);
@@ -229,20 +311,21 @@ public class AppsTest extends OpenHouseSparkITest {
             7,
             otelEmitter,
             ".backup",
-            Optional.of(timeZone));
+            ZoneId.of(timeZone));
 
-    RetentionConfigurationException thrown =
-        Assertions.assertThrows(RetentionConfigurationException.class, () -> app.runInner(ops));
-    Assertions.assertTrue(thrown.getMessage().contains("Invalid --timeZone '" + timeZone + "'"));
-    Mockito.verify(ops, Mockito.never())
+    Assertions.assertDoesNotThrow(() -> app.runInner(ops));
+
+    ArgumentCaptor<ZonedDateTime> nowCaptor = ArgumentCaptor.forClass(ZonedDateTime.class);
+    Mockito.verify(ops)
         .runRetention(
-            Mockito.any(),
-            Mockito.any(),
-            Mockito.any(),
-            Mockito.any(),
-            Mockito.anyInt(),
-            Mockito.anyBoolean(),
-            Mockito.any(),
-            Mockito.any());
+            Mockito.eq(tableName),
+            Mockito.eq("ts"),
+            Mockito.eq("yyyy-MM-dd-HH"),
+            Mockito.eq("DAY"),
+            Mockito.eq(7),
+            Mockito.eq(true),
+            Mockito.eq(".backup"),
+            nowCaptor.capture());
+    Assertions.assertEquals(ZoneOffset.UTC, nowCaptor.getValue().getZone());
   }
 }

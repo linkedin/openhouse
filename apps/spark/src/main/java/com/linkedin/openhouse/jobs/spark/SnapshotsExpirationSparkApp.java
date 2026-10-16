@@ -12,7 +12,6 @@ import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
-import org.apache.iceberg.Table;
 import org.apache.iceberg.actions.ExpireSnapshots;
 
 /**
@@ -62,26 +61,24 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
   }
 
   @Override
-  protected void runInner(Operations ops) {
-    Table table = ops.getTable(fqtn);
-    boolean backupEnabled =
-        Boolean.parseBoolean(
-            table.properties().getOrDefault(AppConstants.BACKUP_ENABLED_KEY, "false"));
+  protected boolean isSystemAction() {
+    return true;
+  }
 
+  @Override
+  protected void runInner(Operations ops) {
     log.info(
-        "Snapshot expiration app start for table {}, expiring older than {} {}s or with more than {} versions, deleteFiles={}, backupEnabled={}, backupDir={}",
+        "Snapshot expiration app start for table {}, expiring older than {} {}s or with more than {} versions, deleteFiles={}, backupDir={}",
         fqtn,
         maxAge,
         granularity,
         versions,
         deleteFiles,
-        backupEnabled,
         backupDir);
 
     long startTime = System.currentTimeMillis();
     ExpireSnapshots.Result result =
-        ops.expireSnapshots(
-            fqtn, maxAge, granularity, versions, deleteFiles, backupEnabled, backupDir);
+        ops.expireSnapshots(fqtn, maxAge, granularity, versions, deleteFiles, backupDir);
     long duration = System.currentTimeMillis() - startTime;
 
     // Log results

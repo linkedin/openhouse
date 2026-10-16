@@ -10,22 +10,18 @@ import com.linkedin.openhouse.common.stats.model.CommitEventTable;
 import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitionStats;
 import com.linkedin.openhouse.common.stats.model.CommitEventTablePartitions;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
-import com.linkedin.openhouse.jobs.exception.RetentionConfigurationException;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
 import com.linkedin.openhouse.jobs.util.TableStatsCollector;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import java.io.IOException;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -48,7 +44,6 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.actions.DeleteOrphanFiles;
@@ -62,10 +57,7 @@ import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.apache.iceberg.spark.actions.SparkActions;
-import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.SparkSession;
-import org.apache.spark.sql.catalyst.expressions.Literal;
-import org.apache.spark.sql.types.DataTypes;
 import scala.collection.JavaConverters;
 
 /**
@@ -78,8 +70,6 @@ public final class Operations implements AutoCloseable {
   private static final String CATALOG = "openhouse";
 
   private static final String METRICS_SCOPE = Operations.class.getName();
-
-  private static final long DEFAULT_MAX_REFERENCE_AGE_MILLIS = TimeUnit.DAYS.toMillis(7);
 
   private final SparkSession spark;
 
@@ -116,12 +106,9 @@ public final class Operations implements AutoCloseable {
   }
 
   /**
-   * Run DeleteOrphanFiles operation on the given table with time filter. An orphan data file is
-   * moved to the given backup directory whenever a data manifest exists for its partition under
-   * that directory, otherwise it is deleted. The move happens regardless of whether backup is
-   * currently enabled for the OFD job: the presence of a manifest (written by a previous retention
-   * run with backup enabled) is what marks the files for preservation. It processes files older
-   * than the provided timestamp.
+   * Run DeleteOrphanFiles operation on the given table with time filter. It processes files older
+   * than the provided timestamp; each orphan file is backed up or deleted by {@link
+   * #buildFileDeleteHandler}.
    */
   public DeleteOrphanFiles.Result deleteOrphanFiles(
       Table table,
@@ -144,30 +131,21 @@ public final class Operations implements AutoCloseable {
       operation = operation.executeDeleteWith(removeFilesService(concurrentDeletes));
     }
     Map<String, Boolean> dataManifestsCache = new ConcurrentHashMap<>();
-    operation =
-        operation.deleteWith(
-            // OFD always moves orphan data files to the backup dir when a data manifest exists
-            // for the partition, regardless of whether backup is currently enabled for the OFD
-            // job, so backupEnabled is always passed as true here.
-            buildFileDeleteHandler(table, true, backupDir, dataManifestsCache));
+    operation = operation.deleteWith(buildFileDeleteHandler(table, backupDir, dataManifestsCache));
     return operation.execute();
   }
 
   /**
-   * Build a shared {@code deleteWith} handler used by both Orphan File Deletion (OFD) and Snapshot
-   * Expiration (SE) so the backup/delete semantics for expired or orphaned files stay in sync
-   * across both jobs rather than diverging as separate implementations.
+   * Build the {@code deleteWith} handler shared by Orphan File Deletion and Snapshot Expiration so
+   * orphaned and expired files get identical treatment.
    *
-   * <p>Behavior: metadata.json files are skipped (Iceberg commits own their lifecycle), files
-   * already under the backup directory are skipped, data files are moved to the backup directory
-   * when backup is enabled and a data manifest backup already exists for that partition, otherwise
-   * the file is deleted directly.
+   * <p>metadata.json files are skipped (Iceberg commits own their lifecycle), as are files already
+   * under the backup directory. A data file is moved to the backup directory when a data manifest
+   * exists for its partition, otherwise it is deleted: retention writes that manifest listing the
+   * files to restore, so backing up a file without one would not make it restorable.
    */
   private Consumer<String> buildFileDeleteHandler(
-      Table table,
-      boolean backupEnabled,
-      String backupDir,
-      Map<String, Boolean> dataManifestsCache) {
+      Table table, String backupDir, Map<String, Boolean> dataManifestsCache) {
     Path backupDirRoot = new Path(table.location(), backupDir);
     Path dataDirRoot = new Path(table.location(), "data");
     return file -> {
@@ -181,9 +159,7 @@ public final class Operations implements AutoCloseable {
         // files present in .backup dir should not be considered orphan/expired
         log.info("Skipped deleting backup file {}", file);
       } else if (file.contains(dataDirRoot.toString())
-          && backupEnabled
           && isExistBackupDataManifests(table, file, backupDir, dataManifestsCache)) {
-        // move data files to backup dir if backup is enabled
         backupDataFile(file, table, backupDir);
       } else {
         deleteFile(file);
@@ -311,7 +287,7 @@ public final class Operations implements AutoCloseable {
   /** Expire snapshots on a given fully-qualified table name with deleteFiles parameter. */
   public ExpireSnapshots.Result expireSnapshots(
       String fqtn, int maxAge, String granularity, int versions, boolean deleteFiles) {
-    return expireSnapshots(fqtn, maxAge, granularity, versions, deleteFiles, false, ".backup");
+    return expireSnapshots(fqtn, maxAge, granularity, versions, deleteFiles, ".backup");
   }
 
   /** Expire snapshots with backup support. */
@@ -321,10 +297,8 @@ public final class Operations implements AutoCloseable {
       String granularity,
       int versions,
       boolean deleteFiles,
-      boolean backupEnabled,
       String backupDir) {
-    return expireSnapshots(
-        getTable(fqtn), maxAge, granularity, versions, deleteFiles, backupEnabled, backupDir);
+    return expireSnapshots(getTable(fqtn), maxAge, granularity, versions, deleteFiles, backupDir);
   }
 
   /**
@@ -347,7 +321,7 @@ public final class Operations implements AutoCloseable {
    */
   public ExpireSnapshots.Result expireSnapshots(
       Table table, int maxAge, String granularity, int versions, boolean deleteFiles) {
-    return expireSnapshots(table, maxAge, granularity, versions, deleteFiles, false, ".backup");
+    return expireSnapshots(table, maxAge, granularity, versions, deleteFiles, ".backup");
   }
 
   /**
@@ -360,19 +334,7 @@ public final class Operations implements AutoCloseable {
       String granularity,
       int versions,
       boolean deleteFiles,
-      boolean backupEnabled,
       String backupDir) {
-    if (!table.properties().containsKey(TableProperties.MAX_REF_AGE_MS)) {
-      log.info(
-          "Backfilling maximum reference age for table {} to {}ms",
-          table,
-          DEFAULT_MAX_REFERENCE_AGE_MILLIS);
-      table
-          .updateProperties()
-          .set(TableProperties.MAX_REF_AGE_MS, String.valueOf(DEFAULT_MAX_REFERENCE_AGE_MILLIS))
-          .commit();
-    }
-
     ChronoUnit timeUnitGranularity =
         ChronoUnit.valueOf(
             SparkJobUtil.convertGranularityToChrono(granularity.toUpperCase()).name());
@@ -381,18 +343,16 @@ public final class Operations implements AutoCloseable {
             - timeUnitGranularity.getDuration().multipliedBy(maxAge).toMillis();
 
     log.info(
-        "Expiring snapshots for table: {} older than {}ms with deleteFiles={}, backupEnabled={}, backupDir={}",
+        "Expiring snapshots for table: {} older than {}ms with deleteFiles={}, backupDir={}",
         table,
         expireBeforeTimestampMs,
         deleteFiles,
-        backupEnabled,
         backupDir);
 
     // First expiration: based on maxAge
     ExpireSnapshots.Result result =
         deleteFiles
-            ? expireSnapshotsWithFiles(
-                table, expireBeforeTimestampMs, null, backupEnabled, backupDir)
+            ? expireSnapshotsWithFiles(table, expireBeforeTimestampMs, null, backupDir)
             : expireSnapshotsMetadataOnly(table, expireBeforeTimestampMs, null);
 
     // Second expiration: based on versions (if needed). Both phases can delete files, so their
@@ -402,8 +362,7 @@ public final class Operations implements AutoCloseable {
       log.info("Expiring snapshots for table: {} retaining last {} versions", table, versions);
       ExpireSnapshots.Result versionsResult =
           deleteFiles
-              ? expireSnapshotsWithFiles(
-                  table, System.currentTimeMillis(), versions, backupEnabled, backupDir)
+              ? expireSnapshotsWithFiles(table, System.currentTimeMillis(), versions, backupDir)
               : expireSnapshotsMetadataOnly(table, System.currentTimeMillis(), versions);
       result = combineResults(result, versionsResult);
     }
@@ -459,20 +418,13 @@ public final class Operations implements AutoCloseable {
 
   /**
    * Expire snapshots using SparkActions API with file deletion. Snapshot planning/manifest
-   * enumeration is distributed via Spark, with optional backup support; the delete/backup callback
-   * itself runs driver-side (see {@link #createExpireSnapshotsActionWithBackup}).
+   * enumeration is distributed via Spark; the delete/backup callback itself runs driver-side (see
+   * {@link #createExpireSnapshotsActionWithBackup}).
    */
   private ExpireSnapshots.Result expireSnapshotsWithFiles(
-      Table table,
-      long expireBeforeTimestampMs,
-      Integer versions,
-      boolean backupEnabled,
-      String backupDir) {
+      Table table, long expireBeforeTimestampMs, Integer versions, String backupDir) {
 
-    ExpireSnapshots expireSnapshotsAction =
-        backupEnabled
-            ? createExpireSnapshotsActionWithBackup(table, backupDir)
-            : SparkActions.get(spark).expireSnapshots(table);
+    ExpireSnapshots expireSnapshotsAction = createExpireSnapshotsActionWithBackup(table, backupDir);
 
     expireSnapshotsAction = expireSnapshotsAction.expireOlderThan(expireBeforeTimestampMs);
 
@@ -493,13 +445,12 @@ public final class Operations implements AutoCloseable {
 
     return SparkActions.get(spark)
         .expireSnapshots(table)
-        .deleteWith(buildFileDeleteHandler(table, true, backupDir, dataManifestsCache));
+        .deleteWith(buildFileDeleteHandler(table, backupDir, dataManifestsCache));
   }
 
   /*
-   * NOTE: file backup/delete semantics (metadata.json skip, backup-dir skip, backup-or-delete
-   * for data files) are shared with Orphan File Deletion via buildFileDeleteHandler(...) above,
-   * so both jobs stay consistent instead of maintaining separate implementations.
+   * NOTE: file backup/delete semantics are shared with Orphan File Deletion via
+   * buildFileDeleteHandler(...) above, so both jobs stay consistent.
    */
 
   /**
@@ -529,9 +480,7 @@ public final class Operations implements AutoCloseable {
     if (backupEnabled) {
       // Cache of manifests: partitionPath -> list of data file path
       Map<String, List<String>> manifestCache =
-          prepareBackupDataManifests(
-              fqtn,
-              SparkJobUtil.createDeleteFilter(columnName, columnPattern, granularity, count, now));
+          prepareBackupDataManifests(fqtn, columnName, columnPattern, granularity, count, now);
       writeBackupDataManifests(manifestCache, getTable(fqtn), backupDir, now);
       exposeBackupLocation(getTable(fqtn), backupDir);
     }
@@ -542,58 +491,16 @@ public final class Operations implements AutoCloseable {
     spark.sql(statement);
   }
 
-  public void runRetention(
-      String fullyQualifiedTableName,
+  private Map<String, List<String>> prepareBackupDataManifests(
+      String fqtn,
       String columnName,
       String columnPattern,
       String granularity,
       int count,
-      boolean backupEnabled,
-      String backupDirectory,
-      ZonedDateTime evaluationTime,
-      ZoneId timeZone)
-      throws RetentionConfigurationException {
-    if (!Optional.ofNullable(getTable(fullyQualifiedTableName).schema().findType(columnName))
-        .filter(Types.StringType.get()::equals)
-        .isPresent()) {
-      throw new RetentionConfigurationException(
-          "Retention time zone requires a string column: " + columnName);
-    }
-    String cutoff =
-        SparkJobUtil.createZonedStringCutoff(
-            columnPattern, granularity, count, evaluationTime, timeZone);
-    if (timeZone.normalized().equals(ZoneOffset.UTC)) {
-      runRetention(
-          fullyQualifiedTableName,
-          columnName,
-          columnPattern,
-          granularity,
-          count,
-          backupEnabled,
-          backupDirectory,
-          evaluationTime.withZoneSameInstant(ZoneOffset.UTC));
-      return;
-    }
-    if (backupEnabled) {
-      Map<String, List<String>> manifestCache =
-          prepareBackupDataManifests(
-              fullyQualifiedTableName, Expressions.lessThan(columnName, cutoff));
-      writeBackupDataManifests(
-          manifestCache, getTable(fullyQualifiedTableName), backupDirectory, evaluationTime);
-      exposeBackupLocation(getTable(fullyQualifiedTableName), backupDirectory);
-    }
-    String statement =
-        String.format(
-            "DELETE FROM %s WHERE %s < %s",
-            SparkJobUtil.getQuotedFqtn(fullyQualifiedTableName),
-            columnName,
-            Literal.create(cutoff, DataTypes.StringType).sql());
-    log.info("Table: {}. Retention query: {}", fullyQualifiedTableName, statement);
-    spark.sql(statement);
-  }
-
-  private Map<String, List<String>> prepareBackupDataManifests(String fqtn, Expression filter) {
+      ZonedDateTime now) {
     Table table = getTable(fqtn);
+    Expression filter =
+        SparkJobUtil.createDeleteFilter(columnName, columnPattern, granularity, count, now);
     TableScan scan = table.newScan().filter(filter);
     try (CloseableIterable<FileScanTask> filesIterable = scan.planFiles()) {
       List<FileScanTask> filesList = Lists.newArrayList(filesIterable);
