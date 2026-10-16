@@ -362,7 +362,9 @@ abstract class ViewsManagedAuthMatrixBase {
 }
 
 /** A1B1: token interceptor configured and method security enabled. */
-@SpringBootTest(classes = SpringH2Application.class)
+@SpringBootTest(
+    classes = SpringH2Application.class,
+    properties = {"tableE2eBackend=h2", "spring.jpa.mapping-resources=table-e2e-orm.xml"})
 @AutoConfigureMockMvc
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
 @TestPropertySource(
@@ -465,7 +467,9 @@ class ViewsManagedAuthMatrixTokenAndMethodSecurityTest extends ViewsManagedAuthM
 }
 
 /** A1B0: token interceptor configured, method security disabled. */
-@SpringBootTest(classes = SpringH2Application.class)
+@SpringBootTest(
+    classes = SpringH2Application.class,
+    properties = {"tableE2eBackend=h2", "spring.jpa.mapping-resources=table-e2e-orm.xml"})
 @AutoConfigureMockMvc
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
 @TestPropertySource(
@@ -509,7 +513,9 @@ class ViewsManagedAuthMatrixTokenOnlyTest extends ViewsManagedAuthMatrixBase {
 }
 
 /** A0B1: no token interceptor, method security enabled. */
-@SpringBootTest(classes = SpringH2Application.class)
+@SpringBootTest(
+    classes = SpringH2Application.class,
+    properties = {"tableE2eBackend=h2", "spring.jpa.mapping-resources=table-e2e-orm.xml"})
 @AutoConfigureMockMvc
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
 @TestPropertySource(
@@ -553,7 +559,9 @@ class ViewsManagedAuthMatrixMethodSecurityOnlyTest extends ViewsManagedAuthMatri
 }
 
 /** A0B0: development mode, neither axis configured. */
-@SpringBootTest(classes = SpringH2Application.class)
+@SpringBootTest(
+    classes = SpringH2Application.class,
+    properties = {"tableE2eBackend=h2", "spring.jpa.mapping-resources=table-e2e-orm.xml"})
 @AutoConfigureMockMvc
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
 @TestPropertySource(

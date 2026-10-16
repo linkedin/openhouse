@@ -96,7 +96,9 @@ import org.springframework.web.util.NestedServletException;
  * keeps the complete parsed body as supplied, CAS token included; HTTP responses and the
  * identity-only operation audit never carry the definition.
  */
-@SpringBootTest(classes = {SpringH2Application.class, ViewsManagedFailureAuditTest.Config.class})
+@SpringBootTest(
+    classes = {SpringH2Application.class, ViewsManagedFailureAuditTest.Config.class},
+    properties = {"tableE2eBackend=h2", "spring.jpa.mapping-resources=table-e2e-orm.xml"})
 @AutoConfigureMockMvc
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
 @TestPropertySource(

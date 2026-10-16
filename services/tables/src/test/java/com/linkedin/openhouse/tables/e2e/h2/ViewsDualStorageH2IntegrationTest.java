@@ -49,7 +49,9 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
  * routes {@code local_db.*} to LOCAL. A view in {@code local_db} therefore proves the bridge honors
  * the selected storage rather than stamping the default.
  */
-@SpringBootTest(classes = SpringH2Application.class)
+@SpringBootTest(
+    classes = SpringH2Application.class,
+    properties = {"tableE2eBackend=h2", "spring.jpa.mapping-resources=table-e2e-orm.xml"})
 @AutoConfigureMockMvc
 @ContextConfiguration(
     initializers = {

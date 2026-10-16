@@ -12,7 +12,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
 
-@SpringBootTest(classes = SpringH2Application.class)
+@SpringBootTest(
+    classes = SpringH2Application.class,
+    properties = {"tableE2eBackend=h2", "spring.jpa.mapping-resources=table-e2e-orm.xml"})
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_CLASS)
 public class ViewsDatabaseEnumerationTest {
