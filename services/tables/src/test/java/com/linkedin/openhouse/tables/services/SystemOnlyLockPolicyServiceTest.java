@@ -11,6 +11,8 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
+import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
+import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PoliciesSpecMapper;
@@ -51,7 +53,11 @@ class SystemOnlyLockPolicyServiceTest {
     repository = mock(OpenHouseInternalRepository.class);
     TablesMapper mapper = Mappers.getMapper(TablesMapper.class);
     ReflectionTestUtils.setField(mapper, "policiesSpecMapper", new PoliciesSpecMapper());
-    AuthorizationUtils authorization = mock(AuthorizationUtils.class);
+    AuthorizationHandler handler = mock(AuthorizationHandler.class);
+    when(handler.checkAccessDecision(anyString(), any(TableDto.class), any())).thenReturn(true);
+    when(handler.checkSystemOnlyLockAccess(any(), any(), any())).thenCallRealMethod();
+    AuthorizationUtils authorization = new AuthorizationUtils();
+    ReflectionTestUtils.setField(authorization, "authorizationHandler", handler);
     TableUUIDGenerator generator = mock(TableUUIDGenerator.class);
     when(generator.generateUUID(any(CreateUpdateTableRequestBody.class)))
         .thenReturn(UUID.randomUUID());
@@ -85,6 +91,7 @@ class SystemOnlyLockPolicyServiceTest {
             .clusterId("cluster")
             .tableUUID("uuid")
             .tableLocation("v1")
+            .tableType(TableType.PRIMARY_TABLE)
             .policies(
                 Policies.builder()
                     .lockState(systemOnly)

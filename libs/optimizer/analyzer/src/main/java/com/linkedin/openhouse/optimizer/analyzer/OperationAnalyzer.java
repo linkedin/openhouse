@@ -28,6 +28,23 @@ public interface OperationAnalyzer {
   boolean isEnabled(TableDto table);
 
   /**
+   * Cheap pre-filter evaluated <i>before</i> any DB load on the commit-driven path: should a commit
+   * to this table trigger analysis for this operation? Lets each analyzer "listen" only for the
+   * changes it cares about, so we don't analyze every operation on every stat event.
+   *
+   * <p>Default {@code true} — react to every commit (table stats collection wants near-real-time
+   * freshness). An operation that only cares about specific changes (e.g. a replication table
+   * property change) overrides this to return {@code false} for irrelevant commits. This is only a
+   * trigger pre-filter; the actual schedule-or-not decision still goes through {@link
+   * #shouldSchedule} (opt-in, active-op dedup, cadence).
+   *
+   * @param table the committed table's current state
+   */
+  default boolean triggersOnCommit(TableDto table) {
+    return true;
+  }
+
+  /**
    * Returns {@code true} if a new or refreshed operation record should be upserted.
    *
    * @param table the table entry

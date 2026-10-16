@@ -6,7 +6,9 @@ import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
 import java.time.Duration;
 import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
@@ -43,14 +45,22 @@ import org.springframework.stereotype.Component;
  * <p>The two retry intervals are configurable via {@code application.properties} and can be tuned
  * per environment. The opt-in property is per-table and managed through the standard table-
  * properties API.
+ *
+ * <p><b>Global toggle.</b> This analyzer is registered as a bean only when {@code
+ * analyzer.ofd.enabled=true}; it is <i>off by default</i> during the staged rollout (stats
+ * collection ships first). This deployment-wide flag is distinct from the per-table opt-in property
+ * {@code maintenance.optimizer.ofd.enabled}: the config flag turns the whole analyzer on or off,
+ * the table property opts an individual table in once the analyzer is running.
  */
 @Component
+@ConditionalOnProperty(name = "analyzer.ofd.enabled", havingValue = "true", matchIfMissing = false)
 public class CadenceBasedOrphanFilesDeletionAnalyzer implements OperationAnalyzer {
 
   static final String OFD_ENABLED_PROPERTY = "maintenance.optimizer.ofd.enabled";
 
   private final CadencePolicy cadencePolicy;
 
+  @Autowired
   public CadenceBasedOrphanFilesDeletionAnalyzer(
       @Value("${ofd.success-retry-hours:16}") long successRetryHours,
       @Value("${ofd.failure-retry-hours:1}") long failureRetryHours) {

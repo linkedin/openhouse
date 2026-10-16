@@ -22,7 +22,6 @@ import java.util.Map;
 import java.util.Optional;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
-import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.junit.jupiter.api.Assertions;

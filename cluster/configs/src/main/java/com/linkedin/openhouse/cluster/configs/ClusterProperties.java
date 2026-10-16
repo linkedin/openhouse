@@ -99,4 +99,12 @@ public class ClusterProperties {
   // string
   @Value("${cluster.tables.allowed-client-name-values:}")
   private List<String> allowedClientNameValues;
+
+  /**
+   * View SQL dialects this deployment accepts on the /v1 views API. A representation, and the
+   * source dialect naming one, is rejected unless its dialect is listed here. Defaults to Spark
+   * only; supporting another engine is a configuration change rather than a code change.
+   */
+  @Value("${cluster.tables.views.supported-dialects:spark}")
+  private List<String> viewsSupportedDialects;
 }

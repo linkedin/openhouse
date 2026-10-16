@@ -30,6 +30,77 @@ openApi {
   apiDocsUrl.set("http://localhost:8000/v3/api-docs")
 }
 
+tasks.matching { it.name == 'generateOpenApiDocs' }.configureEach {
+  doLast {
+    def specFile = file("$buildDir/specs/${project.name}.json")
+    def spec = new groovy.json.JsonSlurper().parse(specFile)
+    if (!(spec?.paths instanceof Map)) {
+      throw new GradleException("Generated Tables OpenAPI spec is missing its paths")
+    }
+
+    def reasonLockPath = '/v1/databases/{databaseId}/tables/{tableId}/lock/{reason}'
+    def reasonLockItem = spec.paths[reasonLockPath]
+    if (reasonLockItem == null) {
+      reasonLockItem = [:]
+      spec.paths[reasonLockPath] = reasonLockItem
+    }
+    if (!(reasonLockItem instanceof Map)) {
+      throw new GradleException("Generated Tables OpenAPI lock-by-reason path is invalid")
+    }
+
+    // Springdoc omits this handler when resolving its enum path variable.
+    if (!reasonLockItem.containsKey('delete')) {
+      reasonLockItem.delete = [
+        tags: ['Table'],
+        summary: 'Delete a lock by reason',
+        description:
+            'Requires existing LOCK_ADMIN authorization and a matching active lock reason.',
+        operationId: 'deleteLockByReasonV1',
+        parameters: [
+          [
+            name: 'databaseId',
+            in: 'path',
+            description: 'Database ID',
+            required: true,
+            schema: [type: 'string']
+          ],
+          [
+            name: 'tableId',
+            in: 'path',
+            description: 'Table ID',
+            required: true,
+            schema: [type: 'string']
+          ],
+          [
+            name: 'reason',
+            in: 'path',
+            description: 'Expected lock reason',
+            required: true,
+            schema: [type: 'string']
+          ]
+        ],
+        responses: [
+          '204': [description: 'lock DELETE: NO_CONTENT'],
+          '400': [description: 'lock DELETE: BAD_REQUEST'],
+          '401': [description: 'lock DELETE: UNAUTHORIZED'],
+          '403': [description: 'lock DELETE: FORBIDDEN'],
+          '404': [description: 'lock DELETE: TABLE_NOT_FOUND'],
+          '409': [description: 'lock DELETE: REASON_CONFLICT']
+        ]
+      ]
+    }
+
+    def deleteOperation = reasonLockItem['delete']
+    if (!(deleteOperation instanceof Map)) {
+      throw new GradleException("Generated Tables OpenAPI lock-by-reason DELETE operation is invalid")
+    }
+    deleteOperation.operationId = 'deleteLockByReasonV1'
+
+    specFile.setText(
+        groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(spec)) + '\n', 'UTF-8')
+  }
+}
+
 dependencies {
   implementation "io.opentelemetry.instrumentation:opentelemetry-instrumentation-annotations:${otel_annotations_version}"
   api project(':services:common')

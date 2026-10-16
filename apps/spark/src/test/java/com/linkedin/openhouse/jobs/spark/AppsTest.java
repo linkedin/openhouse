@@ -1,10 +1,14 @@
 package com.linkedin.openhouse.jobs.spark;
 
+import com.linkedin.openhouse.common.JobState;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
+import com.linkedin.openhouse.tables.client.api.TableApi;
+import com.linkedin.openhouse.tables.client.invoker.ApiClient;
+import com.linkedin.openhouse.tables.client.model.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -14,6 +18,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.relocated.com.google.common.collect.Iterables;
+import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -125,6 +132,84 @@ public class AppsTest extends OpenHouseSparkITest {
             Mockito.timeout((minNumHeartbeats * heartbeatIntervalSeconds) + 2)
                 .atLeast(minNumHeartbeats))
         .sendHeartbeat(jobId);
+  }
+
+  @Test
+  public void testSnapshotsExpirationSparkAppMaintainsSystemOnlyLockedTable() throws Exception {
+    assertFinalStateOnSystemOnlyLockedTable(
+        "test_se_system_only_lock",
+        (jobId, stateManager, fqtn) ->
+            new SnapshotsExpirationSparkApp(
+                jobId, stateManager, fqtn, 0, "", 1, false, ".backup", otelEmitter),
+        JobState.SUCCEEDED,
+        1);
+  }
+
+  @Test
+  public void testTableStatsCollectionSparkAppIsDeniedOnSystemOnlyLockedTable() throws Exception {
+    assertFinalStateOnSystemOnlyLockedTable(
+        "test_stats_system_only_lock",
+        (jobId, stateManager, fqtn) ->
+            new TableStatsCollectionSparkApp(jobId, stateManager, fqtn, otelEmitter),
+        JobState.FAILED,
+        2);
+  }
+
+  private interface AppFactory {
+    BaseSparkApp create(String jobId, StateManager stateManager, String fqtn);
+  }
+
+  private void assertFinalStateOnSystemOnlyLockedTable(
+      String tableName, AppFactory appFactory, JobState expectedState, int expectedSnapshots)
+      throws Exception {
+    final String database = "db";
+    final String fqtn = database + "." + tableName;
+    final String jobId = "job-" + tableName;
+    SparkSession spark = getSparkSession();
+    spark.sql(String.format("CREATE TABLE openhouse.%s (id int)", fqtn));
+    TableApi controls = controls(spark);
+    try {
+      spark.sql(String.format("INSERT INTO openhouse.%s VALUES (1)", fqtn));
+      spark.sql(String.format("INSERT INTO openhouse.%s VALUES (2)", fqtn));
+      long currentSnapshotId =
+          getOpenHouseCatalog(spark)
+              .loadTable(TableIdentifier.parse(fqtn))
+              .currentSnapshot()
+              .snapshotId();
+      controls
+          .createLockV1(
+              database,
+              tableName,
+              new CreateUpdateLockRequestBody()
+                  .locked(true)
+                  .reason(CreateUpdateLockRequestBody.ReasonEnum.SYSTEM_ONLY))
+          .block();
+      // The shared session has already loaded the openhouse catalog, so run the app on a new
+      // session whose catalog is created with the app's configuration.
+      SparkSession.setActiveSession(spark.newSession());
+      StateManager stateManagerMock = Mockito.mock(StateManager.class);
+
+      appFactory.create(jobId, stateManagerMock, fqtn).run();
+
+      Mockito.verify(stateManagerMock).updateState(jobId, expectedState);
+      SparkSession reader = getSparkSession().newSession();
+      reader.conf().set("spark.sql.catalog.openhouse.action-type", "SYSTEM");
+      Table table = getOpenHouseCatalog(reader).loadTable(TableIdentifier.parse(fqtn));
+      Assertions.assertEquals(currentSnapshotId, table.currentSnapshot().snapshotId());
+      Assertions.assertEquals(expectedSnapshots, Iterables.size(table.snapshots()));
+    } finally {
+      SparkSession.clearActiveSession();
+      controls.deleteLockByReasonV1(database, tableName, "SYSTEM_ONLY").block();
+      getSparkSession().sql(String.format("DROP TABLE openhouse.%s", fqtn));
+    }
+  }
+
+  private TableApi controls(SparkSession spark) {
+    ApiClient client = new ApiClient();
+    client.setBasePath(getOpenHouseLocalServerURI().toString());
+    client.addDefaultHeader(
+        "Authorization", "Bearer " + spark.conf().get("spark.sql.catalog.openhouse.auth-token"));
+    return new TableApi(client);
   }
 
   @Test

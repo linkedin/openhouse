@@ -81,7 +81,7 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
       }
       authorizationUtils.checkTableWritePathPrivileges(
           tableDto.get(), tableCreatorUpdater, Privileges.UPDATE_TABLE_METADATA);
-      LockPolicyValidator.checkSystemOnlyAccess(tableDto.get());
+      authorizationUtils.checkSystemOnlyLockAccess(tableDto.get(), tableCreatorUpdater);
     } else {
       authorizationUtils.checkDatabasePrivilege(
           databaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
@@ -90,7 +90,8 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
     try {
       tableDtoToSave = readBridgeStripProtection.prepare(tableDto.orElse(null), tableDtoToSave);
     } catch (ColumnDefaultException e) {
-      throw e.toUnsupportedClient();
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.COLUMN_DEFAULT, e.getMessage(), e);
     }
     try {
       return Pair.of(openHouseInternalRepository.save(tableDtoToSave), !tableDto.isPresent());

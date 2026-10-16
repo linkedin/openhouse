@@ -23,7 +23,9 @@ import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitial
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
+import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
+import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
@@ -105,6 +107,8 @@ public class TablesControllerTest {
   @Autowired MockMvc mvc;
 
   @Autowired StorageManager storageManager;
+
+  @Autowired HouseTableRepository houseTablesRepository;
 
   @Captor private ArgumentCaptor<ServiceAuditEvent> argCaptorServiceAudit;
 
@@ -397,6 +401,54 @@ public class TablesControllerTest {
                         + "/databases/not_found/tables/not_found")
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isNotFound());
+  }
+
+  /** The user-visible half of the fix: a clean 409, not a commit-failed surprise. */
+  @Test
+  public void testCreateTableOverAViewIsAConflictNamingTheView() throws Exception {
+    String databaseId = GET_TABLE_RESPONSE_BODY.getDatabaseId();
+    String tableId = "held_by_a_view";
+    HouseTablePrimaryKey key =
+        HouseTablePrimaryKey.builder().databaseId(databaseId).tableId(tableId).build();
+    houseTablesRepository.saveView(
+        HouseTable.builder()
+            .databaseId(databaseId)
+            .tableId(tableId)
+            .tableLocation("/loc/" + tableId + "/00001-a.metadata.json")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .storageType("local")
+            .build());
+    HouseTable before = houseTablesRepository.findEntityById(key).get();
+
+    try {
+      mvc.perform(
+              MockMvcRequestBuilders.post(
+                      String.format(
+                          ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                              + "/databases/%s/tables/",
+                          databaseId))
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(
+                      buildCreateUpdateTableRequestBody(
+                              GET_TABLE_RESPONSE_BODY.toBuilder().tableId(tableId).build())
+                          .toJson())
+                  .accept(MediaType.APPLICATION_JSON))
+          .andExpect(status().isConflict())
+          .andExpect(
+              jsonPath("$.status", is(equalToIgnoringCase(HttpStatus.CONFLICT.getReasonPhrase()))))
+          .andExpect(
+              jsonPath(
+                  "$.message",
+                  is(equalTo(String.format("VIEW %s.%s already exists", databaseId, tableId)))));
+
+      HouseTable after = houseTablesRepository.findEntityById(key).get();
+      Assertions.assertEquals("VIEW", after.getEntityType());
+      Assertions.assertEquals(before.getTableLocation(), after.getTableLocation());
+    } finally {
+      if (houseTablesRepository.findEntityById(key).isPresent()) {
+        houseTablesRepository.deleteById(key);
+      }
+    }
   }
 
   @Test
@@ -939,6 +991,53 @@ public class TablesControllerTest {
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.message", containsString("REPLACE TABLE AS SELECT is not enabled")));
+
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, table);
+  }
+
+  @SneakyThrows
+  @Test
+  public void testStagedReplaceFailsWhenRetentionIncompatibleWithNewSchema() {
+    // Table with RTAS enabled and a retention policy that relies on time-partitioning.
+    GetTableResponseBody baseTable =
+        TableModelConstants.buildGetTableResponseBodyWithDbTbl("d_sr_ret", "t_sr_ret");
+    Map<String, String> propsWithRtas = new HashMap<>(baseTable.getTableProperties());
+    propsWithRtas.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    GetTableResponseBody table =
+        baseTable
+            .toBuilder()
+            .tableProperties(propsWithRtas)
+            .policies(Policies.builder().retention(RETENTION_POLICY).build())
+            .build();
+    MvcResult createResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(table, mvc, storageManager);
+    String originalTableLocation =
+        JsonPath.read(createResult.getResponse().getContentAsString(), "$.tableLocation");
+
+    // A stageReplace that drops time-partitioning leaves the carried-over retention policy
+    // unsatisfiable. It must fail here, at CREATE TABLE time, rather than at commit time after the
+    // whole write has been done.
+    mvc.perform(
+            MockMvcRequestBuilders.post(
+                    String.format(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/",
+                        table.getDatabaseId()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    buildCreateUpdateTableRequestBody(table)
+                        .toBuilder()
+                        .baseTableVersion(originalTableLocation)
+                        .timePartitioning(null)
+                        .policies(null)
+                        .stageReplace(true)
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath(
+                "$.message",
+                containsString("retention policy is incompatible with the new schema")));
 
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, table);
   }

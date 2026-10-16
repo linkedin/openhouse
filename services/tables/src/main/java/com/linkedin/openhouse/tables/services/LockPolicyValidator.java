@@ -1,96 +1,52 @@
 package com.linkedin.openhouse.tables.services;
 
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
-import com.linkedin.openhouse.common.exception.SystemOnlyLockAccessDeniedException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
-import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.model.TableDto;
-import org.springframework.web.context.request.RequestAttributes;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
+import java.util.Optional;
 
 /**
- * Enforces data-access lock rules and protects lock metadata outside the lifecycle API.
- *
- * <p>This is not a security control. {@code X-OpenHouse-Action-Type: SYSTEM} is self-declared and
- * is not tied to an authenticated identity; it grants nothing beyond existing ACLs. A SYSTEM_ONLY
- * lock blocks ordinary access so table owners notice and act, which helps prevent unintentional
- * deletion.
- *
- * <p>DROP is not lock-checked. Spark SQL {@code DROP TABLE} loads the table first, so an undeclared
- * request gets 423 when that load reaches the server. A catalog cache hit skips the load, so this
- * does not guarantee that the table can't be dropped.
+ * Classifies lock state and protects SYSTEM_ONLY lock metadata outside the lifecycle API.
+ * SYSTEM_ONLY data-access checks are in {@link
+ * com.linkedin.openhouse.tables.utils.AuthorizationUtils#checkSystemOnlyLockAccess}.
  */
 final class LockPolicyValidator {
   private LockPolicyValidator() {}
 
-  /** Evaluate only after the caller's data-access authorization succeeds. */
-  static void checkSystemOnlyAccess(TableDto table) {
-    LockState lock = lockState(table);
-    if (isActiveSystemOnly(lock) && !isSystemAction()) {
-      String message = lock.getMessage();
-      String detail = message == null || message.trim().isEmpty() ? "" : ": " + message;
-      throw new SystemOnlyLockAccessDeniedException(
-          String.format(
-              "Table %s.%s has a SYSTEM_ONLY lock%s. Use the reason-targeted OpenHouse unlock endpoint "
-                  + "as an authorized lock administrator.",
-              table.getDatabaseId(), table.getTableId(), detail));
-    }
-  }
-
   /** Whether the table has an active lock that keeps the historical locked-table behavior. */
   static boolean isLegacyLocked(TableDto table) {
-    LockState lock = lockState(table);
-    return lock != null && lock.isLocked() && lock.getReason() != LockReason.SYSTEM_ONLY;
+    return lockState(table)
+        .filter(lock -> lock.isLocked() && lock.getReason() != LockReason.SYSTEM_ONLY)
+        .isPresent();
   }
 
   /** Preserve an active SYSTEM_ONLY lock; only the lock lifecycle API may change it. */
   static TableDto prepare(TableDto current, TableDto mapped) {
-    LockState existing = lockState(current);
-    if (!isActiveSystemOnly(existing)) {
+    Optional<LockState> existing =
+        lockState(current).filter(LockPolicyValidator::isActiveSystemOnly);
+    if (!existing.isPresent()) {
       return mapped;
     }
-    LockState requested = lockState(mapped);
-    if (requested != null
-        && (!requested.isLocked() || requested.getReason() != LockReason.SYSTEM_ONLY)) {
+    if (lockState(mapped).filter(lock -> !isActiveSystemOnly(lock)).isPresent()) {
       throw new RequestValidationFailureException(
           "SYSTEM_ONLY lock state can only be changed through the lock lifecycle API.");
     }
     // Ordinary updates replace policies wholesale; omission must not erase the lock.
     Policies policies =
-        mapped.getPolicies() == null ? Policies.builder().build() : mapped.getPolicies();
-    return mapped.toBuilder().policies(policies.toBuilder().lockState(existing).build()).build();
+        Optional.ofNullable(mapped.getPolicies()).orElseGet(() -> Policies.builder().build());
+    return mapped
+        .toBuilder()
+        .policies(policies.toBuilder().lockState(existing.get()).build())
+        .build();
   }
 
-  private static LockState lockState(TableDto table) {
-    return table == null || table.getPolicies() == null ? null : table.getPolicies().getLockState();
+  private static Optional<LockState> lockState(TableDto table) {
+    return Optional.ofNullable(table).map(TableDto::getPolicies).map(Policies::getLockState);
   }
 
   private static boolean isActiveSystemOnly(LockState lock) {
-    return lock != null && lock.isLocked() && lock.getReason() == LockReason.SYSTEM_ONLY;
-  }
-
-  /** An absent declaration is not SYSTEM; any other supplied value is rejected. */
-  private static boolean isSystemAction() {
-    RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
-    String declaration =
-        attributes instanceof ServletRequestAttributes
-            ? ((ServletRequestAttributes) attributes)
-                .getRequest()
-                .getHeader(TablesMvcConstants.HTTP_HEADER_ACTION_TYPE)
-            : null;
-    if (declaration == null) {
-      return false;
-    }
-    if (TablesMvcConstants.ACTION_TYPE_SYSTEM.equalsIgnoreCase(declaration)) {
-      return true;
-    }
-    throw new RequestValidationFailureException(
-        TablesMvcConstants.HTTP_HEADER_ACTION_TYPE
-            + " must be "
-            + TablesMvcConstants.ACTION_TYPE_SYSTEM
-            + " when supplied.");
+    return lock.isLocked() && lock.getReason() == LockReason.SYSTEM_ONLY;
   }
 }
