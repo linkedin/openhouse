@@ -10,8 +10,8 @@ import lombok.Getter;
 import lombok.ToString;
 
 /**
- * The single pre-admission HTS capture for a view operation, reused through authorization,
- * admission and commit; no later step re-reads.
+ * The single HTS capture for a view operation, reused through authorization and commit; no later
+ * step re-reads.
  *
  * <ul>
  *   <li>{@link #observedAbsence()}: no row at the key.

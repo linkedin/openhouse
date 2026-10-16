@@ -27,7 +27,6 @@ import com.linkedin.openhouse.tables.exception.ViewExceptionHandler;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
 import com.linkedin.openhouse.tables.services.DatabasesService;
-import com.linkedin.openhouse.tables.services.ViewAdmissionService;
 import com.linkedin.openhouse.tables.services.ViewPageCursor;
 import com.linkedin.openhouse.tables.services.ViewPageTokenCodec;
 import com.linkedin.openhouse.tables.services.ViewPaginationAdapter;
@@ -113,9 +112,7 @@ public class ViewsManagedFailureAuditTest {
   private HouseTablesH2Repository houseTableRepository;
 
   @MockBean private ViewCommitEngine viewCommitEngine;
-  // Real behavior, observed: the service's admission check and its primary storage selector.
-  @SpyBean private ViewAdmissionService viewAdmissionService;
-
+  // Real behavior, observed: the service's primary storage selector.
   @SpyBean(name = "provideStorageSelector")
   private StorageSelector storageSelector;
 
@@ -188,8 +185,7 @@ public class ViewsManagedFailureAuditTest {
                 .header("Authorization", "Bearer " + jwtAccessToken))
         .andExpect(status().isCreated());
 
-    // Positive anchors for the observed admission and storage seams used by negative cases.
-    verify(viewAdmissionService, times(1)).admit(any());
+    // Positive anchor for the observed storage seam used by negative cases.
     verify(storageSelector, times(1))
         .selectStorage(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID);
     verify(viewCommitEngine, times(1)).commit(any(ViewCommitIntent.class));
@@ -455,7 +451,7 @@ public class ViewsManagedFailureAuditTest {
   /**
    * The server-owned {@code replace.drop-dialect.allowed} view property is rejected by the API
    * validator as a sanitized 400 on create and replace, before the service is entered: no House
-   * Table capture, authorization, admission, storage allocation, or engine commit.
+   * Table capture, authorization, storage allocation, or engine commit.
    */
   @ParameterizedTest
   @ValueSource(strings = {"POST", "PUT"})
@@ -510,7 +506,6 @@ public class ViewsManagedFailureAuditTest {
     assertFalse(wire.contains(DROP_DIALECT_SENTINEL), wire);
     verify(opaHandler, never()).checkAccessDecision(any(), any(DatabaseDto.class), any());
     Mockito.verifyNoInteractions(houseTableRepository, viewCommitEngine);
-    verify(viewAdmissionService, never()).admit(any());
     verify(storageSelector, never()).selectStorage(any(), any());
   }
 
