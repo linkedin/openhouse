@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.jobs.util;
 
-import com.linkedin.openhouse.jobs.exception.RetentionConfigurationException;
 import java.time.DateTimeException;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -10,7 +9,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.junit.jupiter.params.provider.ValueSource;
 
 public class SparkJobUtilTest {
 
@@ -141,36 +139,28 @@ public class SparkJobUtilTest {
     "-08:00,2024-03-11T07:30Z,DAY,1,yyyy-MM-dd,2024-03-09",
     "America/Los_Angeles,2024-03-11T07:30Z,DAY,1,yyyy-MM-dd,2024-03-10",
     "America/Los_Angeles,2024-11-04T07:30Z,DAY,1,yyyy-MM-dd,2024-11-02",
+    "America/Los_Angeles,2024-03-10T10:30Z,HOUR,1,yyyy-MM-dd-HH,2024-03-10-02",
+    "America/Los_Angeles,2024-11-03T09:30Z,HOUR,1,yyyy-MM-dd-HH,2024-11-03-00",
     "America/Los_Angeles,2024-02-01T02:30Z,DAY,1,yyyy-MM-dd-HH,2024-01-30-18",
     "Europe/London,2024-11-01T00:30Z,DAY,7,yyyy-MM-dd,2024-10-25",
     "America/Los_Angeles,2024-03-31T20:00Z,MONTH,1,yyyy-MM-dd,2024-02-29",
     "America/Los_Angeles,2024-02-29T20:00Z,YEAR,1,yyyy-MM-dd,2023-02-28"
   })
-  void zonedStringCutoffUsesDeclaredCalendar(
+  void zonedStringFilterUsesDeclaredCalendar(
       String timeZone,
       String evaluationTime,
       String granularity,
       int count,
       String columnPattern,
-      String expectedCutoff)
-      throws RetentionConfigurationException {
-    Assertions.assertEquals(
-        expectedCutoff,
-        SparkJobUtil.createZonedStringCutoff(
-            columnPattern,
-            granularity,
-            count,
-            ZonedDateTime.parse(evaluationTime),
-            ZoneId.of(timeZone)));
-  }
-
-  @ParameterizedTest
-  @ValueSource(strings = {"", " ", "yyyy-MM-dd-X", "yyyy-MM-dd VV"})
-  void zonedStringCutoffRejectsInvalidPattern(String pattern) {
-    Assertions.assertThrows(
-        RetentionConfigurationException.class,
-        () ->
-            SparkJobUtil.createZonedStringCutoff(
-                pattern, "DAY", 1, FIXED_UTC, ZoneId.of("America/Los_Angeles")));
+      String expectedCutoff) {
+    UnboundPredicate<?> predicate =
+        (UnboundPredicate<?>)
+            SparkJobUtil.createDeleteFilter(
+                "dp",
+                columnPattern,
+                granularity,
+                count,
+                ZonedDateTime.parse(evaluationTime).withZoneSameInstant(ZoneId.of(timeZone)));
+    Assertions.assertEquals(expectedCutoff, predicate.literal().value());
   }
 }

@@ -82,11 +82,25 @@ public class RetentionSparkApp extends BaseTableSparkApp {
 
   @Override
   protected void runInner(Operations ops) throws RetentionConfigurationException {
+    ZoneId configuredTimeZone;
+    try {
+      configuredTimeZone = ZoneId.of(timeZone.orElse(ZoneOffset.UTC.getId()));
+    } catch (DateTimeException cause) {
+      throw new RetentionConfigurationException(
+          "Invalid --timeZone '"
+              + timeZone.orElse("")
+              + "': expected an IANA zone id or a fixed offset",
+          cause);
+    }
+    ZoneId evaluationTimeZone =
+        configuredTimeZone.normalized().equals(ZoneOffset.UTC)
+            ? ZoneOffset.UTC
+            : configuredTimeZone;
     Table table = ops.getTable(fqtn);
     boolean backupEnabled =
         Boolean.parseBoolean(
             table.properties().getOrDefault(AppConstants.BACKUP_ENABLED_KEY, "false"));
-    ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+    ZonedDateTime now = ZonedDateTime.now(evaluationTimeZone);
     log.info(
         "Retention app start for table {}, column {}, {}, ttl={} {}s, backupEnabled={}, backupDir={}, timeZone={}, ts={}",
         fqtn,
@@ -98,31 +112,8 @@ public class RetentionSparkApp extends BaseTableSparkApp {
         backupDir,
         timeZone,
         now);
-    if (timeZone.isPresent()) {
-      ZoneId declaredTimeZone;
-      try {
-        declaredTimeZone = ZoneId.of(timeZone.get());
-      } catch (DateTimeException cause) {
-        throw new RetentionConfigurationException(
-            "Invalid --timeZone '"
-                + timeZone.get()
-                + "': expected an IANA zone id or a fixed offset",
-            cause);
-      }
-      ops.runRetention(
-          fqtn,
-          columnName,
-          columnPattern,
-          granularity,
-          count,
-          backupEnabled,
-          backupDir,
-          now,
-          declaredTimeZone);
-    } else {
-      ops.runRetention(
-          fqtn, columnName, columnPattern, granularity, count, backupEnabled, backupDir, now);
-    }
+    ops.runRetention(
+        fqtn, columnName, columnPattern, granularity, count, backupEnabled, backupDir, now);
   }
 
   public static void main(String[] args) {

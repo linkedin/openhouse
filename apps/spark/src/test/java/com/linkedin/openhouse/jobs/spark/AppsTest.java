@@ -20,6 +20,7 @@ import org.apache.iceberg.Table;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
@@ -133,7 +134,7 @@ public class AppsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testRetentionSparkAppPassesUtcNowToRunRetention() throws Exception {
+  public void testRetentionSparkAppPassesUtcNowToRunRetention() {
     final String tableName = "db.test_retention_app";
     Operations ops = Mockito.mock(Operations.class);
     Table table = Mockito.mock(Table.class);
@@ -153,7 +154,7 @@ public class AppsTest extends OpenHouseSparkITest {
             otelEmitter,
             ".backup");
 
-    app.runInner(ops);
+    Assertions.assertDoesNotThrow(() -> app.runInner(ops));
 
     ArgumentCaptor<ZonedDateTime> nowCaptor = ArgumentCaptor.forClass(ZonedDateTime.class);
     Mockito.verify(ops)
@@ -169,8 +170,10 @@ public class AppsTest extends OpenHouseSparkITest {
     Assertions.assertEquals(ZoneOffset.UTC, nowCaptor.getValue().getZone());
   }
 
-  @Test
-  public void testRetentionSparkAppPassesTimeZoneDeclarationToRunRetention() throws Exception {
+  @ParameterizedTest
+  @CsvSource({"America/Los_Angeles,America/Los_Angeles", "UTC,Z", "+00:00,Z"})
+  public void testRetentionSparkAppPassesTimeZoneDeclarationToRunRetention(
+      String configuredTimeZone, String expectedEvaluationTimeZone) {
     final String tableName = "db.test_retention_app_zoned";
     Operations ops = Mockito.mock(Operations.class);
     Table table = Mockito.mock(Table.class);
@@ -189,9 +192,9 @@ public class AppsTest extends OpenHouseSparkITest {
             7,
             otelEmitter,
             ".backup",
-            Optional.of("America/Los_Angeles"));
+            Optional.of(configuredTimeZone));
 
-    app.runInner(ops);
+    Assertions.assertDoesNotThrow(() -> app.runInner(ops));
 
     ArgumentCaptor<ZonedDateTime> nowCaptor = ArgumentCaptor.forClass(ZonedDateTime.class);
     Mockito.verify(ops)
@@ -203,9 +206,8 @@ public class AppsTest extends OpenHouseSparkITest {
             Mockito.eq(7),
             Mockito.eq(true),
             Mockito.eq(".backup"),
-            nowCaptor.capture(),
-            Mockito.eq(ZoneId.of("America/Los_Angeles")));
-    Assertions.assertEquals(ZoneOffset.UTC, nowCaptor.getValue().getZone());
+            nowCaptor.capture());
+    Assertions.assertEquals(ZoneId.of(expectedEvaluationTimeZone), nowCaptor.getValue().getZone());
   }
 
   @ParameterizedTest

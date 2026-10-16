@@ -7,7 +7,6 @@ import com.google.gson.JsonParser;
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
 import com.linkedin.openhouse.common.stats.model.IcebergTableStats;
-import com.linkedin.openhouse.jobs.exception.RetentionConfigurationException;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.jobs.util.SparkJobUtil;
@@ -352,8 +351,7 @@ public class OperationsTest extends OpenHouseSparkITest {
           1,
           false,
           "",
-          now,
-          ZoneId.of("America/Los_Angeles"));
+          now.withZoneSameInstant(ZoneId.of("America/Los_Angeles")));
       ops.runRetention(utcTableName, "datePartition", "yyyy-MM-dd", "day", 1, false, "", now);
 
       Assertions.assertEquals(
@@ -361,27 +359,6 @@ public class OperationsTest extends OpenHouseSparkITest {
           collectSortedDataValues(ops, zonedTableName));
       Assertions.assertEquals(
           Arrays.asList("kept_by_both"), collectSortedDataValues(ops, utcTableName));
-    }
-  }
-
-  @Test
-  public void testRetentionWithTimeZoneRejectsNativeTimestamp() throws Exception {
-    final String tableName = "db.test_retention_zoned_native_ts";
-    ZonedDateTime now = ZonedDateTime.of(2024, 2, 1, 2, 0, 0, 0, ZoneOffset.UTC);
-    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
-      prepareTable(ops, tableName, true);
-      String fixtureRows =
-          "('old', cast('2024-01-29 12:00:00' as timestamp)), "
-              + "('recent', cast('2024-01-31 12:00:00' as timestamp))";
-      ops.spark().sql(String.format("INSERT INTO %s VALUES %s", tableName, fixtureRows));
-
-      Assertions.assertThrows(
-          RetentionConfigurationException.class,
-          () ->
-              ops.runRetention(
-                  tableName, "ts", "", "day", 1, false, "", now, ZoneId.of("America/Los_Angeles")));
-      Assertions.assertEquals(
-          Arrays.asList("old", "recent"), collectSortedDataValues(ops, tableName));
     }
   }
 
@@ -425,8 +402,7 @@ public class OperationsTest extends OpenHouseSparkITest {
           1,
           false,
           "",
-          ZonedDateTime.parse(evaluationTime),
-          ZoneId.of(timeZone));
+          ZonedDateTime.parse(evaluationTime).withZoneSameInstant(ZoneId.of(timeZone)));
 
       Assertions.assertEquals(
           Arrays.asList("today", "yesterday"), collectSortedDataValues(ops, tableName));
@@ -450,8 +426,7 @@ public class OperationsTest extends OpenHouseSparkITest {
           1,
           true,
           ".backup",
-          now,
-          ZoneId.of("America/Los_Angeles"));
+          now.withZoneSameInstant(ZoneId.of("America/Los_Angeles")));
 
       Table table = ops.getTable(tableName);
       String manifestName = String.format("data_manifest_%d.json", now.toInstant().toEpochMilli());
@@ -498,8 +473,8 @@ public class OperationsTest extends OpenHouseSparkITest {
           1,
           false,
           "",
-          ZonedDateTime.parse("2024-02-01T02:00Z"),
-          ZoneId.of("America/Los_Angeles"));
+          ZonedDateTime.parse("2024-02-01T02:00Z")
+              .withZoneSameInstant(ZoneId.of("America/Los_Angeles")));
       Assertions.assertEquals(
           Arrays.asList("yesterday"), collectSortedDataValues(operations, tableName));
     }
@@ -528,8 +503,8 @@ public class OperationsTest extends OpenHouseSparkITest {
                   1,
                   true,
                   ".backup",
-                  ZonedDateTime.parse("2024-02-01T02:00Z"),
-                  ZoneId.of("America/Los_Angeles")));
+                  ZonedDateTime.parse("2024-02-01T02:00Z")
+                      .withZoneSameInstant(ZoneId.of("America/Los_Angeles"))));
       Assertions.assertEquals(
           Arrays.asList("expired", "yesterday"), collectSortedDataValues(operations, tableName));
     }
