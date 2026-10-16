@@ -161,8 +161,7 @@ public class SchedulerRunner {
                       (group, groupedOperations) ->
                           packer
                               .pack(groupedOperations, statsByTableUuid)
-                              .forEach(
-                                  items -> scheduleBin(new Bin(type, items), group.getAccount())));
+                              .forEach(items -> scheduleBin(new Bin(type, items), group)));
             });
   }
 
@@ -205,7 +204,7 @@ public class SchedulerRunner {
    * the claimed subset, and mark SCHEDULED — or revert to PENDING if launch failed.
    */
   @Transactional
-  void scheduleBin(Bin bin, String account) {
+  void scheduleBin(Bin bin, SchedulingGroup group) {
     Instant claimedAt = Instant.now();
     List<BinItem> claimedItems = claim(bin, claimedAt);
 
@@ -222,6 +221,8 @@ public class SchedulerRunner {
 
     List<String> claimedIds =
         claimedItems.stream().map(BinItem::getOperationId).collect(Collectors.toList());
+    List<String> claimedTableNames =
+        claimedItems.stream().map(BinItem::getFullyQualifiedTableName).collect(Collectors.toList());
 
     jobsClient
         .launch(
@@ -229,14 +230,21 @@ public class SchedulerRunner {
                 "batched-%s-%d",
                 bin.getOperationType().name().toLowerCase(), claimedAt.toEpochMilli()),
             bin.getOperationType().name(),
-            account,
-            claimedItems.stream()
-                .map(BinItem::getFullyQualifiedTableName)
-                .collect(Collectors.toList()),
+            group.getAccount(),
+            claimedTableNames,
             claimedIds,
             resultsEndpoint)
         .ifPresentOrElse(
             jobId -> {
+              log.info(
+                  "Submitting bin: jobId={} operationType={} database={} account={} tables={}"
+                      + " operationIds={}",
+                  jobId,
+                  bin.getOperationType(),
+                  group.getDatabaseName(),
+                  group.getAccount(),
+                  claimedTableNames,
+                  claimedIds);
               int updated =
                   operationsRepo.updateBatch(
                       claimedIds,
