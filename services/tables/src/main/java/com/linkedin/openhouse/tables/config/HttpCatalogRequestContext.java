@@ -16,8 +16,8 @@ public class HttpCatalogRequestContext implements CatalogRequestContext {
   @Override
   public boolean columnDefaultPolicyBypass() {
     return header(TablesMvcConstants.HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS)
-        .filter("true"::equalsIgnoreCase)
-        .isPresent();
+        .map(Boolean::parseBoolean)
+        .orElse(false);
   }
 
   /**
