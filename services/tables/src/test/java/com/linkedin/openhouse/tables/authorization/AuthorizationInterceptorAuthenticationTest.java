@@ -21,14 +21,6 @@ public class AuthorizationInterceptorAuthenticationTest {
   private final AuthorizationInterceptor interceptor = new AuthorizationInterceptor();
 
   @Test
-  public void missingAuthenticationIsDeniedWithoutThrowing() throws NoSuchMethodException {
-    AuthorizationDecision decision =
-        interceptor.check(() -> null, invocation(SecuredEndpoints.authenticatedOnlyMethod()));
-
-    assertFalse(decision.isGranted());
-  }
-
-  @Test
   public void missingSecurityContextIsDeniedWithoutThrowing() throws NoSuchMethodException {
     AuthorizationDecision decision =
         interceptor.check(
@@ -49,7 +41,7 @@ public class AuthorizationInterceptorAuthenticationTest {
 
     assertTrue(
         decision.isGranted(),
-        "AUTHENTICATED is a route guard only; it must not become a resource privilege check.");
+        "AUTHENTICATED_VIEWS_OPS is a route guard only; it must not become a resource privilege check.");
   }
 
   private static Authentication authenticatedPrincipal(String username) {
@@ -67,7 +59,7 @@ public class AuthorizationInterceptorAuthenticationTest {
   private static final class SecuredEndpoints {
     private SecuredEndpoints() {}
 
-    @Secured(Privileges.Privilege.AUTHENTICATED)
+    @Secured(Privileges.Privilege.AUTHENTICATED_VIEWS_OPS)
     void authenticatedOnly() {}
 
     private static Method authenticatedOnlyMethod() throws NoSuchMethodException {

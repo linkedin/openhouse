@@ -44,7 +44,7 @@ public class AuthorizationInterceptor implements AuthorizationManager<MethodInvo
     } catch (AuthenticationCredentialsNotFoundException exception) {
       return new AuthorizationDecision(false);
     }
-    if (authentication == null || !authentication.isAuthenticated()) {
+    if (!authentication.isAuthenticated()) {
       return new AuthorizationDecision(false);
     }
 
@@ -61,11 +61,6 @@ public class AuthorizationInterceptor implements AuthorizationManager<MethodInvo
       return new AuthorizationDecision(true);
     }
     String[] privileges = ((Secured) securedAnnotation.get()).value();
-
-    // AUTHENTICATED is authentication-only: no resource authorization is performed.
-    if (privileges.length == 1 && Privileges.Privilege.AUTHENTICATED.equals(privileges[0])) {
-      return new AuthorizationDecision(true);
-    }
 
     // Now from the method parameters retrieve databaseId and tableId.
     String databaseId = null;
