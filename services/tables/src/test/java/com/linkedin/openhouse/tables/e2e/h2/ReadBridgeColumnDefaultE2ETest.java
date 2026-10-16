@@ -219,10 +219,15 @@ public class ReadBridgeColumnDefaultE2ETest {
     Map<String, String> properties = new HashMap<>(update.getTableProperties());
     properties.put(ENABLED_PROP, "false");
     String body = update.toBuilder().tableProperties(properties).build().toJson();
-    String path = "/v1/databases/" + created.getDatabaseId() + "/tables/" + created.getTableId();
+    String path =
+        String.format(
+            ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/%s",
+            created.getDatabaseId(),
+            created.getTableId());
     mvc.perform(
             MockMvcRequestBuilders.put(path).contentType(MediaType.APPLICATION_JSON).content(body))
-        .andExpect(status().isBadRequest());
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message", containsString("column-default policy override")));
     mvc.perform(
             MockMvcRequestBuilders.put(path)
                 .header("X-OpenHouse-Dangerously-Bypass-Column-Default-Policy", "true")
