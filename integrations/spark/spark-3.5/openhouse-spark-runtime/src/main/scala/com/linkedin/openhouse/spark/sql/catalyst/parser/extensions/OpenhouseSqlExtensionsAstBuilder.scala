@@ -6,7 +6,7 @@ import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeState
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes.GrantableResourceType
 import com.linkedin.openhouse.gen.tables.client.model.TimePartitionSpec
 import org.antlr.v4.runtime.tree.ParseTree
-import org.apache.spark.sql.catalyst.parser.ParserInterface
+import org.apache.spark.sql.catalyst.parser.{ParserInterface, ParserUtils}
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 
 import scala.collection.JavaConversions.iterableAsScalaIterable
@@ -20,11 +20,19 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
   override def visitSetRetentionPolicy(ctx: SetRetentionPolicyContext): SetRetentionPolicy = {
     val tableName = typedVisit[Seq[String]](ctx.multipartIdentifier)
     val (granularity, count) = typedVisit[(String, Int)](ctx.retentionPolicy())
-    val (colName, colPattern) =
-      if (ctx.columnRetentionPolicy() != null)
-        typedVisit[(String, String)](ctx.columnRetentionPolicy())
-      else (null, null)
-    SetRetentionPolicy(tableName, granularity, count, Option(colName), Option(colPattern))
+    val timeZone: Option[String] =
+      Option(ctx.retentionPolicy().STRING()).map(ParserUtils.string)
+    val columnRetention =
+      Option(ctx.columnRetentionPolicy()).map { context =>
+        val (columnName, columnPattern) = typedVisit[(String, String)](context)
+        val effectivePattern =
+          if (timeZone.isDefined && columnPattern.nonEmpty)
+            ParserUtils.string(context.columnRetentionPolicyPatternClause().retentionColumnPatternClause().STRING())
+          else columnPattern
+        (columnName, effectivePattern)
+      }
+    SetRetentionPolicy(
+      tableName, granularity, count, columnRetention.map(_._1), columnRetention.map(_._2), timeZone)
   }
 
   override def visitSetReplicationPolicy(ctx: SetReplicationPolicyContext): SetReplicationPolicy = {

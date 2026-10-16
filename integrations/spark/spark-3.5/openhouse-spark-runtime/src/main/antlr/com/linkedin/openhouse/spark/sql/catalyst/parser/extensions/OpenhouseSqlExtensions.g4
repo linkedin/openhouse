@@ -68,7 +68,7 @@ quotedIdentifier
 
 nonReserved
     : ALTER | TABLE | SET | POLICY | RETENTION | SHARING | REPLICATION | HISTORY
-    | GRANT | REVOKE | ON | TO | SHOW | GRANTS | PATTERN | WHERE | COLUMN
+    | GRANT | REVOKE | ON | TO | SHOW | GRANTS | PATTERN | WHERE | COLUMN | WITH | TIMEZONE
     ;
 
 sharingPolicy
@@ -80,7 +80,7 @@ BOOLEAN
     ;
 
 retentionPolicy
-    : RETENTION '=' duration
+    : RETENTION '=' duration (WITH TIMEZONE STRING)?
     ;
 
 columnRetentionPolicy
@@ -198,6 +198,8 @@ DESTINATION: 'DESTINATION';
 INTERVAL: 'INTERVAL';
 WHERE: 'WHERE';
 COLUMN: 'COLUMN';
+WITH: 'WITH';
+TIMEZONE: 'TIMEZONE';
 PII: 'PII';
 HC: 'HC';
 MODIFY: 'MODIFY';
