@@ -49,6 +49,15 @@ public class CreateUpdateViewRequestBody {
   private String databaseId;
 
   @Schema(
+      description = "Unique Resource identifier for the Cluster serving the View",
+      example = "my_cluster")
+  @NotEmpty(message = "clusterId cannot be empty")
+  @Pattern(
+      regexp = ALPHA_NUM_UNDERSCORE_REGEX_HYPHEN_ALLOW,
+      message = ALPHA_NUM_UNDERSCORE_ERROR_MSG_HYPHEN_ALLOW)
+  private String clusterId;
+
+  @Schema(
       description = "Schema of the view. OpenHouse views use Iceberg schema specification",
       example =
           "{\"type\": \"struct\", "
@@ -63,10 +72,6 @@ public class CreateUpdateViewRequestBody {
   @NotEmpty(message = "representations cannot be empty")
   @Valid
   private List<ViewRepresentation> representations;
-
-  @Schema(description = "Dialect of the representation the view was authored in", example = "spark")
-  @NotEmpty(message = "sourceDialect cannot be empty")
-  private String sourceDialect;
 
   @Schema(
       nullable = true,

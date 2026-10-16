@@ -9,28 +9,29 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.AntPathMatcher;
 
 /**
- * Keeps view definitions out of service audit events.
+ * Keeps view query definitions out of service audit events.
  *
  * <p>{@link com.linkedin.openhouse.common.audit.ServiceAuditAspect} audits the complete cached
  * request body of every controller call, which for the view create and replace routes would retain
- * the caller's full SQL text and schema document. This replaces {@code schema} and every {@code
- * representations[*].sql} value with {@link #REDACTED_VALUE} before the event is built. The keys
- * are kept, so an auditor still sees that the fields were sent.
+ * the caller's full SQL text. This replaces every {@code representations[*].sql} value with {@link
+ * #REDACTED_VALUE} before the event is built. The keys are kept, so an auditor still sees that the
+ * fields were sent.
  *
- * <p>Scoped by request URI rather than by field name on purpose. {@code
- * CreateUpdateTableRequestBody} also carries a {@code schema}, and redacting by name alone would
- * silently change table, database and snapshot audit payloads. Matching the view routes leaves
- * every other route's payload exactly as it was.
+ * <p>The {@code schema} is deliberately left intact. It is structural metadata — column names and
+ * types — not query logic, so retaining it aids audit and debugging without exposing how the view
+ * is defined. Only the SQL representations carry the definition, and only they are redacted.
  *
- * <p>Every field that is not part of the view definition — {@code viewId}, {@code databaseId},
- * {@code sourceDialect}, {@code defaultCatalog}, {@code defaultNamespace}, {@code viewProperties}
- * and {@code baseMetadataLocation} — is left intact, so an audit event still identifies what was
- * operated on and by whom.
+ * <p>Scoped by request URI rather than by field name on purpose, so this only ever rewrites the
+ * view routes and leaves every other route's payload exactly as it was.
+ *
+ * <p>Every field that is not the view's SQL definition — {@code viewId}, {@code databaseId}, {@code
+ * clusterId}, {@code schema}, {@code defaultCatalog}, {@code defaultNamespace}, {@code
+ * viewProperties} and {@code baseMetadataLocation} — is left intact, so an audit event still
+ * identifies what was operated on and by whom.
  */
 @Component
 public class ViewRequestPayloadRedactor implements ServiceAuditPayloadRedactor {
 
-  static final String SCHEMA_FIELD = "schema";
   static final String REPRESENTATIONS_FIELD = "representations";
   static final String SQL_FIELD = "sql";
 
@@ -58,9 +59,6 @@ public class ViewRequestPayloadRedactor implements ServiceAuditPayloadRedactor {
       return requestPayload;
     }
     JsonObject redacted = requestPayload.deepCopy().getAsJsonObject();
-    if (redacted.has(SCHEMA_FIELD)) {
-      redacted.add(SCHEMA_FIELD, new JsonPrimitive(REDACTED_VALUE));
-    }
     JsonElement representations = redacted.get(REPRESENTATIONS_FIELD);
     if (representations != null && representations.isJsonArray()) {
       for (JsonElement representation : representations.getAsJsonArray()) {

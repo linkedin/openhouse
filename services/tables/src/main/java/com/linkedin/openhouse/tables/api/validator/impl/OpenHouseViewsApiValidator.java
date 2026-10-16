@@ -17,6 +17,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.ViewRepresen
 import com.linkedin.openhouse.tables.api.validator.ViewsApiValidator;
 import com.linkedin.openhouse.tables.exception.ViewRequestValidationFailureException;
 import com.linkedin.openhouse.tables.exception.ViewValidationErrorCode;
+import com.linkedin.openhouse.tables.model.ReservedViewProperties;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -172,21 +173,22 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
     ApiValidatorUtil.collectViolations(validator, requestBody, beanViolations);
     beanViolations.forEach(failures::addGeneric);
 
+    Optional<String> clusterId = nonEmptyField(requestBody.getClusterId());
     Optional<String> schema = nonEmptyField(requestBody.getSchema());
     Optional<List<ViewRepresentation>> representations =
         nonEmptyField(requestBody.getRepresentations());
-    Optional<String> sourceDialect = nonEmptyField(requestBody.getSourceDialect());
     Optional<String> defaultCatalog = suppliedField(requestBody.getDefaultCatalog());
     Optional<List<String>> defaultNamespace = suppliedField(requestBody.getDefaultNamespace());
     Optional<Map<String, String>> viewProperties = nonEmptyField(requestBody.getViewProperties());
 
+    validateClusterId(clusterId, failures);
     validateSchema(schema, failures);
     validateRepresentations(representations, failures);
     validateUniqueDialects(representations, failures);
-    validateSourceDialect(sourceDialect, representations, failures);
     validateDefaultCatalog(defaultCatalog, failures);
     validateDefaultNamespace(defaultNamespace, failures);
     validateViewProperties(viewProperties, failures);
+    validateReservedSourceDialectProperty(viewProperties, representations, failures);
   }
 
   /** Present whenever the caller supplied the field at all, including as a blank or empty value. */
@@ -210,6 +212,25 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
   /** Absent when the field was omitted or supplied blank; the two are equivalent to every rule. */
   private static Optional<String> nonBlankField(String value) {
     return Optional.ofNullable(value).filter(StringUtils::isNotBlank);
+  }
+
+  /**
+   * The view can only be created on the cluster serving the request, so the body must carry that
+   * cluster's id: a client pointed at the wrong fabric is rejected here instead of silently
+   * creating the view on a cluster it did not intend. The configured cluster name is server-owned,
+   * so echoing it does not breach the redaction invariant; the caller-supplied value is not echoed.
+   */
+  private void validateClusterId(Optional<String> maybeClusterId, ViewValidationFailures failures) {
+    if (!maybeClusterId.isPresent()) {
+      // An absent clusterId is already reported by bean validation.
+      return;
+    }
+    if (!maybeClusterId.get().equals(clusterProperties.getClusterName())) {
+      failures.addGeneric(
+          String.format(
+              "clusterId : does not match the cluster serving this request: %s",
+              clusterProperties.getClusterName()));
+    }
   }
 
   /**
@@ -326,42 +347,6 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
   }
 
   /**
-   * The source dialect carries two separate obligations: it must name a dialect this deployment
-   * supports, and it must name one of the representations actually supplied. The first is about
-   * what the server can serve, the second about what this request defines.
-   */
-  private void validateSourceDialect(
-      Optional<String> maybeSourceDialect,
-      Optional<List<ViewRepresentation>> maybeRepresentations,
-      ViewValidationFailures failures) {
-    if (!maybeSourceDialect.isPresent()) {
-      // An absent source dialect is already reported by bean validation.
-      return;
-    }
-    String sourceDialect = maybeSourceDialect.get();
-    if (!supportedDialects.contains(sourceDialect)) {
-      failures.addDialect(
-          String.format(
-              "sourceDialect : must be one of the supported dialects: %s", supportedDialectsText));
-      return;
-    }
-    // Only meaningful when at least one usable representation was supplied. With none, the missing
-    // or null representation is already reported, and adding a second message here would both
-    // duplicate that diagnosis and promote a malformed body to the more specific dialect code.
-    List<ViewRepresentation> suppliedRepresentations =
-        maybeRepresentations.orElse(Collections.emptyList()).stream()
-            .filter(Objects::nonNull)
-            .collect(Collectors.toList());
-    if (suppliedRepresentations.isEmpty()) {
-      return;
-    }
-    if (suppliedRepresentations.stream()
-        .noneMatch(representation -> sourceDialect.equals(representation.getDialect()))) {
-      failures.addDialect("sourceDialect : does not name a supplied representation");
-    }
-  }
-
-  /**
    * The resolution catalog is optional, but supplying a blank or unbounded one is a client bug
    * rather than an omission, so it is rejected instead of silently ignored.
    */
@@ -417,6 +402,13 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
    * catalog, and the exact key {@code policies}. Case sensitivity is deliberate and inherited: a
    * user property such as {@code OpenHouse.myTeam} stays legal.
    *
+   * <p>The single writable key inside the reserved namespace is {@link
+   * ReservedViewProperties#SOURCE_DIALECT}: a client may set it once at create so the authoring
+   * dialect is recorded as a server-managed property rather than a top-level request field. Only
+   * its presence is allow-listed here; its value is validated by {@link
+   * #validateReservedSourceDialectProperty}. Making it immutable on later replaces belongs to the
+   * persistence layer, not this surface check.
+   *
    * <p>Property keys are user-authored identifiers rather than payload text, so listing the
    * offending keys is intentional and does not breach the SQL/schema/token redaction invariant.
    */
@@ -438,7 +430,9 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
       if (property.getValue() == null) {
         nullValueKeys.add(key);
       }
-      if (HouseTableSerdeUtils.IS_OH_PREFIXED.test(key) || POLICIES_PROPERTY_KEY.equals(key)) {
+      if ((HouseTableSerdeUtils.IS_OH_PREFIXED.test(key)
+              && !ReservedViewProperties.isWritableAtCreate(key))
+          || POLICIES_PROPERTY_KEY.equals(key)) {
         reservedKeys.add(key);
       }
     }
@@ -456,6 +450,61 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
           String.format(
               "viewProperties : reserved keys are not allowed: %s",
               String.join(", ", reservedKeys)));
+    }
+  }
+
+  /**
+   * The authoring dialect is required and travels as the reserved {@link
+   * ReservedViewProperties#SOURCE_DIALECT} view property rather than a top-level field. Relocating
+   * where the value is carried did not change what makes it valid, so the obligations it had as a
+   * field still hold and are still enforced here, at the create surface: it must be supplied, it
+   * must name a dialect this deployment supports, and it must name one of the representations
+   * actually supplied.
+   *
+   * <p>Nothing downstream re-derives these rules. The persistence layer will only freeze the value
+   * so it cannot change across replaces (tracked on {@code ViewsService#putView}); it will not
+   * re-check that the value is a legal dialect. If this surface does not validate the value,
+   * nothing does. {@link #validateViewProperties} allow-lists only the key's presence; this method
+   * validates its value.
+   *
+   * <p>The supported dialects are server-owned configuration text, so naming the set in a message
+   * does not breach the redaction invariant; the caller-supplied value is never echoed.
+   */
+  private void validateReservedSourceDialectProperty(
+      Optional<Map<String, String>> maybeViewProperties,
+      Optional<List<ViewRepresentation>> maybeRepresentations,
+      ViewValidationFailures failures) {
+    String sourceDialect =
+        maybeViewProperties
+            .map(viewProperties -> viewProperties.get(ReservedViewProperties.SOURCE_DIALECT))
+            .orElse(null);
+    if (StringUtils.isBlank(sourceDialect)) {
+      failures.addGeneric(
+          String.format("%s : cannot be empty", ReservedViewProperties.SOURCE_DIALECT));
+      return;
+    }
+    if (!supportedDialects.contains(sourceDialect)) {
+      failures.addDialect(
+          String.format(
+              "%s : must be one of the supported dialects: %s",
+              ReservedViewProperties.SOURCE_DIALECT, supportedDialectsText));
+      return;
+    }
+    // Only meaningful once at least one usable representation was supplied. With none, the missing
+    // or null representation is already reported, and a second message here would both duplicate
+    // that diagnosis and promote a malformed body to the more specific dialect code.
+    List<ViewRepresentation> suppliedRepresentations =
+        maybeRepresentations.orElse(Collections.emptyList()).stream()
+            .filter(Objects::nonNull)
+            .collect(Collectors.toList());
+    if (suppliedRepresentations.isEmpty()) {
+      return;
+    }
+    if (suppliedRepresentations.stream()
+        .noneMatch(representation -> sourceDialect.equals(representation.getDialect()))) {
+      failures.addDialect(
+          String.format(
+              "%s : must name a supplied representation", ReservedViewProperties.SOURCE_DIALECT));
     }
   }
 
