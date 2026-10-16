@@ -36,14 +36,9 @@ public class ApiConfig {
     return new ReadBridgeStripProtection(readBridgeConfigResolver);
   }
 
-  /**
-   * The internal catalog's commit policy. Without a {@link CatalogRequestContext} bean, the
-   * column-default policy bypass is off.
-   */
+  /** The internal catalog's commit policy. */
   @Bean
-  public ColumnDefaultCommitPolicy columnDefaultCommitPolicy(
-      ObjectProvider<CatalogRequestContext> requestContext) {
-    return new ColumnDefaultCommitPolicy(
-        requestContext.getIfAvailable(() -> CatalogRequestContext.NONE));
+  public ColumnDefaultCommitPolicy columnDefaultCommitPolicy(CatalogRequestContext requestContext) {
+    return new ColumnDefaultCommitPolicy(requestContext);
   }
 }
