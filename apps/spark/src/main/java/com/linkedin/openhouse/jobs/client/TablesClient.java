@@ -31,6 +31,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.AllArgsConstructor;
@@ -40,6 +42,7 @@ import org.apache.arrow.util.VisibleForTesting;
 import org.apache.hadoop.fs.Path;
 import org.springframework.retry.RetryCallback;
 import org.springframework.retry.support.RetryTemplate;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -53,11 +56,16 @@ import reactor.core.scheduler.Schedulers;
 public class TablesClient {
   private static final String MAINTENANCE_PROPERTY_PREFIX = "maintenance.";
   private static final int REQUEST_TIMEOUT_SECONDS = 180;
+  /** HTTP status the tables service returns when it refuses to serve a table. */
+  private static final int REFUSED_STATUS_CODE = 422;
+
   private final RetryTemplate retryTemplate;
   private final TableApi tableApi;
   private final DatabaseApi databaseApi;
   private final DatabaseTableFilter databaseTableFilter;
   @VisibleForTesting private final StorageClient storageClient;
+  // Initialized here, so excluded from the generated all-args constructor.
+  private final Set<String> refusedTables = ConcurrentHashMap.newKeySet();
 
   public Optional<RetentionConfig> getTableRetention(TableMetadata tableMetadata) {
     GetTableResponseBody response = getTable(tableMetadata);
@@ -162,11 +170,38 @@ public class TablesClient {
     return RetryUtil.executeWithRetry(
         retryTemplate,
         (RetryCallback<GetTableResponseBody, Exception>)
-            context ->
-                tableApi
+            context -> {
+              try {
+                return tableApi
                     .getTableV1(dbName, tableName)
-                    .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)),
+                    .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
+              } catch (WebClientResponseException e) {
+                if (e.getStatusCode().value() == REFUSED_STATUS_CODE) {
+                  recordRefusedTable(dbName, tableName, e);
+                  return null;
+                }
+                throw e;
+              }
+            },
         null);
+  }
+
+  private void recordRefusedTable(String dbName, String tableName, WebClientResponseException e) {
+    String fqtn = dbName + "." + tableName;
+    refusedTables.add(fqtn);
+    log.error(
+        "Table {} was refused by the tables service with HTTP {}; skipping it, and the run will fail",
+        fqtn,
+        e.getStatusCode().value(),
+        e);
+  }
+
+  /**
+   * Tables, as {@code db.table}, whose load was refused with HTTP 422 since this client was
+   * created. A refused table is skipped, not treated as missing or as a transient error.
+   */
+  public Set<String> getRefusedTables() {
+    return Collections.unmodifiableSet(new TreeSet<>(refusedTables));
   }
 
   /**

@@ -384,6 +384,7 @@ public class JobsScheduler {
         for (OperationTask<?> operationTask : taskList) {
           log.info("Task {}", operationTask);
         }
+        failIfTablesRefused(jobType, attributes);
         return;
       }
       log.info(
@@ -428,6 +429,26 @@ public class JobsScheduler {
     }
     otelEmitter.count(METRICS_SCOPE, "scheduler_end_count", 1, attributes);
     reportMetrics(jobStateCountMap, attributes, startTimeMillis);
+    failIfTablesRefused(jobType, attributes);
+  }
+
+  /**
+   * Fails the run if the tables service refused (HTTP 422) any table load during it. Those tables
+   * were skipped, so they get no maintenance until the refusal is resolved.
+   */
+  private void failIfTablesRefused(JobConf.JobTypeEnum jobType, Attributes attributes) {
+    Set<String> refusedTables = tablesClient.getRefusedTables();
+    if (refusedTables == null || refusedTables.isEmpty()) {
+      return;
+    }
+    otelEmitter.count(
+        METRICS_SCOPE, AppConstants.REFUSED_TABLE_COUNT, refusedTables.size(), attributes);
+    String message =
+        String.format(
+            "Job type %s skipped %d table(s) refused by the tables service with HTTP 422: %s",
+            jobType, refusedTables.size(), refusedTables);
+    log.error(message);
+    throw new RuntimeException(message);
   }
 
   void reportMetrics(

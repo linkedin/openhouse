@@ -399,6 +399,41 @@ public class JobsSchedulerTest {
   }
 
   @Test
+  public void testRunFailsAfterSchedulingWhenTablesWereRefused() {
+    JobConf.JobTypeEnum jobType = JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION;
+    mockLaunchJobAndPollStatus(JobState.SUCCEEDED, JobResponseBody.StateEnum.SUCCEEDED);
+    JobsScheduler jobsScheduler = createJobsScheduler(jobType);
+    mockbuildOperationTaskList(jobsScheduler);
+    Mockito.when(tablesClient.getRefusedTables())
+        .thenReturn(Collections.singleton("refused_db.refused_table"));
+    try {
+      RuntimeException e =
+          Assertions.assertThrows(
+              RuntimeException.class,
+              () ->
+                  jobsScheduler.run(
+                      jobType,
+                      jobTypeToClassMap.get(jobType).toString(),
+                      null,
+                      false,
+                      1,
+                      false,
+                      false,
+                      16,
+                      4,
+                      1000,
+                      30,
+                      15));
+      Assertions.assertTrue(e.getMessage().contains("refused_db.refused_table"));
+      // The tables that were not refused were still scheduled and ran to completion.
+      Assertions.assertEquals(16, jobsScheduler.getJobStateCountMap().get(JobState.SUCCEEDED));
+    } finally {
+      Mockito.when(tablesClient.getRefusedTables()).thenReturn(Collections.emptySet());
+      shutDownJobScheduler(jobsScheduler);
+    }
+  }
+
+  @Test
   public void testSlaTimeoutCancelsRemainingFutures() {
     JobConf.JobTypeEnum jobType = JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION;
     JobsScheduler scheduler = createJobsScheduler(jobType);

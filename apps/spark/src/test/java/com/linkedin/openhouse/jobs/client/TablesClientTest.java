@@ -44,9 +44,11 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
+import org.springframework.http.HttpHeaders;
 import org.springframework.retry.RetryPolicy;
 import org.springframework.retry.policy.NeverRetryPolicy;
 import org.springframework.retry.support.RetryTemplate;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
 @SuppressWarnings("unchecked")
@@ -228,6 +230,73 @@ public class TablesClientTest {
     Mockito.verify(responseMock, Mockito.times(1)).block(any(Duration.class));
     Mockito.verify(dbResponseMock, Mockito.times(1)).block(any(Duration.class));
     Mockito.verify(allTablesResponseBodyMock, Mockito.times(1)).getResults();
+  }
+
+  private void mockTablesInDatabase(
+      List<String> tableNames, java.util.Map<String, Mono<GetTableResponseBody>> getResponses) {
+    List<GetTableResponseBody> shallowBodies =
+        tableNames.stream()
+            .map(name -> createTableResponseBodyMock(testDbName, name))
+            .collect(Collectors.toList());
+    GetAllTablesResponseBody allTables = Mockito.mock(GetAllTablesResponseBody.class);
+    Mockito.when(allTables.getResults()).thenReturn(shallowBodies);
+    Mockito.when(apiMock.searchTablesV1(testDbName)).thenReturn(Mono.just(allTables));
+    GetAllDatabasesResponseBody allDatabases = Mockito.mock(GetAllDatabasesResponseBody.class);
+    GetDatabaseResponseBody database = createGetDatabaseResponseBodyMock(testDbName);
+    Mockito.when(allDatabases.getResults()).thenReturn(Collections.singletonList(database));
+    Mockito.when(dbApiMock.getAllDatabasesV1()).thenReturn(Mono.just(allDatabases));
+    getResponses.forEach(
+        (name, response) ->
+            Mockito.when(apiMock.getTableV1(testDbName, name)).thenReturn(response));
+  }
+
+  @Test
+  void testRefusedTableIsSkippedAndRecorded() {
+    java.util.Map<String, Mono<GetTableResponseBody>> responses = new java.util.HashMap<>();
+    responses.put(
+        testTableName,
+        Mono.just(createNonPartitionedTableResponseBodyMock(testDbName, testTableName)));
+    responses.put(
+        testTableNameOlder,
+        Mono.error(
+            WebClientResponseException.create(
+                422, "Unprocessable Entity", HttpHeaders.EMPTY, new byte[0], null)));
+    mockTablesInDatabase(Arrays.asList(testTableNameOlder, testTableName), responses);
+
+    List<TableMetadata> tableMetadataList = client.getTableMetadataList();
+
+    Assertions.assertEquals(
+        Collections.singletonList(testTableName),
+        tableMetadataList.stream().map(TableMetadata::getTableName).collect(Collectors.toList()));
+    Assertions.assertEquals(
+        Collections.singleton(testDbName + "." + testTableNameOlder), client.getRefusedTables());
+  }
+
+  @Test
+  void testOtherErrorsAreNotRecordedAsRefusals() {
+    java.util.Map<String, Mono<GetTableResponseBody>> responses = new java.util.HashMap<>();
+    responses.put(
+        testTableName,
+        Mono.just(createNonPartitionedTableResponseBodyMock(testDbName, testTableName)));
+    responses.put(
+        testTableNameOlder,
+        Mono.error(
+            WebClientResponseException.create(
+                404, "Not Found", HttpHeaders.EMPTY, new byte[0], null)));
+    responses.put(
+        testTableNamePartitioned,
+        Mono.error(
+            WebClientResponseException.create(
+                500, "Internal Server Error", HttpHeaders.EMPTY, new byte[0], null)));
+    mockTablesInDatabase(
+        Arrays.asList(testTableNameOlder, testTableNamePartitioned, testTableName), responses);
+
+    List<TableMetadata> tableMetadataList = client.getTableMetadataList();
+
+    Assertions.assertEquals(
+        Collections.singletonList(testTableName),
+        tableMetadataList.stream().map(TableMetadata::getTableName).collect(Collectors.toList()));
+    Assertions.assertTrue(client.getRefusedTables().isEmpty());
   }
 
   @Test
