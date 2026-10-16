@@ -65,10 +65,9 @@ public enum Privileges {
     /**
      * Authentication-only route guard for the /v1 views routes (reads are allow-all under the
      * resolved authorization model; writes are authorized in {@code ViewsServiceImpl} against the
-     * database-level table privileges, not this sentinel). {@link
-     * com.linkedin.openhouse.tables.authorization.AuthorizationInterceptor} treats this value as
-     * "require authentication, never consult a resource privilege" — durable even if a later PR
-     * completes resource-privilege enforcement for the interceptor.
+     * database-level table privileges, not this sentinel). It names no resource privilege, so
+     * {@link com.linkedin.openhouse.tables.authorization.AuthorizationInterceptor} only requires
+     * authentication for it.
      */
     public static final String AUTHENTICATED = "AUTHENTICATED";
 

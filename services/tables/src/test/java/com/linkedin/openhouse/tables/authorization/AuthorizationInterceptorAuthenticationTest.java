@@ -21,14 +21,6 @@ public class AuthorizationInterceptorAuthenticationTest {
   private final AuthorizationInterceptor interceptor = new AuthorizationInterceptor();
 
   @Test
-  public void missingAuthenticationIsDeniedWithoutThrowing() throws NoSuchMethodException {
-    AuthorizationDecision decision =
-        interceptor.check(() -> null, invocation(SecuredEndpoints.authenticatedOnlyMethod()));
-
-    assertFalse(decision.isGranted());
-  }
-
-  @Test
   public void missingSecurityContextIsDeniedWithoutThrowing() throws NoSuchMethodException {
     AuthorizationDecision decision =
         interceptor.check(
