@@ -69,10 +69,10 @@ import org.springframework.stereotype.Component;
  *             -> delete -> audit
  * </pre>
  *
- * Captures, reads, lists and deletes go straight to the typed {@link HouseTableRepository}; a
- * create selects and allocates storage here, above the commit-only {@link ViewCommitEngine}. GET
- * and POST/PUT item responses carry the server-owned {@code clusterId}; every failure is typed with
- * its cause preserved for internal classification, never rendered to the caller.
+ * Captures, reads, lists and deletes use the typed {@link HouseTableRepository}; a create selects
+ * and allocates storage here, above the commit-only {@link ViewCommitEngine}. GET and POST/PUT
+ * responses carry the server-owned {@code clusterId}; failures are typed with their cause kept for
+ * internal classification and never rendered to the caller.
  */
 @Component
 @ConditionalOnClass(name = "org.apache.iceberg.view.ViewMetadata")
@@ -152,8 +152,6 @@ public class ViewsServiceImpl implements ViewsService {
     String databaseId = requestBody.getDatabaseId();
     String viewId = requestBody.getViewId();
     String sourceDialect = requestBody.getSourceDialect();
-    // May stay null if the gate/database check fails before a capture is ever taken; the audit
-    // dispatch below null-guards this for exactly that pre-capture case.
     PreparedViewOperation prepared = null;
     ViewCommitResult result;
     ViewDto dto;
@@ -248,10 +246,7 @@ public class ViewsServiceImpl implements ViewsService {
       throw new CommitStateUnknownException(e);
     }
     if (!dropped) {
-      // A permitted concurrent writer dropped this view (or replaced it with a differently-typed
-      // occupant) between capture and the one attempt made here: no refresh, no retry, no new
-      // UUID-conditional-delete contract. The key no longer names a view, which is the existing
-      // typed NO_SUCH_VIEW observation, not a server fault.
+      // The view was dropped or replaced by a non-view after capture: no retry, same as absent.
       throw noSuchView(databaseId, viewId);
     }
   }
@@ -324,11 +319,10 @@ public class ViewsServiceImpl implements ViewsService {
   }
 
   /**
-   * Common write-failure dispatch: an ambiguous commit emits exactly one UNKNOWN audit event and is
-   * reclassified as the distinct sanitizable {@link ViewErrorCode#COMMIT_STATE_UNKNOWN}; every
-   * other failure emits exactly one FAILED audit event and is rethrown, translated into a {@link
-   * ViewApiException} unless it already carries one (including an authorization denial / outage,
-   * which keeps its own exact type for the dedicated advice).
+   * Write-failure dispatch: an ambiguous commit emits one UNKNOWN audit event and becomes {@link
+   * ViewErrorCode#COMMIT_STATE_UNKNOWN}; any other failure emits one FAILED audit event and is
+   * rethrown as a {@link ViewApiException}, except authorization failures, which keep their own
+   * type for the dedicated advice.
    */
   private RuntimeException handleWriteFailure(
       RuntimeException e,
@@ -337,8 +331,8 @@ public class ViewsServiceImpl implements ViewsService {
       String viewId,
       String actingPrincipal,
       String sourceDialect) {
-    // A gate/database/capture failure (or a denied authorization check) leaves prepared null: no
-    // row was ever captured, so audit identity falls back to the request's own identifiers.
+    // Null when the failure precedes any capture (gate, database check, delete authorization, or
+    // the capture itself): audit identity then falls back to the request's identifiers.
     PreparedViewOperation preparedForAudit =
         (prepared == null ? PreparedViewOperation.observedAbsence() : prepared)
             .withRequestedIdentity(databaseId, viewId);
@@ -406,9 +400,7 @@ public class ViewsServiceImpl implements ViewsService {
   }
 
   private void requireDatabasesExist(String databaseId, List<String> defaultNamespace) {
-    // HTS identity is case-insensitive (the gate's own probe canonicalizes with Locale.ROOT for
-    // the same reason), so a route or defaultNamespace alias that differs only in case from a
-    // seeded database id names the same existing database, not a missing one.
+    // HTS identity is case-insensitive, so compare database ids lowercased.
     Set<String> existingDatabaseIds =
         databasesService.getAllDatabases().stream()
             .map(DatabaseDto::getDatabaseId)
