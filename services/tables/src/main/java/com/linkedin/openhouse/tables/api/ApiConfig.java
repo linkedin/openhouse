@@ -2,6 +2,8 @@ package com.linkedin.openhouse.tables.api;
 
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.handler.impl.OpenHouseTablesApiHandler;
+import com.linkedin.openhouse.tables.config.CatalogRequestContext;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultCommitPolicy;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultsSource;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
@@ -33,5 +35,16 @@ public class ApiConfig {
   public ReadBridgeStripProtection readBridgeStripProtection(
       ReadBridgeConfigResolver readBridgeConfigResolver) {
     return new ReadBridgeStripProtection(readBridgeConfigResolver);
+  }
+
+  /**
+   * The internal catalog's commit policy. Without a {@link CatalogRequestContext} bean, the
+   * column-default policy bypass is off.
+   */
+  @Bean
+  public ColumnDefaultCommitPolicy columnDefaultCommitPolicy(
+      ObjectProvider<CatalogRequestContext> requestContext) {
+    return new ColumnDefaultCommitPolicy(
+        requestContext.getIfAvailable(() -> CatalogRequestContext.NONE));
   }
 }
