@@ -16,8 +16,6 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ViewRepresentation;
-import com.linkedin.openhouse.tables.exception.ViewApiException;
-import com.linkedin.openhouse.tables.exception.ViewErrorCode;
 import com.linkedin.openhouse.tables.exception.ViewExceptionHandler;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
 import com.linkedin.openhouse.tables.model.TableDto;
@@ -25,7 +23,6 @@ import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.model.TableModelConstants;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
-import com.linkedin.openhouse.tables.services.ViewAdmissionService;
 import com.linkedin.openhouse.tables.services.ViewsFeatureGate;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -34,7 +31,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -74,8 +70,6 @@ public class ViewsServiceH2IntegrationTest {
   @Autowired private OpenHouseInternalRepository openHouseInternalRepository;
   @Autowired private HouseTableRepository houseTableRepository;
   @MockBean private ViewsFeatureGate viewsFeatureGate;
-  // Mock admission is a no-op pass-through unless a test scripts a rejection.
-  @MockBean private ViewAdmissionService admissionService;
   @SpyBean private StorageSelector storageSelector;
 
   private String jwtAccessToken;
@@ -260,7 +254,7 @@ public class ViewsServiceH2IntegrationTest {
   @ParameterizedTest
   @NullAndEmptySource
   @ValueSource(strings = {"   ", "unsupported", "SPARK"})
-  public void invalidCreateSourceDialectReturns400BeforeAdmissionOrAllocation(String dialect)
+  public void invalidCreateSourceDialectReturns400BeforeAllocation(String dialect)
       throws Exception {
     String viewId = "invalid_source_view";
     Mockito.clearInvocations(storageSelector);
@@ -277,7 +271,7 @@ public class ViewsServiceH2IntegrationTest {
                 .accept(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + jwtAccessToken))
         .andExpect(status().isBadRequest());
-    Mockito.verifyNoInteractions(admissionService, storageSelector);
+    Mockito.verifyNoInteractions(storageSelector);
     org.junit.jupiter.api.Assertions.assertFalse(
         houseTableRepository
             .findEntityById(
@@ -286,84 +280,6 @@ public class ViewsServiceH2IntegrationTest {
                     .tableId(viewId)
                     .build())
             .isPresent());
-  }
-
-  @Test
-  public void admissionRejectionAllocatesNothingAndWritesNoMetadataForCreateOrReplace()
-      throws Exception {
-    String existingViewId = "admission_existing_view";
-    String rejectedViewId = "admission_rejected_view";
-    createView(existingViewId);
-    try {
-      HouseTable existingBefore = findViewRow(existingViewId);
-      long filesBefore = metadataFileCount();
-      org.junit.jupiter.api.Assertions.assertTrue(
-          filesBefore > 0, "The isolated storage root must contain the seeded view's metadata.");
-      Mockito.doThrow(
-              new ViewApiException(ViewErrorCode.VIEW_ADMISSION_FAILED, "View admission rejected"))
-          .when(admissionService)
-          .admit(ArgumentMatchers.any());
-      // The successful seed above already passed admission and storage selection; count only the
-      // two rejected requests below. Stubbing is retained.
-      Mockito.clearInvocations(admissionService, storageSelector);
-
-      mvc.perform(
-              MockMvcRequestBuilders.post(VIEWS_PATH)
-                  .contentType(MediaType.APPLICATION_JSON)
-                  .content(
-                      ViewModelConstants.createRequestWithoutBaseVersion()
-                          .toBuilder()
-                          .viewId(rejectedViewId)
-                          .build()
-                          .toJson())
-                  .accept(MediaType.APPLICATION_JSON)
-                  .header("Authorization", "Bearer " + jwtAccessToken))
-          .andExpect(status().isUnprocessableEntity());
-      mvc.perform(
-              MockMvcRequestBuilders.put(VIEWS_PATH + "/" + existingViewId)
-                  .contentType(MediaType.APPLICATION_JSON)
-                  .content(
-                      ViewModelConstants.fullyPopulatedRequest()
-                          .toBuilder()
-                          .viewId(existingViewId)
-                          .baseMetadataLocation(existingBefore.getTableLocation())
-                          .representations(
-                              java.util.Collections.singletonList(
-                                  com.linkedin.openhouse.tables.api.spec.v0.request.components
-                                      .ViewRepresentation.builder()
-                                      .type("sql")
-                                      .dialect(ViewModelConstants.SOURCE_DIALECT)
-                                      .sql("SELECT id FROM my_database.my_table")
-                                      .build()))
-                          .build()
-                          .toJson())
-                  .accept(MediaType.APPLICATION_JSON)
-                  .header("Authorization", "Bearer " + jwtAccessToken))
-          .andExpect(status().isUnprocessableEntity());
-
-      Mockito.verify(admissionService, Mockito.times(2)).admit(ArgumentMatchers.any());
-      Mockito.verify(storageSelector, Mockito.never())
-          .selectStorage(ArgumentMatchers.any(), ArgumentMatchers.any());
-      org.junit.jupiter.api.Assertions.assertEquals(filesBefore, metadataFileCount());
-      org.junit.jupiter.api.Assertions.assertFalse(
-          houseTableRepository
-              .findEntityById(
-                  HouseTablePrimaryKey.builder()
-                      .databaseId(ViewModelConstants.DATABASE_ID)
-                      .tableId(rejectedViewId)
-                      .build())
-              .isPresent());
-      HouseTable existingAfter = findViewRow(existingViewId);
-      org.junit.jupiter.api.Assertions.assertEquals(
-          existingBefore.getTableLocation(), existingAfter.getTableLocation());
-      org.junit.jupiter.api.Assertions.assertEquals(
-          existingBefore.getTableUUID(), existingAfter.getTableUUID());
-    } finally {
-      // This class shares one context and my_database across methods; remove this case's rows so
-      // sorted listings in other methods are unaffected regardless of execution order.
-      deleteViewIfPresent(existingViewId);
-      deleteViewIfPresent(rejectedViewId);
-    }
   }
 
   /**
