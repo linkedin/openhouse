@@ -7,17 +7,38 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 /**
- * Reads {@link CatalogRequestContext} options from the current request's headers. Outside a request
- * every option is off.
+ * Reads {@link CatalogRequestContext} options from the current request's headers, and keeps what
+ * the service records for the commit in the request's attributes. Outside a request every option is
+ * off and nothing is recorded.
  */
 @Component
 public class HttpCatalogRequestContext implements CatalogRequestContext {
+
+  private static final String COLUMN_DEFAULT_HANDSHAKE =
+      HttpCatalogRequestContext.class.getName() + ".columnDefaultHandshake";
 
   @Override
   public boolean columnDefaultPolicyBypass() {
     return header(TablesMvcConstants.HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS)
         .map(Boolean::parseBoolean)
         .orElse(false);
+  }
+
+  @Override
+  public Optional<String> columnDefaultHandshake() {
+    return Optional.ofNullable(RequestContextHolder.getRequestAttributes())
+        .map(
+            attributes ->
+                attributes.getAttribute(COLUMN_DEFAULT_HANDSHAKE, RequestAttributes.SCOPE_REQUEST))
+        .map(Object::toString);
+  }
+
+  @Override
+  public void recordColumnDefaultHandshake(String handshake) {
+    RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
+    if (attributes != null) {
+      attributes.setAttribute(COLUMN_DEFAULT_HANDSHAKE, handshake, RequestAttributes.SCOPE_REQUEST);
+    }
   }
 
   /**

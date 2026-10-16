@@ -392,6 +392,28 @@ public class ReadBridgeColumnDefaultE2ETest {
         catalog.loadTable(identifier).refs().get("feature").snapshotId());
   }
 
+  /**
+   * A write built on the version before the table opted in gets the retryable version conflict, not
+   * a column-default rejection. Rebuilt on the current version with the handshake, it commits.
+   */
+  @Test
+  public void snapshotsPut_onVersionBeforeOptIn_conflictsInsteadOfFailing() throws Exception {
+    created = create(uniqueTable("stale_opt_in"), Collections.emptyMap());
+    MvcResult beforeOptIn =
+        RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
+    GetTableResponseBody optIn = buildGetTableResponseBody(beforeOptIn);
+    optIn.getTableProperties().put(ENABLED_PROP, "true");
+    MvcResult afterOptIn = putTable(optIn).andExpect(status().isOk()).andReturn();
+
+    TableIdentifier identifier = TableIdentifier.of(created.getDatabaseId(), created.getTableId());
+    Table table = catalog.loadTable(identifier);
+    Snapshot append = table.newAppend().appendFile(dataFile(table)).apply();
+    mvc.perform(snapshotsPut(beforeOptIn, false, branch("main", append), append))
+        .andExpect(status().isConflict());
+    mvc.perform(snapshotsPut(afterOptIn, true, branch("main", append), append))
+        .andExpect(status().isOk());
+  }
+
   private MockHttpServletRequestBuilder snapshotsPut(
       MvcResult current, boolean handshake, Map<String, String> refs, Snapshot... snapshots)
       throws Exception {

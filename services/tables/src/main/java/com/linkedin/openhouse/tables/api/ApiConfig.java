@@ -38,6 +38,7 @@ public class ApiConfig {
     return new ReadBridgeConfigResolver(columnDefaultsSource);
   }
 
+  /** Records the column-default handshake in the request's {@link CatalogRequestContext}. */
   @Bean
   public ReadBridgeStripProtection readBridgeStripProtection(
       ReadBridgeConfigResolver readBridgeConfigResolver, CatalogRequestContext requestContext) {
@@ -46,7 +47,8 @@ public class ApiConfig {
 
   /** The internal catalog's commit policy. */
   @Bean
-  public ColumnDefaultCommitPolicy columnDefaultCommitPolicy(CatalogRequestContext requestContext) {
-    return new ColumnDefaultCommitPolicy(requestContext);
+  public ColumnDefaultCommitPolicy columnDefaultCommitPolicy(
+      CatalogRequestContext requestContext, ReadBridgeStripProtection readBridgeStripProtection) {
+    return new ColumnDefaultCommitPolicy(requestContext, readBridgeStripProtection);
   }
 }
