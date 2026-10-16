@@ -72,6 +72,9 @@ integration branch use explicit H2 configuration and may use MockMvc or mocks.
 They remain useful supporting coverage but are not Docker persistence proof.
 The Docker-only class is not executed with `-PtableE2eBackend=h2`; select
 `docker` explicitly with the command above for end-to-end validation.
+The historical `e2e.h2` package and `SpringH2Application` name are retained
+to match the target branch; the selected initializer and backend determine
+whether persistence uses Docker or H2, not those names.
 
 The existing `scripts/python/table_hts_integration_test.py` remains a separate
 deployed-table smoke check. It is not a replacement for this suite's views and
