@@ -6,6 +6,7 @@ import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
 import java.time.Duration;
 import java.util.Optional;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -53,6 +54,7 @@ import org.springframework.stereotype.Component;
  * the table property opts an individual table in once the analyzer is running.
  */
 @Component
+@Slf4j
 @ConditionalOnProperty(name = "analyzer.ofd.enabled", havingValue = "true", matchIfMissing = false)
 public class CadenceBasedOrphanFilesDeletionAnalyzer implements OperationAnalyzer {
 
@@ -63,9 +65,20 @@ public class CadenceBasedOrphanFilesDeletionAnalyzer implements OperationAnalyze
   @Autowired
   public CadenceBasedOrphanFilesDeletionAnalyzer(
       @Value("${ofd.success-retry-hours:16}") long successRetryHours,
-      @Value("${ofd.failure-retry-hours:1}") long failureRetryHours) {
+      @Value("${ofd.failure-retry-hours:1}") long failureRetryHours,
+      @Value("${ofd.stale-timeout-hours:24}") long staleTimeoutHours,
+      @Value("${ofd.failure-streak-threshold:3}") int failureStreakThreshold,
+      @Value("${ofd.failure-backoff-max-hours:24}") long failureBackoffMaxHours) {
+    // OFD mutates the table and can eat customer quota on a duplicate run, so it biases toward a
+    // longer active-op deadline (prefer a missed job over a duplicate) — see CadencePolicy. After
+    // failureStreakThreshold consecutive failures the circuit breaker backs off exponentially.
     this.cadencePolicy =
-        new CadencePolicy(Duration.ofHours(successRetryHours), Duration.ofHours(failureRetryHours));
+        new CadencePolicy(
+            Duration.ofHours(successRetryHours),
+            Duration.ofHours(failureRetryHours),
+            Duration.ofHours(staleTimeoutHours),
+            failureStreakThreshold,
+            Duration.ofHours(failureBackoffMaxHours));
   }
 
   /** Package-private for tests that supply a pre-built {@link CadencePolicy}. */
@@ -87,7 +100,19 @@ public class CadenceBasedOrphanFilesDeletionAnalyzer implements OperationAnalyze
   public boolean shouldSchedule(
       TableDto table,
       Optional<TableOperationDto> currentOp,
-      Optional<TableOperationsHistoryDto> latestHistory) {
-    return cadencePolicy.shouldSchedule(currentOp, latestHistory);
+      Optional<TableOperationsHistoryDto> latestHistory,
+      int consecutiveFailures) {
+    if (cadencePolicy.isBreakerTripped(consecutiveFailures)) {
+      // Operator-visible signal for a chronically-failing table (circuit breaker tripped). TODO:
+      // emit a metric here once a MeterRegistry is on the optimizer classpath; the breaker then
+      // backs off exponentially rather than rescheduling every cadence.
+      log.warn(
+          "OFD circuit breaker tripped for {}.{} (uuid={}): {} consecutive failures; backing off",
+          table.getDatabaseName(),
+          table.getTableId(),
+          table.getTableUuid(),
+          consecutiveFailures);
+    }
+    return cadencePolicy.shouldSchedule(currentOp, latestHistory, consecutiveFailures);
   }
 }

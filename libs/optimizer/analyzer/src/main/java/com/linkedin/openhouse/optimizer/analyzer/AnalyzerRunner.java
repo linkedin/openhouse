@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.optimizer.analyzer;
 
+import com.linkedin.openhouse.optimizer.model.HistoryStatusDto;
 import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import com.linkedin.openhouse.optimizer.model.TableDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationDto;
@@ -14,6 +15,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +36,13 @@ import org.springframework.transaction.annotation.Transactional;
 @Component
 @RequiredArgsConstructor
 public class AnalyzerRunner {
+
+  /**
+   * How many recent history rows the circuit breaker inspects to measure a consecutive-failure
+   * streak. The streak only drives exponential backoff, which is capped, so looking further back
+   * than this cannot change the decision.
+   */
+  private static final int FAILURE_STREAK_WINDOW = 10;
 
   private final List<OperationAnalyzer> analyzers;
   private final TableStatsRepository statsRepo;
@@ -251,10 +260,46 @@ public class AnalyzerRunner {
       TableDto table,
       Optional<TableOperationDto> currentOp,
       Optional<TableOperationsHistoryDto> latestHistory) {
-    if (!analyzer.isEnabled(table) || !analyzer.shouldSchedule(table, currentOp, latestHistory)) {
+    if (!analyzer.isEnabled(table)) {
+      return false;
+    }
+    int consecutiveFailures =
+        countConsecutiveFailures(table, analyzer.getOperationType(), latestHistory);
+    if (!analyzer.shouldSchedule(table, currentOp, latestHistory, consecutiveFailures)) {
       return false;
     }
     return createPending(analyzer, table);
+  }
+
+  /**
+   * Count the table's current consecutive-FAILED streak for {@code operationType} (newest history
+   * first, stopping at the first non-FAILED). Only queries when the latest run actually failed, so
+   * healthy tables incur no extra read; the window caps how far back the breaker looks, which is
+   * enough because the backoff interval is already capped beyond it.
+   */
+  private int countConsecutiveFailures(
+      TableDto table,
+      OperationTypeDto operationType,
+      Optional<TableOperationsHistoryDto> latestHistory) {
+    if (!latestHistory.isPresent() || latestHistory.get().getStatus() != HistoryStatusDto.FAILED) {
+      return 0;
+    }
+    int streak = 0;
+    for (TableOperationsHistoryDto entry :
+        historyRepo
+            .findRecent(
+                table.getTableUuid(),
+                operationType.toDb(),
+                PageRequest.of(0, FAILURE_STREAK_WINDOW))
+            .stream()
+            .map(TableOperationsHistoryDto::fromRow)
+            .collect(Collectors.toList())) {
+      if (entry.getStatus() != HistoryStatusDto.FAILED) {
+        break;
+      }
+      streak++;
+    }
+    return streak;
   }
 
   /**

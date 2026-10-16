@@ -18,6 +18,7 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
 
   private static final Duration TEST_SUCCESS_INTERVAL = Duration.ofHours(24);
   private static final Duration TEST_FAILURE_INTERVAL = Duration.ofHours(1);
+  private static final Duration TEST_STALE_TIMEOUT = Duration.ofHours(2);
 
   private CadenceBasedOrphanFilesDeletionAnalyzer analyzer;
 
@@ -25,7 +26,7 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
   void setUp() {
     analyzer =
         new CadenceBasedOrphanFilesDeletionAnalyzer(
-            new CadencePolicy(TEST_SUCCESS_INTERVAL, TEST_FAILURE_INTERVAL));
+            new CadencePolicy(TEST_SUCCESS_INTERVAL, TEST_FAILURE_INTERVAL, TEST_STALE_TIMEOUT));
   }
 
   // --- isEnabled ---
@@ -50,7 +51,8 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
 
   @Test
   void shouldSchedule_noOp_noHistory_returnsTrue() {
-    assertThat(analyzer.shouldSchedule(tableWithProperty(true), Optional.empty(), Optional.empty()))
+    assertThat(
+            analyzer.shouldSchedule(tableWithProperty(true), Optional.empty(), Optional.empty(), 0))
         .isTrue();
   }
 
@@ -61,7 +63,8 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty(true),
                 Optional.empty(),
-                Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, longAgo))))
+                Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, longAgo)),
+                0))
         .isTrue();
   }
 
@@ -72,7 +75,8 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty(true),
                 Optional.empty(),
-                Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, recent))))
+                Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, recent)),
+                0))
         .isFalse();
   }
 
@@ -83,7 +87,8 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty(true),
                 Optional.empty(),
-                Optional.of(historyWithStatus(HistoryStatusDto.FAILED, longAgo))))
+                Optional.of(historyWithStatus(HistoryStatusDto.FAILED, longAgo)),
+                1))
         .isTrue();
   }
 
@@ -94,7 +99,8 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty(true),
                 Optional.empty(),
-                Optional.of(historyWithStatus(HistoryStatusDto.FAILED, recent))))
+                Optional.of(historyWithStatus(HistoryStatusDto.FAILED, recent)),
+                1))
         .isFalse();
   }
 
@@ -106,7 +112,8 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty(true),
                 Optional.of(opWithStatus(OperationStatusDto.PENDING)),
-                Optional.empty()))
+                Optional.empty(),
+                0))
         .isFalse();
   }
 
@@ -116,7 +123,8 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty(true),
                 Optional.of(opWithStatus(OperationStatusDto.SCHEDULING)),
-                Optional.empty()))
+                Optional.empty(),
+                0))
         .isFalse();
   }
 
@@ -127,7 +135,8 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty(true),
                 Optional.of(opWithStatus(OperationStatusDto.SCHEDULED)),
-                Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, historyAt))))
+                Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, historyAt)),
+                0))
         .isFalse();
   }
 
@@ -140,7 +149,8 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty(true),
                 Optional.of(opWithStatus(OperationStatusDto.CANCELED)),
-                Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, longAgo))))
+                Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, longAgo)),
+                0))
         .isTrue();
   }
 
@@ -151,7 +161,8 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty(true),
                 Optional.of(opWithStatus(OperationStatusDto.CANCELED)),
-                Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, recent))))
+                Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, recent)),
+                0))
         .isFalse();
   }
 
@@ -161,8 +172,66 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
             analyzer.shouldSchedule(
                 tableWithProperty(true),
                 Optional.of(opWithStatus(OperationStatusDto.CANCELED)),
-                Optional.empty()))
+                Optional.empty(),
+                0))
         .isTrue();
+  }
+
+  // --- shouldSchedule: SCHEDULING/SCHEDULED past the stale timeout → dead job, reschedule ---
+
+  @Test
+  void shouldSchedule_scheduledPastStaleTimeout_noHistory_returnsTrue() {
+    // Job submitted long ago but never reached a terminal state (missed/hung callback): the
+    // SCHEDULED row is treated as dead so the table is rescheduled rather than wedged forever.
+    Instant staleAt = Instant.now().minus(TEST_STALE_TIMEOUT).minusSeconds(60);
+    assertThat(
+            analyzer.shouldSchedule(
+                tableWithProperty(true),
+                Optional.of(opScheduledAt(OperationStatusDto.SCHEDULED, staleAt)),
+                Optional.empty(),
+                0))
+        .isTrue();
+  }
+
+  @Test
+  void shouldSchedule_scheduledWithinStaleTimeout_returnsFalse() {
+    // A recently-submitted job is still live; the analyzer stays out.
+    Instant recent = Instant.now().minus(TEST_STALE_TIMEOUT).plusSeconds(60);
+    assertThat(
+            analyzer.shouldSchedule(
+                tableWithProperty(true),
+                Optional.of(opScheduledAt(OperationStatusDto.SCHEDULED, recent)),
+                Optional.empty(),
+                0))
+        .isFalse();
+  }
+
+  @Test
+  void shouldSchedule_schedulingPastStaleTimeout_returnsTrue() {
+    // A scheduler that claimed the row but died before recording a jobId also wedges without this.
+    Instant staleAt = Instant.now().minus(TEST_STALE_TIMEOUT).minusSeconds(60);
+    assertThat(
+            analyzer.shouldSchedule(
+                tableWithProperty(true),
+                Optional.of(opScheduledAt(OperationStatusDto.SCHEDULING, staleAt)),
+                Optional.empty(),
+                0))
+        .isTrue();
+  }
+
+  @Test
+  void shouldSchedule_staleScheduled_stillHonorsHistoryCadence_returnsFalse() {
+    // Even when the SCHEDULED row is dead, a recent successful run means the data is fresh, so the
+    // cadence guard still suppresses a redundant reschedule.
+    Instant staleAt = Instant.now().minus(TEST_STALE_TIMEOUT).minusSeconds(60);
+    Instant recentSuccess = Instant.now().minus(TEST_SUCCESS_INTERVAL).plusSeconds(60);
+    assertThat(
+            analyzer.shouldSchedule(
+                tableWithProperty(true),
+                Optional.of(opScheduledAt(OperationStatusDto.SCHEDULED, staleAt)),
+                Optional.of(historyWithStatus(HistoryStatusDto.SUCCESS, recentSuccess)),
+                0))
+        .isFalse();
   }
 
   // --- helpers ---
@@ -181,6 +250,10 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
 
   private TableOperationDto opWithStatus(OperationStatusDto status) {
     return TableOperationDto.builder().status(status).build();
+  }
+
+  private TableOperationDto opScheduledAt(OperationStatusDto status, Instant scheduledAt) {
+    return TableOperationDto.builder().status(status).scheduledAt(scheduledAt).build();
   }
 
   private TableOperationsHistoryDto historyWithStatus(
