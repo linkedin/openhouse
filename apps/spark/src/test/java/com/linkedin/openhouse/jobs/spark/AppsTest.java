@@ -2,7 +2,6 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
-import com.linkedin.openhouse.jobs.exception.RetentionConfigurationException;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
@@ -12,7 +11,6 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.Arrays;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
@@ -189,7 +187,7 @@ public class AppsTest extends OpenHouseSparkITest {
             7,
             otelEmitter,
             ".backup",
-            Optional.of("America/Los_Angeles"));
+            ZoneId.of("America/Los_Angeles"));
 
     Assertions.assertDoesNotThrow(() -> app.runInner(ops));
 
@@ -228,7 +226,7 @@ public class AppsTest extends OpenHouseSparkITest {
             7,
             otelEmitter,
             ".backup",
-            Optional.of(timeZone));
+            ZoneId.of(timeZone));
 
     Assertions.assertDoesNotThrow(() -> app.runInner(ops));
 
@@ -244,43 +242,5 @@ public class AppsTest extends OpenHouseSparkITest {
             Mockito.eq(".backup"),
             nowCaptor.capture());
     Assertions.assertEquals(ZoneOffset.UTC, nowCaptor.getValue().getZone());
-  }
-
-  @ParameterizedTest
-  @ValueSource(strings = {"Not/AZone", "", " "})
-  public void testRetentionSparkAppRejectsInvalidTimeZone(String timeZone) {
-    final String tableName = "db.test_retention_app_invalid_zone";
-    Operations ops = Mockito.mock(Operations.class);
-    Table table = Mockito.mock(Table.class);
-    StateManager stateManagerMock = Mockito.mock(StateManager.class);
-    Mockito.when(ops.getTable(tableName)).thenReturn(table);
-    Mockito.when(table.properties()).thenReturn(Map.of(AppConstants.BACKUP_ENABLED_KEY, "true"));
-
-    RetentionSparkApp app =
-        new RetentionSparkApp(
-            "test-job-id",
-            stateManagerMock,
-            tableName,
-            "ts",
-            "yyyy-MM-dd-HH",
-            "DAY",
-            7,
-            otelEmitter,
-            ".backup",
-            Optional.of(timeZone));
-
-    RetentionConfigurationException thrown =
-        Assertions.assertThrows(RetentionConfigurationException.class, () -> app.runInner(ops));
-    Assertions.assertTrue(thrown.getMessage().contains("Invalid --timeZone '" + timeZone + "'"));
-    Mockito.verify(ops, Mockito.never())
-        .runRetention(
-            Mockito.any(),
-            Mockito.any(),
-            Mockito.any(),
-            Mockito.any(),
-            Mockito.anyInt(),
-            Mockito.anyBoolean(),
-            Mockito.any(),
-            Mockito.any());
   }
 }

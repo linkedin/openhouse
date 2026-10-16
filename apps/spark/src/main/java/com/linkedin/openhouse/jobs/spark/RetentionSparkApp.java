@@ -2,18 +2,15 @@ package com.linkedin.openhouse.jobs.spark;
 
 import com.linkedin.openhouse.common.metrics.DefaultOtelConfig;
 import com.linkedin.openhouse.common.metrics.OtelEmitter;
-import com.linkedin.openhouse.jobs.exception.RetentionConfigurationException;
 import com.linkedin.openhouse.jobs.spark.state.StateManager;
 import com.linkedin.openhouse.jobs.util.AppConstants;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
-import java.time.DateTimeException;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
@@ -35,7 +32,7 @@ public class RetentionSparkApp extends BaseTableSparkApp {
   private final String granularity;
   private final int count;
   private final String backupDir;
-  private final Optional<String> timeZone;
+  private final ZoneId timeZone;
 
   public RetentionSparkApp(
       String jobId,
@@ -57,7 +54,7 @@ public class RetentionSparkApp extends BaseTableSparkApp {
         count,
         otelEmitter,
         backupDir,
-        Optional.empty());
+        ZoneOffset.UTC);
   }
 
   public RetentionSparkApp(
@@ -70,37 +67,23 @@ public class RetentionSparkApp extends BaseTableSparkApp {
       int count,
       OtelEmitter otelEmitter,
       String backupDir,
-      Optional<String> timeZone) {
+      ZoneId timeZone) {
     super(jobId, stateManager, fqtn, otelEmitter);
     this.columnName = columnName;
     this.columnPattern = columnPattern;
     this.granularity = granularity;
     this.count = count;
     this.backupDir = backupDir;
-    this.timeZone = timeZone;
+    this.timeZone = timeZone.normalized().equals(ZoneOffset.UTC) ? ZoneOffset.UTC : timeZone;
   }
 
   @Override
-  protected void runInner(Operations ops) throws RetentionConfigurationException {
-    ZoneId configuredTimeZone;
-    try {
-      configuredTimeZone = ZoneId.of(timeZone.orElse(ZoneOffset.UTC.getId()));
-    } catch (DateTimeException cause) {
-      throw new RetentionConfigurationException(
-          "Invalid --timeZone '"
-              + timeZone.orElse("")
-              + "': expected an IANA zone id or a fixed offset",
-          cause);
-    }
-    ZoneId evaluationTimeZone =
-        configuredTimeZone.normalized().equals(ZoneOffset.UTC)
-            ? ZoneOffset.UTC
-            : configuredTimeZone;
+  protected void runInner(Operations ops) {
     Table table = ops.getTable(fqtn);
     boolean backupEnabled =
         Boolean.parseBoolean(
             table.properties().getOrDefault(AppConstants.BACKUP_ENABLED_KEY, "false"));
-    ZonedDateTime now = ZonedDateTime.now(evaluationTimeZone);
+    ZonedDateTime now = ZonedDateTime.now(timeZone);
     log.info(
         "Retention app start for table {}, column {}, {}, ttl={} {}s, backupEnabled={}, backupDir={}, timeZone={}, ts={}",
         fqtn,
@@ -147,6 +130,6 @@ public class RetentionSparkApp extends BaseTableSparkApp {
         Integer.parseInt(cmdLine.getOptionValue("count")),
         otelEmitter,
         cmdLine.getOptionValue("backupDir", ".backup"),
-        Optional.ofNullable(cmdLine.getOptionValue("timeZone")));
+        ZoneId.of(cmdLine.getOptionValue("timeZone", ZoneOffset.UTC.getId())));
   }
 }
