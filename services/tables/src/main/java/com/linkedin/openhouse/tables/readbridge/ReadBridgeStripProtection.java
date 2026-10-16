@@ -57,7 +57,7 @@ public class ReadBridgeStripProtection {
   public ReadBridgeStripProtection(
       ReadBridgeConfigResolver resolver, CatalogRequestContext requestContext) {
     this.resolver = resolver;
-    this.requestContext = Objects.requireNonNull(requestContext, "requestContext");
+    this.requestContext = requestContext;
   }
 
   /**
