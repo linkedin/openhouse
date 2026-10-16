@@ -123,7 +123,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
 
   private static final String CLUSTER_PROPERTY = "cluster";
 
-  private static final String AUTH_TOKEN = "auth-token";
+  static final String AUTH_TOKEN = "auth-token";
 
   private static final String TRUST_STORE = "trust-store";
 
@@ -164,6 +164,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     Preconditions.checkArgument(
         actionType == null || ACTION_TYPE_SYSTEM.equalsIgnoreCase(actionType),
         "action-type must be SYSTEM when supplied");
+    HttpHeaders headers = CatalogRequestHeaders.from(properties);
     try {
       TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
       tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
@@ -179,6 +180,10 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     }
     if (actionType != null) {
       this.apiClient.addDefaultHeader(HTTP_HEADER_ACTION_TYPE, actionType.toUpperCase(Locale.ROOT));
+    }
+    headers.toSingleValueMap().forEach(this.apiClient::addDefaultHeader);
+    if (!headers.isEmpty()) {
+      log.info("Catalog {} sends configured headers {}", name, headers.keySet());
     }
     this.tableApi = new TableApi(apiClient);
     this.snapshotApi = new SnapshotApi(apiClient);

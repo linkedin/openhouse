@@ -10,9 +10,12 @@ import com.linkedin.openhouse.gen.tables.client.model.IcebergSnapshotsRequestBod
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientResponseException;
 import com.linkedin.openhouse.relocated.reactor.core.publisher.Mono;
 import java.io.IOException;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
@@ -28,6 +31,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
@@ -138,6 +142,57 @@ public class SmokeTest {
                         "openhouse",
                         ImmutableMap.of(CatalogProperties.URI, url, "action-type", actionType)));
     Assertions.assertEquals("action-type must be SYSTEM when supplied", failure.getMessage());
+  }
+
+  @Test
+  public void testConfiguredHeadersAreCatalogScoped() throws InterruptedException {
+    String header = "X-OpenHouse-Example";
+    OpenHouseCatalog configured = new OpenHouseCatalog();
+    configured.initialize(
+        "configured", ImmutableMap.of(CatalogProperties.URI, url, "header." + header, "value"));
+    OpenHouseCatalog plain = new OpenHouseCatalog();
+    plain.initialize("plain", ImmutableMap.of(CatalogProperties.URI, url));
+    for (OpenHouseCatalog catalog : new OpenHouseCatalog[] {configured, plain}) {
+      mockTableService.enqueue(new MockResponse().setResponseCode(404));
+      Assertions.assertFalse(catalog.tableExists(TableIdentifier.of("db", "table")));
+      Assertions.assertEquals(
+          catalog == configured ? "value" : null,
+          mockTableService.takeRequest(1, TimeUnit.SECONDS).getHeader(header));
+    }
+  }
+
+  /**
+   * A header property that names no header, names a header the catalog sets, or names the same
+   * header as another property is ignored: initialization succeeds and its value is never sent.
+   */
+  @ParameterizedTest
+  @MethodSource("ignoredHeaderProperties")
+  public void testUnusableHeaderPropertiesAreIgnored(Map<String, String> headerProperties)
+      throws InterruptedException {
+    Map<String, String> properties = new HashMap<>(headerProperties);
+    properties.put(CatalogProperties.URI, url);
+    OpenHouseCatalog catalog = new OpenHouseCatalog();
+    catalog.initialize("ignored", properties);
+    mockTableService.enqueue(new MockResponse().setResponseCode(404));
+    Assertions.assertFalse(catalog.tableExists(TableIdentifier.of("db", "table")));
+    RecordedRequest request = mockTableService.takeRequest(1, TimeUnit.SECONDS);
+    Assertions.assertNotNull(request);
+    Collection<List<String>> sent = request.getHeaders().toMultimap().values();
+    for (String value : headerProperties.values()) {
+      Assertions.assertTrue(sent.stream().noneMatch(values -> values.contains(value)), value);
+    }
+  }
+
+  static Stream<Map<String, String>> ignoredHeaderProperties() {
+    return Stream.of(
+        ImmutableMap.of("header.", "unnamed"),
+        ImmutableMap.of("header.Authorization", "configured-authorization"),
+        ImmutableMap.of("header.user-agent", "configured-user-agent"),
+        ImmutableMap.of("header.X-Client-Name", "configured-client-name"),
+        ImmutableMap.of("header.X-OpenHouse-Action-Type", "configured-action-type"),
+        ImmutableMap.of("header.session-id", "configured-session-id"),
+        ImmutableMap.of(
+            "header.X-OpenHouse-Example", "first", "header.x-openhouse-example", "second"));
   }
 
   @Test
