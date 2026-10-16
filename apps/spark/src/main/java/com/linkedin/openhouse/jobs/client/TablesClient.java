@@ -176,7 +176,7 @@ public class TablesClient {
                     .getTableV1(dbName, tableName)
                     .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
               } catch (WebClientResponseException e) {
-                if (e.getStatusCode().value() == REFUSED_STATUS_CODE) {
+                if (e.getRawStatusCode() == REFUSED_STATUS_CODE) {
                   recordRefusedTable(dbName, tableName, e);
                   return null;
                 }
@@ -192,7 +192,7 @@ public class TablesClient {
     log.error(
         "Table {} was refused by the tables service with HTTP {}; skipping it, and the run will fail",
         fqtn,
-        e.getStatusCode().value(),
+        e.getRawStatusCode(),
         e);
   }
 
