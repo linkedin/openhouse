@@ -7,7 +7,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.CachingRequestBodyFilter;
@@ -32,6 +31,7 @@ import java.lang.reflect.Method;
 import java.net.URI;
 import java.text.ParseException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -811,113 +811,110 @@ public class ViewsControllerTest {
   }
 
   // ---------------------------------------------------------------------------------------------
-  // Service audit request payload
+  // Service audit redaction
   // ---------------------------------------------------------------------------------------------
 
   /**
    * {@link com.linkedin.openhouse.common.audit.ServiceAuditAspect} records the complete cached
-   * request body for every controller call. The request audit keeps the caller's supplied view
-   * definition (schema and every SQL representation) as request provenance, on the success path and
-   * on failure paths alike; {@link ViewRequestPayloadRedactor} replaces only the write CAS token,
-   * keeping its key. Nothing else in the payload is disturbed.
+   * request body for every controller call, so the create and replace routes would otherwise write
+   * the caller's SQL text and schema document into a service audit event. {@link
+   * ViewRequestPayloadRedactor} replaces those values before the event is built; these tests pin
+   * that, on the success path and on a failure path, and pin that nothing else in the payload is
+   * disturbed.
    *
-   * <p>The fixtures carry marker identifiers that appear nowhere else, so the "kept" assertions
-   * cannot pass on a coincidence.
+   * <p>The fixtures carry marker identifiers that appear nowhere else, so the "absent" assertions
+   * fail loudly if the redaction is removed rather than passing on a coincidence.
    */
-  private static final String DEFINITION_SQL_MARKER = "audited_sql_marker_column";
+  private static final String SECRET_SQL_MARKER = "secret_sql_marker_column";
 
-  private static final String DEFINITION_SCHEMA_MARKER = "audited_schema_marker_column";
+  private static final String SECRET_SCHEMA_MARKER = "secret_schema_marker_column";
 
-  private static final String DEFINITION_SQL =
-      "SELECT " + DEFINITION_SQL_MARKER + " FROM my_database.my_table";
+  private static final String SECRET_SQL =
+      "SELECT " + SECRET_SQL_MARKER + " FROM my_database.my_table";
 
-  private static final String DEFINITION_SCHEMA =
+  private static final String SECRET_SCHEMA =
       "{\"type\": \"struct\", \"schema-id\": 0, \"fields\": ["
           + "{\"id\": 1, \"required\": true, \"name\": \""
-          + DEFINITION_SCHEMA_MARKER
+          + SECRET_SCHEMA_MARKER
           + "\", \"type\": \"string\"}]}";
 
-  private static CreateUpdateViewRequestBody requestCarryingMarkedDefinition() {
+  private static CreateUpdateViewRequestBody requestCarryingSecretDefinition() {
     return ViewModelConstants.fullyPopulatedRequest()
         .toBuilder()
-        .schema(DEFINITION_SCHEMA)
+        .schema(SECRET_SCHEMA)
         .representations(
-            Arrays.asList(
+            Collections.singletonList(
                 ViewRepresentation.builder()
                     .type(ViewModelConstants.SQL_REPRESENTATION_TYPE)
-                    .sql(DEFINITION_SQL)
+                    .sql(SECRET_SQL)
                     .dialect(ViewModelConstants.SOURCE_DIALECT)
-                    .build(),
-                ViewRepresentation.builder()
-                    .type(ViewModelConstants.SQL_REPRESENTATION_TYPE)
-                    .sql(DEFINITION_SQL + " WHERE 1 = 1")
-                    .dialect("trino")
                     .build()))
         .build();
   }
 
   @Test
-  public void serviceAuditOnViewCreateKeepsTheDefinitionAndRedactsTheCasToken() throws Exception {
+  public void serviceAuditOnViewCreateRedactsSchemaAndSql() throws Exception {
     mvc.perform(
         MockMvcRequestBuilders.post(WRITE_VIEWS_PATH)
             .contentType(MediaType.APPLICATION_JSON)
-            .content(requestCarryingMarkedDefinition().toJson())
+            .content(requestCarryingSecretDefinition().toJson())
             .accept(MediaType.APPLICATION_JSON)
             .header("Authorization", "Bearer " + jwtAccessToken));
 
     ServiceAuditEvent event = capturedAuditEvent();
     Assertions.assertEquals(201, event.getStatusCode(), "Precondition: the create must succeed.");
-    assertDefinitionKeptAndCasRedacted(event, requestCarryingMarkedDefinition());
+    assertViewDefinitionRedacted(event);
   }
 
   @Test
-  public void serviceAuditOnViewReplaceKeepsTheDefinitionAndRedactsTheCasToken() throws Exception {
+  public void serviceAuditOnViewReplaceRedactsSchemaAndSql() throws Exception {
     mvc.perform(
         MockMvcRequestBuilders.put(WRITE_VIEWS_PATH + "/my_view")
             .contentType(MediaType.APPLICATION_JSON)
-            .content(requestCarryingMarkedDefinition().toJson())
+            .content(requestCarryingSecretDefinition().toJson())
             .accept(MediaType.APPLICATION_JSON)
             .header("Authorization", "Bearer " + jwtAccessToken));
 
     ServiceAuditEvent event = capturedAuditEvent();
     Assertions.assertEquals(200, event.getStatusCode(), "Precondition: the replace must succeed.");
-    assertDefinitionKeptAndCasRedacted(event, requestCarryingMarkedDefinition());
+    assertViewDefinitionRedacted(event);
   }
 
   /**
-   * The audit event of a rejected request is emitted from the shared exception handler, after the
-   * request body has already been cached, so it carries the supplied definition just as an accepted
-   * one does: request provenance, not a committed result.
+   * The failure path is the one the reviewer called out: the audit event is emitted from the shared
+   * exception handler, after the request body has already been cached, so a rejected request writes
+   * its payload just as an accepted one does.
    */
   @Test
-  public void serviceAuditOnFailedViewCreateKeepsTheDefinitionAndRedactsTheCasToken()
-      throws Exception {
+  public void serviceAuditOnFailedViewCreateRedactsSchemaAndSql() throws Exception {
     String failingDatabaseId = MockViewsApiHandler.databaseIdFor(ViewErrorCode.VIEWS_DISABLED);
-    // Match identifiers so the request reaches the handler failure.
-    CreateUpdateViewRequestBody sent =
-        requestCarryingMarkedDefinition().toBuilder().databaseId(failingDatabaseId).build();
 
     mvc.perform(
         MockMvcRequestBuilders.post(viewsPath(failingDatabaseId))
             .contentType(MediaType.APPLICATION_JSON)
-            .content(sent.toJson())
+            // Match identifiers so the request reaches the handler failure.
+            .content(
+                requestCarryingSecretDefinition()
+                    .toBuilder()
+                    .databaseId(failingDatabaseId)
+                    .build()
+                    .toJson())
             .accept(MediaType.APPLICATION_JSON)
             .header("Authorization", "Bearer " + jwtAccessToken));
 
     ServiceAuditEvent event = capturedAuditEvent();
     Assertions.assertEquals(
         404, event.getStatusCode(), "Precondition: the create must actually be rejected.");
-    assertDefinitionKeptAndCasRedacted(event, sent);
+    assertViewDefinitionRedacted(event, failingDatabaseId);
   }
 
-  /** A controller rejection keeps the supplied definition and still redacts the CAS token. */
+  /** Controller rejections must still redact SQL/schema from request logs. */
   @Test
-  public void serviceAuditOnAnIdentifierMismatchKeepsTheDefinitionAndRedactsTheCasToken()
-      throws Exception {
+  public void serviceAuditOnAnIdentifierMismatchRedactsSchemaAndSql() throws Exception {
     mvc.perform(
         MockMvcRequestBuilders.post(VIEWS_PATH)
             .contentType(MediaType.APPLICATION_JSON)
-            .content(requestCarryingMarkedDefinition().toJson())
+            .content(requestCarryingSecretDefinition().toJson())
             .accept(MediaType.APPLICATION_JSON)
             .header(SESSION_ID_HEADER, SESSION_ID)
             .header("Authorization", "Bearer " + jwtAccessToken));
@@ -929,7 +926,7 @@ public class ViewsControllerTest {
     Assertions.assertEquals(VIEWS_PATH, event.getUri());
     Assertions.assertEquals(ACTING_PRINCIPAL, event.getUser());
     Assertions.assertEquals(SESSION_ID, event.getSessionId());
-    assertDefinitionKeptAndCasRedacted(event, requestCarryingMarkedDefinition());
+    assertViewDefinitionRedacted(event);
 
     assertWriteRoutesNeverReachedTheHandler();
   }
@@ -968,7 +965,7 @@ public class ViewsControllerTest {
     mvc.perform(
             MockMvcRequestBuilders.post(WRITE_VIEWS_PATH)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(requestCarryingMarkedDefinition().toJson())
+                .content(requestCarryingSecretDefinition().toJson())
                 .accept(MediaType.APPLICATION_JSON)
                 .header(SESSION_ID_HEADER, SESSION_ID)
                 .header("Authorization", "Bearer " + jwtAccessToken))
@@ -979,51 +976,52 @@ public class ViewsControllerTest {
     assertSingleAuditEventWithoutPayload(HttpMethod.POST, WRITE_VIEWS_PATH, 201);
   }
 
-  /**
-   * The audited payload is the request exactly as sent (as parsed JSON), with only the CAS token
-   * value replaced. The schema string and every representation are positively compared with what
-   * the caller supplied, so a regression that drops or rewrites them fails.
-   */
-  private void assertDefinitionKeptAndCasRedacted(
-      ServiceAuditEvent event, CreateUpdateViewRequestBody sent) {
+  private void assertViewDefinitionRedacted(ServiceAuditEvent event) {
+    assertViewDefinitionRedacted(event, ViewModelConstants.DATABASE_ID);
+  }
+
+  private void assertViewDefinitionRedacted(ServiceAuditEvent event, String expectedDatabaseId) {
     JsonElement payload = event.getRequestPayload();
     Assertions.assertNotNull(payload, "The audit event must still carry a request payload.");
     Assertions.assertTrue(payload.isJsonObject(), "The view request payload is a JSON object.");
     JsonObject payloadObject = payload.getAsJsonObject();
-    JsonObject supplied = JsonParser.parseString(sent.toJson()).getAsJsonObject();
-
-    Assertions.assertEquals(
-        sent.getSchema(),
-        payloadObject.get("schema").getAsString(),
-        "The supplied schema document is kept verbatim.");
-    JsonArray representations = payloadObject.getAsJsonArray("representations");
-    Assertions.assertEquals(supplied.getAsJsonArray("representations"), representations);
-    Assertions.assertEquals(sent.getRepresentations().size(), representations.size());
-    for (int i = 0; i < representations.size(); i++) {
-      Assertions.assertEquals(
-          sent.getRepresentations().get(i).getSql(),
-          representations.get(i).getAsJsonObject().get("sql").getAsString(),
-          "Every supplied SQL representation is kept, not only the first.");
-    }
-    Assertions.assertTrue(payload.toString().contains(DEFINITION_SQL_MARKER));
-    Assertions.assertTrue(payload.toString().contains(DEFINITION_SCHEMA_MARKER));
 
     Assertions.assertTrue(
-        payloadObject.has("baseMetadataLocation"),
-        "The audited payload keeps the wire key so an auditor can see the caller supplied a CAS"
-            + " token.");
+        payloadObject.has("schema"),
+        "The key must survive redaction so an auditor can see the field was sent.");
     Assertions.assertEquals(
         ServiceAuditPayloadRedactor.REDACTED_VALUE,
-        payloadObject.get("baseMetadataLocation").getAsString(),
-        "The write CAS token must be redacted from request audit payloads.");
-    Assertions.assertFalse(
-        payload.toString().contains(sent.getBaseMetadataLocation()),
-        "No fragment of the submitted CAS token may appear anywhere in the audited payload.");
+        payloadObject.get("schema").getAsString(),
+        "The schema document must not reach the audit event.");
 
-    JsonObject expected = supplied.deepCopy();
-    expected.addProperty("baseMetadataLocation", ServiceAuditPayloadRedactor.REDACTED_VALUE);
-    Assertions.assertEquals(
-        expected, payloadObject, "Every other supplied field is audited exactly as sent.");
+    JsonArray representations = payloadObject.getAsJsonArray("representations");
+    Assertions.assertNotNull(representations, "The representations array must survive redaction.");
+    Assertions.assertEquals(1, representations.size());
+    for (JsonElement representation : representations) {
+      JsonObject representationObject = representation.getAsJsonObject();
+      Assertions.assertEquals(
+          ServiceAuditPayloadRedactor.REDACTED_VALUE,
+          representationObject.get("sql").getAsString(),
+          "The SQL text must not reach the audit event.");
+      // Everything else on the representation is metadata, not caller content.
+      Assertions.assertEquals(
+          ViewModelConstants.SQL_REPRESENTATION_TYPE,
+          representationObject.get("type").getAsString());
+      Assertions.assertEquals(
+          ViewModelConstants.SOURCE_DIALECT, representationObject.get("dialect").getAsString());
+    }
+
+    String serializedPayload = payload.toString();
+    Assertions.assertFalse(
+        serializedPayload.contains(SECRET_SQL_MARKER),
+        "No fragment of the submitted SQL may appear anywhere in the audited payload.");
+    Assertions.assertFalse(
+        serializedPayload.contains(SECRET_SCHEMA_MARKER),
+        "No fragment of the submitted schema may appear anywhere in the audited payload.");
+
+    // The identifying and routing fields are what makes the audit event useful; leave them alone.
+    Assertions.assertEquals(ViewModelConstants.VIEW_ID, payloadObject.get("viewId").getAsString());
+    Assertions.assertEquals(expectedDatabaseId, payloadObject.get("databaseId").getAsString());
     Assertions.assertEquals(
         clusterProperties.getClusterName(),
         event.getClusterName(),
@@ -1032,6 +1030,23 @@ public class ViewsControllerTest {
     Assertions.assertFalse(
         payloadObject.has("clusterId"),
         "A canonical request carries no cluster key, so none reaches the audited payload.");
+    Assertions.assertEquals(
+        ViewModelConstants.SOURCE_DIALECT, payloadObject.get("sourceDialect").getAsString());
+    Assertions.assertEquals(
+        ViewModelConstants.DEFAULT_CATALOG, payloadObject.get("defaultCatalog").getAsString());
+    Assertions.assertTrue(
+        payloadObject.has("baseMetadataLocation"),
+        "The audited payload is the raw body the caller sent, so it carries the wire key.");
+    Assertions.assertEquals(
+        ViewModelConstants.METADATA_LOCATION,
+        payloadObject.get("baseMetadataLocation").getAsString());
+    Assertions.assertEquals(
+        ViewModelConstants.DATABASE_ID,
+        payloadObject.getAsJsonArray("defaultNamespace").get(0).getAsString());
+    Assertions.assertEquals(
+        "openhouse",
+        payloadObject.getAsJsonObject("viewProperties").get("owner").getAsString(),
+        "View properties are caller metadata, not view definition, and stay auditable.");
   }
 
   // ---------------------------------------------------------------------------------------------
