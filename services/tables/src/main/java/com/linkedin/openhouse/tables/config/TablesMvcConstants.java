@@ -9,9 +9,10 @@ public final class TablesMvcConstants {
       "X-OpenHouse-Dangerously-Bypass-Column-Default-Policy";
   /** Ends a rejection that {@link #HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS} lifts. */
   public static final String COLUMN_DEFAULT_POLICY_BYPASS_HINT =
-      " To bypass column-default policy checks, set header."
-          + HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS
-          + "=true on the client catalog; incorrect reads or writes may result.";
+      String.format(
+          " To bypass column-default policy checks, set header.%s=true on the client catalog;"
+              + " incorrect reads or writes may result.",
+          HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS);
 
   public static final String ACTION_TYPE_SYSTEM = "SYSTEM";
 

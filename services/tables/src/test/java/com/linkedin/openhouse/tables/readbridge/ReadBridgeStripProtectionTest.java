@@ -401,6 +401,24 @@ public class ReadBridgeStripProtectionTest {
     Assertions.assertTrue(thrown.getMessage().contains(METADATA_LOCATION));
   }
 
+  /**
+   * A missing intermediate schema is rejected rather than passed through: the commit would
+   * otherwise skip it and persist an incomplete schema history.
+   */
+  @Test
+  public void missingIntermediateSchema_failsClosed() {
+    TableDto incoming =
+        ramped(SCHEMA_WITH_DEFAULT)
+            .toBuilder()
+            .newIntermediateSchemas(java.util.Arrays.asList(SCHEMA_WITH_DEFAULT, ""))
+            .build();
+
+    ColumnDefaultException thrown =
+        Assertions.assertThrows(
+            ColumnDefaultException.class, () -> protection(FIELD_2).prepare(null, incoming));
+    Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_UNUSABLE"));
+  }
+
   private static String schema(String resourceName) {
     try {
       return ResourceIoHelper.getSchemaJsonFromResource(

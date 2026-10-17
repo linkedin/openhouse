@@ -149,8 +149,7 @@ public class ReadBridgeStripProtection {
 
   private TableDto stripInitialDefaults(JsonNode schema, TableDto incoming)
       throws ColumnDefaultException {
-    String stripped =
-        schema == null ? incoming.getSchema() : strip(schema, incoming.getSchema(), incoming);
+    String stripped = strip(required(schema, incoming), incoming.getSchema(), incoming);
     List<String> intermediates = strip(incoming.getNewIntermediateSchemas(), incoming);
     if (Objects.equals(stripped, incoming.getSchema())
         && Objects.equals(intermediates, incoming.getNewIntermediateSchemas())) {
@@ -198,10 +197,7 @@ public class ReadBridgeStripProtection {
     List<String> stripped = new ArrayList<>(schemas.size());
     boolean changed = false;
     for (String schema : schemas) {
-      String next =
-          schema == null || schema.isEmpty()
-              ? schema
-              : strip(tree(schema, incoming), schema, incoming);
+      String next = strip(tree(schema, incoming), schema, incoming);
       stripped.add(next);
       changed |= !Objects.equals(next, schema);
     }
