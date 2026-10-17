@@ -716,9 +716,11 @@ public class ViewApiContractTest {
     expected.put(ViewErrorCode.DEPENDENCY_CYCLE, HttpStatus.UNPROCESSABLE_ENTITY);
     expected.put(ViewErrorCode.MAX_VIEW_DEPTH_EXCEEDED, HttpStatus.UNPROCESSABLE_ENTITY);
     expected.put(ViewErrorCode.VIEW_SERVICE_UNAVAILABLE, HttpStatus.SERVICE_UNAVAILABLE);
+    expected.put(ViewErrorCode.INTERNAL_VIEW_ERROR, HttpStatus.INTERNAL_SERVER_ERROR);
+    expected.put(ViewErrorCode.COMMIT_STATE_UNKNOWN, HttpStatus.SERVICE_UNAVAILABLE);
 
     Assertions.assertEquals(
-        14, ViewErrorCode.values().length, "ViewErrorCode ships exactly 14 values.");
+        16, ViewErrorCode.values().length, "ViewErrorCode ships exactly 16 values.");
 
     Assertions.assertEquals(
         setOf(
@@ -735,7 +737,9 @@ public class ViewApiContractTest {
             "REQUIRED_REPRESENTATION_MISSING",
             "DEPENDENCY_CYCLE",
             "MAX_VIEW_DEPTH_EXCEEDED",
-            "VIEW_SERVICE_UNAVAILABLE"),
+            "VIEW_SERVICE_UNAVAILABLE",
+            "INTERNAL_VIEW_ERROR",
+            "COMMIT_STATE_UNKNOWN"),
         Arrays.stream(ViewErrorCode.values())
             .map(Enum::name)
             .collect(Collectors.toCollection(LinkedHashSet::new)),

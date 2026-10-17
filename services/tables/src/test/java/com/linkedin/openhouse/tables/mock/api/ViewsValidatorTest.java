@@ -25,6 +25,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpStatus;
 
 /**
  * Coverage of {@link ViewsApiValidator}: the requests it must accept, and every structural rule it
@@ -658,6 +659,59 @@ public class ViewsValidatorTest {
         createOf(validCreateRequest().toBuilder().viewProperties(userOwned).build()),
         "Neither of these user-owned keys is reserved: the openhouse. predicate is case-sensitive"
             + " and policies is matched exactly.");
+  }
+
+  /**
+   * The server stamps {@code replace.drop-dialect.allowed} on every view, and the commit engine
+   * refuses a caller-supplied value. That exact key is therefore reserved at the API on create and
+   * replace, as a 400, so it is never accepted here only to fail later as a server fault. The
+   * reservation is the exact key: case variants and longer keys stay ordinary user properties.
+   */
+  @Test
+  public void validateRejectsTheServerOwnedDropDialectKeyExactlyOnCreateAndReplace() {
+    String sentinelValue = "drop-dialect-value-sentinel";
+    for (String value : new String[] {"false", "true", sentinelValue}) {
+      Map<String, String> serverOwned = new LinkedHashMap<>();
+      serverOwned.put("replace.drop-dialect.allowed", value);
+      Map<String, String> sent = new LinkedHashMap<>(serverOwned);
+      Executable[] validations = {
+        createOf(validCreateRequest().toBuilder().viewProperties(serverOwned).build()),
+        updateOf(validUpdateRequest().toBuilder().viewProperties(serverOwned).build())
+      };
+      for (Executable validation : validations) {
+        ViewRequestValidationFailureException rejected =
+            assertRejected(
+                validation,
+                ViewErrorCode.INVALID_VIEW_DEFINITION,
+                "viewProperties : reserved keys are not allowed: replace.drop-dialect.allowed");
+        Assertions.assertEquals(HttpStatus.BAD_REQUEST, rejected.getHttpStatus());
+        Assertions.assertFalse(
+            rejected.getMessage().contains(sentinelValue),
+            "The supplied value is not echoed: " + rejected.getMessage());
+        Assertions.assertEquals(sent, serverOwned, "The request map is rejected, not rewritten.");
+      }
+    }
+
+    Map<String, String> withOtherReservedKeys = new LinkedHashMap<>();
+    withOtherReservedKeys.put("replace.drop-dialect.allowed", "false");
+    withOtherReservedKeys.put("policies", "hijacked");
+    withOtherReservedKeys.put("openhouse.tableId", "hijacked");
+    assertRejected(
+        createOf(validCreateRequest().toBuilder().viewProperties(withOtherReservedKeys).build()),
+        ViewErrorCode.INVALID_VIEW_DEFINITION,
+        "viewProperties : reserved keys are not allowed:"
+            + " openhouse.tableId, policies, replace.drop-dialect.allowed");
+
+    Map<String, String> userOwned = new LinkedHashMap<>();
+    userOwned.put("Replace.Drop-Dialect.Allowed", "false");
+    userOwned.put("replace.drop-dialect.allowed.note", "user");
+    userOwned.put("replace.drop-dialect.allowed ", "user");
+    assertDoesNotThrow(
+        createOf(validCreateRequest().toBuilder().viewProperties(userOwned).build()),
+        "Only the exact server-owned key is reserved.");
+    assertDoesNotThrow(
+        updateOf(validUpdateRequest().toBuilder().viewProperties(userOwned).build()),
+        "Only the exact server-owned key is reserved.");
   }
 
   @Test

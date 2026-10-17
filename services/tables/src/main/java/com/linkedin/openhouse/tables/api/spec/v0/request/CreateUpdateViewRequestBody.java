@@ -64,7 +64,11 @@ public class CreateUpdateViewRequestBody {
   @Valid
   private List<ViewRepresentation> representations;
 
-  @Schema(description = "Dialect of the representation the view was authored in", example = "spark")
+  @Schema(
+      description =
+          "Dialect of the representation the view was authored in. Required on create; "
+              + "must exactly match the stored source dialect on replacement (case-sensitive).",
+      example = "spark")
   @NotEmpty(message = "sourceDialect cannot be empty")
   private String sourceDialect;
 
