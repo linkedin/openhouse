@@ -6,13 +6,14 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.context.annotation.Bean;
 
 /**
- * Registers a {@link ColumnDefaultsSource} with no defaults when the application has none. Spring
- * Boot loads auto-configuration after the application's own configuration, so the condition sees
- * every source registered there, in any configuration class.
+ * Read-bridge's default providers, each registered only when the application supplies none. Spring
+ * Boot loads auto-configuration after the application's own configuration, so each condition sees
+ * every provider registered there, in any configuration class.
  */
 @AutoConfiguration
-public class ReadBridgeAutoConfiguration {
+public class ReadBridgeConfig {
 
+  /** A {@link ColumnDefaultsSource} with no defaults. */
   @Bean
   @ConditionalOnMissingBean(ColumnDefaultsSource.class)
   public ColumnDefaultsSource noColumnDefaults() {
