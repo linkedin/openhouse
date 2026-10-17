@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.readbridge;
 
+import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.CommitPolicy;
 import com.linkedin.openhouse.internal.catalog.TableCommit;
@@ -9,10 +10,19 @@ import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 /**
  * The internal catalog's {@link CommitPolicy}: the column-default rules every table commit must
  * pass. The catalog checks each commit after its stale-base check and before anything is written.
+ * The rules judge the commit's schema and snapshots against the table's current version.
  *
- * <p>A committed {@code read-bridge.column-default.enabled=true} cannot be changed or removed. A
- * request with the column-default policy bypass ({@link
- * TablesMvcConstants#HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS}) skips this check.
+ * <ol>
+ *   <li>A committed {@code read-bridge.column-default.enabled=true} cannot be changed or removed.
+ *   <li>Every commit, renames included, must pass {@link ReadBridgeStripProtection#enforce}. Type 2
+ *       counts the commit's client as default-aware when {@link ColumnDefaultClientGate} admits the
+ *       request, so a snapshot commit outside a request cannot touch a table with column defaults.
+ * </ol>
+ *
+ * <p>A request with the column-default policy bypass ({@link
+ * TablesMvcConstants#HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS}), read from its {@link
+ * CatalogRequestContext}, skips both, so an operator can repair a table whose stored default cannot
+ * be applied.
  */
 public class ColumnDefaultCommitPolicy implements CommitPolicy {
 
@@ -20,12 +30,23 @@ public class ColumnDefaultCommitPolicy implements CommitPolicy {
 
   private final CatalogRequestContext requestContext;
 
-  public ColumnDefaultCommitPolicy(CatalogRequestContext requestContext) {
+  private final ColumnDefaultClientGate clientGate;
+
+  private final ReadBridgeStripProtection columnDefaultRules;
+
+  public ColumnDefaultCommitPolicy(
+      CatalogRequestContext requestContext,
+      ColumnDefaultClientGate clientGate,
+      ReadBridgeStripProtection columnDefaultRules) {
     this.requestContext = requestContext;
+    this.clientGate = clientGate;
+    this.columnDefaultRules = columnDefaultRules;
   }
 
   /**
-   * @throws UnsupportedClientOperationException if the commit changes or removes a committed opt-in
+   * @throws UnsupportedClientOperationException if the commit changes or removes a committed
+   *     opt-in, breaks Type 1 or Type 2, or declares a default that cannot be applied
+   * @throws TableConfigUnavailableException if a default the table declares cannot be applied
    */
   @Override
   public void check(TableCommit commit) {
@@ -33,6 +54,12 @@ public class ColumnDefaultCommitPolicy implements CommitPolicy {
       return;
     }
     keepOptIn(commit);
+    try {
+      columnDefaultRules.enforce(commit, clientGate.admitsClient());
+    } catch (ColumnDefaultException e) {
+      throw new UnsupportedClientOperationException(
+          UnsupportedClientOperationException.Operation.COLUMN_DEFAULT, e.getMessage(), e);
+    }
   }
 
   /**

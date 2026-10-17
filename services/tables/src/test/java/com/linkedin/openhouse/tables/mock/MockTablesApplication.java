@@ -64,9 +64,9 @@ public class MockTablesApplication {
    * not loaded. Wire a no-op strip guard rather than component-scanning {@code tables.readbridge}.
    */
   @Bean
-  public ReadBridgeStripProtection readBridgeStripProtection(CatalogRequestContext requestContext) {
+  public ReadBridgeStripProtection readBridgeStripProtection() {
     return new ReadBridgeStripProtection(
-        new ReadBridgeConfigResolver(tableDto -> Collections.emptyMap()), requestContext);
+        new ReadBridgeConfigResolver(tableDto -> Collections.emptyMap()));
   }
 
   /** Services require the client gate from {@code ApiConfig}; no mock table opts in. */

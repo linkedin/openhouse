@@ -71,7 +71,7 @@ class LockEvaluationServiceTest {
     TablesMapper mapper = Mappers.getMapper(TablesMapper.class);
     ReflectionTestUtils.setField(mapper, "policiesSpecMapper", new PoliciesSpecMapper());
     ReadBridgeStripProtection protection = mock(ReadBridgeStripProtection.class);
-    when(protection.prepare(any(), any())).thenAnswer(invocation -> invocation.getArgument(1));
+    when(protection.prepare(any())).thenAnswer(invocation -> invocation.getArgument(0));
     // No table here opts into column defaults, so the gate admits every request.
     ColumnDefaultClientGate gate = new ColumnDefaultClientGate("", new CatalogRequestContext() {});
     repository = mock(OpenHouseInternalRepository.class);

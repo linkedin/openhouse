@@ -424,12 +424,13 @@ The default-off escape hatch is the request header
 `X-OpenHouse-Dangerously-Bypass-Column-Default-Policy: true`. A catalog sends it when configured with
 `spark.sql.catalog.openhouse.header.X-OpenHouse-Dangerously-Bypass-Column-Default-Policy=true` (or
 the same suffix in Java catalog properties); any `header.<name>=<value>` catalog property becomes a
-request header. It bypasses only column-default policy checks: client compatibility and the rule that
-a committed `read-bridge.column-default.enabled=true` cannot be changed or removed. Incorrect reads or
-writes may result. Authentication, authorization, default resolution and default-value write
-protections still apply. JARs without `header.` catalog properties need an upgrade/backport to send
-it. Removing table opt-in in a write is not a bypass. Administrative operations, cached metadata and
-direct storage access are unchanged.
+request header. It bypasses only column-default policy checks: client compatibility, the rule that a
+committed `read-bridge.column-default.enabled=true` cannot be changed or removed, and the checks that
+a commit keeps a column's default and that a snapshot commit comes from a client that applies
+defaults. Incorrect reads or writes may result. Authentication, authorization and default resolution
+still apply, and `initial-default` is still stripped from writes. JARs without `header.` catalog
+properties need an upgrade/backport to send it. Removing table opt-in in a write is not a bypass.
+Administrative operations, cached metadata and direct storage access are unchanged.
 
 #### SET POLICY
 
