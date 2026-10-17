@@ -400,7 +400,10 @@ scala> spark.sql("SHOW TBLPROPERTIES openhouse.db.tb").show()
 
 ```
 
-#### Default-value client compatibility
+#### Default-value opt-in
+
+Once `read-bridge.column-default.enabled=true` is committed, it cannot be changed or removed.
+`false`, an unparseable value and an absent property remain changeable.
 
 Tables with `read-bridge.column-default.enabled=true` require `X-Client-Name: spark` and
 `User-Agent: openhouse-java-client/<version>` for table loads and metadata/snapshot commits. Table

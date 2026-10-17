@@ -5,18 +5,14 @@ import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.Map;
 import java.util.regex.Pattern;
-import javax.servlet.http.HttpServletRequest;
 import org.springframework.data.util.Version;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
 
 /**
  * Admission for explicitly opted-in tables; called after authorization, before reads or writes.
  * Tables without {@code read-bridge.column-default.enabled=true} are never checked.
  */
 public class ColumnDefaultClientGate {
-  private static final String ENABLED =
-      ReadBridgeConfigResolver.COLUMN_DEFAULT_FEATURE_ID + ".enabled";
+  private static final String ENABLED = ReadBridgeConfigResolver.COLUMN_DEFAULT_ENABLED_PROP;
   private static final String PRODUCT = "openhouse-java-client/";
   private static final Pattern RELEASE = Pattern.compile("[0-9]{1,9}(?:\\.[0-9]{1,9}){2,3}");
   private final String minimum;
@@ -31,7 +27,7 @@ public class ColumnDefaultClientGate {
    * @param minimum oldest admitted {@code openhouse-java-client} release, such as {@code 4.2.150}.
    *     Empty or invalid fails closed: every request to an opted-in table is rejected unless it
    *     carries the column-default policy bypass. It does not turn the gate off.
-   * @param requestContext whether the request carries the column-default policy bypass
+   * @param requestContext the request's client name, User-Agent and column-default policy bypass
    */
   public ColumnDefaultClientGate(String minimum, CatalogRequestContext requestContext) {
     this.minimum = minimum;
@@ -44,24 +40,8 @@ public class ColumnDefaultClientGate {
     if (!enabled(existing == null ? null : existing.getTableProperties()) && !enabled(proposed)) {
       return;
     }
-    if (requestContext.columnDefaultPolicyBypass()) {
+    if (requestContext.columnDefaultPolicyBypass() || admitsClient()) {
       return;
-    }
-    HttpServletRequest request = currentRequest();
-    if (request != null) {
-      String userAgent = request.getHeader("User-Agent");
-      if (minimumVersion != null
-          && "spark".equals(request.getHeader("X-Client-Name"))
-          && userAgent != null
-          && userAgent.startsWith(PRODUCT)) {
-        String version = userAgent.substring(PRODUCT.length());
-        // OSS 0.x and LI 4.x advertise different artifacts; never order one above the other.
-        if (version.startsWith(majorPrefix)
-            && RELEASE.matcher(version).matches()
-            && Version.parse(version).isGreaterThanOrEqualTo(minimumVersion)) {
-          return;
-        }
-      }
     }
     if (minimumVersion == null) {
       throw new ColumnDefaultClientRejectedException(
@@ -78,11 +58,26 @@ public class ColumnDefaultClientGate {
             + TablesMvcConstants.COLUMN_DEFAULT_POLICY_BYPASS_HINT);
   }
 
-  private static HttpServletRequest currentRequest() {
-    Object context = RequestContextHolder.getRequestAttributes();
-    return context instanceof ServletRequestAttributes
-        ? ((ServletRequestAttributes) context).getRequest()
-        : null;
+  /**
+   * Whether the current request comes from a client that applies column defaults: {@code
+   * client-name=spark} with an {@code openhouse-java-client} release at or above the minimum, in
+   * the same major release family. False outside a request, and when no valid minimum is
+   * configured. The bypass does not count.
+   */
+  public boolean admitsClient() {
+    if (minimumVersion == null
+        || !requestContext.clientName().filter("spark"::equals).isPresent()) {
+      return false;
+    }
+    String userAgent = requestContext.userAgent().orElse("");
+    if (!userAgent.startsWith(PRODUCT)) {
+      return false;
+    }
+    String version = userAgent.substring(PRODUCT.length());
+    // OSS 0.x and LI 4.x advertise different artifacts; never order one above the other.
+    return version.startsWith(majorPrefix)
+        && RELEASE.matcher(version).matches()
+        && Version.parse(version).isGreaterThanOrEqualTo(minimumVersion);
   }
 
   private static boolean enabled(Map<String, String> properties) {
