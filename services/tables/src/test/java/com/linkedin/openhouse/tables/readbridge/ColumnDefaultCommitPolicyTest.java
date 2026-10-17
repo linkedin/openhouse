@@ -45,7 +45,6 @@ public class ColumnDefaultCommitPolicyTest {
         throw new IllegalStateException("looked up defaults for a commit the rules skip");
       };
 
-  /** A request that sent the bypass. */
   private static final CatalogRequestContext BYPASS =
       new CatalogRequestContext() {
         @Override
@@ -60,7 +59,7 @@ public class ColumnDefaultCommitPolicyTest {
     UnsupportedClientOperationException error =
         Assertions.assertThrows(
             UnsupportedClientOperationException.class,
-            () -> policy(NO_BYPASS, NO_DEFAULTS).check(commit(table(committed), optIn(proposed))));
+            () -> policy(NO_BYPASS).check(commit(table(committed), optIn(proposed))));
     Assertions.assertTrue(error.getMessage().contains(ENABLED));
     Assertions.assertTrue(error.getMessage().contains("immutable once set to true"));
   }
@@ -78,7 +77,7 @@ public class ColumnDefaultCommitPolicyTest {
   @MethodSource("changesToCommittedFalseOrInvalid")
   void optInFalseOrInvalidCanBeChangedOrRemoved(String committed, String proposed) {
     Assertions.assertDoesNotThrow(
-        () -> policy(NO_BYPASS, NO_DEFAULTS).check(commit(table(committed), optIn(proposed))));
+        () -> policy(NO_BYPASS).check(commit(table(committed), optIn(proposed))));
   }
 
   static Stream<Arguments> changesToCommittedFalseOrInvalid() {
@@ -93,8 +92,7 @@ public class ColumnDefaultCommitPolicyTest {
   @ParameterizedTest
   @MethodSource("firstAssignmentsAndUnchangedValues")
   void optInAllowsFirstAssignmentAndUnchangedValues(TableMetadata base, String proposed) {
-    Assertions.assertDoesNotThrow(
-        () -> policy(NO_BYPASS, NO_DEFAULTS).check(commit(base, optIn(proposed))));
+    Assertions.assertDoesNotThrow(() -> policy(NO_BYPASS).check(commit(base, optIn(proposed))));
   }
 
   static Stream<Arguments> firstAssignmentsAndUnchangedValues() {
@@ -162,6 +160,10 @@ public class ColumnDefaultCommitPolicyTest {
     Assertions.assertThrows(
         TableConfigUnavailableException.class,
         () -> policy(NO_BYPASS, unusable).check(commit(table("true"), optIn("true"))));
+  }
+
+  private static ColumnDefaultCommitPolicy policy(CatalogRequestContext requestContext) {
+    return policy(requestContext, NO_DEFAULTS);
   }
 
   private static ColumnDefaultCommitPolicy policy(

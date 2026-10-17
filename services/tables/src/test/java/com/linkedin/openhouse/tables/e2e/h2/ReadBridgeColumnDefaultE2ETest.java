@@ -203,8 +203,15 @@ public class ReadBridgeColumnDefaultE2ETest {
 
     MvcResult get = getTable().andExpect(status().isOk()).andReturn();
     GetTableResponseBody current = buildGetTableResponseBody(get);
+    ObjectMapper mapper = new ObjectMapper();
+    JsonNode root = mapper.readTree(current.getSchema());
+    for (JsonNode field : root.get("fields")) {
+      if (field.get("id").asInt() == 2) {
+        ((ObjectNode) field).put("initial-default", "US");
+      }
+    }
     GetTableResponseBody overlay =
-        current.toBuilder().schema(withInitialDefault(current.getSchema())).build();
+        current.toBuilder().schema(mapper.writeValueAsString(root)).build();
 
     putTable(overlay).andExpect(status().isOk());
 
@@ -491,18 +498,6 @@ public class ReadBridgeColumnDefaultE2ETest {
     return defaultAwareClient
         ? put.header("X-Client-Name", "spark").header("User-Agent", "openhouse-java-client/0.5.100")
         : put;
-  }
-
-  /** The overlay a default-aware client sends: {@code initial-default} equal to the stamp. */
-  private static String withInitialDefault(String schemaJson) throws IOException {
-    ObjectMapper mapper = new ObjectMapper();
-    JsonNode root = mapper.readTree(schemaJson);
-    for (JsonNode field : root.get("fields")) {
-      if (field.get("id").asInt() == 2) {
-        ((ObjectNode) field).put("initial-default", "US");
-      }
-    }
-    return mapper.writeValueAsString(root);
   }
 
   private DataFile dataFile(Table table) throws IOException {

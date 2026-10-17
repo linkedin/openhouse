@@ -69,7 +69,7 @@ public class ReadBridgeStripProtection {
 
   /**
    * Drops every {@code initial-default} from {@code incoming} so overlays cannot land in Iceberg
-   * metadata.
+   * metadata. Returns {@code incoming} unchanged when there is nothing to drop.
    *
    * @throws ColumnDefaultException if {@code incoming} has a schema this protection cannot read
    */
@@ -77,9 +77,7 @@ public class ReadBridgeStripProtection {
     if (incoming == null) {
       return incoming;
     }
-    String schema = strip(incoming.getSchema(), incoming);
-    List<String> intermediates = strip(incoming.getNewIntermediateSchemas(), incoming);
-    return incoming.toBuilder().schema(schema).newIntermediateSchemas(intermediates).build();
+    return stripInitialDefaults(incoming);
   }
 
   /**
@@ -174,6 +172,16 @@ public class ReadBridgeStripProtection {
                 fieldLabel(field)));
       }
     }
+  }
+
+  private TableDto stripInitialDefaults(TableDto incoming) throws ColumnDefaultException {
+    String schema = strip(incoming.getSchema(), incoming);
+    List<String> intermediates = strip(incoming.getNewIntermediateSchemas(), incoming);
+    if (Objects.equals(schema, incoming.getSchema())
+        && Objects.equals(intermediates, incoming.getNewIntermediateSchemas())) {
+      return incoming;
+    }
+    return incoming.toBuilder().schema(schema).newIntermediateSchemas(intermediates).build();
   }
 
   /** The table as a {@link ColumnDefaultsSource} reads it. */
