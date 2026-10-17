@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.node.TextNode;
 import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
 import com.linkedin.openhouse.tables.model.TableDto;
-import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.Arrays;
@@ -25,29 +24,17 @@ public class ReadBridgeStripProtectionTest {
   private static final String SCHEMA_UNSTAMPED_WRITER_DEFAULTS =
       schema("schema_unstamped_writer_defaults.json");
 
-  private static final String ENABLED_PROP =
-      ReadBridgeConfigResolver.COLUMN_DEFAULT_FEATURE_ID
-          + TableFeatureToggle.ENABLED_PROPERTY_SUFFIX;
+  private static final String ENABLED_PROP = ReadBridgeConfigResolver.COLUMN_DEFAULT_ENABLED_PROP;
   private static final String METADATA_LOCATION =
       "file:/data/openhouse/db/tbl-uuid/00001-x.metadata.json";
-
-  private static final TableFeatureToggle ALL_ON =
-      new TableFeatureToggle() {
-        @Override
-        public boolean isFeatureActivated(String databaseId, String tableId, String featureId) {
-          return true;
-        }
-      };
 
   private static final ColumnDefaultsSource FIELD_2 =
       tableDto -> Collections.singletonMap(2, TextNode.valueOf("US"));
 
   @Test
-  public void noneSource_stillStripsInitialDefault() {
+  public void noDefaultsSource_stillStripsInitialDefault() {
     TableDto incoming = ramped(SCHEMA_WITH_DEFAULT, overwrite(10));
-    ReadBridgeStripProtection protection =
-        new ReadBridgeStripProtection(
-            new ReadBridgeConfigResolver(ColumnDefaultsSource.NONE, ALL_ON));
+    ReadBridgeStripProtection protection = protection(tableDto -> Collections.emptyMap());
 
     TableDto prepared =
         Assertions.assertDoesNotThrow(
@@ -426,7 +413,7 @@ public class ReadBridgeStripProtectionTest {
   }
 
   private static ReadBridgeStripProtection protection(ColumnDefaultsSource source) {
-    return new ReadBridgeStripProtection(new ReadBridgeConfigResolver(source, ALL_ON));
+    return new ReadBridgeStripProtection(new ReadBridgeConfigResolver(source));
   }
 
   /** Rejects only {@code declaring}; every other table has a usable default on field 2. */
