@@ -15,9 +15,9 @@ import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.common.exception.MetadataRefreshFailureContext;
 import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableException;
-import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
+import com.linkedin.openhouse.internal.catalog.exception.TablePropertyRuleException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -685,7 +685,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    * it on every commit path (create, replace, update, snapshot put, replication and rename),
    * including paths that skip repository-level property checks. Each rule sees the value committed
    * on {@code base} and the value this commit leaves, and returns the value to persist or rejects
-   * the commit with {@link UnsupportedClientOperationException}.
+   * the commit with {@link TablePropertyRuleException}.
    *
    * <p>Runs after restoreOverriddenProperties, so rules see the values that will be persisted, and
    * before failIfRetryUpdate, so a rejected commit does not mark its base version as attempted.
@@ -723,8 +723,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       return requested;
     }
     if (!requested.equals(committed)) {
-      throw new UnsupportedClientOperationException(
-          UnsupportedClientOperationException.Operation.ALTER_RESERVED_TBLPROPS,
+      throw new TablePropertyRuleException(
           String.format(
               "Table property %s on table %s must be a positive number of milliseconds no greater"
                   + " than %d (7 days).",
