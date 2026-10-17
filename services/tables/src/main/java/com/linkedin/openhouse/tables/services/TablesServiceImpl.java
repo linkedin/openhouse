@@ -5,6 +5,7 @@ import static com.linkedin.openhouse.common.utils.PageableUtil.createPageable;
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
+import com.linkedin.openhouse.common.exception.LockConflictException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
@@ -378,7 +379,7 @@ public class TablesServiceImpl implements TablesService {
         LockReason existingReason = tableDto.getPolicies().getLockState().getReason();
         if ((systemOnly || existingReason == LockReason.SYSTEM_ONLY)
             && existingReason != createUpdateLockRequestBody.getReason()) {
-          throw lockConflict(tableDto, "An active lock with a different reason exists.");
+          throw lockConflict(tableDto, "already has a %s lock.", existingReason);
         }
         if (systemOnly) {
           // A matching SYSTEM_ONLY lock already exists; retries must not replace it.
@@ -402,6 +403,13 @@ public class TablesServiceImpl implements TablesService {
     }
   }
 
+  @Override
+  public void checkLockAuthorization(String databaseId, String tableId, String actingPrincipal) {
+    TableDto tableDto = getTableOrThrow(databaseId, tableId);
+    checkReplicaTable(tableDto);
+    authorizationUtils.checkLockTablePrivilege(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
+  }
+
   /**
    * Remove a LEGACY lock by setting the lockState policy to null. Reasoned locks require the
    * reason-targeted overload.
@@ -418,10 +426,12 @@ public class TablesServiceImpl implements TablesService {
             .orElseThrow(() -> new NoSuchUserTableException(databaseId, tableId));
     checkReplicaTable(tableDto);
     authorizationUtils.checkLockTablePrivilege(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
-    if (isTableLocked(tableDto)
-        && tableDto.getPolicies().getLockState().getReason() != LockReason.LEGACY) {
-      throw lockConflict(
-          tableDto, "Use the reason-targeted unlock endpoint for a SYSTEM_ONLY lock.");
+    if (isTableLocked(tableDto)) {
+      LockReason existingReason = tableDto.getPolicies().getLockState().getReason();
+      if (existingReason != LockReason.LEGACY) {
+        throw lockConflict(
+            tableDto, "has a %1$s lock. Remove it with reason %1$s.", existingReason);
+      }
     }
     removeLock(tableDto);
   }
@@ -464,15 +474,17 @@ public class TablesServiceImpl implements TablesService {
     }
     LockState lock = tableDto.getPolicies().getLockState();
     if (lock.getReason() != reason) {
-      throw lockConflict(tableDto, "The active lock reason does not match.");
+      throw lockConflict(tableDto, "has a %s lock, not %s.", lock.getReason(), reason);
     }
     removeLock(tableDto);
   }
 
-  private static EntityConcurrentModificationException lockConflict(
-      TableDto tableDto, String message) {
-    return new EntityConcurrentModificationException(
-        tableDto.getTableUri(), message, new IllegalStateException(message));
+  private static LockConflictException lockConflict(
+      TableDto tableDto, String format, Object... args) {
+    return new LockConflictException(
+        String.format(
+            "Table %s.%s %s",
+            tableDto.getDatabaseId(), tableDto.getTableId(), String.format(format, args)));
   }
 
   @Override

@@ -7,6 +7,8 @@ import static com.linkedin.openhouse.javaclient.OpenHouseTableOperations.*;
 import com.linkedin.openhouse.client.ssl.HttpConnectionStrategy;
 import com.linkedin.openhouse.client.ssl.TablesApiClientFactory;
 import com.linkedin.openhouse.javaclient.api.SupportsGrantRevoke;
+import com.linkedin.openhouse.javaclient.api.SupportsUnlock;
+import com.linkedin.openhouse.javaclient.api.UnlockTableTarget;
 import com.linkedin.openhouse.javaclient.builder.ClusteringSpecBuilder;
 import com.linkedin.openhouse.javaclient.builder.TimePartitionSpecBuilder;
 import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageException;
@@ -17,6 +19,7 @@ import com.linkedin.openhouse.tables.client.api.DatabaseApi;
 import com.linkedin.openhouse.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
 import com.linkedin.openhouse.tables.client.invoker.ApiClient;
+import com.linkedin.openhouse.tables.client.model.CreateUpdateLockRequestBody.ReasonEnum;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.client.model.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllDatabasesResponseBody;
@@ -99,7 +102,7 @@ import reactor.core.publisher.Mono;
  */
 @Slf4j
 public class OpenHouseCatalog extends BaseMetastoreViewCatalog
-    implements Configurable, SupportsNamespaces, SupportsGrantRevoke {
+    implements Configurable, SupportsNamespaces, SupportsGrantRevoke, SupportsUnlock {
 
   private TableApi tableApi;
 
@@ -579,6 +582,37 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
 
     log.debug("Calling getDatabaseAclPolicies succeeded");
     return aclPolicies;
+  }
+
+  @Override
+  public void checkUnlockAuthorization(UnlockTableTarget target) {
+    tableApi
+        .checkLockAuthorizationV1(target.getDatabaseId(), target.getTableId())
+        .onErrorResume(
+            WebClientResponseException.class,
+            e -> Mono.error(new WebClientResponseWithMessageException(e)))
+        .onErrorResume(
+            WebClientRequestException.class,
+            e -> Mono.error(new WebClientRequestWithMessageException(e)))
+        .block();
+  }
+
+  @Override
+  public void unlockTable(UnlockTableTarget target, ReasonEnum reason) {
+    log.debug("Calling unlockTable with identifier: {}, reason: {}", target, reason);
+    String databaseId = target.getDatabaseId();
+    String tableId = target.getTableId();
+    (reason == ReasonEnum.LEGACY
+            ? tableApi.deleteLockV1(databaseId, tableId)
+            : tableApi.deleteLockByReasonV1(databaseId, tableId, reason.getValue()))
+        .onErrorResume(
+            WebClientResponseException.class,
+            e -> Mono.error(new WebClientResponseWithMessageException(e)))
+        .onErrorResume(
+            WebClientRequestException.class,
+            e -> Mono.error(new WebClientRequestWithMessageException(e)))
+        .block();
+    log.debug("Calling unlockTable succeeded with identifier: {}, reason: {}", target, reason);
   }
 
   private UpdateAclPoliciesRequestBody getUpdateAclPoliciesRequestBody(

@@ -203,6 +203,14 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
   }
 
   @Override
+  public ApiResponse<Void> checkLockAuthorization(
+      String databaseId, String tableId, String actingPrincipal) {
+    tablesApiValidator.validateGetTable(databaseId, tableId);
+    tableService.checkLockAuthorization(databaseId, tableId, actingPrincipal);
+    return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
+  }
+
+  @Override
   public ApiResponse<Void> deleteLock(
       String databaseId, String tableId, String tableCreatorUpdator) {
     tablesApiValidator.validateGetTable(databaseId, tableId);
