@@ -66,7 +66,7 @@ class SystemOnlyLockPolicyServiceTest {
     when(generator.generateUUID(any(IcebergSnapshotsRequestBody.class)))
         .thenReturn(UUID.randomUUID());
     ReadBridgeStripProtection protection = mock(ReadBridgeStripProtection.class);
-    when(protection.prepare(any(), any())).thenAnswer(invocation -> invocation.getArgument(1));
+    when(protection.prepare(any())).thenAnswer(invocation -> invocation.getArgument(0));
     // No table here opts into column defaults, so the gate admits every request.
     ColumnDefaultClientGate gate = new ColumnDefaultClientGate("", new CatalogRequestContext() {});
     tables = new TablesServiceImpl();

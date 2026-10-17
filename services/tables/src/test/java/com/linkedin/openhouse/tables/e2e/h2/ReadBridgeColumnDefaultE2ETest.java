@@ -6,6 +6,7 @@ import static com.linkedin.openhouse.tables.model.TableModelConstants.buildCreat
 import static com.linkedin.openhouse.tables.model.TableModelConstants.buildGetTableResponseBody;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -21,14 +22,26 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
+import com.linkedin.openhouse.tables.model.IcebergSnapshotsModelTestUtilities;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultsSource;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
+import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import org.apache.iceberg.DataFile;
 import org.apache.iceberg.SchemaParser;
+import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotParser;
+import org.apache.iceberg.SnapshotRef;
+import org.apache.iceberg.SnapshotRefParser;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,6 +56,7 @@ import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 /**
@@ -90,6 +104,7 @@ public class ReadBridgeColumnDefaultE2ETest {
 
   @Autowired private MockMvc mvc;
   @Autowired private StorageManager storageManager;
+  @Autowired private Catalog catalog;
 
   private GetTableResponseBody created;
 
@@ -178,8 +193,8 @@ public class ReadBridgeColumnDefaultE2ETest {
 
   /**
    * Iceberg 1.5 {@code sameSchema} includes {@code initial-default}, so this PUT cannot go through
-   * {@code updateTableAndValidateResponse}. Create without overlay, PUT a matching handshake, then
-   * assert persist dropped it.
+   * {@code updateTableAndValidateResponse}. Create without overlay, PUT the overlay, then assert
+   * persist dropped it.
    */
   @Test
   public void putWithMatchingOverlay_doesNotPersistInitialDefault() throws Exception {
@@ -345,6 +360,160 @@ public class ReadBridgeColumnDefaultE2ETest {
                         .toJson()))
         .andExpect(status().isCreated())
         .andReturn();
+  }
+
+  /**
+   * On a table with column defaults, every snapshots PUT must come from a default-aware client, on
+   * any branch and whatever its snapshots do, unless it carries the column-default policy bypass.
+   * The client does not have to send {@code initial-default}.
+   * https://github.com/linkedin/openhouse/issues/693
+   */
+  @Test
+  public void snapshotsPut_requiresDefaultAwareClientOnEveryBranch() throws Exception {
+    created = create(uniqueTable("branch_rewrite"), Collections.singletonMap(ENABLED_PROP, "true"));
+    MvcResult current = createTable();
+    TableIdentifier identifier = TableIdentifier.of(created.getDatabaseId(), created.getTableId());
+
+    Table table = catalog.loadTable(identifier);
+    Snapshot append = table.newAppend().appendFile(dataFile(table)).apply();
+    mvc.perform(snapshotsPut(current, false, branch("main", append), append))
+        .andExpect(status().isUnprocessableEntity());
+    current =
+        mvc.perform(
+                snapshotsPut(current, false, branch("main", append), append)
+                    .header("X-OpenHouse-Dangerously-Bypass-Column-Default-Policy", "true"))
+            .andExpect(status().isOk())
+            .andReturn();
+
+    table = catalog.loadTable(identifier);
+    Snapshot branchOverwrite =
+        table.newOverwrite().addFile(dataFile(table)).toBranch("feature").apply();
+    Map<String, String> branchWrite = branch("main", append);
+    branchWrite.putAll(branch("feature", branchOverwrite));
+    mvc.perform(snapshotsPut(current, false, branchWrite, append, branchOverwrite))
+        .andExpect(status().isUnprocessableEntity());
+    mvc.perform(snapshotsPut(current, true, branchWrite, append, branchOverwrite))
+        .andExpect(status().isOk());
+    assertEquals(
+        branchOverwrite.snapshotId(),
+        catalog.loadTable(identifier).refs().get("feature").snapshotId());
+  }
+
+  /**
+   * A write built on the version before the table opted in gets the retryable version conflict, not
+   * a column-default rejection. Rebuilt on the current version, it commits.
+   */
+  @Test
+  public void snapshotsPut_onVersionBeforeOptIn_conflictsInsteadOfFailing() throws Exception {
+    created = create(uniqueTable("stale_opt_in"), Collections.emptyMap());
+    MvcResult beforeOptIn =
+        RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
+    GetTableResponseBody optIn = buildGetTableResponseBody(beforeOptIn);
+    optIn.getTableProperties().put(ENABLED_PROP, "true");
+    MvcResult afterOptIn = putTable(optIn).andExpect(status().isOk()).andReturn();
+
+    TableIdentifier identifier = TableIdentifier.of(created.getDatabaseId(), created.getTableId());
+    Table table = catalog.loadTable(identifier);
+    Snapshot append = table.newAppend().appendFile(dataFile(table)).apply();
+    mvc.perform(snapshotsPut(beforeOptIn, true, branch("main", append), append))
+        .andExpect(status().isConflict());
+    mvc.perform(snapshotsPut(afterOptIn, true, branch("main", append), append))
+        .andExpect(status().isOk());
+  }
+
+  /**
+   * A rename commits to the table, so the rules check it like any other commit: it passes when the
+   * stored default applies, and fails as a server error when it cannot unless the request carries
+   * the column-default policy bypass.
+   */
+  @Test
+  public void rename_isCheckedLikeEveryCommit() throws Exception {
+    created = create(uniqueTable("rename"), Collections.singletonMap(ENABLED_PROP, "true"));
+    createTable();
+
+    String renamed = uniqueTable("renamed");
+    mvc.perform(rename(renamed)).andExpect(status().isNoContent());
+    created = renamed(renamed);
+    getTable()
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.config['" + CONFIG_KEY + "']", is("\"US\"")));
+
+    failing = true;
+    String repaired = uniqueTable("renamed");
+    mvc.perform(rename(repaired))
+        .andExpect(status().isInternalServerError())
+        .andExpect(jsonPath("$.message", containsString(UNUSABLE)));
+    mvc.perform(
+            rename(repaired).header("X-OpenHouse-Dangerously-Bypass-Column-Default-Policy", "true"))
+        .andExpect(status().isNoContent());
+    created = renamed(repaired);
+  }
+
+  private MockHttpServletRequestBuilder rename(String toTableId) {
+    return MockMvcRequestBuilders.patch(
+            String.format(
+                ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/%s/rename",
+                created.getDatabaseId(),
+                created.getTableId()))
+        .param("toDatabaseId", created.getDatabaseId())
+        .param("toTableId", toTableId)
+        .accept(MediaType.APPLICATION_JSON);
+  }
+
+  /** {@link #created}, renamed to {@code tableId}. */
+  private GetTableResponseBody renamed(String tableId) {
+    return created
+        .toBuilder()
+        .tableId(tableId)
+        .tableUri(CLUSTER_NAME + "." + created.getDatabaseId() + "." + tableId)
+        .build();
+  }
+
+  /** A snapshots PUT, from a default-aware Spark client or from a client that sends no identity. */
+  private MockHttpServletRequestBuilder snapshotsPut(
+      MvcResult current,
+      boolean defaultAwareClient,
+      Map<String, String> refs,
+      Snapshot... snapshots)
+      throws Exception {
+    CreateUpdateTableRequestBody envelope = buildCreateUpdateTableRequestBody(current);
+    IcebergSnapshotsRequestBody request =
+        IcebergSnapshotsRequestBody.builder()
+            .baseTableVersion(envelope.getBaseTableVersion())
+            .jsonSnapshots(
+                Arrays.stream(snapshots).map(SnapshotParser::toJson).collect(Collectors.toList()))
+            .snapshotRefs(refs)
+            .createUpdateTableRequestBody(envelope)
+            .build();
+    MockHttpServletRequestBuilder put =
+        MockMvcRequestBuilders.put(
+                String.format(
+                    ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/%s/tables/%s/iceberg/v2/snapshots",
+                    created.getDatabaseId(),
+                    created.getTableId()))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(request.toJson())
+            .accept(MediaType.APPLICATION_JSON);
+    return defaultAwareClient
+        ? put.header("X-Client-Name", "spark").header("User-Agent", "openhouse-java-client/0.5.100")
+        : put;
+  }
+
+  private DataFile dataFile(Table table) throws IOException {
+    return IcebergSnapshotsModelTestUtilities.createDummyDataFile(
+        storageManager.getDefaultStorage().getClient().getRootPrefix()
+            + "/"
+            + UUID.randomUUID()
+            + ".orc",
+        table.spec());
+  }
+
+  private static Map<String, String> branch(String name, Snapshot snapshot) {
+    Map<String, String> refs = new HashMap<>();
+    refs.put(
+        name, SnapshotRefParser.toJson(SnapshotRef.branchBuilder(snapshot.snapshotId()).build()));
+    return refs;
   }
 
   private static GetTableResponseBody create(String tableId, Map<String, String> extraProps) {

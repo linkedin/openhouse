@@ -46,7 +46,11 @@ public class ApiConfig {
 
   /** The internal catalog's commit policy. */
   @Bean
-  public ColumnDefaultCommitPolicy columnDefaultCommitPolicy(CatalogRequestContext requestContext) {
-    return new ColumnDefaultCommitPolicy(requestContext);
+  public ColumnDefaultCommitPolicy columnDefaultCommitPolicy(
+      CatalogRequestContext requestContext,
+      ColumnDefaultClientGate columnDefaultClientGate,
+      ReadBridgeStripProtection readBridgeStripProtection) {
+    return new ColumnDefaultCommitPolicy(
+        requestContext, columnDefaultClientGate, readBridgeStripProtection);
   }
 }
