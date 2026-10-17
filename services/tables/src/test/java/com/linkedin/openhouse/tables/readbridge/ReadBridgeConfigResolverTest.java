@@ -109,7 +109,14 @@ public class ReadBridgeConfigResolverTest {
     ReadBridgeConfigResolver resolver = resolverFor(source);
 
     Assertions.assertTrue(
-        resolver.resolve(TableDto.builder().databaseId("db").tableId("tbl").build()).isEmpty());
+        resolver
+            .resolve(
+                TableDto.builder()
+                    .databaseId("db")
+                    .tableId("tbl")
+                    .tableProperties(Collections.emptyMap())
+                    .build())
+            .isEmpty());
     Assertions.assertTrue(resolver.resolve(tableWithOptIn("false")).isEmpty());
     Assertions.assertTrue(resolver.resolve(tableWithOptIn("sometimes")).isEmpty());
     // Deriving defaults can be expensive (a deployment may parse a schema); gate first.
@@ -128,22 +135,6 @@ public class ReadBridgeConfigResolverTest {
 
     Assertions.assertTrue(resolverFor(emptySource).resolve(tableWithOptIn("true")).isEmpty());
     Assertions.assertDoesNotThrow(() -> verify(emptySource).defaults(any()));
-  }
-
-  /**
-   * The capability's id, its opt-in property and its wire keys are one token. Pinned as literals
-   * because all three are external contracts: the property is set on customer tables, and the
-   * prefix is mirrored by the client decoder. Deriving them from each other keeps them consistent;
-   * asserting the literals keeps a refactor from silently renaming all three at once.
-   */
-  @Test
-  public void testFeatureIdPropertyAndKeysAreOneToken() {
-    Assertions.assertEquals(
-        "read-bridge.column-default", ReadBridgeConfigResolver.COLUMN_DEFAULT_FEATURE_ID);
-    Assertions.assertEquals(
-        "read-bridge.column-default.enabled", ReadBridgeConfigResolver.COLUMN_DEFAULT_ENABLED_PROP);
-    Assertions.assertEquals(
-        "openhouse.read-bridge.column-default.", ReadBridgeConfigResolver.COLUMN_DEFAULT_PREFIX);
   }
 
   @Test

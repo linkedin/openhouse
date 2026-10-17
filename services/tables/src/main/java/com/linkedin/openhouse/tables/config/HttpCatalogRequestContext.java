@@ -1,10 +1,9 @@
 package com.linkedin.openhouse.tables.config;
 
 import java.util.Optional;
+import javax.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Component;
-import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
 
 /**
  * Reads {@link CatalogRequestContext} options from the current request's headers. Outside a request
@@ -12,6 +11,13 @@ import org.springframework.web.context.request.ServletRequestAttributes;
  */
 @Component
 public class HttpCatalogRequestContext implements CatalogRequestContext {
+
+  /** Spring's proxy for the request bound to the calling thread. */
+  private final HttpServletRequest request;
+
+  public HttpCatalogRequestContext(HttpServletRequest request) {
+    this.request = request;
+  }
 
   @Override
   public boolean columnDefaultPolicyBypass() {
@@ -21,16 +27,13 @@ public class HttpCatalogRequestContext implements CatalogRequestContext {
   }
 
   /**
-   * The current request's header, if it has one. Spring MVC binds each request to its thread as
-   * {@link ServletRequestAttributes}, the only {@link RequestAttributes} that carry headers, hence
-   * the guarded cast; without such a request there is no header to read.
+   * The current request's header, if it has one. Without a request bound to the thread the proxy
+   * has no request to read, so there is no header.
    */
-  private static Optional<String> header(String name) {
-    RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
-    if (!(attributes instanceof ServletRequestAttributes)) {
+  private Optional<String> header(String name) {
+    if (RequestContextHolder.getRequestAttributes() == null) {
       return Optional.empty();
     }
-    return Optional.ofNullable(
-        ((ServletRequestAttributes) attributes).getRequest().getHeader(name));
+    return Optional.ofNullable(request.getHeader(name));
   }
 }

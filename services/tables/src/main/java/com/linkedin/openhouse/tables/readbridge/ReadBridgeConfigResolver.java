@@ -21,18 +21,15 @@ import java.util.Objects;
  */
 public class ReadBridgeConfigResolver {
 
-  /** Capability id; also names {@code <id>.enabled} and the config key prefix below. */
-  public static final String COLUMN_DEFAULT_FEATURE_ID = "read-bridge.column-default";
-
   /**
    * Table property: {@code true} turns column defaults on for the table; any other value, or none,
    * leaves them off. {@link ColumnDefaultCommitPolicy} keeps a committed {@code true} from being
    * changed or removed unless the request carries the column-default policy bypass.
    */
-  public static final String COLUMN_DEFAULT_ENABLED_PROP = COLUMN_DEFAULT_FEATURE_ID + ".enabled";
+  public static final String COLUMN_DEFAULT_ENABLED_PROP = "read-bridge.column-default.enabled";
 
   /** Client contract: {@code openhouse.read-bridge.column-default.<fieldId>}. */
-  public static final String COLUMN_DEFAULT_PREFIX = "openhouse." + COLUMN_DEFAULT_FEATURE_ID + ".";
+  public static final String COLUMN_DEFAULT_PREFIX = "openhouse.read-bridge.column-default.";
 
   private final ColumnDefaultsSource columnDefaultsSource;
 
@@ -84,9 +81,6 @@ public class ReadBridgeConfigResolver {
    * {@code false}, an absent property and any other value mean off.
    */
   public boolean isBridged(Map<String, String> tableProperties) {
-    if (tableProperties == null) {
-      return false;
-    }
     String value = tableProperties.get(COLUMN_DEFAULT_ENABLED_PROP);
     return value != null && "true".equalsIgnoreCase(value.trim());
   }
