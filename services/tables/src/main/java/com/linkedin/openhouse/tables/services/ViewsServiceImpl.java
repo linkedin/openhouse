@@ -14,12 +14,9 @@ import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import com.linkedin.openhouse.internal.catalog.view.ViewCommitEngine;
 import com.linkedin.openhouse.internal.catalog.view.ViewMetadataCodec;
-import com.linkedin.openhouse.internal.catalog.view.ViewNameOccupiedException;
-import com.linkedin.openhouse.internal.catalog.view.ViewSourceDialectMismatchException;
 import com.linkedin.openhouse.internal.catalog.view.model.SqlViewRepresentationIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
@@ -29,6 +26,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.ViewRepresen
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.exception.ViewApiException;
 import com.linkedin.openhouse.tables.exception.ViewErrorCode;
+import com.linkedin.openhouse.tables.exception.ViewFailureTranslator;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.ViewDto;
 import com.linkedin.openhouse.tables.model.ViewListResult;
@@ -45,8 +43,6 @@ import javax.annotation.PostConstruct;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Namespace;
-import org.apache.iceberg.exceptions.AlreadyExistsException;
-import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.io.FileIO;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -55,8 +51,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.util.Pair;
-import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.access.AuthorizationServiceException;
 import org.springframework.stereotype.Component;
 
 /**
@@ -136,7 +130,7 @@ public class ViewsServiceImpl implements ViewsService {
     } catch (ViewApiException e) {
       throw e;
     } catch (RuntimeException e) {
-      throw translateReadFailure(e);
+      throw ViewFailureTranslator.forRead(e);
     }
   }
 
@@ -150,7 +144,7 @@ public class ViewsServiceImpl implements ViewsService {
     } catch (ViewApiException e) {
       throw e;
     } catch (RuntimeException e) {
-      throw translateReadFailure(e);
+      throw ViewFailureTranslator.forRead(e);
     }
   }
 
@@ -199,7 +193,7 @@ public class ViewsServiceImpl implements ViewsService {
       result = commitView(requestBody, prepared, actingPrincipal, !viewAlreadyExists);
       dto = toCommittedDto(databaseId, viewId, result);
     } catch (RuntimeException e) {
-      throw handleWriteFailure(e);
+      throw ViewFailureTranslator.forWrite(e);
     }
     return Pair.of(withClusterId(dto), result.isCreated());
   }
@@ -223,7 +217,7 @@ public class ViewsServiceImpl implements ViewsService {
       }
       deleteCapturedView(databaseId, viewId);
     } catch (RuntimeException e) {
-      throw handleWriteFailure(e);
+      throw ViewFailureTranslator.forWrite(e);
     }
   }
 
@@ -305,67 +299,6 @@ public class ViewsServiceImpl implements ViewsService {
           ViewErrorCode.CONCURRENT_VIEW_MODIFICATION,
           "Concurrent view modification: " + databaseId + "." + viewId);
     }
-  }
-
-  /**
-   * Write-failure dispatch: an ambiguous commit becomes {@link ViewErrorCode#COMMIT_STATE_UNKNOWN};
-   * any other failure is rethrown as a {@link ViewApiException}, except authorization failures,
-   * which keep their own type for the dedicated advice.
-   */
-  private RuntimeException handleWriteFailure(RuntimeException e) {
-    if (e instanceof CommitStateUnknownException) {
-      return new ViewApiException(
-          ViewErrorCode.COMMIT_STATE_UNKNOWN, "View commit outcome unknown", e);
-    }
-    if (e instanceof ViewApiException
-        || e instanceof AccessDeniedException
-        || e instanceof AuthorizationServiceException) {
-      return e;
-    }
-    return translateWriteFailure(e);
-  }
-
-  private static ViewApiException translateWriteFailure(RuntimeException e) {
-    if (e instanceof ViewSourceDialectMismatchException) {
-      return new ViewApiException(
-          ViewErrorCode.INVALID_VIEW_DEFINITION, "sourceDialect must match the current view", e);
-    }
-    if (e instanceof AlreadyExistsException) {
-      return new ViewApiException(ViewErrorCode.VIEW_ALREADY_EXISTS, "View already exists", e);
-    }
-    if (e instanceof ViewNameOccupiedException) {
-      return new ViewApiException(
-          ViewErrorCode.NAME_ALREADY_EXISTS_AS_TABLE, "Name already exists as a table", e);
-    }
-    if (e instanceof CommitFailedException) {
-      return new ViewApiException(
-          ViewErrorCode.CONCURRENT_VIEW_MODIFICATION, "Concurrent view modification", e);
-    }
-    if (e instanceof HouseTableRepositoryStateUnknownException) {
-      // A known precommit transient (e.g. a capture-time HTS outage), distinct from an
-      // unacknowledged publication (CommitStateUnknownException, handled separately above):
-      // driven by exception type only, never by matching a message.
-      return new ViewApiException(
-          ViewErrorCode.VIEW_SERVICE_UNAVAILABLE, "View service unavailable", e);
-    }
-    // Other engine BadRequestException (trusted server input), HouseTableCallerException,
-    // corrupt-row IllegalStateException, and unexpected failures remain server faults.
-    return new ViewApiException(
-        ViewErrorCode.INTERNAL_VIEW_ERROR, "Unexpected view service failure", e);
-  }
-
-  private static ViewApiException translateReadFailure(RuntimeException e) {
-    if (e instanceof HouseTableNotFoundException) {
-      return new ViewApiException(ViewErrorCode.NO_SUCH_VIEW, "No such view", e);
-    }
-    if (e instanceof HouseTableRepositoryStateUnknownException) {
-      return new ViewApiException(
-          ViewErrorCode.VIEW_SERVICE_UNAVAILABLE, "View service unavailable", e);
-    }
-    // HouseTableCallerException (server-side 4xx to a trusted call), corrupt-row
-    // IllegalStateException, and any other unexpected read failure are server faults.
-    return new ViewApiException(
-        ViewErrorCode.INTERNAL_VIEW_ERROR, "Unexpected view service failure", e);
   }
 
   private void requireEnabled(String databaseId) {
