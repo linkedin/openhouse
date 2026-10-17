@@ -4,8 +4,12 @@ import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtil
 
 import com.google.common.annotations.VisibleForTesting;
 import com.linkedin.openhouse.cluster.storage.Storage;
+import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
+import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
+import com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils;
+import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PartitionSpecMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PoliciesSpecMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.TableTypeMapper;
@@ -100,56 +104,77 @@ public final class InternalRepositoryUtils {
   @VisibleForTesting
   static TableDto convertToTableDto(
       Table table,
+      HouseTable houseTable,
       FileIOManager fileIOManager,
       PartitionSpecMapper partitionSpecMapper,
       PoliciesSpecMapper policiesMapper,
       TableTypeMapper tableTypeMapper) {
     /* Contains everything needed to populate dto */
     final Map<String, String> megaProps = table.properties();
+    Map<String, String> userVisibleProperties = new HashMap<>(megaProps);
+    HouseTableSerdeUtils.HTS_FIELD_NAMES.forEach(
+        fieldName -> userVisibleProperties.remove(getCanonicalFieldName(fieldName)));
     Storage storage = fileIOManager.getStorage(table.io());
+    String clusterId = megaProps.get(CatalogConstants.OPENHOUSE_CLUSTERID_KEY);
+    if (clusterId == null) {
+      clusterId = houseTable.getClusterId();
+    }
+    String tableUri = megaProps.get(CatalogConstants.OPENHOUSE_TABLEURI_KEY);
+    if (tableUri == null) {
+      tableUri = houseTable.getTableUri();
+    }
+    if (tableUri == null) {
+      tableUri =
+          TableUri.builder()
+              .clusterId(clusterId)
+              .databaseId(houseTable.getDatabaseId())
+              .tableId(houseTable.getTableId())
+              .build()
+              .toString();
+    }
+    String tableUUID = megaProps.get(CatalogConstants.OPENHOUSE_UUID_KEY);
+    if (tableUUID == null) {
+      tableUUID = houseTable.getTableUUID();
+    }
+    String tableCreator = megaProps.get(getCanonicalFieldName("tableCreator"));
+    if (tableCreator == null) {
+      tableCreator = houseTable.getTableCreator();
+    }
+    long lastModifiedTime = houseTable.getLastModifiedTime();
+    String lastModifiedTimeProperty = megaProps.get(getCanonicalFieldName("lastModifiedTime"));
+    if (lastModifiedTimeProperty != null) {
+      lastModifiedTime = Long.parseLong(lastModifiedTimeProperty);
+    }
     TableDto tableDto =
         TableDto.builder()
-            .tableId(megaProps.get(getCanonicalFieldName("tableId")))
-            .databaseId(megaProps.get(getCanonicalFieldName("databaseId")))
-            .clusterId(megaProps.get(getCanonicalFieldName("clusterId")))
-            .tableUri(megaProps.get(getCanonicalFieldName("tableUri")))
-            .tableUUID(megaProps.get(getCanonicalFieldName("tableUUID")))
+            .tableId(houseTable.getTableId())
+            .databaseId(houseTable.getDatabaseId())
+            .clusterId(clusterId)
+            .tableUri(tableUri)
+            .tableUUID(tableUUID)
             .tableLocation(
                 URI.create(
                         StringUtils.prependIfMissing(
                             // remove after resolving
                             // https://github.com/linkedin/openhouse/issues/121
-                            megaProps.get(getCanonicalFieldName("tableLocation")),
-                            storage.getClient().getEndpoint()))
+                            houseTable.getTableLocation(), storage.getClient().getEndpoint()))
                     .normalize()
                     .toString())
-            .tableVersion(megaProps.get(getCanonicalFieldName("tableVersion")))
-            .tableCreator(megaProps.get(getCanonicalFieldName("tableCreator")))
+            .tableVersion(houseTable.getTableVersion())
+            .tableCreator(tableCreator)
             .schema(IcebergSchemaHelper.getSchemaJsonFromSchema(table.schema()))
-            .lastModifiedTime(safeParseLong("lastModifiedTime", megaProps))
-            .creationTime(safeParseLong("creationTime", megaProps))
+            .lastModifiedTime(lastModifiedTime)
+            .creationTime(houseTable.getCreationTime())
             .timePartitioning(partitionSpecMapper.toTimePartitionSpec(table))
             .clustering(partitionSpecMapper.toClusteringSpec(table))
             .policies(policiesMapper.toPoliciesObject(megaProps.get("policies")))
             .tableType(tableTypeMapper.toTableType(table))
             .jsonSnapshots(null)
-            .tableProperties(megaProps)
+            .tableProperties(userVisibleProperties)
             .sortOrder(SortOrderParser.toJson(table.sortOrder()))
             .build();
 
     return tableDto;
-  }
-
-  /**
-   * Safely parse the time related field into String.
-   *
-   * @return 0 indicate the value not available.
-   */
-  private static long safeParseLong(String keyName, Map<String, String> megaProps) {
-    String canonicalFieldName = getCanonicalFieldName(keyName);
-    return megaProps.containsKey(canonicalFieldName)
-        ? Long.parseLong(megaProps.get(canonicalFieldName))
-        : 0;
   }
 
   /**

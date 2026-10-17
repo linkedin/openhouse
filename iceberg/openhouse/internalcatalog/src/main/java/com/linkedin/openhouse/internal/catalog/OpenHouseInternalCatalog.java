@@ -108,7 +108,8 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
     //  branch. This is anti-pattern and only a temporary solution.
     if (namespace.isEmpty()) {
       return StreamSupport.stream(houseTableRepository.findAll().spliterator(), false)
-          .map(houseTable -> TableIdentifier.of(houseTable.getDatabaseId(), "Unused"))
+          .map(
+              houseTable -> TableIdentifier.of(houseTable.getDatabaseId(), houseTable.getTableId()))
           .collect(Collectors.toList());
     }
     return houseTableRepository.findAllByDatabaseId(namespace.toString()).stream()
@@ -121,7 +122,9 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
     if (namespace.isEmpty()) {
       return houseTableRepository
           .findAll(pageable)
-          .map(houseTable -> TableIdentifier.of(houseTable.getDatabaseId(), "Unused"));
+          .map(
+              houseTable ->
+                  TableIdentifier.of(houseTable.getDatabaseId(), houseTable.getTableId()));
     }
     return houseTableRepository
         .findAllByDatabaseId(namespace.toString(), pageable)
@@ -230,7 +233,10 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   @Override
   public void renameTable(TableIdentifier from, TableIdentifier to) {
     Table fromTable = loadTable(from);
-    String tableClusterId = fromTable.properties().get(CatalogConstants.OPENHOUSE_CLUSTERID_KEY);
+    String tableClusterId =
+        Optional.ofNullable(fromTable.properties().get(CatalogConstants.OPENHOUSE_CLUSTERID_KEY))
+            .orElseThrow(
+                () -> new IllegalStateException("Catalog entry is missing cluster ID for " + from));
 
     // Preserve existing case if databases are the same
     String toDatabaseName =

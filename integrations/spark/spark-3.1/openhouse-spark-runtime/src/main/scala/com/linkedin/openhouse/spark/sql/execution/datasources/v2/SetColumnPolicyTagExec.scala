@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.spark.sql.execution.datasources.v2
 
+import com.linkedin.openhouse.spark.sql.execution.datasources.v2.mapper.IcebergCatalogMapper
 import org.apache.iceberg.spark.source.SparkTable
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Attribute
@@ -16,7 +17,9 @@ case class SetColumnPolicyTagExec(
 
   override protected def run(): Seq[InternalRow] = {
     catalog.loadTable(ident) match {
-      case iceberg: SparkTable if iceberg.table().properties().containsKey("openhouse.tableId") =>
+      case iceberg: SparkTable
+          if IcebergCatalogMapper.toIcebergCatalog(catalog).isInstanceOf[
+            com.linkedin.openhouse.spark.OpenHouseCatalog] =>
         val key = "updated.openhouse.policy"
         val value = s"""{"columnTags":{"${colName}": {"tags": [${policyTags.mkString(", ")}]}}}"""
 

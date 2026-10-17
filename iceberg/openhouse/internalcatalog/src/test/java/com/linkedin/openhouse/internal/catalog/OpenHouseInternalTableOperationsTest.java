@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.internal.catalog;
 
+import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.HTS_FIELD_NAMES;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.getCanonicalFieldName;
 import static org.mockito.Mockito.*;
 
@@ -118,12 +119,46 @@ public class OpenHouseInternalTableOperationsTest {
     return Files.createTempDirectory(UUID.randomUUID().toString()).toString();
   }
 
+  private HouseTable newHouseTable() {
+    return HouseTable.builder()
+        .databaseId(TEST_TABLE_IDENTIFIER.namespace().toString())
+        .tableId(TEST_TABLE_IDENTIFIER.name())
+        .clusterId("test_cluster")
+        .tableUUID("test_uuid")
+        .tableLocation(TEST_LOCATION)
+        .tableVersion(CatalogConstants.INITIAL_VERSION)
+        .tableCreator("test_user")
+        .creationTime(1L)
+        .lastModifiedTime(1L)
+        .storageType("local")
+        .build();
+  }
+
+  private TableMetadata getPersistedMetadata() {
+    ArgumentCaptor<HouseTable> houseTableCaptor = ArgumentCaptor.forClass(HouseTable.class);
+    Mockito.verify(mockHouseTableRepository, Mockito.atLeastOnce())
+        .save(houseTableCaptor.capture());
+    return tableMetadataCache.load(houseTableCaptor.getValue().getTableLocation(), () -> null);
+  }
+
+  private void assertNoHtsProperties(TableMetadata metadata) {
+    HTS_FIELD_NAMES.forEach(
+        fieldName ->
+            Assertions.assertFalse(
+                metadata.properties().containsKey(getCanonicalFieldName(fieldName)),
+                "Persisted metadata must not contain " + getCanonicalFieldName(fieldName)));
+  }
+
   @BeforeEach
   void setup() {
     MockitoAnnotations.openMocks(this);
     tableMetadataCache = new InMemoryTableMetadataCache();
-    Mockito.when(mockHouseTableMapper.toHouseTable(Mockito.any(TableMetadata.class), Mockito.any()))
-        .thenReturn(mockHouseTable);
+    Mockito.when(
+            mockHouseTableMapper.toHouseTable(
+                Mockito.any(TableMetadata.class),
+                Mockito.any(),
+                Mockito.any(TableIdentifier.class)))
+        .thenAnswer(invocation -> newHouseTable());
     HadoopFileIO fileIO = new HadoopFileIO(new Configuration());
     MetricsReporter metricsReporter =
         new MetricsReporter(new SimpleMeterRegistry(), "TEST_CATALOG", Lists.newArrayList());
@@ -166,6 +201,48 @@ public class OpenHouseInternalTableOperationsTest {
     when(localStorage.getType()).thenReturn(StorageType.LOCAL);
   }
 
+  @Test
+  void testExistingHouseTableIsCanonicalOverMirroredProperties() throws IOException {
+    HouseTable existingHouseTable =
+        newHouseTable().toBuilder().deletedAtMs(12L).purgeAfterMs(34L).storageType("s3").build();
+    when(mockHouseTableRepository.findById(any(HouseTablePrimaryKey.class)))
+        .thenReturn(Optional.of(existingHouseTable));
+
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    properties.put(getCanonicalFieldName("tableId"), "stale_table");
+    properties.put(getCanonicalFieldName("tableUUID"), "stale_uuid");
+    properties.put(getCanonicalFieldName("clusterId"), "stale_cluster");
+    properties.put(getCanonicalFieldName("tableCreator"), "stale_creator");
+    properties.put(getCanonicalFieldName("tableLocation"), "stale_location");
+    properties.put(getCanonicalFieldName("tableVersion"), "stale_version");
+    properties.put(getCanonicalFieldName("creationTime"), "0");
+    TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      openHouseInternalTableOperations.doCommit(BASE_TABLE_METADATA, metadata);
+    }
+
+    ArgumentCaptor<HouseTable> houseTableCaptor = ArgumentCaptor.forClass(HouseTable.class);
+    verify(mockHouseTableRepository).save(houseTableCaptor.capture());
+    HouseTable savedHouseTable = houseTableCaptor.getValue();
+    Assertions.assertEquals("test_table", savedHouseTable.getTableId());
+    Assertions.assertEquals("test_uuid", savedHouseTable.getTableUUID());
+    Assertions.assertEquals("test_cluster", savedHouseTable.getClusterId());
+    Assertions.assertEquals("test_user", savedHouseTable.getTableCreator());
+    Assertions.assertEquals(TEST_LOCATION, savedHouseTable.getTableVersion());
+    Assertions.assertEquals(1L, savedHouseTable.getCreationTime());
+    Assertions.assertEquals(12L, savedHouseTable.getDeletedAtMs());
+    Assertions.assertEquals(34L, savedHouseTable.getPurgeAfterMs());
+    Assertions.assertEquals("s3", savedHouseTable.getStorageType());
+    verify(mockHouseTableMapper, never())
+        .toHouseTable(any(TableMetadata.class), any(), any(TableIdentifier.class));
+
+    TableMetadata committedMetadata =
+        tableMetadataCache.load(savedHouseTable.getTableLocation(), () -> null);
+    assertNoHtsProperties(committedMetadata);
+  }
+
   /**
    * Tests committing snapshots to a table with no existing snapshots (initial version). Verifies
    * that all snapshots are appended to the table metadata.
@@ -186,15 +263,42 @@ public class OpenHouseInternalTableOperationsTest {
 
       TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
       openHouseInternalTableOperations.doCommit(BASE_TABLE_METADATA, metadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
+      TableMetadata committedMetadata = getPersistedMetadata();
+      assertNoHtsProperties(committedMetadata);
+      Assertions.assertEquals(testSnapshots.size(), committedMetadata.snapshots().size());
+      Assertions.assertFalse(
+          committedMetadata.properties().containsKey(CatalogConstants.SNAPSHOTS_JSON_KEY));
+      Assertions.assertFalse(
+          committedMetadata.properties().containsKey(CatalogConstants.SNAPSHOTS_REFS_KEY));
+    }
+  }
 
-      Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
-      Assertions.assertFalse(updatedProperties.containsKey(CatalogConstants.SNAPSHOTS_JSON_KEY));
-      Assertions.assertFalse(updatedProperties.containsKey(CatalogConstants.SNAPSHOTS_REFS_KEY));
+  @Test
+  void testDoCommitRetainsCatalogOnlyProperties() throws IOException {
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    properties.put(getCanonicalFieldName("clusterId"), "cluster-from-properties");
+    properties.put(getCanonicalFieldName("tableUUID"), "uuid-from-properties");
+    properties.put(getCanonicalFieldName("tableCreator"), "creator-from-properties");
+    properties.put(getCanonicalFieldName("lastModifiedTime"), "1");
+
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      openHouseInternalTableOperations.doCommit(
+          BASE_TABLE_METADATA, BASE_TABLE_METADATA.replaceProperties(properties));
+
+      TableMetadata committedMetadata = getPersistedMetadata();
+      assertNoHtsProperties(committedMetadata);
       Assertions.assertEquals(
-          "INITIAL_VERSION", updatedProperties.get(getCanonicalFieldName("tableVersion")));
-      Assertions.assertTrue(updatedProperties.containsKey(getCanonicalFieldName("tableLocation")));
-      Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+          "cluster-from-properties",
+          committedMetadata.properties().get(getCanonicalFieldName("clusterId")));
+      Assertions.assertEquals(
+          "uuid-from-properties",
+          committedMetadata.properties().get(getCanonicalFieldName("tableUUID")));
+      Assertions.assertEquals(
+          "creator-from-properties",
+          committedMetadata.properties().get(getCanonicalFieldName("tableCreator")));
+      Assertions.assertNotEquals(
+          "1", committedMetadata.properties().get(getCanonicalFieldName("lastModifiedTime")));
     }
   }
 
@@ -226,11 +330,9 @@ public class OpenHouseInternalTableOperationsTest {
       PostCommitContext context = contextCaptor.getValue();
       Assertions.assertEquals(TEST_TABLE_IDENTIFIER, context.getTableIdentifier());
       Assertions.assertNotNull(context.getCommittedMetadata());
-      Assertions.assertTrue(
-          context
-              .getCommittedMetadata()
-              .properties()
-              .containsKey(getCanonicalFieldName("tableLocation")));
+      assertNoHtsProperties(context.getCommittedMetadata());
+      Assertions.assertEquals(
+          CatalogConstants.INITIAL_VERSION, context.getHouseTable().getTableVersion());
     }
   }
 
@@ -315,16 +417,13 @@ public class OpenHouseInternalTableOperationsTest {
 
       TableMetadata metadata = base.replaceProperties(properties);
       openHouseInternalTableOperations.doCommit(base, metadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
-
-      Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
-      Assertions.assertFalse(updatedProperties.containsKey(CatalogConstants.SNAPSHOTS_JSON_KEY));
-      Assertions.assertFalse(updatedProperties.containsKey(CatalogConstants.SNAPSHOTS_REFS_KEY));
-      Assertions.assertEquals(
-          TEST_LOCATION, updatedProperties.get(getCanonicalFieldName("tableVersion")));
-
-      Assertions.assertTrue(updatedProperties.containsKey(getCanonicalFieldName("tableLocation")));
-      Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+      TableMetadata committedMetadata = getPersistedMetadata();
+      assertNoHtsProperties(committedMetadata);
+      Assertions.assertEquals(testSnapshots.size(), committedMetadata.snapshots().size());
+      Assertions.assertFalse(
+          committedMetadata.properties().containsKey(CatalogConstants.SNAPSHOTS_JSON_KEY));
+      Assertions.assertFalse(
+          committedMetadata.properties().containsKey(CatalogConstants.SNAPSHOTS_REFS_KEY));
     }
   }
 
@@ -463,17 +562,13 @@ public class OpenHouseInternalTableOperationsTest {
 
       TableMetadata metadata = base.replaceProperties(properties);
       openHouseInternalTableOperations.doCommit(base, metadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
-
-      Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
-      Assertions.assertTrue(
-          updatedProperties.size()
-              >= 4); /*write.parquet.compression-codec, location, lastModifiedTime, version*/
-      Assertions.assertEquals(
-          TEST_LOCATION, updatedProperties.get(getCanonicalFieldName("tableVersion")));
-
-      Assertions.assertTrue(updatedProperties.containsKey(getCanonicalFieldName("tableLocation")));
-      Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+      TableMetadata committedMetadata = getPersistedMetadata();
+      assertNoHtsProperties(committedMetadata);
+      Assertions.assertEquals(newSnapshots.size(), committedMetadata.snapshots().size());
+      Assertions.assertFalse(
+          committedMetadata.properties().containsKey(CatalogConstants.SNAPSHOTS_JSON_KEY));
+      Assertions.assertFalse(
+          committedMetadata.properties().containsKey(CatalogConstants.SNAPSHOTS_REFS_KEY));
     }
   }
 
@@ -487,9 +582,7 @@ public class OpenHouseInternalTableOperationsTest {
     properties.put(CatalogConstants.LAST_UPDATED_MS, "1233232423");
     properties.put(CatalogConstants.OPENHOUSE_IS_TABLE_REPLICATED_KEY, "true");
     properties.put(CatalogConstants.OPENHOUSE_TABLE_VERSION, CatalogConstants.INITIAL_VERSION);
-    TableMetadata base = BASE_TABLE_METADATA;
-
-    TableMetadata metadata = base.replaceProperties(properties);
+    TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
 
     // Setup mocks for filesystem operations
     LocalStorage mockLocalStorage = mock(LocalStorage.class);
@@ -515,7 +608,7 @@ public class OpenHouseInternalTableOperationsTest {
 
     try (MockedStatic<MetadataUpdateUtils> mockedMetadataUpdateUtils =
         mockStatic(MetadataUpdateUtils.class)) {
-      openHouseInternalTableOperations.doCommit(base, metadata);
+      openHouseInternalTableOperations.doCommit(null, metadata);
 
       // Verify updateMetadataField was called
       mockedMetadataUpdateUtils.verify(
@@ -524,15 +617,8 @@ public class OpenHouseInternalTableOperationsTest {
                   eq(mockFileSystem), anyString(), eq("last-updated-ms"), eq(1233232423L)));
     }
 
-    Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
-
-    Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
-    Assertions.assertEquals(
-        CatalogConstants.INITIAL_VERSION,
-        updatedProperties.get(getCanonicalFieldName("tableVersion")));
-
-    Assertions.assertTrue(updatedProperties.containsKey(getCanonicalFieldName("tableLocation")));
-    Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+    TableMetadata committedMetadata = getPersistedMetadata();
+    assertNoHtsProperties(committedMetadata);
 
     // Verify filesystem operations were performed
     verify(fileIOManager).getStorage(any(FileIO.class));
@@ -639,16 +725,10 @@ public class OpenHouseInternalTableOperationsTest {
 
       TableMetadata metadata = base.replaceProperties(properties);
       openHouseInternalTableOperations.doCommit(base, metadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
-
-      Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
-      Assertions.assertFalse(updatedProperties.containsKey(CatalogConstants.SNAPSHOTS_JSON_KEY));
-      Assertions.assertFalse(updatedProperties.containsKey(CatalogConstants.SNAPSHOTS_REFS_KEY));
+      TableMetadata committedMetadata = getPersistedMetadata();
+      assertNoHtsProperties(committedMetadata);
       Assertions.assertEquals(
-          TEST_LOCATION, updatedProperties.get(getCanonicalFieldName("tableVersion")));
-
-      Assertions.assertTrue(updatedProperties.containsKey(getCanonicalFieldName("tableLocation")));
-      Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+          testSnapshots.subList(2, 4).size(), committedMetadata.snapshots().size());
     }
   }
 
@@ -920,9 +1000,7 @@ public class OpenHouseInternalTableOperationsTest {
         Mockito.mockStatic(TableMetadataParser.class)) {
       openHouseInternalTableOperations.doCommit(base, metadata);
     }
-    Mockito.verify(mockHouseTableMapper, Mockito.atLeastOnce())
-        .toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
-    return tblMetadataCaptor.getValue().properties().get(TableProperties.MAX_REF_AGE_MS);
+    return getPersistedMetadata().properties().get(TableProperties.MAX_REF_AGE_MS);
   }
 
   /**
@@ -941,11 +1019,14 @@ public class OpenHouseInternalTableOperationsTest {
 
       TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
       openHouseInternalTableOperations.doCommit(BASE_TABLE_METADATA, metadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
+      Mockito.verify(mockHouseTableMapper)
+          .toHouseTable(
+              tblMetadataCaptor.capture(), Mockito.any(), Mockito.eq(TEST_TABLE_IDENTIFIER));
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
 
       Assertions.assertTrue(updatedProperties.containsKey(getCanonicalFieldName("tableLocation")));
-      Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+      Mockito.verify(mockHouseTableRepository, Mockito.times(1))
+          .save(Mockito.any(HouseTable.class));
     }
   }
 
@@ -979,11 +1060,14 @@ public class OpenHouseInternalTableOperationsTest {
 
       TableMetadata metadata = base.replaceProperties(properties);
       openHouseInternalTableOperations.doCommit(base, metadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
+      Mockito.verify(mockHouseTableMapper)
+          .toHouseTable(
+              tblMetadataCaptor.capture(), Mockito.any(), Mockito.eq(TEST_TABLE_IDENTIFIER));
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
 
       Assertions.assertTrue(updatedProperties.containsKey(getCanonicalFieldName("tableLocation")));
-      Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+      Mockito.verify(mockHouseTableRepository, Mockito.times(1))
+          .save(Mockito.any(HouseTable.class));
     }
   }
 
@@ -1018,11 +1102,14 @@ public class OpenHouseInternalTableOperationsTest {
 
       TableMetadata metadata = base.replaceProperties(properties);
       openHouseInternalTableOperations.doCommit(base, metadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
+      Mockito.verify(mockHouseTableMapper)
+          .toHouseTable(
+              tblMetadataCaptor.capture(), Mockito.any(), Mockito.eq(TEST_TABLE_IDENTIFIER));
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
 
       Assertions.assertTrue(updatedProperties.containsKey(getCanonicalFieldName("tableLocation")));
-      Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+      Mockito.verify(mockHouseTableRepository, Mockito.times(1))
+          .save(Mockito.any(HouseTable.class));
     }
   }
 
@@ -1054,11 +1141,14 @@ public class OpenHouseInternalTableOperationsTest {
 
       TableMetadata metadata = base.replaceProperties(properties);
       openHouseInternalTableOperations.doCommit(base, metadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
+      Mockito.verify(mockHouseTableMapper)
+          .toHouseTable(
+              tblMetadataCaptor.capture(), Mockito.any(), Mockito.eq(TEST_TABLE_IDENTIFIER));
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
 
       Assertions.assertTrue(updatedProperties.containsKey(getCanonicalFieldName("tableLocation")));
-      Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+      Mockito.verify(mockHouseTableRepository, Mockito.times(1))
+          .save(Mockito.any(HouseTable.class));
     }
   }
 
@@ -1086,11 +1176,14 @@ public class OpenHouseInternalTableOperationsTest {
 
       TableMetadata metadata = base.replaceProperties(properties);
       openHouseInternalTableOperations.doCommit(base, metadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
+      Mockito.verify(mockHouseTableMapper)
+          .toHouseTable(
+              tblMetadataCaptor.capture(), Mockito.any(), Mockito.eq(TEST_TABLE_IDENTIFIER));
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
 
       Assertions.assertTrue(updatedProperties.containsKey(getCanonicalFieldName("tableLocation")));
-      Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+      Mockito.verify(mockHouseTableRepository, Mockito.times(1))
+          .save(Mockito.any(HouseTable.class));
     }
   }
 
@@ -1112,11 +1205,14 @@ public class OpenHouseInternalTableOperationsTest {
 
       TableMetadata metadata = base.replaceProperties(properties);
       openHouseInternalTableOperations.doCommit(base, metadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
+      Mockito.verify(mockHouseTableMapper)
+          .toHouseTable(
+              tblMetadataCaptor.capture(), Mockito.any(), Mockito.eq(TEST_TABLE_IDENTIFIER));
       Map<String, String> updatedProperties = tblMetadataCaptor.getValue().properties();
 
       Assertions.assertTrue(updatedProperties.containsKey(getCanonicalFieldName("tableLocation")));
-      Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+      Mockito.verify(mockHouseTableRepository, Mockito.times(1))
+          .save(Mockito.any(HouseTable.class));
     }
   }
 
@@ -1418,7 +1514,8 @@ public class OpenHouseInternalTableOperationsTest {
             .databaseId(TEST_TABLE_IDENTIFIER.namespace().toString())
             .tableId(TEST_TABLE_IDENTIFIER.name())
             .build();
-    when(mockHouseTableMapper.toHouseTable(Mockito.any(TableMetadata.class), Mockito.any()))
+    when(mockHouseTableMapper.toHouseTable(
+            Mockito.any(TableMetadata.class), Mockito.any(), Mockito.eq(TEST_TABLE_IDENTIFIER)))
         .thenAnswer(
             invocation -> {
               TableMetadata tableMetadata = invocation.getArgument(0);
@@ -1593,8 +1690,9 @@ public class OpenHouseInternalTableOperationsTest {
 
   /** Sets up mocks specific to commit metadata tests. */
   private void setupCommitMetadataTest(OpenHouseInternalTableOperations operations) {
-    when(mockHouseTableMapper.toHouseTable(Mockito.any(TableMetadata.class), Mockito.any()))
-        .thenReturn(mockHouseTable);
+    when(mockHouseTableMapper.toHouseTable(
+            Mockito.any(TableMetadata.class), Mockito.any(), Mockito.any(TableIdentifier.class)))
+        .thenAnswer(invocation -> newHouseTable());
     when(mockHouseTableRepository.save(Mockito.any())).thenReturn(mockHouseTable);
   }
 
@@ -1743,9 +1841,8 @@ public class OpenHouseInternalTableOperationsTest {
 
       // ========== COMMIT: Base at N, Metadata at N+3 (divergent by 3 commits) ==========
       openHouseInternalTableOperations.doCommit(baseAtN, finalDivergentMetadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
-
-      TableMetadata capturedMetadata = tblMetadataCaptor.getValue();
+      TableMetadata capturedMetadata = getPersistedMetadata();
+      assertNoHtsProperties(capturedMetadata);
 
       // Verify the divergent commit contains all 4 snapshots
       Assertions.assertEquals(
@@ -1832,9 +1929,8 @@ public class OpenHouseInternalTableOperationsTest {
 
       // ========== COMMIT: Should succeed with multiple valid branches ==========
       openHouseInternalTableOperations.doCommit(baseAtN, finalDivergentMetadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
-
-      TableMetadata capturedMetadata = tblMetadataCaptor.getValue();
+      TableMetadata capturedMetadata = getPersistedMetadata();
+      assertNoHtsProperties(capturedMetadata);
 
       // Verify all 4 snapshots are present
       Assertions.assertEquals(
@@ -1943,7 +2039,9 @@ public class OpenHouseInternalTableOperationsTest {
 
     // commit should succeed
     openHouseInternalTableOperations.doCommit(finalBaseMetadata, finalNewMetadata);
-    Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
+    Mockito.verify(mockHouseTableMapper)
+        .toHouseTable(
+            tblMetadataCaptor.capture(), Mockito.any(), Mockito.eq(TEST_TABLE_IDENTIFIER));
 
     TableMetadata capturedMetadata = tblMetadataCaptor.getValue();
 
@@ -2104,7 +2202,9 @@ public class OpenHouseInternalTableOperationsTest {
 
       // ========== COMMIT: Base at N, Metadata at N+3 (divergent by 3 commits) ==========
       openHouseInternalTableOperations.doCommit(baseAtN, finalDivergentMetadata);
-      Mockito.verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), Mockito.any());
+      Mockito.verify(mockHouseTableMapper)
+          .toHouseTable(
+              tblMetadataCaptor.capture(), Mockito.any(), Mockito.eq(TEST_TABLE_IDENTIFIER));
 
       TableMetadata capturedMetadata = tblMetadataCaptor.getValue();
 
@@ -2133,7 +2233,8 @@ public class OpenHouseInternalTableOperationsTest {
           mainRef.snapshotId(),
           "Main branch should point to testSnapshots[1] after divergent commit");
 
-      Mockito.verify(mockHouseTableRepository, Mockito.times(1)).save(Mockito.eq(mockHouseTable));
+      Mockito.verify(mockHouseTableRepository, Mockito.times(1))
+          .save(Mockito.any(HouseTable.class));
     }
   }
 

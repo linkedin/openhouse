@@ -42,6 +42,7 @@ public class CreateUpdateLockRequestBody {
   @Schema(
       description = "lock expiration time for a table is `n` days from creationTime",
       example = "3")
+  @Builder.Default
   int expirationInDays = 0;
 
   public LockReason getReason() {

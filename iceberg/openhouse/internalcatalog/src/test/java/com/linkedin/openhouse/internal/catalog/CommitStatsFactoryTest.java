@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.internal.catalog;
 
-import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.getCanonicalFieldName;
-
+import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -10,7 +9,6 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.TableMetadata;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
@@ -18,8 +16,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 public class CommitStatsFactoryTest {
-
-  private static final TableIdentifier ID = TableIdentifier.of("db", "tbl");
 
   /** Real (snapshot-less) metadata for gate + identity tests. */
   private static TableMetadata metadataWith(Map<String, String> extraProps) {
@@ -36,8 +32,6 @@ public class CommitStatsFactoryTest {
   /** Mocked metadata with a controlled current-snapshot summary for mapping tests. */
   private static TableMetadata mockMetadataWithSummary(Map<String, String> summary) {
     Map<String, String> props = new HashMap<>();
-    props.put(getCanonicalFieldName("tableUUID"), "uuid-123");
-    props.put(getCanonicalFieldName("tableVersion"), "v3");
     Snapshot snapshot = Mockito.mock(Snapshot.class);
     Mockito.when(snapshot.summary()).thenReturn(summary);
     TableMetadata md = Mockito.mock(TableMetadata.class);
@@ -47,18 +41,27 @@ public class CommitStatsFactoryTest {
     return md;
   }
 
+  private static HouseTable houseTable(String uuid, String version) {
+    return HouseTable.builder()
+        .databaseId("db")
+        .tableId("tbl")
+        .tableUUID(uuid)
+        .tableVersion(version)
+        .build();
+  }
+
   @Test
   void extractReturnsEmptyWithoutUuid() {
     Assertions.assertFalse(
-        CommitStatsFactory.extract(ID, metadataWith(ImmutableMap.of())).isPresent());
-    Assertions.assertFalse(CommitStatsFactory.extract(ID, null).isPresent());
+        CommitStatsFactory.extract(metadataWith(ImmutableMap.of()), houseTable(null, "v3"))
+            .isPresent());
+    Assertions.assertFalse(CommitStatsFactory.extract(null, houseTable("uuid", "v3")).isPresent());
   }
 
   @Test
   void extractPopulatesIdentityAndPropertiesOnlyWhenNoSnapshot() {
-    TableMetadata md =
-        metadataWith(ImmutableMap.of(getCanonicalFieldName("tableUUID"), "uuid-123"));
-    Optional<CommitStats> stats = CommitStatsFactory.extract(ID, md);
+    TableMetadata md = metadataWith(ImmutableMap.of());
+    Optional<CommitStats> stats = CommitStatsFactory.extract(md, houseTable("uuid-123", "v3"));
     Assertions.assertTrue(stats.isPresent());
     CommitStats cs = stats.get();
     Assertions.assertEquals("uuid-123", cs.getTableUuid());
@@ -73,6 +76,23 @@ public class CommitStatsFactoryTest {
   }
 
   @Test
+  void extractUsesIdentityFromHouseTable() {
+    HouseTable canonicalIdentity =
+        HouseTable.builder()
+            .databaseId("canonical_db")
+            .tableId("canonical_table")
+            .tableUUID("uuid-123")
+            .tableVersion("v3")
+            .build();
+    CommitStats cs =
+        CommitStatsFactory.extract(metadataWith(ImmutableMap.of()), canonicalIdentity)
+            .orElseThrow();
+
+    Assertions.assertEquals("canonical_db", cs.getDatabaseName());
+    Assertions.assertEquals("canonical_table", cs.getTableName());
+  }
+
+  @Test
   void extractMapsSnapshotSummaryMetrics() {
     Map<String, String> summary =
         ImmutableMap.<String, String>builder()
@@ -83,7 +103,9 @@ public class CommitStatsFactoryTest {
             .put(SnapshotSummary.ADDED_FILE_SIZE_PROP, "500")
             .put(SnapshotSummary.REMOVED_FILE_SIZE_PROP, "200")
             .build();
-    CommitStats cs = CommitStatsFactory.extract(ID, mockMetadataWithSummary(summary)).orElseThrow();
+    CommitStats cs =
+        CommitStatsFactory.extract(mockMetadataWithSummary(summary), houseTable("uuid-123", "v3"))
+            .orElseThrow();
     Assertions.assertEquals(42L, cs.getNumCurrentFiles());
     Assertions.assertEquals(1000L, cs.getTableSizeBytes());
     Assertions.assertNotNull(cs.getDelta());
@@ -98,7 +120,9 @@ public class CommitStatsFactoryTest {
   void extractToleratesMalformedOrMissingSummaryValues() {
     Map<String, String> summary =
         ImmutableMap.of(SnapshotSummary.TOTAL_DATA_FILES_PROP, "not-a-number");
-    CommitStats cs = CommitStatsFactory.extract(ID, mockMetadataWithSummary(summary)).orElseThrow();
+    CommitStats cs =
+        CommitStatsFactory.extract(mockMetadataWithSummary(summary), houseTable("uuid-123", "v3"))
+            .orElseThrow();
     Assertions.assertNull(cs.getNumCurrentFiles());
     Assertions.assertNull(cs.getTableSizeBytes());
   }

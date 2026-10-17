@@ -162,10 +162,22 @@ public class RepositoryTestWithSettableComponents {
                 HouseTable.builder()
                     .databaseId(TABLE_DTO.getDatabaseId())
                     .tableId(TABLE_DTO.getTableId())
+                    .clusterId(TABLE_DTO.getClusterId())
                     .entityType("TABLE")
                     .build()))
         .when(spyCatalog)
         .findEntityById(tableIdentifier);
+    Mockito.doReturn(
+            Optional.of(
+                HouseTable.builder()
+                    .databaseId(TABLE_DTO.getDatabaseId())
+                    .tableId(TABLE_DTO.getTableId())
+                    .clusterId(TABLE_DTO.getClusterId())
+                    .tableLocation(creationDTO.getTableLocation())
+                    .entityType("TABLE")
+                    .build()))
+        .when(spyCatalog)
+        .findHouseTable(tableIdentifier);
     ((SettableInternalRepositoryForTest) openHouseInternalRepository).setCatalog(spyCatalog);
     // the following spy object serves as the client of the Iceberg Catalog that drives the update.
     OpenHouseInternalRepository spyRepo = Mockito.spy(openHouseInternalRepository);
@@ -302,6 +314,15 @@ public class RepositoryTestWithSettableComponents {
 
       OpenHouseInternalCatalog spyCatalog = Mockito.spy(OpenHouseInternalCatalog.class);
       Mockito.doReturn(spyOptsMockedTable).when(spyCatalog).loadTable(tableIdentifier);
+      Mockito.doAnswer(
+              invocation ->
+                  htsRepo.findById(
+                      HouseTablePrimaryKey.builder()
+                          .tableId(TABLE_DTO.getTableId())
+                          .databaseId(TABLE_DTO.getDatabaseId())
+                          .build()))
+          .when(spyCatalog)
+          .findHouseTable(tableIdentifier);
 
       ((SettableInternalRepositoryForTest) openHouseInternalRepository).setCatalog(spyCatalog);
       OpenHouseInternalRepository spyRepo = Mockito.spy(openHouseInternalRepository);
