@@ -96,9 +96,12 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
   PostCommitOperationRunner postCommitOperationRunner;
 
+  CommitPolicy commitPolicy;
+
   /**
-   * Backward-compatible constructor without a {@link PostCommitOperationRunner}. Post-commit
-   * operations are disabled (no runner wired).
+   * Backward-compatible constructor without a {@link PostCommitOperationRunner} or {@link
+   * CommitPolicy}: post-commit operations are disabled (no runner wired) and every commit passes
+   * the policy check.
    */
   public OpenHouseInternalTableOperations(
       HouseTableRepository houseTableRepository,
@@ -116,7 +119,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         metricsReporter,
         fileIOManager,
         tableMetadataCache,
-        null);
+        null,
+        CommitPolicy.NONE);
   }
 
   public OpenHouseInternalTableOperations(
@@ -127,7 +131,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       MetricsReporter metricsReporter,
       FileIOManager fileIOManager,
       TableMetadataCache tableMetadataCache,
-      PostCommitOperationRunner postCommitOperationRunner) {
+      PostCommitOperationRunner postCommitOperationRunner,
+      CommitPolicy commitPolicy) {
     this.houseTableRepository = houseTableRepository;
     this.fileIO = fileIO;
     this.houseTableMapper = houseTableMapper;
@@ -136,6 +141,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     this.fileIOManager = fileIOManager;
     this.tableMetadataCache = tableMetadataCache;
     this.postCommitOperationRunner = postCommitOperationRunner;
+    this.commitPolicy = commitPolicy;
   }
 
   private static final Gson GSON = new Gson();
@@ -417,6 +423,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     // Handle all schema-related processing (client schema, evolved schema, intermediate schemas)
     metadata = processSchemas(base, metadata);
 
+    Map<String, String> properties = new HashMap<>(metadata.properties());
+    checkBeforeWriting(base, metadata, properties);
+
     int version = currentVersion() + 1;
     CommitStatus commitStatus = CommitStatus.FAILURE;
     Optional<TableMetadata> committedMetadata = Optional.empty();
@@ -427,13 +436,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     HouseTable houseTable = HouseTable.builder().build();
     try {
       // Now that we have metadataLocation we stamp it in metadata property.
-      Map<String, String> properties = new HashMap<>(metadata.properties());
-
-      abortIfWriterBaseDivergedFromCatalog(base, metadata);
-
-      restoreOverriddenProperties(properties);
-      enforcePropertyRules(base, properties);
-      // A rejected property change must not mark the unchanged table version as attempted.
+      properties.remove(CatalogConstants.IS_REPLACE_COMMIT_KEY);
       failIfRetryUpdate(properties);
 
       properties.put(
@@ -609,7 +612,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         throw new CommitFailedException(e);
       }
       throw new BadRequestException(e, e.getMessage());
-    } catch (CommitFailedException | UnsupportedClientOperationException e) {
+    } catch (CommitFailedException e) {
       throw e;
     } catch (HouseTableCallerException
         | HouseTableNotFoundException
@@ -654,6 +657,26 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         default:
           break; /*should never happen, kept to silence SpotBugs*/
       }
+    }
+  }
+
+  /**
+   * Checks a commit before anything is written, so a rejection reaches the caller as thrown, with
+   * no commit status to recover: the stale-base check, then OpenHouse's table property rules, then
+   * the {@link CommitPolicy}. The policy runs after the stale-base check, so a snapshot commit
+   * built on an older table version gets the retryable conflict instead, and sees the properties
+   * the commit leaves. A rejected commit still counts as a failed commit.
+   */
+  private void checkBeforeWriting(
+      TableMetadata base, TableMetadata metadata, Map<String, String> properties) {
+    try {
+      abortIfWriterBaseDivergedFromCatalog(base, metadata);
+      restoreOverriddenProperties(properties);
+      enforcePropertyRules(base, properties);
+      commitPolicy.check(TableCommit.of(tableIdentifier, base, metadata.schema(), properties));
+    } catch (RuntimeException e) {
+      metricsReporter.count(InternalCatalogMetricsConstant.COMMIT_FAILED_CTR);
+      throw e;
     }
   }
 
