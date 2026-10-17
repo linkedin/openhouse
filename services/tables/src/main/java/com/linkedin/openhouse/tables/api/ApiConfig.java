@@ -40,13 +40,17 @@ public class ApiConfig {
 
   @Bean
   public ReadBridgeStripProtection readBridgeStripProtection(
-      ReadBridgeConfigResolver readBridgeConfigResolver, CatalogRequestContext requestContext) {
-    return new ReadBridgeStripProtection(readBridgeConfigResolver, requestContext);
+      ReadBridgeConfigResolver readBridgeConfigResolver) {
+    return new ReadBridgeStripProtection(readBridgeConfigResolver);
   }
 
   /** The internal catalog's commit policy. */
   @Bean
-  public ColumnDefaultCommitPolicy columnDefaultCommitPolicy(CatalogRequestContext requestContext) {
-    return new ColumnDefaultCommitPolicy(requestContext);
+  public ColumnDefaultCommitPolicy columnDefaultCommitPolicy(
+      CatalogRequestContext requestContext,
+      ColumnDefaultClientGate columnDefaultClientGate,
+      ReadBridgeStripProtection readBridgeStripProtection) {
+    return new ColumnDefaultCommitPolicy(
+        requestContext, columnDefaultClientGate, readBridgeStripProtection);
   }
 }

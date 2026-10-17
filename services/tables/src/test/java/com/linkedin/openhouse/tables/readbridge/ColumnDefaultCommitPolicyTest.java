@@ -1,6 +1,8 @@
 package com.linkedin.openhouse.tables.readbridge;
 
+import com.fasterxml.jackson.databind.node.TextNode;
 import com.google.common.collect.ImmutableMap;
+import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.TableCommit;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
@@ -31,6 +33,19 @@ public class ColumnDefaultCommitPolicyTest {
 
   private static final CatalogRequestContext NO_BYPASS = new CatalogRequestContext() {};
 
+  /** Every opted-in table has a default on field 2. */
+  private static final ColumnDefaultsSource FIELD_2 =
+      tableDto -> Collections.singletonMap(2, TextNode.valueOf("US"));
+
+  /** No table has a default, so only the opt-in lock can reject. */
+  private static final ColumnDefaultsSource NO_DEFAULTS = tableDto -> Collections.emptyMap();
+
+  private static final ColumnDefaultsSource NEVER_ASKED =
+      tableDto -> {
+        throw new IllegalStateException("looked up defaults for a commit the rules skip");
+      };
+
+  /** A request that sent the bypass. */
   private static final CatalogRequestContext BYPASS =
       new CatalogRequestContext() {
         @Override
@@ -45,7 +60,7 @@ public class ColumnDefaultCommitPolicyTest {
     UnsupportedClientOperationException error =
         Assertions.assertThrows(
             UnsupportedClientOperationException.class,
-            () -> policy(NO_BYPASS).check(commit(table(committed), optIn(proposed))));
+            () -> policy(NO_BYPASS, NO_DEFAULTS).check(commit(table(committed), optIn(proposed))));
     Assertions.assertTrue(error.getMessage().contains(ENABLED));
     Assertions.assertTrue(error.getMessage().contains("immutable once set to true"));
   }
@@ -63,7 +78,7 @@ public class ColumnDefaultCommitPolicyTest {
   @MethodSource("changesToCommittedFalseOrInvalid")
   void optInFalseOrInvalidCanBeChangedOrRemoved(String committed, String proposed) {
     Assertions.assertDoesNotThrow(
-        () -> policy(NO_BYPASS).check(commit(table(committed), optIn(proposed))));
+        () -> policy(NO_BYPASS, NO_DEFAULTS).check(commit(table(committed), optIn(proposed))));
   }
 
   static Stream<Arguments> changesToCommittedFalseOrInvalid() {
@@ -78,7 +93,8 @@ public class ColumnDefaultCommitPolicyTest {
   @ParameterizedTest
   @MethodSource("firstAssignmentsAndUnchangedValues")
   void optInAllowsFirstAssignmentAndUnchangedValues(TableMetadata base, String proposed) {
-    Assertions.assertDoesNotThrow(() -> policy(NO_BYPASS).check(commit(base, optIn(proposed))));
+    Assertions.assertDoesNotThrow(
+        () -> policy(NO_BYPASS, NO_DEFAULTS).check(commit(base, optIn(proposed))));
   }
 
   static Stream<Arguments> firstAssignmentsAndUnchangedValues() {
@@ -94,13 +110,66 @@ public class ColumnDefaultCommitPolicyTest {
         Arguments.of(Named.of("committed false", table("false")), "false"));
   }
 
+  /** The bypass lifts the opt-in lock and skips the rules, default lookups included. */
   @Test
-  void bypassLiftsTheLock() {
-    Assertions.assertDoesNotThrow(() -> policy(BYPASS).check(commit(table("true"), optIn(null))));
+  void bypassSkipsTheLockAndTheRules() {
+    Assertions.assertDoesNotThrow(
+        () -> policy(BYPASS, NEVER_ASKED).check(commit(table("true"), optIn(null))));
   }
 
-  private static ColumnDefaultCommitPolicy policy(CatalogRequestContext requestContext) {
-    return new ColumnDefaultCommitPolicy(requestContext);
+  /**
+   * Type 2 has no request to admit outside one, so a snapshot commit there is not default-aware. A
+   * commit that breaks a column-default rule is the client's error, with the rule's message.
+   */
+  @Test
+  void snapshotCommitOutsideARequestBreaksType2() {
+    UnsupportedClientOperationException error =
+        Assertions.assertThrows(
+            UnsupportedClientOperationException.class,
+            () -> policy(NO_BYPASS, FIELD_2).check(commit(table("true"), optIn("true"))));
+    Assertions.assertTrue(error.getMessage().startsWith("COLUMN_DEFAULT_UNAWARE_COMMIT"));
+    Assertions.assertTrue(error.getMessage().contains("country (field-id 2)"));
+  }
+
+  /** Type 2 accepts exactly the clients {@link ColumnDefaultClientGate} admits. */
+  @Test
+  void snapshotCommitFromAdmittedClientPassesType2() {
+    CatalogRequestContext admitted =
+        new CatalogRequestContext() {
+          @Override
+          public Optional<String> clientName() {
+            return Optional.of("spark");
+          }
+
+          @Override
+          public Optional<String> userAgent() {
+            return Optional.of("openhouse-java-client/0.5.100");
+          }
+        };
+
+    Assertions.assertDoesNotThrow(
+        () -> policy(admitted, FIELD_2).check(commit(table("true"), optIn("true"))));
+  }
+
+  /** A default the table already declares but cannot apply stays the server's error. */
+  @Test
+  void storedUnusableDefaultIsNotAClientError() {
+    ColumnDefaultsSource unusable =
+        tableDto -> {
+          throw new ColumnDefaultException("column country: default is not a string");
+        };
+
+    Assertions.assertThrows(
+        TableConfigUnavailableException.class,
+        () -> policy(NO_BYPASS, unusable).check(commit(table("true"), optIn("true"))));
+  }
+
+  private static ColumnDefaultCommitPolicy policy(
+      CatalogRequestContext requestContext, ColumnDefaultsSource source) {
+    return new ColumnDefaultCommitPolicy(
+        requestContext,
+        new ColumnDefaultClientGate("0.5.100", requestContext),
+        new ReadBridgeStripProtection(new ReadBridgeConfigResolver(source)));
   }
 
   /** The table with {@code optIn} committed as its opt-in, or without one when null. */

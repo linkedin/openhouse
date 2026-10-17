@@ -193,8 +193,8 @@ public class ReadBridgeColumnDefaultE2ETest {
 
   /**
    * Iceberg 1.5 {@code sameSchema} includes {@code initial-default}, so this PUT cannot go through
-   * {@code updateTableAndValidateResponse}. Create without overlay, PUT a matching handshake, then
-   * assert persist dropped it.
+   * {@code updateTableAndValidateResponse}. Create without overlay, PUT the overlay, then assert
+   * persist dropped it.
    */
   @Test
   public void putWithMatchingOverlay_doesNotPersistInitialDefault() throws Exception {
@@ -354,13 +354,15 @@ public class ReadBridgeColumnDefaultE2ETest {
         .andExpect(status().isCreated())
         .andReturn();
   }
+
   /**
-   * On a table with column defaults, every snapshots PUT needs the handshake, on any branch and
-   * whatever its snapshots do, unless it carries the column-default policy bypass.
+   * On a table with column defaults, every snapshots PUT must come from a default-aware client, on
+   * any branch and whatever its snapshots do, unless it carries the column-default policy bypass.
+   * The client does not have to send {@code initial-default}.
    * https://github.com/linkedin/openhouse/issues/693
    */
   @Test
-  public void snapshotsPut_requiresHandshakeOnEveryBranch() throws Exception {
+  public void snapshotsPut_requiresDefaultAwareClientOnEveryBranch() throws Exception {
     created = create(uniqueTable("branch_rewrite"), Collections.singletonMap(ENABLED_PROP, "true"));
     MvcResult current = createTable();
     TableIdentifier identifier = TableIdentifier.of(created.getDatabaseId(), created.getTableId());
@@ -368,8 +370,7 @@ public class ReadBridgeColumnDefaultE2ETest {
     Table table = catalog.loadTable(identifier);
     Snapshot append = table.newAppend().appendFile(dataFile(table)).apply();
     mvc.perform(snapshotsPut(current, false, branch("main", append), append))
-        .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.message", containsString("COLUMN_DEFAULT_UNAWARE_COMMIT")));
+        .andExpect(status().isUnprocessableEntity());
     current =
         mvc.perform(
                 snapshotsPut(current, false, branch("main", append), append)
@@ -383,8 +384,7 @@ public class ReadBridgeColumnDefaultE2ETest {
     Map<String, String> branchWrite = branch("main", append);
     branchWrite.putAll(branch("feature", branchOverwrite));
     mvc.perform(snapshotsPut(current, false, branchWrite, append, branchOverwrite))
-        .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.message", containsString("COLUMN_DEFAULT_UNAWARE_COMMIT")));
+        .andExpect(status().isUnprocessableEntity());
     mvc.perform(snapshotsPut(current, true, branchWrite, append, branchOverwrite))
         .andExpect(status().isOk());
     assertEquals(
@@ -392,13 +392,84 @@ public class ReadBridgeColumnDefaultE2ETest {
         catalog.loadTable(identifier).refs().get("feature").snapshotId());
   }
 
+  /**
+   * A write built on the version before the table opted in gets the retryable version conflict, not
+   * a column-default rejection. Rebuilt on the current version, it commits.
+   */
+  @Test
+  public void snapshotsPut_onVersionBeforeOptIn_conflictsInsteadOfFailing() throws Exception {
+    created = create(uniqueTable("stale_opt_in"), Collections.emptyMap());
+    MvcResult beforeOptIn =
+        RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
+    GetTableResponseBody optIn = buildGetTableResponseBody(beforeOptIn);
+    optIn.getTableProperties().put(ENABLED_PROP, "true");
+    MvcResult afterOptIn = putTable(optIn).andExpect(status().isOk()).andReturn();
+
+    TableIdentifier identifier = TableIdentifier.of(created.getDatabaseId(), created.getTableId());
+    Table table = catalog.loadTable(identifier);
+    Snapshot append = table.newAppend().appendFile(dataFile(table)).apply();
+    mvc.perform(snapshotsPut(beforeOptIn, true, branch("main", append), append))
+        .andExpect(status().isConflict());
+    mvc.perform(snapshotsPut(afterOptIn, true, branch("main", append), append))
+        .andExpect(status().isOk());
+  }
+
+  /**
+   * A rename commits to the table, so the rules check it like any other commit: it passes when the
+   * stored default applies, and fails as a server error when it cannot unless the request carries
+   * the column-default policy bypass.
+   */
+  @Test
+  public void rename_isCheckedLikeEveryCommit() throws Exception {
+    created = create(uniqueTable("rename"), Collections.singletonMap(ENABLED_PROP, "true"));
+    createTable();
+
+    String renamed = uniqueTable("renamed");
+    mvc.perform(rename(renamed)).andExpect(status().isNoContent());
+    created = renamed(renamed);
+    getTable()
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.config['" + CONFIG_KEY + "']", is("\"US\"")));
+
+    failing = true;
+    String repaired = uniqueTable("renamed");
+    mvc.perform(rename(repaired))
+        .andExpect(status().isInternalServerError())
+        .andExpect(jsonPath("$.message", containsString(UNUSABLE)));
+    mvc.perform(
+            rename(repaired).header("X-OpenHouse-Dangerously-Bypass-Column-Default-Policy", "true"))
+        .andExpect(status().isNoContent());
+    created = renamed(repaired);
+  }
+
+  private MockHttpServletRequestBuilder rename(String toTableId) {
+    return MockMvcRequestBuilders.patch(
+            String.format(
+                ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/%s/rename",
+                created.getDatabaseId(),
+                created.getTableId()))
+        .param("toDatabaseId", created.getDatabaseId())
+        .param("toTableId", toTableId)
+        .accept(MediaType.APPLICATION_JSON);
+  }
+
+  /** {@link #created}, renamed to {@code tableId}. */
+  private GetTableResponseBody renamed(String tableId) {
+    return created
+        .toBuilder()
+        .tableId(tableId)
+        .tableUri(CLUSTER_NAME + "." + created.getDatabaseId() + "." + tableId)
+        .build();
+  }
+
+  /** A snapshots PUT, from a default-aware Spark client or from a client that sends no identity. */
   private MockHttpServletRequestBuilder snapshotsPut(
-      MvcResult current, boolean handshake, Map<String, String> refs, Snapshot... snapshots)
+      MvcResult current,
+      boolean defaultAwareClient,
+      Map<String, String> refs,
+      Snapshot... snapshots)
       throws Exception {
     CreateUpdateTableRequestBody envelope = buildCreateUpdateTableRequestBody(current);
-    if (handshake) {
-      envelope = envelope.toBuilder().schema(withInitialDefault(envelope.getSchema())).build();
-    }
     IcebergSnapshotsRequestBody request =
         IcebergSnapshotsRequestBody.builder()
             .baseTableVersion(envelope.getBaseTableVersion())
@@ -407,20 +478,22 @@ public class ReadBridgeColumnDefaultE2ETest {
             .snapshotRefs(refs)
             .createUpdateTableRequestBody(envelope)
             .build();
-    return MockMvcRequestBuilders.put(
-            String.format(
-                ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
-                    + "/databases/%s/tables/%s/iceberg/v2/snapshots",
-                created.getDatabaseId(),
-                created.getTableId()))
-        .header("X-Client-Name", "spark")
-        .header("User-Agent", "openhouse-java-client/0.5.100")
-        .contentType(MediaType.APPLICATION_JSON)
-        .content(request.toJson())
-        .accept(MediaType.APPLICATION_JSON);
+    MockHttpServletRequestBuilder put =
+        MockMvcRequestBuilders.put(
+                String.format(
+                    ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                        + "/databases/%s/tables/%s/iceberg/v2/snapshots",
+                    created.getDatabaseId(),
+                    created.getTableId()))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(request.toJson())
+            .accept(MediaType.APPLICATION_JSON);
+    return defaultAwareClient
+        ? put.header("X-Client-Name", "spark").header("User-Agent", "openhouse-java-client/0.5.100")
+        : put;
   }
 
-  /** The default-aware client handshake: {@code initial-default} equal to the stamp. */
+  /** The overlay a default-aware client sends: {@code initial-default} equal to the stamp. */
   private static String withInitialDefault(String schemaJson) throws IOException {
     ObjectMapper mapper = new ObjectMapper();
     JsonNode root = mapper.readTree(schemaJson);
