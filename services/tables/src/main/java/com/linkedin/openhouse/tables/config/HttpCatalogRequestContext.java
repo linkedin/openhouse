@@ -2,12 +2,13 @@ package com.linkedin.openhouse.tables.config;
 
 import java.util.Optional;
 import javax.servlet.http.HttpServletRequest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 
 /**
- * Reads {@link CatalogRequestContext} options from the current request's headers. Outside a request
- * every option is off.
+ * Reads {@link CatalogRequestContext} from the current request's headers. Outside a request every
+ * option is off and the client is unknown.
  */
 @Component
 public class HttpCatalogRequestContext implements CatalogRequestContext {
@@ -24,6 +25,16 @@ public class HttpCatalogRequestContext implements CatalogRequestContext {
     return header(TablesMvcConstants.HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS)
         .map(Boolean::parseBoolean)
         .orElse(false);
+  }
+
+  @Override
+  public Optional<String> clientName() {
+    return header(TablesMvcConstants.HTTP_HEADER_CLIENT_NAME);
+  }
+
+  @Override
+  public Optional<String> userAgent() {
+    return header(HttpHeaders.USER_AGENT);
   }
 
   /**
