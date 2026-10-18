@@ -4,8 +4,18 @@ import static org.apache.spark.sql.functions.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
+import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
+import org.apache.avro.SchemaBuilder;
+import org.apache.avro.file.DataFileWriter;
+import org.apache.avro.generic.GenericData;
+import org.apache.avro.generic.GenericDatumWriter;
+import org.apache.avro.generic.GenericRecord;
 import org.apache.iceberg.DataFile;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -14,6 +24,7 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.relocated.com.google.common.collect.Iterables;
+import org.apache.iceberg.spark.actions.SparkActions;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
@@ -21,6 +32,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.io.TempDir;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class RTASTest extends OpenHouseSparkITest {
@@ -359,6 +371,104 @@ public class RTASTest extends OpenHouseSparkITest {
       // The commit landed outside Spark, so drop its cached plan before reading the doubled data.
       spark.sql(String.format("REFRESH TABLE %s", tableName));
       assertEquals(6, spark.sql(String.format("SELECT * FROM %s", tableName)).count());
+    }
+  }
+
+  @Test
+  public void testImportStandaloneParquetDirectoryWithoutRewriting(@TempDir Path tempDirectory)
+      throws Exception {
+    String targetName = "openhouse.dbRtas.parquet_import_target";
+    try (SparkSession spark = getSparkSession()) {
+      Path parquetDirectory = tempDirectory.resolve("parquet-source");
+      spark.range(2).coalesce(1).write().parquet(parquetDirectory.toString());
+      Path parquetFile;
+      try (java.util.stream.Stream<Path> files = Files.list(parquetDirectory)) {
+        parquetFile =
+            files.filter(path -> path.toString().endsWith(".parquet")).findFirst().orElseThrow();
+      }
+      spark.sql(String.format("CREATE TABLE %s (id BIGINT) USING iceberg", targetName));
+      spark.sql(
+          String.format(
+              "CALL openhouse.system.add_files(table => 'dbRtas.parquet_import_target', "
+                  + "source_table => '`parquet`.`%s`')",
+              parquetDirectory.toUri()));
+
+      Table target =
+          getOpenHouseCatalog(spark)
+              .loadTable(TableIdentifier.of("dbRtas", "parquet_import_target"));
+      DataFile importedFile =
+          Iterables.getOnlyElement(target.currentSnapshot().addedDataFiles(target.io()));
+      assertEquals(FileFormat.PARQUET, importedFile.format());
+      assertEquals(
+          parquetFile.toAbsolutePath().normalize(),
+          Paths.get(URI.create(importedFile.path().toString())).normalize());
+      assertEquals(2, spark.sql(String.format("SELECT * FROM %s", targetName)).count());
+
+      spark.sql(String.format("DROP TABLE %s", targetName));
+    }
+  }
+
+  @Test
+  public void testImportStandaloneAvroFilesReadableAndCompactable(@TempDir Path tempDirectory)
+      throws Exception {
+    Path[] avroFiles = {
+      tempDirectory.resolve("source-1.avro"), tempDirectory.resolve("source-2.avro")
+    };
+    String targetName = "openhouse.dbRtas.avro_import_target";
+    try (SparkSession spark = getSparkSession()) {
+      org.apache.avro.Schema avroSchema =
+          SchemaBuilder.record("record")
+              .fields()
+              .requiredLong("id")
+              .requiredString("data")
+              .endRecord();
+      for (int i = 0; i < avroFiles.length; i++) {
+        GenericRecord row = new GenericData.Record(avroSchema);
+        row.put("id", (long) i + 1);
+        row.put("data", String.valueOf((char) ('a' + i)));
+        try (DataFileWriter<GenericRecord> writer =
+            new DataFileWriter<>(new GenericDatumWriter<>(avroSchema))) {
+          writer.create(avroSchema, avroFiles[i].toFile());
+          writer.append(row);
+        }
+      }
+
+      spark.sql(
+          String.format(
+              "CREATE TABLE %s (id BIGINT, data STRING) USING iceberg "
+                  + "TBLPROPERTIES ('write.format.default'='orc')",
+              targetName));
+
+      for (Path avroFile : avroFiles) {
+        spark.sql(
+            String.format(
+                "CALL openhouse.system.add_files(table => 'dbRtas.avro_import_target', "
+                    + "source_table => '`avro`.`%s`')",
+                avroFile.toAbsolutePath()));
+        Table imported =
+            getOpenHouseCatalog(spark)
+                .loadTable(TableIdentifier.of("dbRtas", "avro_import_target"));
+        DataFile importedFile =
+            Iterables.getOnlyElement(imported.currentSnapshot().addedDataFiles(imported.io()));
+        assertEquals(FileFormat.AVRO, importedFile.format());
+        assertEquals(
+            avroFile.toAbsolutePath().normalize(),
+            Paths.get(URI.create(importedFile.path().toString())).normalize());
+      }
+
+      Table target =
+          getOpenHouseCatalog(spark).loadTable(TableIdentifier.of("dbRtas", "avro_import_target"));
+      assertEquals(2, spark.sql(String.format("SELECT * FROM %s", targetName)).count());
+
+      SparkActions.get(spark).rewriteDataFiles(target).option("min-input-files", "2").execute();
+      Table compacted =
+          getOpenHouseCatalog(spark).loadTable(TableIdentifier.of("dbRtas", "avro_import_target"));
+      DataFile compactedFile =
+          Iterables.getOnlyElement(compacted.currentSnapshot().addedDataFiles(compacted.io()));
+      assertEquals(FileFormat.ORC, compactedFile.format());
+      assertEquals(2, spark.sql(String.format("SELECT * FROM %s", targetName)).count());
+
+      spark.sql(String.format("DROP TABLE %s", targetName));
     }
   }
 }
