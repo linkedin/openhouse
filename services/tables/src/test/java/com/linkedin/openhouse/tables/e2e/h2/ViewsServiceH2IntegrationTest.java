@@ -190,7 +190,7 @@ public class ViewsServiceH2IntegrationTest {
               .toBuilder()
               .viewId(viewId)
               .baseMetadataLocation(pointer)
-              .sourceDialect("trino")
+              .viewProperties(ViewModelConstants.viewPropertiesWithSourceDialect("trino"))
               .representations(
                   java.util.Collections.singletonList(
                       ViewRepresentation.builder()
@@ -231,7 +231,7 @@ public class ViewsServiceH2IntegrationTest {
                   .content(
                       changed
                           .toBuilder()
-                          .sourceDialect(ViewModelConstants.SOURCE_DIALECT)
+                          .viewProperties(ViewModelConstants.VIEW_PROPERTIES)
                           .representations(
                               java.util.Collections.singletonList(
                                   ViewRepresentation.builder()
@@ -265,7 +265,7 @@ public class ViewsServiceH2IntegrationTest {
                     ViewModelConstants.createRequestWithoutBaseVersion()
                         .toBuilder()
                         .viewId(viewId)
-                        .sourceDialect(dialect)
+                        .viewProperties(ViewModelConstants.viewPropertiesWithSourceDialect(dialect))
                         .build()
                         .toJson())
                 .accept(MediaType.APPLICATION_JSON)

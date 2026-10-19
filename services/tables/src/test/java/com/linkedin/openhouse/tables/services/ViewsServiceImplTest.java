@@ -47,12 +47,15 @@ import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.exception.ViewApiException;
 import com.linkedin.openhouse.tables.exception.ViewErrorCode;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
+import com.linkedin.openhouse.tables.model.ReservedViewProperties;
 import com.linkedin.openhouse.tables.model.ViewDto;
 import com.linkedin.openhouse.tables.model.ViewListResult;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
@@ -71,6 +74,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
@@ -425,6 +429,106 @@ public class ViewsServiceImplTest {
     verify(houseTableRepository, times(1)).findEntityById(viewKey());
     verify(houseTableRepository, never()).findViewById(any());
     verifyNoInteractions(storageManager);
+  }
+
+  private enum WritePath {
+    POST_CREATE,
+    ABSENT_PUT_CREATE,
+    CHANGED_REPLACE,
+    NO_OP_REPLACE
+  }
+
+  /**
+   * The source dialect arrives as the reserved view property, while the engine takes it as the
+   * intent's own field and refuses every reserved key among user properties. On every write path
+   * the service forwards the property's value (not a representation's), hands the engine the
+   * remaining user properties, and leaves the caller's map untouched.
+   */
+  @ParameterizedTest
+  @EnumSource(WritePath.class)
+  public void writesForwardTheReservedSourceDialectToTheIntentAndOnlyUserPropertiesToTheEngine(
+      WritePath path) {
+    Map<String, String> requested = new LinkedHashMap<>();
+    requested.put("owner", "openhouse");
+    requested.put(ReservedViewProperties.SOURCE_DIALECT, "trino");
+    requested.put("team", "grid");
+    Map<String, String> requestedBefore = new LinkedHashMap<>(requested);
+    Map<String, String> expectedUserProperties = new LinkedHashMap<>();
+    expectedUserProperties.put("owner", "openhouse");
+    expectedUserProperties.put("team", "grid");
+    boolean isCreate = path == WritePath.POST_CREATE;
+    existingEnabledDatabase();
+    CreateUpdateViewRequestBody base;
+    switch (path) {
+      case POST_CREATE:
+        base = ViewModelConstants.createRequestWithoutBaseVersion();
+        captureForWrite(Optional.empty());
+        when(privilegeMapper.forCreate()).thenReturn(Privileges.CREATE_TABLE);
+        selectableStorage();
+        when(viewCommitEngine.commit(any(ViewCommitIntent.class))).thenReturn(createdResult());
+        break;
+      case ABSENT_PUT_CREATE:
+        base = ViewModelConstants.createRequestWithInitialBaseVersion();
+        captureForWrite(Optional.empty());
+        when(privilegeMapper.forPut(false)).thenReturn(Privileges.CREATE_TABLE);
+        selectableStorage();
+        when(viewCommitEngine.commit(any(ViewCommitIntent.class))).thenReturn(createdResult());
+        break;
+      default:
+        base = ViewModelConstants.fullyPopulatedRequest();
+        captureForWrite(Optional.of(capturedViewRow()));
+        when(privilegeMapper.forPut(true)).thenReturn(Privileges.UPDATE_TABLE_METADATA);
+        boolean changed = path == WritePath.CHANGED_REPLACE;
+        when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
+            .thenReturn(replacedResult(changed ? COMMITTED_POINTER : CAPTURED_POINTER, changed));
+        break;
+    }
+    CreateUpdateViewRequestBody request =
+        base.toBuilder()
+            .representations(
+                Arrays.asList(
+                    ViewModelConstants.SPARK_REPRESENTATION,
+                    ViewModelConstants.SPARK_REPRESENTATION.toBuilder().dialect("trino").build()))
+            .viewProperties(requested)
+            .build();
+
+    service.putView(request, ACTING_PRINCIPAL, isCreate);
+
+    ArgumentCaptor<ViewCommitIntent> intent = ArgumentCaptor.forClass(ViewCommitIntent.class);
+    verify(viewCommitEngine, times(1)).commit(intent.capture());
+    assertEquals("trino", intent.getValue().getSourceDialect());
+    assertEquals(expectedUserProperties, intent.getValue().getViewProperties());
+    assertEquals(requestedBefore, requested, "The caller's view properties must not be mutated.");
+  }
+
+  /**
+   * A body without view properties never passes validation, but the service must still extract the
+   * source dialect null-safely rather than fault: no dialect and no user properties reach the
+   * engine.
+   */
+  @Test
+  public void createWithoutViewPropertiesForwardsNoSourceDialectAndNoUserProperties() {
+    existingEnabledDatabase();
+    captureForWrite(Optional.empty());
+    when(privilegeMapper.forCreate()).thenReturn(Privileges.CREATE_TABLE);
+    selectableStorage();
+    when(viewCommitEngine.commit(any(ViewCommitIntent.class))).thenReturn(createdResult());
+
+    service.putView(
+        ViewModelConstants.createRequestWithoutBaseVersion()
+            .toBuilder()
+            .viewProperties(null)
+            .build(),
+        ACTING_PRINCIPAL,
+        true);
+
+    ArgumentCaptor<ViewCommitIntent> intent = ArgumentCaptor.forClass(ViewCommitIntent.class);
+    verify(viewCommitEngine, times(1)).commit(intent.capture());
+    assertNull(intent.getValue().getSourceDialect());
+    assertTrue(
+        intent.getValue().getViewProperties() == null
+            || intent.getValue().getViewProperties().isEmpty(),
+        "viewProperties: " + intent.getValue().getViewProperties());
   }
 
   @Test
@@ -1541,8 +1645,10 @@ public class ViewsServiceImplTest {
   }
 
   /**
-   * The caller's definition is forwarded to the engine unchanged. Expected values are the request
-   * fixture's own constants, and the schema is parsed by Iceberg directly.
+   * The caller's definition is forwarded to the engine. The reserved source-dialect property
+   * becomes the intent's source dialect and the engine receives only the remaining user properties;
+   * everything else is unchanged. Expected values are the request fixture's own constants, and the
+   * schema is parsed by Iceberg directly.
    */
   private static void assertIntentCarriesRequestedDefinition(ViewCommitIntent intent) {
     assertEquals(ViewModelConstants.DATABASE_ID, intent.getDatabaseId());
@@ -1561,7 +1667,9 @@ public class ViewsServiceImplTest {
         "schema: " + intent.getSchema());
     assertEquals(ViewModelConstants.DEFAULT_CATALOG, intent.getDefaultCatalog());
     assertEquals(Namespace.of(ViewModelConstants.DATABASE_ID), intent.getDefaultNamespace());
-    assertEquals(ViewModelConstants.VIEW_PROPERTIES, intent.getViewProperties());
+    Map<String, String> userProperties = new LinkedHashMap<>(ViewModelConstants.VIEW_PROPERTIES);
+    userProperties.remove(ReservedViewProperties.SOURCE_DIALECT);
+    assertEquals(userProperties, intent.getViewProperties());
     assertEquals(ACTING_PRINCIPAL, intent.getCreator());
   }
 

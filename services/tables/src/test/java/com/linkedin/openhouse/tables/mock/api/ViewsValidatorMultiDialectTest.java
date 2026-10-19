@@ -123,6 +123,15 @@ public class ViewsValidatorMultiDialectTest {
                 .build()),
         ViewErrorCode.UNSUPPORTED_VIEW_DIALECT,
         "openhouse.view.sourceDialect : must name a supplied representation");
+    assertRejected(
+        updateOf(
+            ViewModelConstants.fullyPopulatedRequest()
+                .toBuilder()
+                .representations(Arrays.asList(ViewModelConstants.SPARK_REPRESENTATION))
+                .viewProperties(ViewModelConstants.viewPropertiesWithSourceDialect("trino"))
+                .build()),
+        ViewErrorCode.UNSUPPORTED_VIEW_DIALECT,
+        "openhouse.view.sourceDialect : must name a supplied representation");
   }
 
   private CreateUpdateViewRequestBody requestWith(List<ViewRepresentation> representations) {
@@ -136,6 +145,10 @@ public class ViewsValidatorMultiDialectTest {
 
   private Executable createOf(CreateUpdateViewRequestBody requestBody) {
     return () -> viewsApiValidator.validateCreateView(requestBody);
+  }
+
+  private Executable updateOf(CreateUpdateViewRequestBody requestBody) {
+    return () -> viewsApiValidator.validateUpdateView(requestBody);
   }
 
   private void assertRejected(
