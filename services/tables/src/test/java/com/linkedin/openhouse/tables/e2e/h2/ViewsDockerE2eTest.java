@@ -85,6 +85,7 @@ public class ViewsDockerE2eTest {
   private static final String VIEW = "test_view";
   private static final String SEED_TABLE = "database_seed";
   private static final String SQL = "SELECT id, name FROM source_table";
+  private static final String SOURCE_DIALECT = "openhouse.view.sourceDialect";
 
   @Autowired private TestRestTemplate tables;
   @Autowired private ObjectMapper mapper;
@@ -149,6 +150,7 @@ public class ViewsDockerE2eTest {
     assertEquals(1, first.currentVersionId());
     assertEquals(SQL, sql(first));
     assertEquals("spark", first.currentVersion().summary().get("sourceDialect"));
+    assertFalse(first.properties().containsKey(SOURCE_DIALECT));
     assertEquals("create", first.currentVersion().summary().get("operation"));
     assertEquals("openhouse", first.currentVersion().defaultCatalog());
     assertEquals(
@@ -295,7 +297,9 @@ public class ViewsDockerE2eTest {
     JsonNode created = create(VIEW, payload(database, VIEW), 201);
     ViewMetadata first = metadata(created);
     ObjectNode update = payload(database, VIEW).put("baseMetadataLocation", pointer(created));
-    update.set("viewProperties", mapper.createObjectNode().put("new_property", "new_value"));
+    update.set(
+        "viewProperties",
+        mapper.createObjectNode().put(SOURCE_DIALECT, "spark").put("new_property", "new_value"));
     update.put(
         "schema",
         "{\"type\":\"struct\",\"fields\":["
@@ -334,6 +338,24 @@ public class ViewsDockerE2eTest {
     assertFalse(error.hasNonNull("stacktrace"));
     assertFalse(error.toString().contains(SQL));
     assertEquals(before, assertViewPersisted(database, VIEW, created));
+    assertEquals(files, metadataFileCount());
+  }
+
+  @Test
+  void replacingSourceDialectPropertyIsRejectedWithoutChangingPersistence() throws Exception {
+    JsonNode created = create(VIEW, payload(database, VIEW), 201);
+    Map<String, Object> before = assertViewPersisted(database, VIEW, created);
+    long files = metadataFileCount();
+    ObjectNode update = payload(database, VIEW).put("baseMetadataLocation", pointer(created));
+    update.with("viewProperties").put(SOURCE_DIALECT, "trino");
+    update
+        .withArray("representations")
+        .add(mapper.createObjectNode().put("type", "sql").put("dialect", "trino").put("sql", SQL));
+    request(HttpMethod.PUT, viewPath(database, VIEW), update, 400);
+    assertEquals(before, assertViewPersisted(database, VIEW, created));
+    assertEquals(
+        pointer(created), pointer(request(HttpMethod.GET, viewPath(database, VIEW), null, 200)));
+    assertEquals("spark", metadata(created).currentVersion().summary().get("sourceDialect"));
     assertEquals(files, metadataFileCount());
   }
 
@@ -473,7 +495,13 @@ public class ViewsDockerE2eTest {
       strings = {
         "schema",
         "representations",
-        "sourceDialect",
+        "missingSourceDialect",
+        "nullSourceDialect",
+        "blankSourceDialect",
+        "unsupportedSourceDialect",
+        "unrepresentedSourceDialect",
+        "legacySourceDialect",
+        "viewProperties",
         "viewId",
         "databaseId",
         "reservedProperty",
@@ -490,6 +518,25 @@ public class ViewsDockerE2eTest {
     views.add(VIEW);
     ObjectNode body = payload(database, VIEW);
     switch (invalid) {
+      case "legacySourceDialect":
+        body.put("sourceDialect", "spark");
+        body.with("viewProperties").remove(SOURCE_DIALECT);
+        break;
+      case "missingSourceDialect":
+        body.with("viewProperties").remove(SOURCE_DIALECT);
+        break;
+      case "nullSourceDialect":
+        body.with("viewProperties").putNull(SOURCE_DIALECT);
+        break;
+      case "blankSourceDialect":
+        body.with("viewProperties").put(SOURCE_DIALECT, " ");
+        break;
+      case "unsupportedSourceDialect":
+        body.with("viewProperties").put(SOURCE_DIALECT, "unsupported");
+        break;
+      case "unrepresentedSourceDialect":
+        body.with("viewProperties").put(SOURCE_DIALECT, "trino");
+        break;
       case "reservedProperty":
         body.with("viewProperties").put("openhouse.tableUUID", "caller-owned");
         break;
@@ -903,15 +950,18 @@ public class ViewsDockerE2eTest {
   }
 
   @Test
-  void omittedOptionalDefinitionFieldsUseEmptyMetadataDefaults() throws Exception {
+  void omittedResolutionAndUserPropertiesUseEmptyMetadataDefaults() throws Exception {
     ObjectNode body = payload(database, VIEW);
-    body.remove(Arrays.asList("defaultCatalog", "defaultNamespace", "viewProperties"));
+    body.remove(Arrays.asList("defaultCatalog", "defaultNamespace"));
+    body.with("viewProperties").remove("description");
     JsonNode created = create(VIEW, body, 201);
     assertViewPersisted(database, VIEW, created);
     ViewMetadata metadata = metadata(created);
     assertEquals(null, metadata.currentVersion().defaultCatalog());
     assertTrue(metadata.currentVersion().defaultNamespace().isEmpty());
     assertFalse(metadata.properties().containsKey("description"));
+    assertFalse(metadata.properties().containsKey(SOURCE_DIALECT));
+    assertEquals("spark", metadata.currentVersion().summary().get("sourceDialect"));
     Map<String, Object> before = assertViewPersisted(database, VIEW, created);
     body.put("baseMetadataLocation", pointer(created));
     JsonNode unchanged = request(HttpMethod.PUT, viewPath(database, VIEW), body, 200);
@@ -923,8 +973,11 @@ public class ViewsDockerE2eTest {
         (ObjectNode) mapper.readTree(ViewModelConstants.createRequestWithoutBaseVersion().toJson());
     body.put("databaseId", db);
     body.put("viewId", view);
+    body.remove("sourceDialect");
     body.putArray("defaultNamespace").add(db);
-    body.set("viewProperties", mapper.createObjectNode().put("description", "initial"));
+    body.set(
+        "viewProperties",
+        mapper.createObjectNode().put(SOURCE_DIALECT, "spark").put("description", "initial"));
     ((ObjectNode) body.withArray("representations").get(0)).put("sql", SQL);
     return body;
   }
