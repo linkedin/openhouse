@@ -28,10 +28,12 @@ import com.linkedin.openhouse.tables.exception.ViewApiException;
 import com.linkedin.openhouse.tables.exception.ViewErrorCode;
 import com.linkedin.openhouse.tables.exception.ViewFailureTranslator;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
+import com.linkedin.openhouse.tables.model.ReservedViewProperties;
 import com.linkedin.openhouse.tables.model.ViewDto;
 import com.linkedin.openhouse.tables.model.ViewListResult;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -238,6 +240,22 @@ public class ViewsServiceImpl implements ViewsService {
       PreparedViewOperation prepared,
       String actingPrincipal,
       boolean isCreate) {
+    Map<String, String> requestProperties = requestBody.getViewProperties();
+    String sourceDialect =
+        requestProperties == null
+            ? null
+            : requestProperties.get(ReservedViewProperties.SOURCE_DIALECT);
+    // The engine rejects every openhouse.* key in user properties, so the transport-only source
+    // dialect key is stripped from a copy; the request's own map is never mutated.
+    Map<String, String> userProperties = new LinkedHashMap<>();
+    if (requestProperties != null) {
+      requestProperties.forEach(
+          (key, value) -> {
+            if (!ReservedViewProperties.SOURCE_DIALECT.equals(key)) {
+              userProperties.put(key, value);
+            }
+          });
+    }
     String viewUuid = null;
     String viewLocation = null;
     String storageType = null;
@@ -254,9 +272,7 @@ public class ViewsServiceImpl implements ViewsService {
               requestBody.getViewId(),
               viewUuid,
               actingPrincipal,
-              requestBody.getViewProperties() == null
-                  ? Collections.emptyMap()
-                  : requestBody.getViewProperties());
+              userProperties);
     }
     Schema schema = IcebergSchemaHelper.getSchemaFromSchemaJson(requestBody.getSchema());
     return viewCommitEngine.commit(
@@ -265,10 +281,10 @@ public class ViewsServiceImpl implements ViewsService {
             .viewId(requestBody.getViewId())
             .schema(schema)
             .representations(toEngineRepresentations(requestBody.getRepresentations()))
-            .sourceDialect(requestBody.getSourceDialect())
+            .sourceDialect(sourceDialect)
             .defaultCatalog(requestBody.getDefaultCatalog())
             .defaultNamespace(toNamespace(requestBody.getDefaultNamespace()))
-            .viewProperties(requestBody.getViewProperties())
+            .viewProperties(userProperties)
             .creator(actingPrincipal)
             .isCreate(isCreate)
             .baseRow(prepared.getViewBaseRow().orElse(null))
