@@ -22,6 +22,7 @@ SCHEMA = json.dumps({
     'fields': [{'id': 1, 'name': 'id', 'required': True, 'type': 'string'}],
 })
 INITIAL = 'INITIAL_VERSION'
+SOURCE_DIALECT = 'openhouse.view.sourceDialect'
 
 
 class ViewsDockerE2eTest(unittest.TestCase):
@@ -122,8 +123,8 @@ class ViewsDockerE2eTest(unittest.TestCase):
             'databaseId': database, 'viewId': view, 'schema': SCHEMA,
             'representations': [{'type': 'sql', 'dialect': 'spark',
                                  'sql': 'SELECT id FROM source_table'}],
-            'sourceDialect': 'spark', 'defaultCatalog': 'openhouse',
-            'defaultNamespace': [database], 'viewProperties': {'description': 'initial'},
+            'defaultCatalog': 'openhouse', 'defaultNamespace': [database],
+            'viewProperties': {'description': 'initial', SOURCE_DIALECT: 'spark'},
         }
 
     def seed_database(self, database):
@@ -181,6 +182,10 @@ class ViewsDockerE2eTest(unittest.TestCase):
         metadata = self.metadata(response)
         self.assertIn(metadata['view-uuid'], row['pointer'])
         self.assertEqual(metadata['view-uuid'], metadata['properties']['openhouse.tableUUID'])
+        version = next(version for version in metadata['versions']
+                       if version['version-id'] == metadata['current-version-id'])
+        self.assertEqual('spark', version['summary']['sourceDialect'])
+        self.assertNotIn(SOURCE_DIALECT, metadata['properties'])
         return row
 
     def test_lifecycle_noop_stale_write_and_metadata_response(self):
@@ -323,6 +328,37 @@ class ViewsDockerE2eTest(unittest.TestCase):
         self.http('POST', self.collection(), 400, invalid)
         self.http('POST', self.collection(), 401, body, headers={})
         self.assertIsNone(self.row())
+        self.assertEqual(files, self.file_count())
+
+    def test_source_dialect_property_validation_and_immutability(self):
+        files = self.file_count()
+        for invalid in ('missing', 'null', 'blank', 'unsupported', 'unrepresented', 'legacy'):
+            with self.subTest(invalid=invalid):
+                body = self.body()
+                if invalid in ('missing', 'legacy'):
+                    del body['viewProperties'][SOURCE_DIALECT]
+                    if invalid == 'legacy':
+                        body['sourceDialect'] = 'spark'
+                else:
+                    body['viewProperties'][SOURCE_DIALECT] = {
+                        'null': None, 'blank': ' ', 'unsupported': 'other',
+                        'unrepresented': 'trino',
+                    }[invalid]
+                self.http('POST', self.collection(), 400, body)
+                self.assertIsNone(self.row())
+                self.assertEqual(files, self.file_count())
+
+        created = self.http('POST', self.collection(), 201, self.body())
+        before = self.persisted(created)
+        files = self.file_count()
+        body = self.body()
+        body['baseMetadataLocation'] = created['metadataLocation']
+        body['viewProperties'][SOURCE_DIALECT] = 'trino'
+        body['representations'].append({
+            'type': 'sql', 'dialect': 'trino', 'sql': 'SELECT id FROM source_table',
+        })
+        self.http('PUT', self.item(), 400, body)
+        self.assertEqual(before, self.persisted(self.http('GET', self.item(), 200)))
         self.assertEqual(files, self.file_count())
 
     def test_concurrent_replaces_publish_one_winner(self):
