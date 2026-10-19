@@ -48,8 +48,118 @@ Recipes for setting up OpenHouse in local docker are available [here](infra/reci
 | Config | Recipe | Notes |
 |--------|--------|-------|
 | Run OpenHouse Services Only | `oh-only` | Stores data on local filesystem within the application container, with in-memory database. Least resource consuming. |
+| Run Two OpenHouse Clusters | `oh-multicluster` | Two isolated HDFS/MySQL clusters with a shared Spark/Livy stack for replication testing. |
 | Run OpenHouse Services on HDFS | `oh-hadoop` | Stores data on locally running Hadoop HDFS containers, with iceberg-backed database. |
 | Run OpenHouse Services on HDFS with Spark | `oh-hadoop-spark` | Stores data on locally running Hadoop HDFS containers, with MySQL database. Spark available for end to end testing. Most resource consuming. Starts Livy server. |
+
+### Two Clusters for Local Replication Testing
+
+Start both clusters with:
+
+```bash
+./gradlew dockerUp -Precipe=oh-multicluster
+```
+
+The recipe exposes both clusters and their Spark job APIs independently:
+
+| Cluster ID | Tables API (Compose network) | Housetables (Compose network) |
+|------------|-------------------------------|----------------------------|
+| `LocalHadoopClusterA` | `http://tables-a:8080` | `http://housetables-a:8080` |
+| `LocalHadoopClusterB` | `http://tables-b:8080` | `http://housetables-b:8080` |
+
+Jobs APIs are available inside the Compose network at `http://jobs-a:8080` (A)
+and `http://jobs-b:8080` (B). Each cluster has its own HDFS NameNode/DataNode and
+named storage volumes, MySQL-backed catalog, OpenHouse services, and Spark
+catalog configuration. Every host-published port in this recipe is dynamically
+assigned. From the recipe directory, use
+`docker compose port <service> <container-port>` to discover a host endpoint;
+the complete service/port list is below. Both jobs configs define
+`openhouse_a` and `openhouse_b` Spark catalog
+aliases for accessing either cluster from Spark. Cluster services are also
+addressable by their Compose names (`tables-a`, `housetables-a`, `jobs-a`,
+`namenode-a`, and the corresponding `-b` names) from the Compose network.
+Internal endpoints remain stable, including `spark://spark-master:7077`,
+`spark-livy:8998`, `mysql-a:3306`, `mysql-b:3306`, `opa:8181`,
+`prometheus:9090`, and Jaeger's OTLP endpoint `jaeger:4318`.
+
+To seed both clusters with Spark, open a Spark shell from the recipe directory:
+
+```bash
+docker compose exec spark-master bash -lc '
+bin/spark-shell --master spark://spark-master:7077 \
+  --packages org.apache.iceberg:iceberg-spark-runtime-3.1_2.12:1.2.0 \
+  --jars openhouse-spark-runtime_2.12-latest-all.jar \
+  --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,com.linkedin.openhouse.spark.extensions.OpenhouseSparkSessionExtensions \
+  --conf spark.sql.catalog.openhouse_a=org.apache.iceberg.spark.SparkCatalog \
+  --conf spark.sql.catalog.openhouse_a.catalog-impl=com.linkedin.openhouse.spark.OpenHouseCatalog \
+  --conf spark.sql.catalog.openhouse_a.uri=http://tables-a:8080 \
+  --conf spark.sql.catalog.openhouse_a.cluster=LocalHadoopClusterA \
+  --conf spark.sql.catalog.openhouse_a.auth-token="$(cat /var/config/$(whoami).token)" \
+  --conf spark.sql.catalog.openhouse_b=org.apache.iceberg.spark.SparkCatalog \
+  --conf spark.sql.catalog.openhouse_b.catalog-impl=com.linkedin.openhouse.spark.OpenHouseCatalog \
+  --conf spark.sql.catalog.openhouse_b.uri=http://tables-b:8080 \
+  --conf spark.sql.catalog.openhouse_b.cluster=LocalHadoopClusterB \
+  --conf spark.sql.catalog.openhouse_b.auth-token="$(cat /var/config/$(whoami).token)"
+'
+```
+
+From the Spark prompt, create test data in either catalog, for example:
+
+```scala
+spark.sql("CREATE NAMESPACE IF NOT EXISTS openhouse_a.db")
+spark.sql("CREATE TABLE openhouse_a.db.replication_seed (id BIGINT, value STRING)")
+spark.sql("INSERT INTO openhouse_a.db.replication_seed VALUES (1, 'source')")
+spark.sql("CREATE NAMESPACE IF NOT EXISTS openhouse_b.db")
+spark.sql("CREATE TABLE openhouse_b.db.replication_seed (id BIGINT, value STRING)")
+spark.sql("INSERT INTO openhouse_b.db.replication_seed VALUES (2, 'destination')")
+```
+
+The recipe also lets you verify replicated-table `RENAME` and `DROP` forwarding.
+Create matching tables on both clusters first (the spike forwards DDL; it does
+not copy table data), then run:
+
+```scala
+spark.sql("CREATE TABLE openhouse_a.db.replication_ddl (id BIGINT)")
+spark.sql("CREATE TABLE openhouse_b.db.replication_ddl (id BIGINT)")
+spark.sql("ALTER TABLE openhouse_a.db.replication_ddl SET POLICY (REPLICATION = ({destination:'LocalHadoopClusterB'}))")
+spark.sql("ALTER TABLE openhouse_a.db.replication_ddl RENAME TO openhouse_a.db.replication_ddl_renamed")
+spark.sql("SHOW TABLES IN openhouse_a.db").show()
+spark.sql("SHOW TABLES IN openhouse_b.db").show()
+spark.sql("DROP TABLE openhouse_a.db.replication_ddl_renamed")
+spark.sql("SHOW TABLES IN openhouse_a.db").show()
+spark.sql("SHOW TABLES IN openhouse_b.db").show()
+```
+
+After the rename, both clusters should list `replication_ddl_renamed`; after
+the drop, neither should list it. The forwarding applies only when the source
+table has an OpenHouse replication destination configured and does not apply
+to replica tables. Forwarding is enabled by default; to run DDL only on the
+source cluster for the current Spark session, run:
+
+```scala
+spark.conf.set("spark.openhouse.replication.ddl.cascade", "false")
+```
+
+The source DDL runs before destination DDL, so forwarding is not transactional;
+a failure on one destination can leave clusters with different table names or
+existence state.
+
+For manual or automated replication tests, use cluster A as the source
+(`LocalHadoopClusterA`, `http://localhost:8000`) and cluster B as the destination
+(`LocalHadoopClusterB`, `http://localhost:8010`), or reverse them. The Spark
+catalog aliases let test code read/write both clusters from the shared Spark
+stack. The `SQL_TEST` job available through each Jobs API exercises Spark against
+that job service's default cluster. Stop the recipe with:
+
+```bash
+./gradlew dockerDown -Precipe=oh-multicluster
+```
+
+`docker compose down` leaves the cluster-specific named HDFS and MySQL volumes
+in place; remove them with `docker compose down -v` from the recipe directory
+when you want a clean test environment. This recipe provides the two-cluster
+infrastructure only; it does not include or run a replication worker, so a
+replication E2E test still needs to provide one.
 
 ## Manual Docker Compose (Advanced)
 
@@ -105,6 +215,8 @@ docker compose down
 ## Container Exposed Ports
 
 Following ports can be useful while interacting from host machine with applications running in docker-compose environment.
+These common fixed host ports apply to other recipes; `oh-multicluster` uses
+dynamically assigned host ports for every service instead, as listed below.
 
 container|Exposed ports
 ---|---
@@ -121,6 +233,29 @@ minio-s3-server|9870
 mysql|3306
 spark-livy|8998
 opa|8181
+
+In the `oh-multicluster` recipe, every host-published port is dynamically assigned to avoid collisions. These are the container ports to query from the recipe directory:
+
+| Service | Container ports |
+|---------|-----------------|
+| `tables-a`, `housetables-a`, `jobs-a` | `8080` |
+| `tables-b`, `housetables-b`, `jobs-b` | `8080` |
+| `namenode-a`, `namenode-b` | `9870`, `9000` |
+| `datanode-a`, `datanode-b` | `9864`, `9866` |
+| `mysql-a`, `mysql-b` | `3306` |
+| `spark-master` | `8080`, `7077` |
+| `spark-worker-a` | `8080`, `7000` |
+| `spark-livy` | `8998` |
+| `prometheus` | `9090` |
+| `jaeger` | `16686`, `4317`, `4318` |
+| `opa` | `8181` |
+
+For example, `docker compose port tables-a 8080` and
+`docker compose port jaeger 16686` print the host address and dynamically
+assigned port. Use the same command with any service and container port listed
+above. Container-to-container traffic should continue using the stable internal
+addresses, such as `tables-a:8080`, `spark-livy:8998`, `mysql-a:3306`, and
+`jaeger:4318`.
 
 ## Test Services
 
