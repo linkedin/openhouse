@@ -331,6 +331,23 @@ scala> spark.sql("CREATE TABLE openhouse.db.tb (ts timestamp, col1 string, col2 
 ++
 ```
 
+#### Import existing data files without copying them
+
+ORC is the default write format, not a format restriction: the cluster setting
+`cluster.iceberg.write.format.default` can be changed, and an individual table can override it
+with Iceberg's `write.format.default` property. Iceberg's `add_files` procedure can also register
+existing Parquet directories or standalone Avro files without copying them:
+
+```
+scala> spark.sql("CREATE TABLE openhouse.db.imported (id BIGINT, data STRING) USING iceberg")
+scala> spark.sql("CALL openhouse.system.add_files(table => 'db.imported', source_table => '`parquet`.`file:///data/import/`')")
+scala> spark.sql("CALL openhouse.system.add_files(table => 'db.imported', source_table => '`avro`.`file:///data/import/source.avro`')")
+```
+
+The target schema must match the source files; `add_files` does not validate it. Imported files
+are treated as Iceberg-owned, so snapshot expiration can physically delete the original files.
+Spark can read imported Avro files and compact them into the table's configured default format.
+
 #### Describe / Insert into / Select from Table
 
 ```
