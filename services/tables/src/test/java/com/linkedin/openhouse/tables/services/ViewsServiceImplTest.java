@@ -442,7 +442,8 @@ public class ViewsServiceImplTest {
    * The source dialect arrives as the reserved view property, while the engine takes it as the
    * intent's own field and refuses every reserved key among user properties. On every write path
    * the service forwards the property's value (not a representation's), hands the engine the
-   * remaining user properties, and leaves the caller's map untouched.
+   * remaining user properties, and leaves the caller's map untouched. Only the exact reserved key
+   * is consumed: a case variant is an ordinary user property and must reach the engine.
    */
   @ParameterizedTest
   @EnumSource(WritePath.class)
@@ -452,10 +453,12 @@ public class ViewsServiceImplTest {
     requested.put("owner", "openhouse");
     requested.put(ReservedViewProperties.SOURCE_DIALECT, "trino");
     requested.put("team", "grid");
+    requested.put("OpenHouse.view.sourceDialect", "preserve-user-value");
     Map<String, String> requestedBefore = new LinkedHashMap<>(requested);
     Map<String, String> expectedUserProperties = new LinkedHashMap<>();
     expectedUserProperties.put("owner", "openhouse");
     expectedUserProperties.put("team", "grid");
+    expectedUserProperties.put("OpenHouse.view.sourceDialect", "preserve-user-value");
     boolean isCreate = path == WritePath.POST_CREATE;
     existingEnabledDatabase();
     CreateUpdateViewRequestBody base;
