@@ -33,7 +33,6 @@ public interface ViewsMapper {
     @Mapping(source = "databaseId", target = "databaseId"),
     @Mapping(source = "schema", target = "schema"),
     @Mapping(source = "representations", target = "representations"),
-    @Mapping(source = "sourceDialect", target = "sourceDialect"),
     @Mapping(source = "defaultCatalog", target = "defaultCatalog"),
     @Mapping(source = "defaultNamespace", target = "defaultNamespace"),
     @Mapping(source = "viewProperties", target = "viewProperties"),
