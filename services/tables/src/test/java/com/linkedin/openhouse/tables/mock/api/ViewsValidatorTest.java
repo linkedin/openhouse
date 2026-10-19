@@ -654,22 +654,26 @@ public class ViewsValidatorTest {
   /**
    * The reserved {@code openhouse.view.sourceDialect} is required: it pins which representation is
    * authoritative. Its absence is reported as a generic definition failure, not a dialect failure,
-   * because no dialect value was supplied to judge. A {@code null} properties map and a map that
-   * merely omits the key are the same absence.
+   * because no dialect value was supplied to judge. A {@code null} properties map, a map that
+   * merely omits the key and a blank value are the same absence. A replace must supply it too: an
+   * omitted value is never inherited from the current view.
    */
   @Test
   public void validateRejectsAMissingSourceDialectProperty() {
     Map<String, String> withoutDialect = new LinkedHashMap<>();
     withoutDialect.put("owner", "openhouse");
-    assertRejected(
-        createOf(validCreateRequest().toBuilder().viewProperties(withoutDialect).build()),
-        ViewErrorCode.INVALID_VIEW_DEFINITION,
-        ReservedViewProperties.SOURCE_DIALECT + " : cannot be empty");
-
-    assertRejected(
-        createOf(validCreateRequest().toBuilder().viewProperties(null).build()),
-        ViewErrorCode.INVALID_VIEW_DEFINITION,
-        ReservedViewProperties.SOURCE_DIALECT + " : cannot be empty");
+    Map<String, String> blankDialect = new LinkedHashMap<>(withoutDialect);
+    blankDialect.put(ReservedViewProperties.SOURCE_DIALECT, "   ");
+    for (Map<String, String> properties : Arrays.asList(withoutDialect, null, blankDialect)) {
+      assertRejected(
+          createOf(validCreateRequest().toBuilder().viewProperties(properties).build()),
+          ViewErrorCode.INVALID_VIEW_DEFINITION,
+          ReservedViewProperties.SOURCE_DIALECT + " : cannot be empty");
+      assertRejected(
+          updateOf(validUpdateRequest().toBuilder().viewProperties(properties).build()),
+          ViewErrorCode.INVALID_VIEW_DEFINITION,
+          ReservedViewProperties.SOURCE_DIALECT + " : cannot be empty");
+    }
   }
 
   /**
@@ -682,6 +686,14 @@ public class ViewsValidatorTest {
     assertRejected(
         createOf(
             validCreateRequest()
+                .toBuilder()
+                .viewProperties(ViewModelConstants.viewPropertiesWithSourceDialect("presto"))
+                .build()),
+        ViewErrorCode.UNSUPPORTED_VIEW_DIALECT,
+        ReservedViewProperties.SOURCE_DIALECT + " : must be one of the supported dialects: spark");
+    assertRejected(
+        updateOf(
+            validUpdateRequest()
                 .toBuilder()
                 .viewProperties(ViewModelConstants.viewPropertiesWithSourceDialect("presto"))
                 .build()),
@@ -734,6 +746,7 @@ public class ViewsValidatorTest {
     userOwned.put("Replace.Drop-Dialect.Allowed", "false");
     userOwned.put("replace.drop-dialect.allowed.note", "user");
     userOwned.put("replace.drop-dialect.allowed ", "user");
+    userOwned.put(ReservedViewProperties.SOURCE_DIALECT, ViewModelConstants.SOURCE_DIALECT);
     assertDoesNotThrow(
         createOf(validCreateRequest().toBuilder().viewProperties(userOwned).build()),
         "Only the exact server-owned key is reserved.");
