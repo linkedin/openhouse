@@ -153,8 +153,6 @@ public class ViewsServiceImpl implements ViewsService {
       CreateUpdateViewRequestBody requestBody, String actingPrincipal, boolean failOnExist) {
     String databaseId = requestBody.getDatabaseId();
     String viewId = requestBody.getViewId();
-    ViewCommitResult result;
-    ViewDto dto;
     try {
       requireEnabled(databaseId);
       requireDatabasesExist(databaseId, requestBody.getDefaultNamespace());
@@ -190,12 +188,13 @@ public class ViewsServiceImpl implements ViewsService {
             databaseId, viewId, requestBody.getBaseMetadataLocation(), prepared, viewAlreadyExists);
       }
 
-      result = commitView(requestBody, prepared, actingPrincipal, !viewAlreadyExists);
-      dto = toCommittedDto(databaseId, viewId, result);
+      ViewCommitResult result =
+          commitView(requestBody, prepared, actingPrincipal, !viewAlreadyExists);
+      ViewDto dto = toCommittedDto(databaseId, viewId, result);
+      return Pair.of(withClusterId(dto), result.isCreated());
     } catch (RuntimeException e) {
       throw ViewFailureTranslator.forWrite(e);
     }
-    return Pair.of(withClusterId(dto), result.isCreated());
   }
 
   @Override
