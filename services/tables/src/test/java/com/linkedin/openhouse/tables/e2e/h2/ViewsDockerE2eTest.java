@@ -569,6 +569,42 @@ public class ViewsDockerE2eTest {
   }
 
   @Test
+  void enablingOneDatabaseDoesNotEnableViewsInAnotherDatabase() throws Exception {
+    String disabledDatabase = database + "_disabled";
+    seedDatabase(disabledDatabase);
+    JsonNode enabledView = create(VIEW, payload(database, VIEW), 201);
+    Map<String, Object> enabledBefore = assertViewPersisted(database, VIEW, enabledView);
+    long filesBefore = metadataFileCount();
+
+    ObjectNode disabledBody = payload(disabledDatabase, VIEW);
+    request(HttpMethod.POST, collection(disabledDatabase), disabledBody, 404);
+    request(
+        HttpMethod.PUT,
+        viewPath(disabledDatabase, VIEW),
+        disabledBody.deepCopy().put("baseMetadataLocation", INITIAL_TABLE_VERSION),
+        404);
+    request(HttpMethod.GET, collection(disabledDatabase), null, 404);
+    request(HttpMethod.GET, viewPath(disabledDatabase, VIEW), null, 404);
+    request(HttpMethod.DELETE, viewPath(disabledDatabase, VIEW), null, 404);
+    assertAbsent(disabledDatabase, VIEW);
+    assertEquals(filesBefore, metadataFileCount());
+    assertEquals(
+        enabledBefore,
+        assertViewPersisted(
+            database, VIEW, request(HttpMethod.GET, viewPath(database, VIEW), null, 200)));
+    JsonNode enabledList = request(HttpMethod.GET, collection(database), null, 200);
+    assertEquals(1, enabledList.path("results").size());
+    assertEquals(VIEW, enabledList.path("results").get(0).path("viewId").asText());
+
+    enableViews(disabledDatabase);
+    JsonNode newlyEnabled =
+        request(HttpMethod.POST, collection(disabledDatabase), disabledBody, 201);
+    assertViewPersisted(disabledDatabase, VIEW, newlyEnabled);
+    assertNotEquals(pointer(enabledView), pointer(newlyEnabled));
+    assertEquals(enabledBefore, assertViewPersisted(database, VIEW, enabledView));
+  }
+
+  @Test
   void databaseScopedFeatureGateUsesRealMysqlRulesAndCannotBeEnabledByViewProperties()
       throws Exception {
     TableToggleStatus rule = toggles.remove(0);

@@ -48,8 +48,9 @@ Please refer to our [Pull Request Template](.github/pull_request_template.md) fo
 ### Views end-to-end tests
 
 See [Views Docker end-to-end tests](docs/development/views-docker-e2e.md) for the
-real Tables REST -> Docker HTS -> Docker MySQL suite, its run command, coverage,
-and distinction from supporting H2 tests.
+fully containerized Tables Service -> HTS -> MySQL Python HTTP suite and the
+broader Java HTTP suite, including run commands, coverage, and storage/auth
+boundaries.
 
 ### Types of Contributions
 
