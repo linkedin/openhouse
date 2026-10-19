@@ -112,6 +112,12 @@ public class ViewsManagedRequestAuditTest {
   private static final String[] PARSER_DETAILS = {
     "com.google.gson", "MalformedJsonException", "JsonSyntaxException", "End of input"
   };
+  private static final String PARSE_FAILURE_DIAGNOSTIC =
+      "Exception during parsing request payload (details omitted)";
+  private static final String SUCCESS_DELIVERY_FAILURE_DIAGNOSTIC =
+      "Exception during auditing successful requests (details omitted)";
+  private static final String ERROR_DELIVERY_FAILURE_DIAGNOSTIC =
+      "Exception during auditing failed requests (details omitted)";
   private static final String SESSION_ID_HEADER = "session-id";
   private static final String SIZE_BINDING_MESSAGE = "size : must be an integer";
   private static final String[] BINDING_PARSER_DETAILS = {
@@ -187,6 +193,9 @@ public class ViewsManagedRequestAuditTest {
       for (String parserDetail : PARSER_DETAILS) {
         assertFalse(logs.renderedEvents().contains(parserDetail), logs.renderedEvents());
       }
+      assertTrue(
+          logs.renderedEvents().contains(PARSE_FAILURE_DIAGNOSTIC),
+          "The parse failure is still reported, as a fixed safe message: " + logs.renderedEvents());
     }
     ServiceAuditEvent event = captureServiceAudit();
     assertNull(event.getRequestPayload(), "An unparseable body is dropped, never audited raw.");
@@ -824,8 +833,9 @@ public class ViewsManagedRequestAuditTest {
   /**
    * The request-audit sink receives the full event once and throws an exception whose message,
    * cause and suppressed exception echo that event's JSON. The HTTP outcome and correlation stay as
-   * they were, the existing failed-audit metric is counted, and no diagnostic carries the
-   * definition, a token, the sink's message, or the raw throwable.
+   * they were, the existing failed-audit metric is counted, the failure is reported with the fixed
+   * safe message of its delivery phase (the success advice for a 2xx, the error advice otherwise),
+   * and no diagnostic carries the definition, a token, the sink's message, or the raw throwable.
    */
   private void assertRequestAuditSinkFailureKeepsOutcome(int expectedStatus) throws Exception {
     String sessionId = "view-session-request-sink-failure";
@@ -868,6 +878,13 @@ public class ViewsManagedRequestAuditTest {
         assertFalse(wire.contains(forbidden), wire);
         assertFalse(renderedLogs.contains(forbidden), renderedLogs);
       }
+      String phaseDiagnostic =
+          expectedStatus < 300
+              ? SUCCESS_DELIVERY_FAILURE_DIAGNOSTIC
+              : ERROR_DELIVERY_FAILURE_DIAGNOSTIC;
+      assertTrue(
+          renderedLogs.contains(phaseDiagnostic),
+          "The delivery failure is still reported, as a fixed safe message: " + renderedLogs);
     }
 
     verify(serviceAuditHandler, times(1)).audit(any(ServiceAuditEvent.class));
