@@ -1,0 +1,48 @@
+services:
+  mysql:
+    image: mysql:8.4.11
+    environment:
+      MYSQL_DATABASE: oh_db
+      MYSQL_USER: oh_user
+      MYSQL_PASSWORD: oh_password
+      MYSQL_ROOT_PASSWORD: oh_root_password
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ../../../../services/housetables/ddl/0000__baseline.sql:/docker-entrypoint-initdb.d/0000.sql:ro
+      - ../../../../services/housetables/ddl/0001__add_entity_type_to_user_table_row.sql:/docker-entrypoint-initdb.d/0001.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_PASSWORD mysql -u$$MYSQL_USER oh_db -e 'SELECT entity_type FROM user_table_row LIMIT 0'"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+
+  openhouse-housetables:
+    image: eclipse-temurin:17-jre
+    command: ["java", "-Xmx384m", "-jar", "/app/housetables.jar", "--spring.sql.init.mode=never"]
+    environment:
+      HTS_DB_USER: oh_user
+      HTS_DB_PASSWORD: oh_password
+    volumes:
+      - ../../../../build/housetables/libs/housetables.jar:/app/housetables.jar:ro
+      - ./cluster.yaml:/var/config/cluster.yaml:ro
+    ports:
+      - "127.0.0.1::8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  openhouse-tables:
+    image: eclipse-temurin:17-jre
+    command: ["java", "-Xmx768m", "-jar", "/app/tables.jar"]
+    volumes:
+      - ../../../../build/tables/libs/tables.jar:/app/tables.jar:ro
+      - ./cluster.yaml:/var/config/cluster.yaml:ro
+      - view-metadata:/data/openhouse
+    ports:
+      - "127.0.0.1::8080"
+    depends_on:
+      - openhouse-housetables
+
+volumes:
+  mysql-data:
+  view-metadata:

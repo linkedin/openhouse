@@ -1,0 +1,26 @@
+cluster:
+  name: LocalFSCluster
+  storage:
+    root-path: /data/openhouse
+  storages:
+    default-type: local
+    types:
+      local:
+        rootpath: /data/openhouse
+        endpoint: file:///
+  housetables:
+    base-uri: http://openhouse-housetables:8080
+    database:
+      type: MYSQL
+      url: jdbc:mysql://mysql:3306/oh_db?allowPublicKeyRetrieval=true&useSSL=false
+  tables:
+    allowed-client-name-values: trino,spark
+    views:
+      supported-dialects: spark,trino
+  security:
+    token:
+      interceptor:
+        classname: com.linkedin.openhouse.common.security.DummyTokenInterceptor
+    tables:
+      authorization:
+        enabled: false
