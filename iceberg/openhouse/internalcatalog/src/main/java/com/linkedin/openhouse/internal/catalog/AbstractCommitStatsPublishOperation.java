@@ -48,7 +48,7 @@ public abstract class AbstractCommitStatsPublishOperation implements PostCommitO
       return;
     }
     Optional<CommitStats> stats =
-        CommitStatsFactory.extract(committedMetadata, context.getHouseTable());
+        CommitStatsFactory.extract(context.getTableIdentifier(), committedMetadata);
     if (stats.isPresent()) {
       publish(stats.get());
     }

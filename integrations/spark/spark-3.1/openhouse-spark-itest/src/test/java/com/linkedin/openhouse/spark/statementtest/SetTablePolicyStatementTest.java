@@ -5,7 +5,10 @@ import java.nio.file.Files;
 import java.util.Optional;
 import lombok.SneakyThrows;
 import org.apache.hadoop.fs.Path;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.execution.ExplainMode;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -37,36 +40,38 @@ public class SetTablePolicyStatementTest {
 
   @Test
   public void testSimpleSetPolicyWithPattern() {
-    String statement =
-        "ALTER TABLE openhouse.db.table SET POLICY (RETENTION = 30d"
-            + " ON COLUMN ts WHERE PATTERN = 'yyyy')";
-    assert isPlanValid(
-        statement, "db.table", "30", "DAY", Optional.of("ts"), Optional.of("'yyyy'"));
+    Dataset<Row> ds =
+        spark.sql(
+            "ALTER TABLE openhouse.db.table SET POLICY (RETENTION = 30d"
+                + " ON COLUMN ts WHERE PATTERN = 'yyyy')");
+    assert isPlanValid(ds, "db.table", "30", "DAY", Optional.of("ts"), Optional.of("'yyyy'"));
 
     // lowercased scenario
-    statement =
-        "ALTER TABLE openhouse.db.table SET policy (RETENTION = 30d"
-            + " ON COLUMN ts WHERE pattern = 'yyyy')";
-    assert isPlanValid(
-        statement, "db.table", "30", "DAY", Optional.of("ts"), Optional.of("'yyyy'"));
+    ds =
+        spark.sql(
+            "ALTER TABLE openhouse.db.table SET policy (RETENTION = 30d"
+                + " ON COLUMN ts WHERE pattern = 'yyyy')");
+    assert isPlanValid(ds, "db.table", "30", "DAY", Optional.of("ts"), Optional.of("'yyyy'"));
 
     // identifiers with leading digits
-    statement =
-        "ALTER TABLE openhouse.0_.0_ SET policy (RETENTION = 30d"
-            + " ON COLUMN ts WHERE pattern = 'yyyy')";
-    assert isPlanValid(statement, "0_.0_", "30", "DAY", Optional.of("ts"), Optional.of("'yyyy'"));
+    ds =
+        spark.sql(
+            "ALTER TABLE openhouse.0_.0_ SET policy (RETENTION = 30d"
+                + " ON COLUMN ts WHERE pattern = 'yyyy')");
+    assert isPlanValid(ds, "0_.0_", "30", "DAY", Optional.of("ts"), Optional.of("'yyyy'"));
   }
 
   @Test
   public void testSimpleSetPolicyNoPattern() {
-    String statement = "ALTER TABLE openhouse.db.table SET POLICY (RETENTION = 30d)";
-    assert isPlanValid(statement, "db.table", "30", "DAY", Optional.empty(), Optional.empty());
+    Dataset<Row> ds = spark.sql("ALTER TABLE openhouse.db.table SET POLICY (RETENTION = 30d)");
+    assert isPlanValid(ds, "db.table", "30", "DAY", Optional.empty(), Optional.empty());
   }
 
   @Test
   public void testSimpleSetPolicyWithColumnNoPattern() {
-    String statement = "ALTER TABLE openhouse.db.table SET POLICY (RETENTION = 30d ON COLUMN ts)";
-    assert isPlanValid(statement, "db.table", "30", "DAY", Optional.of("ts"), Optional.empty());
+    Dataset<Row> ds =
+        spark.sql("ALTER TABLE openhouse.db.table SET POLICY (RETENTION = 30d ON COLUMN ts)");
+    assert isPlanValid(ds, "db.table", "30", "DAY", Optional.of("ts"), Optional.empty());
   }
 
   @Test
@@ -150,13 +155,13 @@ public class SetTablePolicyStatementTest {
 
   @SneakyThrows
   private boolean isPlanValid(
-      String statement,
+      Dataset<Row> dataframe,
       String dbTable,
       String count,
       String granularity,
       Optional<String> colName,
       Optional<String> colPattern) {
-    String queryStr = StatementTestUtils.planWithoutExecuting(spark, statement);
+    String queryStr = dataframe.queryExecution().explainString(ExplainMode.fromString("simple"));
     return queryStr.contains(count)
         && queryStr.contains(dbTable)
         && queryStr.contains(granularity)

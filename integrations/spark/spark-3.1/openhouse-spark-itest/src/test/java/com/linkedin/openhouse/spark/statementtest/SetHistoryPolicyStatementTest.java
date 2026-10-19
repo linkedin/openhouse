@@ -5,7 +5,10 @@ import java.nio.file.Files;
 import java.util.Optional;
 import lombok.SneakyThrows;
 import org.apache.hadoop.fs.Path;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.execution.ExplainMode;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -38,18 +41,15 @@ public class SetHistoryPolicyStatementTest {
   @Test
   public void testSetHistoryPolicyGood() {
     // Validate setting only time setting
-    String statement = "ALTER TABLE openhouse.db.table SET POLICY (HISTORY MAX_AGE=24H)";
-    assert isPlanValid(
-        statement, "db.table", Optional.of("24"), Optional.of("HOUR"), Optional.empty());
+    Dataset<Row> ds = spark.sql("ALTER TABLE openhouse.db.table SET POLICY (HISTORY MAX_AGE=24H)");
+    assert isPlanValid(ds, "db.table", Optional.of("24"), Optional.of("HOUR"), Optional.empty());
 
-    statement = "ALTER TABLE openhouse.db.table SET POLICY (HISTORY VERSIONS=10)";
-    assert isPlanValid(
-        statement, "db.table", Optional.empty(), Optional.empty(), Optional.of("10"));
+    ds = spark.sql("ALTER TABLE openhouse.db.table SET POLICY (HISTORY VERSIONS=10)");
+    assert isPlanValid(ds, "db.table", Optional.empty(), Optional.empty(), Optional.of("10"));
 
     // Validate both time and count setting
-    statement = "ALTER TABLE openhouse.db.table SET POLICY (HISTORY MAX_AGE=2D VERSIONS=20)";
-    assert isPlanValid(
-        statement, "db.table", Optional.of("2"), Optional.of("DAY"), Optional.of("20"));
+    ds = spark.sql("ALTER TABLE openhouse.db.table SET POLICY (HISTORY MAX_AGE=2D VERSIONS=20)");
+    assert isPlanValid(ds, "db.table", Optional.of("2"), Optional.of("DAY"), Optional.of("20"));
   }
 
   @Test
@@ -98,12 +98,12 @@ public class SetHistoryPolicyStatementTest {
 
   @SneakyThrows
   private boolean isPlanValid(
-      String statement,
+      Dataset<Row> dataframe,
       String dbTable,
       Optional<String> maxAge,
       Optional<String> granularity,
       Optional<String> versions) {
-    String queryStr = StatementTestUtils.planWithoutExecuting(spark, statement);
+    String queryStr = dataframe.queryExecution().explainString(ExplainMode.fromString("simple"));
     return queryStr.contains(dbTable)
         && (!maxAge.isPresent() || queryStr.contains(maxAge.get()))
         && (!granularity.isPresent() || queryStr.contains(granularity.get()))

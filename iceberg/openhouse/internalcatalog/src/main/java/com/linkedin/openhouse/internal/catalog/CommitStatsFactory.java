@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.internal.catalog;
 
-import com.linkedin.openhouse.internal.catalog.model.HouseTable;
+import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.getCanonicalFieldName;
+
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
@@ -13,10 +14,11 @@ import org.apache.iceberg.catalog.TableIdentifier;
 /**
  * Builds a neutral {@link CommitStats} from the committed {@link TableMetadata}.
  *
- * <p>Point-in-time totals and per-commit deltas come from the current snapshot's {@link
- * SnapshotSummary}; stable identity comes from the committed HTS catalog row. Whether stats should
- * be collected at all is decided separately by the calling post-commit operation (per-table
- * property gate).
+ * <p>All the fields the optimizer needs are available in-process at commit time: point-in-time
+ * totals and per-commit deltas come from the current snapshot's {@link SnapshotSummary}; identity
+ * and location come from OpenHouse canonical table properties. No extra metadata read or storage
+ * call is required. Whether stats should be collected at all is decided separately by the calling
+ * post-commit operation (per-table property gate).
  */
 @Slf4j
 public final class CommitStatsFactory {
@@ -33,17 +35,17 @@ public final class CommitStatsFactory {
    * reports the same current state as the prior commit.
    */
   public static Optional<CommitStats> extract(
-      TableMetadata committedMetadata, HouseTable houseTable) {
-    if (committedMetadata == null || houseTable == null) {
+      TableIdentifier tableIdentifier, TableMetadata committedMetadata) {
+    if (committedMetadata == null) {
       return Optional.empty();
     }
-    TableIdentifier tableIdentifier =
-        TableIdentifier.of(houseTable.getDatabaseId(), houseTable.getTableId());
     Map<String, String> properties = committedMetadata.properties();
-    String tableUuid = houseTable.getTableUUID();
+    String tableUuid = properties.get(getCanonicalFieldName("tableUUID"));
     if (tableUuid == null || tableUuid.isEmpty()) {
       log.debug(
-          "Skipping stats extraction for {}: no table UUID in catalog record", tableIdentifier);
+          "Skipping stats extraction for {}: no {} property present",
+          tableIdentifier,
+          getCanonicalFieldName("tableUUID"));
       return Optional.empty();
     }
 
@@ -53,7 +55,7 @@ public final class CommitStatsFactory {
             .databaseName(tableIdentifier.namespace().toString())
             .tableName(tableIdentifier.name())
             .tableLocation(committedMetadata.location())
-            .tableVersion(houseTable.getTableVersion())
+            .tableVersion(properties.get(getCanonicalFieldName("tableVersion")))
             .tableProperties(Collections.unmodifiableMap(properties));
 
     Snapshot currentSnapshot = committedMetadata.currentSnapshot();

@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.spark.sql.execution.datasources.v2
 
-import com.linkedin.openhouse.spark.sql.execution.datasources.v2.mapper.IcebergCatalogMapper
 import org.apache.iceberg.spark.source.SparkTable
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Attribute
@@ -16,9 +15,7 @@ case class SetSharingPolicyExec(
 
   override protected def run(): Seq[InternalRow] = {
     catalog.loadTable(ident) match {
-      case iceberg: SparkTable
-          if IcebergCatalogMapper.toIcebergCatalog(catalog).isInstanceOf[
-            com.linkedin.openhouse.spark.OpenHouseCatalog] =>
+      case iceberg: SparkTable if iceberg.table().properties().containsKey("openhouse.tableId") =>
         val key = "updated.openhouse.policy"
         val value = s"""{"sharingEnabled": ${sharing}}"""
 
