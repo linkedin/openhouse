@@ -406,9 +406,11 @@ Once `read-bridge.column-default.enabled=true` is committed, it cannot be change
 `false`, an unparseable value and an absent property remain changeable.
 
 Tables with `read-bridge.column-default.enabled=true` require `X-Client-Name: spark` and
-`User-Agent: openhouse-java-client/<version>` for table loads and metadata/snapshot commits. Table
-searches, and updates that change nothing, are not gated. Tables without that property are never
-checked.
+`User-Agent: openhouse-java-client/<version>` for table loads (`GET`), creates (`POST`), updates
+(`PUT`) and snapshot commits (`PUT …/iceberg/v2/snapshots`). Other table endpoints, such as
+search, delete, rename, ACL, lock, purge and restore, are not gated. The gate checks each request:
+it cannot revoke metadata a client already loaded, and it never sees reads or writes that go
+straight to the table's files in storage. Tables without that property are never checked.
 
 Configure `cluster.read-bridge.column-default.minimum-client-version` to a verified compatible JAR
 release. Leaving it unset does not turn the gate off: until it is set to a valid release, every load
@@ -428,8 +430,7 @@ request header. It bypasses only column-default policy checks: client compatibil
 a committed `read-bridge.column-default.enabled=true` cannot be changed or removed. Incorrect reads or
 writes may result. Authentication, authorization, default resolution and default-value write
 protections still apply. JARs without `header.` catalog properties need an upgrade/backport to send
-it. Removing table opt-in in a write is not a bypass. Administrative operations, cached metadata and
-direct storage access are unchanged.
+it. Removing table opt-in in a write is not a bypass.
 
 #### SET POLICY
 

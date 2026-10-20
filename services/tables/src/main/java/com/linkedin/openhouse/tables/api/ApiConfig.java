@@ -21,9 +21,9 @@ public class ApiConfig {
   }
 
   /**
-   * Unset defaults to empty, which fails closed: every request to a table with {@code
-   * read-bridge.column-default.enabled=true} is rejected until a minimum is configured. Tables
-   * without that property are unaffected.
+   * An unset {@code cluster.read-bridge.column-default.minimum-client-version} defaults to empty,
+   * which rejects every request to a table with {@code read-bridge.column-default.enabled=true}
+   * until a valid minimum is configured. Tables without that property are unaffected.
    */
   @Bean
   public ColumnDefaultClientGate columnDefaultClientGate(
