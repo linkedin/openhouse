@@ -284,8 +284,7 @@ public class AnalyzerRunner {
     if (!latestHistory.isPresent() || latestHistory.get().getStatus() != HistoryStatusDto.FAILED) {
       return 0;
     }
-    int streak = 0;
-    for (TableOperationsHistoryDto entry :
+    return (int)
         historyRepo
             .findRecent(
                 table.getTableUuid(),
@@ -293,13 +292,8 @@ public class AnalyzerRunner {
                 PageRequest.of(0, FAILURE_STREAK_WINDOW))
             .stream()
             .map(TableOperationsHistoryDto::fromRow)
-            .collect(Collectors.toList())) {
-      if (entry.getStatus() != HistoryStatusDto.FAILED) {
-        break;
-      }
-      streak++;
-    }
-    return streak;
+            .takeWhile(entry -> entry.getStatus() == HistoryStatusDto.FAILED)
+            .count();
   }
 
   /**

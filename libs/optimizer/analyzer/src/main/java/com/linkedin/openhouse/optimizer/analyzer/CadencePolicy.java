@@ -159,13 +159,14 @@ public class CadencePolicy {
   }
 
   private boolean isPastStaleTimeout(TableOperationDto op) {
-    Instant reference = op.getScheduledAt() != null ? op.getScheduledAt() : op.getCreatedAt();
-    if (reference == null) {
-      // Cannot determine the op's age; conservatively treat it as live so we never reschedule a
-      // job we can't prove is stale.
+    // Stale-timeout is measured from when the job was submitted (scheduledAt). Without a submission
+    // time we cannot prove the job is stale, so conservatively treat it as live and never
+    // reschedule a job we can't prove is dead.
+    Instant submittedAt = op.getScheduledAt();
+    if (submittedAt == null) {
       return false;
     }
-    return Duration.between(reference, Instant.now()).compareTo(activeOpStaleTimeout) > 0;
+    return Duration.between(submittedAt, Instant.now()).compareTo(activeOpStaleTimeout) > 0;
   }
 
   private boolean readyAfterHistoryEntry(TableOperationsHistoryDto entry, int consecutiveFailures) {
@@ -198,12 +199,13 @@ public class CadencePolicy {
     if (consecutiveFailures < failureStreakThreshold) {
       return failureRetryInterval;
     }
-    int doublings = consecutiveFailures - 1;
-    // Guard against overflow from shifting a large streak; cap the exponent well before 2^63.
-    if (doublings >= 62) {
-      return failureBackoffMax;
+    // Double the flat interval once per failure beyond the first, stopping as soon as we hit the
+    // cap. failureBackoffMax bounds this (default 24h), so the loop runs only a handful of times —
+    // no risk of shift/multiply overflow, and no need for a large-exponent guard.
+    Duration backed = failureRetryInterval;
+    for (int i = 0; i < consecutiveFailures - 1 && backed.compareTo(failureBackoffMax) < 0; i++) {
+      backed = backed.multipliedBy(2);
     }
-    Duration backed = failureRetryInterval.multipliedBy(1L << doublings);
     return backed.compareTo(failureBackoffMax) > 0 ? failureBackoffMax : backed;
   }
 }
