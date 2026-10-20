@@ -18,10 +18,8 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import java.util.Arrays;
 import java.util.Optional;
 import java.util.stream.Stream;
-import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.FileIO;
@@ -31,9 +29,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 
 public class OpenHouseInternalCatalogTest {
 
@@ -78,42 +73,6 @@ public class OpenHouseInternalCatalogTest {
     catalog.houseTableRepository = repo;
 
     Assertions.assertFalse(catalog.findHouseTable(IDENTIFIER).isPresent());
-  }
-
-  @Test
-  void listTablesWithEmptyNamespaceReturnsActualIdentifiers() {
-    HouseTableRepository repo = mock(HouseTableRepository.class);
-    when(repo.findAll())
-        .thenReturn(
-            Arrays.asList(
-                HouseTable.builder().databaseId("db1").tableId("table1").build(),
-                HouseTable.builder().databaseId("db2").tableId("table2").build()));
-    OpenHouseInternalCatalog catalog = new OpenHouseInternalCatalog();
-    catalog.houseTableRepository = repo;
-
-    Assertions.assertEquals(
-        Arrays.asList(TableIdentifier.of("db1", "table1"), TableIdentifier.of("db2", "table2")),
-        catalog.listTables(Namespace.empty()));
-  }
-
-  @Test
-  void paginatedListTablesWithEmptyNamespaceReturnsActualIdentifiers() {
-    HouseTableRepository repo = mock(HouseTableRepository.class);
-    Pageable pageable = PageRequest.of(0, 10);
-    when(repo.findAll(pageable))
-        .thenReturn(
-            new PageImpl<>(
-                Arrays.asList(
-                    HouseTable.builder().databaseId("db1").tableId("table1").build(),
-                    HouseTable.builder().databaseId("db2").tableId("table2").build()),
-                pageable,
-                2));
-    OpenHouseInternalCatalog catalog = new OpenHouseInternalCatalog();
-    catalog.houseTableRepository = repo;
-
-    Assertions.assertEquals(
-        Arrays.asList(TableIdentifier.of("db1", "table1"), TableIdentifier.of("db2", "table2")),
-        catalog.listTables(Namespace.empty(), pageable).getContent());
   }
 
   @Test

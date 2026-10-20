@@ -75,27 +75,6 @@ public class TableUUIDGeneratorTest {
     Assertions.assertEquals(expectedUUID, existingUUID);
   }
 
-  @Test
-  public void testSnapshotUUIDDoesNotRequireMirroredIdentityProperties() {
-    UUID expectedUUID = UUID.randomUUID();
-    UUID existingUUID =
-        tableUUIDGenerator.generateUUID(
-            IcebergSnapshotsRequestBody.builder()
-                .baseTableVersion("v1")
-                .createUpdateTableRequestBody(
-                    CreateUpdateTableRequestBody.builder()
-                        .tableId("t")
-                        .databaseId("db")
-                        .clusterId(CLUSTER_NAME)
-                        .tableProperties(ImmutableMap.of())
-                        .build())
-                .jsonSnapshots(
-                    Collections.singletonList(
-                        getIcebergSnapshot("/tmp", "db", "t", expectedUUID, "/manifest.avro")))
-                .build());
-    Assertions.assertEquals(expectedUUID, existingUUID);
-  }
-
   @SneakyThrows
   @Test
   public void testUUIDExtractedFromTablePropertySuccessfulPutSnapshot() {
@@ -205,8 +184,7 @@ public class TableUUIDGeneratorTest {
                                 "openhouse.databaseId",
                                 "db"))
                         .build()));
-    Assertions.assertTrue(
-        exception.getMessage().contains("openhouse.tableLocation is missing in properties"));
+    Assertions.assertTrue(exception.getMessage().contains("Provided snapshot is invalid"));
   }
 
   @Test
@@ -307,40 +285,22 @@ public class TableUUIDGeneratorTest {
   }
 
   @Test
-  public void testUUIDFromTablePropertyDoesNotRequireMirroredIdentifiers() {
+  public void testUUIDFailsForMissingIdentifiers() {
     UUID expectedUUID = UUID.randomUUID();
 
-    UUID actualUUID =
-        tableUUIDGenerator.generateUUID(
-            CreateUpdateTableRequestBody.builder()
-                .tableId("t")
-                .databaseId("db")
-                .clusterId(CLUSTER_NAME)
-                .tableType(TableType.REPLICA_TABLE)
-                .tableProperties(
-                    ImmutableMap.of(CatalogConstants.OPENHOUSE_UUID_KEY, expectedUUID.toString()))
-                .build());
-    Assertions.assertEquals(expectedUUID, actualUUID);
-  }
-
-  @Test
-  public void testUUIDPathValidationUsesBaseTableVersionWithoutMirroredLocation() {
-    UUID expectedUUID = UUID.randomUUID();
-    String baseTableVersion = String.format("/tmp/db/t-%s/metadata.json", expectedUUID);
-
-    UUID actualUUID =
-        tableUUIDGenerator.generateUUID(
-            CreateUpdateTableRequestBody.builder()
-                .tableId("t")
-                .databaseId("db")
-                .clusterId(CLUSTER_NAME)
-                .baseTableVersion(baseTableVersion)
-                .tableProperties(
-                    ImmutableMap.of(CatalogConstants.OPENHOUSE_UUID_KEY, expectedUUID.toString()))
-                .build());
-
-    Assertions.assertEquals(expectedUUID, actualUUID);
-    verify(storage).isPathValid(baseTableVersion, "db", "t", expectedUUID.toString());
+    Assertions.assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            tableUUIDGenerator.generateUUID(
+                CreateUpdateTableRequestBody.builder()
+                    .tableId("t")
+                    .databaseId("db")
+                    .clusterId(CLUSTER_NAME)
+                    .tableType(TableType.REPLICA_TABLE)
+                    .tableProperties(
+                        ImmutableMap.of(
+                            CatalogConstants.OPENHOUSE_UUID_KEY, expectedUUID.toString()))
+                    .build()));
   }
 
   @Test

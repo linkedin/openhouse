@@ -5,15 +5,12 @@ import static com.linkedin.openhouse.internal.catalog.CatalogConstants.ENTITY_TY
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.IS_OH_PREFIXED;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.OPENHOUSE_NAMESPACE;
 
-import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.housetables.client.model.UserTable;
-import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.iceberg.TableMetadata;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.io.FileIO;
 import org.mapstruct.BeanMapping;
 import org.mapstruct.Mapper;
@@ -33,27 +30,7 @@ public abstract class HouseTableMapper {
   public abstract HouseTable toHouseTable(Map<String, String> properties, FileIO fileIO);
 
   public HouseTable toHouseTable(TableMetadata tableMetadata, FileIO fileIO) {
-    return toHouseTable(extractRawHouseTableFields(tableMetadata.properties()), fileIO);
-  }
-
-  public HouseTable toHouseTable(
-      TableMetadata tableMetadata, FileIO fileIO, TableIdentifier tableIdentifier) {
-    Map<String, String> properties = extractRawHouseTableFields(tableMetadata.properties());
-    String clusterId = tableMetadata.properties().get(CatalogConstants.OPENHOUSE_CLUSTERID_KEY);
-    properties.put("databaseId", tableIdentifier.namespace().toString());
-    properties.put("tableId", tableIdentifier.name());
-    properties.remove("tableUri");
-    if (clusterId != null) {
-      properties.put(
-          "tableUri",
-          TableUri.builder()
-              .clusterId(clusterId)
-              .databaseId(tableIdentifier.namespace().toString())
-              .tableId(tableIdentifier.name())
-              .build()
-              .toString());
-    }
-    return toHouseTable(properties, fileIO);
+    return toHouseTable(extractRawHTSFields(tableMetadata.properties()), fileIO);
   }
 
   @BeanMapping(ignoreByDefault = true)
@@ -66,12 +43,7 @@ public abstract class HouseTableMapper {
 
   @Mappings({
     @Mapping(target = "tableLocation", source = "userTable.metadataLocation"),
-    @Mapping(target = "entityType", source = "userTable.entityType"),
-    @Mapping(target = "clusterId", ignore = true),
-    @Mapping(target = "tableUri", ignore = true),
-    @Mapping(target = "tableUUID", ignore = true),
-    @Mapping(target = "tableCreator", ignore = true),
-    @Mapping(target = "lastModifiedTime", ignore = true)
+    @Mapping(target = "entityType", source = "userTable.entityType")
   })
   public abstract HouseTable toHouseTable(UserTable userTable);
 
@@ -88,12 +60,12 @@ public abstract class HouseTableMapper {
   })
   public abstract UserTable toUserView(HouseTable houseTable);
 
-  private Map<String, String> extractRawHouseTableFields(Map<String, String> input) {
+  private Map<String, String> extractRawHTSFields(Map<String, String> input) {
     Map<String, String> output = new HashMap<>();
     for (Map.Entry<String, String> entry : input.entrySet()) {
       String key = entry.getKey();
       String value = entry.getValue();
-      if (isHouseTableField(key)) {
+      if (isHtsField(key)) {
         String newKey = stripOhNamespace(key);
         output.put(newKey, value);
       }
@@ -101,9 +73,9 @@ public abstract class HouseTableMapper {
     return output;
   }
 
-  private static boolean isHouseTableField(String key) {
+  private static boolean isHtsField(String key) {
     return IS_OH_PREFIXED.test(key)
-        && HouseTableSerdeUtils.HOUSE_TABLE_FIELD_NAMES.contains(stripOhNamespace(key));
+        && HouseTableSerdeUtils.HTS_FIELD_NAMES.contains(stripOhNamespace(key));
   }
 
   /** Private so MapStruct cannot adopt it as an implicit String mapping for every field value. */

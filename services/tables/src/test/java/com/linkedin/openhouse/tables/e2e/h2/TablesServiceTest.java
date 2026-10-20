@@ -87,12 +87,7 @@ public class TablesServiceTest {
             storageManager.getDefaultStorage().getClient().getRootPrefix(),
             actual.getDatabaseId(),
             actual.getTableId() + "-" + actual.getTableUUID());
-    Assertions.assertTrue(
-        actual.getTableLocation().startsWith(expectedPath.toString()),
-        "Expected table location to start with "
-            + expectedPath
-            + " but was "
-            + actual.getTableLocation());
+    Assertions.assertTrue(actual.getTableLocation().startsWith(expectedPath.toString()));
     if (previousVersion != null) {
       Assertions.assertEquals(
           stripPathScheme(previousVersion.getTableLocation()), actual.getTableVersion());

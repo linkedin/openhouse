@@ -69,6 +69,7 @@ public class RTASJavaTest extends OpenHouseSparkITest {
       table.updateProperties().set("replace.enabled", "true").commit();
 
       String originalLocation = table.location();
+      String originalMetadataLocation = getMetadataLocation(table);
       long originalSnapshotId = table.currentSnapshot().snapshotId();
 
       // create a replace transaction
@@ -82,8 +83,8 @@ public class RTASJavaTest extends OpenHouseSparkITest {
 
       // verify underlying table is unchanged
       assertEquals(
-          originalLocation,
-          existingTable.location(),
+          originalMetadataLocation,
+          getMetadataLocation(existingTable),
           "Table location should be unchanged before commit");
 
       // verify the transaction holds the new metadata
@@ -180,5 +181,9 @@ public class RTASJavaTest extends OpenHouseSparkITest {
         .withPartitionPath("part=odd")
         .withRecordCount(1)
         .build();
+  }
+
+  private String getMetadataLocation(Table table) {
+    return table.properties().get("openhouse.tableLocation");
   }
 }

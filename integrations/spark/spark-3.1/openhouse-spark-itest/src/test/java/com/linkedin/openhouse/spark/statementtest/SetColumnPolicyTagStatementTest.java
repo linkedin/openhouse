@@ -8,7 +8,10 @@ import java.util.Collections;
 import java.util.List;
 import lombok.SneakyThrows;
 import org.apache.hadoop.fs.Path;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.execution.ExplainMode;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -63,122 +66,87 @@ public class SetColumnPolicyTagStatementTest {
 
   @Test
   public void testPolicySuccess() {
-    assert isPlanValid(
-        "ALTER TABLE openhouse.db.table MODIFY COLUMN col1 SET TAG = (PII)",
-        "openhouse",
-        "db.table",
-        "col1",
-        tagPII);
-    assert isPlanValid(
-        "ALTER TABLE openhouse.db.table MODIFY COLUMN col1 SET TAG = (PII, HC)",
-        "openhouse",
-        "db.table",
-        "col1",
-        tagALL);
-    assert isPlanValid(
-        "ALTER TABLE openhouse.db.table MODIFY COLUMN col1 SET TAG = (NONE)",
-        "openhouse",
-        "db.table",
-        "col1",
-        Collections.emptyList());
-    assert isPlanValid(
-        "ALTER TABLE openhouse.db.table MODIFY COLUMN col1 SET TAG = (HC)",
-        "openhouse",
-        "db.table",
-        "col1",
-        tagHC);
+    Dataset<Row> df =
+        spark.sql("ALTER TABLE openhouse.db.table MODIFY COLUMN col1 SET TAG = (PII)");
+    assert isPlanValid(df, "openhouse", "db.table", "col1", tagPII);
+
+    Dataset<Row> df1 =
+        spark.sql("ALTER TABLE openhouse.db.table MODIFY COLUMN col1 SET TAG = (PII, HC)");
+    assert isPlanValid(df1, "openhouse", "db.table", "col1", tagALL);
+
+    Dataset<Row> df2 =
+        spark.sql("ALTER TABLE openhouse.db.table MODIFY COLUMN col1 SET TAG = (NONE)");
+    assert isPlanValid(df2, "openhouse", "db.table", "col1", Collections.emptyList());
+
+    Dataset<Row> df3 =
+        spark.sql("ALTER TABLE openhouse.db.table MODIFY COLUMN col1 SET TAG = (HC)");
+    assert isPlanValid(df3, "openhouse", "db.table", "col1", tagHC);
   }
 
   @Test
   public void testPolicyLowerCase() {
-    assert isPlanValid(
-        "ALTER TABLE openhouse.db.table modify column col1 SET TAG = (PII)",
-        "openhouse",
-        "db.table",
-        "col1",
-        tagPII);
-    assert isPlanValid(
-        "ALTER TABLE openhouse.db.table MODIFY COLUMN col1 set tag = (PII, HC)",
-        "openhouse",
-        "db.table",
-        "col1",
-        tagALL);
-    assert isPlanValid(
-        "alter table openhouse.db.table modify column col1 set tag = (NONE)",
-        "openhouse",
-        "db.table",
-        "col1",
-        Collections.emptyList());
+    Dataset<Row> df =
+        spark.sql("ALTER TABLE openhouse.db.table modify column col1 SET TAG = (PII)");
+    assert isPlanValid(df, "openhouse", "db.table", "col1", tagPII);
+
+    Dataset<Row> df1 =
+        spark.sql("ALTER TABLE openhouse.db.table MODIFY COLUMN col1 set tag = (PII, HC)");
+    assert isPlanValid(df1, "openhouse", "db.table", "col1", tagALL);
+
+    Dataset<Row> df2 =
+        spark.sql("alter table openhouse.db.table modify column col1 set tag = (NONE)");
+    assert isPlanValid(df2, "openhouse", "db.table", "col1", Collections.emptyList());
   }
 
   @Test
   public void testPolicyAfterUseCatalog() {
     spark.sql("use openhouse").show();
-    assert isPlanValid(
-        "ALTER TABLE openhouse.db.table MODIFY COLUMN col1 SET TAG = (PII)",
-        "openhouse",
-        "db.table",
-        "col1",
-        tagPII);
+    Dataset<Row> df =
+        spark.sql("ALTER TABLE openhouse.db.table MODIFY COLUMN col1 SET TAG = (PII)");
+    List<String> tags = Arrays.asList("PII");
+    assert isPlanValid(df, "openhouse", "db.table", "col1", tagPII);
 
     spark.sql("use openhouse").show();
-    assert isPlanValid(
-        "ALTER TABLE openhouse.db.table MODIFY COLUMN col1 SET TAG = (PII, HC)",
-        "openhouse",
-        "db.table",
-        "col1",
-        tagALL);
+    Dataset<Row> df1 =
+        spark.sql("ALTER TABLE openhouse.db.table MODIFY COLUMN col1 SET TAG = (PII, HC)");
+    List<String> tags1 = Arrays.asList("PII", "HC");
+    assert isPlanValid(df1, "openhouse", "db.table", "col1", tagALL);
   }
 
   @Test
   public void testPolicyAfterUseCatalogAndDatabase() {
     spark.sql("use openhouse.db").show();
-    assert isPlanValid(
-        "ALTER TABLE openhouse.db.table MODIFY COLUMN col1 SET TAG = (PII)",
-        "openhouse",
-        "db.table",
-        "col1",
-        tagPII);
+    Dataset<Row> df =
+        spark.sql("ALTER TABLE openhouse.db.table MODIFY COLUMN col1 SET TAG = (PII)");
+    List<String> tags = Arrays.asList("PII");
+    assert isPlanValid(df, "openhouse", "db.table", "col1", tagPII);
 
     spark.sql("use openhouse.db").show();
-    assert isPlanValid(
-        "ALTER TABLE openhouse.db.table MODIFY COLUMN col1 SET TAG = (PII, HC)",
-        "openhouse",
-        "db.table",
-        "col1",
-        tagALL);
+    Dataset<Row> df1 =
+        spark.sql("ALTER TABLE openhouse.db.table MODIFY COLUMN col1 SET TAG = (PII, HC)");
+    List<String> tags1 = Arrays.asList("PII", "HC");
+    assert isPlanValid(df1, "openhouse", "db.table", "col1", tagALL);
   }
 
   @Test
   public void testPolicyWithQuotedTableIdentifier() {
-    assert isPlanValid(
-        "ALTER TABLE openhouse.`db`.`table` MODIFY COLUMN col1 SET TAG = (PII)",
-        "openhouse",
-        "db.table",
-        "col1",
-        tagPII);
-    assert isPlanValid(
-        "ALTER TABLE openhouse.`db`.`table` MODIFY COLUMN col1 SET TAG = (PII, HC)",
-        "openhouse",
-        "db.table",
-        "col1",
-        tagALL);
-    assert isPlanValid(
-        "alter table openhouse.`db`.`table` modify column col1 set tag = (NONE)",
-        "openhouse",
-        "db.table",
-        "col1",
-        Collections.emptyList());
+    Dataset<Row> df =
+        spark.sql("ALTER TABLE openhouse.`db`.`table` MODIFY COLUMN col1 SET TAG = (PII)");
+    assert isPlanValid(df, "openhouse", "db.table", "col1", tagPII);
+
+    Dataset<Row> df1 =
+        spark.sql("ALTER TABLE openhouse.`db`.`table` MODIFY COLUMN col1 SET TAG = (PII, HC)");
+    assert isPlanValid(df1, "openhouse", "db.table", "col1", tagALL);
+
+    Dataset<Row> df2 =
+        spark.sql("alter table openhouse.`db`.`table` modify column col1 set tag = (NONE)");
+    assert isPlanValid(df2, "openhouse", "db.table", "col1", Collections.emptyList());
   }
 
   @Test
   public void testPolicyIdentifierWithLeadingDigits() {
-    assert isPlanValid(
-        "ALTER TABLE openhouse.0_.0_ MODIFY COLUMN 0_ SET TAG = (PII)",
-        "openhouse",
-        "0_.0_",
-        "0_",
-        tagPII);
+    Dataset<Row> df = spark.sql("ALTER TABLE openhouse.0_.0_ MODIFY COLUMN 0_ SET TAG = (PII)");
+    assert isPlanValid(df, "openhouse", "0_.0_", "0_", tagPII);
   }
 
   @Test
@@ -197,7 +165,7 @@ public class SetColumnPolicyTagStatementTest {
             "ALTER -- a line ending comment\n"
                 + "TABLE openhouse.`db`.`table` MODIFY COLUMN col1 SET TAG = (PII, HC)");
     for (String statement : statementsWithComments) {
-      assert isPlanValid(statement, "openhouse", "db.table", "col1", tagALL);
+      assert isPlanValid(spark.sql(statement), "openhouse", "db.table", "col1", tagALL);
     }
   }
 
@@ -253,12 +221,12 @@ public class SetColumnPolicyTagStatementTest {
 
   @SneakyThrows
   private boolean isPlanValid(
-      String statement,
+      Dataset<Row> dataframe,
       String catalogName,
       String dbTable,
       String colName,
       List<String> policyTags) {
-    String queryStr = StatementTestUtils.planWithoutExecuting(spark, statement);
+    String queryStr = dataframe.queryExecution().explainString(ExplainMode.fromString("simple"));
     boolean containsCol = true;
     for (String tag : policyTags) {
       if (!queryStr.contains(tag)) {

@@ -31,7 +31,7 @@ import lombok.Value;
 @Builder
 public class CommitStats {
 
-  /** Stable table UUID from the canonical HTS catalog row. Never null. */
+  /** Stable Iceberg table UUID (from {@code openhouse.tableUUID}). Never null. */
   String tableUuid;
 
   /** Database (namespace) name. */

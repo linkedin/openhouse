@@ -45,7 +45,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -176,7 +175,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
       Map<String, String> tableProps = computePropsForTableCreation(tableDto);
       tablePolicyManager.managePoliciesOnCreateIfNeeded(tableDto);
       SortOrder sortOrder = getIcebergSortOrder(tableDto, writeSchema);
-      String metadataLocation = getSchemeLessPath(tableDto.getTableLocation());
+      String metadataLocation = tableProps.get(getCanonicalFieldName("tableLocation"));
       String tableLocation = metadataLocation.substring(0, metadataLocation.lastIndexOf("/"));
       table =
           replaceTable(
@@ -231,14 +230,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           tableIdentifier,
           System.currentTimeMillis() - startTime);
     }
-    HouseTable houseTable;
-    if (tableDto.isStageCreate() || tableDto.isStageReplace()) {
-      houseTable = houseTableForStagedOperation(tableIdentifier, tableDto, table);
-    } else {
-      houseTable = getHouseTable(tableIdentifier);
-    }
     return convertToTableDto(
-        table, houseTable, fileIOManager, partitionSpecMapper, policiesMapper, tableTypeMapper);
+        table, fileIOManager, partitionSpecMapper, policiesMapper, tableTypeMapper);
   }
 
   protected Table createTable(
@@ -302,12 +295,12 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   }
 
   private boolean skipEligibilityCheck(
-      HouseTable existingHouseTable,
-      TableDto newTableDto,
-      Map<String, String> existingTableProps) {
+      Map<String, String> existingTableProps, Map<String, String> newTableProps) {
     // If on the same cluster, table update is primary -> primary and must check all keys, so don't
     // skip validation
-    if (Objects.equals(existingHouseTable.getClusterId(), newTableDto.getClusterId())) {
+    if (existingTableProps
+        .get(getCanonicalFieldName(CLUSTER_ID))
+        .equals(newTableProps.get(getCanonicalFieldName(CLUSTER_ID)))) {
       return false;
     }
 
@@ -320,7 +313,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     // For backwards compatibility check table types for a primary -> replica update
     TableType existingTableType =
         TableType.valueOf(existingTableProps.get(getCanonicalFieldName(TABLE_TYPE_KEY)));
-    TableType newTableType = newTableDto.getTableType();
+    TableType newTableType =
+        TableType.valueOf(newTableProps.get(getCanonicalFieldName(TABLE_TYPE_KEY)));
 
     // Legacy check to skip eligibility check for a primary -> replica update
     return existingTableType == TableType.REPLICA_TABLE && newTableType == TableType.PRIMARY_TABLE;
@@ -482,13 +476,11 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    */
   @WithSpan("InternalRepository.updateEligibilityCheck")
   protected void updateEligibilityCheck(Table existingTable, TableDto tableDto) {
-    HouseTable existingHouseTable =
-        getHouseTable(TableIdentifier.of(tableDto.getDatabaseId(), tableDto.getTableId()));
-    if (!skipEligibilityCheck(existingHouseTable, tableDto, existingTable.properties())) {
+    if (!skipEligibilityCheck(existingTable.properties(), tableDto.getTableProperties())) {
       // eligibility check is relaxed for request from replication flow since preserved properties
       // & tableType will differ in tableDto and existing table.
       PartitionSpec partitionSpec = partitionSpecMapper.toPartitionSpec(tableDto);
-      versionCheck(existingHouseTable, tableDto);
+      versionCheck(existingTable, tableDto);
       checkIfPreservedTblPropsModified(tableDto, existingTable);
       checkIfTableTypeModified(tableDto, existingTable);
       checkPartitionSpecEvolution(partitionSpec, existingTable.spec());
@@ -499,11 +491,11 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    * Ensure existing table's tableLocation (path to metadata.json) matches user provided baseVersion
    * (path to metadata.json of the table where the updates are based upon)
    */
-  void versionCheck(HouseTable existingHouseTable, TableDto mergedTableDto) {
+  void versionCheck(Table existingTable, TableDto mergedTableDto) {
     String baseTableVersion = mergedTableDto.getTableVersion();
 
-    if (existingHouseTable != null) {
-      String head = existingHouseTable.getTableLocation();
+    if (existingTable != null) {
+      String head = existingTable.properties().get(getCanonicalFieldName("tableLocation"));
       if (!getSchemeLessPath(baseTableVersion).equals(getSchemeLessPath(head))) {
         throw new CommitFailedException(
             String.format(
@@ -541,11 +533,6 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         extractPreservedProps(existingTableProps, tableDto, preservedKeyChecker);
     Map<String, String> extractedProvidedProps =
         extractPreservedProps(providedTableProps, tableDto, preservedKeyChecker);
-    HTS_FIELD_NAMES.forEach(
-        fieldName -> {
-          extractedExistingProps.remove(getCanonicalFieldName(fieldName));
-          extractedProvidedProps.remove(getCanonicalFieldName(fieldName));
-        });
     if (!extractedExistingProps.equals(extractedProvidedProps)) {
       throw new UnsupportedClientOperationException(
           UnsupportedClientOperationException.Operation.ALTER_RESERVED_TBLPROPS,
@@ -612,17 +599,13 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
     // Populate server reserved properties
     Map<String, String> dtoMap = tableDto.convertToMap();
-    for (String fieldName : HOUSE_TABLE_FIELD_NAMES) {
-      if (dtoMap.get(fieldName) != null) {
-        // The catalog commit consumes HTS-backed fields and strips them before persisting metadata.
-        if (!HTS_FIELD_NAMES.contains(fieldName)) {
-          // Fields not represented by UserTable must remain in Iceberg properties.
-          propertiesMap.put(getCanonicalFieldName(fieldName), dtoMap.get(fieldName));
-        } else if (fieldName.equals("tableLocation")) {
+    for (String htsFieldName : HTS_FIELD_NAMES) {
+      if (dtoMap.get(htsFieldName) != null) {
+        if (htsFieldName.equals("tableLocation")) {
           propertiesMap.put(
-              getCanonicalFieldName(fieldName), getSchemeLessPath(dtoMap.get(fieldName)));
+              getCanonicalFieldName(htsFieldName), getSchemeLessPath(dtoMap.get(htsFieldName)));
         } else {
-          propertiesMap.put(getCanonicalFieldName(fieldName), dtoMap.get(fieldName));
+          propertiesMap.put(getCanonicalFieldName(htsFieldName), dtoMap.get(htsFieldName));
         }
       }
     }
@@ -758,22 +741,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
             : getUserTblProps(
                 providedTableDto.getTableProperties(), preservedKeyChecker, providedTableDto);
 
-    boolean propsUpdated =
-        InternalRepositoryUtils.alterPropIfNeeded(
-            updateProperties, existingTableProps, providedTableProps);
-    boolean htsPropertiesRemoved = false;
-    for (String key : existingTable.properties().keySet()) {
-      if (isHtsFieldProperty(key)) {
-        updateProperties.remove(key);
-        htsPropertiesRemoved = true;
-      }
-    }
-    return propsUpdated || htsPropertiesRemoved;
-  }
-
-  private static boolean isHtsFieldProperty(String key) {
-    return key.startsWith(OPENHOUSE_NAMESPACE)
-        && HTS_FIELD_NAMES.contains(key.substring(OPENHOUSE_NAMESPACE.length()));
+    return InternalRepositoryUtils.alterPropIfNeeded(
+        updateProperties, existingTableProps, providedTableProps);
   }
 
   private boolean doUpdateSnapshotsIfNeeded(
@@ -877,47 +846,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     }
     return Optional.of(
         convertToTableDto(
-            table,
-            getHouseTable(tableId),
-            fileIOManager,
-            partitionSpecMapper,
-            policiesMapper,
-            tableTypeMapper));
-  }
-
-  private HouseTable getHouseTable(TableIdentifier tableIdentifier) {
-    return findHouseTable(tableIdentifier)
-        .orElseThrow(
-            () ->
-                new IllegalStateException("Catalog entry is missing for table " + tableIdentifier));
-  }
-
-  private Optional<HouseTable> findHouseTable(TableIdentifier tableIdentifier) {
-    if (!(catalog instanceof OpenHouseInternalCatalog)) {
-      throw new UnsupportedOperationException(
-          "HTS-backed table metadata is not available for catalog type: "
-              + catalog.getClass().getName());
-    }
-    return ((OpenHouseInternalCatalog) catalog).findHouseTable(tableIdentifier);
-  }
-
-  private HouseTable houseTableForStagedOperation(
-      TableIdentifier tableIdentifier, TableDto tableDto, Table table) {
-    String metadataLocation = ((BaseTable) table).operations().current().metadataFileLocation();
-    long now = System.currentTimeMillis();
-    return HouseTable.builder()
-        .tableId(tableIdentifier.name())
-        .databaseId(tableIdentifier.namespace().toString())
-        .clusterId(tableDto.getClusterId())
-        .tableUri(tableDto.getTableUri())
-        .tableUUID(tableDto.getTableUUID())
-        .tableLocation(getSchemeLessPath(metadataLocation))
-        .tableVersion(tableDto.getTableVersion())
-        .tableCreator(tableDto.getTableCreator())
-        .lastModifiedTime(now)
-        .creationTime(tableDto.getCreationTime() == 0 ? now : tableDto.getCreationTime())
-        .storageType(fileIOManager.getStorage(table.io()).getType().getValue())
-        .build();
+            table, fileIOManager, partitionSpecMapper, policiesMapper, tableTypeMapper));
   }
 
   @Override
@@ -1015,19 +944,15 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   @Timed(metricKey = MetricsConstant.REPO_TABLES_FIND_ALL_TIME)
   @Override
   public Iterable<TableDto> findAll() {
-    List<TableIdentifier> tableIdentifiers = catalog.listTables(Namespace.empty());
-    return tableIdentifiers.stream()
+    List<Table> tables =
+        catalog.listTables(Namespace.empty()).stream()
+            .map(tableIdentifier -> catalog.loadTable(tableIdentifier))
+            .collect(Collectors.toList());
+    return tables.stream()
         .map(
-            tableIdentifier -> {
-              Table table = catalog.loadTable(tableIdentifier);
-              return convertToTableDto(
-                  table,
-                  getHouseTable(tableIdentifier),
-                  fileIOManager,
-                  partitionSpecMapper,
-                  policiesMapper,
-                  tableTypeMapper);
-            })
+            table ->
+                convertToTableDto(
+                    table, fileIOManager, partitionSpecMapper, policiesMapper, tableTypeMapper))
         .collect(Collectors.toList());
   }
 
