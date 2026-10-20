@@ -229,7 +229,7 @@ public class SchedulerRunner {
             String.format(
                 "batched-%s-%d",
                 bin.getOperationType().name().toLowerCase(), claimedAt.toEpochMilli()),
-            bin.getOperationType().name(),
+            batchJobType(bin.getOperationType()),
             group.getAccount(),
             claimedTableNames,
             claimedIds,
@@ -271,6 +271,16 @@ public class SchedulerRunner {
                       + " next pass",
                   reverted);
             });
+  }
+
+  /**
+   * Jobs Service job type for a <i>bin</i> of this operation — always the batched variant, since
+   * the scheduler only ever submits bin-packed jobs. The Jobs Service names batched types {@code
+   * <OPERATION>_BATCH} (e.g. {@code ORPHAN_FILES_DELETION_BATCH}, {@code
+   * TABLE_STATS_COLLECTION_BATCH}); the single-table types run only the legacy per-table path.
+   */
+  private static String batchJobType(OperationTypeDto operationType) {
+    return operationType.name() + "_BATCH";
   }
 
   /**

@@ -142,7 +142,7 @@ class SchedulerRunnerIntegrationTest {
     verify(jobsClient)
         .launch(
             anyString(),
-            eq(type.name()),
+            eq(type.name() + "_BATCH"),
             eq("alice"),
             eq(List.of("db1.a")),
             eq(List.of(row.getId())),
@@ -189,7 +189,12 @@ class SchedulerRunnerIntegrationTest {
             .collect(Collectors.toList());
     verify(jobsClient)
         .launch(
-            anyString(), eq(type.name()), eq(account), eq(names), eq(ids), eq(RESULTS_ENDPOINT));
+            anyString(),
+            eq(type.name() + "_BATCH"),
+            eq(account),
+            eq(names),
+            eq(ids),
+            eq(RESULTS_ENDPOINT));
     List<TableOperationsRow> stored = operationsRepo.findAllById(ids);
     assertThat(stored)
         .hasSize(ids.size())
