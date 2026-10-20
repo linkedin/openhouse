@@ -28,6 +28,9 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.web.context.WebServerApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -87,32 +90,36 @@ class UnlockAuthorizationTest {
     lock(CreateUpdateLockRequestBody.ReasonEnum.SYSTEM_ONLY);
   }
 
-  @Test
-  void authorizationPreflightIsAuthenticatedAndReadOnly() throws Exception {
+  @ParameterizedTest
+  @ValueSource(strings = {"", "/SYSTEM_ONLY"})
+  void unlockRequiresAuthenticationAndAuthorization(String pathSuffix) throws Exception {
     TableDto before = storedTable();
-    Assertions.assertEquals(204, preflight(token(OWNER)));
-    Assertions.assertEquals(204, preflight(token(ADMIN)));
-    Assertions.assertEquals(204, preflight(token(UPDATER)));
-    Assertions.assertEquals(403, preflight(token(READER)));
-    Assertions.assertEquals(401, preflight(null));
-    Assertions.assertEquals(401, preflight("not-a-jwt"));
+    Assertions.assertEquals(403, deleteLock(pathSuffix, token(READER)));
+    Assertions.assertEquals(401, deleteLock(pathSuffix, null));
+    Assertions.assertEquals(401, deleteLock(pathSuffix, "not-a-jwt"));
     Assertions.assertEquals(before, storedTable());
   }
 
-  @Test
-  void unauthorizedCallerIsRejectedDuringSparkAnalysis() throws Exception {
+  @ParameterizedTest
+  @EnumSource(CreateUpdateLockRequestBody.ReasonEnum.class)
+  void unauthorizedCallerIsRejectedDuringExecution(CreateUpdateLockRequestBody.ReasonEnum reason)
+      throws Exception {
+    if (reason == CreateUpdateLockRequestBody.ReasonEnum.LEGACY) {
+      controls.deleteLockByReasonV1(DATABASE, tableId, "SYSTEM_ONLY").block();
+      lock(reason);
+    }
     TableDto before = storedTable();
     LogicalPlan parsed =
-        spark.sessionState().sqlParser().parsePlan(unlockSql(READER, " REASON SYSTEM_ONLY"));
+        spark.sessionState().sqlParser().parsePlan(unlockSql(READER, " REASON " + reason));
     LogicalPlan analyzed = spark.sessionState().analyzer().execute(parsed);
-    WebClientResponseWithMessageException denied =
-        Assertions.assertThrows(
-            WebClientResponseWithMessageException.class,
-            () -> spark.sessionState().analyzer().checkAnalysis(analyzed));
-    Assertions.assertEquals(403, denied.getStatusCode());
+    Assertions.assertDoesNotThrow(() -> spark.sessionState().analyzer().checkAnalysis(analyzed));
     Assertions.assertEquals(before, storedTable());
 
-    for (String suffix : new String[] {"", " REASON LEGACY", " REASON SYSTEM_ONLY"}) {
+    String[] suffixes =
+        reason == CreateUpdateLockRequestBody.ReasonEnum.LEGACY
+            ? new String[] {"", " REASON LEGACY"}
+            : new String[] {" REASON SYSTEM_ONLY"};
+    for (String suffix : suffixes) {
       WebClientResponseWithMessageException executionDenied =
           Assertions.assertThrows(
               WebClientResponseWithMessageException.class,
@@ -202,11 +209,18 @@ class UnlockAuthorizationTest {
         .orElseThrow(() -> new AssertionError("Missing test table " + tableId));
   }
 
-  private int preflight(String token) throws Exception {
+  private int deleteLock(String pathSuffix, String token) throws Exception {
     Request.Builder request =
         new Request.Builder()
-            .url(serverUri + "/v1/databases/" + DATABASE + "/tables/" + tableId + "/lock")
-            .head();
+            .url(
+                serverUri
+                    + "/v1/databases/"
+                    + DATABASE
+                    + "/tables/"
+                    + tableId
+                    + "/lock"
+                    + pathSuffix)
+            .delete();
     if (token != null) {
       request.header("Authorization", "Bearer " + token);
     }

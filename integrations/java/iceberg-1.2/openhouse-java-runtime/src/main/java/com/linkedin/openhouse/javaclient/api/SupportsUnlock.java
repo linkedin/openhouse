@@ -5,13 +5,7 @@ import com.linkedin.openhouse.tables.client.model.CreateUpdateLockRequestBody.Re
 public interface SupportsUnlock {
 
   /**
-   * Check LOCK_ADMIN for the authenticated caller without loading or mutation. Fail closed if the
-   * check cannot be completed.
-   */
-  void checkUnlockAuthorization(UnlockTableTarget target);
-
-  /**
-   * Unlock without loading the table; recheck authorization before mutation.
+   * Unlock without loading the table; enforce authorization before mutation.
    *
    * @param target validated database/table target
    * @param reason non-null lock reason; SQL defaults an omitted reason to LEGACY

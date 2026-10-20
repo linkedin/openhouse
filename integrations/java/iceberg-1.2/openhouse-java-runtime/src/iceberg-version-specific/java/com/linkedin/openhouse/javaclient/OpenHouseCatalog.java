@@ -539,19 +539,6 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
   }
 
   @Override
-  public void checkUnlockAuthorization(UnlockTableTarget target) {
-    tableApi
-        .checkLockAuthorizationV1(target.getDatabaseId(), target.getTableId())
-        .onErrorResume(
-            WebClientResponseException.class,
-            e -> Mono.error(new WebClientResponseWithMessageException(e)))
-        .onErrorResume(
-            WebClientRequestException.class,
-            e -> Mono.error(new WebClientRequestWithMessageException(e)))
-        .block();
-  }
-
-  @Override
   public void unlockTable(UnlockTableTarget target, ReasonEnum reason) {
     log.debug("Calling unlockTable with identifier: {}, reason: {}", target, reason);
     String databaseId = target.getDatabaseId();
@@ -566,7 +553,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
             WebClientRequestException.class,
             e -> Mono.error(new WebClientRequestWithMessageException(e)))
         .block();
-    log.debug("Calling unlockTable succeeded with identifier: {}, reason: {}", target, reason);
+    log.info("Calling unlockTable succeeded with identifier: {}, reason: {}", target, reason);
   }
 
   private UpdateAclPoliciesRequestBody getUpdateAclPoliciesRequestBody(

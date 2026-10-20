@@ -8,7 +8,6 @@ import com.linkedin.openhouse.spark.SparkTestBase;
 import com.linkedin.openhouse.spark.sql.catalyst.parser.extensions.OpenhouseParseException;
 import java.io.StringWriter;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import okhttp3.mockwebserver.Dispatcher;
@@ -44,21 +43,18 @@ public class UnlockStatementTest {
   }
 
   @Test
-  public void testAuthorizationCheckPrecedesMutationWithoutTableLoad() {
+  public void testUnlockUsesSingleDeleteWithoutTableLoad() {
     List<String> requests = recordRequests(new MockResponse().setResponseCode(204));
     spark.sql("ALTER TABLE openhouse.dunlock.t1 UNLOCK REASON SYSTEM_ONLY");
     Assertions.assertEquals(
-        Arrays.asList(
-            "HEAD /v1/databases/dunlock/tables/t1/lock",
-            "DELETE /v1/databases/dunlock/tables/t1/lock/SYSTEM_ONLY"),
+        Collections.singletonList("DELETE /v1/databases/dunlock/tables/t1/lock/SYSTEM_ONLY"),
         requests);
   }
 
   @ParameterizedTest
   @CsvSource({"LEGACY,204", "SYSTEM_ONLY,204", "SYSTEM_ONLY,409"})
   public void testSuccessLogIncludesTargetAndReasonOnlyAfterSuccess(String reason, int status) {
-    recordRequests(
-        new MockResponse().setResponseCode(204), new MockResponse().setResponseCode(status));
+    recordRequests(new MockResponse().setResponseCode(status));
     Logger logger = Logger.getLogger("com.linkedin.openhouse.javaclient.OpenHouseCatalog");
     Level previousLevel = logger.getLevel();
     StringWriter output = new StringWriter();
@@ -73,7 +69,7 @@ public class UnlockStatementTest {
             output
                 .toString()
                 .contains(
-                    "DEBUG Calling unlockTable succeeded with identifier: dunlock.t1, reason: "
+                    "INFO Calling unlockTable succeeded with identifier: dunlock.t1, reason: "
                         + reason),
             output.toString());
       } else {
@@ -85,7 +81,8 @@ public class UnlockStatementTest {
               .toString()
               .contains("DEBUG Calling unlockTable with identifier: dunlock.t1, reason: " + reason),
           output.toString());
-      Assertions.assertFalse(output.toString().contains("INFO Calling unlockTable"));
+      Assertions.assertFalse(
+          output.toString().contains("INFO Calling unlockTable with identifier:"));
     } finally {
       logger.removeAppender(appender);
       logger.setLevel(previousLevel);
@@ -99,10 +96,7 @@ public class UnlockStatementTest {
     List<String> requests = recordRequests(new MockResponse().setResponseCode(204));
     spark.sql("ALTER TABLE openhouse.dunlock.t1 UNLOCK" + suffix);
     Assertions.assertEquals(
-        Arrays.asList(
-            "HEAD /v1/databases/dunlock/tables/t1/lock",
-            "DELETE /v1/databases/dunlock/tables/t1/lock"),
-        requests);
+        Collections.singletonList("DELETE /v1/databases/dunlock/tables/t1/lock"), requests);
   }
 
   @ParameterizedTest
@@ -159,12 +153,12 @@ public class UnlockStatementTest {
   public void testQuotedTargetComponentsPreserveUrlSegments(String target, String path) {
     List<String> requests = recordRequests(new MockResponse().setResponseCode(204));
     spark.sql("ALTER TABLE " + target + " UNLOCK");
-    Assertions.assertEquals(Arrays.asList("HEAD " + path, "DELETE " + path), requests);
+    Assertions.assertEquals(Collections.singletonList("DELETE " + path), requests);
   }
 
   @ParameterizedTest
-  @ValueSource(ints = {401, 403, 404, 405, 500})
-  public void testAuthorizationCheckFailsClosed(int status) {
+  @ValueSource(ints = {401, 403, 404, 405, 409, 500})
+  public void testUnlockHttpFailurePropagates(int status) {
     List<String> requests = recordRequests(new MockResponse().setResponseCode(status));
     WebClientResponseWithMessageException failure =
         Assertions.assertThrows(
@@ -172,27 +166,10 @@ public class UnlockStatementTest {
             () -> spark.sql("ALTER TABLE openhouse.dunlock.t1 UNLOCK"));
     Assertions.assertEquals(status, failure.getStatusCode());
     Assertions.assertEquals(
-        Collections.singletonList("HEAD /v1/databases/dunlock/tables/t1/lock"), requests);
+        Collections.singletonList("DELETE /v1/databases/dunlock/tables/t1/lock"), requests);
   }
 
-  @Test
-  public void testAuthorizationRequestFailurePreventsMutation() {
-    List<String> requests =
-        recordRequests(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST));
-    Assertions.assertThrows(
-        WebClientRequestWithMessageException.class,
-        () -> spark.sql("ALTER TABLE openhouse.dunlock.t1 UNLOCK"));
-    Assertions.assertFalse(requests.isEmpty());
-    Assertions.assertTrue(
-        requests.stream().allMatch("HEAD /v1/databases/dunlock/tables/t1/lock"::equals));
-  }
-
-  private List<String> recordRequests(MockResponse authorizationResponse) {
-    return recordRequests(authorizationResponse, new MockResponse().setResponseCode(204));
-  }
-
-  private List<String> recordRequests(
-      MockResponse authorizationResponse, MockResponse mutationResponse) {
+  private List<String> recordRequests(MockResponse response) {
     List<String> requests = Collections.synchronizedList(new ArrayList<>());
     mockTableService.setDispatcher(
         new Dispatcher() {
@@ -200,7 +177,7 @@ public class UnlockStatementTest {
           @Override
           public MockResponse dispatch(@NotNull RecordedRequest request) {
             requests.add(request.getMethod() + " " + request.getPath());
-            return "HEAD".equals(request.getMethod()) ? authorizationResponse : mutationResponse;
+            return response;
           }
         });
     return requests;
@@ -208,13 +185,15 @@ public class UnlockStatementTest {
 
   @Test
   public void testUnlockRequestFailure() {
-    recordRequests(
-        new MockResponse().setResponseCode(204),
-        new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST));
+    List<String> requests =
+        recordRequests(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST));
     WebClientRequestWithMessageException failure =
         Assertions.assertThrows(
             WebClientRequestWithMessageException.class,
             () -> spark.sql("ALTER TABLE openhouse.dunlock.t1 UNLOCK"));
     Assertions.assertTrue(failure.getMessage().contains("Connection prematurely closed"));
+    Assertions.assertFalse(requests.isEmpty());
+    Assertions.assertTrue(
+        requests.stream().allMatch("DELETE /v1/databases/dunlock/tables/t1/lock"::equals));
   }
 }

@@ -402,13 +402,6 @@ public class TablesServiceImpl implements TablesService {
     }
   }
 
-  @Override
-  public void checkLockAuthorization(String databaseId, String tableId, String actingPrincipal) {
-    TableDto tableDto = getTableOrThrow(databaseId, tableId);
-    checkReplicaTable(tableDto);
-    authorizationUtils.checkLockTablePrivilege(tableDto, actingPrincipal, Privileges.LOCK_ADMIN);
-  }
-
   /**
    * Remove a LEGACY lock by setting the lockState policy to null. Reasoned locks require the
    * reason-targeted overload.

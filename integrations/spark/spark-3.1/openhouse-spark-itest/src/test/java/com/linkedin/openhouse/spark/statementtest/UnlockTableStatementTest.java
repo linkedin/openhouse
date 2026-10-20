@@ -5,6 +5,7 @@ import com.linkedin.openhouse.javaclient.api.SupportsUnlock;
 import com.linkedin.openhouse.javaclient.api.UnlockTableTarget;
 import com.linkedin.openhouse.javaclient.exception.UnlockValidationException;
 import com.linkedin.openhouse.spark.sql.catalyst.parser.extensions.OpenhouseParseException;
+import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.ResolvedUnlockTable;
 import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.UnlockTable;
 import java.nio.file.Files;
 import java.util.Collections;
@@ -72,19 +73,20 @@ public class UnlockTableStatementTest {
               () -> spark.sql("ALTER TABLE openhouse.db.table UNLOCK" + suffix));
       Assertions.assertTrue(failure.getMessage().contains(UNLOCK_ENABLED), failure.getMessage());
     }
-    Assertions.assertNull(UnlockHadoopCatalog.checkedTarget);
     Assertions.assertNull(UnlockHadoopCatalog.unlockedTarget);
   }
 
   @Test
-  public void testAnalysisChecksAuthorizationWithoutUnlocking() throws ParseException {
+  public void testAnalysisResolvesTargetWithoutUnlocking() throws ParseException {
     LogicalPlan parsed =
         spark
             .sessionState()
             .sqlParser()
             .parsePlan("ALTER TABLE openhouse.db.table UNLOCK REASON SYSTEM_ONLY");
-    spark.sessionState().analyzer().checkAnalysis(spark.sessionState().analyzer().execute(parsed));
-    Assertions.assertEquals("db.table", String.valueOf(UnlockHadoopCatalog.checkedTarget));
+    LogicalPlan analyzed = spark.sessionState().analyzer().execute(parsed);
+    spark.sessionState().analyzer().checkAnalysis(analyzed);
+    Assertions.assertEquals("db.table", ((ResolvedUnlockTable) analyzed).target().toString());
+    Assertions.assertEquals(ReasonEnum.SYSTEM_ONLY, ((ResolvedUnlockTable) analyzed).reason());
     Assertions.assertNull(UnlockHadoopCatalog.unlockedTarget);
   }
 
@@ -126,6 +128,8 @@ public class UnlockTableStatementTest {
       spark.sql("USE openhouse.changed");
       spark.sessionState().planner().plan(analyzed).next().executeCollect();
       assertUnlocked("original.target", ReasonEnum.LEGACY);
+      Assertions.assertSame(
+          ((ResolvedUnlockTable) analyzed).target(), UnlockHadoopCatalog.unlockedTarget);
     } finally {
       spark.sql("USE spark_catalog");
     }
@@ -137,7 +141,6 @@ public class UnlockTableStatementTest {
     Assertions.assertThrows(
         SecurityException.class,
         () -> spark.sql("ALTER TABLE openhouse.db.table UNLOCK REASON SYSTEM_ONLY"));
-    Assertions.assertEquals("db.table", String.valueOf(UnlockHadoopCatalog.checkedTarget));
     Assertions.assertNull(UnlockHadoopCatalog.unlockedTarget);
   }
 
@@ -265,11 +268,17 @@ public class UnlockTableStatementTest {
   }
 
   @Test
-  public void testUnsupportedCatalog() {
+  public void testUnsupportedCatalog() throws ParseException {
+    LogicalPlan parsed =
+        spark.sessionState().sqlParser().parsePlan("ALTER TABLE spark_catalog.db.table UNLOCK");
     Exception exception =
         Assertions.assertThrows(
             UnsupportedOperationException.class,
-            () -> spark.sql("ALTER TABLE spark_catalog.db.table UNLOCK"));
+            () ->
+                spark
+                    .sessionState()
+                    .analyzer()
+                    .checkAnalysis(spark.sessionState().analyzer().execute(parsed)));
     Assertions.assertTrue(
         exception.getMessage().contains("Catalog 'spark_catalog' does not support UNLOCK"));
   }
@@ -300,7 +309,6 @@ public class UnlockTableStatementTest {
   @BeforeEach
   public void setup() {
     spark.conf().set(UNLOCK_ENABLED, true);
-    UnlockHadoopCatalog.checkedTarget = null;
     UnlockHadoopCatalog.unlockedTarget = null;
     UnlockHadoopCatalog.authorized = true;
     UnlockHadoopCatalog.reason = null;
@@ -312,30 +320,22 @@ public class UnlockTableStatementTest {
   }
 
   private void assertUnlocked(String tableName, ReasonEnum reason) {
-    Assertions.assertNotNull(UnlockHadoopCatalog.checkedTarget, "Authorization missing");
+    Assertions.assertNotNull(UnlockHadoopCatalog.unlockedTarget, "Unlock missing");
     Assertions.assertEquals(
-        tableName, UnlockHadoopCatalog.checkedTarget.toString(), "Table mismatch");
-    Assertions.assertSame(
-        UnlockHadoopCatalog.checkedTarget, UnlockHadoopCatalog.unlockedTarget, "Target mismatch");
+        tableName, UnlockHadoopCatalog.unlockedTarget.toString(), "Table mismatch");
     Assertions.assertEquals(reason, UnlockHadoopCatalog.reason, "Reason mismatch");
   }
 
   public static class UnlockHadoopCatalog extends HadoopCatalog implements SupportsUnlock {
-    public static UnlockTableTarget checkedTarget;
     public static UnlockTableTarget unlockedTarget;
     public static boolean authorized;
     public static ReasonEnum reason;
 
     @Override
-    public void checkUnlockAuthorization(UnlockTableTarget target) {
-      checkedTarget = target;
+    public void unlockTable(UnlockTableTarget target, ReasonEnum lockReason) {
       if (!authorized) {
         throw new SecurityException("Not authorized to unlock " + target);
       }
-    }
-
-    @Override
-    public void unlockTable(UnlockTableTarget target, ReasonEnum lockReason) {
       unlockedTarget = target;
       reason = lockReason;
     }

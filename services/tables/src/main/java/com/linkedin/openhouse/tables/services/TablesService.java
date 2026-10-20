@@ -153,9 +153,6 @@ public interface TablesService {
       CreateUpdateLockRequestBody createUpdateLockRequestBody,
       String tableCreatorUpdator);
 
-  /** Check the same privilege as unlock, without ordinary table access or mutation. */
-  void checkLockAuthorization(String databaseId, String tableId, String actingPrincipal);
-
   /**
    * Delete a table lock represented by databaseId and tableId if actingPrincipal has the right
    * privilege. This overload only removes LEGACY locks.

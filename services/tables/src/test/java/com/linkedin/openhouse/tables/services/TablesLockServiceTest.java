@@ -47,35 +47,27 @@ class TablesLockServiceTest {
         .thenAnswer(invocation -> invocation.getArgument(0));
   }
 
-  @Test
-  void authorizationPreflightDoesNotReadOrMutateLockedTable() {
-    withLock(systemOnlyLock());
-    service.checkLockAuthorization("db", "table", OWNER);
-    verify(service.authorizationUtils).checkLockTablePrivilege(table, OWNER, Privileges.LOCK_ADMIN);
-    verifyNoMoreInteractions(service.authorizationUtils);
-    verify(service.openHouseInternalRepository, never()).save(any());
-  }
-
-  @Test
-  void authorizationPreflightPropagatesDenialWithoutMutation() {
-    withLock(systemOnlyLock());
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void unlockRequiresLockAdminBeforeMutation(boolean reasonTargeted) {
+    withLock(
+        reasonTargeted
+            ? systemOnlyLock()
+            : LockState.builder().locked(true).reason(LockReason.LEGACY).build());
     doThrow(new AccessDeniedException("denied"))
         .when(service.authorizationUtils)
         .checkLockTablePrivilege(table, OWNER, Privileges.LOCK_ADMIN);
     assertThrows(
-        AccessDeniedException.class, () -> service.checkLockAuthorization("db", "table", OWNER));
-    verify(service.openHouseInternalRepository, never()).save(any());
-  }
-
-  @Test
-  void authorizationPreflightRejectsMissingTablesAndReplicas() {
-    table = table.toBuilder().tableType(TableType.REPLICA_TABLE).build();
-    assertThrows(
-        UnsupportedOperationException.class,
-        () -> service.checkLockAuthorization("db", "table", OWNER));
-    when(service.openHouseInternalRepository.findById(any())).thenReturn(Optional.empty());
-    assertThrows(
-        NoSuchUserTableException.class, () -> service.checkLockAuthorization("db", "table", OWNER));
+        AccessDeniedException.class,
+        () -> {
+          if (reasonTargeted) {
+            service.deleteLock("db", "table", LockReason.SYSTEM_ONLY, OWNER);
+          } else {
+            service.deleteLock("db", "table", OWNER);
+          }
+        });
+    verify(service.authorizationUtils).checkLockTablePrivilege(table, OWNER, Privileges.LOCK_ADMIN);
+    verifyNoMoreInteractions(service.authorizationUtils);
     verify(service.openHouseInternalRepository, never()).save(any());
   }
 
