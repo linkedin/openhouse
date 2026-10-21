@@ -194,6 +194,8 @@ public class SmokeTest {
         ImmutableMap.of("header.X-Client-Name", "configured-client-name"),
         ImmutableMap.of("header.X-OpenHouse-Action-Type", "configured-action-type"),
         ImmutableMap.of("header.session-id", "configured-session-id"),
+        ImmutableMap.of("header.Accept", "text/plain"),
+        ImmutableMap.of("header.content-type", "application/xml"),
         ImmutableMap.of(
             "header.X-OpenHouse-Example", "first", "header.x-openhouse-example", "second"));
   }

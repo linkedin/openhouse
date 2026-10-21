@@ -2,10 +2,12 @@ package com.linkedin.openhouse.javaclient;
 
 import com.linkedin.openhouse.client.ssl.WebClientFactory;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.util.PropertyUtil;
 import org.springframework.http.HttpHeaders;
@@ -38,6 +40,14 @@ final class CatalogRequestHeaders {
           WebClientFactory.HTTP_HEADER_ACTION_TYPE, OpenHouseCatalog.ACTION_TYPE,
           WebClientFactory.HTTP_HEADER_SESSION_ID, CatalogProperties.APP_ID);
 
+  /**
+   * Headers each request sets for the media types it sends and accepts. The generated client adds
+   * configured headers after these instead of replacing them, so a configured value would be sent
+   * alongside the request's own.
+   */
+  private static final List<String> REQUEST_SET =
+      ImmutableList.of(HttpHeaders.ACCEPT, HttpHeaders.CONTENT_TYPE);
+
   private CatalogRequestHeaders() {}
 
   /**
@@ -60,6 +70,7 @@ final class CatalogRequestHeaders {
             });
     SOURCE_PROPERTY.forEach(
         (header, property) -> ignore(headers, header, "the catalog sets it from " + property));
+    REQUEST_SET.forEach(header -> ignore(headers, header, "each request sets it"));
     for (String header : new ArrayList<>(headers.keySet())) {
       if (headers.get(header).size() > 1) {
         ignore(headers, header, "more than one property names it");
