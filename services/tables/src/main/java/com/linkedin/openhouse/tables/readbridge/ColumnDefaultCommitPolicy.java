@@ -44,8 +44,9 @@ public class ColumnDefaultCommitPolicy implements CommitPolicy {
   }
 
   /**
-   * @throws UnsupportedClientOperationException if the commit changes or removes a committed
-   *     opt-in, breaks Type 1 or Type 2, or declares a default that cannot be applied
+   * @throws ColumnDefaultOptInLockedException if the commit changes or removes a committed opt-in
+   * @throws UnsupportedClientOperationException if the commit breaks Type 1 or Type 2, or declares
+   *     a default that cannot be applied
    * @throws TableConfigUnavailableException if a default the table declares cannot be applied
    */
   @Override
@@ -73,8 +74,7 @@ public class ColumnDefaultCommitPolicy implements CommitPolicy {
     if (committed != null
         && "true".equalsIgnoreCase(committed.trim())
         && !committed.equals(commit.getProperties().get(ENABLED))) {
-      throw new UnsupportedClientOperationException(
-          UnsupportedClientOperationException.Operation.ALTER_RESERVED_TBLPROPS,
+      throw new ColumnDefaultOptInLockedException(
           String.format(
               "Table property %s is immutable once set to true on table %s; cannot change or"
                   + " remove it without the column-default policy override.",

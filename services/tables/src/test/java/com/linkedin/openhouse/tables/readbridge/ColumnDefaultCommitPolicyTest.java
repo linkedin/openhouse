@@ -56,9 +56,9 @@ public class ColumnDefaultCommitPolicyTest {
   @ParameterizedTest
   @MethodSource("changesToCommittedTrue")
   void optInCannotBeChangedOrRemovedOnceTrue(String committed, String proposed) {
-    UnsupportedClientOperationException error =
+    ColumnDefaultOptInLockedException error =
         Assertions.assertThrows(
-            UnsupportedClientOperationException.class,
+            ColumnDefaultOptInLockedException.class,
             () -> policy(NO_BYPASS).check(commit(table(committed), optIn(proposed))));
     Assertions.assertTrue(error.getMessage().contains(ENABLED));
     Assertions.assertTrue(error.getMessage().contains("immutable once set to true"));
