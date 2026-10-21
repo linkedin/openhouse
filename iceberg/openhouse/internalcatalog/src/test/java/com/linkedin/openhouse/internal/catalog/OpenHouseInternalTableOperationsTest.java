@@ -34,6 +34,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -163,7 +164,7 @@ public class OpenHouseInternalTableOperationsTest {
             fileIOManager,
             tableMetadataCache,
             mockPostCommitOperationRunner,
-            CommitPolicy.NONE);
+            null);
 
     LocalStorage localStorage = mock(LocalStorage.class);
     when(fileIOManager.getStorage(fileIO)).thenReturn(localStorage);
@@ -171,11 +172,11 @@ public class OpenHouseInternalTableOperationsTest {
   }
 
   /**
-   * The policy judges only commits built on the table's current version: a snapshot commit built on
-   * an older version gets the retryable conflict from the stale-base check first.
+   * Pre-commit checks judge only commits built on the table's current version: a snapshot commit
+   * built on an older version gets the retryable conflict from the stale-base check first.
    */
   @Test
-  void testCommitPolicyNeverJudgesAStaleSnapshotCommit() throws IOException {
+  void testPreCommitChecksNeverJudgeAStaleSnapshotCommit() throws IOException {
     java.nio.file.Path persisted =
         Files.createTempDirectory("oh-commit-policy").resolve("00002-current.metadata.json");
     Files.write(persisted, TableMetadataParser.toJson(BASE_TABLE_METADATA).getBytes());
@@ -186,8 +187,8 @@ public class OpenHouseInternalTableOperationsTest {
         CatalogConstants.SNAPSHOTS_JSON_KEY,
         SnapshotsUtil.serializedSnapshots(IcebergTestUtil.getSnapshots()));
     properties.put(CatalogConstants.COMMIT_KEY, "/test_db/test_table/00001-older.metadata.json");
-    AtomicReference<TableCommit> judged = new AtomicReference<>();
-    openHouseInternalTableOperations.commitPolicy = judged::set;
+    AtomicReference<PreCommitContext> judged = new AtomicReference<>();
+    openHouseInternalTableOperations.preCommitCheckRunner = runnerOf(judged::set);
 
     try (MockedStatic<TableMetadataParser> metadataFiles = mockStatic(TableMetadataParser.class)) {
       Assertions.assertThrows(
@@ -199,17 +200,18 @@ public class OpenHouseInternalTableOperationsTest {
   }
 
   /**
-   * A rejection fails the commit with the policy's error, unchanged and before anything is written:
+   * A rejection fails the commit with the check's error, unchanged and before anything is written:
    * not as a bad request, and not as a commit failure after a commit-status check. It still counts
    * as a failed commit.
    */
   @Test
-  void testCommitPolicyRejectionPassesThroughUnchanged() {
-    CommitRejectedException error = new CommitRejectedException("policy rejected") {};
-    openHouseInternalTableOperationsWithMockMetrics.commitPolicy =
-        commit -> {
-          throw error;
-        };
+  void testPreCommitRejectionPassesThroughUnchanged() {
+    CommitRejectedException error = new CommitRejectedException("check rejected") {};
+    openHouseInternalTableOperationsWithMockMetrics.preCommitCheckRunner =
+        runnerOf(
+            context -> {
+              throw error;
+            });
 
     try (MockedStatic<TableMetadataParser> metadataFiles = mockStatic(TableMetadataParser.class)) {
       Assertions.assertSame(
@@ -231,10 +233,10 @@ public class OpenHouseInternalTableOperationsTest {
     PROPERTIES
   }
 
-  /** The policy sees whether the commit puts snapshots or replaces the table. */
+  /** Pre-commit checks see whether the commit puts snapshots or replaces the table. */
   @ParameterizedTest
   @EnumSource(CommitKind.class)
-  void testCommitPolicySeesWhetherTheCommitPutsSnapshots(CommitKind kind) throws IOException {
+  void testPreCommitChecksSeeWhetherTheCommitPutsSnapshots(CommitKind kind) throws IOException {
     Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
     if (kind == CommitKind.SNAPSHOTS) {
       List<Snapshot> snapshots = IcebergTestUtil.getSnapshots();
@@ -249,30 +251,32 @@ public class OpenHouseInternalTableOperationsTest {
     }
 
     Assertions.assertEquals(
-        kind != CommitKind.PROPERTIES, commitJudgedByPolicy(properties).isSnapshotCommit());
+        kind != CommitKind.PROPERTIES, commitJudgedByChecks(properties).isSnapshotCommit());
   }
 
-  /** The policy sees the properties the commit leaves, after transient overrides are restored. */
+  /**
+   * Pre-commit checks see the properties the commit leaves, after transient overrides are restored.
+   */
   @Test
-  void testCommitPolicySeesRestoredProperties() {
+  void testPreCommitChecksSeeRestoredProperties() {
     Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
     properties.put("owner", "overridden");
     properties.put(CatalogConstants.TRANSIENT_RESTORE_PREFIX + "owner", "original");
     properties.put("added", "temporarily");
     properties.put(CatalogConstants.TRANSIENT_ADDED_PREFIX + "added", "true");
 
-    Map<String, String> judged = commitJudgedByPolicy(properties).getProperties();
+    Map<String, String> judged = commitJudgedByChecks(properties).getProperties();
     Assertions.assertEquals("original", judged.get("owner"));
     Assertions.assertFalse(judged.containsKey("added"));
   }
 
-  /** The replace marker the policy sees is never persisted. */
+  /** The replace marker pre-commit checks see is never persisted. */
   @Test
   void testReplaceMarkerIsNotPersisted() {
     Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
     properties.put(CatalogConstants.IS_REPLACE_COMMIT_KEY, "true");
 
-    commitJudgedByPolicy(properties);
+    commitJudgedByChecks(properties);
     Assertions.assertFalse(
         tblMetadataCaptor
             .getValue()
@@ -282,17 +286,35 @@ public class OpenHouseInternalTableOperationsTest {
 
   /**
    * Commits {@code properties} on top of {@link #BASE_TABLE_METADATA} and returns the commit the
-   * policy judged. The persisted metadata is left in {@code tblMetadataCaptor}.
+   * pre-commit checks judged. The persisted metadata is left in {@code tblMetadataCaptor}.
    */
-  private TableCommit commitJudgedByPolicy(Map<String, String> properties) {
-    AtomicReference<TableCommit> judged = new AtomicReference<>();
-    openHouseInternalTableOperations.commitPolicy = judged::set;
+  private PreCommitContext commitJudgedByChecks(Map<String, String> properties) {
+    AtomicReference<PreCommitContext> judged = new AtomicReference<>();
+    openHouseInternalTableOperations.preCommitCheckRunner = runnerOf(judged::set);
     try (MockedStatic<TableMetadataParser> metadataFiles = mockStatic(TableMetadataParser.class)) {
       openHouseInternalTableOperations.doCommit(
           BASE_TABLE_METADATA, BASE_TABLE_METADATA.replaceProperties(properties));
       verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), any());
     }
     return judged.get();
+  }
+
+  /** A runner with one check that does {@code check}. */
+  private static PreCommitCheckRunner runnerOf(Consumer<PreCommitContext> check) {
+    return new PreCommitCheckRunner(
+        Collections.singletonList(
+            new PreCommitCheck() {
+              @Override
+              public String getName() {
+                return "test";
+              }
+
+              @Override
+              public void check(PreCommitContext context) {
+                check.accept(context);
+              }
+            }),
+        new SimpleMeterRegistry());
   }
 
   /**
