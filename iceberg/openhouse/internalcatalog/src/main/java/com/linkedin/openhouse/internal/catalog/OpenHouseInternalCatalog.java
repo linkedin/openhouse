@@ -70,8 +70,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Autowired PostCommitOperationRunner postCommitOperationRunner;
 
-  @Autowired(required = false)
-  CommitPolicy commitPolicy = CommitPolicy.NONE;
+  @Autowired PreCommitCheckRunner preCommitCheckRunner;
 
   @Override
   protected TableOperations newTableOps(TableIdentifier tableIdentifier) {
@@ -87,7 +86,7 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
         fileIOManager,
         tableMetadataCache,
         postCommitOperationRunner,
-        commitPolicy);
+        preCommitCheckRunner);
   }
 
   @Override

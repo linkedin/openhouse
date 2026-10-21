@@ -45,7 +45,7 @@ public class ApiConfig {
     return new ReadBridgeStripProtection(readBridgeConfigResolver);
   }
 
-  /** The internal catalog's commit policy. */
+  /** A pre-commit check: the internal catalog runs it on every table commit. */
   @Bean
   public ColumnDefaultCommitPolicy columnDefaultCommitPolicy(CatalogRequestContext requestContext) {
     return new ColumnDefaultCommitPolicy(requestContext);
