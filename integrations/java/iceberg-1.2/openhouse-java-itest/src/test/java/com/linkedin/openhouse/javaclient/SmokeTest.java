@@ -162,8 +162,9 @@ public class SmokeTest {
   }
 
   /**
-   * A header property that names no header, names a header the catalog sets, or names the same
-   * header as another property is ignored: initialization succeeds and its value is never sent.
+   * A header property that names no header, has a name or value HTTP cannot carry, names a header
+   * the catalog sets, or names the same header as another property is ignored: initialization
+   * succeeds and its value is never sent.
    */
   @ParameterizedTest
   @MethodSource("ignoredHeaderProperties")
@@ -178,14 +179,16 @@ public class SmokeTest {
     RecordedRequest request = mockTableService.takeRequest(1, TimeUnit.SECONDS);
     Assertions.assertNotNull(request);
     Collection<List<String>> sent = request.getHeaders().toMultimap().values();
-    for (String value : headerProperties.values()) {
-      Assertions.assertTrue(sent.stream().noneMatch(values -> values.contains(value)), value);
-    }
+    Assertions.assertTrue(
+        headerProperties.values().stream()
+            .allMatch(value -> sent.stream().noneMatch(values -> values.contains(value))));
   }
 
   static Stream<Map<String, String>> ignoredHeaderProperties() {
     return Stream.of(
         ImmutableMap.of("header.", "unnamed"),
+        ImmutableMap.of("header.Bad Header", "bad-name"),
+        ImmutableMap.of("header.X-OpenHouse-Example", "first-line\nsecond-line"),
         ImmutableMap.of("header.Authorization", "configured-authorization"),
         ImmutableMap.of("header.user-agent", "configured-user-agent"),
         ImmutableMap.of("header.X-Client-Name", "configured-client-name"),

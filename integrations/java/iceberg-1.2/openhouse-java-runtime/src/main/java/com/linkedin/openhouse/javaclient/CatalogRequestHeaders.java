@@ -3,6 +3,7 @@ package com.linkedin.openhouse.javaclient;
 import com.linkedin.openhouse.client.ssl.WebClientFactory;
 import java.util.ArrayList;
 import java.util.Map;
+import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
@@ -22,6 +23,12 @@ import org.springframework.http.HttpHeaders;
 final class CatalogRequestHeaders {
   static final String PREFIX = "header.";
 
+  /** An HTTP header name: one or more RFC 7230 token characters. */
+  private static final Pattern NAME = Pattern.compile("[!#$%&'*+.^_`|~0-9A-Za-z-]+");
+
+  /** A character a header value cannot contain: a control character other than tab. */
+  private static final Pattern VALUE_CONTROL = Pattern.compile("[\\x00-\\x08\\x0A-\\x1F\\x7F]");
+
   /** Maps each header the catalog sets to the catalog property it comes from. */
   private static final Map<String, String> SOURCE_PROPERTY =
       ImmutableMap.of(
@@ -35,13 +42,22 @@ final class CatalogRequestHeaders {
 
   /**
    * Returns the configured headers, one value each. Header names are case-insensitive. A property
-   * that names no header, names a header the catalog sets, or names a header another property also
-   * names is ignored with a warning: initialization goes on, and the catalog keeps its own values.
+   * that names no header, has a name or value HTTP cannot carry, names a header the catalog sets,
+   * or names a header another property also names is ignored with a warning: initialization goes
+   * on, and the catalog keeps its own values. The warning names the header, never the value.
    */
   static HttpHeaders from(Map<String, String> properties) {
     HttpHeaders headers = new HttpHeaders();
-    PropertyUtil.propertiesWithPrefix(properties, PREFIX).forEach(headers::add);
-    ignore(headers, "", "it names no header");
+    PropertyUtil.propertiesWithPrefix(properties, PREFIX)
+        .forEach(
+            (name, value) -> {
+              String unusable = unusableReason(name, value);
+              if (unusable == null) {
+                headers.add(name, value);
+              } else {
+                log.warn("Ignoring catalog property {}{}: {}", PREFIX, name, unusable);
+              }
+            });
     SOURCE_PROPERTY.forEach(
         (header, property) -> ignore(headers, header, "the catalog sets it from " + property));
     for (String header : new ArrayList<>(headers.keySet())) {
@@ -50,6 +66,20 @@ final class CatalogRequestHeaders {
       }
     }
     return headers;
+  }
+
+  /** Returns why HTTP cannot carry this header, or null if it can. */
+  private static String unusableReason(String name, String value) {
+    if (name.isEmpty()) {
+      return "it names no header";
+    }
+    if (!NAME.matcher(name).matches()) {
+      return "the name is not a valid HTTP header name";
+    }
+    if (VALUE_CONTROL.matcher(value).find()) {
+      return "the value contains a control character";
+    }
+    return null;
   }
 
   private static void ignore(HttpHeaders headers, String header, String reason) {
