@@ -2,15 +2,14 @@ package com.linkedin.openhouse.spark.catalogtest;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.HashMap;
 import java.util.Map;
-import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
+import org.apache.iceberg.exceptions.NoSuchViewException;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.Test;
@@ -24,10 +23,11 @@ import org.junit.jupiter.api.Test;
  * client view operations now call the OpenHouse Views service (via {@code ViewApi}) instead of an
  * in-memory store, but the service is currently a 404 stub ({@code ViewsDisabledService}). The full
  * buildView -> loadView -> listViews -> dropView round-trip cannot pass yet, so this test asserts
- * the create fails with the service's 404 — still validating that the enabled view path is wired
- * through {@code ViewApi} to the service rather than an in-memory store. Client-level coverage
- * (mocked {@code ViewApi}) lives in {@code OpenHouseViewOperationsTest} in the iceberg-1.5 itest
- * module.
+ * the create fails with the service's 404, which the client classifies into {@link
+ * org.apache.iceberg.exceptions.NoSuchViewException} — still validating that the enabled view path
+ * is wired through {@code ViewApi} to the service rather than an in-memory store (which would have
+ * created the view and succeeded). Client-level coverage (mocked {@code ViewApi}) lives in {@code
+ * OpenHouseViewOperationsTest} in the iceberg-1.5 itest module.
  */
 public class OpenHouseViewEnabledTestSpark3_5 extends OpenHouseSparkITest {
 
@@ -43,12 +43,13 @@ public class OpenHouseViewEnabledTestSpark3_5 extends OpenHouseSparkITest {
       TableIdentifier viewId = TableIdentifier.of("viewenabled_db", "v_roundtrip");
       Schema schema = new Schema(Types.NestedField.required(1, "c", Types.IntegerType.get()));
 
-      // The create reaches the Views service through ViewApi; the 404 stub surfaces as a
-      // WebClientResponseWithMessageException carrying the service's "Views are disabled" message.
-      // This validates the enabled view path is wired to the service, not an in-memory store.
-      WebClientResponseWithMessageException exception =
+      // The create reaches the Views service through ViewApi; the 404 stub (ViewsDisabledService)
+      // is classified by the client into NoSuchViewException. An in-memory store would instead have
+      // created the view and returned success, so this proves the enabled path is wired to the
+      // service and exercises the client's HTTP-status classification.
+      NoSuchViewException exception =
           assertThrows(
-              WebClientResponseWithMessageException.class,
+              NoSuchViewException.class,
               () ->
                   catalog
                       .buildView(viewId)
@@ -57,7 +58,8 @@ public class OpenHouseViewEnabledTestSpark3_5 extends OpenHouseSparkITest {
                       .withDefaultNamespace(namespace)
                       .withDefaultCatalog("openhouse")
                       .create());
-      assertTrue(ExceptionUtils.getStackTrace(exception).contains("Views are disabled"));
+      // The mapping only fires on the service's HTTP 404 response, confirming the round-trip.
+      assertTrue(exception.getCause().getClass().getName().contains("WebClientResponseException"));
     }
   }
 }

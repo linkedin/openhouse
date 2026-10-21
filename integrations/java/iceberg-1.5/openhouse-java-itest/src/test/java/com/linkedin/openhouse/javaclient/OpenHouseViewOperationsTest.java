@@ -6,9 +6,13 @@ import com.linkedin.openhouse.gen.tables.client.api.ViewApi;
 import com.linkedin.openhouse.gen.tables.client.model.CreateUpdateViewRequestBody;
 import com.linkedin.openhouse.gen.tables.client.model.GetViewResponseBody;
 import com.linkedin.openhouse.gen.tables.client.model.ViewRepresentation;
+import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageException;
 import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
+import com.linkedin.openhouse.relocated.org.springframework.http.HttpHeaders;
+import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientRequestException;
 import com.linkedin.openhouse.relocated.org.springframework.web.reactive.function.client.WebClientResponseException;
 import com.linkedin.openhouse.relocated.reactor.core.publisher.Mono;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -17,7 +21,10 @@ import java.util.stream.Stream;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.BadRequestException;
+import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
+import org.apache.iceberg.exceptions.NoSuchViewException;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.view.SQLViewRepresentation;
@@ -28,15 +35,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
 /**
  * Unit tests for {@link OpenHouseViewOperations}, the iceberg-1.5-only, {@link ViewApi}-backed view
  * operations. The tests mock {@link ViewApi} plus the Iceberg {@link ViewMetadata}/{@link
  * ViewVersion}/{@link SQLViewRepresentation} interfaces to exercise the {@code doCommit} create /
- * replace mapping and the {@code doRefresh} not-found handling in isolation, without a running
- * service. Mirrors the conventions of {@code OpenHouseTableOperationsTest}.
+ * replace mapping, its HTTP-status error classification, and the {@code doRefresh} not-found and
+ * connection-failure handling in isolation, without a running service. Mirrors the conventions of
+ * {@code OpenHouseTableOperationsTest}.
  */
 public class OpenHouseViewOperationsTest {
 
@@ -85,6 +92,21 @@ public class OpenHouseViewOperationsTest {
     ViewMetadata metadata = mock(ViewMetadata.class);
     when(metadata.currentVersion()).thenReturn(version);
     return metadata;
+  }
+
+  /**
+   * A real {@link WebClientResponseException} of the subclass matching {@code status} (e.g. 409 ->
+   * {@code Conflict}), so the classifier's {@code instanceof} checks and its reads of {@code
+   * getStatusCode()} / {@code getResponseBodyAsString()} run against a faithful instance rather
+   * than a bare mock.
+   */
+  private static WebClientResponseException responseException(int status) {
+    return WebClientResponseException.create(
+        status,
+        "status " + status,
+        new HttpHeaders(),
+        ("body for " + status).getBytes(StandardCharsets.UTF_8),
+        StandardCharsets.UTF_8);
   }
 
   @Test
@@ -204,31 +226,76 @@ public class OpenHouseViewOperationsTest {
     Assertions.assertThrows(WebClientResponseWithMessageException.class, ops::doRefresh);
   }
 
-  /**
-   * Both commit entry points — create ({@code base == null}) and replace ({@code base != null}) —
-   * route the service's response errors through the same mapping, surfacing them with the server
-   * message attached.
-   */
-  @ParameterizedTest(name = "replace={0}")
-  @ValueSource(booleans = {false, true})
-  public void testDoCommitSurfacesServerErrorAsMessageException(boolean replace) {
+  @Test
+  public void testDoRefreshRequestErrorSurfacesRequestMessageException() {
     ViewApi viewApi = mock(ViewApi.class);
-    ViewMetadata base = null;
-    if (replace) {
-      base = mock(ViewMetadata.class);
-      when(base.metadataFileLocation()).thenReturn("s3://bucket/db/v/old-metadata.json");
-      when(viewApi.updateViewV1(anyString(), anyString(), any()))
-          .thenReturn(Mono.error(mock(WebClientResponseException.Conflict.class)));
-    } else {
-      when(viewApi.createViewV1(anyString(), any()))
-          .thenReturn(Mono.error(mock(WebClientResponseException.InternalServerError.class)));
-    }
+    // A connection-level failure that produced no response is surfaced with its message, not
+    // swallowed as an absent view or thrown bare.
+    when(viewApi.getViewV1("db", "v"))
+        .thenReturn(Mono.error(mock(WebClientRequestException.class)));
     OpenHouseViewOperations ops = viewOps(viewApi);
 
-    final ViewMetadata baseArg = base;
+    Assertions.assertThrows(WebClientRequestWithMessageException.class, ops::doRefresh);
+  }
+
+  static Stream<Arguments> commitHttpErrors() {
+    return Stream.of(
+        Arguments.of("404 -> NoSuchView", responseException(404), NoSuchViewException.class),
+        Arguments.of("409 -> CommitFailed", responseException(409), CommitFailedException.class),
+        Arguments.of("400 -> BadRequest", responseException(400), BadRequestException.class),
+        Arguments.of(
+            "422 -> message exception",
+            responseException(422),
+            WebClientResponseWithMessageException.class),
+        Arguments.of(
+            "501 -> message exception",
+            responseException(501),
+            WebClientResponseWithMessageException.class),
+        Arguments.of(
+            "500 -> CommitStateUnknown", responseException(500), CommitStateUnknownException.class),
+        Arguments.of(
+            "503 -> CommitStateUnknown", responseException(503), CommitStateUnknownException.class),
+        Arguments.of(
+            "504 -> CommitStateUnknown", responseException(504), CommitStateUnknownException.class),
+        Arguments.of(
+            "request exception -> CommitStateUnknown",
+            mock(WebClientRequestException.class),
+            CommitStateUnknownException.class));
+  }
+
+  /**
+   * doCommit maps each failure the Views service can return to the exception the Iceberg commit
+   * contract expects, by HTTP status (the service's error taxonomy never reaches the wire). 409 ->
+   * {@link CommitFailedException} lets Iceberg's view builder translate a race or name collision
+   * into its own {@code AlreadyExistsException}; 5xx and a response-less request failure -> {@link
+   * CommitStateUnknownException} so an unknown outcome is never reported as a clean failure.
+   */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("commitHttpErrors")
+  public void testDoCommitClassifiesHttpError(
+      String description, Throwable error, Class<? extends Throwable> expected) {
+    ViewApi viewApi = mock(ViewApi.class);
+    when(viewApi.createViewV1(anyString(), any())).thenReturn(Mono.error(error));
+    OpenHouseViewOperations ops = viewOps(viewApi);
+
+    Assertions.assertThrows(expected, () -> ops.doCommit(null, singleSqlViewMetadata("spark")));
+  }
+
+  @Test
+  public void testDoCommitReplaceRoutesErrorThroughClassifier() {
+    ViewApi viewApi = mock(ViewApi.class);
+    when(viewApi.updateViewV1(anyString(), anyString(), any()))
+        .thenReturn(Mono.error(responseException(409)));
+    OpenHouseViewOperations ops = viewOps(viewApi);
+
+    ViewMetadata base = mock(ViewMetadata.class);
+    when(base.metadataFileLocation()).thenReturn("s3://bucket/db/v/old-metadata.json");
+
+    // Replace (base != null) calls updateViewV1 and its errors go through the same classifier, so a
+    // 409 lost-race surfaces as CommitFailedException just as it does on create.
     Assertions.assertThrows(
-        WebClientResponseWithMessageException.class,
-        () -> ops.doCommit(baseArg, singleSqlViewMetadata("spark")));
+        CommitFailedException.class, () -> ops.doCommit(base, singleSqlViewMetadata("spark")));
+    verify(viewApi, never()).createViewV1(anyString(), any());
   }
 
   @Test

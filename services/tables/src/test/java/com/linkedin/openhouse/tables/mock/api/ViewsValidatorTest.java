@@ -109,8 +109,9 @@ public class ViewsValidatorTest {
                 ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID));
 
     assertDoesNotThrow(
-        () -> viewsApiValidator.validateGetAllViews(ViewModelConstants.DATABASE_ID, null, 50, null),
-        "The controller's defaults, an absent continuation token and a count of 50, must pass"
+        () ->
+            viewsApiValidator.validateGetAllViews(ViewModelConstants.DATABASE_ID, null, 100, null),
+        "The controller's defaults, an absent continuation token and a count of 100, must pass"
             + " unchanged.");
 
     assertDoesNotThrow(

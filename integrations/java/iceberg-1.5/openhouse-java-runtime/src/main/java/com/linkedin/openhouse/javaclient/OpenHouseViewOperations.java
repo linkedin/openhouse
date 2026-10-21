@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.javaclient;
 
+import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageException;
 import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.tables.client.api.ViewApi;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateViewRequestBody;
@@ -19,6 +20,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.BadRequestException;
+import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NoSuchViewException;
 import org.apache.iceberg.io.FileIO;
@@ -26,6 +29,7 @@ import org.apache.iceberg.view.BaseViewOperations;
 import org.apache.iceberg.view.SQLViewRepresentation;
 import org.apache.iceberg.view.ViewMetadata;
 import org.apache.iceberg.view.ViewVersion;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
@@ -73,13 +77,18 @@ public class OpenHouseViewOperations extends BaseViewOperations {
         viewApi
             .getViewV1(databaseId, viewId)
             /*
-             on 404 from the views service, resume the stream as an empty response (view absent);
-             for any other error, surface it with the server message attached.
+             On 404 the view is absent, so resume with an empty response. A response with any other
+             status is surfaced with the server message attached, and a connection-level failure
+             that produced no response (WebClientRequestException) is surfaced with its message too,
+             so a refresh never fails with a bare, message-less stack trace.
             */
             .onErrorResume(WebClientResponseException.NotFound.class, e -> Mono.empty())
             .onErrorResume(
                 WebClientResponseException.class,
                 e -> Mono.error(new WebClientResponseWithMessageException(e)))
+            .onErrorResume(
+                WebClientRequestException.class,
+                e -> Mono.error(new WebClientRequestWithMessageException(e)))
             .blockOptional();
     Optional<String> metadataLocation = viewResponse.map(GetViewResponseBody::getMetadataLocation);
     if (!metadataLocation.isPresent() && currentMetadataLocation() != null) {
@@ -106,11 +115,7 @@ public class OpenHouseViewOperations extends BaseViewOperations {
           base == null
               ? viewApi.createViewV1(databaseId, requestBody)
               : viewApi.updateViewV1(databaseId, viewId, requestBody);
-      request
-          .onErrorResume(
-              WebClientResponseException.class,
-              e -> Mono.error(new WebClientResponseWithMessageException(e)))
-          .block();
+      request.onErrorResume(e -> handleCommitHttpError(e, databaseId, viewId)).block();
     } catch (RuntimeException e) {
       if (e.getCause() instanceof InterruptedException) {
         log.error("Interrupted during doCommit for view: {}", viewName(), e);
@@ -119,6 +124,64 @@ public class OpenHouseViewOperations extends BaseViewOperations {
       throw e;
     }
     log.debug("Calling doCommit succeeded for view: {}", viewName());
+  }
+
+  /**
+   * Classifies a view create/replace failure into the Iceberg exception the commit contract
+   * expects. The service's {@code ViewErrorCode} taxonomy never reaches the wire, so the HTTP
+   * status is all the client has; the declared statuses are 404, 409, 400, 422 and 503.
+   *
+   * <ul>
+   *   <li>404 -&gt; {@link NoSuchViewException}: the view or its database is gone.
+   *   <li>409 -&gt; {@link CommitFailedException}: optimistic-concurrency check failed or the name
+   *       collided. Views have no commit-retry loop; Iceberg's view builder catches this and
+   *       rethrows {@link org.apache.iceberg.exceptions.AlreadyExistsException} ("already exists"
+   *       on create, "updated concurrently" on replace), where the user-facing meaning is decided.
+   *   <li>400 -&gt; {@link BadRequestException}: invalid view definition, dialect or schema.
+   *   <li>501 or any other 4xx, including 422 (view admission, missing representation, dependency
+   *       cycle, max depth) -&gt; surfaced verbatim with the server message as a permanent,
+   *       non-retriable rejection.
+   *   <li>500/503/504, or any non-response error such as {@link WebClientRequestException} -&gt;
+   *       {@link CommitStateUnknownException}: the write may have landed, so the outcome is not
+   *       reported as a definite failure.
+   * </ul>
+   */
+  private static Mono<GetViewResponseBody> handleCommitHttpError(
+      Throwable e, String databaseId, String viewId) {
+    if (e instanceof WebClientResponseException.NotFound) {
+      return Mono.error(new NoSuchViewException(e, "View %s.%s doesn't exist", databaseId, viewId));
+    } else if (e instanceof WebClientResponseException.Conflict) {
+      WebClientResponseException casted = (WebClientResponseException) e;
+      return Mono.error(
+          new CommitFailedException(
+              casted, casted.getStatusCode().value() + " , " + casted.getResponseBodyAsString()));
+    } else if (e instanceof WebClientResponseException.GatewayTimeout
+        || e instanceof WebClientResponseException.ServiceUnavailable
+        || e instanceof WebClientResponseException.InternalServerError) {
+      WebClientResponseException casted = (WebClientResponseException) e;
+      return Mono.error(new CommitStateUnknownException(casted.getResponseBodyAsString(), casted));
+    } else if (e instanceof WebClientResponseException.BadRequest) {
+      WebClientResponseException casted = (WebClientResponseException) e;
+      return Mono.error(
+          new BadRequestException(
+              casted, casted.getStatusCode().value() + " , " + casted.getResponseBodyAsString()));
+    } else if (e instanceof WebClientResponseException.NotImplemented) {
+      return Mono.error(new WebClientResponseWithMessageException((WebClientResponseException) e));
+    } else if (e instanceof WebClientResponseException
+        && ((WebClientResponseException) e).getStatusCode().is4xxClientError()) {
+      return Mono.error(new WebClientResponseWithMessageException((WebClientResponseException) e));
+    } else {
+      // Catch-all for non-WebClientResponseException errors, including WebClientRequestException
+      // (the response was not fully received even if the write landed). Report unknown commit state
+      // to skip caller-side cleanup that could delete committed data.
+      log.error(
+          "Unexpected exception during doCommit for view {}.{}: {}",
+          databaseId,
+          viewId,
+          e.getClass().getSimpleName(),
+          e);
+      return Mono.error(new CommitStateUnknownException(e));
+    }
   }
 
   /**
