@@ -413,10 +413,14 @@ it cannot revoke metadata a client already loaded, and it never sees reads or wr
 straight to the table's files in storage. Tables without that property are never checked.
 
 Configure `cluster.read-bridge.column-default.minimum-client-version` to a verified compatible JAR
-release. Leaving it unset does not turn the gate off: until it is set to a valid release, every load
-and commit of an opted-in table fails with HTTP **422**. Missing, unknown and prerelease client
-versions also fail with 422. Numeric versions are compared only within the same major release
-family, so LI `4.x` is not mistakenly treated as newer than OSS `0.x`.
+release, such as `4.2.150`. A value that is not a 3- or 4-part release fails server startup. Leaving
+it unset does not turn the gate off: until it is set, every load and commit of an opted-in table
+fails with HTTP **500**, because the server, not the client, is misconfigured. Clients that are not
+admitted fail with HTTP **422**: a missing or different `X-Client-Name`, a User-Agent with any other
+product (such as `ReactorNetty/<version>`), and missing, `unknown`, prerelease or older versions.
+Every Spark path that touches an opted-in table must therefore send
+`User-Agent: openhouse-java-client/<release>`. Numeric versions are compared only within the same
+major release family, so LI `4.x` is not mistakenly treated as newer than OSS `0.x`.
 
 Use `spark.sql.catalog.openhouse.client-name=spark` if the Spark catalog does not already identify
 itself. Telemetry is self-reported: `client-version` must reflect the actual JAR, not a fabricated
