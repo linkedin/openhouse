@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.tables.readbridge;
 
-import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.CommitPolicy;
 import com.linkedin.openhouse.internal.catalog.TableCommit;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
@@ -25,7 +24,7 @@ public class ColumnDefaultCommitPolicy implements CommitPolicy {
   }
 
   /**
-   * @throws UnsupportedClientOperationException if the commit changes or removes a committed opt-in
+   * @throws ColumnDefaultOptInLockedException if the commit changes or removes a committed opt-in
    */
   @Override
   public void check(TableCommit commit) {
@@ -46,8 +45,7 @@ public class ColumnDefaultCommitPolicy implements CommitPolicy {
     if (committed != null
         && "true".equalsIgnoreCase(committed.trim())
         && !committed.equals(commit.getProperties().get(ENABLED))) {
-      throw new UnsupportedClientOperationException(
-          UnsupportedClientOperationException.Operation.ALTER_RESERVED_TBLPROPS,
+      throw new ColumnDefaultOptInLockedException(
           String.format(
               "Table property %s is immutable once set to true on table %s; cannot change or"
                   + " remove it without the column-default policy override.",
