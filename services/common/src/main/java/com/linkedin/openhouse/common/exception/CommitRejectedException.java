@@ -2,7 +2,7 @@ package com.linkedin.openhouse.common.exception;
 
 /**
  * A commit broke a rule the internal catalog checks before writing anything, such as a {@code
- * CommitPolicy}. Nothing has been written. Mapped to 400.
+ * PreCommitCheck}. Nothing has been written. Mapped to 400.
  *
  * <p>Abstract so every rejection names its rule: each rule throws its own subclass, and callers
  * that handle every rejection catch this type.

@@ -4,13 +4,15 @@ import com.google.common.collect.ImmutableMap;
 import java.util.Map;
 import java.util.Optional;
 import lombok.Value;
-import org.apache.iceberg.Schema;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.catalog.TableIdentifier;
 
-/** One table commit, as {@link CommitPolicy} judges it. */
+/**
+ * Immutable context handed to each {@link PreCommitCheck} before a commit writes anything; the
+ * pre-commit counterpart of {@link PostCommitContext}.
+ */
 @Value
-public class TableCommit {
+public class PreCommitContext {
 
   /** The committed table. Its namespace is the database. */
   TableIdentifier tableIdentifier;
@@ -18,8 +20,11 @@ public class TableCommit {
   /** The table's current metadata; empty when the commit creates the table. */
   Optional<TableMetadata> base;
 
-  /** The schema the commit leaves. */
-  Schema schema;
+  /**
+   * The metadata the commit proposes, with its schema as the commit leaves it. Its properties are
+   * as the client sent them; {@link #properties} are the ones the commit leaves.
+   */
+  TableMetadata metadata;
 
   /**
    * The properties the commit leaves, after transient overrides are restored and OpenHouse's own
@@ -35,15 +40,15 @@ public class TableCommit {
    * The commit doCommit is about to write. {@code properties} still carry its commit-only keys,
    * which tell whether it puts snapshots or replaces the table.
    */
-  static TableCommit of(
+  static PreCommitContext of(
       TableIdentifier tableIdentifier,
       TableMetadata base,
-      Schema schema,
+      TableMetadata metadata,
       Map<String, String> properties) {
-    return new TableCommit(
+    return new PreCommitContext(
         tableIdentifier,
         Optional.ofNullable(base),
-        schema,
+        metadata,
         ImmutableMap.copyOf(properties),
         Boolean.parseBoolean(properties.get(CatalogConstants.IS_REPLACE_COMMIT_KEY))
             || Boolean.parseBoolean(properties.get(CatalogConstants.IS_STAGE_REPLACE_KEY))
