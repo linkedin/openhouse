@@ -16,6 +16,7 @@ import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.common.exception.MetadataRefreshFailureContext;
 import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableException;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
+import com.linkedin.openhouse.internal.catalog.exception.CommitRejectedException;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
 import com.linkedin.openhouse.internal.catalog.exception.TablePropertyRuleException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
@@ -674,7 +675,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       restoreOverriddenProperties(properties);
       enforcePropertyRules(base, properties);
       commitPolicy.check(TableCommit.of(tableIdentifier, base, metadata.schema(), properties));
-    } catch (RuntimeException e) {
+    } catch (CommitFailedException
+        | TablePropertyRuleException
+        | CommitRejectedException e) {
       metricsReporter.count(InternalCatalogMetricsConstant.COMMIT_FAILED_CTR);
       throw e;
     }
