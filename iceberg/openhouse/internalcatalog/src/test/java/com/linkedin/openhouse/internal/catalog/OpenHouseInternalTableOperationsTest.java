@@ -8,10 +8,10 @@ import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorage;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
+import com.linkedin.openhouse.common.exception.CommitRejectedException;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableException;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
-import com.linkedin.openhouse.internal.catalog.exception.CommitRejectedException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -204,7 +204,7 @@ public class OpenHouseInternalTableOperationsTest {
    */
   @Test
   void testCommitPolicyRejectionPassesThroughUnchanged() {
-    CommitRejectedException error = new CommitRejectedException("policy rejected");
+    CommitRejectedException error = new CommitRejectedException("policy rejected") {};
     openHouseInternalTableOperationsWithMockMetrics.commitPolicy =
         commit -> {
           throw error;
