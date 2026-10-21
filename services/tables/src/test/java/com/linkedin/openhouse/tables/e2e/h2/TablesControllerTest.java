@@ -1757,7 +1757,8 @@ public class TablesControllerTest {
               MockMvcRequestBuilders.post(tablePath + "/lock")
                   .contentType(MediaType.APPLICATION_JSON)
                   .content("{\"locked\":true}"))
-          .andExpect(status().isConflict());
+          .andExpect(status().isConflict())
+          .andExpect(jsonPath("$.message").value("Table d1.t1 already has a SYSTEM_ONLY lock."));
       mvc.perform(MockMvcRequestBuilders.get(tablePath))
           .andExpect(status().isLocked())
           .andExpect(jsonPath("$.message", containsString("SYSTEM_ONLY")))
@@ -1766,11 +1767,17 @@ public class TablesControllerTest {
           .andExpect(status().isOk())
           .andExpect(jsonPath("$.policies.lockState.reason").value("SYSTEM_ONLY"));
       mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock"))
-          .andExpect(status().isConflict());
+          .andExpect(status().isConflict())
+          .andExpect(
+              jsonPath("$.message")
+                  .value("Table d1.t1 has a SYSTEM_ONLY lock. Remove it with reason SYSTEM_ONLY."));
       mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock/UNKNOWN"))
-          .andExpect(status().isBadRequest());
+          .andExpect(status().isBadRequest())
+          .andExpect(content().string(""));
       mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock/LEGACY"))
-          .andExpect(status().isConflict());
+          .andExpect(status().isConflict())
+          .andExpect(
+              jsonPath("$.message").value("Table d1.t1 has a SYSTEM_ONLY lock, not LEGACY."));
       mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock/SYSTEM_ONLY"))
           .andExpect(status().isNoContent());
       mvc.perform(MockMvcRequestBuilders.get(tablePath))
