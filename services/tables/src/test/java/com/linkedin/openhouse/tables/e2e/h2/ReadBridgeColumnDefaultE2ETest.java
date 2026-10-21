@@ -262,6 +262,20 @@ public class ReadBridgeColumnDefaultE2ETest {
   }
 
   @Test
+  public void newerClientsLoadOptedInTables() throws Exception {
+    created = create(uniqueTable("newer_client"), Collections.singletonMap(ENABLED_PROP, "true"));
+    createTable();
+    String path = "/v1/databases/" + created.getDatabaseId() + "/tables/" + created.getTableId();
+    for (String release : new String[] {"0.5.101", "0.10.0", "0.5.100.1"}) {
+      mvc.perform(
+              MockMvcRequestBuilders.get(path)
+                  .header("X-Client-Name", "spark")
+                  .header("User-Agent", "openhouse-java-client/" + release))
+          .andExpect(status().isOk());
+    }
+  }
+
+  @Test
   public void writesCannotBypassAdmissionByRemovingOptIn() throws Exception {
     created = create(uniqueTable("write_gate"), Collections.singletonMap(ENABLED_PROP, "true"));
     String path = "/v1/databases/" + created.getDatabaseId() + "/tables/" + created.getTableId();
