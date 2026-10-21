@@ -22,8 +22,9 @@ public class ApiConfig {
 
   /**
    * An unset {@code cluster.read-bridge.column-default.minimum-client-version} defaults to empty,
-   * which rejects every request to a table with {@code read-bridge.column-default.enabled=true}
-   * until a valid minimum is configured. Tables without that property are unaffected.
+   * which fails every request to a table with {@code read-bridge.column-default.enabled=true} as a
+   * server error until a minimum is configured. A value that is not a release fails startup. Tables
+   * without that property are unaffected.
    */
   @Bean
   public ColumnDefaultClientGate columnDefaultClientGate(
@@ -44,7 +45,7 @@ public class ApiConfig {
     return new ReadBridgeStripProtection(readBridgeConfigResolver);
   }
 
-  /** The internal catalog's commit policy. */
+  /** A pre-commit check: the internal catalog runs it on every table commit. */
   @Bean
   public ColumnDefaultCommitPolicy columnDefaultCommitPolicy(
       CatalogRequestContext requestContext,

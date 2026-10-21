@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.node.TextNode;
 import com.google.common.collect.ImmutableMap;
 import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
-import com.linkedin.openhouse.internal.catalog.TableCommit;
+import com.linkedin.openhouse.internal.catalog.PreCommitContext;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -433,17 +433,17 @@ public class ReadBridgeStripProtectionTest {
       throws ColumnDefaultException {
     TableDto prepared = protection.prepare(incoming);
     protection.enforce(
-        new TableCommit(
+        new PreCommitContext(
             TABLE,
             Optional.ofNullable(existing).map(ReadBridgeStripProtectionTest::metadata),
-            SchemaParser.fromJson(prepared.getSchema()),
+            metadata(prepared),
             ImmutableMap.copyOf(prepared.getTableProperties()),
             prepared.getJsonSnapshots() != null),
         defaultAwareClient);
     return prepared;
   }
 
-  /** {@code table} as the catalog's current metadata. */
+  /** {@code table} as catalog metadata: the current version, or the one a commit proposes. */
   private static TableMetadata metadata(TableDto table) {
     Schema schema = SchemaParser.fromJson(table.getSchema());
     return TableMetadata.buildFromEmpty()

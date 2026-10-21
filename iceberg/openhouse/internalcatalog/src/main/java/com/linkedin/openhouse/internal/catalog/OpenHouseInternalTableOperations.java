@@ -97,12 +97,12 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
   PostCommitOperationRunner postCommitOperationRunner;
 
-  CommitPolicy commitPolicy;
+  PreCommitCheckRunner preCommitCheckRunner;
 
   /**
    * Backward-compatible constructor without a {@link PostCommitOperationRunner} or {@link
-   * CommitPolicy}: post-commit operations are disabled (no runner wired) and every commit passes
-   * the policy check.
+   * PreCommitCheckRunner}: post-commit operations are disabled and no pre-commit checks run (no
+   * runners wired).
    */
   public OpenHouseInternalTableOperations(
       HouseTableRepository houseTableRepository,
@@ -121,7 +121,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         fileIOManager,
         tableMetadataCache,
         null,
-        CommitPolicy.NONE);
+        null);
   }
 
   public OpenHouseInternalTableOperations(
@@ -133,7 +133,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       FileIOManager fileIOManager,
       TableMetadataCache tableMetadataCache,
       PostCommitOperationRunner postCommitOperationRunner,
-      CommitPolicy commitPolicy) {
+      PreCommitCheckRunner preCommitCheckRunner) {
     this.houseTableRepository = houseTableRepository;
     this.fileIO = fileIO;
     this.houseTableMapper = houseTableMapper;
@@ -142,7 +142,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     this.fileIOManager = fileIOManager;
     this.tableMetadataCache = tableMetadataCache;
     this.postCommitOperationRunner = postCommitOperationRunner;
-    this.commitPolicy = commitPolicy;
+    this.preCommitCheckRunner = preCommitCheckRunner;
   }
 
   private static final Gson GSON = new Gson();
@@ -664,9 +664,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   /**
    * Checks a commit before anything is written, so a rejection reaches the caller as thrown, with
    * no commit status to recover: the stale-base check, then OpenHouse's table property rules, then
-   * the {@link CommitPolicy}. The policy runs after the stale-base check, so a snapshot commit
-   * built on an older table version gets the retryable conflict instead, and sees the properties
-   * the commit leaves. A rejected commit still counts as a failed commit.
+   * the {@link PreCommitCheck}s. The checks run after the stale-base check, so a snapshot commit
+   * built on an older table version gets the retryable conflict instead, and see the properties the
+   * commit leaves. A rejected commit still counts as a failed commit.
    */
   private void checkBeforeWriting(
       TableMetadata base, TableMetadata metadata, Map<String, String> properties) {
@@ -674,7 +674,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       abortIfWriterBaseDivergedFromCatalog(base, metadata);
       restoreOverriddenProperties(properties);
       enforcePropertyRules(base, properties);
-      commitPolicy.check(TableCommit.of(tableIdentifier, base, metadata.schema(), properties));
+      if (preCommitCheckRunner != null) {
+        preCommitCheckRunner.checkAll(tableIdentifier, base, metadata, properties);
+      }
     } catch (CommitFailedException | CommitRejectedException e) {
       metricsReporter.count(InternalCatalogMetricsConstant.COMMIT_FAILED_CTR);
       throw e;

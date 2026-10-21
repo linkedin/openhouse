@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.readbridge;
 
+import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.model.TableDto;
@@ -17,24 +18,41 @@ public class ColumnDefaultClientGate {
   private static final String PRODUCT = "openhouse-java-client/";
   private static final Pattern RELEASE = Pattern.compile("[0-9]{1,9}(?:\\.[0-9]{1,9}){2,3}");
   private final String minimum;
-  /** Empty when no valid minimum is configured: then no client is admitted to opted-in tables. */
+  /** Empty when no minimum is configured: then no client is admitted to opted-in tables. */
   private final Optional<int[]> minimumRelease;
 
   private final CatalogRequestContext requestContext;
 
   /**
    * @param minimum oldest admitted {@code openhouse-java-client} release, such as {@code 4.2.150}.
-   *     Empty or invalid fails closed: every request to an opted-in table is rejected unless it
-   *     carries the column-default policy bypass. It does not turn the gate off.
+   *     Empty admits no client: every request to an opted-in table fails as a server error unless
+   *     it carries the column-default policy bypass. It does not turn the gate off.
    * @param requestContext the request's client name, User-Agent and column-default policy bypass
+   * @throws IllegalArgumentException if {@code minimum} is set but is not a 3- or 4-part release
    */
   public ColumnDefaultClientGate(String minimum, CatalogRequestContext requestContext) {
     this.minimum = minimum;
-    this.minimumRelease = release(minimum);
+    this.minimumRelease =
+        minimum.isEmpty()
+            ? Optional.empty()
+            : Optional.of(
+                release(minimum)
+                    .orElseThrow(
+                        () ->
+                            new IllegalArgumentException(
+                                "cluster.read-bridge.column-default.minimum-client-version must be"
+                                    + " a 3- or 4-part release such as 4.2.150, got '"
+                                    + minimum
+                                    + "'")));
     this.requestContext = requestContext;
   }
 
-  /** Rejects loading {@code table} if it is opted in and the client is not admitted. */
+  /**
+   * Rejects loading {@code table} if it is opted in and the client is not admitted.
+   *
+   * @throws ColumnDefaultClientRejectedException (422) if the client is not admitted
+   * @throws TableConfigUnavailableException (500) if no minimum is configured
+   */
   public void checkLoad(TableDto table) {
     if (enabled(table.getTableProperties())) {
       requireAdmittedClient();
@@ -44,6 +62,9 @@ public class ColumnDefaultClientGate {
   /**
    * Rejects a write if the {@code stored} table or the {@code proposed} properties opt in and the
    * client is not admitted. {@code stored} is empty when the write creates the table.
+   *
+   * @throws ColumnDefaultClientRejectedException (422) if the client is not admitted
+   * @throws TableConfigUnavailableException (500) if no minimum is configured
    */
   public void checkWrite(Optional<TableDto> stored, Map<String, String> proposed) {
     if (stored.filter(table -> enabled(table.getTableProperties())).isPresent()
@@ -55,8 +76,8 @@ public class ColumnDefaultClientGate {
   /**
    * Whether the current request comes from a client that applies column defaults: {@code
    * client-name=spark} with an {@code openhouse-java-client} release at or above the minimum, in
-   * the same major release family. False outside a request, and when no valid minimum is
-   * configured. The bypass does not count.
+   * the same major release family. False outside a request, and when no minimum is configured. The
+   * bypass does not count.
    */
   public boolean admitsClient() {
     return requestContext
@@ -74,11 +95,9 @@ public class ColumnDefaultClientGate {
       return;
     }
     if (!minimumRelease.isPresent()) {
-      throw new ColumnDefaultClientRejectedException(
-          "Column-default tables admit no client: this server has no valid "
-              + "cluster.read-bridge.column-default.minimum-client-version (got '"
-              + minimum
-              + "')."
+      throw new TableConfigUnavailableException(
+          "Column-default tables admit no client: this server has no "
+              + "cluster.read-bridge.column-default.minimum-client-version configured."
               + TablesMvcConstants.COLUMN_DEFAULT_POLICY_BYPASS_HINT);
     }
     throw new ColumnDefaultClientRejectedException(

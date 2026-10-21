@@ -1,15 +1,15 @@
 package com.linkedin.openhouse.tables.readbridge;
 
 import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
-import com.linkedin.openhouse.internal.catalog.CommitPolicy;
-import com.linkedin.openhouse.internal.catalog.TableCommit;
+import com.linkedin.openhouse.internal.catalog.PreCommitCheck;
+import com.linkedin.openhouse.internal.catalog.PreCommitContext;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 
 /**
- * The internal catalog's {@link CommitPolicy}: the column-default rules every table commit must
- * pass. The catalog checks each commit after its stale-base check and before anything is written.
- * The rules judge the commit's schema and snapshots against the table's current version.
+ * The column-default rules every table commit must pass, as a {@link PreCommitCheck}: the catalog
+ * runs it after its stale-base check and before anything is written. The rules judge the commit's
+ * schema and snapshots against the table's current version.
  *
  * <ol>
  *   <li>A committed {@code read-bridge.column-default.enabled=true} cannot be changed or removed.
@@ -23,7 +23,7 @@ import com.linkedin.openhouse.tables.config.TablesMvcConstants;
  * CatalogRequestContext}, skips both, so an operator can repair a table whose stored default cannot
  * be applied.
  */
-public class ColumnDefaultCommitPolicy implements CommitPolicy {
+public class ColumnDefaultCommitPolicy implements PreCommitCheck {
 
   private static final String ENABLED = ReadBridgeConfigResolver.COLUMN_DEFAULT_ENABLED_PROP;
 
@@ -42,6 +42,11 @@ public class ColumnDefaultCommitPolicy implements CommitPolicy {
     this.columnDefaultRules = columnDefaultRules;
   }
 
+  @Override
+  public String getName() {
+    return "column-default";
+  }
+
   /**
    * @throws ColumnDefaultOptInLockedException if the commit changes or removes a committed opt-in
    * @throws ColumnDefaultRemovedException if the commit breaks Type 1
@@ -50,7 +55,7 @@ public class ColumnDefaultCommitPolicy implements CommitPolicy {
    * @throws TableConfigUnavailableException if a default the table declares cannot be applied
    */
   @Override
-  public void check(TableCommit commit) {
+  public void check(PreCommitContext commit) {
     if (requestContext.columnDefaultPolicyBypass()) {
       return;
     }
@@ -64,7 +69,7 @@ public class ColumnDefaultCommitPolicy implements CommitPolicy {
    * remain mutable so a table can still opt in later. Comparing with the commit's base keeps
    * transaction retries from overwriting a value committed concurrently.
    */
-  private static void keepOptIn(TableCommit commit) {
+  private static void keepOptIn(PreCommitContext commit) {
     String committed = commit.getBase().map(base -> base.properties().get(ENABLED)).orElse(null);
     if (committed != null
         && "true".equalsIgnoreCase(committed.trim())

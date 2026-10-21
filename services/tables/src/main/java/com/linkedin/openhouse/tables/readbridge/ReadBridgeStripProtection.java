@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
-import com.linkedin.openhouse.internal.catalog.TableCommit;
+import com.linkedin.openhouse.internal.catalog.PreCommitContext;
 import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.ArrayList;
@@ -91,10 +91,10 @@ public class ReadBridgeStripProtection {
    * @throws ColumnDefaultRemovedException if the commit breaks Type 1
    * @throws ColumnDefaultUnawareCommitException if the commit breaks Type 2
    */
-  public void enforce(TableCommit commit, boolean defaultAwareClient) {
+  public void enforce(PreCommitContext commit, boolean defaultAwareClient) {
     TableIdentifier table = commit.getTableIdentifier();
     TableMetadata base = commit.getBase().orElse(null);
-    Schema schema = commit.getSchema();
+    Schema schema = commit.getMetadata().schema();
     String location = base == null ? null : base.metadataFileLocation();
     Map<Integer, String> previousStamped =
         base == null || !resolver.isBridged(base.properties())

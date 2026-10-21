@@ -3,7 +3,7 @@ package com.linkedin.openhouse.tables.readbridge;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.google.common.collect.ImmutableMap;
 import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
-import com.linkedin.openhouse.internal.catalog.TableCommit;
+import com.linkedin.openhouse.internal.catalog.PreCommitContext;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import java.util.Collections;
 import java.util.Map;
@@ -186,8 +186,13 @@ public class ColumnDefaultCommitPolicyTest {
    * A snapshot commit to {@code base}, or creating the table when null, that leaves {@code
    * properties}.
    */
-  private static TableCommit commit(TableMetadata base, Map<String, String> properties) {
-    return new TableCommit(
-        TABLE, Optional.ofNullable(base), SCHEMA, ImmutableMap.copyOf(properties), true);
+  private static PreCommitContext commit(TableMetadata base, Map<String, String> properties) {
+    return new PreCommitContext(
+        TABLE,
+        Optional.ofNullable(base),
+        TableMetadata.newTableMetadata(
+            SCHEMA, PartitionSpec.unpartitioned(), "file:/data/openhouse/db/tbl", properties),
+        ImmutableMap.copyOf(properties),
+        true);
   }
 }

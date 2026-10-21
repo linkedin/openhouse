@@ -3,8 +3,8 @@ package com.linkedin.openhouse.tables.config;
 import java.util.Optional;
 
 /**
- * Per-request options and client identity that the service's checks honor, such as the commit
- * policy and the column-default client gate. Each option defaults to off, and each identity to
+ * Per-request options and client identity that the service's checks honor, such as the pre-commit
+ * checks and the column-default client gate. Each option defaults to off, and each identity to
  * absent.
  */
 public interface CatalogRequestContext {
