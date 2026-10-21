@@ -1,7 +1,7 @@
 package com.linkedin.openhouse.tables.config;
 
 /**
- * Per-request options that the service's checks honor, such as the commit policy. Each option
+ * Per-request options that the service's checks honor, such as the pre-commit checks. Each option
  * defaults to off.
  */
 public interface CatalogRequestContext {
