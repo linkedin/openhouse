@@ -12,6 +12,7 @@ import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
+import com.linkedin.openhouse.internal.catalog.exception.CommitRejectedException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -204,7 +205,7 @@ public class OpenHouseInternalTableOperationsTest {
    */
   @Test
   void testCommitPolicyRejectionPassesThroughUnchanged() {
-    IllegalArgumentException error = new IllegalArgumentException("policy rejected");
+    CommitRejectedException error = new CommitRejectedException("policy rejected");
     openHouseInternalTableOperationsWithMockMetrics.commitPolicy =
         commit -> {
           throw error;
@@ -214,7 +215,7 @@ public class OpenHouseInternalTableOperationsTest {
       Assertions.assertSame(
           error,
           Assertions.assertThrows(
-              IllegalArgumentException.class,
+              CommitRejectedException.class,
               () ->
                   openHouseInternalTableOperationsWithMockMetrics.doCommit(
                       BASE_TABLE_METADATA, BASE_TABLE_METADATA)));
@@ -230,20 +231,11 @@ public class OpenHouseInternalTableOperationsTest {
     PROPERTIES
   }
 
-  /**
-   * The policy sees the properties the commit leaves, after transient overrides are restored, and
-   * whether it puts snapshots or replaces the table. The replace marker is never persisted.
-   */
+  /** The policy sees whether the commit puts snapshots or replaces the table. */
   @ParameterizedTest
   @EnumSource(CommitKind.class)
-  void testCommitPolicySeesWhatTheCommitLeaves(CommitKind kind) throws IOException {
-    AtomicReference<TableCommit> judged = new AtomicReference<>();
-    openHouseInternalTableOperations.commitPolicy = judged::set;
+  void testCommitPolicySeesWhetherTheCommitPutsSnapshots(CommitKind kind) throws IOException {
     Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
-    properties.put("owner", "overridden");
-    properties.put(CatalogConstants.TRANSIENT_RESTORE_PREFIX + "owner", "original");
-    properties.put("added", "temporarily");
-    properties.put(CatalogConstants.TRANSIENT_ADDED_PREFIX + "added", "true");
     if (kind == CommitKind.SNAPSHOTS) {
       List<Snapshot> snapshots = IcebergTestUtil.getSnapshots();
       properties.put(
@@ -256,18 +248,51 @@ public class OpenHouseInternalTableOperationsTest {
       properties.put(CatalogConstants.IS_REPLACE_COMMIT_KEY, "true");
     }
 
+    Assertions.assertEquals(
+        kind != CommitKind.PROPERTIES, commitJudgedByPolicy(properties).isSnapshotCommit());
+  }
+
+  /** The policy sees the properties the commit leaves, after transient overrides are restored. */
+  @Test
+  void testCommitPolicySeesRestoredProperties() {
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    properties.put("owner", "overridden");
+    properties.put(CatalogConstants.TRANSIENT_RESTORE_PREFIX + "owner", "original");
+    properties.put("added", "temporarily");
+    properties.put(CatalogConstants.TRANSIENT_ADDED_PREFIX + "added", "true");
+
+    Map<String, String> judged = commitJudgedByPolicy(properties).getProperties();
+    Assertions.assertEquals("original", judged.get("owner"));
+    Assertions.assertFalse(judged.containsKey("added"));
+  }
+
+  /** The replace marker the policy sees is never persisted. */
+  @Test
+  void testReplaceMarkerIsNotPersisted() {
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    properties.put(CatalogConstants.IS_REPLACE_COMMIT_KEY, "true");
+
+    commitJudgedByPolicy(properties);
+    Assertions.assertFalse(
+        tblMetadataCaptor
+            .getValue()
+            .properties()
+            .containsKey(CatalogConstants.IS_REPLACE_COMMIT_KEY));
+  }
+
+  /**
+   * Commits {@code properties} on top of {@link #BASE_TABLE_METADATA} and returns the commit the
+   * policy judged. The persisted metadata is left in {@code tblMetadataCaptor}.
+   */
+  private TableCommit commitJudgedByPolicy(Map<String, String> properties) {
+    AtomicReference<TableCommit> judged = new AtomicReference<>();
+    openHouseInternalTableOperations.commitPolicy = judged::set;
     try (MockedStatic<TableMetadataParser> metadataFiles = mockStatic(TableMetadataParser.class)) {
       openHouseInternalTableOperations.doCommit(
           BASE_TABLE_METADATA, BASE_TABLE_METADATA.replaceProperties(properties));
       verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), any());
     }
-    TableCommit judgedCommit = judged.get();
-    Assertions.assertEquals(kind != CommitKind.PROPERTIES, judgedCommit.isSnapshotCommit());
-    Map<String, String> judgedProperties = judgedCommit.getProperties();
-    Assertions.assertEquals("original", judgedProperties.get("owner"));
-    Assertions.assertFalse(judgedProperties.containsKey("added"));
-    Map<String, String> persisted = tblMetadataCaptor.getValue().properties();
-    Assertions.assertFalse(persisted.containsKey(CatalogConstants.IS_REPLACE_COMMIT_KEY));
+    return judged.get();
   }
 
   /**
