@@ -22,7 +22,7 @@ import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.SnapshotsUtil;
-import com.linkedin.openhouse.internal.catalog.exception.TablePropertyRuleException;
+import com.linkedin.openhouse.internal.catalog.exception.CommitRejectedException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
@@ -118,8 +118,10 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   public TableDto save(TableDto tableDto) {
     try {
       return saveTable(tableDto);
-    } catch (TablePropertyRuleException e) {
-      // The commit broke a table property rule: the request's fault, like a preserved-key change.
+    } catch (CommitRejectedException e) {
+      // The commit broke a rule doCommit checks before writing, today only the table property
+      // rules:
+      // the request's fault, like a preserved-key change.
       // No cause: the error handler sends a cause's message to the client, which got none before.
       throw new UnsupportedClientOperationException(
           UnsupportedClientOperationException.Operation.ALTER_RESERVED_TBLPROPS, e.getMessage());

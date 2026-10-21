@@ -18,7 +18,6 @@ import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableExcep
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
 import com.linkedin.openhouse.internal.catalog.exception.CommitRejectedException;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
-import com.linkedin.openhouse.internal.catalog.exception.TablePropertyRuleException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -675,9 +674,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       restoreOverriddenProperties(properties);
       enforcePropertyRules(base, properties);
       commitPolicy.check(TableCommit.of(tableIdentifier, base, metadata.schema(), properties));
-    } catch (CommitFailedException
-        | TablePropertyRuleException
-        | CommitRejectedException e) {
+    } catch (CommitFailedException | CommitRejectedException e) {
       metricsReporter.count(InternalCatalogMetricsConstant.COMMIT_FAILED_CTR);
       throw e;
     }
@@ -688,7 +685,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    * it on every commit path (create, replace, update, snapshot put, replication and rename),
    * including paths that skip repository-level property checks. Each rule sees the value committed
    * on {@code base} and the value this commit leaves, and returns the value to persist or rejects
-   * the commit with {@link TablePropertyRuleException}.
+   * the commit with {@link CommitRejectedException}.
    *
    * <p>Runs after restoreOverriddenProperties, so rules see the values that will be persisted, and
    * before failIfRetryUpdate, so a rejected commit does not mark its base version as attempted.
@@ -726,7 +723,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       return requested;
     }
     if (!requested.equals(committed)) {
-      throw new TablePropertyRuleException(
+      throw new CommitRejectedException(
           String.format(
               "Table property %s on table %s must be a positive number of milliseconds no greater"
                   + " than %d (7 days).",
