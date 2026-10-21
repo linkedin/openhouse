@@ -15,7 +15,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.jayway.jsonpath.JsonPath;
-import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
@@ -89,7 +88,6 @@ public class ReadBridgeColumnDefaultE2ETest {
   }
 
   @Autowired private MockMvc mvc;
-  @Autowired private StorageManager storageManager;
 
   private GetTableResponseBody created;
 
@@ -244,6 +242,20 @@ public class ReadBridgeColumnDefaultE2ETest {
             MockMvcRequestBuilders.post("/v2/databases/d1/tables/search")
                 .param("fields", "tableLocation"))
         .andExpect(status().isOk());
+  }
+
+  @Test
+  public void newerClientsLoadOptedInTables() throws Exception {
+    created = create(uniqueTable("newer_client"), Collections.singletonMap(ENABLED_PROP, "true"));
+    createTable();
+    String path = "/v1/databases/" + created.getDatabaseId() + "/tables/" + created.getTableId();
+    for (String release : new String[] {"0.5.101", "0.10.0", "0.5.100.1"}) {
+      mvc.perform(
+              MockMvcRequestBuilders.get(path)
+                  .header("X-Client-Name", "spark")
+                  .header("User-Agent", "openhouse-java-client/" + release))
+          .andExpect(status().isOk());
+    }
   }
 
   @Test

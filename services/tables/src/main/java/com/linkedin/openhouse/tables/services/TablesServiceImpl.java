@@ -82,7 +82,7 @@ public class TablesServiceImpl implements TablesService {
     authorizationUtils.checkTablePrivilege(
         tableDto, actingPrincipal, Privileges.GET_TABLE_METADATA);
     authorizationUtils.checkSystemOnlyLockAccess(tableDto, actingPrincipal);
-    columnDefaultClientGate.check(tableDto, null);
+    columnDefaultClientGate.checkLoad(tableDto);
     return tableDto;
   }
 
@@ -153,8 +153,7 @@ public class TablesServiceImpl implements TablesService {
       authorizationUtils.checkDatabasePrivilege(
           databaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
     }
-    columnDefaultClientGate.check(
-        tableDto.orElse(null), createUpdateTableRequestBody.getTableProperties());
+    columnDefaultClientGate.checkWrite(tableDto, createUpdateTableRequestBody.getTableProperties());
 
     // FIXME: save method redundantly issue existence check after findById is called above
     TableDto tableDtoToSave =
