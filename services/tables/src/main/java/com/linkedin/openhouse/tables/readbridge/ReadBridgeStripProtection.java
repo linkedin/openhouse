@@ -87,11 +87,11 @@ public class ReadBridgeStripProtection {
    *
    * @param defaultAwareClient whether the commit comes from a client that applies column defaults
    * @throws TableConfigUnavailableException if a default the base declares cannot be applied
-   * @throws ColumnDefaultException Type 1, Type 2, or a default the commit declares that cannot be
-   *     applied
+   * @throws ColumnDefaultUnusableException if a default the commit declares cannot be applied
+   * @throws ColumnDefaultRemovedException if the commit breaks Type 1
+   * @throws ColumnDefaultUnawareCommitException if the commit breaks Type 2
    */
-  public void enforce(TableCommit commit, boolean defaultAwareClient)
-      throws ColumnDefaultException {
+  public void enforce(TableCommit commit, boolean defaultAwareClient) {
     TableIdentifier table = commit.getTableIdentifier();
     TableMetadata base = commit.getBase().orElse(null);
     Schema schema = commit.getSchema();
@@ -104,13 +104,21 @@ public class ReadBridgeStripProtection {
     boolean bridged = resolver.isBridged(commit.getProperties());
     Map<Integer, String> declared =
         bridged
-            ? resolver.incomingColumnDefaults(
-                tableDto(table, schema, commit.getProperties(), location))
+            ? declaredColumnDefaults(tableDto(table, schema, commit.getProperties(), location))
             : Collections.emptyMap();
     if (base != null) {
       rejectRemovedDefaults(table, previousStamped, declared, bridged, schema);
       rejectUnawareCommit(
           table, previousStamped, schema, defaultAwareClient, commit.isSnapshotCommit());
+    }
+  }
+
+  /** The defaults {@code committed} declares; one that cannot be applied rejects the commit. */
+  private Map<Integer, String> declaredColumnDefaults(TableDto committed) {
+    try {
+      return resolver.incomingColumnDefaults(committed);
+    } catch (ColumnDefaultException e) {
+      throw new ColumnDefaultUnusableException(e);
     }
   }
 
@@ -123,15 +131,14 @@ public class ReadBridgeStripProtection {
       Map<Integer, String> previousStamped,
       Map<Integer, String> declared,
       boolean bridged,
-      Schema schema)
-      throws ColumnDefaultException {
+      Schema schema) {
     if (previousStamped.isEmpty() || !bridged) {
       return;
     }
     for (Integer fieldId : previousStamped.keySet()) {
       Types.NestedField field = schema.findField(fieldId);
       if (field != null && !declared.containsKey(fieldId)) {
-        throw new ColumnDefaultException(
+        throw new ColumnDefaultRemovedException(
             String.format(
                 "COLUMN_DEFAULT_REMOVED: %s.%s still has a column default on %s. This commit"
                     + " omitted it. Retry from Spark 3.1 or Spark 3.5 using the jars on the"
@@ -153,15 +160,14 @@ public class ReadBridgeStripProtection {
       Map<Integer, String> previousStamped,
       Schema schema,
       boolean defaultAwareClient,
-      boolean snapshotCommit)
-      throws ColumnDefaultException {
+      boolean snapshotCommit) {
     if (previousStamped.isEmpty() || !snapshotCommit || defaultAwareClient) {
       return;
     }
     for (Integer fieldId : previousStamped.keySet()) {
       Types.NestedField field = schema.findField(fieldId);
       if (field != null) {
-        throw new ColumnDefaultException(
+        throw new ColumnDefaultUnawareCommitException(
             String.format(
                 "COLUMN_DEFAULT_UNAWARE_COMMIT: %s.%s has a column default on %s, and this commit"
                     + " did not come from a client that applies column defaults. Commit from"

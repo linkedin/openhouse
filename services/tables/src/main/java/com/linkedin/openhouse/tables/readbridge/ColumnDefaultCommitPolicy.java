@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.tables.readbridge;
 
 import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
-import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.CommitPolicy;
 import com.linkedin.openhouse.internal.catalog.TableCommit;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
@@ -45,8 +44,9 @@ public class ColumnDefaultCommitPolicy implements CommitPolicy {
 
   /**
    * @throws ColumnDefaultOptInLockedException if the commit changes or removes a committed opt-in
-   * @throws UnsupportedClientOperationException if the commit breaks Type 1 or Type 2, or declares
-   *     a default that cannot be applied
+   * @throws ColumnDefaultRemovedException if the commit breaks Type 1
+   * @throws ColumnDefaultUnawareCommitException if the commit breaks Type 2
+   * @throws ColumnDefaultUnusableException if a default the commit declares cannot be applied
    * @throws TableConfigUnavailableException if a default the table declares cannot be applied
    */
   @Override
@@ -55,12 +55,7 @@ public class ColumnDefaultCommitPolicy implements CommitPolicy {
       return;
     }
     keepOptIn(commit);
-    try {
-      columnDefaultRules.enforce(commit, clientGate.admitsClient());
-    } catch (ColumnDefaultException e) {
-      throw new UnsupportedClientOperationException(
-          UnsupportedClientOperationException.Operation.COLUMN_DEFAULT, e.getMessage(), e);
-    }
+    columnDefaultRules.enforce(commit, clientGate.admitsClient());
   }
 
   /**

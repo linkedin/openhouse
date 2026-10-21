@@ -3,7 +3,6 @@ package com.linkedin.openhouse.tables.readbridge;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.google.common.collect.ImmutableMap;
 import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
-import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.TableCommit;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import java.util.Collections;
@@ -116,16 +115,14 @@ public class ColumnDefaultCommitPolicyTest {
   }
 
   /**
-   * Type 2 has no request to admit outside one, so a snapshot commit there is not default-aware. A
-   * commit that breaks a column-default rule is the client's error, with the rule's message.
+   * Type 2 has no request to admit outside one, so a snapshot commit there is not default-aware.
    */
   @Test
   void snapshotCommitOutsideARequestBreaksType2() {
-    UnsupportedClientOperationException error =
+    ColumnDefaultUnawareCommitException error =
         Assertions.assertThrows(
-            UnsupportedClientOperationException.class,
+            ColumnDefaultUnawareCommitException.class,
             () -> policy(NO_BYPASS, FIELD_2).check(commit(table("true"), optIn("true"))));
-    Assertions.assertTrue(error.getMessage().startsWith("COLUMN_DEFAULT_UNAWARE_COMMIT"));
     Assertions.assertTrue(error.getMessage().contains("country (field-id 2)"));
   }
 

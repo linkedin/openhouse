@@ -56,10 +56,10 @@ public class ReadBridgeStripProtectionTest {
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming = ramped(SCHEMA_WITHOUT_DEFAULT, overwrite(10));
 
-    ColumnDefaultException thrown =
+    ColumnDefaultUnawareCommitException thrown =
         Assertions.assertThrows(
-            ColumnDefaultException.class, () -> commit(protection, existing, incoming, false));
-    Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_UNAWARE_COMMIT"));
+            ColumnDefaultUnawareCommitException.class,
+            () -> commit(protection, existing, incoming, false));
     Assertions.assertTrue(thrown.getMessage().contains("country (field-id 2)"));
     Assertions.assertTrue(thrown.getMessage().contains("Spark 3.1"));
   }
@@ -71,10 +71,10 @@ public class ReadBridgeStripProtectionTest {
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming = ramped(SCHEMA_WITH_DEFAULT, overwrite(10));
 
-    ColumnDefaultException thrown =
+    ColumnDefaultUnawareCommitException thrown =
         Assertions.assertThrows(
-            ColumnDefaultException.class, () -> commit(protection, existing, incoming, false));
-    Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_UNAWARE_COMMIT"));
+            ColumnDefaultUnawareCommitException.class,
+            () -> commit(protection, existing, incoming, false));
     Assertions.assertTrue(thrown.getMessage().contains("country (field-id 2)"));
   }
 
@@ -151,7 +151,8 @@ public class ReadBridgeStripProtectionTest {
             .build();
 
     Assertions.assertThrows(
-        ColumnDefaultException.class, () -> commit(protection, existing, incoming, false));
+        ColumnDefaultUnawareCommitException.class,
+        () -> commit(protection, existing, incoming, false));
   }
 
   @Test
@@ -242,10 +243,10 @@ public class ReadBridgeStripProtectionTest {
             .tableProperties(optIn())
             .build();
 
-    ColumnDefaultException thrown =
+    ColumnDefaultRemovedException thrown =
         Assertions.assertThrows(
-            ColumnDefaultException.class, () -> commit(protection, existing, incoming, true));
-    Assertions.assertTrue(thrown.getMessage().contains("COLUMN_DEFAULT_REMOVED"));
+            ColumnDefaultRemovedException.class,
+            () -> commit(protection, existing, incoming, true));
     Assertions.assertTrue(thrown.getMessage().contains("country (field-id 2)"));
     Assertions.assertTrue(thrown.getMessage().contains("cannot be removed or changed"));
   }
@@ -330,10 +331,11 @@ public class ReadBridgeStripProtectionTest {
   }
 
   /**
-   * A default the write declares but cannot apply rejects the write with the source's exception.
+   * A default the write declares but cannot apply rejects the write, carrying the source's
+   * exception as the cause.
    */
   @Test
-  public void incomingUnusableDefault_failsWithTheSourceException() {
+  public void incomingUnusableDefault_rejectedWithTheSourceException() {
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming = unusable(ramped(SCHEMA_WITHOUT_DEFAULT, append(10)));
     ColumnDefaultException reported = unusableDefault();
@@ -342,7 +344,9 @@ public class ReadBridgeStripProtectionTest {
     Assertions.assertSame(
         reported,
         Assertions.assertThrows(
-            ColumnDefaultException.class, () -> commit(protection, existing, incoming, true)));
+                ColumnDefaultUnusableException.class,
+                () -> commit(protection, existing, incoming, true))
+            .getCause());
   }
 
   @Test
@@ -399,7 +403,9 @@ public class ReadBridgeStripProtectionTest {
     Assertions.assertSame(
         reported,
         Assertions.assertThrows(
-            ColumnDefaultException.class, () -> commit(protection, null, incoming, true)));
+                ColumnDefaultUnusableException.class,
+                () -> commit(protection, null, incoming, true))
+            .getCause());
   }
 
   private static String schema(String resourceName) {
