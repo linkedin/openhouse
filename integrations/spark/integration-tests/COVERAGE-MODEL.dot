@@ -1,0 +1,64 @@
+digraph OpenHouseIntegrationTestCoverage {
+  graph [
+    rankdir=TB
+    bgcolor="transparent"
+    fontname="Helvetica"
+    nodesep=0.45
+    ranksep=0.6
+    pad=0.2
+  ]
+
+  node [
+    shape=record
+    style="rounded,filled"
+    color="#57606a"
+    fillcolor="#f6f8fa"
+    fontname="Helvetica"
+    fontsize=11
+    margin="0.12,0.08"
+  ]
+
+  edge [
+    color="#57606a"
+    fontname="Helvetica"
+    fontsize=10
+  ]
+
+  table [
+    label="{Prepared Table|---|Initial table state|Schema and seed rows|Format, partitioning, properties, and history}"
+  ]
+
+  test_case [
+    label="{Test Case|---|Action|Expected observable result}"
+  ]
+
+  compatibility [
+    shape=diamond
+    label="Compatible?"
+    fillcolor="#fff8c5"
+  ]
+
+  executable_set [
+    label="{Executable Test Set|---|Every compatible Prepared Table and Test Case pair}"
+    fillcolor="#ddf4ff"
+  ]
+
+  local [
+    label="{Embedded OpenHouse|---|Local tests}"
+    fillcolor="#dafbe1"
+  ]
+
+  acceptance [
+    label="{li-openhouse|---|Airflow acceptance tests}"
+    fillcolor="#dafbe1"
+  ]
+
+  { rank=same; table; test_case }
+  { rank=same; local; acceptance }
+
+  table -> compatibility [label="initial condition"]
+  test_case -> compatibility [label="action and assertions"]
+  compatibility -> executable_set [label="compatible pairs"]
+  executable_set -> local [label="same set"]
+  executable_set -> acceptance [label="same set"]
+}
