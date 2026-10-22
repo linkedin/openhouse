@@ -1,8 +1,8 @@
 package com.linkedin.openhouse.tables.readbridge;
 
 import com.linkedin.openhouse.common.exception.CommitRejectedException;
+import com.linkedin.openhouse.internal.catalog.PendingCommit;
 import com.linkedin.openhouse.internal.catalog.PreCommitCheck;
-import com.linkedin.openhouse.internal.catalog.PreCommitContext;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 
@@ -31,7 +31,7 @@ public class ColumnDefaultCommitPolicy implements PreCommitCheck {
 
   /** @throws CommitRejectedException if the commit changes or removes a committed opt-in */
   @Override
-  public void check(PreCommitContext commit) {
+  public void check(PendingCommit commit) {
     if (requestContext.columnDefaultPolicyBypass()) {
       return;
     }
@@ -44,7 +44,7 @@ public class ColumnDefaultCommitPolicy implements PreCommitCheck {
    * remain mutable so a table can still opt in later. Comparing with the commit's base keeps
    * transaction retries from overwriting a value committed concurrently.
    */
-  private static void keepOptIn(PreCommitContext commit) {
+  private static void keepOptIn(PendingCommit commit) {
     String committed = commit.getBase().map(base -> base.properties().get(PROPERTY)).orElse(null);
     if (committed != null
         && "true".equalsIgnoreCase(committed.trim())

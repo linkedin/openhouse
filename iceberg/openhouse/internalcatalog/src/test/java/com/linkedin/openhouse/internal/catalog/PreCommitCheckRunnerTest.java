@@ -82,7 +82,7 @@ class PreCommitCheckRunnerTest {
             Collections.singletonList(
                 new Named("retrying") {
                   @Override
-                  public void check(PreCommitContext context) {
+                  public void check(PendingCommit commit) {
                     throw misuse;
                   }
                 }),
@@ -132,7 +132,7 @@ class PreCommitCheckRunnerTest {
     }
 
     @Override
-    public void check(PreCommitContext context) {
+    public void check(PendingCommit commit) {
       calls.names.add(getName());
     }
   }
@@ -153,8 +153,8 @@ class PreCommitCheckRunnerTest {
     }
 
     @Override
-    public void check(PreCommitContext context) {
-      super.check(context);
+    public void check(PendingCommit commit) {
+      super.check(commit);
       throw REJECTION;
     }
   }
