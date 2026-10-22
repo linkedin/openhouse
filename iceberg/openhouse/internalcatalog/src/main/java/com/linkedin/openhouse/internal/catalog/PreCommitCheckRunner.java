@@ -77,16 +77,16 @@ public class PreCommitCheckRunner {
     if (checks.isEmpty()) {
       return;
     }
-    PreCommitContext context = PreCommitContext.of(tableIdentifier, base, metadata, properties);
+    PendingCommit commit = PendingCommit.of(tableIdentifier, base, metadata, properties);
     for (PreCommitCheck check : checks) {
-      run(check, context);
+      run(check, commit);
     }
   }
 
-  private void run(PreCommitCheck check, PreCommitContext context) {
+  private void run(PreCommitCheck check, PendingCommit commit) {
     String name = check.getName();
     try {
-      check.check(context);
+      check.check(commit);
     } catch (CommitRejectedException rejection) {
       count(name, "rejected");
       throw rejection;
