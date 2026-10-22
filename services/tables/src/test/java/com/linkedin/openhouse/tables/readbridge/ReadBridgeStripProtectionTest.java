@@ -5,6 +5,7 @@ import com.google.common.collect.ImmutableMap;
 import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
 import com.linkedin.openhouse.internal.catalog.PreCommitContext;
+import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -36,6 +37,9 @@ public class ReadBridgeStripProtectionTest {
   private static final String METADATA_LOCATION =
       "file:/data/openhouse/db/tbl-uuid/00001-x.metadata.json";
   private static final TableIdentifier TABLE = TableIdentifier.of("db", "tbl");
+  private static final String REMEDY =
+      "Update the client, or use a supported client: spark with openhouse-java-client 0.5.100 or"
+          + " newer. More information: go/oh/column-defaults";
 
   private static final ColumnDefaultsSource FIELD_2 =
       tableDto -> Collections.singletonMap(2, TextNode.valueOf("US"));
@@ -61,8 +65,12 @@ public class ReadBridgeStripProtectionTest {
         Assertions.assertThrows(
             ColumnDefaultUnawareCommitException.class,
             () -> commit(protection, existing, incoming, false));
-    Assertions.assertTrue(thrown.getMessage().contains("country (field-id 2)"));
-    Assertions.assertTrue(thrown.getMessage().contains("Spark 3.1"));
+    Assertions.assertEquals(
+        "CLIENT_CAPABILITY_MISSING: db.tbl requires the column-defaults capability, which this"
+            + " client does not have (X-Client-Name: spark, User-Agent:"
+            + " openhouse-java-client/0.5.99). "
+            + REMEDY,
+        thrown.getMessage());
   }
 
   /** The client decides Type 2, not the {@code initial-default} it sent. */
@@ -76,7 +84,7 @@ public class ReadBridgeStripProtectionTest {
         Assertions.assertThrows(
             ColumnDefaultUnawareCommitException.class,
             () -> commit(protection, existing, incoming, false));
-    Assertions.assertTrue(thrown.getMessage().contains("country (field-id 2)"));
+    Assertions.assertTrue(thrown.getMessage().startsWith("CLIENT_CAPABILITY_MISSING: db.tbl "));
   }
 
   @Test
@@ -248,7 +256,11 @@ public class ReadBridgeStripProtectionTest {
         Assertions.assertThrows(
             ColumnDefaultRemovedException.class,
             () -> commit(protection, existing, incoming, true));
-    Assertions.assertTrue(thrown.getMessage().contains("country (field-id 2)"));
+    Assertions.assertEquals(
+        "COLUMN_DEFAULT_REMOVED: db.tbl still has a column default on country (field-id 2), and"
+            + " this commit omitted it. "
+            + REMEDY,
+        thrown.getMessage());
   }
 
   @Test
@@ -422,8 +434,9 @@ public class ReadBridgeStripProtectionTest {
   }
 
   /**
-   * Prepares {@code incoming} and checks the commit it makes on {@code existing}, from a client
-   * that applies column defaults or not. A request that carries snapshots commits snapshots.
+   * Prepares {@code incoming} and checks the commit it makes on {@code existing}, from a Spark
+   * client the gate admits ({@code 0.5.100}) or one release too old. A request that carries
+   * snapshots commits snapshots.
    */
   private static TableDto commit(
       ReadBridgeStripProtection protection,
@@ -432,6 +445,8 @@ public class ReadBridgeStripProtectionTest {
       boolean defaultAwareClient)
       throws ColumnDefaultException {
     TableDto prepared = protection.prepare(incoming);
+    String userAgent =
+        defaultAwareClient ? "openhouse-java-client/0.5.100" : "openhouse-java-client/0.5.99";
     protection.enforce(
         new PreCommitContext(
             TABLE,
@@ -439,7 +454,20 @@ public class ReadBridgeStripProtectionTest {
             metadata(prepared),
             ImmutableMap.copyOf(prepared.getTableProperties()),
             prepared.getJsonSnapshots() != null),
-        defaultAwareClient);
+        new ColumnDefaultClientGate(
+            "0.5.100",
+            "go/oh/column-defaults",
+            new CatalogRequestContext() {
+              @Override
+              public Optional<String> clientName() {
+                return Optional.of("spark");
+              }
+
+              @Override
+              public Optional<String> userAgent() {
+                return Optional.of(userAgent);
+              }
+            }));
     return prepared;
   }
 

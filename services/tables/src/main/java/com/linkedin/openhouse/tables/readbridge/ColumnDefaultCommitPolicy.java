@@ -60,7 +60,7 @@ public class ColumnDefaultCommitPolicy implements PreCommitCheck {
       return;
     }
     keepOptIn(commit);
-    columnDefaultRules.enforce(commit, clientGate.admitsClient());
+    columnDefaultRules.enforce(commit, clientGate);
   }
 
   /**

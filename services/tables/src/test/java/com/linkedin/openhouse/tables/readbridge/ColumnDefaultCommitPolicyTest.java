@@ -123,7 +123,12 @@ public class ColumnDefaultCommitPolicyTest {
         Assertions.assertThrows(
             ColumnDefaultUnawareCommitException.class,
             () -> policy(NO_BYPASS, FIELD_2).check(commit(table("true"), optIn("true"))));
-    Assertions.assertTrue(error.getMessage().contains("country (field-id 2)"));
+    Assertions.assertTrue(
+        error
+            .getMessage()
+            .contains(
+                "which this client does not have (X-Client-Name: (none), User-Agent: (none))"),
+        error.getMessage());
   }
 
   /** Type 2 accepts exactly the clients {@link ColumnDefaultClientGate} admits. */
@@ -167,7 +172,7 @@ public class ColumnDefaultCommitPolicyTest {
       CatalogRequestContext requestContext, ColumnDefaultsSource source) {
     return new ColumnDefaultCommitPolicy(
         requestContext,
-        new ColumnDefaultClientGate("0.5.100", requestContext),
+        new ColumnDefaultClientGate("0.5.100", "", requestContext),
         new ReadBridgeStripProtection(new ReadBridgeConfigResolver(source)));
   }
 

@@ -13,7 +13,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.TableMetadata;
@@ -84,13 +83,14 @@ public class ReadBridgeStripProtection {
    * the ones the commit declares, must be usable, and the commit must pass Type 1 and Type 2. A
    * commit that creates the table only has its declared defaults checked.
    *
-   * @param defaultAwareClient whether the commit comes from a client that applies column defaults
+   * @param clients the gate that decides whether the commit's client applies column defaults and
+   *     words the rejection
    * @throws TableConfigUnavailableException if a default the base declares cannot be applied
    * @throws ColumnDefaultUnusableException if a default the commit declares cannot be applied
    * @throws ColumnDefaultRemovedException if the commit breaks Type 1
    * @throws ColumnDefaultUnawareCommitException if the commit breaks Type 2
    */
-  public void enforce(PreCommitContext commit, boolean defaultAwareClient) {
+  public void enforce(PreCommitContext commit, ColumnDefaultClientGate clients) {
     TableIdentifier table = commit.getTableIdentifier();
     TableMetadata base = commit.getBase().orElse(null);
     Schema schema = commit.getMetadata().schema();
@@ -106,9 +106,8 @@ public class ReadBridgeStripProtection {
             ? declaredColumnDefaults(tableDto(table, schema, commit.getProperties(), location))
             : Collections.emptyMap();
     if (base != null) {
-      rejectRemovedDefaults(table, previousStamped, declared, bridged, schema);
-      rejectUnawareCommit(
-          table, previousStamped, schema, defaultAwareClient, commit.isSnapshotCommit());
+      rejectRemovedDefaults(table, previousStamped, declared, bridged, schema, clients);
+      rejectUnawareCommit(table, previousStamped, schema, clients, commit.isSnapshotCommit());
     }
   }
 
@@ -130,7 +129,8 @@ public class ReadBridgeStripProtection {
       Map<Integer, String> previousStamped,
       Map<Integer, String> declared,
       boolean bridged,
-      Schema schema) {
+      Schema schema,
+      ColumnDefaultClientGate clients) {
     if (previousStamped.isEmpty() || !bridged) {
       return;
     }
@@ -139,13 +139,9 @@ public class ReadBridgeStripProtection {
       if (field != null && !declared.containsKey(fieldId)) {
         throw new ColumnDefaultRemovedException(
             String.format(
-                "COLUMN_DEFAULT_REMOVED: %s.%s still has a column default on %s. This commit"
-                    + " omitted it. Retry from Spark 3.1 or Spark 3.5 using the jars on the"
-                    + " standard client image."
-                    + TablesMvcConstants.COLUMN_DEFAULT_POLICY_BYPASS_HINT,
-                table.namespace(),
-                table.name(),
-                fieldLabel(field)));
+                "COLUMN_DEFAULT_REMOVED: %s still has a column default on %s, and this commit"
+                    + " omitted it. %s",
+                table, fieldLabel(field), clients.remedy()));
       }
     }
   }
@@ -158,26 +154,13 @@ public class ReadBridgeStripProtection {
       TableIdentifier table,
       Map<Integer, String> previousStamped,
       Schema schema,
-      boolean defaultAwareClient,
+      ColumnDefaultClientGate clients,
       boolean snapshotCommit) {
-    if (previousStamped.isEmpty() || !snapshotCommit || defaultAwareClient) {
+    if (previousStamped.isEmpty() || !snapshotCommit || clients.admitsClient()) {
       return;
     }
-    Optional<Types.NestedField> field =
-        previousStamped.keySet().stream()
-            .map(schema::findField)
-            .filter(Objects::nonNull)
-            .findFirst();
-    if (field.isPresent()) {
-      throw new ColumnDefaultUnawareCommitException(
-          String.format(
-              "COLUMN_DEFAULT_UNAWARE_COMMIT: %s.%s has a column default on %s, and this commit"
-                  + " did not come from a client that applies column defaults. Commit from"
-                  + " Spark 3.1 or Spark 3.5 using the jars on the standard client image."
-                  + TablesMvcConstants.COLUMN_DEFAULT_POLICY_BYPASS_HINT,
-              table.namespace(),
-              table.name(),
-              fieldLabel(field.get())));
+    if (previousStamped.keySet().stream().map(schema::findField).anyMatch(Objects::nonNull)) {
+      throw new ColumnDefaultUnawareCommitException(clients.missingCapability(table.toString()));
     }
   }
 
