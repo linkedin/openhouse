@@ -24,8 +24,8 @@ public abstract class WebClientFactory {
 
   private static final String HTTP = "http";
   private static final String HTTPS = "https";
-  private static final String SESSION_ID = "session-id";
 
+  public static final String HTTP_HEADER_SESSION_ID = "session-id";
   public static final String HTTP_HEADER_CLIENT_NAME = "X-Client-Name";
   public static final String HTTP_HEADER_ACTION_TYPE = "X-OpenHouse-Action-Type";
   public static final String ACTION_TYPE_SYSTEM = "SYSTEM";
@@ -205,7 +205,7 @@ public abstract class WebClientFactory {
       sessionId = UUID.randomUUID().toString();
     }
     log.info("Client session id: {}", sessionId);
-    webClientBuilder.defaultHeaders(h -> h.add(SESSION_ID, sessionId));
+    webClientBuilder.defaultHeaders(h -> h.add(HTTP_HEADER_SESSION_ID, sessionId));
   }
 
   /**
