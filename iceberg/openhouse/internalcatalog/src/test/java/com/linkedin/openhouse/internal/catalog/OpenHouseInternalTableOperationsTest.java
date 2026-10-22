@@ -187,7 +187,7 @@ public class OpenHouseInternalTableOperationsTest {
         CatalogConstants.SNAPSHOTS_JSON_KEY,
         SnapshotsUtil.serializedSnapshots(IcebergTestUtil.getSnapshots()));
     properties.put(CatalogConstants.COMMIT_KEY, "/test_db/test_table/00001-older.metadata.json");
-    AtomicReference<PreCommitContext> judged = new AtomicReference<>();
+    AtomicReference<PendingCommit> judged = new AtomicReference<>();
     openHouseInternalTableOperations.preCommitCheckRunner = runnerOf(judged::set);
 
     try (MockedStatic<TableMetadataParser> metadataFiles = mockStatic(TableMetadataParser.class)) {
@@ -288,8 +288,8 @@ public class OpenHouseInternalTableOperationsTest {
    * Commits {@code properties} on top of {@link #BASE_TABLE_METADATA} and returns the commit the
    * pre-commit checks judged. The persisted metadata is left in {@code tblMetadataCaptor}.
    */
-  private PreCommitContext commitJudgedByChecks(Map<String, String> properties) {
-    AtomicReference<PreCommitContext> judged = new AtomicReference<>();
+  private PendingCommit commitJudgedByChecks(Map<String, String> properties) {
+    AtomicReference<PendingCommit> judged = new AtomicReference<>();
     openHouseInternalTableOperations.preCommitCheckRunner = runnerOf(judged::set);
     try (MockedStatic<TableMetadataParser> metadataFiles = mockStatic(TableMetadataParser.class)) {
       openHouseInternalTableOperations.doCommit(
@@ -300,7 +300,7 @@ public class OpenHouseInternalTableOperationsTest {
   }
 
   /** A runner with one check that does {@code check}. */
-  private static PreCommitCheckRunner runnerOf(Consumer<PreCommitContext> check) {
+  private static PreCommitCheckRunner runnerOf(Consumer<PendingCommit> check) {
     return new PreCommitCheckRunner(
         Collections.singletonList(
             new PreCommitCheck() {
@@ -310,8 +310,8 @@ public class OpenHouseInternalTableOperationsTest {
               }
 
               @Override
-              public void check(PreCommitContext context) {
-                check.accept(context);
+              public void check(PendingCommit commit) {
+                check.accept(commit);
               }
             }),
         new SimpleMeterRegistry());
