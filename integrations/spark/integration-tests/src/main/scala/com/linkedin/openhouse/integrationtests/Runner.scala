@@ -22,7 +22,7 @@ object Runner {
   val MaxAttempts = 3
 
   /** Runs a case. Once the case body starts, every failure is terminal because observable state may have changed. */
-  def execute(testCase: TestCase, context: Ctx): (Outcome, Int) = {
+  def execute(testCase: TestCase, context: TestContext): (Outcome, Int) = {
     @tailrec def attempt(attemptIndex: Int): (Outcome, Int) = {
       val attemptContext =
         try {

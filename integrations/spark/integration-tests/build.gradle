@@ -41,6 +41,11 @@ sourceSets {
     compileClasspath += sourceSets.main.output
     runtimeClasspath += sourceSets.main.output
   }
+  localTest {
+    scala.srcDirs = ['src/localTest/scala']
+    compileClasspath += sourceSets.local.output + sourceSets.local.compileClasspath
+    runtimeClasspath += sourceSets.local.output + sourceSets.local.runtimeClasspath
+  }
 }
 
 dependencies {
@@ -148,7 +153,9 @@ def verifyPortableJar = tasks.register('verifyPortableJar') {
       packagePath + '/Main.class',
       packagePath + '/Main$.class',
       packagePath + '/OpenHouseEnv.class',
-      packagePath + '/OpenHouseEnv$.class'
+      packagePath + '/OpenHouseEnv$.class',
+      packagePath + '/TablePreparationChecks.class',
+      packagePath + '/TablePreparationChecks$.class'
     ]
       .each { embeddedEntry ->
         if (entries.contains(embeddedEntry)) {
@@ -158,9 +165,92 @@ def verifyPortableJar = tasks.register('verifyPortableJar') {
   }
 }
 
+def verifyTablePreparation = tasks.register('verifyTablePreparation', JavaExec) {
+  group = 'verification'
+  description = 'Checks table teardown after successful and failing preparations and case bodies.'
+  dependsOn localTestClasses
+  classpath = sourceSets.localTest.runtimeClasspath
+  mainClass = 'com.linkedin.openhouse.integrationtests.TablePreparationChecks'
+  jvmArgs tasks.named('runOpenHouse').get().jvmArgs
+}
+
+def verifyRunnerFilters = tasks.register('verifyRunnerFilters') {
+  group = 'verification'
+  description = 'Checks the embedded runner process exits for matching and unmatched filters.'
+  dependsOn localClasses
+  doLast {
+    [
+      [filter: 'read.projection @ parquet', exitCode: 0, summary: '1 passed, 0 skipped, 0 failed  (1 cases)'],
+      [filter: '__unmatched_runner_filter__', exitCode: 1, summary: '0 passed, 0 skipped, 0 failed  (0 cases)']
+    ].each { expectation ->
+      def output = new ByteArrayOutputStream()
+      def result = javaexec {
+        classpath = sourceSets.local.runtimeClasspath
+        mainClass = 'com.linkedin.openhouse.integrationtests.Main'
+        jvmArgs tasks.named('runOpenHouse').get().jvmArgs
+        args expectation.filter
+        environment 'INTEGRATION_TEST_PARALLELISM', '1'
+        ignoreExitValue = true
+        standardOutput = output
+        errorOutput = output
+      }
+      def logFile = layout.buildDirectory.file("runner-filter-checks/${expectation.exitCode}.log").get().asFile
+      logFile.parentFile.mkdirs()
+      logFile.text = output.toString('UTF-8')
+      if (result.exitValue != expectation.exitCode || !logFile.text.contains(expectation.summary)) {
+        throw new GradleException("Unexpected runner result for '${expectation.filter}'; see ${logFile}")
+      }
+    }
+  }
+}
+
+def verifyLauncherArguments = tasks.register('verifyLauncherArguments') {
+  group = 'verification'
+  description = 'Checks launcher filters using the Gradle argument parser without starting Spark.'
+  doLast {
+    def fixtureRoot = layout.buildDirectory.dir('launcher-argument-checks').get().asFile
+    def launcher = new File(fixtureRoot, 'integrations/spark/integration-tests/run-openhouse.sh')
+    launcher.parentFile.mkdirs()
+    launcher.text = file('run-openhouse.sh').text
+    def javaExecutable = new File(fixtureRoot, 'jdk/bin/java')
+    javaExecutable.parentFile.mkdirs()
+    javaExecutable.text = '#!/usr/bin/env bash\necho \'openjdk version "17.0.1"\' >&2\n'
+    javaExecutable.setExecutable(true)
+    def gradleExecutable = new File(fixtureRoot, 'gradlew')
+    gradleExecutable.text = '#!/usr/bin/env bash\nprintf \'%s\\n\' "$@" > "$CAPTURED_ARGUMENTS"\n'
+    gradleExecutable.setExecutable(true)
+    def capturedArguments = new File(fixtureRoot, 'arguments.txt')
+    [
+      [],
+      ['read.projection @ parquet'],
+      ['read.projection', 'parquet'],
+      ['  spaced filter  ', "apostrophe's filter", 'path\\filter']
+    ].each { filters ->
+      exec {
+        commandLine(['bash', launcher.absolutePath] + filters)
+        environment 'JAVA17_HOME', javaExecutable.parentFile.parentFile.absolutePath
+        environment 'CAPTURED_ARGUMENTS', capturedArguments.absolutePath
+      }
+      def arguments = capturedArguments.readLines()
+      def decodedFilters = arguments.findAll { it.startsWith('--args=') }.collectMany {
+        org.apache.tools.ant.types.Commandline.translateCommandline(it.substring(7)).toList()
+      }
+      if (decodedFilters != filters) {
+        throw new GradleException("Launcher changed filters: expected ${filters}, received ${decodedFilters}")
+      }
+      if (!arguments.contains(':integrations:spark:openhouse-spark-integration-tests_2.12:runOpenHouse')) {
+        throw new GradleException('Launcher must select the embedded OpenHouse task.')
+      }
+    }
+  }
+}
+
 tasks.named('check') {
   dependsOn verifyOpenHouseFoundation
   dependsOn verifyPortableJar
+  dependsOn verifyTablePreparation
+  dependsOn verifyRunnerFilters
+  dependsOn verifyLauncherArguments
 }
 
 jar.enabled = true
