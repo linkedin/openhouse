@@ -262,6 +262,29 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     return tables;
   }
 
+  /**
+   * Checks existence without loading table metadata, even if the table is locked or its metadata is
+   * unreadable. Metadata-table identifiers retain Iceberg's load-based existence check.
+   */
+  @Override
+  public boolean tableExists(TableIdentifier identifier) {
+    log.info("Calling tableExists with identifier: {}", identifier);
+    if (!isValidIdentifier(identifier)) {
+      return super.tableExists(identifier);
+    }
+    return tableApi
+        .tableExistsV1(identifier.namespace().toString(), identifier.name())
+        .thenReturn(true)
+        .onErrorResume(WebClientResponseException.NotFound.class, e -> Mono.just(false))
+        .onErrorResume(
+            WebClientResponseException.class,
+            e -> Mono.error(new WebClientResponseWithMessageException(e)))
+        .onErrorResume(
+            WebClientRequestException.class,
+            e -> Mono.error(new WebClientRequestWithMessageException(e)))
+        .block();
+  }
+
   @Override
   public boolean dropTable(TableIdentifier identifier, boolean purge) {
     log.info(

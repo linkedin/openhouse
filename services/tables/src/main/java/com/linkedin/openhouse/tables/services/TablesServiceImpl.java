@@ -82,6 +82,21 @@ public class TablesServiceImpl implements TablesService {
     return tableDto;
   }
 
+  /**
+   * Lightweight HTS lookup (no metadata.json parse / HDFS read) to determine existence.
+   *
+   * @param databaseId
+   * @param tableId
+   * @return
+   */
+  @Override
+  public boolean tableExists(String databaseId, String tableId) {
+    return openHouseInternalRepository
+        .findTableRefById(
+            TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
+        .isPresent();
+  }
+
   @Override
   public List<TableDto> searchTables(String databaseId) {
     return openHouseInternalRepository.searchTables(databaseId);
