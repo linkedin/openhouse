@@ -130,7 +130,7 @@ public class CadencePolicy {
       Optional<TableOperationDto> currentOp,
       Optional<TableOperationsHistoryDto> latestHistory,
       int consecutiveFailures) {
-    if (currentOp.isPresent() && isBlockingActiveOp(currentOp.get())) {
+    if (currentOp.isPresent() && isBlockingActiveOp(currentOp.get()).orElse(true)) {
       return false;
     }
     return latestHistory
@@ -139,22 +139,25 @@ public class CadencePolicy {
   }
 
   /**
-   * Whether an existing operation row should keep the analyzer from issuing a new recommendation.
-   * CANCELED never blocks; PENDING always blocks (waiting for the scheduler to claim it); a
+   * Whether an existing operation row should keep the analyzer from issuing a new recommendation,
+   * or {@link Optional#empty()} when the row's status is not one this policy classifies. CANCELED
+   * never blocks; PENDING always blocks (waiting for the scheduler to claim it); a
    * SCHEDULING/SCHEDULED row blocks only until it passes {@link #activeOpStaleTimeout}, after which
-   * it is treated as a dead job eligible for rescheduling.
+   * it is treated as a dead job eligible for rescheduling. The caller decides how to treat an
+   * unclassified status; {@link #shouldSchedule} conservatively treats it as blocking so we never
+   * schedule over an op we cannot reason about.
    */
-  private boolean isBlockingActiveOp(TableOperationDto op) {
+  private Optional<Boolean> isBlockingActiveOp(TableOperationDto op) {
     switch (op.getStatus()) {
       case CANCELED:
-        return false;
+        return Optional.of(false);
       case PENDING:
-        return true;
+        return Optional.of(true);
       case SCHEDULING:
       case SCHEDULED:
-        return !isPastStaleTimeout(op);
+        return Optional.of(!isPastStaleTimeout(op));
       default:
-        throw new IllegalStateException("Unhandled OperationStatusDto value: " + op.getStatus());
+        return Optional.empty();
     }
   }
 
