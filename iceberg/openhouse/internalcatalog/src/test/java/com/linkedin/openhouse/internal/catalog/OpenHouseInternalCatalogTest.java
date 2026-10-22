@@ -5,21 +5,30 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
 
+import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
+import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Optional;
+import java.util.stream.Stream;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.SupportsPrefixOperations;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 public class OpenHouseInternalCatalogTest {
 
@@ -140,6 +149,107 @@ public class OpenHouseInternalCatalogTest {
 
     verify(repo).deleteById(any(HouseTablePrimaryKey.class), eq(false));
     verify((SupportsPrefixOperations) fileIO, never()).deletePrefix(any());
+  }
+
+  /**
+   * Wires the allocation collaborators as mocks so a pure-read test can assert the neutral
+   * occupancy read never touches them, and bypasses real fileIO resolution via {@link
+   * FixedFileIOCatalog}.
+   */
+  private static OpenHouseInternalCatalog catalogOver(HouseTableRepository repo, FileIO fileIO) {
+    OpenHouseInternalCatalog catalog = new FixedFileIOCatalog(fileIO);
+    catalog.houseTableRepository = repo;
+    catalog.fileIOManager = mock(FileIOManager.class);
+    catalog.storageSelector = mock(StorageSelector.class);
+    catalog.meterRegistry = new SimpleMeterRegistry();
+    return catalog;
+  }
+
+  private static FileIO recordingFileIO() {
+    return mock(FileIO.class, withSettings().extraInterfaces(SupportsPrefixOperations.class));
+  }
+
+  /**
+   * The typed table read filters out anything that is not a canonical table, as House Table does.
+   */
+  private static HouseTableRepository repoHolding(HouseTable occupant) {
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    Optional<HouseTable> row = Optional.ofNullable(occupant);
+    when(repo.findEntityById(any(HouseTablePrimaryKey.class))).thenReturn(row);
+    when(repo.findById(any(HouseTablePrimaryKey.class)))
+        .thenReturn(row.filter(o -> "TABLE".equals(o.getEntityType())));
+    return repo;
+  }
+
+  private static HouseTable occupantOfType(String entityType) {
+    return HouseTable.builder()
+        .databaseId(DB)
+        .tableId(TABLE)
+        .tableLocation(METADATA_LOCATION)
+        .entityType(entityType)
+        .build();
+  }
+
+  /**
+   * Whatever holds the name — a view, a table, or a non-canonical 'Table' — the neutral occupancy
+   * read reports it with its own type from the pointer row alone, so no occupied name looks free
+   * and no create can reach allocation. Classification of a canonical view is the caller's. The
+   * read allocates nothing, reads no metadata.json, writes nothing, and never falls back to the raw
+   * table- or view-typed lookups.
+   */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("populatedOccupants")
+  void findEntityByIdReportsAnyOccupantByItsTypeWithoutAllocatingOrReading(
+      String caseName, String entityType) {
+    HouseTableRepository repo = repoHolding(occupantOfType(entityType));
+    FileIO fileIO = recordingFileIO();
+    OpenHouseInternalCatalog catalog = catalogOver(repo, fileIO);
+
+    Optional<HouseTable> occupant = catalog.findEntityById(IDENTIFIER);
+
+    // Present, carrying its own type back to the caller who classifies it.
+    Assertions.assertTrue(occupant.isPresent());
+    Assertions.assertEquals(entityType, occupant.get().getEntityType());
+    // Exactly one neutral occupancy read at the key, and never the raw table- or view-typed reads.
+    verify(repo, times(1))
+        .findEntityById(HouseTablePrimaryKey.builder().databaseId(DB).tableId(TABLE).build());
+    verify(repo, never()).findById(any(HouseTablePrimaryKey.class));
+    verify(repo, never()).findViewById(any(HouseTablePrimaryKey.class));
+    // A pure read allocates nothing, reads no metadata.json, and writes nothing while answering.
+    verify(catalog.storageSelector, never()).selectStorage(any(), any());
+    verifyNoInteractions(catalog.fileIOManager);
+    verifyNoInteractions(fileIO);
+    verify(repo, never()).save(any(HouseTable.class));
+    verify(repo, never()).saveView(any(HouseTable.class));
+  }
+
+  private static Stream<Arguments> populatedOccupants() {
+    return Stream.of(
+        Arguments.of("a view occupant is reported with its VIEW type", "VIEW"),
+        Arguments.of("a table occupant is reported with its TABLE type", "TABLE"),
+        Arguments.of("a non-canonical 'Table' occupant still holds the name", "Table"));
+  }
+
+  /** The parse boundary resolves a legacy null to TABLE, so the catalog never sees a null. */
+  @Test
+  void findEntityByIdReportsAFreeNameAsAbsentAndLeavesTheRaceToTheServerGuard() {
+    OpenHouseInternalCatalog catalog = catalogOver(repoHolding(null), recordingFileIO());
+
+    Assertions.assertFalse(catalog.findEntityById(IDENTIFIER).isPresent());
+  }
+
+  /**
+   * An identifier this catalog does not own short-circuits the guard, so metadata-table and
+   * invalid-identifier handling are untouched by the create-decision change.
+   */
+  @Test
+  void findEntityByIdReturnsEmptyForAnIdentifierThisCatalogDoesNotOwn() {
+    HouseTableRepository repo = repoHolding(occupantOfType("VIEW"));
+    OpenHouseInternalCatalog catalog = catalogOver(repo, recordingFileIO());
+
+    Assertions.assertFalse(catalog.findEntityById(TableIdentifier.of(TABLE)).isPresent());
+
+    verify(repo, never()).findEntityById(any(HouseTablePrimaryKey.class));
   }
 
   /** Test subclass that bypasses the real {@link OpenHouseInternalCatalog#resolveFileIO} wiring. */

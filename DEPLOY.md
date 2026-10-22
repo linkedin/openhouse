@@ -169,6 +169,26 @@ during `helm install` is shown below.
       HTS_DB_PASSWORD: MYSQL_PASSWORD
 ```
 
+#### MySQL for Optimizer
+
+Point REST, Analyzer, and Scheduler at the same database. Set `OPTIMIZER_DB_USER` and
+`OPTIMIZER_DB_PASSWORD` in each process, and configure `OPENHOUSE_CLUSTER_CONFIG_PATH`
+(default `/var/config/cluster.yaml`):
+
+```yaml
+cluster:
+  optimizer:
+    database:
+      type: MYSQL
+      url: "jdbc:mysql://mysql:3306/oh_db"
+```
+
+The YAML URL overrides `spring.datasource.url` / `OPTIMIZER_DB_URL`.
+Optional certificate authentication uses `database.cert-based-auth.enabled=true` and
+[keystore/truststore settings](libs/optimizer/optimizer-common/src/main/java/com/linkedin/openhouse/optimizer/config/OptimizerDatabaseProperties.java);
+mount the referenced files and supply their passwords. SSL mode defaults to `VERIFY_IDENTITY`.
+Pool settings use `spring.datasource.hikari.*`.
+
 #### Hadoop Compatible File System for Tables Service
 
 To use remote Hadoop compatible filesystem, update the `storage.uri` in [cluster.yaml](infra/recipes/k8s/config/tables/minikube/tables.yaml)

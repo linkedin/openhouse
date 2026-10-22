@@ -30,8 +30,8 @@ ext {
   spark_version = "3.1.1"
   ok_http3_version = "4.11.0"
   junit_version = "5.11.0"
-  iceberg_1_2_version = "1.2.0.20"
-  iceberg_1_5_version = "1.5.2.17"
+  iceberg_1_2_version = "1.2.0.25"
+  iceberg_1_5_version = "1.5.2.23"
   otel_agent_version = "2.12.0" // Bundles OTel SDK 1.47.0
   otel_annotations_version = "2.12.0" // Match agent version
 }
@@ -183,6 +183,8 @@ tasks.register('CopyGitHooksTask', Copy) {
 //   housetables-service.Dockerfile -> :services:housetables:bootJar
 //   jobs-service.Dockerfile        -> :services:jobs:bootJar
 //   optimizer-service.Dockerfile   -> :services:optimizer:bootJar
+//                                 -> :apps:optimizer:analyzerapp:bootJar (APP_NAME=analyzerapp)
+//                                 -> :apps:optimizer:schedulerapp:bootJar (APP_NAME=schedulerapp)
 //   jobs-scheduler.Dockerfile      -> :apps:openhouse-spark-apps_2.12:shadowJar (uber JAR)
 //   spark-base-hadoop2.8.dockerfile ->
 //       :integrations:spark:spark-3.1:openhouse-spark-runtime_2.12:shadowJar (uber JAR)
@@ -203,6 +205,8 @@ tasks.register('dockerPrereqs') {
   dependsOn ':services:housetables:bootJar'
   dependsOn ':services:jobs:bootJar'
   dependsOn ':services:optimizer:bootJar'
+  dependsOn ':apps:optimizer:analyzerapp:bootJar'
+  dependsOn ':apps:optimizer:schedulerapp:bootJar'
 
   // Spark runtime uber JARs (shadowJar)
   dependsOn ':integrations:spark:spark-3.1:openhouse-spark-runtime_2.12:shadowJar'
@@ -227,6 +231,8 @@ tasks.register('dockerPrereqs') {
     println '  build/housetables/libs/housetables.jar'
     println '  build/jobs/libs/jobs.jar'
     println '  build/optimizer/libs/optimizer.jar'
+    println '  build/analyzerapp/libs/analyzerapp.jar'
+    println '  build/schedulerapp/libs/schedulerapp.jar'
     println '  build/openhouse-spark-runtime_2.12/libs/openhouse-spark-runtime_2.12-uber.jar'
     println '  build/openhouse-spark-3.5-runtime_2.12/libs/openhouse-spark-3.5-runtime_2.12-uber.jar'
     println '  build/openhouse-spark-apps_2.12/libs/openhouse-spark-apps_2.12-uber.jar'
@@ -293,6 +299,9 @@ tasks.register('dockerUp', Exec) {
     println '  Tables Service:      http://localhost:8000'
     println '  HouseTables Service: http://localhost:8001'
     println '  Jobs Service:        http://localhost:8002'
+    if (recipe == 'oh-hadoop-spark') {
+      println '  Optimizer Service:   http://localhost:8003'
+    }
     println '  Prometheus:          http://localhost:9090'
     println '  Jaeger UI (traces):  http://localhost:16686'
     println ''

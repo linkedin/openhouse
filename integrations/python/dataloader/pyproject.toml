@@ -1,5 +1,8 @@
 [build-system]
-requires = ["hatchling", "hatch-vcs"]
+# hatchling 1.30 emits Metadata-Version 2.5; released twine and PyPI still
+# reject it (main publish has been red since that default). Lift once both
+# accept 2.5.
+requires = ["hatchling>=1.27,<1.30", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
