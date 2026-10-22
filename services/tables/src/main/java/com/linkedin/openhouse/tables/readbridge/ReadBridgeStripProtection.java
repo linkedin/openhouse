@@ -13,6 +13,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.TableMetadata;
@@ -21,10 +22,8 @@ import org.apache.iceberg.types.Types;
 
 /**
  * Type 1 / Type 2 strip protection for column defaults. Default-aware clients send {@code
- * initial-default} on the commit schema. {@link #prepare} drops every {@code initial-default}
- * before persist, so overlays cannot land in Iceberg metadata. {@link ColumnDefaultCommitPolicy}
- * has {@link #enforce} check every commit inside the catalog's {@code doCommit}, against the
- * defaults the {@link ColumnDefaultsSource} declares.
+ * initial-default} on the commit schema; this class uses that as the handshake, then drops every
+ * {@code initial-default} before persist so overlays cannot land in Iceberg metadata.
  *
  * <p>The catalog applies the rules only after its stale-base check, so they always judge a commit
  * against the table's current version. A commit built on an older version gets the retryable
@@ -142,7 +141,7 @@ public class ReadBridgeStripProtection {
             String.format(
                 "COLUMN_DEFAULT_REMOVED: %s.%s still has a column default on %s. This commit"
                     + " omitted it. Retry from Spark 3.1 or Spark 3.5 using the jars on the"
-                    + " standard client image. Column defaults cannot be removed or changed."
+                    + " standard client image."
                     + TablesMvcConstants.COLUMN_DEFAULT_POLICY_BYPASS_HINT,
                 table.namespace(),
                 table.name(),
@@ -164,19 +163,21 @@ public class ReadBridgeStripProtection {
     if (previousStamped.isEmpty() || !snapshotCommit || defaultAwareClient) {
       return;
     }
-    for (Integer fieldId : previousStamped.keySet()) {
-      Types.NestedField field = schema.findField(fieldId);
-      if (field != null) {
-        throw new ColumnDefaultUnawareCommitException(
-            String.format(
-                "COLUMN_DEFAULT_UNAWARE_COMMIT: %s.%s has a column default on %s, and this commit"
-                    + " did not come from a client that applies column defaults. Commit from"
-                    + " Spark 3.1 or Spark 3.5 using the jars on the standard client image."
-                    + TablesMvcConstants.COLUMN_DEFAULT_POLICY_BYPASS_HINT,
-                table.namespace(),
-                table.name(),
-                fieldLabel(field)));
-      }
+    Optional<Types.NestedField> field =
+        previousStamped.keySet().stream()
+            .map(schema::findField)
+            .filter(Objects::nonNull)
+            .findFirst();
+    if (field.isPresent()) {
+      throw new ColumnDefaultUnawareCommitException(
+          String.format(
+              "COLUMN_DEFAULT_UNAWARE_COMMIT: %s.%s has a column default on %s, and this commit"
+                  + " did not come from a client that applies column defaults. Commit from"
+                  + " Spark 3.1 or Spark 3.5 using the jars on the standard client image."
+                  + TablesMvcConstants.COLUMN_DEFAULT_POLICY_BYPASS_HINT,
+              table.namespace(),
+              table.name(),
+              fieldLabel(field.get())));
     }
   }
 

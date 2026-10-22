@@ -248,7 +248,6 @@ public class ReadBridgeStripProtectionTest {
             ColumnDefaultRemovedException.class,
             () -> commit(protection, existing, incoming, true));
     Assertions.assertTrue(thrown.getMessage().contains("country (field-id 2)"));
-    Assertions.assertTrue(thrown.getMessage().contains("cannot be removed or changed"));
   }
 
   @Test
