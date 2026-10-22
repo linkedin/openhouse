@@ -196,6 +196,36 @@ public class SmokeTest {
   }
 
   @Test
+  public void testCatalogTableExists() throws InterruptedException {
+    mockTableService.enqueue(new MockResponse().setResponseCode(200));
+    OpenHouseCatalog openHouseCatalog = new OpenHouseCatalog();
+    openHouseCatalog.initialize("openhouse", ImmutableMap.of(CatalogProperties.URI, url));
+
+    Assertions.assertTrue(openHouseCatalog.tableExists(TableIdentifier.of("db", "table")));
+
+    RecordedRequest request = mockTableService.takeRequest(1, TimeUnit.SECONDS);
+    Assertions.assertNotNull(request);
+    Assertions.assertEquals("GET", request.getMethod());
+    Assertions.assertEquals("/v1/databases/db/tables/table/exists", request.getPath());
+    Assertions.assertEquals(1, mockTableService.getRequestCount());
+  }
+
+  @Test
+  public void testCatalogTableDoesNotExist() throws InterruptedException {
+    mockTableService.enqueue(new MockResponse().setResponseCode(404));
+    OpenHouseCatalog openHouseCatalog = new OpenHouseCatalog();
+    openHouseCatalog.initialize("openhouse", ImmutableMap.of(CatalogProperties.URI, url));
+
+    Assertions.assertFalse(openHouseCatalog.tableExists(TableIdentifier.of("db", "table")));
+
+    RecordedRequest request = mockTableService.takeRequest(1, TimeUnit.SECONDS);
+    Assertions.assertNotNull(request);
+    Assertions.assertEquals("GET", request.getMethod());
+    Assertions.assertEquals("/v1/databases/db/tables/table/exists", request.getPath());
+    Assertions.assertEquals(1, mockTableService.getRequestCount());
+  }
+
+  @Test
   public void testCatalogMissingMetadataTableDoesNotRetryWithCollapsedBaseIdentifier()
       throws InterruptedException {
     mockTableService.enqueue(

@@ -81,7 +81,6 @@ public class TablesController {
       value = {
         @ApiResponse(responseCode = "200", description = "Table EXISTS: OK"),
         @ApiResponse(responseCode = "401", description = "Table EXISTS: UNAUTHORIZED"),
-        @ApiResponse(responseCode = "403", description = "Table EXISTS: FORBIDDEN"),
         @ApiResponse(responseCode = "404", description = "Table EXISTS: NOT_FOUND")
       })
   @GetMapping(
