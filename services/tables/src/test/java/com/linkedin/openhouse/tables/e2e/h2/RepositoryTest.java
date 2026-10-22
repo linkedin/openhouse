@@ -7,6 +7,7 @@ import static org.apache.iceberg.types.Types.NestedField.*;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
+import com.linkedin.openhouse.common.exception.CommitRejectedException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
@@ -27,7 +28,6 @@ import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.model.TableModelConstants;
-import com.linkedin.openhouse.tables.readbridge.ColumnDefaultOptInLockedException;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
@@ -142,7 +142,7 @@ public class RepositoryTest {
       removed.remove(property);
       if ("true".equals(value)) {
         Assertions.assertThrows(
-            ColumnDefaultOptInLockedException.class,
+            CommitRejectedException.class,
             () ->
                 openHouseInternalRepository.save(
                     unchanged
@@ -217,7 +217,7 @@ public class RepositoryTest {
               .stageReplace(write == Write.STAGE_REPLACE)
               .build();
       Assertions.assertThrows(
-          ColumnDefaultOptInLockedException.class, () -> openHouseInternalRepository.save(update));
+          CommitRejectedException.class, () -> openHouseInternalRepository.save(update));
       TableDto persisted = openHouseInternalRepository.findById(key).get();
       Assertions.assertEquals("true", persisted.getTableProperties().get(property));
       Assertions.assertEquals(created.getTableLocation(), persisted.getTableLocation());
@@ -333,8 +333,7 @@ public class RepositoryTest {
               .build();
       if (!override) {
         Assertions.assertThrows(
-            ColumnDefaultOptInLockedException.class,
-            () -> openHouseInternalRepository.save(request));
+            CommitRejectedException.class, () -> openHouseInternalRepository.save(request));
         Assertions.assertEquals(
             "true",
             openHouseInternalRepository.findById(key).get().getTableProperties().get(property));
