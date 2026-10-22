@@ -119,7 +119,7 @@ RTAS Tests =
 
 | Test case | Expected behavior |
 |---|---|
-| Enablement and replication restrictions | Unsupported replacements fail and preserve the current table. |
+| Enablement and replication restrictions | A replacement requires enablement. Adding replication to a replace-enabled table is rejected and preserves its data and catalog properties. |
 | Same-shape replacement | The selected rows replace the current rows and create the expected replacement lineage. |
 | DML after replacement | Compatible Standard DML test cases retain their row and snapshot behavior after replacement. |
 | Schema replacement | The new schema and rows become current without retaining removed fields. |
@@ -130,4 +130,4 @@ RTAS Tests =
 | Rename and sort order | Replacement remains correct before and after rename, and the requested sort order remains visible. |
 | Creator identity | Replacement records the expected creator metadata. |
 | Concurrent replacement and append | A replacement-only commit leaves two selected rows. An append-only commit leaves four rows. Two commits leave two or three rows according to their order. A rejected writer reports a confirmed commit conflict. This known-bug case is skipped. |
-| Narrowing a `bigint` | With ANSI casting enabled, an out-of-range cast reports `CAST_OVERFLOW` and preserves the complete original schema, rows, and snapshots. The ANSI setting is restored. This case remains skipped pending embedded verification of the corrected contract. |
+| Narrowing a `bigint` | With ANSI casting enabled, an out-of-range cast reports `CAST_OVERFLOW` and preserves the complete original schema, rows, and snapshots. The ANSI setting is restored. |

@@ -128,11 +128,13 @@ final class RtasSupportTest {
   @Test
   def replacementCaseIdsAndSkipPoliciesRemainStable(): Unit = {
     assertEquals(52, Scenarios.rtasContractCases.size)
-    Seq("rtas.schema.incompatibleType.notSilentlyLossy", "rtas.concurrency.replaceVersusAppend")
-      .foreach { prefix =>
-        val cases = Scenarios.rtasContractCases.filter(_.id.startsWith(prefix + " @ "))
-        assertEquals(2, cases.size)
-        assertTrue(cases.forall(_.knownBugReason.isDefined))
-      }
+    Seq(
+      "rtas.schema.incompatibleType.notSilentlyLossy" -> false,
+      "rtas.concurrency.replaceVersusAppend" -> true
+    ).foreach { case (prefix, skipped) =>
+      val cases = Scenarios.rtasContractCases.filter(_.id.startsWith(prefix + " @ "))
+      assertEquals(2, cases.size)
+      assertTrue(cases.forall(_.knownBugReason.isDefined == skipped))
+    }
   }
 }

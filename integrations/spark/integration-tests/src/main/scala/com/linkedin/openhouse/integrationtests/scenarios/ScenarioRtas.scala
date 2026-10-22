@@ -348,22 +348,25 @@ trait ScenarioRtas extends RtasTableFixtures {
     }
 
   /**
-   * With replace.enabled=true but a replication policy also set, CREATE OR REPLACE TABLE AS SELECT is rejected with a
-   * BadRequestException naming replication, so a replicated table keeps the lineage its replicas follow.
+   * Adding replication to a replace-enabled table is rejected, preserving its data and catalog properties.
    */
   private def replicationGateRejectedCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("rtas.gate.replicationConflict.rejected") { table =>
       table.spark.sql(s"ALTER TABLE ${table.name} SET TBLPROPERTIES ('replace.enabled'='true')")
-      table.spark.sql(
-        s"ALTER TABLE ${table.name} SET POLICY (REPLICATION = ({destination:'WAR'}))")
       val stateBefore = table.state
+      val storedTable = Spark3Util.loadIcebergTable(table.spark, table.name)
+      val propertiesBefore = storedTable.properties()
       val exception = Check.intercept[BadRequestException](
-        table.spark.sql(replaceWithKeysUpTo(table.name, 2)))
+        table.spark.sql(
+         s"ALTER TABLE ${table.name} SET POLICY (REPLICATION = ({destination:'WAR'}))"))
 
       assert(
-        exception.getMessage.contains("while replication is enabled"),
+        exception.getMessage.contains("cannot enable RTAS") &&
+         exception.getMessage.contains("replication together"),
         s"unexpected message: ${exception.getMessage.take(160)}")
-      assert(table.state == stateBefore, "a rejected replace should leave the table as it was")
+      storedTable.refresh()
+      assert(storedTable.properties() == propertiesBefore, "a rejected policy preserves catalog properties")
+      assert(table.state == stateBefore, "a rejected policy preserves rows and snapshots")
     }
 
   // --- 2. the plainest replace, and the write that follows it ---
@@ -532,9 +535,6 @@ trait ScenarioRtas extends RtasTableFixtures {
           PreparedTable.snapshotCount(table.spark, table.name) == snapshotCountBefore,
           "a rejected ANSI narrowing preserves the snapshot count")
       }
-      .copy(knownBugReason = Some(
-        "ANSI overflow rejection and original-table preservation require embedded verification. " +
-          "This case remains skipped pending that check."))
 
   // --- 4. partition discontinuities, and evolving the partitioning the replace installed ---
 
