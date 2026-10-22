@@ -68,11 +68,17 @@ final class CatalogRequestHeaders {
         .forEach(
             (name, value) -> {
               if (name.isEmpty()) {
-                warn(name, "it names no header");
+                log.warn("Ignoring catalog property {}: it names no header", PREFIX);
               } else if (!NAME.matcher(name).matches()) {
-                warn(name, "the name is not a valid HTTP header name");
+                log.warn(
+                    "Ignoring catalog property {}{}: the name is not a valid HTTP header name",
+                    PREFIX,
+                    name);
               } else if (VALUE_CONTROL.matcher(value).find()) {
-                warn(name, "the value contains a control character");
+                log.warn(
+                    "Ignoring catalog property {}{}: the value contains a control character",
+                    PREFIX,
+                    name);
               } else {
                 headers.add(name, value);
               }
@@ -109,11 +115,7 @@ final class CatalogRequestHeaders {
 
   private static void ignore(HttpHeaders headers, String header, String reason) {
     if (headers.remove(header) != null) {
-      warn(header, reason);
+      log.warn("Ignoring catalog property {}{}: {}", PREFIX, header, reason);
     }
-  }
-
-  private static void warn(String header, String reason) {
-    log.warn("Ignoring catalog property {}{}: {}", PREFIX, header, reason);
   }
 }
