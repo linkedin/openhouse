@@ -12,7 +12,6 @@ import com.linkedin.openhouse.common.exception.CommitRejectedException;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableException;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
-import com.linkedin.openhouse.internal.catalog.exception.MaxRefAgeRejectedException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -1018,7 +1017,7 @@ public class OpenHouseInternalTableOperationsTest {
       try (MockedStatic<TableMetadataParser> ignoreWriteMock =
           Mockito.mockStatic(TableMetadataParser.class)) {
         Assertions.assertThrows(
-            MaxRefAgeRejectedException.class,
+            CommitRejectedException.class,
             () -> openHouseInternalTableOperations.doCommit(BASE_TABLE_METADATA, metadata),
             maxRefAgeMs);
       }
@@ -1035,7 +1034,7 @@ public class OpenHouseInternalTableOperationsTest {
     try (MockedStatic<TableMetadataParser> ignoreWriteMock =
         Mockito.mockStatic(TableMetadataParser.class)) {
       Assertions.assertThrows(
-          MaxRefAgeRejectedException.class,
+          CommitRejectedException.class,
           () ->
               openHouseInternalTableOperations.doCommit(
                   BASE_TABLE_METADATA,
