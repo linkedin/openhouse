@@ -8,8 +8,8 @@ package com.linkedin.openhouse.integrationtests
  * 6 inserts or overwrites, 1 null-string delete, and 2 partition-scoped overwrites.
  *
  * Preparation axes: in each columnar format, the general operations run on the unpartitioned standard table, the
- * null-string DELETE runs on that table extended with one null value, and the partition-scoped overwrites run on the
- * date-partitioned standard table.
+ * null-string DELETE runs on that table extended with one null value, and the partition-moving UPDATE and
+ * partition-scoped overwrites run on the date-partitioned standard table.
  *
  * This contribution adds 96 cases beyond the 12 representative DML cases in the foundation catalog.
  */
@@ -30,7 +30,9 @@ trait ScenarioDmlOperations
       .flatMap { case (standardPreparation, partitionedPreparation) =>
         allDmlTestCases
           .filterNot(testCase => foundationDmlCaseIds.contains(testCase.id))
-          .map(_.runOn(standardPreparation)) ++
+          .map(testCase =>
+            testCase.runOn(
+              if (testCase == updateMovePartition) partitionedPreparation else standardPreparation)) ++
           nullStringRowTestCases.map(_.runOn(withNullStringRow(standardPreparation))) ++
           partitionedTableTestCases.map(_.runOn(partitionedPreparation))
       }

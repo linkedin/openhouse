@@ -69,7 +69,9 @@ compatibility selects the prepared-table and test-case pairs in these equations.
 
 Standard DML uses seeded unpartitioned tables, tables containing a null value,
 and date-partitioned tables. Each prepared table is materialized in Parquet and
-ORC.
+ORC. The date-partitioned tables exercise the partition-moving update and the
+two partition overwrite operations. The update verifies the complete row set
+and reads filtered by both the source and destination dates.
 
 ```text
 Standard DML Tests =
@@ -86,5 +88,6 @@ Standard DML Tests =
 | Full-table overwrite | New rows replace the complete prior contents. |
 | Partition overwrite | New rows replace only the selected partition and preserve every other partition. |
 | Delete | Predicates, subqueries, aliases, and whole-table conditions remove exactly the selected rows. |
-| Update | Predicates, subqueries, expressions, aliases, multi-column assignments, partition moves, and null assignments change only the selected rows and columns. |
+| Update | Predicates, subqueries, expressions, aliases, multi-column assignments, date-column assignments, and null assignments change only the selected rows and columns. |
+| Partition-moving update | Updating the date partition column preserves the complete expected row set, removes the row from reads filtered by its source date, and returns it in reads filtered by its destination date. |
 | Merge | Matched, unmatched, conditional, wildcard, common-table-expression, and set-operation sources apply their clauses to the exact target rows. |

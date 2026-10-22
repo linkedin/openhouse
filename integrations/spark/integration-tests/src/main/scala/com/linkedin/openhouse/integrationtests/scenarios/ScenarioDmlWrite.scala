@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.integrationtests
 
-import org.apache.spark.sql.Row
+import org.apache.spark.sql.{AnalysisException, Row}
 import org.apache.spark.sql.functions.lit
 
 /**
@@ -66,20 +66,18 @@ trait ScenarioDmlWrite extends TableTestFixtures {
       table => {
         val before = table.state
 
-        val exception = Check.intercept[Exception](
+        val exception = Check.intercept[AnalysisException](
           table.spark.sql(
             s"INSERT INTO ${table.name} " +
               s"(${Core.long0.columnName}, ${Core.string0.columnName}) " +
               "VALUES (CAST(4 AS BIGINT), 'd'), (CAST(5 AS BIGINT), 'e')"))
         val after = table.state
-        val exceptionMessage = Option(exception.getMessage).getOrElse("")
-
         assert(
-          exceptionMessage.toUpperCase.contains("CANNOT_FIND_DATA") ||
-            exceptionMessage.toUpperCase.contains("CANNOT FIND DATA") ||
-            exceptionMessage.toUpperCase.contains("INCOMPATIBLE_DATA"),
-          "expected a partial-INSERT rejection naming the omitted column " +
-            s"(engine limitation), got: ${exceptionMessage.take(200)}")
+          Option(exception.getErrorClass).contains("INCOMPATIBLE_DATA_FOR_TABLE.CANNOT_FIND_DATA"),
+          s"expected a missing-data analysis error, got: ${exception.getMessage}")
+        assert(
+          Option(exception.getMessageParameters.get("colName")).contains(s"`${Core.int0.columnName}`"),
+          s"expected the omitted integer column in the diagnostic, got: ${exception.getMessage}")
         assert(after == before, "a rejected INSERT leaves the rows and the snapshot count unchanged")
       })
 
