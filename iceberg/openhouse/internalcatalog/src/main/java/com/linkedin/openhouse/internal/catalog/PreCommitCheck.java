@@ -30,9 +30,9 @@ public interface PreCommitCheck {
   String getName();
 
   /**
-   * Accepts {@code context}'s commit, or rejects it by throwing.
+   * Accepts {@code commit}, or rejects it by throwing.
    *
    * @throws CommitRejectedException if the commit breaks this check's rule
    */
-  void check(PreCommitContext context);
+  void check(PendingCommit commit);
 }

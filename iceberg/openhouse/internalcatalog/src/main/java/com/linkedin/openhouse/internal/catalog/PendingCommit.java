@@ -8,11 +8,11 @@ import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.catalog.TableIdentifier;
 
 /**
- * Immutable context handed to each {@link PreCommitCheck} before a commit writes anything; the
- * pre-commit counterpart of {@link PostCommitContext}.
+ * The commit doCommit is about to write, as each {@link PreCommitCheck} sees it before anything is
+ * written. Immutable.
  */
 @Value
-public class PreCommitContext {
+public class PendingCommit {
 
   /** The committed table. Its namespace is the database. */
   TableIdentifier tableIdentifier;
@@ -40,12 +40,12 @@ public class PreCommitContext {
    * The commit doCommit is about to write. {@code properties} still carry its commit-only keys,
    * which tell whether it puts snapshots or replaces the table.
    */
-  static PreCommitContext of(
+  static PendingCommit of(
       TableIdentifier tableIdentifier,
       TableMetadata base,
       TableMetadata metadata,
       Map<String, String> properties) {
-    return new PreCommitContext(
+    return new PendingCommit(
         tableIdentifier,
         Optional.ofNullable(base),
         metadata,
