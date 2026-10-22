@@ -109,8 +109,9 @@ public class PreCommitCheckRunner {
   private void count(String name, String result) {
     try {
       meterRegistry.counter(METRIC_PREFIX, TAG_NAME, name, TAG_RESULT, result).increment();
-    } catch (Exception ignored) {
+    } catch (Exception e) {
       // Metrics must never decide a commit.
+      log.warn("Failed to count pre-commit check {} as {}", name, result, e);
     }
   }
 }
