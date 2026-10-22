@@ -88,6 +88,10 @@ configurations.localRuntimeClasspath {
   exclude group: 'com.linkedin.iceberg', module: 'iceberg-api'
   exclude group: 'com.linkedin.iceberg', module: 'iceberg-common'
   exclude group: 'com.linkedin.iceberg', module: 'iceberg-data'
+}
+
+// Spark's error formatting loads its Scala Jackson module in both focused tests and embedded runs.
+configure([configurations.localRuntimeClasspath, configurations.testRuntimeClasspath]) {
   resolutionStrategy.force(
     'com.fasterxml.jackson.core:jackson-annotations:2.15.2',
     'com.fasterxml.jackson.core:jackson-core:2.15.2',

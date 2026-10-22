@@ -2,6 +2,8 @@ package com.linkedin.openhouse.integrationtests
 
 import java.util.concurrent.{ConcurrentLinkedQueue, CountDownLatch, TimeUnit}
 
+import org.apache.iceberg.exceptions.{CommitFailedException, CommitStateUnknownException}
+
 /**
  * Reusable concurrency support for racing-writer cases. It contributes zero catalog cases while exposing two
  * primitives: concurrent function execution and explicit classification of typed commit conflicts.
@@ -11,6 +13,10 @@ import java.util.concurrent.{ConcurrentLinkedQueue, CountDownLatch, TimeUnit}
  * commit conflict. The general standard concurrency cases live in a follow-up scenario.
  */
 object ConcurrencySupport {
+
+  sealed trait WriterOutcome
+  case object Committed extends WriterOutcome
+  case object Conflicted extends WriterOutcome
 
   /** How long `runConcurrently` waits for every thread before it reports the stragglers as failures. */
   val completionTimeoutMinutes: Long = 3
@@ -61,15 +67,14 @@ object ConcurrencySupport {
     errors.toArray(Array.empty[Throwable]).toSeq
   }
 
-  /** A commit conflict the catalog reports through one of its typed commit, validation or transport exceptions. */
-  def isTypedCommitConflict(throwable: Throwable): Boolean =
-    Exceptions.causeChain(throwable).exists { cause =>
-      val className = cause.getClass.getName
-      className.contains("CommitFailed") ||
-        className.contains("CommitStateUnknown") ||
-        className.contains("Validation") ||
-        className.contains("BadRequest") ||
-        className.contains("WebClientResponse")
-    }
+  /**
+   * The catalog maps a rejected concurrent commit to CommitFailedException. An indeterminate result takes
+   * precedence over any nested conflict because the writer may have committed.
+   */
+  def isTypedCommitConflict(throwable: Throwable): Boolean = {
+    val causes = Exceptions.causeChain(throwable)
+    !causes.exists(_.isInstanceOf[CommitStateUnknownException]) &&
+      causes.exists(_.isInstanceOf[CommitFailedException])
+  }
 
 }

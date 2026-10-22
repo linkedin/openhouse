@@ -2,8 +2,10 @@ package com.linkedin.openhouse.integrationtests
 
 import java.util.concurrent.ConcurrentHashMap
 
+import org.apache.iceberg.SortOrder
 import org.apache.iceberg.exceptions.{BadRequestException, ValidationException}
-import org.apache.spark.sql.{AnalysisException, SparkSession}
+import org.apache.iceberg.spark.Spark3Util
+import org.apache.spark.sql.SparkSession
 import scala.util.control.NonFatal
 
 /**
@@ -26,7 +28,7 @@ import scala.util.control.NonFatal
  * write that follows it, the four schema discontinuities, partition replacement and the second replace that is the
  * only legal way to repartition afterwards, property override and preservation, retention-policy and column-tag
  * preservation, pre-replace time travel with rollback rejection and set-current-snapshot recovery, changelog and
- * incremental-read rejection across the replacement boundary, replace crossed with rename in both orders, sort-order
+ * incremental-read rejection across the replacement, replace crossed with rename in both orders, sort-order
  * change and removal after a replace, creator-identity preservation, and a replace racing an append.
  *
  * Preparation axes: replace lineage is the axis this layer adds. Four replace preparations cross the two columnar
@@ -89,8 +91,8 @@ trait ScenarioRtas extends RtasTableFixtures {
         preReplaceTimeTravelCase(preparedReplaceEnabledTable(format)),
         rollbackAcrossLineageRejectedCase(preparedReplaceEnabledTable(format)),
         setCurrentSnapshotRecoversCase(preparedReplaceEnabledTable(format)),
-        changelogAcrossBoundaryCase(preparedReplaceEnabledTable(format)),
-        incrementalReadAcrossBoundaryCase(preparedReplaceEnabledTable(format)),
+        changelogAcrossReplacementCase(preparedReplaceEnabledTable(format)),
+        incrementalReadAcrossReplacementCase(preparedReplaceEnabledTable(format)),
         replaceThenRenameCase(preparedReplaceEnabledTable(format)),
         renameThenReplaceCase(preparedReplaceEnabledTable(format)),
         sortOrderChangedAfterReplaceCase(preparedReplaceEnabledTable(format)),
@@ -294,22 +296,6 @@ trait ScenarioRtas extends RtasTableFixtures {
    */
   private val crossLineageRejectionMessage = "is not a parent ancestor of end snapshot"
 
-  /** The two outcomes a racing writer records: its statement committed, or it hit a typed commit conflict. */
-  private val committedOutcome = "committed"
-  private val conflictedOutcome = "conflicted"
-
-  /**
-   * The markers a rejection carries when the catalog refuses a column type change as incompatible. The in-place ALTER
-   * COLUMN TYPE path answers with the Spark analyzer marker, and the catalog answers with a message naming the
-   * change it refused.
-   */
-  private val incompatibleTypeRejectionMarkers =
-    List("NOT_SUPPORTED_CHANGE_COLUMN", "incompatible", "cannot be cast", "narrow")
-
-  /** The statement that replaces `table` in place with `projection` selected from it. */
-  private def replaceWithProjection(table: String, projection: String): String =
-    s"CREATE OR REPLACE TABLE $table USING $dataSource AS SELECT $projection FROM $table"
-
   /** The reserved properties that identify a table to the catalog and must outlive a replace. */
   private val identityPropertyNames = List(
     "openhouse.tableUUID",
@@ -391,7 +377,9 @@ trait ScenarioRtas extends RtasTableFixtures {
     preparation.test("rtas.sameShapeReplacement") { table =>
       val rowsBefore = table.rows
       val snapshotsBefore = table.snapshotCount
-      table.spark.sql(replaceWithProjection(table.name, columnNameList))
+      table.spark.sql(
+        s"CREATE OR REPLACE TABLE ${table.name} USING $dataSource " +
+          s"AS SELECT $columnNameList FROM ${table.name}")
 
       assert(
         columnNamesOf(table, table.name) == Core.columnNames,
@@ -432,7 +420,8 @@ trait ScenarioRtas extends RtasTableFixtures {
   private def schemaAddColumnCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("rtas.schema.addColumn") { table =>
       table.spark.sql(
-        replaceWithProjection(table.name, s"$columnNameList, CAST(7 AS INT) AS added_col"))
+        s"CREATE OR REPLACE TABLE ${table.name} USING $dataSource " +
+          s"AS SELECT $columnNameList, CAST(7 AS INT) AS added_col FROM ${table.name}")
 
       assert(
         columnNamesOf(table, table.name) == Core.columnNames :+ "added_col",
@@ -452,9 +441,8 @@ trait ScenarioRtas extends RtasTableFixtures {
   private def schemaDropColumnCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("rtas.schema.dropColumn") { table =>
       table.spark.sql(
-        replaceWithProjection(
-          table.name,
-          s"${Core.long0.columnName}, ${Core.string0.columnName}"))
+        s"CREATE OR REPLACE TABLE ${table.name} USING $dataSource " +
+          s"AS SELECT ${Core.long0.columnName}, ${Core.string0.columnName} FROM ${table.name}")
 
       assert(
         columnNamesOf(table, table.name) ==
@@ -478,10 +466,9 @@ trait ScenarioRtas extends RtasTableFixtures {
         .toSeq
         .map(_.getInt(0).toLong)
       table.spark.sql(
-        replaceWithProjection(
-          table.name,
-          s"${Core.long0.columnName}, " +
-            s"CAST(${Core.int0.columnName} AS BIGINT) AS ${Core.int0.columnName}"))
+        s"CREATE OR REPLACE TABLE ${table.name} USING $dataSource " +
+          s"AS SELECT ${Core.long0.columnName}, " +
+          s"CAST(${Core.int0.columnName} AS BIGINT) AS ${Core.int0.columnName} FROM ${table.name}")
       val widenedType = table.spark
         .table(table.name)
         .schema
@@ -502,14 +489,8 @@ trait ScenarioRtas extends RtasTableFixtures {
     }
 
   /**
-   * A replace narrows the bigint key column to int on a table holding a key wider than an int. A replace defines a
-   * fresh schema, so it accepts narrowing where the in-place ALTER COLUMN TYPE path refuses it. The contract is that
-   * the value survives either way: the replace is rejected for the type incompatibility and leaves the bigint column
-   * and its key intact, or it is accepted and the key still reads back as the key that was written.
-   *
-   * The current product accepts the replace, reports success and returns -1294967296 for the key 3000000000. This case
-   * keeps value preservation as the assertion so the gap stays visible, and is skipped until the product either
-   * rejects the narrowing or preserves the value.
+   * ANSI casting rejects the out-of-range bigint before a replacement can commit. The table retains its complete
+   * schema, rows and snapshot history, and the caller's ANSI setting is restored after the statement.
    */
   private def schemaIncompatibleTypeRejectedCase(
       preparation: TablePreparation[CoreTable.type]): TestCase =
@@ -520,57 +501,40 @@ trait ScenarioRtas extends RtasTableFixtures {
           s"INSERT INTO ${table.name} VALUES " +
             s"(CAST($outOfRangeKey AS BIGINT), 4, 'row-big', 4.5, true, '2024-01-04-03')")
 
-        val rejectionMessage =
-          try {
-            table.spark.sql(
-              replaceWithProjection(
-                table.name,
-                s"CAST(${Core.long0.columnName} AS INT) AS ${Core.long0.columnName}, " +
-                  s"${Core.string0.columnName}"))
-            None
-          } catch {
-            case rejection: AnalysisException   => Some(rejection.getMessage)
-            case rejection: BadRequestException => Some(rejection.getMessage)
-            case rejection: ValidationException => Some(rejection.getMessage)
-          }
-        val keyColumnType = table.spark
-          .table(table.name)
-          .schema
-          .fields
-          .toList
-          .collectFirst {
-            case field if field.name == Core.long0.columnName => field.dataType.simpleString
-          }
-        val storedKeys = table.spark
-          .sql(
-            s"SELECT ${Core.long0.columnName} FROM ${table.name} " +
-              s"WHERE ${Core.string0.columnName} = 'row-big'")
+        val schemaBefore = table.spark.table(table.name).schema
+        val rowsBefore = table.spark
+          .sql(s"SELECT * FROM ${table.name} ORDER BY ${Core.long0.columnName}")
           .collect()
           .toSeq
-          .map(row => row.get(0).asInstanceOf[Number].longValue)
+        val snapshotBefore = currentSnapshotId(table.spark, table.name)
+        val snapshotCountBefore = PreparedTable.snapshotCount(table.spark, table.name)
 
-        rejectionMessage match {
-          case Some(message) =>
-            assert(
-              incompatibleTypeRejectionMarkers.exists(message.contains),
-              s"the rejection identifies the type incompatibility, found: ${message.take(200)}")
-            assert(
-              keyColumnType.contains("bigint"),
-              s"a rejected narrowing leaves the key column bigint, found $keyColumnType")
-            assert(
-              storedKeys == List(outOfRangeKey),
-              s"a rejected narrowing leaves the key at $outOfRangeKey, found $storedKeys")
-          case None =>
-            assert(
-              storedKeys == List(outOfRangeKey),
-              s"an accepted narrowing preserves the key $outOfRangeKey, " +
-                s"found $storedKeys under type $keyColumnType")
+        RtasSupport.assertAnsiCastOverflow(table.spark.conf) {
+          table.spark.sql(
+            s"CREATE OR REPLACE TABLE ${table.name} USING $dataSource " +
+              s"AS SELECT CAST(${Core.long0.columnName} AS INT) AS ${Core.long0.columnName}, " +
+              s"${Core.string0.columnName} FROM ${table.name}")
         }
+        table.spark.sql(s"REFRESH TABLE ${table.name}")
+        assert(
+          table.spark.table(table.name).schema == schemaBefore,
+          "a rejected ANSI narrowing preserves the complete schema")
+        assert(
+          table.spark
+            .sql(s"SELECT * FROM ${table.name} ORDER BY ${Core.long0.columnName}")
+            .collect()
+            .toSeq == rowsBefore,
+          "a rejected ANSI narrowing preserves every row and value")
+        assert(
+          currentSnapshotId(table.spark, table.name) == snapshotBefore,
+          "a rejected ANSI narrowing preserves the current snapshot")
+        assert(
+          PreparedTable.snapshotCount(table.spark, table.name) == snapshotCountBefore,
+          "a rejected ANSI narrowing preserves the snapshot count")
       }
       .copy(knownBugReason = Some(
-        "A replace that narrows bigint to int is accepted and wraps an out-of-range key around " +
-          "while the contract requires rejection or value preservation. The key 3000000000 reads back as " +
-          "-1294967296 after the product reports success."))
+        "ANSI overflow rejection and original-table preservation require embedded verification. " +
+          "This case remains skipped pending that check."))
 
   // --- 4. partition discontinuities, and evolving the partitioning the replace installed ---
 
@@ -615,7 +579,9 @@ trait ScenarioRtas extends RtasTableFixtures {
         inPlaceEvolution.getMessage.contains("Evolution of table partitioning"),
         s"unexpected message: ${inPlaceEvolution.getMessage.take(160)}")
 
-      table.spark.sql(replaceWithProjection(table.name, columnNameList))
+      table.spark.sql(
+        s"CREATE OR REPLACE TABLE ${table.name} USING $dataSource " +
+          s"AS SELECT $columnNameList FROM ${table.name}")
       val description = table.spark.sql(s"DESCRIBE TABLE ${table.name}").collect().toSeq
 
       assert(
@@ -778,16 +744,16 @@ trait ScenarioRtas extends RtasTableFixtures {
         "set_current_snapshot should recover the pre-replace rows")
     }
 
-  // --- 8 and 9. asking for a range of changes that crosses the replacement boundary ---
+  // --- 8 and 9. asking for a range of changes that crosses the replacement ---
 
   /**
    * A changelog view whose start snapshot sits before the replace is rejected with an IllegalArgumentException naming
-   * the start snapshot as outside the current lineage, so a reader asking to span the replacement boundary is told
+   * the start snapshot as outside the current lineage, so a reader asking to span the replacement is told
    * the range is unanswerable and reads the new lineage's changes only through a range inside it. The append that
    * follows the replace comes from ChangelogFixtures, so this case and the general changelog cases agree on what the
    * operation does.
    */
-  private def changelogAcrossBoundaryCase(
+  private def changelogAcrossReplacementCase(
       preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("rtas.changelog.acrossBoundaryRejected") { table =>
       val appendOperation = changelogOperations
@@ -810,7 +776,7 @@ trait ScenarioRtas extends RtasTableFixtures {
    * current is rejected with an IllegalArgumentException naming the start snapshot as outside the current lineage, so
    * a scan spans one lineage at a time.
    */
-  private def incrementalReadAcrossBoundaryCase(
+  private def incrementalReadAcrossReplacementCase(
       preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("rtas.incrementalRead.acrossBoundaryRejected") { table =>
       val preReplaceSnapshotId = currentSnapshotId(table.spark, table.name)
@@ -835,9 +801,8 @@ trait ScenarioRtas extends RtasTableFixtures {
   // --- 10. a replace crossed with a rename, in both orders ---
 
   /**
-   * A table replaced and then renamed keeps the replaced content under the new name, so a replace leaves a table
-   * to the name it was replaced under. The rename boundary records the live name after each accepted rename, so a
-   * failure between the two renames drops the table under the name it currently answers to.
+   * A table replaced and then renamed keeps the replaced content under the new name. `withTrackedRename` records
+   * each accepted name and drops the renamed table during cleanup if it still has its new name.
    */
   private def replaceThenRenameCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation.test("rtas.rename.replaceThenRename") { table =>
@@ -884,6 +849,12 @@ trait ScenarioRtas extends RtasTableFixtures {
     preparation.test("rtas.sortOrder.changedAfterReplace") { table =>
       table.spark.sql(replaceWithKeysUpTo(table.name, 2))
       table.spark.sql(s"ALTER TABLE ${table.name} WRITE ORDERED BY ${Core.long0.columnName}")
+      val orderedTable = Spark3Util.loadIcebergTable(table.spark, table.name)
+      orderedTable.refresh()
+      assert(
+        orderedTable.sortOrder().sameOrder(
+          SortOrder.builderFor(orderedTable.schema()).asc(Core.long0.columnName).build()),
+        s"the replaced table persists an ascending sort on ${Core.long0.columnName}")
       val distributionMode = tableProperties(table.spark, table.name).get("write.distribution-mode")
 
       assert(
@@ -904,7 +875,18 @@ trait ScenarioRtas extends RtasTableFixtures {
     preparation.test("rtas.sortOrder.removedAfterReplace") { table =>
       table.spark.sql(replaceWithKeysUpTo(table.name, 2))
       table.spark.sql(s"ALTER TABLE ${table.name} WRITE ORDERED BY ${Core.long0.columnName}")
+      val orderedTable = Spark3Util.loadIcebergTable(table.spark, table.name)
+      orderedTable.refresh()
+      assert(
+        orderedTable.sortOrder().sameOrder(
+          SortOrder.builderFor(orderedTable.schema()).asc(Core.long0.columnName).build()),
+        "the replaced table persists the sort order before it is removed")
       table.spark.sql(s"ALTER TABLE ${table.name} WRITE UNORDERED")
+      val unorderedTable = Spark3Util.loadIcebergTable(table.spark, table.name)
+      unorderedTable.refresh()
+      assert(
+        unorderedTable.sortOrder().isUnsorted,
+        "WRITE UNORDERED persists an unsorted order on the replaced table")
       val distributionMode = tableProperties(table.spark, table.name).get("write.distribution-mode")
 
       assert(
@@ -941,21 +923,23 @@ trait ScenarioRtas extends RtasTableFixtures {
   // --- 13. a replace racing another writer ---
 
   /**
-   * A serializable replace and INSERT race settles at either the two rows the replace selected, where the replace
-   * committed last, or three rows, where the append landed on the replaced table. Whichever writer loses fails with a
-   * typed commit conflict, so a caller recognizes every valid way this race ends.
+   * A replace-only commit leaves two selected rows. An append-only commit leaves the three seed rows plus the append.
+   * Two successful commits leave two rows when replacement commits last, or three when append commits on the replaced
+   * table. A rejected writer must report a confirmed commit conflict. This replacement-specific race is included
+   * here; general concurrency and locking scenarios belong to a separate layer.
    */
   private def replaceVersusAppendCase(preparation: TablePreparation[CoreTable.type]): TestCase =
     preparation
       .test("rtas.concurrency.replaceVersusAppend") { table =>
-        val outcomeByWriter = new ConcurrentHashMap[String, String]()
+        import ConcurrencySupport.{Committed, Conflicted, WriterOutcome}
+        val outcomeByWriter = new ConcurrentHashMap[String, WriterOutcome]()
         def writer(writerName: String, statement: String): () => Unit = () =>
           try {
             table.spark.sql(statement)
-            outcomeByWriter.put(writerName, committedOutcome)
+            outcomeByWriter.put(writerName, Committed)
           } catch {
             case NonFatal(conflict) if ConcurrencySupport.isTypedCommitConflict(conflict) =>
-              outcomeByWriter.put(writerName, conflictedOutcome)
+              outcomeByWriter.put(writerName, Conflicted)
           }
 
         val threadErrors = ConcurrencySupport.runConcurrently(
@@ -972,29 +956,11 @@ trait ScenarioRtas extends RtasTableFixtures {
           .collect()
           .toSeq
           .map(_.getLong(0))
-          .toSet
         val raceOutcome =
-          (outcomeByWriter.get("replace"), outcomeByWriter.get("append"))
+          (Option(outcomeByWriter.get("replace")), Option(outcomeByWriter.get("append")))
 
         println(s"DIAG rtas.concurrency.replaceVersusAppend: $raceOutcome settled at $settledKeys")
-        raceOutcome match {
-          case (`committedOutcome`, `conflictedOutcome`) =>
-            assert(
-              settledKeys == Set(1L, 2L),
-              s"a winning replace leaves the keys it selected, found $settledKeys")
-          case (`conflictedOutcome`, `committedOutcome`) =>
-            assert(
-              settledKeys == Set(1L, 2L, 3L, 30L),
-              s"a winning append leaves the seed plus its row, found $settledKeys")
-          case (`committedOutcome`, `committedOutcome`) =>
-            assert(
-              settledKeys == Set(1L, 2L) || settledKeys == Set(1L, 2L, 30L),
-              s"two commits leave the replaced rows, with the append included when it landed " +
-                s"on the replaced table, found $settledKeys")
-          case recordedOutcome =>
-            throw new AssertionError(
-              s"one writer commits when a replace races an append, recorded $recordedOutcome")
-        }
+        RtasSupport.assertReplaceAppendOutcome(raceOutcome._1, raceOutcome._2, settledKeys)
       }
       .copy(knownBugReason = Some(
         "A replace and append can both report successful commits while the append's snapshot wins and loses the " +

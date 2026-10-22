@@ -95,6 +95,9 @@ Replacement prepared tables have rows, schema, and lineage produced by `CREATE
 OR REPLACE TABLE AS SELECT`. They include unpartitioned and date-partitioned
 tables in Parquet and ORC.
 
+This layer includes one replacement-versus-append race. General concurrency and
+locking scenarios belong to a separate layer.
+
 ```text
 RTAS Tests =
   compatible([Replacement Prepared Tables]
@@ -110,8 +113,8 @@ RTAS Tests =
 | Partition replacement | The new partition specification becomes current and subsequent writes use it. |
 | Properties and policies | Required table metadata survives replacement or changes to the requested value. |
 | Time travel and recovery | Historical snapshots remain readable and the selected snapshot can become current again. |
-| Changelog and incremental reads | Replacement produces the expected inserted and deleted rows across the requested snapshot range. |
+| Changelog and incremental reads | Ranges spanning a replacement are rejected because the start snapshot is outside the current lineage. |
 | Rename and sort order | Replacement remains correct before and after rename, and the requested sort order remains visible. |
 | Creator identity | Replacement records the expected creator metadata. |
-| Concurrent replacement and append | Successful commits preserve both operations; otherwise one operation reports a conflict. |
-| Narrowing a `bigint` | Values outside the target range cause rejection instead of wrapping. |
+| Concurrent replacement and append | A replacement-only commit leaves two selected rows. An append-only commit leaves four rows. Two commits leave two or three rows according to their order. A rejected writer reports a confirmed commit conflict. This known-bug case is skipped. |
+| Narrowing a `bigint` | With ANSI casting enabled, an out-of-range cast reports `CAST_OVERFLOW` and preserves the complete original schema, rows, and snapshots. The ANSI setting is restored. This case remains skipped pending embedded verification of the corrected contract. |
