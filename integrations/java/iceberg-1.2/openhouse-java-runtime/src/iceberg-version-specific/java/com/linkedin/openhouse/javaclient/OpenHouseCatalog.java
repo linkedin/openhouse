@@ -143,9 +143,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
       this.apiClient.addDefaultHeader(HTTP_HEADER_ACTION_TYPE, actionType.toUpperCase(Locale.ROOT));
     }
     headers.toSingleValueMap().forEach(this.apiClient::addDefaultHeader);
-    if (!headers.isEmpty()) {
-      log.info("Catalog {} sends configured headers {}", name, headers.keySet());
-    }
+    log.info("Catalog {} sends configured headers {}", name, headers.keySet());
     this.tableApi = new TableApi(apiClient);
     this.snapshotApi = new SnapshotApi(apiClient);
     this.databaseApi = new DatabaseApi(apiClient);

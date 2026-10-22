@@ -61,11 +61,14 @@ final class CatalogRequestHeaders {
     PropertyUtil.propertiesWithPrefix(properties, PREFIX)
         .forEach(
             (name, value) -> {
-              String unusable = unusableReason(name, value);
-              if (unusable == null) {
-                headers.add(name, value);
+              if (name.isEmpty()) {
+                warn(name, "it names no header");
+              } else if (!NAME.matcher(name).matches()) {
+                warn(name, "the name is not a valid HTTP header name");
+              } else if (VALUE_CONTROL.matcher(value).find()) {
+                warn(name, "the value contains a control character");
               } else {
-                log.warn("Ignoring catalog property {}{}: {}", PREFIX, name, unusable);
+                headers.add(name, value);
               }
             });
     SOURCE_PROPERTY.forEach(
@@ -79,23 +82,13 @@ final class CatalogRequestHeaders {
     return headers;
   }
 
-  /** Returns why HTTP cannot carry this header, or null if it can. */
-  private static String unusableReason(String name, String value) {
-    if (name.isEmpty()) {
-      return "it names no header";
-    }
-    if (!NAME.matcher(name).matches()) {
-      return "the name is not a valid HTTP header name";
-    }
-    if (VALUE_CONTROL.matcher(value).find()) {
-      return "the value contains a control character";
-    }
-    return null;
-  }
-
   private static void ignore(HttpHeaders headers, String header, String reason) {
     if (headers.remove(header) != null) {
-      log.warn("Ignoring catalog property {}{}: {}", PREFIX, header, reason);
+      warn(header, reason);
     }
+  }
+
+  private static void warn(String header, String reason) {
+    log.warn("Ignoring catalog property {}{}: {}", PREFIX, header, reason);
   }
 }
