@@ -1,7 +1,7 @@
 package com.linkedin.openhouse.tables.readbridge;
 
-import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.common.exception.CommitRejectedException;
+import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.internal.catalog.PreCommitCheck;
 import com.linkedin.openhouse.internal.catalog.PreCommitContext;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
@@ -49,10 +49,8 @@ public class ColumnDefaultCommitPolicy implements PreCommitCheck {
   }
 
   /**
-   * @throws ColumnDefaultOptInLockedException if the commit changes or removes a committed opt-in
-   * @throws ColumnDefaultRemovedException if the commit breaks Type 1
-   * @throws ColumnDefaultUnawareCommitException if the commit breaks Type 2
-   * @throws ColumnDefaultUnusableException if a default the commit declares cannot be applied
+   * @throws CommitRejectedException if the commit changes or removes a committed opt-in, breaks
+   *     Type 1 or Type 2, or declares a column default that cannot be applied
    * @throws TableConfigUnavailableException if a default the table declares cannot be applied
    */
   @Override

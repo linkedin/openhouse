@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.readbridge;
 
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.google.common.collect.ImmutableMap;
+import com.linkedin.openhouse.common.exception.CommitRejectedException;
 import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
 import com.linkedin.openhouse.internal.catalog.PreCommitContext;
@@ -61,10 +62,9 @@ public class ReadBridgeStripProtectionTest {
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming = ramped(SCHEMA_WITHOUT_DEFAULT, overwrite(10));
 
-    ColumnDefaultUnawareCommitException thrown =
+    CommitRejectedException thrown =
         Assertions.assertThrows(
-            ColumnDefaultUnawareCommitException.class,
-            () -> commit(protection, existing, incoming, false));
+            CommitRejectedException.class, () -> commit(protection, existing, incoming, false));
     Assertions.assertEquals(
         "CLIENT_CAPABILITY_MISSING: db.tbl requires the column-defaults capability, which this"
             + " client does not have (X-Client-Name: spark, User-Agent:"
@@ -80,10 +80,9 @@ public class ReadBridgeStripProtectionTest {
     TableDto existing = ramped(SCHEMA_WITHOUT_DEFAULT);
     TableDto incoming = ramped(SCHEMA_WITH_DEFAULT, overwrite(10));
 
-    ColumnDefaultUnawareCommitException thrown =
+    CommitRejectedException thrown =
         Assertions.assertThrows(
-            ColumnDefaultUnawareCommitException.class,
-            () -> commit(protection, existing, incoming, false));
+            CommitRejectedException.class, () -> commit(protection, existing, incoming, false));
     Assertions.assertTrue(thrown.getMessage().startsWith("CLIENT_CAPABILITY_MISSING: db.tbl "));
   }
 
@@ -160,8 +159,7 @@ public class ReadBridgeStripProtectionTest {
             .build();
 
     Assertions.assertThrows(
-        ColumnDefaultUnawareCommitException.class,
-        () -> commit(protection, existing, incoming, false));
+        CommitRejectedException.class, () -> commit(protection, existing, incoming, false));
   }
 
   @Test
@@ -252,10 +250,9 @@ public class ReadBridgeStripProtectionTest {
             .tableProperties(optIn())
             .build();
 
-    ColumnDefaultRemovedException thrown =
+    CommitRejectedException thrown =
         Assertions.assertThrows(
-            ColumnDefaultRemovedException.class,
-            () -> commit(protection, existing, incoming, true));
+            CommitRejectedException.class, () -> commit(protection, existing, incoming, true));
     Assertions.assertEquals(
         "COLUMN_DEFAULT_REMOVED: db.tbl still has a column default on country (field-id 2), and"
             + " this commit omitted it. "
@@ -356,8 +353,7 @@ public class ReadBridgeStripProtectionTest {
     Assertions.assertSame(
         reported,
         Assertions.assertThrows(
-                ColumnDefaultUnusableException.class,
-                () -> commit(protection, existing, incoming, true))
+                CommitRejectedException.class, () -> commit(protection, existing, incoming, true))
             .getCause());
   }
 
@@ -415,8 +411,7 @@ public class ReadBridgeStripProtectionTest {
     Assertions.assertSame(
         reported,
         Assertions.assertThrows(
-                ColumnDefaultUnusableException.class,
-                () -> commit(protection, null, incoming, true))
+                CommitRejectedException.class, () -> commit(protection, null, incoming, true))
             .getCause());
   }
 

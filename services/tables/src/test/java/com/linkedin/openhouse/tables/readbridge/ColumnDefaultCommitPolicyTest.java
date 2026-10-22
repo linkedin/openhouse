@@ -2,8 +2,8 @@ package com.linkedin.openhouse.tables.readbridge;
 
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.google.common.collect.ImmutableMap;
-import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.common.exception.CommitRejectedException;
+import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.internal.catalog.PreCommitContext;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import java.util.Collections;
@@ -120,9 +120,9 @@ public class ColumnDefaultCommitPolicyTest {
    */
   @Test
   void snapshotCommitOutsideARequestBreaksType2() {
-    ColumnDefaultUnawareCommitException error =
+    CommitRejectedException error =
         Assertions.assertThrows(
-            ColumnDefaultUnawareCommitException.class,
+            CommitRejectedException.class,
             () -> policy(NO_BYPASS, FIELD_2).check(commit(table("true"), optIn("true"))));
     Assertions.assertTrue(
         error

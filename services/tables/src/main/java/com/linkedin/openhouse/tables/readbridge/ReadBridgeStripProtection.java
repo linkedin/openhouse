@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.linkedin.openhouse.common.exception.CommitRejectedException;
 import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.internal.catalog.PreCommitContext;
 import com.linkedin.openhouse.tables.config.TablesMvcConstants;
@@ -86,9 +87,8 @@ public class ReadBridgeStripProtection {
    * @param clients the gate that decides whether the commit's client applies column defaults and
    *     words the rejection
    * @throws TableConfigUnavailableException if a default the base declares cannot be applied
-   * @throws ColumnDefaultUnusableException if a default the commit declares cannot be applied
-   * @throws ColumnDefaultRemovedException if the commit breaks Type 1
-   * @throws ColumnDefaultUnawareCommitException if the commit breaks Type 2
+   * @throws CommitRejectedException if a default the commit declares cannot be applied, or the
+   *     commit breaks Type 1 or Type 2
    */
   public void enforce(PreCommitContext commit, ColumnDefaultClientGate clients) {
     TableIdentifier table = commit.getTableIdentifier();
@@ -116,7 +116,7 @@ public class ReadBridgeStripProtection {
     try {
       return resolver.incomingColumnDefaults(committed);
     } catch (ColumnDefaultException e) {
-      throw new ColumnDefaultUnusableException(e);
+      throw new CommitRejectedException(e.getMessage(), e);
     }
   }
 
@@ -137,7 +137,7 @@ public class ReadBridgeStripProtection {
     for (Integer fieldId : previousStamped.keySet()) {
       Types.NestedField field = schema.findField(fieldId);
       if (field != null && !declared.containsKey(fieldId)) {
-        throw new ColumnDefaultRemovedException(
+        throw new CommitRejectedException(
             String.format(
                 "COLUMN_DEFAULT_REMOVED: %s still has a column default on %s, and this commit"
                     + " omitted it. %s",
@@ -160,7 +160,7 @@ public class ReadBridgeStripProtection {
       return;
     }
     if (previousStamped.keySet().stream().map(schema::findField).anyMatch(Objects::nonNull)) {
-      throw new ColumnDefaultUnawareCommitException(clients.missingCapability(table.toString()));
+      throw new CommitRejectedException(clients.missingCapability(table.toString()));
     }
   }
 
