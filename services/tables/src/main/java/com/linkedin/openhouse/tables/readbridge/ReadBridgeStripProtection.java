@@ -6,7 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.linkedin.openhouse.common.exception.CommitRejectedException;
 import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
-import com.linkedin.openhouse.internal.catalog.PreCommitContext;
+import com.linkedin.openhouse.internal.catalog.PendingCommit;
 import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.ArrayList;
@@ -92,7 +92,7 @@ public class ReadBridgeStripProtection {
    * @throws CommitRejectedException if a default the commit declares cannot be applied, or the
    *     commit breaks Type 1 or Type 2
    */
-  public void enforce(PreCommitContext commit, ClientCapabilityGate clients) {
+  public void enforce(PendingCommit commit, ClientCapabilityGate clients) {
     TableIdentifier table = commit.getTableIdentifier();
     TableMetadata base = commit.getBase().orElse(null);
     Schema schema = commit.getMetadata().schema();

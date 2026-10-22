@@ -5,7 +5,7 @@ import com.google.common.collect.ImmutableMap;
 import com.linkedin.openhouse.common.exception.CommitRejectedException;
 import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.common.test.schema.ResourceIoHelper;
-import com.linkedin.openhouse.internal.catalog.PreCommitContext;
+import com.linkedin.openhouse.internal.catalog.PendingCommit;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.io.IOException;
@@ -441,7 +441,7 @@ public class ReadBridgeStripProtectionTest {
       throws ColumnDefaultException {
     TableDto prepared = protection.prepare(incoming);
     protection.enforce(
-        new PreCommitContext(
+        new PendingCommit(
             TABLE,
             Optional.ofNullable(existing).map(ReadBridgeStripProtectionTest::metadata),
             metadata(prepared),
