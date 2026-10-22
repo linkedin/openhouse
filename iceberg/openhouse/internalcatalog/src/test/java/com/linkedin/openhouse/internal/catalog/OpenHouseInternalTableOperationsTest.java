@@ -206,7 +206,7 @@ public class OpenHouseInternalTableOperationsTest {
    */
   @Test
   void testPreCommitRejectionPassesThroughUnchanged() {
-    CommitRejectedException error = new CommitRejectedException("check rejected") {};
+    CommitRejectedException error = new CommitRejectedException("check rejected");
     openHouseInternalTableOperationsWithMockMetrics.preCommitCheckRunner =
         runnerOf(
             context -> {
