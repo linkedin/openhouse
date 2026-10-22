@@ -29,8 +29,7 @@ public interface TablesApiHandler {
       String databaseId, String tableId, String actingPrincipal);
 
   /**
-   * Function to check whether a table exists for the given databaseId and tableId. Uses a
-   * lightweight HouseTable reference lookup (no metadata.json/HDFS read).
+   * Function to check whether a table exists for the given databaseId and tableId.
    *
    * @param databaseId
    * @param tableId

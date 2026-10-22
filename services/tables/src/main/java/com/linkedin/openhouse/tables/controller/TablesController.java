@@ -75,8 +75,7 @@ public class TablesController {
       summary = "Check if a Table exists in a Database",
       description =
           "Returns HTTP 200 if the Table identified by tableId exists in the database identified by "
-              + "databaseId, and HTTP 404 otherwise. Uses a lightweight HouseTable lookup that does "
-              + "not read metadata from storage, making it cheaper than GET Table.",
+              + "databaseId, and HTTP 404 otherwise.",
       tags = {"Table"})
   @ApiResponses(
       value = {
@@ -91,7 +90,6 @@ public class TablesController {
         "/v1/databases/{databaseId}/tables/{tableId}/exists"
       },
       produces = {"application/json"})
-  @Secured(value = Privileges.Privilege.GET_TABLE_METADATA)
   public ResponseEntity<Void> tableExists(
       @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
       @Parameter(description = "Table ID", required = true) @PathVariable String tableId) {
