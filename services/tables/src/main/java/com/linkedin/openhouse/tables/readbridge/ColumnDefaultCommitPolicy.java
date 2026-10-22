@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.tables.readbridge;
 
 import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
+import com.linkedin.openhouse.common.exception.CommitRejectedException;
 import com.linkedin.openhouse.internal.catalog.PreCommitCheck;
 import com.linkedin.openhouse.internal.catalog.PreCommitContext;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
@@ -74,7 +75,7 @@ public class ColumnDefaultCommitPolicy implements PreCommitCheck {
     if (committed != null
         && "true".equalsIgnoreCase(committed.trim())
         && !committed.equals(commit.getProperties().get(PROPERTY))) {
-      throw new ColumnDefaultOptInLockedException(
+      throw new CommitRejectedException(
           String.format(
               "Table property %s is immutable once set to true on table %s; cannot change or"
                   + " remove it without the column-default policy override.",

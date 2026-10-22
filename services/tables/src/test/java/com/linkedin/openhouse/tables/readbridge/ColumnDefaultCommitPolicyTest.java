@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.readbridge;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.google.common.collect.ImmutableMap;
 import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
+import com.linkedin.openhouse.common.exception.CommitRejectedException;
 import com.linkedin.openhouse.internal.catalog.PreCommitContext;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import java.util.Collections;
@@ -55,9 +56,9 @@ public class ColumnDefaultCommitPolicyTest {
   @ParameterizedTest
   @MethodSource("changesToCommittedTrue")
   void optInCannotBeChangedOrRemovedOnceTrue(String committed, String proposed) {
-    ColumnDefaultOptInLockedException error =
+    CommitRejectedException error =
         Assertions.assertThrows(
-            ColumnDefaultOptInLockedException.class,
+            CommitRejectedException.class,
             () -> policy(NO_BYPASS).check(commit(table(committed), optIn(proposed))));
     Assertions.assertTrue(error.getMessage().contains(ENABLED));
     Assertions.assertTrue(error.getMessage().contains("immutable once set to true"));
