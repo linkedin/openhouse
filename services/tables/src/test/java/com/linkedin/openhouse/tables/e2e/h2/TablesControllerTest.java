@@ -997,6 +997,53 @@ public class TablesControllerTest {
 
   @SneakyThrows
   @Test
+  public void testStagedReplaceFailsWhenRetentionIncompatibleWithNewSchema() {
+    // Table with RTAS enabled and a retention policy that relies on time-partitioning.
+    GetTableResponseBody baseTable =
+        TableModelConstants.buildGetTableResponseBodyWithDbTbl("d_sr_ret", "t_sr_ret");
+    Map<String, String> propsWithRtas = new HashMap<>(baseTable.getTableProperties());
+    propsWithRtas.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    GetTableResponseBody table =
+        baseTable
+            .toBuilder()
+            .tableProperties(propsWithRtas)
+            .policies(Policies.builder().retention(RETENTION_POLICY).build())
+            .build();
+    MvcResult createResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(table, mvc, storageManager);
+    String originalTableLocation =
+        JsonPath.read(createResult.getResponse().getContentAsString(), "$.tableLocation");
+
+    // A stageReplace that drops time-partitioning leaves the carried-over retention policy
+    // unsatisfiable. It must fail here, at CREATE TABLE time, rather than at commit time after the
+    // whole write has been done.
+    mvc.perform(
+            MockMvcRequestBuilders.post(
+                    String.format(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/",
+                        table.getDatabaseId()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    buildCreateUpdateTableRequestBody(table)
+                        .toBuilder()
+                        .baseTableVersion(originalTableLocation)
+                        .timePartitioning(null)
+                        .policies(null)
+                        .stageReplace(true)
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath(
+                "$.message",
+                containsString("retention policy is incompatible with the new schema")));
+
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, table);
+  }
+
+  @SneakyThrows
+  @Test
   public void testReplaceWithWapEnabledIsRejected() {
     // Enable RTAS and remove policy
     GetTableResponseBody baseTable =
@@ -1004,6 +1051,7 @@ public class TablesControllerTest {
     Map<String, String> props = new HashMap<>(baseTable.getTableProperties());
     props.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
     props.put(CatalogConstants.WAP_ENABLED_TABLE_PROP, "true");
+    props.put(CatalogConstants.FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP, "true");
     GetTableResponseBody table =
         baseTable.toBuilder().tableProperties(props).policies(null).build();
     MvcResult createResult =
@@ -1043,6 +1091,8 @@ public class TablesControllerTest {
         TableModelConstants.buildGetTableResponseBodyWithDbTbl("d_sr", "t_sr");
     Map<String, String> propsWithRtas = new HashMap<>(baseTable.getTableProperties());
     propsWithRtas.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    propsWithRtas.put(
+        CatalogConstants.FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP, "true");
     GetTableResponseBody table = baseTable.toBuilder().tableProperties(propsWithRtas).build();
     MvcResult createResult =
         RequestAndValidateHelper.createTableAndValidateResponse(table, mvc, storageManager);
@@ -1707,7 +1757,8 @@ public class TablesControllerTest {
               MockMvcRequestBuilders.post(tablePath + "/lock")
                   .contentType(MediaType.APPLICATION_JSON)
                   .content("{\"locked\":true}"))
-          .andExpect(status().isConflict());
+          .andExpect(status().isConflict())
+          .andExpect(jsonPath("$.message").value("Table d1.t1 already has a SYSTEM_ONLY lock."));
       mvc.perform(MockMvcRequestBuilders.get(tablePath))
           .andExpect(status().isLocked())
           .andExpect(jsonPath("$.message", containsString("SYSTEM_ONLY")))
@@ -1716,11 +1767,17 @@ public class TablesControllerTest {
           .andExpect(status().isOk())
           .andExpect(jsonPath("$.policies.lockState.reason").value("SYSTEM_ONLY"));
       mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock"))
-          .andExpect(status().isConflict());
+          .andExpect(status().isConflict())
+          .andExpect(
+              jsonPath("$.message")
+                  .value("Table d1.t1 has a SYSTEM_ONLY lock. Remove it with reason SYSTEM_ONLY."));
       mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock/UNKNOWN"))
-          .andExpect(status().isBadRequest());
+          .andExpect(status().isBadRequest())
+          .andExpect(content().string(""));
       mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock/LEGACY"))
-          .andExpect(status().isConflict());
+          .andExpect(status().isConflict())
+          .andExpect(
+              jsonPath("$.message").value("Table d1.t1 has a SYSTEM_ONLY lock, not LEGACY."));
       mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock/SYSTEM_ONLY"))
           .andExpect(status().isNoContent());
       mvc.perform(MockMvcRequestBuilders.get(tablePath))

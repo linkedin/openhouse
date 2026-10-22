@@ -33,6 +33,7 @@ public class JobsServiceClient {
    *
    * @param jobName human-readable name for the job
    * @param jobType operation type string (e.g. "ORPHAN_FILES_DELETION")
+   * @param proxyUser resolved execution account shared by all tables in the bin
    * @param tableNames fully-qualified table names (db.table)
    * @param operationIds operation UUIDs — parallel to tableNames
    * @param resultsEndpoint base URL the Spark app PATCHes results back to
@@ -41,6 +42,7 @@ public class JobsServiceClient {
   public Optional<String> launch(
       String jobName,
       String jobType,
+      String proxyUser,
       List<String> tableNames,
       List<String> operationIds,
       String resultsEndpoint) {
@@ -51,6 +53,7 @@ public class JobsServiceClient {
 
       ObjectNode jobConf = body.putObject("jobConf");
       jobConf.put("jobType", jobType);
+      jobConf.put("proxyUser", proxyUser);
 
       ArrayNode args = jobConf.putArray("args");
       args.add("--tableNames");

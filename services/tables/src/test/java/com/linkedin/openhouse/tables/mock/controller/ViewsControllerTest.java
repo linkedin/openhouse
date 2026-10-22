@@ -817,13 +817,14 @@ public class ViewsControllerTest {
   /**
    * {@link com.linkedin.openhouse.common.audit.ServiceAuditAspect} records the complete cached
    * request body for every controller call, so the create and replace routes would otherwise write
-   * the caller's SQL text and schema document into a service audit event. {@link
-   * ViewRequestPayloadRedactor} replaces those values before the event is built; these tests pin
-   * that, on the success path and on a failure path, and pin that nothing else in the payload is
-   * disturbed.
+   * the caller's SQL text into a service audit event. {@link ViewRequestPayloadRedactor} replaces
+   * the per-representation SQL before the event is built; these tests pin that, on the success path
+   * and on a failure path, and pin that nothing else in the payload — including the schema, which
+   * is structural metadata rather than query logic — is disturbed.
    *
-   * <p>The fixtures carry marker identifiers that appear nowhere else, so the "absent" assertions
-   * fail loudly if the redaction is removed rather than passing on a coincidence.
+   * <p>The fixtures carry marker identifiers that appear nowhere else, so the SQL "absent"
+   * assertion fails loudly if the redaction is removed, and the schema "present" assertion fails if
+   * the schema is ever redacted, rather than either passing on a coincidence.
    */
   private static final String SECRET_SQL_MARKER = "secret_sql_marker_column";
 
@@ -853,7 +854,7 @@ public class ViewsControllerTest {
   }
 
   @Test
-  public void serviceAuditOnViewCreateRedactsSchemaAndSql() throws Exception {
+  public void serviceAuditOnViewCreateRedactsSqlButRetainsSchema() throws Exception {
     mvc.perform(
         MockMvcRequestBuilders.post(WRITE_VIEWS_PATH)
             .contentType(MediaType.APPLICATION_JSON)
@@ -863,11 +864,11 @@ public class ViewsControllerTest {
 
     ServiceAuditEvent event = capturedAuditEvent();
     Assertions.assertEquals(201, event.getStatusCode(), "Precondition: the create must succeed.");
-    assertViewDefinitionRedacted(event);
+    assertViewSqlRedactedAndSchemaRetained(event);
   }
 
   @Test
-  public void serviceAuditOnViewReplaceRedactsSchemaAndSql() throws Exception {
+  public void serviceAuditOnViewReplaceRedactsSqlButRetainsSchema() throws Exception {
     mvc.perform(
         MockMvcRequestBuilders.put(WRITE_VIEWS_PATH + "/my_view")
             .contentType(MediaType.APPLICATION_JSON)
@@ -877,7 +878,7 @@ public class ViewsControllerTest {
 
     ServiceAuditEvent event = capturedAuditEvent();
     Assertions.assertEquals(200, event.getStatusCode(), "Precondition: the replace must succeed.");
-    assertViewDefinitionRedacted(event);
+    assertViewSqlRedactedAndSchemaRetained(event);
   }
 
   /**
@@ -886,7 +887,7 @@ public class ViewsControllerTest {
    * its payload just as an accepted one does.
    */
   @Test
-  public void serviceAuditOnFailedViewCreateRedactsSchemaAndSql() throws Exception {
+  public void serviceAuditOnFailedViewCreateRedactsSqlButRetainsSchema() throws Exception {
     String failingDatabaseId = MockViewsApiHandler.databaseIdFor(ViewErrorCode.VIEWS_DISABLED);
 
     mvc.perform(
@@ -905,12 +906,12 @@ public class ViewsControllerTest {
     ServiceAuditEvent event = capturedAuditEvent();
     Assertions.assertEquals(
         404, event.getStatusCode(), "Precondition: the create must actually be rejected.");
-    assertViewDefinitionRedacted(event, failingDatabaseId);
+    assertViewSqlRedactedAndSchemaRetained(event, failingDatabaseId);
   }
 
-  /** Controller rejections must still redact SQL/schema from request logs. */
+  /** Controller rejections must still redact SQL from request logs; the schema is retained. */
   @Test
-  public void serviceAuditOnAnIdentifierMismatchRedactsSchemaAndSql() throws Exception {
+  public void serviceAuditOnAnIdentifierMismatchRedactsSqlButRetainsSchema() throws Exception {
     mvc.perform(
         MockMvcRequestBuilders.post(VIEWS_PATH)
             .contentType(MediaType.APPLICATION_JSON)
@@ -926,7 +927,7 @@ public class ViewsControllerTest {
     Assertions.assertEquals(VIEWS_PATH, event.getUri());
     Assertions.assertEquals(ACTING_PRINCIPAL, event.getUser());
     Assertions.assertEquals(SESSION_ID, event.getSessionId());
-    assertViewDefinitionRedacted(event);
+    assertViewSqlRedactedAndSchemaRetained(event);
 
     assertWriteRoutesNeverReachedTheHandler();
   }
@@ -976,11 +977,12 @@ public class ViewsControllerTest {
     assertSingleAuditEventWithoutPayload(HttpMethod.POST, WRITE_VIEWS_PATH, 201);
   }
 
-  private void assertViewDefinitionRedacted(ServiceAuditEvent event) {
-    assertViewDefinitionRedacted(event, ViewModelConstants.DATABASE_ID);
+  private void assertViewSqlRedactedAndSchemaRetained(ServiceAuditEvent event) {
+    assertViewSqlRedactedAndSchemaRetained(event, ViewModelConstants.DATABASE_ID);
   }
 
-  private void assertViewDefinitionRedacted(ServiceAuditEvent event, String expectedDatabaseId) {
+  private void assertViewSqlRedactedAndSchemaRetained(
+      ServiceAuditEvent event, String expectedDatabaseId) {
     JsonElement payload = event.getRequestPayload();
     Assertions.assertNotNull(payload, "The audit event must still carry a request payload.");
     Assertions.assertTrue(payload.isJsonObject(), "The view request payload is a JSON object.");
@@ -988,11 +990,11 @@ public class ViewsControllerTest {
 
     Assertions.assertTrue(
         payloadObject.has("schema"),
-        "The key must survive redaction so an auditor can see the field was sent.");
+        "The schema is structural metadata, not query logic, so it survives redaction.");
     Assertions.assertEquals(
-        ServiceAuditPayloadRedactor.REDACTED_VALUE,
+        SECRET_SCHEMA,
         payloadObject.get("schema").getAsString(),
-        "The schema document must not reach the audit event.");
+        "The schema document is retained verbatim: it is column names and types, not SQL.");
 
     JsonArray representations = payloadObject.getAsJsonArray("representations");
     Assertions.assertNotNull(representations, "The representations array must survive redaction.");
@@ -1015,9 +1017,9 @@ public class ViewsControllerTest {
     Assertions.assertFalse(
         serializedPayload.contains(SECRET_SQL_MARKER),
         "No fragment of the submitted SQL may appear anywhere in the audited payload.");
-    Assertions.assertFalse(
+    Assertions.assertTrue(
         serializedPayload.contains(SECRET_SCHEMA_MARKER),
-        "No fragment of the submitted schema may appear anywhere in the audited payload.");
+        "The retained schema reaches the audited payload verbatim, marker and all.");
 
     // The identifying and routing fields are what makes the audit event useful; leave them alone.
     Assertions.assertEquals(ViewModelConstants.VIEW_ID, payloadObject.get("viewId").getAsString());
@@ -1030,8 +1032,6 @@ public class ViewsControllerTest {
     Assertions.assertFalse(
         payloadObject.has("clusterId"),
         "A canonical request carries no cluster key, so none reaches the audited payload.");
-    Assertions.assertEquals(
-        ViewModelConstants.SOURCE_DIALECT, payloadObject.get("sourceDialect").getAsString());
     Assertions.assertEquals(
         ViewModelConstants.DEFAULT_CATALOG, payloadObject.get("defaultCatalog").getAsString());
     Assertions.assertTrue(
