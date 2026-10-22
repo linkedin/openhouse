@@ -22,7 +22,7 @@ import com.linkedin.openhouse.tables.dto.mapper.iceberg.PoliciesSpecMapper;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
-import com.linkedin.openhouse.tables.readbridge.ColumnDefaultClientGate;
+import com.linkedin.openhouse.tables.readbridge.ClientCapabilityGate;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
@@ -72,8 +72,8 @@ class LockEvaluationServiceTest {
     ReflectionTestUtils.setField(mapper, "policiesSpecMapper", new PoliciesSpecMapper());
     ReadBridgeStripProtection protection = mock(ReadBridgeStripProtection.class);
     when(protection.prepare(any())).thenAnswer(invocation -> invocation.getArgument(0));
-    // No table here opts into column defaults, so the gate admits every request.
-    ColumnDefaultClientGate gate = new ColumnDefaultClientGate("", new CatalogRequestContext() {});
+    // No table here requires a capability, so the gate admits every request.
+    ClientCapabilityGate gate = new ClientCapabilityGate(new CatalogRequestContext() {});
     repository = mock(OpenHouseInternalRepository.class);
     current =
         TableDto.builder()
@@ -100,13 +100,13 @@ class LockEvaluationServiceTest {
     tables.authorizationHandler = handler;
     tables.tablesMapper = mapper;
     tables.readBridgeStripProtection = protection;
-    tables.columnDefaultClientGate = gate;
+    tables.clientCapabilityGate = gate;
     snapshots = new IcebergSnapshotsServiceImpl();
     snapshots.openHouseInternalRepository = repository;
     snapshots.authorizationUtils = authorization;
     snapshots.tablesMapper = mapper;
     snapshots.readBridgeStripProtection = protection;
-    snapshots.columnDefaultClientGate = gate;
+    snapshots.clientCapabilityGate = gate;
   }
 
   @AfterEach

@@ -3,12 +3,11 @@ package com.linkedin.openhouse.tables.api;
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.handler.impl.OpenHouseTablesApiHandler;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
-import com.linkedin.openhouse.tables.readbridge.ColumnDefaultClientGate;
+import com.linkedin.openhouse.tables.readbridge.ClientCapabilityGate;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultCommitPolicy;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultsSource;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -20,17 +19,9 @@ public class ApiConfig {
     return new OpenHouseTablesApiHandler();
   }
 
-  /**
-   * An unset {@code cluster.read-bridge.column-default.minimum-client-version} defaults to empty,
-   * which fails every request to a table with {@code required-capability.column-defaults=true} as a
-   * server error until a minimum is configured. A value that is not a release fails startup. Tables
-   * without that property are unaffected.
-   */
   @Bean
-  public ColumnDefaultClientGate columnDefaultClientGate(
-      @Value("${cluster.read-bridge.column-default.minimum-client-version:}") String minimum,
-      CatalogRequestContext requestContext) {
-    return new ColumnDefaultClientGate(minimum, requestContext);
+  public ClientCapabilityGate clientCapabilityGate(CatalogRequestContext requestContext) {
+    return new ClientCapabilityGate(requestContext);
   }
 
   @Bean
@@ -49,9 +40,9 @@ public class ApiConfig {
   @Bean
   public ColumnDefaultCommitPolicy columnDefaultCommitPolicy(
       CatalogRequestContext requestContext,
-      ColumnDefaultClientGate columnDefaultClientGate,
+      ClientCapabilityGate clientCapabilityGate,
       ReadBridgeStripProtection readBridgeStripProtection) {
     return new ColumnDefaultCommitPolicy(
-        requestContext, columnDefaultClientGate, readBridgeStripProtection);
+        requestContext, clientCapabilityGate, readBridgeStripProtection);
   }
 }

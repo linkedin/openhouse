@@ -48,12 +48,7 @@ public final class TestSparkSessionUtil {
             String.format("spark.sql.catalog.%s.catalog-impl", catalogName),
             "com.linkedin.openhouse.spark.OpenHouseCatalog")
         .config(String.format("spark.sql.catalog.%s.uri", catalogName), tablesServiceURI.toString())
-        .config(String.format("spark.sql.catalog.%s.cluster", catalogName), "local-cluster")
-        // Admits tables opted into column defaults through OpenHouseLocalServer's client gate.
-        .config(String.format("spark.sql.catalog.%s.client-name", catalogName), "spark")
-        .config(
-            String.format("spark.sql.catalog.%s.client-version", catalogName),
-            OpenHouseLocalServer.COLUMN_DEFAULT_MINIMUM_CLIENT_VERSION);
+        .config(String.format("spark.sql.catalog.%s.cluster", catalogName), "local-cluster");
 
     try {
       builder.config(

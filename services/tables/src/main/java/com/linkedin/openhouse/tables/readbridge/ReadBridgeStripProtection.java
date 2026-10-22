@@ -30,10 +30,10 @@ import org.apache.iceberg.types.Types;
  * version conflict instead, and the client reloads the table, defaults included, before it retries:
  * a default-aware writer that loaded the table before it opted in succeeds on the retry.
  *
- * <p>Type 2 counts a client as default-aware when {@link ColumnDefaultClientGate} admits it. That
- * is trust, not proof that data files were rewritten correctly. Do not opt a table in until
- * OpenHouse rewrites are trusted or default-aware compaction exists. A lift/compaction flag is a
- * follow-up, not this class.
+ * <p>Type 2 counts a client as default-aware when it declares the {@code column-defaults}
+ * capability ({@link ClientCapabilityGate#declares}). That is trust, not proof that data files were
+ * rewritten correctly. Do not opt a table in until OpenHouse rewrites are trusted or default-aware
+ * compaction exists. A lift/compaction flag is a follow-up, not this class.
  *
  * <p>Type 2 applies to every write that commits snapshots to a table with column defaults: a
  * snapshots PUT on any branch, or a replace. It does not matter whether a snapshot in the PUT
@@ -52,6 +52,8 @@ import org.apache.iceberg.types.Types;
 public class ReadBridgeStripProtection {
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
+
+  private static final String COLUMN_DEFAULTS = ClientCapabilityGate.COLUMN_DEFAULTS;
 
   private static final class SchemaKeys {
     private static final String ID = "id";
@@ -84,13 +86,13 @@ public class ReadBridgeStripProtection {
    * the ones the commit declares, must be usable, and the commit must pass Type 1 and Type 2. A
    * commit that creates the table only has its declared defaults checked.
    *
-   * @param clients the gate that decides whether the commit's client applies column defaults and
-   *     words the rejection
+   * @param clients the gate that says whether the commit's client declares the {@code
+   *     column-defaults} capability and words the rejection
    * @throws TableConfigUnavailableException if a default the base declares cannot be applied
    * @throws CommitRejectedException if a default the commit declares cannot be applied, or the
    *     commit breaks Type 1 or Type 2
    */
-  public void enforce(PreCommitContext commit, ColumnDefaultClientGate clients) {
+  public void enforce(PreCommitContext commit, ClientCapabilityGate clients) {
     TableIdentifier table = commit.getTableIdentifier();
     TableMetadata base = commit.getBase().orElse(null);
     Schema schema = commit.getMetadata().schema();
@@ -106,7 +108,7 @@ public class ReadBridgeStripProtection {
             ? declaredColumnDefaults(tableDto(table, schema, commit.getProperties(), location))
             : Collections.emptyMap();
     if (base != null) {
-      rejectRemovedDefaults(table, previousStamped, declared, bridged, schema, clients);
+      rejectRemovedDefaults(table, previousStamped, declared, bridged, schema);
       rejectUnawareCommit(table, previousStamped, schema, clients, commit.isSnapshotCommit());
     }
   }
@@ -129,8 +131,7 @@ public class ReadBridgeStripProtection {
       Map<Integer, String> previousStamped,
       Map<Integer, String> declared,
       boolean bridged,
-      Schema schema,
-      ColumnDefaultClientGate clients) {
+      Schema schema) {
     if (previousStamped.isEmpty() || !bridged) {
       return;
     }
@@ -141,7 +142,7 @@ public class ReadBridgeStripProtection {
             String.format(
                 "COLUMN_DEFAULT_REMOVED: %s still has a column default on %s, and this commit"
                     + " omitted it. %s",
-                table, fieldLabel(field), clients.remedy()));
+                table, fieldLabel(field), ClientCapabilityGate.remedy(COLUMN_DEFAULTS)));
       }
     }
   }
@@ -154,13 +155,14 @@ public class ReadBridgeStripProtection {
       TableIdentifier table,
       Map<Integer, String> previousStamped,
       Schema schema,
-      ColumnDefaultClientGate clients,
+      ClientCapabilityGate clients,
       boolean snapshotCommit) {
-    if (previousStamped.isEmpty() || !snapshotCommit || clients.admitsClient()) {
+    if (previousStamped.isEmpty() || !snapshotCommit || clients.declares(COLUMN_DEFAULTS)) {
       return;
     }
     if (previousStamped.keySet().stream().map(schema::findField).anyMatch(Objects::nonNull)) {
-      throw new CommitRejectedException(clients.missingCapability(table.toString()));
+      throw new CommitRejectedException(
+          clients.missingCapability(table.toString(), COLUMN_DEFAULTS));
     }
   }
 

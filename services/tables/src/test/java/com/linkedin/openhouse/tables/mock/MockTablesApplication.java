@@ -3,7 +3,7 @@ package com.linkedin.openhouse.tables.mock;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
-import com.linkedin.openhouse.tables.readbridge.ColumnDefaultClientGate;
+import com.linkedin.openhouse.tables.readbridge.ClientCapabilityGate;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
@@ -69,9 +69,11 @@ public class MockTablesApplication {
         new ReadBridgeConfigResolver(tableDto -> Collections.emptyMap()));
   }
 
-  /** Services require the client gate from {@code ApiConfig}; no mock table opts in. */
+  /**
+   * Services require the client gate from {@code ApiConfig}; no mock table requires a capability.
+   */
   @Bean
-  public ColumnDefaultClientGate columnDefaultClientGate(CatalogRequestContext requestContext) {
-    return new ColumnDefaultClientGate("", requestContext);
+  public ClientCapabilityGate clientCapabilityGate(CatalogRequestContext requestContext) {
+    return new ClientCapabilityGate(requestContext);
   }
 }

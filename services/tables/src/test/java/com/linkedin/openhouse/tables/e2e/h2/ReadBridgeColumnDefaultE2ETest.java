@@ -21,8 +21,10 @@ import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitial
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
+import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
 import com.linkedin.openhouse.tables.model.IcebergSnapshotsModelTestUtilities;
+import com.linkedin.openhouse.tables.readbridge.ClientCapabilityGate;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultsSource;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
@@ -66,7 +68,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
  * default is a bad request. Create and update responses omit {@code config}. Resolver unit tests
  * cover the same matrix.
  */
-@SpringBootTest(properties = "cluster.read-bridge.column-default.minimum-client-version=0.5.100")
+@SpringBootTest
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_CLASS)
 @Import(ReadBridgeColumnDefaultE2ETest.StubDefaults.class)
@@ -80,6 +82,7 @@ public class ReadBridgeColumnDefaultE2ETest {
   private static final String CONFIG_KEY = ReadBridgeConfigResolver.COLUMN_DEFAULT_PREFIX + "2";
   private static final String ENABLED_PROP =
       ReadBridgeConfigResolver.COLUMN_DEFAULTS_CAPABILITY_PROP;
+  private static final String CAPABILITIES = TablesMvcConstants.HTTP_HEADER_CLIENT_CAPABILITIES;
 
   private static final String UNUSABLE = "COLUMN_DEFAULT_UNUSABLE: column name has a bad default";
 
@@ -226,22 +229,16 @@ public class ReadBridgeColumnDefaultE2ETest {
   }
 
   @Test
-  public void incompatibleClientsCannotLoadOptedInTables() throws Exception {
+  public void clientsWithoutTheCapabilityCannotLoadOptedInTables() throws Exception {
     created = create(uniqueTable("client_gate"), Collections.singletonMap(ENABLED_PROP, "true"));
     createTable();
     String path = "/v1/databases/" + created.getDatabaseId() + "/tables/" + created.getTableId();
-    for (String[] client :
-        new String[][] {
-          {"trino", "0.5.100"},
-          {"spark", "0.5.99"},
-          {"spark", "unknown"},
-          {"spark", "4.2.100"},
-          {"spark", "0.5.100-SNAPSHOT"}
-        }) {
+    for (String declared : new String[] {"v3", "column-defaults-v2", " , "}) {
       mvc.perform(
               MockMvcRequestBuilders.get(path)
-                  .header("X-Client-Name", client[0])
-                  .header("User-Agent", "openhouse-java-client/" + client[1]))
+                  .header("X-Client-Name", "spark")
+                  .header("User-Agent", "openhouse-java-client/0.5.100")
+                  .header(CAPABILITIES, declared))
           .andExpect(status().isUnprocessableEntity())
           .andExpect(jsonPath("$.tableLocation").doesNotExist())
           .andExpect(
@@ -253,12 +250,11 @@ public class ReadBridgeColumnDefaultE2ETest {
                           + "."
                           + created.getTableId()
                           + " requires the column-defaults capability, which this client does"
-                          + " not have (X-Client-Name: "
-                          + client[0]
-                          + ", User-Agent: openhouse-java-client/"
-                          + client[1]
-                          + "). Update the client, or use a supported client: spark with"
-                          + " openhouse-java-client 0.5.100 or newer.")));
+                          + " not declare (X-Client-Name: spark, User-Agent:"
+                          + " openhouse-java-client/0.5.100, X-OpenHouse-Client-Capabilities: "
+                          + (declared.trim().equals(",") ? "(none)" : declared)
+                          + "). Use a client that declares column-defaults in"
+                          + " X-OpenHouse-Client-Capabilities.")));
     }
     mvc.perform(MockMvcRequestBuilders.get(path)).andExpect(status().isUnprocessableEntity());
     mvc.perform(
@@ -277,16 +273,21 @@ public class ReadBridgeColumnDefaultE2ETest {
         .andExpect(status().isOk());
   }
 
+  /**
+   * Any client that declares the capability is admitted, whatever its name or version. Values are
+   * comma-separated and case-insensitive, and repeated headers add up.
+   */
   @Test
-  public void newerClientsLoadOptedInTables() throws Exception {
-    created = create(uniqueTable("newer_client"), Collections.singletonMap(ENABLED_PROP, "true"));
+  public void clientsDeclaringTheCapabilityLoadOptedInTables() throws Exception {
+    created = create(uniqueTable("declared"), Collections.singletonMap(ENABLED_PROP, "true"));
     createTable();
     String path = "/v1/databases/" + created.getDatabaseId() + "/tables/" + created.getTableId();
-    for (String release : new String[] {"0.5.101", "0.10.0", "0.5.100.1"}) {
+    for (String[] declared :
+        new String[][] {{"column-defaults"}, {"v3, Column-Defaults "}, {"v3", "column-defaults"}}) {
       mvc.perform(
               MockMvcRequestBuilders.get(path)
-                  .header("X-Client-Name", "spark")
-                  .header("User-Agent", "openhouse-java-client/" + release))
+                  .header("X-Client-Name", "ddm-replication")
+                  .header(CAPABILITIES, (Object[]) declared))
           .andExpect(status().isOk());
     }
   }
@@ -357,8 +358,7 @@ public class ReadBridgeColumnDefaultE2ETest {
             created.getTableId());
     mvc.perform(
             MockMvcRequestBuilders.put(path)
-                .header("X-Client-Name", "spark")
-                .header("User-Agent", "openhouse-java-client/0.5.100")
+                .header(CAPABILITIES, ClientCapabilityGate.COLUMN_DEFAULTS)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body))
         .andExpect(status().isBadRequest())
@@ -379,8 +379,7 @@ public class ReadBridgeColumnDefaultE2ETest {
   private MvcResult createTable() throws Exception {
     return mvc.perform(
             MockMvcRequestBuilders.post("/v1/databases/" + created.getDatabaseId() + "/tables")
-                .header("X-Client-Name", "spark")
-                .header("User-Agent", "openhouse-java-client/0.5.100")
+                .header(CAPABILITIES, ClientCapabilityGate.COLUMN_DEFAULTS)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     buildCreateUpdateTableRequestBody(created)
@@ -499,7 +498,7 @@ public class ReadBridgeColumnDefaultE2ETest {
         .build();
   }
 
-  /** A snapshots PUT, from a default-aware Spark client or from a client that sends no identity. */
+  /** A snapshots PUT, from a client that declares {@code column-defaults} or declares nothing. */
   private MockHttpServletRequestBuilder snapshotsPut(
       MvcResult current,
       boolean defaultAwareClient,
@@ -526,7 +525,7 @@ public class ReadBridgeColumnDefaultE2ETest {
             .content(request.toJson())
             .accept(MediaType.APPLICATION_JSON);
     return defaultAwareClient
-        ? put.header("X-Client-Name", "spark").header("User-Agent", "openhouse-java-client/0.5.100")
+        ? put.header(CAPABILITIES, ClientCapabilityGate.COLUMN_DEFAULTS)
         : put;
   }
 
@@ -568,8 +567,7 @@ public class ReadBridgeColumnDefaultE2ETest {
                     ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/%s",
                     created.getDatabaseId(),
                     created.getTableId()))
-            .header("X-Client-Name", "spark")
-            .header("User-Agent", "openhouse-java-client/0.5.100")
+            .header(CAPABILITIES, ClientCapabilityGate.COLUMN_DEFAULTS)
             .accept(MediaType.APPLICATION_JSON));
   }
 
@@ -580,8 +578,7 @@ public class ReadBridgeColumnDefaultE2ETest {
                     ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/%s",
                     table.getDatabaseId(),
                     table.getTableId()))
-            .header("X-Client-Name", "spark")
-            .header("User-Agent", "openhouse-java-client/0.5.100")
+            .header(CAPABILITIES, ClientCapabilityGate.COLUMN_DEFAULTS)
             .contentType(MediaType.APPLICATION_JSON)
             .content(buildCreateUpdateTableRequestBody(table).toJson())
             .accept(MediaType.APPLICATION_JSON));

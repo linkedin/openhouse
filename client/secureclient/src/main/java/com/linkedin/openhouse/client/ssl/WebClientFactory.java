@@ -28,6 +28,9 @@ public abstract class WebClientFactory {
   public static final String HTTP_HEADER_SESSION_ID = "session-id";
   public static final String HTTP_HEADER_CLIENT_NAME = "X-Client-Name";
   public static final String HTTP_HEADER_ACTION_TYPE = "X-OpenHouse-Action-Type";
+  /** Comma-separated capabilities the client declares, such as {@code column-defaults}. */
+  public static final String HTTP_HEADER_CLIENT_CAPABILITIES = "X-OpenHouse-Client-Capabilities";
+
   public static final String ACTION_TYPE_SYSTEM = "SYSTEM";
   // Product token advertised in the User-Agent header so the server can observe the client version.
   // The resulting header looks like "openhouse-java-client/1.5.2".

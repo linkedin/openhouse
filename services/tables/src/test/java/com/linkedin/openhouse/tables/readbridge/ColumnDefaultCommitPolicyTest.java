@@ -9,6 +9,7 @@ import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Stream;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -116,7 +117,8 @@ public class ColumnDefaultCommitPolicyTest {
   }
 
   /**
-   * Type 2 has no request to admit outside one, so a snapshot commit there is not default-aware.
+   * Type 2 has no capabilities to read outside a request, so a snapshot commit there is not
+   * default-aware.
    */
   @Test
   void snapshotCommitOutsideARequestBreaksType2() {
@@ -128,28 +130,24 @@ public class ColumnDefaultCommitPolicyTest {
         error
             .getMessage()
             .contains(
-                "which this client does not have (X-Client-Name: (none), User-Agent: (none))"),
+                "which this client does not declare (X-Client-Name: (none), User-Agent: (none),"
+                    + " X-OpenHouse-Client-Capabilities: (none))"),
         error.getMessage());
   }
 
-  /** Type 2 accepts exactly the clients {@link ColumnDefaultClientGate} admits. */
+  /** Type 2 accepts exactly the clients that declare the {@code column-defaults} capability. */
   @Test
-  void snapshotCommitFromAdmittedClientPassesType2() {
-    CatalogRequestContext admitted =
+  void snapshotCommitFromDeclaringClientPassesType2() {
+    CatalogRequestContext declaring =
         new CatalogRequestContext() {
           @Override
-          public Optional<String> clientName() {
-            return Optional.of("spark");
-          }
-
-          @Override
-          public Optional<String> userAgent() {
-            return Optional.of("openhouse-java-client/0.5.100");
+          public Set<String> clientCapabilities() {
+            return Collections.singleton(ClientCapabilityGate.COLUMN_DEFAULTS);
           }
         };
 
     Assertions.assertDoesNotThrow(
-        () -> policy(admitted, FIELD_2).check(commit(table("true"), optIn("true"))));
+        () -> policy(declaring, FIELD_2).check(commit(table("true"), optIn("true"))));
   }
 
   /** A default the table already declares but cannot apply stays the server's error. */
@@ -173,7 +171,7 @@ public class ColumnDefaultCommitPolicyTest {
       CatalogRequestContext requestContext, ColumnDefaultsSource source) {
     return new ColumnDefaultCommitPolicy(
         requestContext,
-        new ColumnDefaultClientGate("0.5.100", requestContext),
+        new ClientCapabilityGate(requestContext),
         new ReadBridgeStripProtection(new ReadBridgeConfigResolver(source)));
   }
 

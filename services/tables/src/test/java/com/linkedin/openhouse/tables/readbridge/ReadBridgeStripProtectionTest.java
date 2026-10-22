@@ -15,6 +15,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
@@ -39,8 +40,7 @@ public class ReadBridgeStripProtectionTest {
       "file:/data/openhouse/db/tbl-uuid/00001-x.metadata.json";
   private static final TableIdentifier TABLE = TableIdentifier.of("db", "tbl");
   private static final String REMEDY =
-      "Update the client, or use a supported client: spark with openhouse-java-client 0.5.100 or"
-          + " newer.";
+      "Use a client that declares column-defaults in X-OpenHouse-Client-Capabilities.";
 
   private static final ColumnDefaultsSource FIELD_2 =
       tableDto -> Collections.singletonMap(2, TextNode.valueOf("US"));
@@ -67,8 +67,8 @@ public class ReadBridgeStripProtectionTest {
             CommitRejectedException.class, () -> commit(protection, existing, incoming, false));
     Assertions.assertEquals(
         "CLIENT_CAPABILITY_MISSING: db.tbl requires the column-defaults capability, which this"
-            + " client does not have (X-Client-Name: spark, User-Agent:"
-            + " openhouse-java-client/0.5.99). "
+            + " client does not declare (X-Client-Name: spark, User-Agent: (none),"
+            + " X-OpenHouse-Client-Capabilities: (none)). "
             + REMEDY,
         thrown.getMessage());
   }
@@ -430,8 +430,8 @@ public class ReadBridgeStripProtectionTest {
 
   /**
    * Prepares {@code incoming} and checks the commit it makes on {@code existing}, from a Spark
-   * client the gate admits ({@code 0.5.100}) or one release too old. A request that carries
-   * snapshots commits snapshots.
+   * client that declares the {@code column-defaults} capability or declares nothing. A request that
+   * carries snapshots commits snapshots.
    */
   private static TableDto commit(
       ReadBridgeStripProtection protection,
@@ -440,8 +440,6 @@ public class ReadBridgeStripProtectionTest {
       boolean defaultAwareClient)
       throws ColumnDefaultException {
     TableDto prepared = protection.prepare(incoming);
-    String userAgent =
-        defaultAwareClient ? "openhouse-java-client/0.5.100" : "openhouse-java-client/0.5.99";
     protection.enforce(
         new PreCommitContext(
             TABLE,
@@ -449,8 +447,7 @@ public class ReadBridgeStripProtectionTest {
             metadata(prepared),
             ImmutableMap.copyOf(prepared.getTableProperties()),
             prepared.getJsonSnapshots() != null),
-        new ColumnDefaultClientGate(
-            "0.5.100",
+        new ClientCapabilityGate(
             new CatalogRequestContext() {
               @Override
               public Optional<String> clientName() {
@@ -458,8 +455,10 @@ public class ReadBridgeStripProtectionTest {
               }
 
               @Override
-              public Optional<String> userAgent() {
-                return Optional.of(userAgent);
+              public Set<String> clientCapabilities() {
+                return defaultAwareClient
+                    ? Collections.singleton(ClientCapabilityGate.COLUMN_DEFAULTS)
+                    : Collections.emptySet();
               }
             }));
     return prepared;

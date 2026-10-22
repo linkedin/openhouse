@@ -15,8 +15,9 @@ import com.linkedin.openhouse.tables.config.TablesMvcConstants;
  * <ol>
  *   <li>A committed {@code required-capability.column-defaults=true} cannot be changed or removed.
  *   <li>Every commit, renames included, must pass {@link ReadBridgeStripProtection#enforce}. Type 2
- *       counts the commit's client as default-aware when {@link ColumnDefaultClientGate} admits the
- *       request, so a snapshot commit outside a request cannot touch a table with column defaults.
+ *       counts the commit's client as default-aware when it declares the {@code column-defaults}
+ *       capability, so a snapshot commit outside a request cannot touch a table with column
+ *       defaults.
  * </ol>
  *
  * <p>A request with the column-default policy bypass ({@link
@@ -30,13 +31,13 @@ public class ColumnDefaultCommitPolicy implements PreCommitCheck {
 
   private final CatalogRequestContext requestContext;
 
-  private final ColumnDefaultClientGate clientGate;
+  private final ClientCapabilityGate clientGate;
 
   private final ReadBridgeStripProtection columnDefaultRules;
 
   public ColumnDefaultCommitPolicy(
       CatalogRequestContext requestContext,
-      ColumnDefaultClientGate clientGate,
+      ClientCapabilityGate clientGate,
       ReadBridgeStripProtection columnDefaultRules) {
     this.requestContext = requestContext;
     this.clientGate = clientGate;

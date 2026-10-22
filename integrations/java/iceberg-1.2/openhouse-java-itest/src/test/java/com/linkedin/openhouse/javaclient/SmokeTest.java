@@ -161,6 +161,26 @@ public class SmokeTest {
     }
   }
 
+  /** Every catalog declares column-defaults; a configured value adds capabilities. */
+  @Test
+  public void testCatalogDeclaresCapabilities() throws InterruptedException {
+    String header = "X-OpenHouse-Client-Capabilities";
+    OpenHouseCatalog plain = new OpenHouseCatalog();
+    plain.initialize("plain", ImmutableMap.of(CatalogProperties.URI, url));
+    OpenHouseCatalog configured = new OpenHouseCatalog();
+    configured.initialize(
+        "configured",
+        ImmutableMap.of(
+            CatalogProperties.URI, url, "header." + header, " V3, column-defaults,,branching"));
+    for (OpenHouseCatalog catalog : new OpenHouseCatalog[] {plain, configured}) {
+      mockTableService.enqueue(new MockResponse().setResponseCode(404));
+      Assertions.assertFalse(catalog.tableExists(TableIdentifier.of("db", "table")));
+      Assertions.assertEquals(
+          catalog == plain ? "column-defaults" : "column-defaults,v3,branching",
+          mockTableService.takeRequest(1, TimeUnit.SECONDS).getHeader(header));
+    }
+  }
+
   /**
    * A header property that names no header, has a name or value HTTP cannot carry, names a header
    * the catalog sets, or names the same header as another property is ignored: initialization
