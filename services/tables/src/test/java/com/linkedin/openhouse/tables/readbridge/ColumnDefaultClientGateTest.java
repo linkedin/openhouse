@@ -42,34 +42,23 @@ public class ColumnDefaultClientGateTest {
   }
 
   /**
-   * A rejected client learns which table, what it sent, which clients are supported and where to
-   * read more; the bypass stays out of the message.
+   * A rejected client learns which table, what it sent and which clients are supported; the bypass
+   * stays out of the message.
    */
   @Test
-  void rejectionNamesTheSupportedClientsAndTheConfiguredLink() {
+  void rejectionNamesTheSupportedClients() {
     ColumnDefaultClientRejectedException rejected =
         Assertions.assertThrows(
             ColumnDefaultClientRejectedException.class,
             () ->
-                gate("4.2.150", "go/oh/column-defaults", "trino", "openhouse-java-client/4.2.100")
-                    .checkLoad(OPTED_IN));
+                gate("4.2.150", "trino", "openhouse-java-client/4.2.100")
+                    .checkWrite("db", "tbl", Optional.empty(), OPTED_IN.getTableProperties()));
     Assertions.assertEquals(
         "CLIENT_CAPABILITY_MISSING: db.tbl requires the column-defaults capability, which this"
             + " client does not have (X-Client-Name: trino, User-Agent:"
             + " openhouse-java-client/4.2.100). Update the client, or use a supported client:"
-            + " spark with openhouse-java-client 4.2.150 or newer. More information:"
-            + " go/oh/column-defaults",
+            + " spark with openhouse-java-client 4.2.150 or newer.",
         rejected.getMessage());
-    String withoutLink =
-        Assertions.assertThrows(
-                ColumnDefaultClientRejectedException.class,
-                () ->
-                    gate("4.2.150", "", "trino", "openhouse-java-client/4.2.100")
-                        .checkWrite(
-                            "db", "new_tbl", Optional.empty(), OPTED_IN.getTableProperties()))
-            .getMessage();
-    Assertions.assertTrue(withoutLink.startsWith("CLIENT_CAPABILITY_MISSING: db.new_tbl "));
-    Assertions.assertTrue(withoutLink.endsWith("4.2.150 or newer."), withoutLink);
   }
 
   /** An unset minimum is the server's misconfiguration, not the client's: a 500, not a 422. */
@@ -96,14 +85,12 @@ public class ColumnDefaultClientGateTest {
   }
 
   private static ColumnDefaultClientGate gate(String minimum, String userAgent) {
-    return gate(minimum, "", "spark", userAgent);
+    return gate(minimum, "spark", userAgent);
   }
 
-  private static ColumnDefaultClientGate gate(
-      String minimum, String helpUrl, String clientName, String userAgent) {
+  private static ColumnDefaultClientGate gate(String minimum, String clientName, String userAgent) {
     return new ColumnDefaultClientGate(
         minimum,
-        helpUrl,
         new CatalogRequestContext() {
           @Override
           public Optional<String> clientName() {

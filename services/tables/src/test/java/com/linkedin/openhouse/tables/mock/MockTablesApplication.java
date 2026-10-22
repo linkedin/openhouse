@@ -72,6 +72,6 @@ public class MockTablesApplication {
   /** Services require the client gate from {@code ApiConfig}; no mock table opts in. */
   @Bean
   public ColumnDefaultClientGate columnDefaultClientGate(CatalogRequestContext requestContext) {
-    return new ColumnDefaultClientGate("", "", requestContext);
+    return new ColumnDefaultClientGate("", requestContext);
   }
 }
