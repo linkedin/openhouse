@@ -89,7 +89,8 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
       authorizationUtils.checkDatabasePrivilege(
           databaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
     }
-    columnDefaultClientGate.checkWrite(tableDto, tableDtoToSave.getTableProperties());
+    columnDefaultClientGate.checkWrite(
+        databaseId, tableId, tableDto, tableDtoToSave.getTableProperties());
     tableDtoToSave = LockPolicyValidator.prepare(tableDto.orElse(null), tableDtoToSave);
     try {
       tableDtoToSave = readBridgeStripProtection.prepare(tableDto.orElse(null), tableDtoToSave);

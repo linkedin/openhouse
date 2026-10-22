@@ -24,13 +24,15 @@ public class ApiConfig {
    * An unset {@code cluster.read-bridge.column-default.minimum-client-version} defaults to empty,
    * which fails every request to a table with {@code required-capability.column-defaults=true} as a
    * server error until a minimum is configured. A value that is not a release fails startup. Tables
-   * without that property are unaffected.
+   * without that property are unaffected. {@code cluster.read-bridge.column-default.help-url} is
+   * the page rejection messages link to; unset, they carry no link.
    */
   @Bean
   public ColumnDefaultClientGate columnDefaultClientGate(
       @Value("${cluster.read-bridge.column-default.minimum-client-version:}") String minimum,
+      @Value("${cluster.read-bridge.column-default.help-url:}") String helpUrl,
       CatalogRequestContext requestContext) {
-    return new ColumnDefaultClientGate(minimum, requestContext);
+    return new ColumnDefaultClientGate(minimum, helpUrl, requestContext);
   }
 
   @Bean

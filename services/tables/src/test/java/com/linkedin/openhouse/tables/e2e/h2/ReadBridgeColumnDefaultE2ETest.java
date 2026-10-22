@@ -51,7 +51,11 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
  * default is a bad request. Create and update responses omit {@code config}. Resolver unit tests
  * cover the same matrix.
  */
-@SpringBootTest(properties = "cluster.read-bridge.column-default.minimum-client-version=0.5.100")
+@SpringBootTest(
+    properties = {
+      "cluster.read-bridge.column-default.minimum-client-version=0.5.100",
+      "cluster.read-bridge.column-default.help-url=go/oh/column-defaults"
+    })
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_CLASS)
 @Import(ReadBridgeColumnDefaultE2ETest.StubDefaults.class)
@@ -226,7 +230,23 @@ public class ReadBridgeColumnDefaultE2ETest {
                   .header("X-Client-Name", client[0])
                   .header("User-Agent", "openhouse-java-client/" + client[1]))
           .andExpect(status().isUnprocessableEntity())
-          .andExpect(jsonPath("$.tableLocation").doesNotExist());
+          .andExpect(jsonPath("$.tableLocation").doesNotExist())
+          .andExpect(
+              jsonPath(
+                  "$.message",
+                  is(
+                      "CLIENT_CAPABILITY_MISSING: "
+                          + created.getDatabaseId()
+                          + "."
+                          + created.getTableId()
+                          + " requires the column-defaults capability, which this client does"
+                          + " not have (X-Client-Name: "
+                          + client[0]
+                          + ", User-Agent: openhouse-java-client/"
+                          + client[1]
+                          + "). Update the client, or use a supported client: spark with"
+                          + " openhouse-java-client 0.5.100 or newer. More information:"
+                          + " go/oh/column-defaults")));
     }
     mvc.perform(MockMvcRequestBuilders.get(path)).andExpect(status().isUnprocessableEntity());
     mvc.perform(

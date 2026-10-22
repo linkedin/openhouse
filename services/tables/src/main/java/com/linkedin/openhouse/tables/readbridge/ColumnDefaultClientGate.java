@@ -2,7 +2,6 @@ package com.linkedin.openhouse.tables.readbridge;
 
 import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
-import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.Arrays;
 import java.util.Map;
@@ -20,6 +19,8 @@ public class ColumnDefaultClientGate {
   private final String minimum;
   /** Empty when no minimum is configured: then no client is admitted to opted-in tables. */
   private final Optional<int[]> minimumRelease;
+  /** Where rejected users learn about column defaults; empty leaves it out of messages. */
+  private final String helpUrl;
 
   private final CatalogRequestContext requestContext;
 
@@ -27,10 +28,13 @@ public class ColumnDefaultClientGate {
    * @param minimum oldest admitted {@code openhouse-java-client} release, such as {@code 4.2.150}.
    *     Empty admits no client: every request to an opted-in table fails as a server error unless
    *     it carries the column-default policy bypass. It does not turn the gate off.
+   * @param helpUrl page that explains column defaults, supported clients and the bypass, such as
+   *     {@code go/oh/column-defaults}. Empty leaves the link out of rejection messages.
    * @param requestContext the request's client name, User-Agent and column-default policy bypass
    * @throws IllegalArgumentException if {@code minimum} is set but is not a 3- or 4-part release
    */
-  public ColumnDefaultClientGate(String minimum, CatalogRequestContext requestContext) {
+  public ColumnDefaultClientGate(
+      String minimum, String helpUrl, CatalogRequestContext requestContext) {
     this.minimum = minimum;
     this.minimumRelease =
         minimum.isEmpty()
@@ -44,6 +48,7 @@ public class ColumnDefaultClientGate {
                                     + " a 3- or 4-part release such as 4.2.150, got '"
                                     + minimum
                                     + "'")));
+    this.helpUrl = helpUrl;
     this.requestContext = requestContext;
   }
 
@@ -55,21 +60,23 @@ public class ColumnDefaultClientGate {
    */
   public void checkLoad(TableDto table) {
     if (enabled(table.getTableProperties())) {
-      requireAdmittedClient();
+      requireAdmittedClient(table.getDatabaseId(), table.getTableId());
     }
   }
 
   /**
-   * Rejects a write if the {@code stored} table or the {@code proposed} properties opt in and the
-   * client is not admitted. {@code stored} is empty when the write creates the table.
+   * Rejects a write to {@code databaseId.tableId} if the {@code stored} table or the {@code
+   * proposed} properties opt in and the client is not admitted. {@code stored} is empty when the
+   * write creates the table.
    *
    * @throws ColumnDefaultClientRejectedException (422) if the client is not admitted
    * @throws TableConfigUnavailableException (500) if no minimum is configured
    */
-  public void checkWrite(Optional<TableDto> stored, Map<String, String> proposed) {
+  public void checkWrite(
+      String databaseId, String tableId, Optional<TableDto> stored, Map<String, String> proposed) {
     if (stored.filter(table -> enabled(table.getTableProperties())).isPresent()
         || enabled(proposed)) {
-      requireAdmittedClient();
+      requireAdmittedClient(databaseId, tableId);
     }
   }
 
@@ -90,25 +97,43 @@ public class ColumnDefaultClientGate {
         .isPresent();
   }
 
-  private void requireAdmittedClient() {
+  /**
+   * Why the current request's client cannot use {@code table}, a table with column defaults, and
+   * which clients can.
+   */
+  public String missingCapability(String table) {
+    return String.format(
+        "CLIENT_CAPABILITY_MISSING: %s requires the column-defaults capability, which this client"
+            + " does not have (X-Client-Name: %s, User-Agent: %s). %s",
+        table,
+        requestContext.clientName().orElse("(none)"),
+        requestContext.userAgent().orElse("(none)"),
+        remedy());
+  }
+
+  /**
+   * What to do when a client cannot use a table with column defaults: the supported clients, then
+   * the help link if one is configured.
+   */
+  public String remedy() {
+    String supported =
+        minimumRelease.isPresent()
+            ? "Update the client, or use a supported client: spark with openhouse-java-client "
+                + minimum
+                + " or newer."
+            : "This server supports no client: it has no "
+                + "cluster.read-bridge.column-default.minimum-client-version configured.";
+    return helpUrl.isEmpty() ? supported : supported + " More information: " + helpUrl;
+  }
+
+  private void requireAdmittedClient(String databaseId, String tableId) {
     if (requestContext.columnDefaultPolicyBypass() || admitsClient()) {
       return;
     }
     if (!minimumRelease.isPresent()) {
-      throw new TableConfigUnavailableException(
-          "Column-default tables admit no client: this server has no "
-              + "cluster.read-bridge.column-default.minimum-client-version configured."
-              + TablesMvcConstants.COLUMN_DEFAULT_POLICY_BYPASS_HINT);
+      throw new TableConfigUnavailableException(remedy());
     }
-    throw new ColumnDefaultClientRejectedException(
-        "Column-default tables require X-Client-Name: spark and User-Agent: openhouse-java-client/"
-            + minimum
-            + " or newer in the same major release family. This request sent X-Client-Name: "
-            + requestContext.clientName().orElse("(none)")
-            + ", User-Agent: "
-            + requestContext.userAgent().orElse("(none)")
-            + "."
-            + TablesMvcConstants.COLUMN_DEFAULT_POLICY_BYPASS_HINT);
+    throw new ColumnDefaultClientRejectedException(missingCapability(databaseId + "." + tableId));
   }
 
   /**

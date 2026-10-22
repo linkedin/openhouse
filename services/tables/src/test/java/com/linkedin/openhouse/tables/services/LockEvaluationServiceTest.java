@@ -73,7 +73,8 @@ class LockEvaluationServiceTest {
     ReadBridgeStripProtection protection = mock(ReadBridgeStripProtection.class);
     when(protection.prepare(any(), any())).thenAnswer(invocation -> invocation.getArgument(1));
     // No table here opts into column defaults, so the gate admits every request.
-    ColumnDefaultClientGate gate = new ColumnDefaultClientGate("", new CatalogRequestContext() {});
+    ColumnDefaultClientGate gate =
+        new ColumnDefaultClientGate("", "", new CatalogRequestContext() {});
     repository = mock(OpenHouseInternalRepository.class);
     current =
         TableDto.builder()
