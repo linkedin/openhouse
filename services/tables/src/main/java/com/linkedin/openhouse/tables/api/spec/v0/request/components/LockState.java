@@ -23,6 +23,13 @@ public class LockState {
   String message = "Default";
 
   @Schema(
+      description =
+          "Omitted or null reasons are interpreted as LEGACY when locked=true; otherwise they "
+              + "remain null. Explicit reasons are preserved.",
+      nullable = true)
+  LockReason reason;
+
+  @Schema(
       description = "lock creation epoch time measured in UTC milliseconds for a table",
       example = "1651002318265")
   @Builder.Default
@@ -33,4 +40,8 @@ public class LockState {
       example = "3")
   @Builder.Default
   int expirationInDays = 0;
+
+  public LockReason getReason() {
+    return reason == null && locked ? LockReason.LEGACY : reason;
+  }
 }

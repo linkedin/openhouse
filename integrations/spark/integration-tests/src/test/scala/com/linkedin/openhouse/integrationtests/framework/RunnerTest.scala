@@ -62,11 +62,11 @@ final class RunnerTest {
       .thenThrow(retryFailure)
       .thenReturn(freshSpark)
     var receivedSpark = Option.empty[SparkSession]
-    val retryThenPass = TestCase("retry-then-pass", ctx => receivedSpark = Some(ctx.spark))
+    val retryThenPass = TestCase("retry-then-pass", context => receivedSpark = Some(context.spark))
 
     assertEquals(
       (Outcome.Passed, 2),
-      Runner.execute(retryThenPass, Ctx(rootSpark, "openhouse.test")))
+      Runner.execute(retryThenPass, TestContext(rootSpark, "openhouse.test")))
     assertSame(freshSpark, receivedSpark.get)
 
     val exhaustedSpark = mock(classOf[SparkSession])
@@ -76,7 +76,7 @@ final class RunnerTest {
     val caseRuns = new AtomicInteger()
     val (exhaustedOutcome, exhaustedCount) = Runner.execute(
       TestCase("exhaust-retries", _ => caseRuns.incrementAndGet()),
-      Ctx(exhaustedSpark, "openhouse.test"))
+      TestContext(exhaustedSpark, "openhouse.test"))
 
     assertEquals(Runner.MaxAttempts, exhaustedCount)
     assertEquals(0, caseRuns.get())
@@ -87,7 +87,7 @@ final class RunnerTest {
     when(terminalSpark.newSession()).thenThrow(terminalFailure)
     val (terminalOutcome, terminalCount) = Runner.execute(
       TestCase("terminal", _ => ()),
-      Ctx(terminalSpark, "openhouse.test"))
+      TestContext(terminalSpark, "openhouse.test"))
 
     assertEquals(1, terminalCount)
     assertSame(terminalFailure, terminalOutcome.asInstanceOf[Outcome.Failed].cause)
@@ -109,7 +109,7 @@ final class RunnerTest {
           assertionAttempts.incrementAndGet()
           throw assertionFailure
         }),
-      Ctx(rootSpark, "openhouse.test"))
+      TestContext(rootSpark, "openhouse.test"))
 
     assertEquals(1, assertionCount)
     assertEquals(1, assertionAttempts.get())
@@ -124,7 +124,7 @@ final class RunnerTest {
           cleanupAttempts.incrementAndGet()
           OwnedTableLifecycle.withCleanup(throw cleanupFailure)(())
         }),
-      Ctx(rootSpark, "openhouse.test"))
+      TestContext(rootSpark, "openhouse.test"))
 
     assertEquals(1, cleanupCount)
     assertEquals(1, cleanupAttempts.get())

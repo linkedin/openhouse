@@ -68,6 +68,8 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
 
   @Autowired TableMetadataCache tableMetadataCache;
 
+  @Autowired PostCommitOperationRunner postCommitOperationRunner;
+
   @Override
   protected TableOperations newTableOps(TableIdentifier tableIdentifier) {
     FileIO fileIO = resolveFileIO(tableIdentifier);
@@ -80,7 +82,8 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
         tableIdentifier,
         metricsReporter,
         fileIOManager,
-        tableMetadataCache);
+        tableMetadataCache,
+        postCommitOperationRunner);
   }
 
   @Override
@@ -132,6 +135,22 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
   public Page<HouseTable> listHouseTables(Namespace namespace, Pageable pageable) {
     NamespaceUtil.validateOperationNamespace(namespace);
     return houseTableRepository.findAllByDatabaseId(namespace.toString(), pageable);
+  }
+
+  /**
+   * Type-agnostic occupancy read — the neutral sibling of the TABLE-typed {@link #findHouseTable}.
+   * Returns whatever row holds this name (any entity type), or empty when the name is free or the
+   * identifier is not this catalog's to own. Advisory only: the House Table write is the arbiter.
+   */
+  public Optional<HouseTable> findEntityById(TableIdentifier identifier) {
+    if (!isValidIdentifier(identifier)) {
+      return Optional.empty();
+    }
+    return houseTableRepository.findEntityById(
+        HouseTablePrimaryKey.builder()
+            .databaseId(identifier.namespace().toString())
+            .tableId(identifier.name())
+            .build());
   }
 
   /**

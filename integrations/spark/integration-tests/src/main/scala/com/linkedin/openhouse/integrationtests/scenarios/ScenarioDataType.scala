@@ -6,12 +6,12 @@ import java.sql.Date
 import java.time.{Instant, LocalDateTime}
 
 /**
- * Scalar data types: representative round-trip, null, numeric-boundary, special-floating-value, and string behavior
+ * Scalar data types: representative round-trip, null, numeric-limit, special-floating-value, and string behavior
  * for the typed scalar table.
  *
- * Operations: a round trip of the seeded long, int, double, decimal and string values; an INSERT of an all-null row;
- * an INSERT of the special double values NaN and Infinity; an INSERT at the long, int and decimal boundaries; and an
- * INSERT of a unicode string and an empty string.
+ * Operations: a round trip of every scalar column, including binary, date, timestamp, and timestamp_ntz;
+ * an INSERT with all non-key columns NULL; an INSERT of the special double values NaN and Infinity;
+ * an INSERT at the long, int and decimal limits; and an INSERT of a Unicode string and an empty string.
  *
  * Preparation axes: one unpartitioned TypesTable layout per file format, each seeded with three rows covering every
  * scalar column.
@@ -126,7 +126,7 @@ trait ScenarioDataType extends TableTestFixtures {
     }
 
   /**
-   * Inserting a row at Long.MaxValue, Int.MaxValue and a max-precision decimal reads those boundary values back
+   * Inserting a row at Long.MaxValue, Int.MaxValue and a max-precision decimal reads those limit values back
    * unchanged.
    */
   private def boundariesCase(preparation: TablePreparation[TypesTable.type]): TestCase =

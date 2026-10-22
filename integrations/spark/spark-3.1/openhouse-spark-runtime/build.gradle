@@ -36,6 +36,7 @@ dependencies {
     exclude group: 'org.roaringbitmap'
     exclude group: 'com.zaxxer', module: 'HikariCP'
     exclude group: 'org.apache.hadoop', module: 'hadoop-client'
+    exclude group: 'org.mortbay.jetty', module: 'servlet-api' // see openhouse.hadoop-conventions.gradle
   }
 
   testImplementation("com.linkedin.iceberg:iceberg-spark-runtime-3.1_2.12:" + icebergVersion) {
@@ -62,11 +63,12 @@ ext {
   antlrMainGeneratedSrcDir="${project.buildDir}/generated-src/antlr/main/"
 }
 
-// Set source for antlr generated directory
+// Set source for antlr generated directory; builtBy gives every reader of the main source set
+// (compileJava, sourcesJar) the dependency on runAntlr.
 sourceSets {
   main {
     java {
-      srcDirs antlrMainGeneratedSrcDir
+      srcDir files(antlrMainGeneratedSrcDir).builtBy('runAntlr')
     }
   }
 }
@@ -84,8 +86,6 @@ task runAntlr(type:JavaExec) {
   maxHeapSize = "64m"
   classpath = configurations.antlr
 }
-
-compileJava.dependsOn runAntlr
 
 shadowJar {
   dependencies {

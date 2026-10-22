@@ -24,7 +24,10 @@ import com.linkedin.openhouse.tables.client.model.ReplicationConfig;
 import com.linkedin.openhouse.tables.client.model.Retention;
 import com.linkedin.openhouse.tables.client.model.RetentionColumnPattern;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
+import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -72,6 +75,39 @@ public class TablesClientTest {
   private TablesClient client;
   private DatabaseApi dbApiMock;
   private StorageClient storageClient;
+
+  @Test
+  void testSystemActionHeaderIsSentOnlyWhenRequested() throws IOException {
+    List<String> declarations = Collections.synchronizedList(new ArrayList<>());
+    HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+    server.createContext(
+        "/v1/databases",
+        exchange -> {
+          declarations.add(exchange.getRequestHeaders().getFirst("X-OpenHouse-Action-Type"));
+          byte[] body = "{\"results\":[]}".getBytes(StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().add("Content-Type", "application/json");
+          exchange.sendResponseHeaders(200, body.length);
+          exchange.getResponseBody().write(body);
+          exchange.close();
+        });
+    server.start();
+    try {
+      String basePath = "http://localhost:" + server.getAddress().getPort();
+      DatabaseTableFilter filter = DatabaseTableFilter.of(".*", ".*", 0);
+      for (TablesClient client :
+          Arrays.asList(
+              new TablesClientFactory(basePath, filter, "token", null)
+                  .withSystemAction(true)
+                  .create(),
+              new TablesClientFactory(basePath, filter, "token", null).create())) {
+        client.getDatabases();
+        client.getAllTables("db");
+      }
+    } finally {
+      server.stop(0);
+    }
+    Assertions.assertEquals(Arrays.asList("SYSTEM", "SYSTEM", null, null), declarations);
+  }
 
   @BeforeEach
   void setup() {
