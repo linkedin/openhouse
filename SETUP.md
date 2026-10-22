@@ -402,7 +402,7 @@ scala> spark.sql("SHOW TBLPROPERTIES openhouse.db.tb").show()
 
 #### Default-value opt-in
 
-Once `read-bridge.column-default.enabled=true` is committed, it cannot be changed or removed.
+Once `required-capability.column-defaults=true` is committed, it cannot be changed or removed.
 `false`, an unparseable value and an absent property remain changeable.
 
 The default-off escape hatch is the request header
@@ -410,7 +410,7 @@ The default-off escape hatch is the request header
 `spark.sql.catalog.openhouse.header.X-OpenHouse-Dangerously-Bypass-Column-Default-Policy=true` (or
 the same suffix in Java catalog properties); any `header.<name>=<value>` catalog property becomes a
 request header. It bypasses only column-default policy checks, currently the rule that a committed
-`read-bridge.column-default.enabled=true` cannot be changed or removed. Incorrect reads or writes may
+`required-capability.column-defaults=true` cannot be changed or removed. Incorrect reads or writes may
 result. Authentication, authorization, default resolution and default-value write protections still
 apply. JARs without `header.` catalog properties need an upgrade/backport to send it.
 

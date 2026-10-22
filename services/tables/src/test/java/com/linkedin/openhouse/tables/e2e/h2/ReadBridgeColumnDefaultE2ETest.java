@@ -63,7 +63,8 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 public class ReadBridgeColumnDefaultE2ETest {
 
   private static final String CONFIG_KEY = ReadBridgeConfigResolver.COLUMN_DEFAULT_PREFIX + "2";
-  private static final String ENABLED_PROP = ReadBridgeConfigResolver.COLUMN_DEFAULT_ENABLED_PROP;
+  private static final String ENABLED_PROP =
+      ReadBridgeConfigResolver.COLUMN_DEFAULTS_CAPABILITY_PROP;
 
   private static final String UNUSABLE = "COLUMN_DEFAULT_UNUSABLE: column name has a bad default";
 
