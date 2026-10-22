@@ -15,6 +15,7 @@ import com.linkedin.openhouse.common.exception.UnsupportedClientOperationExcepti
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.SearchTablesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
@@ -78,6 +79,18 @@ public class MockTablesApiHandler implements TablesApiHandler {
   @Override
   public ApiResponse<GetAllTablesResponseBody> searchTables(
       String databaseId,
+      int page,
+      int size,
+      String sortBy,
+      List<String> fields,
+      String actingPrincipal) {
+    return null;
+  }
+
+  @Override
+  public ApiResponse<GetAllTablesResponseBody> searchTables(
+      String databaseId,
+      SearchTablesRequestBody searchTablesRequestBody,
       int page,
       int size,
       String sortBy,

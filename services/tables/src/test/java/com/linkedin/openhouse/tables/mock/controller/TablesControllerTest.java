@@ -22,6 +22,7 @@ import com.linkedin.openhouse.common.exception.handler.OpenHouseExceptionHandler
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.SearchTablesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.controller.TablesController;
@@ -202,6 +203,76 @@ public class TablesControllerTest {
         .andExpect(status().isOk());
     Mockito.verify(localHandler)
         .searchTables("d200", 2, 10, "tableId", null, "DUMMY_ANONYMOUS_USER");
+  }
+
+  /**
+   * The v3 search filter travels in the request body, which is optional. This pins both halves of
+   * that contract: a body is deserialized and handed to the handler, and a request without one
+   * still routes, rather than being rejected for a missing or absent payload.
+   */
+  @Test
+  public void v3TableSearchBindsOptionalFilterBody() throws Exception {
+    TablesApiHandler localHandler = Mockito.mock(TablesApiHandler.class);
+    Page<GetTableResponseBody> page =
+        new PageImpl<>(
+            Collections.singletonList(GET_TABLE_RESPONSE_BODY), PageRequest.of(0, 50), 1);
+    Mockito.when(
+            localHandler.searchTables(
+                Mockito.anyString(),
+                Mockito.any(),
+                Mockito.anyInt(),
+                Mockito.anyInt(),
+                Mockito.any(),
+                Mockito.any(),
+                Mockito.any()))
+        .thenReturn(
+            ApiResponse.<GetAllTablesResponseBody>builder()
+                .httpStatus(HttpStatus.OK)
+                .responseBody(GetAllTablesResponseBody.builder().pageResults(page).build())
+                .build());
+
+    TablesController localController = new TablesController();
+    ReflectionTestUtils.setField(localController, "tablesApiHandler", localHandler);
+    MockMvc localMvc =
+        MockMvcBuilders.standaloneSetup(localController)
+            .setControllerAdvice(openHouseExceptionHandler)
+            .addInterceptors(new DummyTokenInterceptor())
+            .build();
+
+    localMvc
+        .perform(
+            MockMvcRequestBuilders.post("/v3/databases/d200/tables/search")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(SearchTablesRequestBody.builder().tableId("t1").build().toJson())
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath(
+                "$.pageResults.content[0].tableId",
+                Matchers.is(GET_TABLE_RESPONSE_BODY.getTableId())))
+        .andExpect(jsonPath("$.pageResults.totalElements", Matchers.is(1)));
+    Mockito.verify(localHandler)
+        .searchTables(
+            "d200",
+            SearchTablesRequestBody.builder().tableId("t1").build(),
+            0,
+            50,
+            null,
+            null,
+            "DUMMY_ANONYMOUS_USER");
+
+    localMvc
+        .perform(
+            MockMvcRequestBuilders.post("/v3/databases/d200/tables/search")
+                .param("page", "2")
+                .param("size", "10")
+                .param("sortBy", "tableId")
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isOk());
+    Mockito.verify(localHandler)
+        .searchTables("d200", null, 2, 10, "tableId", null, "DUMMY_ANONYMOUS_USER");
   }
 
   /**

@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.api.handler;
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.SearchTablesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
@@ -58,6 +59,36 @@ public interface TablesApiHandler {
       String sortBy,
       List<String> fields,
       String actingPrincipal);
+
+  /**
+   * Function to Get one Page of Table Resources in a given databaseId, narrowed by an optional
+   * filter. Behaves exactly like {@link #searchTables(String, int, int, String, List, String)} when
+   * the filter is null or carries no criteria; when the filter names a table, the page holds at
+   * most that one table.
+   *
+   * <p>Defaults to rejecting the request so that an implementation which does not serve the
+   * filtered search route keeps compiling without change. Implementations that serve it override
+   * this.
+   *
+   * @param databaseId
+   * @param searchTablesRequestBody optional filter, may be null when no filter was supplied
+   * @param page
+   * @param size
+   * @param sortBy
+   * @param fields optional list of GetTableResponseBody field names to populate
+   * @param actingPrincipal authenticated user; required when {@code fields} is non-empty
+   * @return A page of matching tables in the given database.
+   */
+  default ApiResponse<GetAllTablesResponseBody> searchTables(
+      String databaseId,
+      SearchTablesRequestBody searchTablesRequestBody,
+      int page,
+      int size,
+      String sortBy,
+      List<String> fields,
+      String actingPrincipal) {
+    throw new UnsupportedOperationException("Filtered table search is not supported");
+  }
 
   /**
    * Function to Create Table Resource in a given databaseId

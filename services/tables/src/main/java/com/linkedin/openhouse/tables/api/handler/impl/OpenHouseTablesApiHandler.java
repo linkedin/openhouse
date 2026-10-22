@@ -5,6 +5,7 @@ import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.SearchTablesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
@@ -90,6 +91,36 @@ public class OpenHouseTablesApiHandler implements TablesApiHandler {
                 .pageResults(
                     tableService
                         .searchTables(databaseId, page, size, sortBy, fields, actingPrincipal)
+                        .map(tableDto -> tablesMapper.toGetTableResponseBody(tableDto)))
+                .build())
+        .build();
+  }
+
+  @Override
+  public ApiResponse<GetAllTablesResponseBody> searchTables(
+      String databaseId,
+      SearchTablesRequestBody searchTablesRequestBody,
+      int page,
+      int size,
+      String sortBy,
+      List<String> fields,
+      String actingPrincipal) {
+    tablesApiValidator.validateSearchTables(
+        databaseId, searchTablesRequestBody, page, size, sortBy, fields);
+    return ApiResponse.<GetAllTablesResponseBody>builder()
+        .httpStatus(HttpStatus.OK)
+        .responseBody(
+            GetAllTablesResponseBody.builder()
+                .pageResults(
+                    tableService
+                        .searchTables(
+                            databaseId,
+                            searchTablesRequestBody,
+                            page,
+                            size,
+                            sortBy,
+                            fields,
+                            actingPrincipal)
                         .map(tableDto -> tablesMapper.toGetTableResponseBody(tableDto)))
                 .build())
         .build();

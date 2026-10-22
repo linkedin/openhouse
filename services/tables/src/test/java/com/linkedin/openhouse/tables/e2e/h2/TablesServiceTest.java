@@ -18,6 +18,7 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.SearchTablesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
@@ -35,7 +36,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
@@ -759,7 +762,188 @@ public class TablesServiceTest {
     tablesService.deleteTable(tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
   }
 
-  /** assert lock is created as policy object on createLock call */
+  /**
+   * A filter naming a table narrows the result to exactly that table, and a filter naming one that
+   * is not there yields an empty page rather than an error.
+   */
+  @Test
+  public void testSearchTablesWithTableIdFilterMatchesExactlyOneTable() {
+    TableDto tableDtoCopy = TABLE_DTO.toBuilder().build();
+    verifyPutTableRequest(tableDtoCopy, null, true);
+    TableDto siblingInSameDb = TABLE_DTO_SAME_DB.toBuilder().build();
+    verifyPutTableRequest(siblingInSameDb, null, true);
+
+    Page<TableDto> hit =
+        tablesService.searchTables(
+            tableDtoCopy.getDatabaseId(),
+            SearchTablesRequestBody.builder().tableId(tableDtoCopy.getTableId()).build(),
+            0,
+            10,
+            null,
+            null,
+            TEST_USER);
+    Assertions.assertEquals(1, hit.getTotalElements());
+    Assertions.assertEquals(1, hit.getContent().size());
+    Assertions.assertEquals(tableDtoCopy.getTableId(), hit.getContent().get(0).getTableId());
+    Assertions.assertEquals(tableDtoCopy.getDatabaseId(), hit.getContent().get(0).getDatabaseId());
+    // Nothing beyond the identifiers is populated unless it was asked for.
+    Assertions.assertNull(hit.getContent().get(0).getTableLocation());
+
+    Page<TableDto> miss =
+        tablesService.searchTables(
+            tableDtoCopy.getDatabaseId(),
+            SearchTablesRequestBody.builder().tableId("no_such_table").build(),
+            0,
+            10,
+            null,
+            null,
+            TEST_USER);
+    Assertions.assertEquals(0, miss.getTotalElements());
+    Assertions.assertTrue(miss.getContent().isEmpty());
+
+    // An absent filter, and one carrying no criteria, both search the whole database.
+    List<String> unfilteredByNullBody =
+        tablesService.searchTables(tableDtoCopy.getDatabaseId(), null, 0, 10, null, null, TEST_USER)
+            .getContent().stream()
+            .map(TableDto::getTableId)
+            .collect(Collectors.toList());
+    Assertions.assertTrue(
+        unfilteredByNullBody.containsAll(
+            Arrays.asList(tableDtoCopy.getTableId(), siblingInSameDb.getTableId())),
+        "An absent filter should return both tables, got: " + unfilteredByNullBody);
+
+    List<String> unfilteredByEmptyBody =
+        tablesService
+            .searchTables(
+                tableDtoCopy.getDatabaseId(),
+                SearchTablesRequestBody.builder().build(),
+                0,
+                10,
+                null,
+                null,
+                TEST_USER)
+            .getContent().stream()
+            .map(TableDto::getTableId)
+            .collect(Collectors.toList());
+    Assertions.assertEquals(unfilteredByNullBody, unfilteredByEmptyBody);
+
+    tablesService.deleteTable(tableDtoCopy.getDatabaseId(), tableDtoCopy.getTableId(), TEST_USER);
+    tablesService.deleteTable(
+        siblingInSameDb.getDatabaseId(), siblingInSameDb.getTableId(), TEST_USER);
+  }
+
+  /** A single match still pages honestly: it sits on the first page and nowhere else. */
+  @Test
+  public void testSearchTablesWithTableIdFilterPagesTheSingleMatch() {
+    TableDto tableDtoCopy = TABLE_DTO.toBuilder().build();
+    verifyPutTableRequest(tableDtoCopy, null, true);
+
+    Page<TableDto> secondPage =
+        tablesService.searchTables(
+            tableDtoCopy.getDatabaseId(),
+            SearchTablesRequestBody.builder().tableId(tableDtoCopy.getTableId()).build(),
+            1,
+            10,
+            null,
+            null,
+            TEST_USER);
+    Assertions.assertEquals(1, secondPage.getTotalElements());
+    Assertions.assertTrue(secondPage.getContent().isEmpty());
+
+    tablesService.deleteTable(tableDtoCopy.getDatabaseId(), tableDtoCopy.getTableId(), TEST_USER);
+  }
+
+  /** The filtered path honours the same database-level guard as the unfiltered one. */
+  @Test
+  public void testSearchTablesWithTableIdFilterAndFieldsRequiresGetTableMetadata() {
+    TableDto tableDtoCopy = TABLE_DTO.toBuilder().build();
+    verifyPutTableRequest(tableDtoCopy, null, true);
+    SearchTablesRequestBody filter =
+        SearchTablesRequestBody.builder().tableId(tableDtoCopy.getTableId()).build();
+
+    Mockito.when(
+            authorizationHandler.checkAccessDecision(
+                Mockito.any(),
+                Mockito.any(DatabaseDto.class),
+                Mockito.eq(Privileges.GET_TABLE_METADATA)))
+        .thenReturn(false);
+    Assertions.assertDoesNotThrow(
+        () ->
+            tablesService.searchTables(
+                tableDtoCopy.getDatabaseId(), filter, 0, 10, null, null, TEST_USER));
+    Assertions.assertThrows(
+        AccessDeniedException.class,
+        () ->
+            tablesService.searchTables(
+                tableDtoCopy.getDatabaseId(),
+                filter,
+                0,
+                10,
+                null,
+                Arrays.asList("tableLocation"),
+                TEST_USER));
+
+    Mockito.when(
+            authorizationHandler.checkAccessDecision(
+                Mockito.any(),
+                Mockito.any(DatabaseDto.class),
+                Mockito.eq(Privileges.GET_TABLE_METADATA)))
+        .thenReturn(true);
+    Page<TableDto> withLocation =
+        tablesService.searchTables(
+            tableDtoCopy.getDatabaseId(),
+            filter,
+            0,
+            10,
+            null,
+            Arrays.asList("tableLocation"),
+            TEST_USER);
+    Assertions.assertEquals(1, withLocation.getContent().size());
+    Assertions.assertNotNull(withLocation.getContent().get(0).getTableLocation());
+
+    tablesService.deleteTable(tableDtoCopy.getDatabaseId(), tableDtoCopy.getTableId(), TEST_USER);
+  }
+
+  /**
+   * The point of filtering by name is that the matching row is read directly rather than the whole
+   * database being listed and whittled down. Corrupting metadata.json is what makes that
+   * observable: a path that parsed table metadata would fail here, so a successful search is
+   * evidence that none was parsed.
+   */
+  @Test
+  public void testSearchTablesWithTableIdFilterDoesNotReadTableMetadata() throws IOException {
+    TableDto created = verifyPutTableRequest(TABLE_DTO, null, true);
+
+    Path metadataPath = Paths.get(URI.create(created.getTableLocation()));
+    Assertions.assertTrue(
+        Files.exists(metadataPath),
+        "metadata.json should exist on disk after create: " + metadataPath);
+    Files.write(metadataPath, "{\"not\":\"valid iceberg metadata\"}".getBytes());
+
+    // Sanity check: anything that parses metadata.json now fails.
+    Assertions.assertThrows(
+        Exception.class,
+        () -> tablesService.getTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+
+    Page<TableDto> hit =
+        tablesService.searchTables(
+            TABLE_DTO.getDatabaseId(),
+            SearchTablesRequestBody.builder().tableId(TABLE_DTO.getTableId()).build(),
+            0,
+            10,
+            null,
+            Arrays.asList("tableLocation"),
+            TEST_USER);
+    Assertions.assertEquals(1, hit.getTotalElements());
+    Assertions.assertEquals(TABLE_DTO.getTableId(), hit.getContent().get(0).getTableId());
+    // The House Table row holds the location without a scheme, unlike the loaded table's dto.
+    Assertions.assertEquals(
+        stripPathScheme(created.getTableLocation()),
+        stripPathScheme(hit.getContent().get(0).getTableLocation()));
+
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+  }
+
   @Test
   public void testCreateLockOnTable() {
     TableDto tableDtoCopy = TABLE_DTO.toBuilder().build();

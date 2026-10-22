@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.services;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.SearchTablesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
@@ -59,6 +60,40 @@ public interface TablesService {
       String sortBy,
       List<String> fields,
       String actingPrincipal);
+
+  /**
+   * Given a databaseId and an optional filter, prepare a page of {@link TableDto}s. Behaves exactly
+   * like {@link #searchTables(String, int, int, String, List, String)} when the filter is null or
+   * carries no criteria.
+   *
+   * <p>When the filter names a table, the result holds at most that one table. Implementations are
+   * expected to resolve that case with a direct lookup rather than by listing and filtering the
+   * database.
+   *
+   * <p>Defaults to rejecting the request so that an implementation which does not serve the
+   * filtered search route keeps compiling without change. Implementations that serve it override
+   * this.
+   *
+   * @param databaseId
+   * @param searchTablesRequestBody optional filter, may be null when no filter was supplied
+   * @param page
+   * @param size
+   * @param sortBy
+   * @param fields optional list of {@link TableDto}/{@code GetTableResponseBody} field names to
+   *     populate in addition to identifiers
+   * @param actingPrincipal authenticated user; required when {@code fields} is non-empty
+   * @return page of {@link TableDto}
+   */
+  default Page<TableDto> searchTables(
+      String databaseId,
+      SearchTablesRequestBody searchTablesRequestBody,
+      int page,
+      int size,
+      String sortBy,
+      List<String> fields,
+      String actingPrincipal) {
+    throw new UnsupportedOperationException("Filtered table search is not supported");
+  }
 
   /**
    * Given a {@link CreateUpdateTableRequestBody}, create or update a Openhouse table for it
