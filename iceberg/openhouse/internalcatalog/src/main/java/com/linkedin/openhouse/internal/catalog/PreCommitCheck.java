@@ -12,7 +12,7 @@ import com.linkedin.openhouse.common.exception.CommitRejectedException;
  *
  * <ul>
  *   <li><b>Check only.</b> Accept by returning; reject by throwing a {@link
- *       CommitRejectedException} subclass that names the broken rule. Never change the commit.
+ *       CommitRejectedException} whose message names the broken rule. Never change the commit.
  *   <li><b>Synchronous and bounded.</b> Runs on the committing thread, inside the commit. A check
  *       that calls another service owns its timeout and reports that service being unavailable as a
  *       server error, not as a rejection.
@@ -32,8 +32,7 @@ public interface PreCommitCheck {
   /**
    * Accepts {@code context}'s commit, or rejects it by throwing.
    *
-   * @throws CommitRejectedException if the commit breaks this check's rule, as the subclass that
-   *     names the rule
+   * @throws CommitRejectedException if the commit breaks this check's rule
    */
   void check(PreCommitContext context);
 }
