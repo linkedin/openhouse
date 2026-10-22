@@ -59,6 +59,7 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
    */
   private static final String POLICIES_PROPERTY_KEY = "policies";
 
+  /** Iceberg-required view property exclusively set by the server to prevent dropping dialects. */
   private static final String REPLACE_DROP_DIALECT_ALLOWED_PROPERTY_KEY =
       "replace.drop-dialect.allowed";
 
