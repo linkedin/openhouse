@@ -171,9 +171,9 @@ public class OpenHouseViewOperations extends BaseViewOperations {
         && ((WebClientResponseException) e).getStatusCode().is4xxClientError()) {
       return Mono.error(new WebClientResponseWithMessageException((WebClientResponseException) e));
     } else {
-      // Catch-all for non-WebClientResponseException errors, including WebClientRequestException
-      // (the response was not fully received even if the write landed). Report unknown commit state
-      // to skip caller-side cleanup that could delete committed data.
+      // Catch-all, mainly WebClientRequestException: no complete response, so we can't tell a
+      // pre-send failure (retryable) from a response lost after the write landed. Report unknown
+      // commit state conservatively, not a clean failure, since the write may have applied.
       log.error(
           "Unexpected exception during doCommit for view {}.{}: {}",
           databaseId,

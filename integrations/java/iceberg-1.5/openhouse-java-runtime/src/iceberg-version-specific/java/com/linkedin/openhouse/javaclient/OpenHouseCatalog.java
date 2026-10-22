@@ -695,9 +695,11 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     String pageToken = null;
     // TODO: this loop requests the server-default page size (null) and accumulates every page into
     // memory, so latency and footprint grow with the total number of views in the database. The
-    // server default is being raised 50 -> 100 as a first step; further tuning (an explicit page
-    // size, a bounded/streamed result, or a server-side cap) should be driven by experimentation
-    // and tracked separately.
+    // analogous table path has been observed to start OOMing around ~20k entries; views likely
+    // have a similar ceiling, pending experimentation for a higher-confidence number. The server
+    // default is being raised 50 -> 100 as a first step; further tuning (an explicit page size, a
+    // bounded/streamed result, or a server-side cap) should be driven by experimentation and
+    // tracked separately.
     // TODO: no response timeout on this (or any) blocking catalog call in this class — a slow or
     // stuck server hangs the caller. Fix centrally in WebClientFactory (responseTimeout), not per
     // method; on timeout, fail rather than return a partial list.
