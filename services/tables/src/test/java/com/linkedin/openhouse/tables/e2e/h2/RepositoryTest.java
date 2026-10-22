@@ -103,7 +103,7 @@ public class RepositoryTest {
   @ParameterizedTest
   @ValueSource(strings = {"true", "false"})
   void testColumnDefaultPropertyCanBeAssignedOnceOnExistingTable(String value) {
-    String property = ReadBridgeConfigResolver.COLUMN_DEFAULT_ENABLED_PROP;
+    String property = ReadBridgeConfigResolver.COLUMN_DEFAULTS_CAPABILITY_PROP;
     TableDto created =
         openHouseInternalRepository.save(
             TABLE_DTO
@@ -179,7 +179,7 @@ public class RepositoryTest {
   @ParameterizedTest
   @MethodSource("changesToCommittedTrue")
   void testCommittedTrueColumnDefaultPropertyCannotBeChanged(Write write, String proposed) {
-    String property = ReadBridgeConfigResolver.COLUMN_DEFAULT_ENABLED_PROP;
+    String property = ReadBridgeConfigResolver.COLUMN_DEFAULTS_CAPABILITY_PROP;
     Map<String, String> properties = new HashMap<>();
     properties.put(property, "true");
     properties.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
@@ -253,7 +253,7 @@ public class RepositoryTest {
   @ParameterizedTest
   @MethodSource("changesToCommittedFalse")
   void testCommittedFalseColumnDefaultPropertyCanBeChanged(Write write, String proposed) {
-    String property = ReadBridgeConfigResolver.COLUMN_DEFAULT_ENABLED_PROP;
+    String property = ReadBridgeConfigResolver.COLUMN_DEFAULTS_CAPABILITY_PROP;
     Map<String, String> properties = new HashMap<>();
     properties.put(property, "false");
     properties.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
@@ -308,7 +308,7 @@ public class RepositoryTest {
   @ParameterizedTest
   @MethodSource("writesWithAndWithoutTheOverride")
   void testOverrideHeaderBypassesColumnDefaultImmutability(Write write, boolean override) {
-    String property = ReadBridgeConfigResolver.COLUMN_DEFAULT_ENABLED_PROP;
+    String property = ReadBridgeConfigResolver.COLUMN_DEFAULTS_CAPABILITY_PROP;
     TableDto created =
         openHouseInternalRepository.save(
             TABLE_DTO
@@ -368,7 +368,7 @@ public class RepositoryTest {
   @ParameterizedTest
   @ValueSource(strings = {"true", "false"})
   void testReplacePreservesCommittedColumnDefaultProperty(String value) {
-    String property = ReadBridgeConfigResolver.COLUMN_DEFAULT_ENABLED_PROP;
+    String property = ReadBridgeConfigResolver.COLUMN_DEFAULTS_CAPABILITY_PROP;
     TableDto created =
         openHouseInternalRepository.save(
             TABLE_DTO

@@ -11,10 +11,10 @@ import java.util.regex.Pattern;
 
 /**
  * Admission for explicitly opted-in tables; called after authorization, before reads or writes.
- * Tables without {@code read-bridge.column-default.enabled=true} are never checked.
+ * Tables without {@code required-capability.column-defaults=true} are never checked.
  */
 public class ColumnDefaultClientGate {
-  private static final String ENABLED = ReadBridgeConfigResolver.COLUMN_DEFAULT_ENABLED_PROP;
+  private static final String ENABLED = ReadBridgeConfigResolver.COLUMN_DEFAULTS_CAPABILITY_PROP;
   private static final String PRODUCT = "openhouse-java-client/";
   private static final Pattern RELEASE = Pattern.compile("[0-9]{1,9}(?:\\.[0-9]{1,9}){2,3}");
   private final String minimum;

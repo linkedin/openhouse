@@ -22,7 +22,7 @@ public class ApiConfig {
 
   /**
    * An unset {@code cluster.read-bridge.column-default.minimum-client-version} defaults to empty,
-   * which fails every request to a table with {@code read-bridge.column-default.enabled=true} as a
+   * which fails every request to a table with {@code required-capability.column-defaults=true} as a
    * server error until a minimum is configured. A value that is not a release fails startup. Tables
    * without that property are unaffected.
    */

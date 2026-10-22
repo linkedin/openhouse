@@ -41,13 +41,14 @@ public class ReadBridgeConfigResolverTest {
     return tableDto -> Collections.singletonMap(5, TextNode.valueOf("US"));
   }
 
-  /** A table carrying an explicit {@code read-bridge.column-default.enabled} value. */
+  /** A table carrying an explicit {@code required-capability.column-defaults} value. */
   private static TableDto tableWithOptIn(String value) {
     return TableDto.builder()
         .databaseId("db")
         .tableId("tbl")
         .tableProperties(
-            Collections.singletonMap(ReadBridgeConfigResolver.COLUMN_DEFAULT_ENABLED_PROP, value))
+            Collections.singletonMap(
+                ReadBridgeConfigResolver.COLUMN_DEFAULTS_CAPABILITY_PROP, value))
         .build();
   }
 
