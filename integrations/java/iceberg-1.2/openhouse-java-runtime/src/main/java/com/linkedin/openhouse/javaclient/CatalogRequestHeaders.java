@@ -2,8 +2,11 @@ package com.linkedin.openhouse.javaclient;
 
 import com.linkedin.openhouse.client.ssl.WebClientFactory;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.CatalogProperties;
@@ -55,6 +58,9 @@ final class CatalogRequestHeaders {
    * that names no header, has a name or value HTTP cannot carry, names a header the catalog sets,
    * or names a header another property also names is ignored with a warning: initialization goes
    * on, and the catalog keeps its own values. The warning names the header, never the value.
+   *
+   * <p>The headers always declare the capabilities the catalog implements in {@code
+   * X-OpenHouse-Client-Capabilities}; a configured value adds capabilities, never removes them.
    */
   static HttpHeaders from(Map<String, String> properties) {
     HttpHeaders headers = new HttpHeaders();
@@ -79,7 +85,26 @@ final class CatalogRequestHeaders {
         ignore(headers, header, "more than one property names it");
       }
     }
+    declare(headers, ReadBridge.CAPABILITY);
     return headers;
+  }
+
+  /**
+   * Declares {@code capability} first, then those the configured header declares, lower-cased and
+   * without duplicates.
+   */
+  private static void declare(HttpHeaders headers, String capability) {
+    Set<String> capabilities = new LinkedHashSet<>();
+    capabilities.add(capability);
+    String configured = headers.getFirst(WebClientFactory.HTTP_HEADER_CLIENT_CAPABILITIES);
+    if (configured != null) {
+      for (String declared : configured.split(",")) {
+        if (!declared.trim().isEmpty()) {
+          capabilities.add(declared.trim().toLowerCase(Locale.ROOT));
+        }
+      }
+    }
+    headers.set(WebClientFactory.HTTP_HEADER_CLIENT_CAPABILITIES, String.join(",", capabilities));
   }
 
   private static void ignore(HttpHeaders headers, String header, String reason) {

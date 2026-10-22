@@ -9,7 +9,7 @@ import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
-import com.linkedin.openhouse.tables.readbridge.ColumnDefaultClientGate;
+import com.linkedin.openhouse.tables.readbridge.ClientCapabilityGate;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
@@ -37,7 +37,7 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
 
   @Autowired ReadBridgeStripProtection readBridgeStripProtection;
 
-  @Autowired ColumnDefaultClientGate columnDefaultClientGate;
+  @Autowired ClientCapabilityGate clientCapabilityGate;
 
   @Override
   public Pair<TableDto, Boolean> putIcebergSnapshots(
@@ -89,7 +89,7 @@ public class IcebergSnapshotsServiceImpl implements IcebergSnapshotsService {
       authorizationUtils.checkDatabasePrivilege(
           databaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
     }
-    columnDefaultClientGate.checkWrite(
+    clientCapabilityGate.checkWrite(
         databaseId, tableId, tableDto, tableDtoToSave.getTableProperties());
     tableDtoToSave = LockPolicyValidator.prepare(tableDto.orElse(null), tableDtoToSave);
     try {
