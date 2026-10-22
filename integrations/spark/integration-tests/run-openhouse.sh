@@ -22,7 +22,7 @@ if (( $# == 0 )); then
     :integrations:spark:openhouse-spark-integration-tests_2.12:runOpenHouse
 fi
 
-printf -v FILTERS ' %q' "$@"
+printf -v FILTERS ' "%s"' "$@"
 exec ./gradlew --no-daemon \
   :integrations:spark:openhouse-spark-integration-tests_2.12:runOpenHouse \
   --args="${FILTERS# }"

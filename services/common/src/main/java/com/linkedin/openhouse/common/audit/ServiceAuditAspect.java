@@ -11,8 +11,11 @@ import com.linkedin.openhouse.common.api.spec.ErrorResponseBody;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.common.audit.model.ServiceName;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.List;
 import javax.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -42,20 +45,31 @@ public class ServiceAuditAspect {
 
   @Autowired private AuditHandler<ServiceAuditEvent> serviceAuditHandler;
 
+  /**
+   * Redactors contributed by the running service, if any. Left empty when the service registers
+   * none, in which case the payload is audited exactly as it was sent.
+   */
+  @Autowired(required = false)
+  private List<ServiceAuditPayloadRedactor> payloadRedactors = Collections.emptyList();
+
   private static final MetricsReporter METRICS_REPORTER =
       MetricsReporter.of(MetricsConstant.SERVICE_AUDIT);
 
   private static final String SESSION_ID = "session-id";
+  private static final String ACTION_TYPE = "X-OpenHouse-Action-Type";
 
   /**
    * Install the Around advice for all controller methods.
    *
    * @param point The controller method being enhanced
+   * @param apiResponses The controller method's annotation, bound by type so that relocating
+   *     io.swagger (as the shaded test fixtures do) updates the pointcut with it
    * @return Result of the controller method
    * @throws Throwable Any exception during execution of the controller method
    */
-  @Around("execution(@(io.swagger.v3.oas.annotations.responses.ApiResponses) * *(..))")
-  protected Object auditSuccessfulRequests(ProceedingJoinPoint point) throws Throwable {
+  @Around(value = "@annotation(apiResponses)", argNames = "point,apiResponses")
+  protected Object auditSuccessfulRequests(ProceedingJoinPoint point, ApiResponses apiResponses)
+      throws Throwable {
     Object result = null;
     try {
       result = point.proceed();
@@ -140,9 +154,11 @@ public class ServiceAuditAspect {
       if (wrapper != null) {
         String requestPayloadStr =
             new String(wrapper.getContentAsByteArray(), StandardCharsets.UTF_8);
-        requestPayload = JsonParser.parseString(requestPayloadStr);
+        requestPayload = redactSensitiveValues(request, JsonParser.parseString(requestPayloadStr));
       }
     } catch (Exception e) {
+      // Fail closed. A payload that could not be parsed or could not be redacted is dropped rather
+      // than audited raw, so a broken redactor cannot leak the values it was meant to remove.
       log.error("Exception during parsing request payload:\n", e);
       METRICS_REPORTER.count(MetricsConstant.FAILED_PARSING_REQUEST_PAYLOAD);
     }
@@ -172,6 +188,7 @@ public class ServiceAuditAspect {
         .clusterName(clusterProperties.getClusterName())
         .serviceName(getServiceNameFromRequestURI(request.getRequestURI()))
         .user(extractAuthenticatedUserPrincipal())
+        .actionType(request.getHeader(ACTION_TYPE))
         .method(HttpMethod.valueOf(request.getMethod()))
         .uri(uriAndQueryString)
         .requestPayload(requestPayload)
@@ -180,6 +197,25 @@ public class ServiceAuditAspect {
         .stacktrace(stacktrace)
         .cause(cause)
         .build();
+  }
+
+  /**
+   * Apply every registered redactor that claims this request. With no redactor registered — the
+   * case for every service that has not contributed one — the parsed payload is returned unchanged,
+   * so existing audit payloads are byte-identical.
+   */
+  private JsonElement redactSensitiveValues(
+      HttpServletRequest request, JsonElement requestPayload) {
+    if (requestPayload == null || payloadRedactors == null) {
+      return requestPayload;
+    }
+    JsonElement redacted = requestPayload;
+    for (ServiceAuditPayloadRedactor redactor : payloadRedactors) {
+      if (redactor.appliesTo(request)) {
+        redacted = redactor.redact(redacted);
+      }
+    }
+    return redacted;
   }
 
   private ServiceName getServiceNameFromRequestURI(String uri) {

@@ -23,7 +23,7 @@ import scala.util.control.NonFatal
  */
 final case class TestCase(
   id:                 String,
-  run:                Ctx => Unit,
+  run:                TestContext => Unit,
   knownBugReason:     Option[String] = None,
   embeddedSkipReason: Option[String] = None
 ) {
@@ -31,7 +31,7 @@ final case class TestCase(
   def bugReason: Option[String] = knownBugReason.map(reason => s"bug: $reason")
 }
 
-final case class Ctx(spark: SparkSession, namespace: String)
+final case class TestContext(spark: SparkSession, namespace: String)
 
 sealed trait Outcome { def label: String }
 object Outcome {
@@ -73,8 +73,8 @@ object Exceptions {
   def root(throwable: Throwable): Throwable = causeChain(throwable).last
 
   /**
-   * Retries errors positively identified as transient. Other failures remain terminal so data, permission, and
-   * assertion failures surface on their first attempt.
+   * Identifies transient connection failures in the cause chain.
+   * `Runner` uses this classification only when retrying session creation before a case starts.
    */
   def isTransientConnectionFailure(throwable: Throwable): Boolean = causeChain(throwable).exists {
     case _: SocketTimeoutException => true
@@ -154,61 +154,72 @@ object CoreTable extends Schema {
 // A schema containing complex/nested types: a struct, an array, a map, and a struct-in-struct. Struct/array read back
 // as Row/Seq; map as a Map. `id` is first so it is the ordering key.
 object NestedTable extends Schema {
-  val id: Column[Long] =
+  val identifierColumn: Column[Long] =
     Column("id", "bigint", rowIndex => rowIndex.toString)
-  val s: Column[Row] =
+  val structColumn: Column[Row] =
     Column(
       "s",
       "struct<x:int,y:string>",
       rowIndex => s"named_struct('x', $rowIndex, 'y', 'row-$rowIndex')")
-  val arr: Column[Seq[Int]] =
+  val arrayColumn: Column[Seq[Int]] =
     Column("arr", "array<int>", rowIndex => s"array($rowIndex, ${rowIndex + 1})")
-  val m: Column[Map[String, Int]] =
+  val mapColumn: Column[Map[String, Int]] =
     Column("m", "map<string,int>", rowIndex => s"map('k', $rowIndex)")
   val nested: Column[Row] =
     Column(
       "nested",
       "struct<inner:struct<z:int>>",
       rowIndex => s"named_struct('inner', named_struct('z', $rowIndex))")
-  def tableColumns: Seq[Column[_]] = Seq(id, s, arr, m, nested)
+  def tableColumns: Seq[Column[_]] =
+    Seq(identifierColumn, structColumn, arrayColumn, mapColumn, nested)
 
   val columnDefinitions: String =
     "id bigint, s struct<x:int,y:string>, arr array<int>, m map<string,int>, nested struct<inner:struct<z:int>>"
 }
 
-// A schema for the common scalar types, including literals for null, floating-point, boundary, unicode, and empty
+// A schema for the common scalar types, including literals for null, floating-point, numeric limits, Unicode, and empty
 // string cases.
 object TypesTable extends Schema {
-  val id: Column[Long] =
+  val identifierColumn: Column[Long] =
     Column("id", "bigint", rowIndex => rowIndex.toString)
-  val n: Column[Int] =
+  val integerColumn: Column[Int] =
     Column("n", "int", rowIndex => rowIndex.toString)
-  val x: Column[Double] =
+  val doubleColumn: Column[Double] =
     Column("x", "double", rowIndex => s"$rowIndex.5")
-  val dec: Column[JavaBigDecimal] =
+  val decimalColumn: Column[JavaBigDecimal] =
     Column("dec", "decimal(10,2)", rowIndex => s"CAST($rowIndex.50 AS decimal(10,2))")
-  val str: Column[String] =
+  val stringColumn: Column[String] =
     Column("str", "string", rowIndex => s"'row-$rowIndex'")
-  val bin: Column[Array[Byte]] =
+  val binaryColumn: Column[Array[Byte]] =
     Column("bin", "binary", rowIndex => s"CAST('bin-$rowIndex' AS binary)")
-  val dt: Column[Date] =
+  val dateColumn: Column[Date] =
     Column(
       "dt",
       "date",
       rowIndex => s"DATE '${DateEpoch.plusDays((rowIndex - 1).toLong)}'")
-  val ts: Column[Timestamp] =
+  val timestampColumn: Column[Timestamp] =
     Column(
       "ts",
       "timestamp",
       rowIndex =>
         s"TIMESTAMP '${TimestampEpoch.plusHours((rowIndex - 1).toLong).format(TimestampFormat)}'")
-  val tsntz: Column[LocalDateTime] =
+  val timestampWithoutTimeZoneColumn: Column[LocalDateTime] =
     Column(
       "tsntz",
       "timestamp_ntz",
       rowIndex =>
         s"TIMESTAMP_NTZ '${TimestampEpoch.plusHours((rowIndex - 1).toLong).format(TimestampFormat)}'")
-  def tableColumns: Seq[Column[_]] = Seq(id, n, x, dec, str, bin, dt, ts, tsntz)
+  def tableColumns: Seq[Column[_]] =
+    Seq(
+      identifierColumn,
+      integerColumn,
+      doubleColumn,
+      decimalColumn,
+      stringColumn,
+      binaryColumn,
+      dateColumn,
+      timestampColumn,
+      timestampWithoutTimeZoneColumn)
 
   val columnDefinitions: String =
     "id bigint, n int, x double, dec decimal(10,2), str string, bin binary, dt date, ts timestamp, " +
@@ -276,8 +287,6 @@ final case class Step[S <: Schema](
 
 /** An immutable, typed sequence of table-preparation steps. */
 final class TableTest[S <: Schema] private (val schema: S, val steps: Vector[Step[S]]) {
-  private def add(step: Step[S]): TableTest[S] = new TableTest(schema, steps :+ step)
-
   // The default validator asserts the seed actually appended `numberOfRows` rows. This defends the case assertions
   // from a vacuous pass on an empty or short baseline.
   def insert(numberOfRows: Int)(
@@ -285,13 +294,13 @@ final class TableTest[S <: Schema] private (val schema: S, val steps: Vector[Ste
         view.after.size == view.before.size + numberOfRows,
         s"seed insert($numberOfRows) expected ${view.before.size + numberOfRows} rows, got ${view.after.size}")
   ): TableTest[S] =
-    add(Step(s"insert($numberOfRows)", (spark, table, schema) =>
+    new TableTest(schema, steps :+ Step[S](s"insert($numberOfRows)", (spark, table, schema) =>
       spark.sql(s"INSERT INTO $table ${RowGenerator.valuesClause(schema, numberOfRows)}"), validate))
 
   /** Run an arbitrary preparation step, then validate its result. */
   def step(label: String)(mutate: (SparkSession, String) => Unit)
           (validate: StepView[S] => Unit = _ => ()): TableTest[S] =
-    add(Step(label, (spark, table, _) => mutate(spark, table), validate))
+    new TableTest(schema, steps :+ Step[S](label, (spark, table, _) => mutate(spark, table), validate))
 
   /** Run one preparation SQL statement, then validate its result. */
   def sql(label: String)(statement: String => String)
@@ -302,38 +311,38 @@ final class TableTest[S <: Schema] private (val schema: S, val steps: Vector[Ste
    * Execute these steps as a reusable preparation, then hand the prepared table to one self-contained test body. The
    * fresh-table lifecycle covers both the preparation and the test body.
    */
-  def prepare(ctx: Ctx)(use: PreparedTable[S] => Unit): Unit =
-    withTable(ctx) { (table, markTableCreated) =>
-    val (preparedRows, preparedSnapshotCount) =
-      steps.zipWithIndex.foldLeft((Seq.empty[Row], 0L)) {
-        case ((beforeRows, beforeSnapshots), (step, stepIndex)) =>
-        step.execute(ctx.spark, table, schema)
-        if (stepIndex == 0) {
-          markTableCreated()
+  def prepare(context: TestContext)(use: PreparedTable[S] => Unit): Unit =
+    withTable(context) { (table, markTableCreated) =>
+      val (preparedRows, preparedSnapshotCount) =
+        steps.zipWithIndex.foldLeft((Seq.empty[Row], 0L)) {
+          case ((beforeRows, beforeSnapshots), (step, stepIndex)) =>
+            step.execute(context.spark, table, schema)
+            if (stepIndex == 0) {
+              markTableCreated()
+            }
+            val afterRows = PreparedTable.currentRows(context.spark, table, schema)
+            val afterSnapshots = PreparedTable.snapshotCount(context.spark, table)
+            step.validate(
+              StepView(
+                context.spark,
+                table,
+                schema,
+                beforeRows,
+                afterRows,
+                beforeSnapshots,
+                afterSnapshots))
+            (afterRows, afterSnapshots)
         }
-        val afterRows = PreparedTable.currentRows(ctx.spark, table, schema)
-        val afterSnapshots = PreparedTable.snapshotCount(ctx.spark, table)
-        step.validate(
-          StepView(
-            ctx.spark,
-            table,
-            schema,
-            beforeRows,
-            afterRows,
-            beforeSnapshots,
-            afterSnapshots))
-        (afterRows, afterSnapshots)
-      }
-    use(PreparedTable(ctx.spark, table, schema, preparedRows, preparedSnapshotCount))
-  }
+      use(PreparedTable(context.spark, table, schema, preparedRows, preparedSnapshotCount))
+    }
 
   // Gives the preparation a unique table name and drops that table after the test. Cleanup starts only after the first
   // preparation step creates the table, so a name conflict preserves the pre-existing table. A test failure stays
   // primary, and a cleanup failure is attached to it as a suppressed exception.
-  private def withTable(ctx: Ctx)(use: (String, () => Unit) => Unit): Unit = {
-    val table = TableTest.nextQualifiedTableName(ctx.namespace)
+  private def withTable(context: TestContext)(use: (String, () => Unit) => Unit): Unit = {
+    val table = TableTest.nextQualifiedTableName(context.namespace)
     OwnedTableLifecycle.withOwnership(
-      ctx.spark.sql(s"DROP TABLE IF EXISTS $table"))(
+      context.spark.sql(s"DROP TABLE IF EXISTS $table"))(
       markTableCreated => use(table, markTableCreated))
   }
 

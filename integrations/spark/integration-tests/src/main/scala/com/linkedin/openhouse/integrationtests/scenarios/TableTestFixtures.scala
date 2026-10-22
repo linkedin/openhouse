@@ -18,13 +18,11 @@ trait TableTestFixtures {
   // order, so an expected row set is written as the rows the case started from, filtered, mapped through
   // `withColumnValue`, extended with literal rows, and re-sorted. Both helpers address columns by position so they also
   // work on the literal rows a case writes out.
-  private def columnPosition(column: Column[_]): Int = Core.columnNames.indexOf(column.columnName)
-
   protected def withColumnValue[T](row: Row, column: Column[T], value: T): Row =
-    Row.fromSeq(row.toSeq.updated(columnPosition(column), value))
+    Row.fromSeq(row.toSeq.updated(Core.columnNames.indexOf(column.columnName), value))
 
   protected def inKeyOrder(rows: Seq[Row]): Seq[Row] =
-    rows.sortBy(_.getLong(columnPosition(Core.long0)))
+    rows.sortBy(_.getLong(Core.columnNames.indexOf(Core.long0.columnName)))
 
   // A layout belongs to its preparation, so one test body can run on each table shape the scenario declares.
   protected val columnDefinitions =

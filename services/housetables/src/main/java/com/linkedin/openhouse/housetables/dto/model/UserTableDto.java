@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.housetables.dto.model;
 
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
+import com.linkedin.openhouse.housetables.model.EntityType;
 import lombok.Builder;
 import lombok.Value;
 
@@ -22,6 +23,8 @@ public class UserTableDto {
   String storageType;
 
   Long creationTime;
+
+  EntityType entityType;
 
   Long deletedAtMs;
 
