@@ -11,5 +11,12 @@ public enum HistoryStatus {
   SUCCESS,
 
   /** The Spark job for this operation failed. */
-  FAILED
+  FAILED,
+
+  /**
+   * The operation was submitted (a job was launched) but never reported a terminal result and has
+   * passed the stale-timeout — a silent failure recorded by the analyzer when it supersedes the
+   * dead op. Counts as a non-success for the circuit breaker.
+   */
+  TIMED_OUT
 }

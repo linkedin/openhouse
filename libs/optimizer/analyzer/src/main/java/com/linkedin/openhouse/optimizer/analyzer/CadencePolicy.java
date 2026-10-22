@@ -183,6 +183,7 @@ public class CadencePolicy {
       case SUCCESS:
         return successRetryInterval;
       case FAILED:
+      case TIMED_OUT:
         return failureInterval(consecutiveFailures);
       default:
         throw new IllegalStateException("Unhandled HistoryStatusDto value: " + status);
