@@ -15,7 +15,7 @@ object Main {
     var runFailure: Option[Throwable] = None
     try {
       spark.sparkContext.setLogLevel("ERROR")
-      val ctx = Ctx(spark, "openhouse.dbMatrix")
+      val context = TestContext(spark, "openhouse.dbMatrix")
 
       val (catalogArguments, filters) = args.toList.partition(_.startsWith("--catalog="))
       val selectedCatalog = catalogArguments match {
@@ -53,7 +53,7 @@ object Main {
           case Some(reason) =>
             (testCase, (Outcome.Skipped(reason): Outcome, 0))
           case None =>
-            (testCase, Runner.execute(testCase, ctx))
+            (testCase, Runner.execute(testCase, context))
         }
 
       val results =

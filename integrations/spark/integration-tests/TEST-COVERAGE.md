@@ -12,6 +12,11 @@ Executable Test Set = compatible(Prepared Tables x Test Cases)
 The scalar prepared table is unpartitioned, contains standard seed rows, and is
 materialized in Parquet and ORC.
 
+Each scalar assertion checks values from the first row returned by a query
+selecting the relevant key or string. These checks establish the selected-value
+behavior listed below. They do not verify result multiplicity, preservation of
+untouched rows, or snapshot changes after scalar inserts.
+
 ```text
 Scalar Type Tests =
   compatible([Scalar Parquet Table, Scalar ORC Table] x [Test Cases Below])
@@ -48,6 +53,11 @@ Core DML Tests =
 
 The rejection tests use the same standard Parquet and ORC prepared tables.
 
+Analysis-time rejections assert `AnalysisException` and a diagnostic message.
+The runtime MERGE rejection catches `Exception`, checks a diagnostic in its
+cause chain, and compares all rows and the snapshot count before and after the
+statement. It does not assert a specific exception subtype.
+
 ```text
 DML Rejection Tests =
   compatible([Standard Parquet Table, Standard ORC Table] x [Test Cases Below])
@@ -60,7 +70,7 @@ DML Rejection Tests =
 | `UPDATE` with `rand()` in its predicate | Analysis rejects the nondeterministic predicate. |
 | `INSERT INTO` with too few values | Analysis rejects the statement because data columns are missing. |
 | `MERGE` assigning one target column twice | Analysis rejects the conflicting assignments. |
-| `MERGE` matching two source rows to one target row | Execution reports the cardinality violation and preserves the complete table state. |
+| `MERGE` matching two source rows to one target row | Execution reports the cardinality violation and preserves all rows and the snapshot count. |
 
 [How integration tests are generated](CAPABILITY-MATRIX.md) explains how
 compatibility selects the prepared-table and test-case pairs in these equations.
@@ -69,7 +79,9 @@ compatibility selects the prepared-table and test-case pairs in these equations.
 
 Standard DML uses seeded unpartitioned tables, tables containing a null value,
 and date-partitioned tables. Each prepared table is materialized in Parquet and
-ORC.
+ORC. The date-partitioned tables exercise the partition-moving update and the
+two partition overwrite operations. The update verifies the complete row set
+and reads filtered by both the source and destination dates.
 
 ```text
 Standard DML Tests =
@@ -86,7 +98,8 @@ Standard DML Tests =
 | Full-table overwrite | New rows replace the complete prior contents. |
 | Partition overwrite | New rows replace only the selected partition and preserve every other partition. |
 | Delete | Predicates, subqueries, aliases, and whole-table conditions remove exactly the selected rows. |
-| Update | Predicates, subqueries, expressions, aliases, multi-column assignments, partition moves, and null assignments change only the selected rows and columns. |
+| Update | Predicates, subqueries, expressions, aliases, multi-column assignments, date-column assignments, and null assignments change only the selected rows and columns. |
+| Partition-moving update | Updating the date partition column preserves the complete expected row set, removes the row from reads filtered by its source date, and returns it in reads filtered by its destination date. |
 | Merge | Matched, unmatched, conditional, wildcard, common-table-expression, and set-operation sources apply their clauses to the exact target rows. |
 
 ## Replace table as select

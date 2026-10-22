@@ -43,17 +43,19 @@ Each generated test combines two inputs:
 
 1. A prepared table defines the initial state, including its storage format,
    schema, rows, partitioning, ordering, properties, and history.
-2. A test case defines the action and the complete rows, snapshots, metadata, or
-   error expected afterward.
+2. A test case defines the action and the values, rows, snapshot count, or error
+   it checks afterward.
 
 Compatibility determines which prepared-table and test-case pairs enter the
 executable test set. A DML test case is defined once and runs against every
 compatible prepared table.
 
-Every generated test creates a fresh instance of its prepared table, runs its
-test case, and checks the complete observable result. Rejected statements also
-verify the error type and diagnostic. When an invalid statement can reach
-execution, the test verifies that rows and snapshots remain unchanged.
+Every generated test creates a fresh instance of its prepared table and runs
+its test case. Core DML cases compare all rows and the snapshot count; scalar
+cases check selected values. Analysis-time rejections check `AnalysisException`
+and a diagnostic message. The runtime MERGE rejection checks a diagnostic in
+the exception cause chain and verifies that rows and the snapshot count remain
+unchanged.
 
 [TEST-COVERAGE.md](TEST-COVERAGE.md) describes the assertions made by the
 executable catalog in the current checkout.

@@ -1,0 +1,28 @@
+{
+  "type": "struct",
+  "fields": [
+    {
+      "id": 1,
+      "required": false,
+      "name": "id",
+      "type": "int"
+    },
+    {
+      "id": 2,
+      "required": false,
+      "name": "addr",
+      "type": {
+        "type": "struct",
+        "fields": [
+          {
+            "id": 10,
+            "required": false,
+            "name": "country",
+            "type": "string",
+            "initial-default": "US"
+          }
+        ]
+      }
+    }
+  ]
+}

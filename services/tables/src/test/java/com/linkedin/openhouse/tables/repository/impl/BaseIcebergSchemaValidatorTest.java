@@ -274,4 +274,23 @@ public class BaseIcebergSchemaValidatorTest {
         InvalidSchemaEvolutionException.class,
         () -> VALIDATOR.validateWriteSchema(tableSchema, writeSchema, "db.table"));
   }
+
+  @Test
+  void validateWriteSchema_rejectsGenuineColumnRename() {
+    // A genuine rename (same field id, a different name — not merely a case change) must be
+    // rejected
+    // loudly by validateWriteSchema. This is the failure the casing normalizer must not hide by
+    // reverting the rename: the old column "id" is no longer present in the write schema.
+    Schema tableSchema = new Schema(Types.NestedField.required(1, "id", Types.StringType.get()));
+    Schema writeSchema =
+        new Schema(Types.NestedField.required(1, "user_id", Types.StringType.get()));
+
+    InvalidSchemaEvolutionException thrown =
+        assertThrows(
+            InvalidSchemaEvolutionException.class,
+            () -> VALIDATOR.validateWriteSchema(tableSchema, writeSchema, "db.table"));
+    assertTrue(
+        thrown.getMessage().contains("Column[id] not found in newSchema"),
+        "expected the renamed-away-column error, got: " + thrown.getMessage());
+  }
 }

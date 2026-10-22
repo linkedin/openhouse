@@ -43,6 +43,9 @@ trait ScenarioDmlDelete extends TableTestFixtures {
       "delete.byNullCondition",
       table => {
         val before = table.state
+        assert(
+          before.rows.count(row => Option(row.get(Core.string0)).isEmpty) == 1,
+          "the prepared table must contain exactly one null string")
 
         table.spark.sql(
           s"DELETE FROM ${table.name} WHERE ${Core.string0.columnName} IS NULL")

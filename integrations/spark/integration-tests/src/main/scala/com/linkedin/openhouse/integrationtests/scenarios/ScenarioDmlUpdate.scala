@@ -287,13 +287,21 @@ trait ScenarioDmlUpdate extends TableTestFixtures {
 
   /**
    * UPDATE SET foo_col_date = '2099-12-31-23' WHERE foo_col_long = 2 moves key 2 to another date partition value,
-   * leaves every other row unchanged, and commits one snapshot.
+   * leaves every other row unchanged, and commits one snapshot. Reads filtered by the old and new dates verify
+   * removal from the source partition and visibility in the destination partition.
    */
-  private val updateMovePartition: DmlTestCase[CoreTable.type] =
+  protected val updateMovePartition: DmlTestCase[CoreTable.type] =
     DmlTestCase(
       "update.movePartition",
       table => {
         val before = table.state
+        assert(
+          before.rows.count(row =>
+            row.get(Core.long0) == 2L && row.get(Core.date0) == "2024-01-01-01") == 1,
+          "the prepared table must contain key 2 at the source date")
+        assert(
+          before.rows.forall(_.get(Core.date0) != "2099-12-31-23"),
+          "the destination date must start empty")
 
         table.spark.sql(
           s"UPDATE ${table.name} SET " +
@@ -301,12 +309,22 @@ trait ScenarioDmlUpdate extends TableTestFixtures {
             s"WHERE ${Core.long0.columnName} = 2")
         val after = table.state
 
+        val expectedRows = before.rows.map(row =>
+          if (row.get(Core.long0) == 2L) {
+            withColumnValue(row, Core.date0, "2099-12-31-23")
+          } else row)
         assert(
-          after.rows == before.rows.map(row =>
-            if (row.get(Core.long0) == 2L) {
-              withColumnValue(row, Core.date0, "2099-12-31-23")
-            } else row),
+          after.rows == expectedRows,
           s"rows after the UPDATE: ${after.rows}")
+        Seq("2024-01-01-01", "2099-12-31-23").foreach { date =>
+          val partitionRows = table.spark.sql(
+            s"SELECT $columnNameList FROM ${table.name} WHERE ${Core.date0.columnName} = '$date' " +
+              s"ORDER BY ${Core.long0.columnName}").collect().toSeq
+          assert(
+            partitionRows == expectedRows.filter(
+              _.getString(Core.columnNames.indexOf(Core.date0.columnName)) == date),
+            s"rows selected at date $date after the UPDATE: $partitionRows")
+        }
         assert(
           after.snapshotCount == before.snapshotCount + 1,
           "a partition-moving UPDATE commits one snapshot")

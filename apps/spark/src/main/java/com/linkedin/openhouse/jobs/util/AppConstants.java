@@ -23,6 +23,10 @@ public final class AppConstants {
   public static final String RETENTION_POLICY_MISCONFIGURED_TABLE_COUNT =
       "retention_policy_misconfigured_table_count";
 
+  // Snapshot Expiration metrics
+  public static final String SNAPSHOTS_EXPIRATION_DURATION = "snapshots_expiration_duration";
+  public static final String DELETE_FILES_ENABLED = "delete_files_enabled";
+
   // Openhouse jobs status tags
   public static final String STATUS = "status";
   public static final String STATUS_CODE = "status_code";
@@ -73,6 +77,13 @@ public final class AppConstants {
    * (default {@code 25}); this constant is a footgun stop, not the operating point.
    */
   public static final int OFD_MAX_BATCH_SIZE = 200;
+
+  /**
+   * Hard upper bound on a single stats-collection batch. The scheduler bin-packs stats collection
+   * by file count with a far smaller default per-bin table cap (default {@code 25}); this constant
+   * is a footgun stop against an oversized batch OOMing the driver, not the operating point.
+   */
+  public static final int STATS_MAX_BATCH_SIZE = 100;
 
   private AppConstants() {}
 }

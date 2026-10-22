@@ -3,6 +3,7 @@ package com.linkedin.openhouse.internal.catalog.repository;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.repository.PagingAndSortingRepository;
@@ -63,4 +64,29 @@ public interface HouseTableRepository
    * @param deletedAtMs The timestamp when the table was deleted
    */
   void restoreTable(String databaseId, String tableId, long deletedAtMs);
+
+  /**
+   * Any occupant of the key, so a create can classify a collision; advisory, never a precondition.
+   */
+  Optional<HouseTable> findEntityById(HouseTablePrimaryKey houseTablePrimaryKey);
+
+  /*
+   * The unchecked `throws IllegalStateException` on the two typed reads must stay: Spring re-throws
+   * an exception the method declares before JPA-translating it, and a Javadoc @throws does not
+   * qualify. Declared on the implementation too, so either proxy strategy sees it.
+   */
+
+  /** Resolves only VIEW rows; a table at the same key reads as absent. */
+  Optional<HouseTable> findViewById(HouseTablePrimaryKey houseTablePrimaryKey)
+      throws IllegalStateException;
+
+  /** Lists VIEW rows only; one non-view row fails the page rather than being dropped from it. */
+  Page<HouseTable> findAllViewsByDatabaseId(String databaseId, Pageable pageable)
+      throws IllegalStateException;
+
+  /** One attempt, never retried: an ambiguous outcome must not become a double write. */
+  HouseTable saveView(HouseTable houseTable);
+
+  /** Hard delete, one attempt; false when the key is absent or holds a non-view. */
+  boolean deleteViewById(HouseTablePrimaryKey houseTablePrimaryKey);
 }
