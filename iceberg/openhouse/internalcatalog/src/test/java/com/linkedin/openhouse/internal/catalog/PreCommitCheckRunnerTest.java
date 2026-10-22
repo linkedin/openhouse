@@ -146,7 +146,7 @@ class PreCommitCheckRunnerTest {
 
   @Order(2)
   static class Rejecting extends Recording {
-    static final CommitRejectedException REJECTION = new CommitRejectedException("rejected") {};
+    static final CommitRejectedException REJECTION = new CommitRejectedException("rejected");
 
     Rejecting(Calls calls) {
       super("rejecting", calls);
