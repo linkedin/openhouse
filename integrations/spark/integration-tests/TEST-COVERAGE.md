@@ -101,3 +101,33 @@ Standard DML Tests =
 | Update | Predicates, subqueries, expressions, aliases, multi-column assignments, date-column assignments, and null assignments change only the selected rows and columns. |
 | Partition-moving update | Updating the date partition column preserves the complete expected row set, removes the row from reads filtered by its source date, and returns it in reads filtered by its destination date. |
 | Merge | Matched, unmatched, conditional, wildcard, common-table-expression, and set-operation sources apply their clauses to the exact target rows. |
+
+## Replace table as select
+
+Replacement prepared tables have rows, schema, and lineage produced by `CREATE
+OR REPLACE TABLE AS SELECT`. They include unpartitioned and date-partitioned
+tables in Parquet and ORC.
+
+This layer includes one replacement-versus-append race. General concurrency and
+locking scenarios belong to a separate layer.
+
+```text
+RTAS Tests =
+  compatible([Replacement Prepared Tables]
+    x [Standard DML Test Cases, RTAS Test Cases Below])
+```
+
+| Test case | Expected behavior |
+|---|---|
+| Enablement and replication restrictions | A replacement requires enablement. Adding replication to a replace-enabled table is rejected and preserves its data and catalog properties. |
+| Same-shape replacement | The selected rows replace the current rows and create the expected replacement lineage. |
+| DML after replacement | Compatible Standard DML test cases retain their row and snapshot behavior after replacement. |
+| Schema replacement | The new schema and rows become current without retaining removed fields. |
+| Partition replacement | The new partition specification becomes current and subsequent writes use it. |
+| Properties and policies | Required table metadata survives replacement or changes to the requested value. |
+| Time travel and recovery | Historical snapshots remain readable and the selected snapshot can become current again. |
+| Changelog and incremental reads | Ranges spanning a replacement are rejected because the start snapshot is outside the current lineage. |
+| Rename and sort order | Replacement remains correct before and after rename, and the requested sort order remains visible. |
+| Creator identity | Replacement records the expected creator metadata. |
+| Concurrent replacement and append | A replacement-only commit leaves two selected rows. An append-only commit leaves four rows. Two commits leave two or three rows according to their order. A rejected writer reports a confirmed commit conflict. This known-bug case is skipped. |
+| Narrowing a `bigint` | With ANSI casting enabled, an out-of-range cast reports `CAST_OVERFLOW` and preserves the complete original schema, rows, and snapshots. The ANSI setting is restored. |
