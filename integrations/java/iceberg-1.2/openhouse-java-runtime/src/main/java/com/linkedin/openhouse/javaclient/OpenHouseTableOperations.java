@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.javaclient;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -10,14 +12,18 @@ import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageEx
 import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
+import com.linkedin.openhouse.tables.client.invoker.ApiClient;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.IcebergSnapshotsRequestBody;
+import com.linkedin.openhouse.tables.client.model.LockState;
 import com.linkedin.openhouse.tables.client.model.Policies;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import lombok.AccessLevel;
@@ -38,6 +44,7 @@ import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.util.Tasks;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
@@ -63,18 +70,42 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
   private String cluster;
 
   /**
-   * The per-table client {@code config} (Iceberg REST {@code LoadTableResponse.config} convention)
-   * the OH server stamped onto the most recent table-load response (or {@code null} if none / not
-   * yet refreshed). A final holder keeps Lombok's all-args constructor unchanged.
+   * Whether this instance backs a replace-table (RTAS) transaction, set by {@link OpenHouseCatalog}
+   * at the only point where that intent is unambiguous.
+   *
+   * <p>{@code doCommit} cannot infer it from the {@code base}/{@code metadata} diff: Iceberg's
+   * {@code BaseTransaction} routes a replace transaction and an ordinary multi-update transaction
+   * (say, a schema evolution plus an append) through the very same {@code ops.commit(base,
+   * metadata)} call, so both arrive with metadata and snapshots updated and a non-null base.
+   * Misreading the latter as a replace would have the server rebuild the table wholesale instead of
+   * updating it. A final holder keeps Lombok's all-args constructor unchanged.
+   */
+  private final AtomicBoolean replaceTransaction = new AtomicBoolean(false);
+
+  /**
+   * Config last applied to {@code current()}, or {@code null}. Bound after Iceberg accepts a reload
+   * so skip-reload and a failed UUID check cannot desync stamps from overlays.
    */
   private final AtomicReference<Map<String, String>> config = new AtomicReference<>();
 
-  /**
-   * The server-stamped per-table client config from the last {@code doRefresh}, or {@code null}
-   * when absent. Subclasses read it to gate read-time behavior.
-   */
+  /** Stamps last applied to {@code current()}, or {@code null}. */
   protected Map<String, String> currentConfig() {
     return config.get();
+  }
+
+  /**
+   * Marks this instance as backing a replace-table (RTAS) transaction, so the commit it receives is
+   * sent as a replace commit. Each transaction gets a fresh instance from {@link
+   * OpenHouseCatalog#newTableOps}, so the intent never leaks across transactions.
+   */
+  void markReplaceTransaction() {
+    replaceTransaction.set(true);
+  }
+
+  /** Whether the pending commit belongs to a replace-table (RTAS) transaction. */
+  @VisibleForTesting
+  boolean isReplaceTransaction() {
+    return replaceTransaction.get();
   }
 
   @Override
@@ -113,26 +144,55 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
                 WebClientRequestException.class,
                 e -> Mono.error(new WebClientRequestWithMessageException(e)))
             .blockOptional();
-    // Capture the server-stamped per-table config so subclasses can gate read-time behavior via
-    // currentConfig(); absent => null. Side-channel only: never sent back on writes.
-    this.config.set(tableResponse.map(GetTableResponseBody::getConfig).orElse(null));
     Optional<String> tableLocation = tableResponse.map(GetTableResponseBody::getTableLocation);
     if (!tableLocation.isPresent() && currentMetadataLocation() != null) {
       throw new NoSuchTableException(
           "Cannot find table %s after refresh, maybe another process deleted it", tableName());
     }
-    // Route the parse through loadMetadata() so subclasses can transform metadata as it loads;
-    // (null, 20) preserves the stock refresh behavior.
-    super.refreshFromMetadataLocation(tableLocation.orElse(null), null, 20, this::loadMetadata);
+    Map<String, String> fetched = tableResponse.map(GetTableResponseBody::getConfig).orElse(null);
+    AtomicBoolean loaded = new AtomicBoolean();
+    // Iceberg skips the loader when tableLocation is unchanged. UUID is checked after the loader
+    // returns; bind only if this call actually accepted a reload.
+    super.refreshFromMetadataLocation(
+        tableLocation.orElse(null),
+        null,
+        20,
+        location -> {
+          TableMetadata bridged = loadMetadata(location, fetched);
+          loaded.set(true);
+          return bridged;
+        });
+    if (loaded.get()) {
+      config.set(fetched);
+    }
     log.debug("Calling doRefresh succeeded");
   }
 
   /**
-   * Loads the table metadata at the given location. Defaults to the stock parser; subclasses may
-   * override to transform the metadata (e.g. attach column defaults) as it loads.
+   * Decode {@code fetched}, then read the metadata file, then overlay.
+   *
+   * <p>Decode first so a bad config never hits storage. {@link ReadBridgeException} is wrapped as
+   * {@link Tasks.UnrecoverableException} so Iceberg's retry loop does not re-read the file. The
+   * wrap includes {@link #tableName()} so a Spark job over many tables can tell which one failed.
    */
-  protected TableMetadata loadMetadata(String metadataLocation) {
-    return TableMetadataParser.read(io(), metadataLocation);
+  protected TableMetadata loadMetadata(String metadataLocation, Map<String, String> fetched) {
+    final ReadBridge bridge;
+    try {
+      bridge = ReadBridge.from(fetched);
+    } catch (ReadBridgeException e) {
+      throw unrecoverableBridge(e);
+    }
+    TableMetadata raw = TableMetadataParser.read(io(), metadataLocation);
+    try {
+      return bridge.apply(raw);
+    } catch (ReadBridgeException e) {
+      throw unrecoverableBridge(e);
+    }
+  }
+
+  private Tasks.UnrecoverableException unrecoverableBridge(ReadBridgeException e) {
+    return new Tasks.UnrecoverableException(
+        "read-bridge: unusable config for table " + tableName(), e);
   }
 
   @Override
@@ -140,10 +200,13 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     log.info("Calling doCommit for table: {}", tableName());
     boolean metadataUpdated = isMetadataUpdated(base, metadata);
     boolean snapshotsUpdated = areSnapshotsUpdated(base, metadata);
+    // The replace intent is plumbed down from OpenHouseCatalog, never inferred from the diff: an
+    // ordinary transaction that evolves metadata and appends a snapshot is indistinguishable from
+    // an RTAS at this point. A replace always replaces the table wholesale, even when only part of
+    // the metadata changed, so the flag alone decides the route.
+    boolean replaceCommit = isReplaceTransaction() && base != null;
     try {
-      if (metadataUpdated && snapshotsUpdated && base != null) {
-        // Only CTAS and RTAS can update both metadata and snapshots at the same time.
-        // When the table exists, it will be a replace commit operation.
+      if (replaceCommit) {
         putSnapshotsForReplace(base, metadata);
       } else if (snapshotsUpdated) {
         putSnapshots(base, metadata);
@@ -161,6 +224,11 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
       } else {
         throw e;
       }
+    }
+    // Cleared only once the commit lands: BaseTransaction retries doCommit on this same instance
+    // after a CommitFailedException, and every retry must still be sent as a replace.
+    if (replaceCommit) {
+      replaceTransaction.set(false);
     }
     log.debug("Calling doCommit succeeded");
   }
@@ -243,6 +311,11 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
       createUpdateTableRequestBody.setTableProperties(newTblProperties);
     }
     return createUpdateTableRequestBody;
+  }
+
+  @VisibleForTesting
+  void setCurrentConfig(Map<String, String> value) {
+    config.set(value);
   }
 
   /**
@@ -330,9 +403,34 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
         Gson gson = new GsonBuilder().setPrettyPrinting().create();
         return gson.fromJson(policiesString, Policies.class);
       } catch (JsonParseException e) {
+        Policies systemOnlyPolicies = toActiveSystemOnlyPoliciesObject(policiesString);
+        if (systemOnlyPolicies != null) {
+          return systemOnlyPolicies;
+        }
         throw new JsonParseException(
             "OpenHouse: Cannot convert policies string to policies object");
       }
+    }
+    return null;
+  }
+
+  /**
+   * Gson cannot bind the generated nullable lock reason; SYSTEM_ONLY writes still need policies.
+   */
+  private static Policies toActiveSystemOnlyPoliciesObject(String policiesString) {
+    ObjectMapper mapper = ApiClient.createDefaultObjectMapper(ApiClient.createDefaultDateFormat());
+    try {
+      JsonNode lockState = mapper.readTree(policiesString).path("lockState");
+      if (lockState.path("locked").booleanValue()
+          && LockState.ReasonEnum.SYSTEM_ONLY
+              .getValue()
+              .equals(lockState.path("reason").textValue())) {
+        log.debug("OpenHouse: Parsing policies with an active SYSTEM_ONLY lock");
+        return mapper.readValue(policiesString, Policies.class);
+      }
+    } catch (IOException e) {
+      // The caller still throws the existing parse failure.
+      log.warn("OpenHouse: Cannot parse policies string", e);
     }
     return null;
   }

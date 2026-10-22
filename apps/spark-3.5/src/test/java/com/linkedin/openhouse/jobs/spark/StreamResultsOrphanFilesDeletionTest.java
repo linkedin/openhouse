@@ -57,7 +57,7 @@ public class StreamResultsOrphanFilesDeletionTest extends OpenHouseSparkITest {
       }
       DeleteOrphanFiles.Result result =
           ops.deleteOrphanFiles(
-              table, System.currentTimeMillis(), false, BACKUP_DIR, 1, true, maxSampleSize);
+              table, System.currentTimeMillis(), BACKUP_DIR, 1, true, maxSampleSize);
       List<String> paths = Lists.newArrayList(result.orphanFileLocations().iterator());
       // Streaming mode caps returned paths at maxSampleSize
       Assertions.assertEquals(
@@ -86,7 +86,7 @@ public class StreamResultsOrphanFilesDeletionTest extends OpenHouseSparkITest {
       }
       DeleteOrphanFiles.Result result =
           ops.deleteOrphanFiles(
-              table, System.currentTimeMillis(), false, BACKUP_DIR, 1, false, maxSampleSize);
+              table, System.currentTimeMillis(), BACKUP_DIR, 1, false, maxSampleSize);
       List<String> paths = Lists.newArrayList(result.orphanFileLocations().iterator());
       // Non-streaming ignores maxSampleSize - returns all paths
       Assertions.assertEquals(
