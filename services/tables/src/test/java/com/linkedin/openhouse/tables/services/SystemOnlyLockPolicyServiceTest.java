@@ -68,8 +68,7 @@ class SystemOnlyLockPolicyServiceTest {
     ReadBridgeStripProtection protection = mock(ReadBridgeStripProtection.class);
     when(protection.prepare(any())).thenAnswer(invocation -> invocation.getArgument(0));
     // No table here opts into column defaults, so the gate admits every request.
-    ColumnDefaultClientGate gate =
-        new ColumnDefaultClientGate("", "", new CatalogRequestContext() {});
+    ColumnDefaultClientGate gate = new ColumnDefaultClientGate("", new CatalogRequestContext() {});
     tables = new TablesServiceImpl();
     tables.openHouseInternalRepository = repository;
     tables.tablesMapper = mapper;

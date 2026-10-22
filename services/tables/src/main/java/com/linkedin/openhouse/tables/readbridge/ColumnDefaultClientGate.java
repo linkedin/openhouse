@@ -19,8 +19,6 @@ public class ColumnDefaultClientGate {
   private final String minimum;
   /** Empty when no minimum is configured: then no client is admitted to opted-in tables. */
   private final Optional<int[]> minimumRelease;
-  /** Where rejected users learn about column defaults; empty leaves it out of messages. */
-  private final String helpUrl;
 
   private final CatalogRequestContext requestContext;
 
@@ -28,13 +26,10 @@ public class ColumnDefaultClientGate {
    * @param minimum oldest admitted {@code openhouse-java-client} release, such as {@code 4.2.150}.
    *     Empty admits no client: every request to an opted-in table fails as a server error unless
    *     it carries the column-default policy bypass. It does not turn the gate off.
-   * @param helpUrl page that explains column defaults, supported clients and the bypass, such as
-   *     {@code go/oh/column-defaults}. Empty leaves the link out of rejection messages.
    * @param requestContext the request's client name, User-Agent and column-default policy bypass
    * @throws IllegalArgumentException if {@code minimum} is set but is not a 3- or 4-part release
    */
-  public ColumnDefaultClientGate(
-      String minimum, String helpUrl, CatalogRequestContext requestContext) {
+  public ColumnDefaultClientGate(String minimum, CatalogRequestContext requestContext) {
     this.minimum = minimum;
     this.minimumRelease =
         minimum.isEmpty()
@@ -48,7 +43,6 @@ public class ColumnDefaultClientGate {
                                     + " a 3- or 4-part release such as 4.2.150, got '"
                                     + minimum
                                     + "'")));
-    this.helpUrl = helpUrl;
     this.requestContext = requestContext;
   }
 
@@ -111,19 +105,14 @@ public class ColumnDefaultClientGate {
         remedy());
   }
 
-  /**
-   * What to do when a client cannot use a table with column defaults: the supported clients, then
-   * the help link if one is configured.
-   */
+  /** What to do when a client cannot use a table with column defaults: the supported clients. */
   public String remedy() {
-    String supported =
-        minimumRelease.isPresent()
-            ? "Update the client, or use a supported client: spark with openhouse-java-client "
-                + minimum
-                + " or newer."
-            : "This server supports no client: it has no "
-                + "cluster.read-bridge.column-default.minimum-client-version configured.";
-    return helpUrl.isEmpty() ? supported : supported + " More information: " + helpUrl;
+    return minimumRelease.isPresent()
+        ? "Update the client, or use a supported client: spark with openhouse-java-client "
+            + minimum
+            + " or newer."
+        : "This server supports no client: it has no "
+            + "cluster.read-bridge.column-default.minimum-client-version configured.";
   }
 
   private void requireAdmittedClient(String databaseId, String tableId) {

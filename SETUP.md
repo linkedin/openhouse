@@ -429,9 +429,7 @@ version. New version stamping is not part of this gate.
 A rejection names the table, the client's `X-Client-Name` and User-Agent, and the supported client:
 `CLIENT_CAPABILITY_MISSING: db.tbl requires the column-defaults capability, which this client does
 not have (...). Update the client, or use a supported client: spark with openhouse-java-client
-4.2.150 or newer.` Set `cluster.read-bridge.column-default.help-url` to a page that explains column
-defaults, supported clients and the escape hatch below, and rejections end with
-`More information: <url>`. Unset, they carry no link. Rejections do not mention the escape hatch.
+4.2.150 or newer.` It does not mention the escape hatch.
 
 The default-off escape hatch is the request header
 `X-OpenHouse-Dangerously-Bypass-Column-Default-Policy: true`. A catalog sends it when configured with
