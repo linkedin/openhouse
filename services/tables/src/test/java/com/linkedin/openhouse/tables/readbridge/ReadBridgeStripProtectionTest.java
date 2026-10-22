@@ -39,7 +39,7 @@ public class ReadBridgeStripProtectionTest {
   private static final TableIdentifier TABLE = TableIdentifier.of("db", "tbl");
   private static final String REMEDY =
       "Update the client, or use a supported client: spark with openhouse-java-client 0.5.100 or"
-          + " newer. More information: go/oh/column-defaults";
+          + " newer.";
 
   private static final ColumnDefaultsSource FIELD_2 =
       tableDto -> Collections.singletonMap(2, TextNode.valueOf("US"));
@@ -456,7 +456,6 @@ public class ReadBridgeStripProtectionTest {
             prepared.getJsonSnapshots() != null),
         new ColumnDefaultClientGate(
             "0.5.100",
-            "go/oh/column-defaults",
             new CatalogRequestContext() {
               @Override
               public Optional<String> clientName() {

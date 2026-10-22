@@ -172,7 +172,7 @@ public class ColumnDefaultCommitPolicyTest {
       CatalogRequestContext requestContext, ColumnDefaultsSource source) {
     return new ColumnDefaultCommitPolicy(
         requestContext,
-        new ColumnDefaultClientGate("0.5.100", "", requestContext),
+        new ColumnDefaultClientGate("0.5.100", requestContext),
         new ReadBridgeStripProtection(new ReadBridgeConfigResolver(source)));
   }
 
