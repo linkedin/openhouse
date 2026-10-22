@@ -153,7 +153,8 @@ public class TablesServiceImpl implements TablesService {
       authorizationUtils.checkDatabasePrivilege(
           databaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
     }
-    columnDefaultClientGate.checkWrite(tableDto, createUpdateTableRequestBody.getTableProperties());
+    columnDefaultClientGate.checkWrite(
+        databaseId, tableId, tableDto, createUpdateTableRequestBody.getTableProperties());
 
     // FIXME: save method redundantly issue existence check after findById is called above
     TableDto tableDtoToSave =
