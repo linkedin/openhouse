@@ -12,7 +12,7 @@ import com.linkedin.openhouse.tables.config.TablesMvcConstants;
  * schema and snapshots against the table's current version.
  *
  * <ol>
- *   <li>A committed {@code read-bridge.column-default.enabled=true} cannot be changed or removed.
+ *   <li>A committed {@code required-capability.column-defaults=true} cannot be changed or removed.
  *   <li>Every commit, renames included, must pass {@link ReadBridgeStripProtection#enforce}. Type 2
  *       counts the commit's client as default-aware when {@link ColumnDefaultClientGate} admits the
  *       request, so a snapshot commit outside a request cannot touch a table with column defaults.
@@ -25,7 +25,7 @@ import com.linkedin.openhouse.tables.config.TablesMvcConstants;
  */
 public class ColumnDefaultCommitPolicy implements PreCommitCheck {
 
-  private static final String ENABLED = ReadBridgeConfigResolver.COLUMN_DEFAULT_ENABLED_PROP;
+  private static final String PROPERTY = ReadBridgeConfigResolver.COLUMN_DEFAULTS_CAPABILITY_PROP;
 
   private final CatalogRequestContext requestContext;
 
@@ -64,21 +64,21 @@ public class ColumnDefaultCommitPolicy implements PreCommitCheck {
   }
 
   /**
-   * Keeps {@link ReadBridgeConfigResolver#COLUMN_DEFAULT_ENABLED_PROP} once committed as {@code
+   * Keeps {@link ReadBridgeConfigResolver#COLUMN_DEFAULTS_CAPABILITY_PROP} once committed as {@code
    * true}: it cannot be changed or removed. {@code false}, an invalid value and an absent property
    * remain mutable so a table can still opt in later. Comparing with the commit's base keeps
    * transaction retries from overwriting a value committed concurrently.
    */
   private static void keepOptIn(PreCommitContext commit) {
-    String committed = commit.getBase().map(base -> base.properties().get(ENABLED)).orElse(null);
+    String committed = commit.getBase().map(base -> base.properties().get(PROPERTY)).orElse(null);
     if (committed != null
         && "true".equalsIgnoreCase(committed.trim())
-        && !committed.equals(commit.getProperties().get(ENABLED))) {
+        && !committed.equals(commit.getProperties().get(PROPERTY))) {
       throw new ColumnDefaultOptInLockedException(
           String.format(
               "Table property %s is immutable once set to true on table %s; cannot change or"
                   + " remove it without the column-default policy override.",
-              ENABLED, commit.getTableIdentifier()));
+              PROPERTY, commit.getTableIdentifier()));
     }
   }
 }

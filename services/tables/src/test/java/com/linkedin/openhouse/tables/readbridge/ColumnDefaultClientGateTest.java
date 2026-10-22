@@ -14,7 +14,7 @@ public class ColumnDefaultClientGateTest {
       TableDto.builder()
           .tableProperties(
               Collections.singletonMap(
-                  ReadBridgeConfigResolver.COLUMN_DEFAULT_ENABLED_PROP, "true"))
+                  ReadBridgeConfigResolver.COLUMN_DEFAULTS_CAPABILITY_PROP, "true"))
           .build();
 
   /** A hotfix such as {@code 4.1.324.0} is newer than the release {@code 4.1.324} it patches. */

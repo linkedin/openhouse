@@ -15,18 +15,20 @@ import java.util.Objects;
  * opt-in, keys); deployments supply data via {@link ColumnDefaultsSource}.
  *
  * <p>Column defaults apply only to a table that carries {@code
- * read-bridge.column-default.enabled=true}. Turning them on is therefore a table commit like any
+ * required-capability.column-defaults=true}. Turning them on is therefore a table commit like any
  * other: a writer that loaded the table earlier conflicts on its next commit and reloads the table,
  * defaults included.
  */
 public class ReadBridgeConfigResolver {
 
   /**
-   * Table property: {@code true} turns column defaults on for the table; any other value, or none,
-   * leaves them off. {@link ColumnDefaultCommitPolicy} keeps a committed {@code true} from being
+   * Table property: {@code true} declares that the table requires the column-defaults capability,
+   * so only clients that apply column defaults may use it; any other value, or none, leaves column
+   * defaults off. {@link ColumnDefaultCommitPolicy} keeps a committed {@code true} from being
    * changed or removed unless the request carries the column-default policy bypass.
    */
-  public static final String COLUMN_DEFAULT_ENABLED_PROP = "read-bridge.column-default.enabled";
+  public static final String COLUMN_DEFAULTS_CAPABILITY_PROP =
+      "required-capability.column-defaults";
 
   /** Client contract: {@code openhouse.read-bridge.column-default.<fieldId>}. */
   public static final String COLUMN_DEFAULT_PREFIX = "openhouse.read-bridge.column-default.";
@@ -76,12 +78,12 @@ public class ReadBridgeConfigResolver {
 
   /**
    * Whether read-bridge applies to a table with these properties: it carries {@code
-   * read-bridge.column-default.enabled=true}, which may be set at creation or on an existing table.
-   * A committed {@code true} is immutable unless the client sends the column-default policy bypass;
-   * {@code false}, an absent property and any other value mean off.
+   * required-capability.column-defaults=true}, which may be set at creation or on an existing
+   * table. A committed {@code true} is immutable unless the client sends the column-default policy
+   * bypass; {@code false}, an absent property and any other value mean off.
    */
   public boolean isBridged(Map<String, String> tableProperties) {
-    String value = tableProperties.get(COLUMN_DEFAULT_ENABLED_PROP);
+    String value = tableProperties.get(COLUMN_DEFAULTS_CAPABILITY_PROP);
     return value != null && "true".equalsIgnoreCase(value.trim());
   }
 

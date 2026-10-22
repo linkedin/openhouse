@@ -31,7 +31,8 @@ public class ReadBridgeStripProtectionTest {
   private static final String SCHEMA_UNSTAMPED_WRITER_DEFAULTS =
       schema("schema_unstamped_writer_defaults.json");
 
-  private static final String ENABLED_PROP = ReadBridgeConfigResolver.COLUMN_DEFAULT_ENABLED_PROP;
+  private static final String ENABLED_PROP =
+      ReadBridgeConfigResolver.COLUMN_DEFAULTS_CAPABILITY_PROP;
   private static final String METADATA_LOCATION =
       "file:/data/openhouse/db/tbl-uuid/00001-x.metadata.json";
   private static final TableIdentifier TABLE = TableIdentifier.of("db", "tbl");

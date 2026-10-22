@@ -24,7 +24,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 public class ColumnDefaultSparkITest extends OpenHouseSparkITest {
 
   private static final String DATABASE = SparkItestColumnDefaults.DATABASE;
-  private static final String ENABLED_PROP = "read-bridge.column-default.enabled";
+  private static final String CAPABILITY_PROP = "required-capability.column-defaults";
 
   @Test
   public void readBridgeOverlaysInitialDefaultAfterSparkAddColumn() throws Exception {
@@ -35,7 +35,7 @@ public class ColumnDefaultSparkITest extends OpenHouseSparkITest {
           "CREATE TABLE "
               + fqtn
               + " (id bigint, name string) USING iceberg TBLPROPERTIES ('"
-              + ENABLED_PROP
+              + CAPABILITY_PROP
               + "'='true')");
       spark.sql("INSERT INTO " + fqtn + " VALUES (1, 'Alice')");
       spark.sql("ALTER TABLE " + fqtn + " ADD COLUMN country string");
@@ -45,7 +45,7 @@ public class ColumnDefaultSparkITest extends OpenHouseSparkITest {
       Table table = Spark3Util.loadIcebergTable(spark, fqtn);
       assertEquals(
           "true",
-          table.properties().get(ENABLED_PROP),
+          table.properties().get(CAPABILITY_PROP),
           "opt-in property missing; props=" + table.properties());
       assertEquals(
           "US",
@@ -77,7 +77,7 @@ public class ColumnDefaultSparkITest extends OpenHouseSparkITest {
               "CREATE TABLE %s (id bigint, tags array<struct<a:int>>,"
                   + " attrs map<string, struct<a:int>>) USING iceberg TBLPROPERTIES ("
                   + "'write.format.default'='orc', 'read.orc.vectorization.enabled'='%b', '%s'='true')",
-              fqtn, vectorized, ENABLED_PROP));
+              fqtn, vectorized, CAPABILITY_PROP));
       spark.sql(
           "INSERT INTO "
               + fqtn
@@ -127,7 +127,7 @@ public class ColumnDefaultSparkITest extends OpenHouseSparkITest {
           String.format(
               "CREATE TABLE %s (id bigint, name string) USING iceberg TBLPROPERTIES ("
                   + "'write.format.default'='%s', '%s'='%b', '%s'='true')",
-              fqtn, fileFormat, vectorizationProp, vectorized, ENABLED_PROP));
+              fqtn, fileFormat, vectorizationProp, vectorized, CAPABILITY_PROP));
       spark.sql("INSERT INTO " + fqtn + " VALUES (1, 'Alice')");
       spark.sql("ALTER TABLE " + fqtn + " ADD COLUMN country string");
       spark.sql("ALTER TABLE " + fqtn + " ADD COLUMN tier int");

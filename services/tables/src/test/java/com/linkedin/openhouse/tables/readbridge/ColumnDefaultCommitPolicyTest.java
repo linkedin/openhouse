@@ -23,7 +23,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 
 public class ColumnDefaultCommitPolicyTest {
 
-  private static final String ENABLED = ReadBridgeConfigResolver.COLUMN_DEFAULT_ENABLED_PROP;
+  private static final String ENABLED = ReadBridgeConfigResolver.COLUMN_DEFAULTS_CAPABILITY_PROP;
   private static final TableIdentifier TABLE = TableIdentifier.of("db", "tbl");
   private static final Schema SCHEMA =
       new Schema(
