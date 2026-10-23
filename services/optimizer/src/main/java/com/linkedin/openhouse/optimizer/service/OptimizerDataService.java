@@ -40,7 +40,8 @@ public interface OptimizerDataService {
    * {@code status}, and saves it. Returns the history record, or empty if the operation does not
    * exist.
    */
-  Optional<TableOperationsHistoryDto> updateOperation(String operationId, HistoryStatusDto status);
+  Optional<TableOperationsHistoryDto> updateOperation(
+      String operationId, HistoryStatusDto status, String failureReason);
 
   /**
    * Return the operation row for {@code id} regardless of status, or empty if it does not exist.

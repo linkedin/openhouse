@@ -57,6 +57,9 @@ CREATE TABLE IF NOT EXISTS table_operations_history (
   operation_type VARCHAR(50)   NOT NULL,
   completed_at   TIMESTAMP(6)  NOT NULL,
   status         VARCHAR(20)   NOT NULL,
+  -- Why a FAILED run failed (exception class + message, or a classified category); NULL for
+  -- SUCCESS. Populated from the executor's update call so failures are diagnosable without logs.
+  failure_reason VARCHAR(1024),
   PRIMARY KEY (id),
   INDEX idx_toph_db_table (database_name, table_name),
   -- Commit-driven analyzer (loadLatestHistoryForTable): filter by table_uuid, ordered by
