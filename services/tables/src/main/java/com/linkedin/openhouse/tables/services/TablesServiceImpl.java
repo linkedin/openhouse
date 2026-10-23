@@ -14,6 +14,7 @@ import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.SearchTablesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
@@ -31,14 +32,19 @@ import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.util.Pair;
 import org.springframework.stereotype.Component;
@@ -116,6 +122,39 @@ public class TablesServiceImpl implements TablesService {
     }
     Pageable pageable = createPageable(page, size, sortBy, null);
     return openHouseInternalRepository.searchTables(databaseId, pageable, fields);
+  }
+
+  @Override
+  public Page<TableDto> searchTables(
+      String databaseId,
+      SearchTablesRequestBody searchTablesRequestBody,
+      int page,
+      int size,
+      String sortBy,
+      List<String> fields,
+      String actingPrincipal) {
+    String tableId = searchTablesRequestBody == null ? null : searchTablesRequestBody.getTableId();
+    if (StringUtils.isEmpty(tableId)) {
+      return searchTables(databaseId, page, size, sortBy, fields, actingPrincipal);
+    }
+    if (fields != null && !fields.isEmpty()) {
+      authorizationUtils.checkDatabasePrivilege(
+          databaseId, actingPrincipal, Privileges.GET_TABLE_METADATA);
+    }
+    Pageable pageable = createPageable(page, size, sortBy, null);
+    /* A named table resolves to at most one row, so this reads that row directly instead of
+     * listing the database and discarding everything else. */
+    Set<String> fieldSet = fields == null ? Collections.emptySet() : new HashSet<>(fields);
+    List<TableDto> matches =
+        openHouseInternalRepository
+            .findTableRefById(
+                TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build())
+            .map(tableDto -> tablesMapper.toTableDto(tableDto, fieldSet))
+            .map(Collections::singletonList)
+            .orElse(Collections.emptyList());
+    // Any page past the first is empty, while the total still reports the single match.
+    List<TableDto> content = pageable.getOffset() == 0 ? matches : Collections.emptyList();
+    return new PageImpl<>(content, pageable, matches.size());
   }
 
   @WithSpan("TablesService.putTable")
