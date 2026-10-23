@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.optimizer.analyzer;
 
+import com.linkedin.openhouse.optimizer.model.HistoryStatusDto;
+import com.linkedin.openhouse.optimizer.model.OperationStatusDto;
 import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import com.linkedin.openhouse.optimizer.model.TableDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationDto;
@@ -7,6 +9,7 @@ import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsHistoryRepository;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -14,6 +17,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +38,13 @@ import org.springframework.transaction.annotation.Transactional;
 @Component
 @RequiredArgsConstructor
 public class AnalyzerRunner {
+
+  /**
+   * How many recent history rows the circuit breaker inspects to measure a consecutive-failure
+   * streak. The streak only drives exponential backoff, which is capped, so looking further back
+   * than this cannot change the decision.
+   */
+  private static final int FAILURE_STREAK_WINDOW = 10;
 
   private final List<OperationAnalyzer> analyzers;
   private final TableStatsRepository statsRepo;
@@ -251,10 +262,71 @@ public class AnalyzerRunner {
       TableDto table,
       Optional<TableOperationDto> currentOp,
       Optional<TableOperationsHistoryDto> latestHistory) {
-    if (!analyzer.isEnabled(table) || !analyzer.shouldSchedule(table, currentOp, latestHistory)) {
+    if (!analyzer.isEnabled(table)) {
       return false;
     }
+    int consecutiveFailures =
+        countConsecutiveNonSuccess(table, analyzer.getOperationType(), latestHistory);
+    if (!analyzer.shouldSchedule(table, currentOp, latestHistory, consecutiveFailures)) {
+      return false;
+    }
+    recordAbandonedIfStaleSubmission(currentOp);
     return createPending(analyzer, table);
+  }
+
+  /**
+   * When the analyzer supersedes a still-SCHEDULED operation — a job that was submitted (it carries
+   * a {@code jobId}) but never reported a terminal result and has now passed the stale-timeout, so
+   * {@code shouldSchedule} let us through — record a {@link HistoryStatusDto#TIMED_OUT} history row
+   * for it. Without this the silent death is invisible to the circuit breaker, which would
+   * otherwise only count explicitly FAILED jobs. The row is keyed by the operation id (shared with
+   * the callback path), so a late success/failure still overwrites it and a repeated pass never
+   * double-counts.
+   */
+  private void recordAbandonedIfStaleSubmission(Optional<TableOperationDto> currentOp) {
+    currentOp
+        .filter(op -> op.getStatus() == OperationStatusDto.SCHEDULED)
+        .filter(op -> !historyRepo.existsById(op.getId()))
+        .ifPresent(
+            op ->
+                historyRepo.save(
+                    TableOperationsHistoryDto.builder()
+                        .id(op.getId())
+                        .tableUuid(op.getTableUuid())
+                        .databaseName(op.getDatabaseName())
+                        .tableName(op.getTableName())
+                        .operationType(op.getOperationType())
+                        .completedAt(Instant.now())
+                        .status(HistoryStatusDto.TIMED_OUT)
+                        .build()
+                        .toRow()));
+  }
+
+  /**
+   * Count the table's current consecutive non-SUCCESS streak for {@code operationType} (newest
+   * history first, stopping at the first SUCCESS). A non-SUCCESS entry is any submitted job that
+   * did not reach SUCCESS — an explicit {@link HistoryStatusDto#FAILED} result or a {@link
+   * HistoryStatusDto#TIMED_OUT} (a submitted job that never reported back). Only queries when the
+   * latest run was non-SUCCESS, so healthy tables incur no extra read; the window caps how far back
+   * the breaker looks, which is enough because the backoff interval is already capped beyond it.
+   */
+  private int countConsecutiveNonSuccess(
+      TableDto table,
+      OperationTypeDto operationType,
+      Optional<TableOperationsHistoryDto> latestHistory) {
+    if (!latestHistory.isPresent() || latestHistory.get().getStatus() == HistoryStatusDto.SUCCESS) {
+      return 0;
+    }
+    return (int)
+        historyRepo
+            .findRecent(
+                table.getTableUuid(),
+                operationType.toDb(),
+                PageRequest.of(0, FAILURE_STREAK_WINDOW))
+            .stream()
+            .map(TableOperationsHistoryDto::fromRow)
+            .takeWhile(entry -> entry.getStatus() != HistoryStatusDto.SUCCESS)
+            .count();
   }
 
   /**
