@@ -174,14 +174,14 @@ public class ViewsServiceImpl implements ViewsService {
           failOnExist ? privilegeMapper.forCreate() : privilegeMapper.forPut(viewAlreadyExists);
       authorizationUtils.checkDatabasePrivilege(databaseId, actingPrincipal, privilege);
 
+      if (failOnExist && viewAlreadyExists) {
+        throw new ViewApiException(
+            ViewErrorCode.VIEW_ALREADY_EXISTS, "View already exists: " + databaseId + "." + viewId);
+      }
       if (occupant.filter(row -> !ENTITY_TYPE_VIEW.equals(row.getEntityType())).isPresent()) {
         throw new ViewApiException(
             ViewErrorCode.NAME_ALREADY_EXISTS_AS_TABLE,
             "Name already exists as a table: " + databaseId + "." + viewId);
-      }
-      if (failOnExist && viewAlreadyExists) {
-        throw new ViewApiException(
-            ViewErrorCode.VIEW_ALREADY_EXISTS, "View already exists: " + databaseId + "." + viewId);
       }
 
       if (!failOnExist) {
