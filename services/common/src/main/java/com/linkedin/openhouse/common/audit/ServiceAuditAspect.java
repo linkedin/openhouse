@@ -107,7 +107,10 @@ public class ServiceAuditAspect {
    * @return Result of the exception handler method
    * @throws Throwable Any exception during execution of the exception handler method
    */
-  @Around("execution(* com.linkedin.openhouse.common.exception.handler.*.*(..))")
+  @Around(
+      "execution(* com.linkedin.openhouse.common.exception.handler.*.*(..)) "
+          + "|| (execution(* com.linkedin.openhouse.tables.exception.ViewExceptionHandler*.*(..)) "
+          + "&& @annotation(org.springframework.web.bind.annotation.ExceptionHandler))")
   protected Object auditFailedRequests(ProceedingJoinPoint point) throws Throwable {
     Object result = null;
     try {

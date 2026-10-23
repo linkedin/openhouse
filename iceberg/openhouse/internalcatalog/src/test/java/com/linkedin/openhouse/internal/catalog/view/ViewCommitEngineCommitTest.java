@@ -154,6 +154,7 @@ public class ViewCommitEngineCommitTest {
 
     Assertions.assertTrue(result.isCreated());
     Assertions.assertTrue(result.isMetadataChanged());
+    Assertions.assertEquals(ViewTestFixtures.CREATOR, result.getViewCreator());
     Assertions.assertEquals(1, harness.getHouseTableRepository().getSaveViewCalls());
     Assertions.assertEquals(
         0,
@@ -554,6 +555,7 @@ public class ViewCommitEngineCommitTest {
         created.getPointer().getMetadataLocation(), replayed.getPointer().getMetadataLocation());
     Assertions.assertEquals(created.getViewUuid(), replayed.getViewUuid());
     Assertions.assertEquals(created.getLastModifiedTime(), replayed.getLastModifiedTime());
+    Assertions.assertEquals(ViewTestFixtures.CREATOR, replayed.getViewCreator());
     Assertions.assertEquals(filesAfterCreate, harness.metadataFiles().size());
     Assertions.assertEquals(savesAfterCreate, harness.getHouseTableRepository().getSaveViewCalls());
     Assertions.assertEquals(
@@ -944,8 +946,8 @@ public class ViewCommitEngineCommitTest {
 
   /**
    * Equality is exact and case-sensitive, and the guard runs before no-op detection, candidate
-   * build, write, and CAS. The representation set stays valid and unique in every source-only case,
-   * so no other BadRequestException can satisfy the pinned message.
+   * build, write, and CAS. The typed failure distinguishes this caller error from invalid
+   * server-owned prepared inputs.
    */
   @ParameterizedTest(name = "{0}")
   @MethodSource("sourceDialectChangingReplacements")
@@ -961,9 +963,10 @@ public class ViewCommitEngineCommitTest {
             .build();
     RejectedReplaceBaseline baseline = captureRejectedReplaceBaseline();
 
-    BadRequestException thrown =
+    ViewSourceDialectMismatchException thrown =
         Assertions.assertThrows(
-            BadRequestException.class, () -> harness.getViewCommitEngine().commit(intent));
+            ViewSourceDialectMismatchException.class,
+            () -> harness.getViewCommitEngine().commit(intent));
 
     Assertions.assertEquals(SOURCE_MISMATCH_MESSAGE, thrown.getMessage(), caseName);
     assertRejectedReplaceOnlyReadTheCapturedFile(base, baseline);
@@ -2361,6 +2364,7 @@ public class ViewCommitEngineCommitTest {
         ViewTestFixtures.CREATOR,
         replacedMetadata.properties().get(getCanonicalFieldName("tableCreator")),
         "the original creator is preserved, not the differing incoming creator");
+    Assertions.assertEquals(ViewTestFixtures.CREATOR, replaced.getViewCreator());
   }
 
   // ---- Snapshot no-op against moved / deleted / recreated state ----

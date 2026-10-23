@@ -122,3 +122,8 @@ dependencies {
     exclude group: 'com.linkedin.iceberg'
   }
 }
+
+tasks.named('test') {
+  // Bound retained Spring contexts so the full service suite fits the test worker's default heap.
+  systemProperty 'spring.test.context.cache.maxSize', '8'
+}

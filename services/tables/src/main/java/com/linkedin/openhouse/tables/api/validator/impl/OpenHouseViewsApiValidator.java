@@ -59,6 +59,10 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
    */
   private static final String POLICIES_PROPERTY_KEY = "policies";
 
+  /** Iceberg-required view property exclusively set by the server to prevent dropping dialects. */
+  private static final String REPLACE_DROP_DIALECT_ALLOWED_PROPERTY_KEY =
+      "replace.drop-dialect.allowed";
+
   @Autowired private Validator validator;
 
   @Autowired private ClusterProperties clusterProperties;
@@ -376,10 +380,11 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
   }
 
   /**
-   * View properties are user-owned, with two exceptions carved out for the server: the {@code
+   * View properties are user-owned, with exceptions carved out for the server: the {@code
    * openhouse.} namespace, whose canonical case-sensitive predicate is reused from the internal
-   * catalog, and the exact key {@code policies}. Case sensitivity is deliberate and inherited: a
-   * user property such as {@code OpenHouse.myTeam} stays legal.
+   * catalog, and the exact keys {@code policies} and {@code replace.drop-dialect.allowed}. Case
+   * sensitivity is deliberate and inherited: a user property such as {@code OpenHouse.myTeam} stays
+   * legal.
    *
    * <p>The single writable key inside the reserved namespace is {@link
    * ReservedViewProperties#SOURCE_DIALECT}: a client may set it once at create so the authoring
@@ -411,7 +416,8 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
       }
       if ((HouseTableSerdeUtils.IS_OH_PREFIXED.test(key)
               && !ReservedViewProperties.isWritableAtCreate(key))
-          || POLICIES_PROPERTY_KEY.equals(key)) {
+          || POLICIES_PROPERTY_KEY.equals(key)
+          || REPLACE_DROP_DIALECT_ALLOWED_PROPERTY_KEY.equals(key)) {
         reservedKeys.add(key);
       }
     }
