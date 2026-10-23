@@ -8,6 +8,7 @@ import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorage;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
+import com.linkedin.openhouse.common.exception.CommitRejectedException;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
@@ -33,6 +34,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -76,6 +78,8 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
@@ -159,11 +163,158 @@ public class OpenHouseInternalTableOperationsTest {
             metricsReporter,
             fileIOManager,
             tableMetadataCache,
-            mockPostCommitOperationRunner);
+            mockPostCommitOperationRunner,
+            null);
 
     LocalStorage localStorage = mock(LocalStorage.class);
     when(fileIOManager.getStorage(fileIO)).thenReturn(localStorage);
     when(localStorage.getType()).thenReturn(StorageType.LOCAL);
+  }
+
+  /**
+   * Pre-commit checks judge only commits built on the table's current version: a snapshot commit
+   * built on an older version gets the retryable conflict from the stale-base check first.
+   */
+  @Test
+  void testPreCommitChecksNeverJudgeAStaleSnapshotCommit() throws IOException {
+    java.nio.file.Path persisted =
+        Files.createTempDirectory("oh-commit-policy").resolve("00002-current.metadata.json");
+    Files.write(persisted, TableMetadataParser.toJson(BASE_TABLE_METADATA).getBytes());
+    TableMetadata base =
+        TableMetadataParser.read(new HadoopFileIO(new Configuration()), persisted.toString());
+    Map<String, String> properties = new HashMap<>(base.properties());
+    properties.put(
+        CatalogConstants.SNAPSHOTS_JSON_KEY,
+        SnapshotsUtil.serializedSnapshots(IcebergTestUtil.getSnapshots()));
+    properties.put(CatalogConstants.COMMIT_KEY, "/test_db/test_table/00001-older.metadata.json");
+    AtomicReference<PendingCommit> judged = new AtomicReference<>();
+    openHouseInternalTableOperations.preCommitCheckRunner = runnerOf(judged::set);
+
+    try (MockedStatic<TableMetadataParser> metadataFiles = mockStatic(TableMetadataParser.class)) {
+      Assertions.assertThrows(
+          CommitFailedException.class,
+          () ->
+              openHouseInternalTableOperations.doCommit(base, base.replaceProperties(properties)));
+    }
+    Assertions.assertNull(judged.get());
+  }
+
+  /**
+   * A rejection fails the commit with the check's error, unchanged and before anything is written:
+   * not as a bad request, and not as a commit failure after a commit-status check. It still counts
+   * as a failed commit.
+   */
+  @Test
+  void testPreCommitRejectionPassesThroughUnchanged() {
+    CommitRejectedException error = new CommitRejectedException("check rejected");
+    openHouseInternalTableOperationsWithMockMetrics.preCommitCheckRunner =
+        runnerOf(
+            context -> {
+              throw error;
+            });
+
+    try (MockedStatic<TableMetadataParser> metadataFiles = mockStatic(TableMetadataParser.class)) {
+      Assertions.assertSame(
+          error,
+          Assertions.assertThrows(
+              CommitRejectedException.class,
+              () ->
+                  openHouseInternalTableOperationsWithMockMetrics.doCommit(
+                      BASE_TABLE_METADATA, BASE_TABLE_METADATA)));
+      metadataFiles.verify(() -> TableMetadataParser.write(any(), any()), never());
+      verifyNoInteractions(mockHouseTableRepository);
+    }
+    verify(mockMetricsReporter).count(InternalCatalogMetricsConstant.COMMIT_FAILED_CTR);
+  }
+
+  enum CommitKind {
+    SNAPSHOTS,
+    REPLACE,
+    PROPERTIES
+  }
+
+  /** Pre-commit checks see whether the commit puts snapshots or replaces the table. */
+  @ParameterizedTest
+  @EnumSource(CommitKind.class)
+  void testPreCommitChecksSeeWhetherTheCommitPutsSnapshots(CommitKind kind) throws IOException {
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    if (kind == CommitKind.SNAPSHOTS) {
+      List<Snapshot> snapshots = IcebergTestUtil.getSnapshots();
+      properties.put(
+          CatalogConstants.SNAPSHOTS_JSON_KEY, SnapshotsUtil.serializedSnapshots(snapshots));
+      properties.put(
+          CatalogConstants.SNAPSHOTS_REFS_KEY,
+          SnapshotsUtil.serializeMap(
+              IcebergTestUtil.createMainBranchRefPointingTo(snapshots.get(snapshots.size() - 1))));
+    } else if (kind == CommitKind.REPLACE) {
+      properties.put(CatalogConstants.IS_REPLACE_COMMIT_KEY, "true");
+    }
+
+    Assertions.assertEquals(
+        kind != CommitKind.PROPERTIES, commitJudgedByChecks(properties).isSnapshotCommit());
+  }
+
+  /**
+   * Pre-commit checks see the properties the commit leaves, after transient overrides are restored.
+   */
+  @Test
+  void testPreCommitChecksSeeRestoredProperties() {
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    properties.put("owner", "overridden");
+    properties.put(CatalogConstants.TRANSIENT_RESTORE_PREFIX + "owner", "original");
+    properties.put("added", "temporarily");
+    properties.put(CatalogConstants.TRANSIENT_ADDED_PREFIX + "added", "true");
+
+    Map<String, String> judged = commitJudgedByChecks(properties).getProperties();
+    Assertions.assertEquals("original", judged.get("owner"));
+    Assertions.assertFalse(judged.containsKey("added"));
+  }
+
+  /** The replace marker pre-commit checks see is never persisted. */
+  @Test
+  void testReplaceMarkerIsNotPersisted() {
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    properties.put(CatalogConstants.IS_REPLACE_COMMIT_KEY, "true");
+
+    commitJudgedByChecks(properties);
+    Assertions.assertFalse(
+        tblMetadataCaptor
+            .getValue()
+            .properties()
+            .containsKey(CatalogConstants.IS_REPLACE_COMMIT_KEY));
+  }
+
+  /**
+   * Commits {@code properties} on top of {@link #BASE_TABLE_METADATA} and returns the commit the
+   * pre-commit checks judged. The persisted metadata is left in {@code tblMetadataCaptor}.
+   */
+  private PendingCommit commitJudgedByChecks(Map<String, String> properties) {
+    AtomicReference<PendingCommit> judged = new AtomicReference<>();
+    openHouseInternalTableOperations.preCommitCheckRunner = runnerOf(judged::set);
+    try (MockedStatic<TableMetadataParser> metadataFiles = mockStatic(TableMetadataParser.class)) {
+      openHouseInternalTableOperations.doCommit(
+          BASE_TABLE_METADATA, BASE_TABLE_METADATA.replaceProperties(properties));
+      verify(mockHouseTableMapper).toHouseTable(tblMetadataCaptor.capture(), any());
+    }
+    return judged.get();
+  }
+
+  /** A runner with one check that does {@code check}. */
+  private static PreCommitCheckRunner runnerOf(Consumer<PendingCommit> check) {
+    return new PreCommitCheckRunner(
+        Collections.singletonList(
+            new PreCommitCheck() {
+              @Override
+              public String getName() {
+                return "test";
+              }
+
+              @Override
+              public void check(PendingCommit commit) {
+                check.accept(commit);
+              }
+            }),
+        new SimpleMeterRegistry());
   }
 
   /**
