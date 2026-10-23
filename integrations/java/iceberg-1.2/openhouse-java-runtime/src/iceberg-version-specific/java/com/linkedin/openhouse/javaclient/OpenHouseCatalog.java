@@ -7,6 +7,8 @@ import static com.linkedin.openhouse.javaclient.OpenHouseTableOperations.*;
 import com.linkedin.openhouse.client.ssl.HttpConnectionStrategy;
 import com.linkedin.openhouse.client.ssl.TablesApiClientFactory;
 import com.linkedin.openhouse.javaclient.api.SupportsGrantRevoke;
+import com.linkedin.openhouse.javaclient.api.SupportsUnlock;
+import com.linkedin.openhouse.javaclient.api.UnlockTableTarget;
 import com.linkedin.openhouse.javaclient.builder.ClusteringSpecBuilder;
 import com.linkedin.openhouse.javaclient.builder.TimePartitionSpecBuilder;
 import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageException;
@@ -17,6 +19,7 @@ import com.linkedin.openhouse.tables.client.api.DatabaseApi;
 import com.linkedin.openhouse.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
 import com.linkedin.openhouse.tables.client.invoker.ApiClient;
+import com.linkedin.openhouse.tables.client.model.CreateUpdateLockRequestBody.ReasonEnum;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.client.model.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllDatabasesResponseBody;
@@ -73,7 +76,7 @@ import reactor.core.publisher.Mono;
  */
 @Slf4j
 public class OpenHouseCatalog extends BaseMetastoreCatalog
-    implements Configurable, SupportsNamespaces, SupportsGrantRevoke {
+    implements Configurable, SupportsNamespaces, SupportsGrantRevoke, SupportsUnlock {
 
   private TableApi tableApi;
 
@@ -214,6 +217,29 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
             .block();
     log.debug("Calling listTables succeeded");
     return tables;
+  }
+
+  /**
+   * Checks existence without loading table metadata, even if the table is locked or its metadata is
+   * unreadable. Metadata-table identifiers retain Iceberg's load-based existence check.
+   */
+  @Override
+  public boolean tableExists(TableIdentifier identifier) {
+    log.info("Calling tableExists with identifier: {}", identifier);
+    if (!isValidIdentifier(identifier)) {
+      return super.tableExists(identifier);
+    }
+    return tableApi
+        .tableExistsV1(identifier.namespace().toString(), identifier.name())
+        .thenReturn(true)
+        .onErrorResume(WebClientResponseException.NotFound.class, e -> Mono.just(false))
+        .onErrorResume(
+            WebClientResponseException.class,
+            e -> Mono.error(new WebClientResponseWithMessageException(e)))
+        .onErrorResume(
+            WebClientRequestException.class,
+            e -> Mono.error(new WebClientRequestWithMessageException(e)))
+        .block();
   }
 
   @Override
@@ -536,6 +562,24 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
     log.debug("Calling getDatabaseAclPolicies succeeded");
     return aclPolicies;
+  }
+
+  @Override
+  public void unlockTable(UnlockTableTarget target, ReasonEnum reason) {
+    log.debug("Calling unlockTable with identifier: {}, reason: {}", target, reason);
+    String databaseId = target.getDatabaseId();
+    String tableId = target.getTableId();
+    (reason == ReasonEnum.LEGACY
+            ? tableApi.deleteLockV1(databaseId, tableId)
+            : tableApi.deleteLockByReasonV1(databaseId, tableId, reason.getValue()))
+        .onErrorResume(
+            WebClientResponseException.class,
+            e -> Mono.error(new WebClientResponseWithMessageException(e)))
+        .onErrorResume(
+            WebClientRequestException.class,
+            e -> Mono.error(new WebClientRequestWithMessageException(e)))
+        .block();
+    log.info("Calling unlockTable succeeded with identifier: {}, reason: {}", target, reason);
   }
 
   private UpdateAclPoliciesRequestBody getUpdateAclPoliciesRequestBody(

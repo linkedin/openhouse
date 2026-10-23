@@ -6,8 +6,11 @@ import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
 import com.linkedin.openhouse.optimizer.scheduler.SchedulerRunner;
+import com.linkedin.openhouse.optimizer.scheduler.account.AccountResolver;
+import com.linkedin.openhouse.optimizer.scheduler.account.DummyAccountResolver;
 import com.linkedin.openhouse.optimizer.scheduler.client.JobsServiceClient;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -36,6 +39,12 @@ public class SchedulerConfig {
     return new JobsServiceClient(jobsWebClient, clusterId);
   }
 
+  @Bean
+  @ConditionalOnMissingBean(AccountResolver.class)
+  public AccountResolver accountResolver() {
+    return new DummyAccountResolver();
+  }
+
   /**
    * Orphan files deletion: a {@link FirstFitDecreasingBinPacker} over {@link TotalFilesBinItem}.
    * Cost scales with file count — per-file list, manifest joins, and delete calls dominate
@@ -53,12 +62,14 @@ public class SchedulerConfig {
       TableOperationsRepository operationsRepo,
       TableStatsRepository statsRepo,
       JobsServiceClient jobsClient,
+      AccountResolver accountResolver,
       @Value("${optimizer.scheduler.results-endpoint}") String resultsEndpoint,
       @Value("${optimizer.scheduler.ofd.max-files-per-bin}") long ofdMaxFilesPerBin,
       @Value("${optimizer.scheduler.ofd.max-tables-per-bin}") int ofdMaxTablesPerBin,
       @Value("${optimizer.scheduler.stats.max-files-per-bin}") long statsMaxFilesPerBin,
       @Value("${optimizer.scheduler.stats.max-tables-per-bin}") int statsMaxTablesPerBin) {
-    return new SchedulerRunner(operationsRepo, statsRepo, jobsClient, resultsEndpoint)
+    return new SchedulerRunner(
+            operationsRepo, statsRepo, jobsClient, accountResolver, resultsEndpoint)
         .registerOperation(
             OperationTypeDto.ORPHAN_FILES_DELETION,
             FirstFitDecreasingBinPacker.<TotalFilesBinItem>builder()

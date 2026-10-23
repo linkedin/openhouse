@@ -1573,6 +1573,133 @@ public class TablesValidatorTest {
                     .build()));
   }
 
+  @Test
+  public void validateCreateTableRejectsRtasWithWap() {
+    RequestValidationFailureException exception =
+        assertThrows(
+            RequestValidationFailureException.class,
+            () ->
+                tablesApiValidator.validateCreateTable(
+                    "c",
+                    "d",
+                    CreateUpdateTableRequestBody.builder()
+                        .databaseId("d")
+                        .tableId("t")
+                        .clusterId("c")
+                        .schema(HEALTH_SCHEMA_LITERAL)
+                        .tableProperties(
+                            ImmutableMap.of(
+                                CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true",
+                                CatalogConstants.WAP_ENABLED_TABLE_PROP, "true"))
+                        .baseTableVersion("base")
+                        .build()));
+    Assertions.assertTrue(
+        exception.getMessage().contains("RTAS ('replace.enabled=true')"),
+        "expected the RTAS property in the compatibility message: " + exception);
+    Assertions.assertTrue(
+        exception.getMessage().contains("WAP ('write.wap.enabled=true')"),
+        "expected the WAP property in the compatibility message: " + exception);
+    Assertions.assertTrue(
+        exception.getMessage().contains("Disable either feature"),
+        "expected an actionable compatibility message: " + exception);
+  }
+
+  @Test
+  public void validateUpdateTableRejectsRtasWithWap() {
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            tablesApiValidator.validateUpdateTable(
+                "c",
+                "d",
+                "t",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(HEALTH_SCHEMA_LITERAL)
+                    .tableProperties(
+                        ImmutableMap.of(
+                            CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true",
+                            CatalogConstants.WAP_ENABLED_TABLE_PROP, "true"))
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
+  @Test
+  public void validateUpdateTableRejectsRtasWithReplication() {
+    assertThrows(
+        RequestValidationFailureException.class,
+        () ->
+            tablesApiValidator.validateUpdateTable(
+                "c",
+                "d",
+                "t",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(HEALTH_SCHEMA_LITERAL)
+                    .tableProperties(
+                        ImmutableMap.of(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true"))
+                    .policies(
+                        Policies.builder()
+                            .replication(
+                                Replication.builder()
+                                    .config(
+                                        Arrays.asList(
+                                            ReplicationConfig.builder()
+                                                .destination("z")
+                                                .interval("12H")
+                                                .build()))
+                                    .build())
+                            .build())
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
+  @Test
+  public void validateCreateTableAllowsRtasAlone() {
+    assertDoesNotThrow(
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(HEALTH_SCHEMA_LITERAL)
+                    .tableProperties(
+                        ImmutableMap.of(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true"))
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
+  @Test
+  public void validateCreateTableAllowsExplicitCompatibilityValidationDisable() {
+    assertDoesNotThrow(
+        () ->
+            tablesApiValidator.validateCreateTable(
+                "c",
+                "d",
+                CreateUpdateTableRequestBody.builder()
+                    .databaseId("d")
+                    .tableId("t")
+                    .clusterId("c")
+                    .schema(HEALTH_SCHEMA_LITERAL)
+                    .tableProperties(
+                        ImmutableMap.of(
+                            CatalogConstants.RTAS_ENABLED_TABLE_PROP,
+                            "true",
+                            CatalogConstants.WAP_ENABLED_TABLE_PROP,
+                            "true",
+                            CatalogConstants.FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP,
+                            "true"))
+                    .baseTableVersion("base")
+                    .build()));
+  }
+
   /** Table search retains numeric pagination and its existing validation messages. */
   @Test
   public void validateSearchTablesKeepsNumericPageValidation() {
