@@ -12,6 +12,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.ViewRepresen
 import com.linkedin.openhouse.tables.api.validator.ViewsApiValidator;
 import com.linkedin.openhouse.tables.exception.ViewErrorCode;
 import com.linkedin.openhouse.tables.exception.ViewRequestValidationFailureException;
+import com.linkedin.openhouse.tables.model.ReservedViewProperties;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
 import java.util.Arrays;
 import java.util.Collections;
@@ -108,8 +109,9 @@ public class ViewsValidatorTest {
                 ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID));
 
     assertDoesNotThrow(
-        () -> viewsApiValidator.validateGetAllViews(ViewModelConstants.DATABASE_ID, null, 50, null),
-        "The controller's defaults, an absent continuation token and a count of 50, must pass"
+        () ->
+            viewsApiValidator.validateGetAllViews(ViewModelConstants.DATABASE_ID, null, 100, null),
+        "The controller's defaults, an absent continuation token and a count of 100, must pass"
             + " unchanged.");
 
     assertDoesNotThrow(
@@ -148,9 +150,6 @@ public class ViewsValidatorTest {
    */
   private static final String UNSUPPORTED_REPRESENTATION_DIALECT =
       "representations[0].dialect : must be one of the supported dialects: spark";
-
-  private static final String UNSUPPORTED_SOURCE_DIALECT =
-      "sourceDialect : must be one of the supported dialects: spark";
 
   /**
    * Asserts the request is rejected, that the reported reason is exactly {@code expectedMessage},
@@ -262,11 +261,6 @@ public class ViewsValidatorTest {
         createOf(validCreateRequest().toBuilder().schema(null).build()),
         ViewErrorCode.INVALID_VIEW_DEFINITION,
         "CreateUpdateViewRequestBody.schema : schema cannot be empty");
-
-    assertRejected(
-        createOf(validCreateRequest().toBuilder().sourceDialect(null).build()),
-        ViewErrorCode.INVALID_VIEW_DEFINITION,
-        "CreateUpdateViewRequestBody.sourceDialect : sourceDialect cannot be empty");
 
     assertRejected(
         createOf(createRequestWith(Collections.<ViewRepresentation>emptyList())),
@@ -476,11 +470,6 @@ public class ViewsValidatorTest {
                 ViewModelConstants.SPARK_REPRESENTATION.toBuilder().dialect("SPARK").build())),
         ViewErrorCode.UNSUPPORTED_VIEW_DIALECT,
         UNSUPPORTED_REPRESENTATION_DIALECT);
-
-    assertRejected(
-        createOf(validCreateRequest().toBuilder().sourceDialect("trino").build()),
-        ViewErrorCode.UNSUPPORTED_VIEW_DIALECT,
-        UNSUPPORTED_SOURCE_DIALECT);
   }
 
   /**
@@ -509,17 +498,17 @@ public class ViewsValidatorTest {
   }
 
   /**
-   * A source dialect naming no supplied representation leaves the view with no definition to read,
-   * which is a different failure from an unsupported dialect and gets its own message.
+   * A representation whose dialect is null names no engine the deployment can serve, so it fails
+   * the same membership test as any other unsupported dialect rather than a null-specific rule.
    */
   @Test
-  public void validateRejectsASourceDialectThatNamesNoSuppliedRepresentation() {
+  public void validateRejectsARepresentationWhoseDialectIsNull() {
     assertRejected(
         createOf(
             createRequestWith(
                 ViewModelConstants.SPARK_REPRESENTATION.toBuilder().dialect(null).build())),
         ViewErrorCode.UNSUPPORTED_VIEW_DIALECT,
-        "sourceDialect : does not name a supplied representation");
+        UNSUPPORTED_REPRESENTATION_DIALECT);
   }
 
   /** Two representations claiming the same engine are ambiguous, whatever their casing. */
@@ -654,10 +643,49 @@ public class ViewsValidatorTest {
     Map<String, String> userOwned = new LinkedHashMap<>();
     userOwned.put("OpenHouse.myTeam", "grid");
     userOwned.put("policies_owner", "grid");
+    userOwned.put(ReservedViewProperties.SOURCE_DIALECT, ViewModelConstants.SOURCE_DIALECT);
     assertDoesNotThrow(
         createOf(validCreateRequest().toBuilder().viewProperties(userOwned).build()),
         "Neither of these user-owned keys is reserved: the openhouse. predicate is case-sensitive"
             + " and policies is matched exactly.");
+  }
+
+  /**
+   * The reserved {@code openhouse.view.sourceDialect} is required: it pins which representation is
+   * authoritative. Its absence is reported as a generic definition failure, not a dialect failure,
+   * because no dialect value was supplied to judge. A {@code null} properties map and a map that
+   * merely omits the key are the same absence.
+   */
+  @Test
+  public void validateRejectsAMissingSourceDialectProperty() {
+    Map<String, String> withoutDialect = new LinkedHashMap<>();
+    withoutDialect.put("owner", "openhouse");
+    assertRejected(
+        createOf(validCreateRequest().toBuilder().viewProperties(withoutDialect).build()),
+        ViewErrorCode.INVALID_VIEW_DEFINITION,
+        ReservedViewProperties.SOURCE_DIALECT + " : cannot be empty");
+
+    assertRejected(
+        createOf(validCreateRequest().toBuilder().viewProperties(null).build()),
+        ViewErrorCode.INVALID_VIEW_DEFINITION,
+        ReservedViewProperties.SOURCE_DIALECT + " : cannot be empty");
+  }
+
+  /**
+   * A supplied {@code openhouse.view.sourceDialect} must name a dialect this deployment is
+   * configured to serve. An unsupported value is a dialect failure, and short-circuits before the
+   * names-a-representation check.
+   */
+  @Test
+  public void validateRejectsASourceDialectOutsideTheSupportedSet() {
+    assertRejected(
+        createOf(
+            validCreateRequest()
+                .toBuilder()
+                .viewProperties(ViewModelConstants.viewPropertiesWithSourceDialect("presto"))
+                .build()),
+        ViewErrorCode.UNSUPPORTED_VIEW_DIALECT,
+        ReservedViewProperties.SOURCE_DIALECT + " : must be one of the supported dialects: spark");
   }
 
   @Test

@@ -30,6 +30,8 @@ dependencies {
   }
 
   testImplementation project(':tables-test-fixtures:tables-test-fixtures-iceberg-1.5_2.12')
+  // Authorization integration tests configure the embedded server and inspect persisted locks.
+  testCompileOnly project(path: ':tables-test-fixtures:tables-test-fixtures-iceberg-1.5_2.12', configuration: 'runtimeElements')
   testImplementation 'org.junit.platform:junit-platform-runner:1.8.2'
   // Required to test /tables mockserver
   testImplementation 'org.apache.commons:commons-lang3:3.12.0'

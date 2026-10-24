@@ -52,9 +52,10 @@ class SystemOnlyLockCatalogTest extends OpenHouseSparkITest {
                   .reason(CreateUpdateLockRequestBody.ReasonEnum.SYSTEM_ONLY))
           .block();
       try {
+        Assertions.assertTrue(catalog.tableExists(id));
         WebClientResponseWithMessageException failure =
             Assertions.assertThrows(
-                WebClientResponseWithMessageException.class, () -> catalog.tableExists(id));
+                WebClientResponseWithMessageException.class, () -> catalog.loadTable(id));
         Assertions.assertEquals(423, failure.getStatusCode());
         Assertions.assertTrue(failure.getMessage().contains("SYSTEM_ONLY"));
         Assertions.assertTrue(failure.getMessage().contains(id.toString()));

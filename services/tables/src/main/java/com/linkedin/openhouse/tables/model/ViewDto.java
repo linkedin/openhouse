@@ -51,8 +51,6 @@ public class ViewDto {
 
   private List<ViewRepresentation> representations;
 
-  private String sourceDialect;
-
   private String defaultCatalog;
 
   private List<String> defaultNamespace;
