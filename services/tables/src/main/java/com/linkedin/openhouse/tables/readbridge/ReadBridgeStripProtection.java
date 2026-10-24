@@ -4,35 +4,46 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.linkedin.openhouse.common.exception.CommitRejectedException;
 import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
+import com.linkedin.openhouse.internal.catalog.PendingCommit;
+import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
-import org.apache.iceberg.DataOperations;
-import org.apache.iceberg.Snapshot;
-import org.apache.iceberg.SnapshotParser;
-import org.apache.iceberg.SnapshotRef;
-import org.apache.iceberg.SnapshotRefParser;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.SchemaParser;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.types.Types;
 
 /**
  * Type 1 / Type 2 strip protection for column defaults. Default-aware clients send {@code
  * initial-default} on the commit schema; this class uses that as the handshake, then drops every
  * {@code initial-default} before persist so overlays cannot land in Iceberg metadata.
  *
- * <p>The handshake is trust, not proof that data files were rewritten correctly. Do not ramp a
- * table until OpenHouse rewrites are trusted or default-aware compaction exists. A lift/compaction
- * flag is a follow-up, not this class.
+ * <p>The catalog applies the rules only after its stale-base check, so they always judge a commit
+ * against the table's current version. A commit built on an older version gets the retryable
+ * version conflict instead, and the client reloads the table, defaults included, before it retries:
+ * a default-aware writer that loaded the table before it opted in succeeds on the retry.
  *
- * <p>The PUT includes the table's full snapshot list, so rewrite detection uses the main-branch
- * snapshot, not a historical overwrite still in the list. A WAP / named-branch overwrite leaves
- * {@code main} unchanged and is not gated. Do not infer the written ref by diffing ref maps — use
- * commit deltas from #669 once they reach this path. See
- * https://github.com/linkedin/openhouse/issues/693.
+ * <p>Type 2 counts a client as default-aware when it declares the {@code column-defaults}
+ * capability ({@link ClientCapabilityGate#declares}). That is trust, not proof that data files were
+ * rewritten correctly. Do not opt a table in until OpenHouse rewrites are trusted or default-aware
+ * compaction exists. A lift/compaction flag is a follow-up, not this class.
+ *
+ * <p>Type 2 applies to every write that commits snapshots to a table with column defaults: a
+ * snapshots PUT on any branch, or a replace. It does not matter whether a snapshot in the PUT
+ * rewrites data or is new at all, so the check needs nothing from the table's existing snapshots. A
+ * client that is not default-aware cannot append, overwrite, move refs or expire snapshots on such
+ * a table. See https://github.com/linkedin/openhouse/issues/693.
+ *
+ * <p>A request with the column-default policy bypass ({@link
+ * TablesMvcConstants#HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS}) skips the rules and the default
+ * lookups they need. {@code initial-default} is still dropped.
  *
  * <p>Schema field objects are the JSON nodes that carry {@code id} — the same walk as the client
  * overlay. On Iceberg schema JSON that is NestedField; {@code element-id} / {@code schema-id} are
@@ -42,9 +53,10 @@ public class ReadBridgeStripProtection {
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
+  private static final String COLUMN_DEFAULTS = ClientCapabilityGate.COLUMN_DEFAULTS;
+
   private static final class SchemaKeys {
     private static final String ID = "id";
-    private static final String NAME = "name";
     private static final String INITIAL_DEFAULT = "initial-default";
 
     private SchemaKeys() {}
@@ -57,81 +69,100 @@ public class ReadBridgeStripProtection {
   }
 
   /**
-   * Reject Type 1 / Type 2 violations, then drop every {@code initial-default} from {@code
-   * incoming} so overlays cannot land in Iceberg metadata. Ramp-off still strips. Returns {@code
-   * incoming} unchanged when there is nothing to check or drop.
+   * Drops every {@code initial-default} from {@code incoming} so overlays cannot land in Iceberg
+   * metadata. Returns {@code incoming} unchanged when there is nothing to drop.
    *
-   * @throws ColumnDefaultException Type 1, Type 2, a default {@code incoming} declares that cannot
-   *     be applied, or {@code incoming} data this protection cannot read
-   * @throws TableConfigUnavailableException if a default {@code existing} declares cannot be
-   *     applied
+   * @throws ColumnDefaultException if {@code incoming} has a schema this protection cannot read
    */
-  public TableDto prepare(TableDto existing, TableDto incoming) throws ColumnDefaultException {
+  public TableDto prepare(TableDto incoming) throws ColumnDefaultException {
     if (incoming == null) {
       return incoming;
-    }
-    Map<Integer, String> previousStamped =
-        existing == null ? Collections.emptyMap() : resolver.storedColumnDefaults(existing);
-    Map<Integer, String> incomingStamped = resolver.incomingColumnDefaults(incoming);
-    if (existing != null) {
-      rejectRemovedDefaults(previousStamped, incomingStamped, incoming);
-      rejectUnawareRewrite(previousStamped, incoming);
     }
     return stripInitialDefaults(incoming);
   }
 
   /**
-   * Type 1: a still-present stamped column must keep its default. Unstamped or unramped tables skip
-   * — there is no default to protect.
+   * Checks {@code commit} against the table's current version: the defaults the base declares, then
+   * the ones the commit declares, must be usable, and the commit must pass Type 1 and Type 2. A
+   * commit that creates the table only has its declared defaults checked.
+   *
+   * @param clients the gate that says whether the commit's client declares the {@code
+   *     column-defaults} capability and words the rejection
+   * @throws TableConfigUnavailableException if a default the base declares cannot be applied
+   * @throws CommitRejectedException if a default the commit declares cannot be applied, or the
+   *     commit breaks Type 1 or Type 2
    */
-  private void rejectRemovedDefaults(
-      Map<Integer, String> previousStamped, Map<Integer, String> incomingStamped, TableDto incoming)
-      throws ColumnDefaultException {
-    if (previousStamped.isEmpty() || !resolver.isBridged(incoming.getTableProperties())) {
+  public void enforce(PendingCommit commit, ClientCapabilityGate clients) {
+    TableIdentifier table = commit.getTableIdentifier();
+    TableMetadata base = commit.getBase().orElse(null);
+    Schema schema = commit.getMetadata().schema();
+    String location = base == null ? null : base.metadataFileLocation();
+    Map<Integer, String> previousStamped =
+        base == null || !resolver.isBridged(base.properties())
+            ? Collections.emptyMap()
+            : resolver.storedColumnDefaults(
+                tableDto(table, base.schema(), base.properties(), location));
+    boolean bridged = resolver.isBridged(commit.getProperties());
+    Map<Integer, String> declared =
+        bridged
+            ? declaredColumnDefaults(tableDto(table, schema, commit.getProperties(), location))
+            : Collections.emptyMap();
+    if (base != null) {
+      rejectRemovedDefaults(table, previousStamped, declared, bridged, schema);
+      rejectUnawareCommit(table, previousStamped, schema, clients, commit.isSnapshotCommit());
+    }
+  }
+
+  /** The defaults {@code committed} declares; one that cannot be applied rejects the commit. */
+  private Map<Integer, String> declaredColumnDefaults(TableDto committed) {
+    try {
+      return resolver.incomingColumnDefaults(committed);
+    } catch (ColumnDefaultException e) {
+      throw new CommitRejectedException(e.getMessage(), e);
+    }
+  }
+
+  /**
+   * Type 1: a still-present stamped column must keep its default. Tables that are unstamped or not
+   * opted in skip — there is no default to protect.
+   */
+  private static void rejectRemovedDefaults(
+      TableIdentifier table,
+      Map<Integer, String> previousStamped,
+      Map<Integer, String> declared,
+      boolean bridged,
+      Schema schema) {
+    if (previousStamped.isEmpty() || !bridged) {
       return;
     }
-    JsonNode schema = tree(incoming.getSchema(), incoming);
-    Set<Integer> remaining = fieldIds(schema);
     for (Integer fieldId : previousStamped.keySet()) {
-      if (remaining.contains(fieldId) && !incomingStamped.containsKey(fieldId)) {
-        throw new ColumnDefaultException(
+      Types.NestedField field = schema.findField(fieldId);
+      if (field != null && !declared.containsKey(fieldId)) {
+        throw new CommitRejectedException(
             String.format(
-                "COLUMN_DEFAULT_REMOVED: %s.%s still has a column default on %s. This commit"
-                    + " omitted it. Retry from Spark 3.1 or Spark 3.5 using the jars on the"
-                    + " standard client image. Column defaults cannot be removed or changed.",
-                incoming.getDatabaseId(), incoming.getTableId(), fieldLabel(schema, fieldId)));
+                "COLUMN_DEFAULT_REMOVED: %s still has a column default on %s, and this commit"
+                    + " omitted it. %s",
+                table, fieldLabel(field), ClientCapabilityGate.remedy(COLUMN_DEFAULTS)));
       }
     }
   }
 
   /**
-   * Type 2: overwrite/replace must send {@code initial-default} equal to the stamp. That handshake
-   * is trust, not proof the files were rewritten. Appends are not rewrites.
+   * Type 2: a write that commits snapshots must come from a default-aware client. That is trust,
+   * not proof the files were rewritten.
    */
-  private void rejectUnawareRewrite(Map<Integer, String> previousStamped, TableDto incoming)
-      throws ColumnDefaultException {
-    if (previousStamped.isEmpty() || !isRewrite(incoming)) {
+  private static void rejectUnawareCommit(
+      TableIdentifier table,
+      Map<Integer, String> previousStamped,
+      Schema schema,
+      ClientCapabilityGate clients,
+      boolean snapshotCommit) {
+    if (previousStamped.isEmpty() || !snapshotCommit || clients.declares(COLUMN_DEFAULTS)) {
       return;
     }
-    JsonNode schema = tree(incoming.getSchema(), incoming);
-    Set<Integer> remaining = fieldIds(schema);
-    for (Map.Entry<Integer, String> stamp : previousStamped.entrySet()) {
-      if (!remaining.contains(stamp.getKey())) {
-        continue;
-      }
-      JsonNode actual = initialDefault(schema, stamp.getKey());
-      if (!tree(stamp.getValue(), incoming).equals(actual)) {
-        throw new ColumnDefaultException(
-            String.format(
-                "COLUMN_DEFAULT_REWRITE: %s.%s still has a column default on %s. This"
-                    + " overwrite/replace did not send a matching initial-default. Retry from"
-                    + " Spark 3.1 or Spark 3.5 using the jars on the standard client image."
-                    + " Unaware clients cannot overwrite or replace a table that has column"
-                    + " defaults.",
-                incoming.getDatabaseId(),
-                incoming.getTableId(),
-                fieldLabel(schema, stamp.getKey())));
-      }
+    if (previousStamped.keySet().stream().map(schema::findField).anyMatch(Objects::nonNull)) {
+      throw new CommitRejectedException(
+          clients.missingCapability(table.toString(), COLUMN_DEFAULTS));
     }
   }
 
@@ -145,74 +176,29 @@ public class ReadBridgeStripProtection {
     return incoming.toBuilder().schema(schema).newIntermediateSchemas(intermediates).build();
   }
 
+  /** The table as a {@link ColumnDefaultsSource} reads it. */
+  private static TableDto tableDto(
+      TableIdentifier table, Schema schema, Map<String, String> properties, String location) {
+    return TableDto.builder()
+        .databaseId(table.namespace().toString())
+        .tableId(table.name())
+        .tableLocation(location)
+        .schema(SchemaParser.toJson(schema))
+        .tableProperties(properties)
+        .build();
+  }
+
   /**
-   * Main-branch snapshot only, so history in {@code jsonSnapshots} is not "this commit." WAP
-   * overwrite is therefore missed. Fix with #669 deltas, not a ref-map diff:
-   * https://github.com/linkedin/openhouse/issues/693
+   * Drops every {@code initial-default} from {@code json}, a schema, so an overlay, a leftover on a
+   * table that is not opted in, or an unstamped writer default cannot land in Iceberg metadata.
+   * Returns {@code json} when there was nothing to drop. Writes require a schema, and every
+   * intermediate schema is one, so a missing schema is metadata this protection cannot read.
    */
-  private boolean isRewrite(TableDto incoming) throws ColumnDefaultException {
-    if (incoming.isReplaceCommit() || incoming.isStageReplace()) {
-      return true;
-    }
-    List<String> jsonSnapshots = incoming.getJsonSnapshots();
-    if (jsonSnapshots == null || jsonSnapshots.isEmpty()) {
-      return false;
-    }
-    String operation = currentSnapshot(incoming, jsonSnapshots).operation();
-    return DataOperations.OVERWRITE.equals(operation) || DataOperations.REPLACE.equals(operation);
-  }
-
-  private static Snapshot currentSnapshot(TableDto incoming, List<String> jsonSnapshots)
-      throws ColumnDefaultException {
-    Long mainId = mainSnapshotId(incoming);
-    if (mainId != null) {
-      for (String json : jsonSnapshots) {
-        Snapshot snapshot = snapshot(json, incoming);
-        if (snapshot.snapshotId() == mainId) {
-          return snapshot;
-        }
-      }
-      throw unusable(incoming, "main-branch snapshot is missing from the request", null);
-    }
-    return snapshot(jsonSnapshots.get(jsonSnapshots.size() - 1), incoming);
-  }
-
-  private static Long mainSnapshotId(TableDto incoming) throws ColumnDefaultException {
-    Map<String, String> snapshotRefs = incoming.getSnapshotRefs();
-    if (snapshotRefs == null) {
-      return null;
-    }
-    String main = snapshotRefs.get(SnapshotRef.MAIN_BRANCH);
-    if (main == null) {
-      return null;
-    }
-    try {
-      return SnapshotRefParser.fromJson(main).snapshotId();
-    } catch (RuntimeException e) {
-      throw unusable(incoming, "unreadable snapshot ref", e);
-    }
-  }
-
-  private static Snapshot snapshot(String json, TableDto incoming) throws ColumnDefaultException {
+  private static String strip(String json, TableDto incoming) throws ColumnDefaultException {
     if (json == null || json.isEmpty()) {
-      throw unusable(incoming, "unreadable snapshot", null);
+      throw unusable(incoming, "missing schema", null);
     }
-    try {
-      return SnapshotParser.fromJson(json);
-    } catch (RuntimeException e) {
-      throw unusable(incoming, "unreadable snapshot", e);
-    }
-  }
-
-  /**
-   * Drop every {@code initial-default} so a handshake, a ramp-off leftover, or an unstamped writer
-   * default cannot land in Iceberg metadata.
-   */
-  private static String strip(String schemaJson, TableDto incoming) throws ColumnDefaultException {
-    if (schemaJson == null || schemaJson.isEmpty()) {
-      return schemaJson;
-    }
-    JsonNode root = tree(schemaJson, incoming);
+    JsonNode root = tree(json, incoming);
     boolean changed = false;
     for (JsonNode field : fieldObjects(root)) {
       if (field instanceof ObjectNode
@@ -221,7 +207,7 @@ public class ReadBridgeStripProtection {
       }
     }
     if (!changed) {
-      return schemaJson;
+      return json;
     }
     try {
       return MAPPER.writeValueAsString(root);
@@ -245,36 +231,10 @@ public class ReadBridgeStripProtection {
     return changed ? stripped : schemas;
   }
 
-  private static Set<Integer> fieldIds(JsonNode schema) {
-    Set<Integer> ids = new HashSet<>();
-    for (JsonNode field : fieldObjects(schema)) {
-      if (field.has(SchemaKeys.ID)) {
-        ids.add(field.get(SchemaKeys.ID).asInt());
-      }
-    }
-    return ids;
-  }
-
-  private static String fieldLabel(JsonNode schema, int fieldId) {
-    for (JsonNode field : fieldObjects(schema)) {
-      if (field.has(SchemaKeys.ID) && field.get(SchemaKeys.ID).asInt() == fieldId) {
-        JsonNode name = field.get(SchemaKeys.NAME);
-        if (name != null && name.isTextual() && !name.asText().isEmpty()) {
-          return name.asText() + " (field-id " + fieldId + ")";
-        }
-        break;
-      }
-    }
-    return "field-id " + fieldId;
-  }
-
-  private static JsonNode initialDefault(JsonNode schema, int fieldId) {
-    for (JsonNode field : fieldObjects(schema)) {
-      if (field.has(SchemaKeys.ID) && field.get(SchemaKeys.ID).asInt() == fieldId) {
-        return field.get(SchemaKeys.INITIAL_DEFAULT);
-      }
-    }
-    return null;
+  private static String fieldLabel(Types.NestedField field) {
+    return field.name() == null || field.name().isEmpty()
+        ? "field-id " + field.fieldId()
+        : field.name() + " (field-id " + field.fieldId() + ")";
   }
 
   private static List<JsonNode> fieldObjects(JsonNode schema) {
@@ -283,9 +243,6 @@ public class ReadBridgeStripProtection {
   }
 
   private static JsonNode tree(String json, TableDto incoming) throws ColumnDefaultException {
-    if (json == null || json.isEmpty()) {
-      throw unusable(incoming, "unreadable json", null);
-    }
     try {
       return MAPPER.readTree(json);
     } catch (JsonProcessingException e) {

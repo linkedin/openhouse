@@ -194,7 +194,7 @@ public class TablesServiceImpl implements TablesService {
             createUpdateTableRequestBody);
     tableDtoToSave = LockPolicyValidator.prepare(tableDto.orElse(null), tableDtoToSave);
     try {
-      tableDtoToSave = readBridgeStripProtection.prepare(tableDto.orElse(null), tableDtoToSave);
+      tableDtoToSave = readBridgeStripProtection.prepare(tableDtoToSave);
     } catch (ColumnDefaultException e) {
       throw new UnsupportedClientOperationException(
           UnsupportedClientOperationException.Operation.COLUMN_DEFAULT, e.getMessage(), e);

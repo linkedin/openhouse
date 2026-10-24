@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.tables.readbridge;
 
 import com.linkedin.openhouse.common.exception.CommitRejectedException;
+import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.internal.catalog.PendingCommit;
 import com.linkedin.openhouse.internal.catalog.PreCommitCheck;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
@@ -8,11 +9,21 @@ import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 
 /**
  * The column-default rules every table commit must pass, as a {@link PreCommitCheck}: the catalog
- * runs it after its stale-base check and before anything is written.
+ * runs it after its stale-base check and before anything is written. The rules judge the commit's
+ * schema and snapshots against the table's current version.
  *
- * <p>A committed {@code required-capability.column-defaults=true} cannot be changed or removed. A
- * request with the column-default policy bypass ({@link
- * TablesMvcConstants#HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS}) skips this check.
+ * <ol>
+ *   <li>A committed {@code required-capability.column-defaults=true} cannot be changed or removed.
+ *   <li>Every commit, renames included, must pass {@link ReadBridgeStripProtection#enforce}. Type 2
+ *       counts the commit's client as default-aware when it declares the {@code column-defaults}
+ *       capability, so a snapshot commit outside a request cannot touch a table with column
+ *       defaults.
+ * </ol>
+ *
+ * <p>A request with the column-default policy bypass ({@link
+ * TablesMvcConstants#HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS}), read from its {@link
+ * CatalogRequestContext}, skips both, so an operator can repair a table whose stored default cannot
+ * be applied.
  */
 public class ColumnDefaultCommitPolicy implements PreCommitCheck {
 
@@ -20,8 +31,17 @@ public class ColumnDefaultCommitPolicy implements PreCommitCheck {
 
   private final CatalogRequestContext requestContext;
 
-  public ColumnDefaultCommitPolicy(CatalogRequestContext requestContext) {
+  private final ClientCapabilityGate clientGate;
+
+  private final ReadBridgeStripProtection columnDefaultRules;
+
+  public ColumnDefaultCommitPolicy(
+      CatalogRequestContext requestContext,
+      ClientCapabilityGate clientGate,
+      ReadBridgeStripProtection columnDefaultRules) {
     this.requestContext = requestContext;
+    this.clientGate = clientGate;
+    this.columnDefaultRules = columnDefaultRules;
   }
 
   @Override
@@ -29,13 +49,18 @@ public class ColumnDefaultCommitPolicy implements PreCommitCheck {
     return "column-default";
   }
 
-  /** @throws CommitRejectedException if the commit changes or removes a committed opt-in */
+  /**
+   * @throws CommitRejectedException if the commit changes or removes a committed opt-in, breaks
+   *     Type 1 or Type 2, or declares a column default that cannot be applied
+   * @throws TableConfigUnavailableException if a default the table declares cannot be applied
+   */
   @Override
   public void check(PendingCommit commit) {
     if (requestContext.columnDefaultPolicyBypass()) {
       return;
     }
     keepOptIn(commit);
+    columnDefaultRules.enforce(commit, clientGate);
   }
 
   /**

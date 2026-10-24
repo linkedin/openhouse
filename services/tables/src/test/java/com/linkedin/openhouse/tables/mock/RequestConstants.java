@@ -12,6 +12,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBo
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetDatabaseResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
+import com.linkedin.openhouse.tables.model.TableModelConstants;
 import java.util.Collections;
 import java.util.Random;
 import java.util.UUID;
@@ -42,6 +43,7 @@ public final class RequestConstants {
           .tableId("tb1")
           .clusterId("cl1")
           .baseTableVersion("INITIAL_VERSION")
+          .schema(TableModelConstants.HEALTH_SCHEMA_LITERAL)
           .tableProperties(Collections.emptyMap())
           .build();
 

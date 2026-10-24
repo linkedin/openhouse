@@ -38,7 +38,11 @@ public class ApiConfig {
 
   /** A pre-commit check: the internal catalog runs it on every table commit. */
   @Bean
-  public ColumnDefaultCommitPolicy columnDefaultCommitPolicy(CatalogRequestContext requestContext) {
-    return new ColumnDefaultCommitPolicy(requestContext);
+  public ColumnDefaultCommitPolicy columnDefaultCommitPolicy(
+      CatalogRequestContext requestContext,
+      ClientCapabilityGate clientCapabilityGate,
+      ReadBridgeStripProtection readBridgeStripProtection) {
+    return new ColumnDefaultCommitPolicy(
+        requestContext, clientCapabilityGate, readBridgeStripProtection);
   }
 }
