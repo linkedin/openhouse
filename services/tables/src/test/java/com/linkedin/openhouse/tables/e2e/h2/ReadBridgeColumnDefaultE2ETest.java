@@ -17,15 +17,12 @@ import com.fasterxml.jackson.databind.node.TextNode;
 import com.jayway.jsonpath.JsonPath;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
-import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
+import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultsSource;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
-import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
-import com.linkedin.openhouse.tables.toggle.model.TableToggleStatus;
-import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -48,11 +45,11 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 /**
- * HTTP GET stamps {@code config} from a stub {@link ColumnDefaultsSource} according to the
- * OpenHouse ramp, and fails when the source cannot apply a declared default. A write against such a
- * table fails the same way: the stored table is at fault, not the request. A write whose own table
- * declares such a default is a bad request. Create and update responses omit {@code config}.
- * Resolver unit tests cover the same matrix.
+ * HTTP GET stamps {@code config} from a stub {@link ColumnDefaultsSource} for tables that opt in,
+ * and fails when the source cannot apply a declared default. A write against such a table fails the
+ * same way: the stored table is at fault, not the request. A write whose own table declares such a
+ * default is a bad request. Create and update responses omit {@code config}. Resolver unit tests
+ * cover the same matrix.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -67,8 +64,7 @@ public class ReadBridgeColumnDefaultE2ETest {
 
   private static final String CONFIG_KEY = ReadBridgeConfigResolver.COLUMN_DEFAULT_PREFIX + "2";
   private static final String ENABLED_PROP =
-      ReadBridgeConfigResolver.COLUMN_DEFAULT_FEATURE_ID
-          + TableFeatureToggle.ENABLED_PROPERTY_SUFFIX;
+      ReadBridgeConfigResolver.COLUMN_DEFAULTS_CAPABILITY_PROP;
 
   private static final String UNUSABLE = "COLUMN_DEFAULT_UNUSABLE: column name has a bad default";
 
@@ -94,10 +90,8 @@ public class ReadBridgeColumnDefaultE2ETest {
 
   @Autowired private MockMvc mvc;
   @Autowired private StorageManager storageManager;
-  @Autowired private ToggleStatusesRepository toggleStatusesRepository;
 
   private GetTableResponseBody created;
-  private TableToggleStatus toggleStatus;
 
   @AfterEach
   public void tearDown() throws Exception {
@@ -105,10 +99,6 @@ public class ReadBridgeColumnDefaultE2ETest {
     if (created != null) {
       RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, created);
       created = null;
-    }
-    if (toggleStatus != null) {
-      toggleStatusesRepository.delete(toggleStatus);
-      toggleStatus = null;
     }
   }
 
@@ -136,40 +126,8 @@ public class ReadBridgeColumnDefaultE2ETest {
   }
 
   @Test
-  public void get_omitsConfigWhenNoPropertyAndNoHtsToggle() throws Exception {
-    created = create(uniqueTable("no_ramp"), Collections.emptyMap());
-    RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
-    getTable()
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.config['" + CONFIG_KEY + "']").doesNotExist());
-  }
-
-  @Test
-  public void get_stampsWhenHtsToggleActiveAndNoProperty() throws Exception {
-    String tableId = uniqueTable("hts_on");
-    created = create(tableId, Collections.emptyMap());
-    activateHtsToggle(created);
-    RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
-    getTable()
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.config['" + CONFIG_KEY + "']", is("\"US\"")));
-  }
-
-  @Test
-  public void get_propertyFalseOptsOutEvenWhenHtsToggleActive() throws Exception {
-    created =
-        create(uniqueTable("hts_on_prop_off"), Collections.singletonMap(ENABLED_PROP, "false"));
-    activateHtsToggle(created);
-    RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
-    getTable()
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.config['" + CONFIG_KEY + "']").doesNotExist());
-  }
-
-  @Test
-  public void get_unparseablePropertyFailsClosedEvenIfHtsActive() throws Exception {
+  public void get_unparseablePropertyFailsClosed() throws Exception {
     created = create(uniqueTable("bad_prop"), Collections.singletonMap(ENABLED_PROP, "sometimes"));
-    activateHtsToggle(created);
     RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
     getTable()
         .andExpect(status().isOk())
@@ -252,15 +210,36 @@ public class ReadBridgeColumnDefaultE2ETest {
     assertNull(SchemaParser.fromJson(schemaJson).findField(2).initialDefault());
   }
 
-  private void activateHtsToggle(GetTableResponseBody table) {
-    toggleStatus =
-        TableToggleStatus.builder()
-            .featureId(ReadBridgeConfigResolver.COLUMN_DEFAULT_FEATURE_ID)
-            .databaseId(table.getDatabaseId())
-            .tableId(table.getTableId())
-            .toggleStatusEnum(ToggleStatus.StatusEnum.ACTIVE)
-            .build();
-    toggleStatusesRepository.save(toggleStatus);
+  @Test
+  public void policyBypassAllowsDisablingCommittedOptIn() throws Exception {
+    created = create(uniqueTable("disable"), Collections.singletonMap(ENABLED_PROP, "true"));
+    MvcResult initial =
+        RequestAndValidateHelper.createTableAndValidateResponse(created, mvc, storageManager);
+    CreateUpdateTableRequestBody update =
+        buildCreateUpdateTableRequestBody(buildGetTableResponseBody(initial));
+    Map<String, String> properties = new HashMap<>(update.getTableProperties());
+    properties.put(ENABLED_PROP, "false");
+    String body = update.toBuilder().tableProperties(properties).build().toJson();
+    String path =
+        String.format(
+            ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/%s",
+            created.getDatabaseId(),
+            created.getTableId());
+    mvc.perform(
+            MockMvcRequestBuilders.put(path).contentType(MediaType.APPLICATION_JSON).content(body))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message", containsString("column-default policy override")));
+    mvc.perform(
+            MockMvcRequestBuilders.put(path)
+                .header("X-OpenHouse-Dangerously-Bypass-Column-Default-Policy", "true")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.tableProperties['" + ENABLED_PROP + "']", is("false")));
+    getTable()
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.tableProperties['" + ENABLED_PROP + "']", is("false")))
+        .andExpect(jsonPath("$.config['" + CONFIG_KEY + "']").doesNotExist());
   }
 
   private static GetTableResponseBody create(String tableId, Map<String, String> extraProps) {
