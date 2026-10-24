@@ -25,6 +25,7 @@ import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
+import com.linkedin.openhouse.tables.readbridge.ClientCapabilityGate;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultException;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
@@ -58,6 +59,9 @@ public class TablesServiceImpl implements TablesService {
   @Autowired TableUUIDGenerator tableUUIDGenerator;
 
   @Autowired ReadBridgeStripProtection readBridgeStripProtection;
+
+  @Autowired ClientCapabilityGate clientCapabilityGate;
+
   /**
    * Lookup a table by databaseId and tableId in OpenHouse's Internal Catalog.
    *
@@ -79,6 +83,7 @@ public class TablesServiceImpl implements TablesService {
     authorizationUtils.checkTablePrivilege(
         tableDto, actingPrincipal, Privileges.GET_TABLE_METADATA);
     authorizationUtils.checkSystemOnlyLockAccess(tableDto, actingPrincipal);
+    clientCapabilityGate.checkLoad(tableDto);
     return tableDto;
   }
 
@@ -164,6 +169,8 @@ public class TablesServiceImpl implements TablesService {
       authorizationUtils.checkDatabasePrivilege(
           databaseId, tableCreatorUpdater, Privileges.CREATE_TABLE);
     }
+    clientCapabilityGate.checkWrite(
+        databaseId, tableId, tableDto, createUpdateTableRequestBody.getTableProperties());
 
     // FIXME: save method redundantly issue existence check after findById is called above
     TableDto tableDtoToSave =

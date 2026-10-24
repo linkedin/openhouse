@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.api;
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.handler.impl.OpenHouseTablesApiHandler;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
+import com.linkedin.openhouse.tables.readbridge.ClientCapabilityGate;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultCommitPolicy;
 import com.linkedin.openhouse.tables.readbridge.ColumnDefaultsSource;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
@@ -16,6 +17,11 @@ public class ApiConfig {
   @Bean
   public TablesApiHandler tablesApiHandler() {
     return new OpenHouseTablesApiHandler();
+  }
+
+  @Bean
+  public ClientCapabilityGate clientCapabilityGate(CatalogRequestContext requestContext) {
+    return new ClientCapabilityGate(requestContext);
   }
 
   @Bean

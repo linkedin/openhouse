@@ -405,14 +405,43 @@ scala> spark.sql("SHOW TBLPROPERTIES openhouse.db.tb").show()
 Once `required-capability.column-defaults=true` is committed, it cannot be changed or removed.
 `false`, an unparseable value and an absent property remain changeable.
 
+Tables with `required-capability.column-defaults=true` admit only clients that declare the
+`column-defaults` capability in `X-OpenHouse-Client-Capabilities`, for table loads (`GET`), creates
+(`POST`), updates (`PUT`) and snapshot commits (`PUT …/iceberg/v2/snapshots`). Other table
+endpoints, such as search, delete, rename, ACL, lock, purge and restore, are not gated. The gate
+checks each request: it cannot revoke metadata a client already loaded, and it never sees reads or
+writes that go straight to the table's files in storage. Tables without that property are never
+checked. The same applies to any capability: `required-capability.<name>=true` admits only clients
+that declare `<name>`.
+
+`X-OpenHouse-Client-Capabilities` is a comma-separated, case-insensitive list; repeated headers add
+up. A capability is the client's promise about its own behavior: `column-defaults` means the client
+never returns rows from a table with column defaults without applying them, and never commits a
+schema that drops one. The Java catalogs (`OpenHouseCatalog`, and Spark catalogs built on it) apply
+column defaults and always declare `column-defaults`. Any other client declares capabilities itself:
+a Java catalog adds to its own with
+`spark.sql.catalog.openhouse.header.X-OpenHouse-Client-Capabilities=<name>,...` (or the same suffix
+in Java catalog properties), and other clients send the header. For example, a replication job that
+never scans rows can declare `column-defaults`. Every gated request is logged with the client's
+`X-Client-Name`, User-Agent and declared capabilities, and whether it was admitted.
+
+A client that does not declare a capability the table requires fails with HTTP **422**, and the
+rejection names the table, the capability and what the client sent:
+`CLIENT_CAPABILITY_MISSING: db.tbl requires the column-defaults capability, which this client does
+not declare (X-Client-Name: trino, User-Agent: ..., X-OpenHouse-Client-Capabilities: (none)). Use a
+client that declares column-defaults in X-OpenHouse-Client-Capabilities.` It does not mention the
+escape hatch.
+
 The default-off escape hatch is the request header
 `X-OpenHouse-Dangerously-Bypass-Column-Default-Policy: true`. A catalog sends it when configured with
 `spark.sql.catalog.openhouse.header.X-OpenHouse-Dangerously-Bypass-Column-Default-Policy=true` (or
 the same suffix in Java catalog properties); any `header.<name>=<value>` catalog property becomes a
-request header. It bypasses only column-default policy checks, currently the rule that a committed
-`required-capability.column-defaults=true` cannot be changed or removed. Incorrect reads or writes may
-result. Authentication, authorization, default resolution and default-value write protections still
-apply. JARs without `header.` catalog properties need an upgrade/backport to send it.
+request header. It bypasses only column-default policy checks: the `column-defaults` capability (no
+other capability) and the rule that a committed `required-capability.column-defaults=true` cannot be
+changed or removed. Incorrect reads or
+writes may result. Authentication, authorization, default resolution and default-value write
+protections still apply. JARs without `header.` catalog properties need an upgrade/backport to send
+it. Removing table opt-in in a write is not a bypass.
 
 #### SET POLICY
 
