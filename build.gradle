@@ -162,10 +162,15 @@ allprojects {
 }
 
 // Local Git Hooks cannot be shared, as .git directory is gitignore'd.
+def gitHooksDirectory = providers.exec {
+  workingDir rootProject.projectDir
+  commandLine 'git', 'rev-parse', '--git-path', 'hooks'
+}.standardOutput.asText.map { rootProject.file(it.trim()) }
+
 tasks.register('CopyGitHooksTask', Copy) {
   println 'Make the git hook available in .git/hooks directory.'
   from file('scripts/git-hooks')
-  into file('.git/hooks/')
+  into gitHooksDirectory
 }
 
 // =============================================================================
