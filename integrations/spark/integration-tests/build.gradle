@@ -1,0 +1,256 @@
+plugins {
+  id 'openhouse.java-minimal-conventions'
+  id 'openhouse.maven-publish'
+  id 'scala'
+}
+
+// The OpenHouse integration-test matrix is published as a portable Scala library. This repository runs it
+// against the embedded catalog, and the LinkedIn acceptance tests supply a remote environment.
+//
+// Only the portable scenario/framework sources are published. Env.scala boots the embedded OpenHouse
+// server and pulls in its test fixtures. LocalRunner.scala carries the
+// `com.linkedin.openhouse.integrationtests.Main` launch class that drives it. Both are excluded
+// from the published library and compiled in the local source set. Runner.scala remains portable so
+// its retry contract is exercised by the module tests.
+
+ext {
+  icebergVersion = rootProject.ext.iceberg_1_5_version
+  sparkVersion = '3.5.2'
+  scalaLibVersion = '2.12.18'
+}
+
+// The embedded boot wiring and the local run loop. They are excluded from the portable library and
+// are the whole of the local source set.
+def embeddedOnlySources = [
+  'com/linkedin/openhouse/integrationtests/Env.scala',
+  'com/linkedin/openhouse/integrationtests/LocalRunner.scala'
+]
+
+sourceSets {
+  main {
+    scala {
+      srcDirs = ['src/main/scala']
+      exclude embeddedOnlySources
+    }
+  }
+  local {
+    scala {
+      srcDirs = ['src/main/scala']
+      include embeddedOnlySources
+    }
+    compileClasspath += sourceSets.main.output
+    runtimeClasspath += sourceSets.main.output
+  }
+  localTest {
+    scala.srcDirs = ['src/localTest/scala']
+    compileClasspath += sourceSets.local.output + sourceSets.local.compileClasspath
+    runtimeClasspath += sourceSets.local.output + sourceSets.local.runtimeClasspath
+  }
+}
+
+dependencies {
+  implementation "org.scala-lang:scala-library:${scalaLibVersion}"
+
+  // The consumer provides the Spark, Iceberg, and OpenHouse runtime. The library jar carries only the
+  // integration-test classes.
+  compileOnly("org.apache.spark:spark-sql_2.12:${sparkVersion}") {
+    exclude group: 'io.netty'
+  }
+  compileOnly("com.linkedin.iceberg:iceberg-spark-runtime-3.5_2.12:${icebergVersion}") {
+    exclude group: 'io.netty'
+  }
+  // Provides com.linkedin.openhouse.javaclient.* (WebClientResponseWithMessageException, etc.).
+  compileOnly(project(path: ':integrations:spark:spark-3.5:openhouse-spark-3.5-runtime_2.12', configuration: 'shadow'))
+
+  // The catalog tests read Catalog contributions and cases without starting Spark. Their JVM still
+  // loads the integration-test signatures, so the compile-only runtime dependencies must be present on the test
+  // classpath.
+  testImplementation("org.apache.spark:spark-sql_2.12:${sparkVersion}") {
+    exclude group: 'io.netty'
+  }
+  testImplementation("com.linkedin.iceberg:iceberg-spark-runtime-3.5_2.12:${icebergVersion}") {
+    exclude group: 'io.netty'
+  }
+  testImplementation(
+    project(path: ':integrations:spark:spark-3.5:openhouse-spark-3.5-runtime_2.12',
+            configuration: 'shadow'))
+
+  localImplementation sourceSets.main.output
+  localImplementation "org.scala-lang:scala-library:${scalaLibVersion}"
+  localImplementation("org.apache.spark:spark-sql_2.12:${sparkVersion}") {
+    exclude group: 'io.netty'
+  }
+  localImplementation(
+    project(path: ':integrations:spark:spark-3.5:openhouse-spark-3.5-runtime_2.12',
+            configuration: 'shadow')) {
+    exclude group: 'org.apache.commons', module: 'commons-lang3'
+  }
+  localImplementation project(':tables-test-fixtures:tables-test-fixtures-iceberg-1.5_2.12')
+}
+
+configurations.localRuntimeClasspath {
+  exclude group: 'com.linkedin.iceberg', module: 'iceberg-core'
+  exclude group: 'com.linkedin.iceberg', module: 'iceberg-api'
+  exclude group: 'com.linkedin.iceberg', module: 'iceberg-common'
+  exclude group: 'com.linkedin.iceberg', module: 'iceberg-data'
+  resolutionStrategy.force(
+    'com.fasterxml.jackson.core:jackson-annotations:2.15.2',
+    'com.fasterxml.jackson.core:jackson-core:2.15.2',
+    'com.fasterxml.jackson.core:jackson-databind:2.15.2',
+    'com.fasterxml.jackson.dataformat:jackson-dataformat-xml:2.15.2',
+    'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.15.2',
+    'com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.15.2',
+    'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.15.2',
+    'com.fasterxml.jackson.jaxrs:jackson-jaxrs-base:2.15.2',
+    'com.fasterxml.jackson.jaxrs:jackson-jaxrs-json-provider:2.15.2',
+    'com.fasterxml.jackson.module:jackson-module-jaxb-annotations:2.15.2',
+    'com.fasterxml.jackson.module:jackson-module-parameter-names:2.15.2',
+    'com.fasterxml.jackson.module:jackson-module-scala_2.12:2.15.2')
+}
+
+def configureEmbeddedIntegrationTestRun = { JavaExec task ->
+  task.dependsOn localClasses
+  task.classpath = sourceSets.local.runtimeClasspath
+  task.mainClass = 'com.linkedin.openhouse.integrationtests.Main'
+  if (JavaVersion.current() >= JavaVersion.VERSION_1_9) {
+    task.jvmArgs(
+      '--add-opens=java.base/java.nio=ALL-UNNAMED',
+      '--add-exports=java.base/sun.nio.ch=ALL-UNNAMED',
+      '--add-opens=java.base/sun.util.calendar=ALL-UNNAMED',
+      '--add-exports=java.base/sun.util.calendar=ALL-UNNAMED')
+  }
+}
+
+tasks.register('runOpenHouse', JavaExec) {
+  group = 'verification'
+  description = 'Runs the OpenHouse integration tests against an embedded OpenHouse catalog.'
+  configureEmbeddedIntegrationTestRun(delegate)
+}
+
+def verifyOpenHouseFoundation = tasks.register('verifyOpenHouseFoundation', JavaExec) {
+  group = 'verification'
+  description = 'Runs the foundation scenarios against an embedded OpenHouse catalog.'
+  configureEmbeddedIntegrationTestRun(delegate)
+  args '--catalog=foundation'
+}
+
+def verifyPortableJar = tasks.register('verifyPortableJar') {
+  group = 'verification'
+  description = 'Checks that the published integration-test jar contains only portable entry points.'
+  dependsOn tasks.named('jar')
+  doLast {
+    def jarFile = tasks.named('jar').get().archiveFile.get().asFile
+    def entries = new java.util.zip.ZipFile(jarFile).withCloseable { archive ->
+      archive.entries().collect { entry -> entry.name }.toSet()
+    }
+    def packagePath = 'com/linkedin/openhouse/integrationtests'
+    [packagePath + '/Plan.class', packagePath + '/Runner.class'].each { requiredEntry ->
+      if (!entries.contains(requiredEntry)) {
+        throw new GradleException("Portable integration-test jar is missing ${requiredEntry}")
+      }
+    }
+    [
+      packagePath + '/Main.class',
+      packagePath + '/Main$.class',
+      packagePath + '/OpenHouseEnv.class',
+      packagePath + '/OpenHouseEnv$.class',
+      packagePath + '/TablePreparationChecks.class',
+      packagePath + '/TablePreparationChecks$.class'
+    ]
+      .each { embeddedEntry ->
+        if (entries.contains(embeddedEntry)) {
+          throw new GradleException("Portable integration-test jar contains embedded-only ${embeddedEntry}")
+        }
+      }
+  }
+}
+
+def verifyTablePreparation = tasks.register('verifyTablePreparation', JavaExec) {
+  group = 'verification'
+  description = 'Checks table teardown after successful and failing preparations and case bodies.'
+  dependsOn localTestClasses
+  classpath = sourceSets.localTest.runtimeClasspath
+  mainClass = 'com.linkedin.openhouse.integrationtests.TablePreparationChecks'
+  jvmArgs tasks.named('runOpenHouse').get().jvmArgs
+}
+
+def verifyRunnerFilters = tasks.register('verifyRunnerFilters') {
+  group = 'verification'
+  description = 'Checks the embedded runner process exits for matching and unmatched filters.'
+  dependsOn localClasses
+  doLast {
+    [
+      [filter: 'read.projection @ parquet', exitCode: 0, summary: '1 passed, 0 skipped, 0 failed  (1 cases)'],
+      [filter: '__unmatched_runner_filter__', exitCode: 1, summary: '0 passed, 0 skipped, 0 failed  (0 cases)']
+    ].each { expectation ->
+      def output = new ByteArrayOutputStream()
+      def result = javaexec {
+        classpath = sourceSets.local.runtimeClasspath
+        mainClass = 'com.linkedin.openhouse.integrationtests.Main'
+        jvmArgs tasks.named('runOpenHouse').get().jvmArgs
+        args expectation.filter
+        environment 'INTEGRATION_TEST_PARALLELISM', '1'
+        ignoreExitValue = true
+        standardOutput = output
+        errorOutput = output
+      }
+      def logFile = layout.buildDirectory.file("runner-filter-checks/${expectation.exitCode}.log").get().asFile
+      logFile.parentFile.mkdirs()
+      logFile.text = output.toString('UTF-8')
+      if (result.exitValue != expectation.exitCode || !logFile.text.contains(expectation.summary)) {
+        throw new GradleException("Unexpected runner result for '${expectation.filter}'; see ${logFile}")
+      }
+    }
+  }
+}
+
+def verifyLauncherArguments = tasks.register('verifyLauncherArguments') {
+  group = 'verification'
+  description = 'Checks launcher filters using the Gradle argument parser without starting Spark.'
+  doLast {
+    def fixtureRoot = layout.buildDirectory.dir('launcher-argument-checks').get().asFile
+    def launcher = new File(fixtureRoot, 'integrations/spark/integration-tests/run-openhouse.sh')
+    launcher.parentFile.mkdirs()
+    launcher.text = file('run-openhouse.sh').text
+    def javaExecutable = new File(fixtureRoot, 'jdk/bin/java')
+    javaExecutable.parentFile.mkdirs()
+    javaExecutable.text = '#!/usr/bin/env bash\necho \'openjdk version "17.0.1"\' >&2\n'
+    javaExecutable.setExecutable(true)
+    def gradleExecutable = new File(fixtureRoot, 'gradlew')
+    gradleExecutable.text = '#!/usr/bin/env bash\nprintf \'%s\\n\' "$@" > "$CAPTURED_ARGUMENTS"\n'
+    gradleExecutable.setExecutable(true)
+    def capturedArguments = new File(fixtureRoot, 'arguments.txt')
+    [
+      [],
+      ['read.projection @ parquet'],
+      ['read.projection', 'parquet'],
+      ['  spaced filter  ', "apostrophe's filter", 'path\\filter']
+    ].each { filters ->
+      exec {
+        commandLine(['bash', launcher.absolutePath] + filters)
+        environment 'JAVA17_HOME', javaExecutable.parentFile.parentFile.absolutePath
+        environment 'CAPTURED_ARGUMENTS', capturedArguments.absolutePath
+      }
+      def arguments = capturedArguments.readLines()
+      def decodedFilters = arguments.findAll { it.startsWith('--args=') }.collectMany {
+        org.apache.tools.ant.types.Commandline.translateCommandline(it.substring(7)).toList()
+      }
+      if (decodedFilters != filters) {
+        throw new GradleException("Launcher changed filters: expected ${filters}, received ${decodedFilters}")
+      }
+      if (!arguments.contains(':integrations:spark:openhouse-spark-integration-tests_2.12:runOpenHouse')) {
+        throw new GradleException('Launcher must select the embedded OpenHouse task.')
+      }
+    }
+  }
+}
+
+tasks.named('check') {
+  dependsOn verifyOpenHouseFoundation
+  dependsOn verifyPortableJar
+  dependsOn verifyTablePreparation
+  dependsOn verifyRunnerFilters
+  dependsOn verifyLauncherArguments
+}
+
+jar.enabled = true
