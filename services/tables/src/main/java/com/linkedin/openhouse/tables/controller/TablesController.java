@@ -5,6 +5,7 @@ import static com.linkedin.openhouse.common.security.AuthenticationUtils.*;
 import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.SearchTablesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
@@ -162,6 +163,61 @@ public class TablesController {
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetAllTablesResponseBody> apiResponse =
         tablesApiHandler.searchTables(
             databaseId, page, size, sortBy, fields, extractAuthenticatedUserPrincipal());
+
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Filtered Paginated Search Tables in a Database",
+      description =
+          "Returns a Page of Table resources present in a database, optionally narrowed by a "
+              + "filter supplied in the request body. The body is optional; when it is omitted, or "
+              + "carries no criteria, the whole database is searched. When the filter supplies a "
+              + "tableId, it is matched exactly and the page holds at most one table, which lets a "
+              + "caller interested in a single table avoid listing the database.",
+      tags = {"Table"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "Table SEARCH: OK"),
+        @ApiResponse(responseCode = "400", description = "Table SEARCH: BAD_REQUEST"),
+        @ApiResponse(responseCode = "401", description = "Table SEARCH: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "403", description = "Table SEARCH: FORBIDDEN"),
+        @ApiResponse(responseCode = "404", description = "Table SEARCH: NOT_FOUND")
+      })
+  @PostMapping(
+      value = {"/v3/databases/{databaseId}/tables/search"},
+      produces = {"application/json"})
+  public ResponseEntity<GetAllTablesResponseBody> searchTablesFiltered(
+      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
+      @Parameter(
+              description =
+                  "Optional filter narrowing the search. The body may be omitted entirely, in "
+                      + "which case the whole database is searched.",
+              schema = @Schema(implementation = SearchTablesRequestBody.class))
+          @RequestBody(required = false)
+          SearchTablesRequestBody searchTablesRequestBody,
+      @RequestParam(required = false, defaultValue = "0") int page,
+      @RequestParam(required = false, defaultValue = "50") int size,
+      @RequestParam(required = false) String sortBy,
+      @Parameter(
+              description =
+                  "Optional list of GetTableResponseBody field names to populate beyond the "
+                      + "identifiers (databaseId, tableId). Requires GET_TABLE_METADATA on the "
+                      + "database when set. Supported values: \"tableLocation\". Accepts "
+                      + "comma-separated (?fields=a,b) or repeated (?fields=a&fields=b) values.")
+          @RequestParam(name = "fields", required = false)
+          List<String> fields) {
+
+    com.linkedin.openhouse.common.api.spec.ApiResponse<GetAllTablesResponseBody> apiResponse =
+        tablesApiHandler.searchTables(
+            databaseId,
+            searchTablesRequestBody,
+            page,
+            size,
+            sortBy,
+            fields,
+            extractAuthenticatedUserPrincipal());
 
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());

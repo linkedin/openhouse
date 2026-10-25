@@ -28,6 +28,7 @@ import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.SearchTablesRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.History;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
@@ -1349,6 +1350,165 @@ public class TablesControllerTest {
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.message", containsString("schema")))
         .andExpect(jsonPath("$.message", containsString("tableLocation")));
+  }
+
+  @Test
+  public void testFilteredSearchTablesByTableId() throws Exception {
+    List<GetTableResponseBody> tables = new ArrayList<>();
+    for (int i = 0; i < 3; i++) {
+      GetTableResponseBody table = buildGetTableResponseBodyWithDbTbl("d1", "filtered" + i);
+      tables.add(table);
+      RequestAndValidateHelper.createTableAndValidateResponse(table, mvc, storageManager);
+    }
+
+    // A named table comes back on its own, with no trace of its siblings.
+    mvc.perform(
+            MockMvcRequestBuilders.post("/v3/databases/d1/tables/search")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(SearchTablesRequestBody.builder().tableId("filtered1").build().toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+        .andExpect(jsonPath("$.pageResults.content", hasSize(1)))
+        .andExpect(jsonPath("$.pageResults.content[0].tableId", is("filtered1")))
+        .andExpect(jsonPath("$.pageResults.content[0].databaseId", is("d1")))
+        .andExpect(jsonPath("$.pageResults.totalElements", is(1)));
+
+    // A name nobody holds is an empty result, not an error.
+    mvc.perform(
+            MockMvcRequestBuilders.post("/v3/databases/d1/tables/search")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(SearchTablesRequestBody.builder().tableId("absent").build().toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pageResults.content", hasSize(0)))
+        .andExpect(jsonPath("$.pageResults.totalElements", is(0)));
+
+    // The single match sits on the first page and nowhere after it.
+    mvc.perform(
+            MockMvcRequestBuilders.post("/v3/databases/d1/tables/search")
+                .param("page", "1")
+                .param("size", "10")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(SearchTablesRequestBody.builder().tableId("filtered1").build().toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pageResults.content", hasSize(0)))
+        .andExpect(jsonPath("$.pageResults.totalElements", is(1)));
+
+    for (GetTableResponseBody t : tables) {
+      RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, t);
+    }
+  }
+
+  /** Without a filter, v3 searches the whole database exactly as the unfiltered endpoint does. */
+  @Test
+  public void testFilteredSearchTablesWithoutFilterReturnsWholeDatabase() throws Exception {
+    List<GetTableResponseBody> tables = new ArrayList<>();
+    for (int i = 0; i < 3; i++) {
+      GetTableResponseBody table = buildGetTableResponseBodyWithDbTbl("d1", "unfiltered" + i);
+      tables.add(table);
+      RequestAndValidateHelper.createTableAndValidateResponse(table, mvc, storageManager);
+    }
+
+    // No body at all.
+    mvc.perform(
+            MockMvcRequestBuilders.post("/v3/databases/d1/tables/search")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pageResults.content", hasSize(3)))
+        .andExpect(jsonPath("$.pageResults.totalElements", is(3)));
+
+    // A body that carries no criteria.
+    mvc.perform(
+            MockMvcRequestBuilders.post("/v3/databases/d1/tables/search")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(SearchTablesRequestBody.builder().build().toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pageResults.content", hasSize(3)))
+        .andExpect(jsonPath("$.pageResults.totalElements", is(3)));
+
+    /* A JSON content type with nothing behind it, which is what the generated client sends when
+     * the caller passes a null filter: the content type is always set, the body is not. */
+    mvc.perform(
+            MockMvcRequestBuilders.post("/v3/databases/d1/tables/search")
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pageResults.content", hasSize(3)))
+        .andExpect(jsonPath("$.pageResults.totalElements", is(3)));
+
+    for (GetTableResponseBody t : tables) {
+      RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, t);
+    }
+  }
+
+  @Test
+  public void testFilteredSearchTablesHonoursFieldsParam() throws Exception {
+    GetTableResponseBody table = buildGetTableResponseBodyWithDbTbl("d1", "fieldfiltered");
+    RequestAndValidateHelper.createTableAndValidateResponse(table, mvc, storageManager);
+
+    mvc.perform(
+            MockMvcRequestBuilders.post("/v3/databases/d1/tables/search")
+                .param("fields", "tableLocation")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    SearchTablesRequestBody.builder().tableId("fieldfiltered").build().toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pageResults.content", hasSize(1)))
+        .andExpect(jsonPath("$.pageResults.content[0].tableId", is("fieldfiltered")))
+        .andExpect(
+            jsonPath(
+                "$.pageResults.content[0].tableLocation",
+                org.hamcrest.Matchers.endsWith(".metadata.json")));
+
+    // Unrequested fields stay absent on the filtered path too.
+    mvc.perform(
+            MockMvcRequestBuilders.post("/v3/databases/d1/tables/search")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    SearchTablesRequestBody.builder().tableId("fieldfiltered").build().toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pageResults.content", hasSize(1)))
+        .andExpect(jsonPath("$.pageResults.content[0].tableLocation").doesNotExist());
+
+    mvc.perform(
+            MockMvcRequestBuilders.post("/v3/databases/d1/tables/search")
+                .param("fields", "schema")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    SearchTablesRequestBody.builder().tableId("fieldfiltered").build().toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message", containsString("schema")));
+
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, table);
+  }
+
+  /**
+   * The filter names one table and only one, so anything that could widen it into a pattern is
+   * turned away before it reaches the catalog.
+   */
+  @Test
+  public void testFilteredSearchTablesRejectsWildcardTableId() throws Exception {
+    mvc.perform(
+            MockMvcRequestBuilders.post("/v3/databases/d1/tables/search")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(SearchTablesRequestBody.builder().tableId("prefix%").build().toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message", containsString("tableId")));
+
+    mvc.perform(
+            MockMvcRequestBuilders.post("/v3/databases/d1/tables/search")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(SearchTablesRequestBody.builder().tableId("").build().toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message", containsString("tableId")));
   }
 
   @Test
