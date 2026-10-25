@@ -15,6 +15,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.common.TableType;
+import com.linkedin.openhouse.tables.config.ReplicationProperties;
 import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PoliciesSpecMapper;
@@ -96,6 +97,8 @@ class LockEvaluationServiceTest {
     tables.authorizationHandler = handler;
     tables.tablesMapper = mapper;
     tables.readBridgeStripProtection = protection;
+    tables.replicationProperties = new ReplicationProperties();
+    tables.replicationCascadeProof = new ReplicationCascadeProof();
     snapshots = new IcebergSnapshotsServiceImpl();
     snapshots.openHouseInternalRepository = repository;
     snapshots.authorizationUtils = authorization;
