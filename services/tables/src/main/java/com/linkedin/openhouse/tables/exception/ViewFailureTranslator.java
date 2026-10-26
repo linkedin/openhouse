@@ -19,7 +19,7 @@ public final class ViewFailureTranslator {
    * any other failure is rethrown as a {@link ViewApiException}, except authorization failures,
    * which keep their own type for the dedicated advice.
    */
-  public static RuntimeException forWrite(RuntimeException e) {
+  public static RuntimeException translateWriteFailureTo(RuntimeException e) {
     if (e instanceof CommitStateUnknownException) {
       return new ViewApiException(
           ViewErrorCode.COMMIT_STATE_UNKNOWN, "View commit outcome unknown", e);
@@ -54,7 +54,7 @@ public final class ViewFailureTranslator {
   }
 
   /** Read-failure dispatch for failures that are not already a {@link ViewApiException}. */
-  public static ViewApiException forRead(RuntimeException e) {
+  public static ViewApiException translateReadFailureTo(RuntimeException e) {
     if (e instanceof HouseTableNotFoundException) {
       return new ViewApiException(ViewErrorCode.NO_SUCH_VIEW, "No such view", e);
     }

@@ -132,7 +132,7 @@ public class ViewsServiceImpl implements ViewsService {
     } catch (ViewApiException e) {
       throw e;
     } catch (RuntimeException e) {
-      throw ViewFailureTranslator.forRead(e);
+      throw ViewFailureTranslator.translateReadFailureTo(e);
     }
   }
 
@@ -146,7 +146,7 @@ public class ViewsServiceImpl implements ViewsService {
     } catch (ViewApiException e) {
       throw e;
     } catch (RuntimeException e) {
-      throw ViewFailureTranslator.forRead(e);
+      throw ViewFailureTranslator.translateReadFailureTo(e);
     }
   }
 
@@ -194,7 +194,7 @@ public class ViewsServiceImpl implements ViewsService {
       ViewDto dto = toCommittedDto(databaseId, viewId, result);
       return Pair.of(withClusterId(dto), result.isCreated());
     } catch (RuntimeException e) {
-      throw ViewFailureTranslator.forWrite(e);
+      throw ViewFailureTranslator.translateWriteFailureTo(e);
     }
   }
 
@@ -217,7 +217,7 @@ public class ViewsServiceImpl implements ViewsService {
       }
       deleteCapturedView(databaseId, viewId);
     } catch (RuntimeException e) {
-      throw ViewFailureTranslator.forWrite(e);
+      throw ViewFailureTranslator.translateWriteFailureTo(e);
     }
   }
 

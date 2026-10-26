@@ -43,7 +43,8 @@ public class ViewFailureTranslatorTest {
   public void writeFailuresMapToTypedCodesAndKeepTheCause(
       RuntimeException failure, ViewErrorCode expected) {
     ViewApiException translated =
-        assertInstanceOf(ViewApiException.class, ViewFailureTranslator.forWrite(failure));
+        assertInstanceOf(
+            ViewApiException.class, ViewFailureTranslator.translateWriteFailureTo(failure));
     assertEquals(expected, translated.getErrorCode());
     assertSame(failure, translated.getCause());
   }
@@ -53,9 +54,9 @@ public class ViewFailureTranslatorTest {
     RuntimeException typed = new ViewApiException(ViewErrorCode.NO_SUCH_VIEW, "x");
     RuntimeException denied = new AccessDeniedException("x");
     RuntimeException authUnavailable = new AuthorizationServiceException("x");
-    assertSame(typed, ViewFailureTranslator.forWrite(typed));
-    assertSame(denied, ViewFailureTranslator.forWrite(denied));
-    assertSame(authUnavailable, ViewFailureTranslator.forWrite(authUnavailable));
+    assertSame(typed, ViewFailureTranslator.translateWriteFailureTo(typed));
+    assertSame(denied, ViewFailureTranslator.translateWriteFailureTo(denied));
+    assertSame(authUnavailable, ViewFailureTranslator.translateWriteFailureTo(authUnavailable));
   }
 
   static Stream<Arguments> readFailures() {
@@ -71,7 +72,7 @@ public class ViewFailureTranslatorTest {
   @MethodSource("readFailures")
   public void readFailuresMapToTypedCodesAndKeepTheCause(
       RuntimeException failure, ViewErrorCode expected) {
-    ViewApiException translated = ViewFailureTranslator.forRead(failure);
+    ViewApiException translated = ViewFailureTranslator.translateReadFailureTo(failure);
     assertEquals(expected, translated.getErrorCode());
     assertSame(failure, translated.getCause());
   }
