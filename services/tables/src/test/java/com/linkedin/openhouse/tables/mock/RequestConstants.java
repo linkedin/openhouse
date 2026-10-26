@@ -42,6 +42,7 @@ public final class RequestConstants {
           .tableId("tb1")
           .clusterId("cl1")
           .baseTableVersion("INITIAL_VERSION")
+          .tableProperties(Collections.emptyMap())
           .build();
 
   public static final CreateUpdateTableRequestBody TEST_STAGE_CREATE_TABLE_REQUEST_BODY =
