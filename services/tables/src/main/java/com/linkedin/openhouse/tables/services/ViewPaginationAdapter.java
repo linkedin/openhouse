@@ -25,7 +25,7 @@ import org.springframework.data.domain.Sort;
 public class ViewPaginationAdapter {
 
   /** Fixed internal source-page size, independent of the caller's requested {@code size}. */
-  public static final int DEFAULT_SOURCE_PAGE_SIZE = 50;
+  public static final int DEFAULT_SOURCE_PAGE_SIZE = 100;
 
   /** The only supported public sort field, mapped to the HTS {@code tableId} column. */
   private static final String CANONICAL_SORT = "viewId";

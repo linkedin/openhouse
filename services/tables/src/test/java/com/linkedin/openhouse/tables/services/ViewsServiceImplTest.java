@@ -55,10 +55,13 @@ import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.catalog.Namespace;
@@ -1398,6 +1401,30 @@ public class ViewsServiceImplTest {
     verifyNoInteractions(viewCommitEngine, storageSelector, storageManager, authorizationHandler);
   }
 
+  @Test
+  public void listDefaultPageSizeUsesOneHtsFetchForOneHundredViews() {
+    existingEnabledDatabase();
+    Pageable requested = PageRequest.of(0, 100, Sort.by("tableId"));
+    List<HouseTable> rows =
+        IntStream.range(0, 100)
+            .mapToObj(index -> listedViewRow("view_" + index))
+            .collect(Collectors.toList());
+    when(houseTableRepository.findAllViewsByDatabaseId(ViewModelConstants.DATABASE_ID, requested))
+        .thenReturn(new PageImpl<>(rows, requested, 200));
+
+    ViewListResult result =
+        service.getAllViews(ViewModelConstants.DATABASE_ID, null, 100, "viewId", ACTING_PRINCIPAL);
+
+    assertEquals(100, result.getResults().size());
+    ViewPageCursor continuation = new ViewPageTokenCodec().decode(result.getNextPageToken());
+    assertEquals(100, continuation.getPageSize());
+    assertEquals(1, continuation.getSourcePageIndex());
+    assertEquals(0, continuation.getOffset());
+    verify(houseTableRepository, times(1))
+        .findAllViewsByDatabaseId(ViewModelConstants.DATABASE_ID, requested);
+    verifyNoMoreInteractions(houseTableRepository);
+  }
+
   /** Short and empty nonterminal pages keep their reported totals; only the terminal page ends. */
   @Test
   public void listKeepsShortAndEmptyNonterminalPagesDistinctFromTheTerminalPage() {
@@ -1414,12 +1441,20 @@ public class ViewsServiceImplTest {
             new PageImpl<>(
                 Collections.singletonList(listedViewRow(ViewModelConstants.VIEW_ID)),
                 shortNonterminal,
-                120));
+                3L * ViewPaginationAdapter.DEFAULT_SOURCE_PAGE_SIZE));
     when(houseTableRepository.findAllViewsByDatabaseId(
             ViewModelConstants.DATABASE_ID, emptyNonterminal))
-        .thenReturn(new PageImpl<>(Collections.<HouseTable>emptyList(), emptyNonterminal, 120));
+        .thenReturn(
+            new PageImpl<>(
+                Collections.<HouseTable>emptyList(),
+                emptyNonterminal,
+                3L * ViewPaginationAdapter.DEFAULT_SOURCE_PAGE_SIZE));
     when(houseTableRepository.findAllViewsByDatabaseId(ViewModelConstants.DATABASE_ID, terminal))
-        .thenReturn(new PageImpl<>(Collections.<HouseTable>emptyList(), terminal, 101));
+        .thenReturn(
+            new PageImpl<>(
+                Collections.<HouseTable>emptyList(),
+                terminal,
+                2L * ViewPaginationAdapter.DEFAULT_SOURCE_PAGE_SIZE + 1));
 
     ViewListResult result =
         service.getAllViews(ViewModelConstants.DATABASE_ID, null, 50, "viewId", ACTING_PRINCIPAL);
