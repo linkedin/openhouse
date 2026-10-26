@@ -2,7 +2,6 @@ package com.linkedin.openhouse.tables.exception;
 
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
-import com.linkedin.openhouse.internal.catalog.view.ViewNameOccupiedException;
 import com.linkedin.openhouse.internal.catalog.view.ViewSourceDialectMismatchException;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.CommitFailedException;
@@ -36,10 +35,6 @@ public final class ViewFailureTranslator {
     }
     if (e instanceof AlreadyExistsException) {
       return new ViewApiException(ViewErrorCode.VIEW_ALREADY_EXISTS, "View already exists", e);
-    }
-    if (e instanceof ViewNameOccupiedException) {
-      return new ViewApiException(
-          ViewErrorCode.NAME_ALREADY_EXISTS_AS_TABLE, "Name already exists as a table", e);
     }
     if (e instanceof CommitFailedException) {
       return new ViewApiException(
