@@ -59,10 +59,11 @@ final class CatalogRequestHeaders {
    * or names a header another property also names is ignored with a warning: initialization goes
    * on, and the catalog keeps its own values. The warning names the header, never the value.
    *
-   * <p>The headers always declare the capabilities the catalog implements in {@code
-   * X-OpenHouse-Client-Capabilities}; a configured value adds capabilities, never removes them.
+   * <p>{@code X-OpenHouse-Client-Capabilities} declares {@code capabilities}, the ones the catalog
+   * implements, followed by those a configured value adds; a configured value never removes one.
+   * With neither, the header is not sent.
    */
-  static HttpHeaders from(Map<String, String> properties) {
+  static HttpHeaders from(Map<String, String> properties, Set<String> capabilities) {
     HttpHeaders headers = new HttpHeaders();
     PropertyUtil.propertiesWithPrefix(properties, PREFIX)
         .forEach(
@@ -91,17 +92,16 @@ final class CatalogRequestHeaders {
         ignore(headers, header, "more than one property names it");
       }
     }
-    declare(headers, ReadBridge.CAPABILITY);
+    declare(headers, capabilities);
     return headers;
   }
 
   /**
-   * Declares {@code capability} first, then those the configured header declares, lower-cased and
+   * Declares {@code implemented} first, then those the configured header declares, lower-cased and
    * without duplicates.
    */
-  private static void declare(HttpHeaders headers, String capability) {
-    Set<String> capabilities = new LinkedHashSet<>();
-    capabilities.add(capability);
+  private static void declare(HttpHeaders headers, Set<String> implemented) {
+    Set<String> capabilities = new LinkedHashSet<>(implemented);
     String configured = headers.getFirst(WebClientFactory.HTTP_HEADER_CLIENT_CAPABILITIES);
     if (configured != null) {
       for (String declared : configured.split(",")) {
@@ -110,7 +110,11 @@ final class CatalogRequestHeaders {
         }
       }
     }
-    headers.set(WebClientFactory.HTTP_HEADER_CLIENT_CAPABILITIES, String.join(",", capabilities));
+    if (capabilities.isEmpty()) {
+      headers.remove(WebClientFactory.HTTP_HEADER_CLIENT_CAPABILITIES);
+    } else {
+      headers.set(WebClientFactory.HTTP_HEADER_CLIENT_CAPABILITIES, String.join(",", capabilities));
+    }
   }
 
   private static void ignore(HttpHeaders headers, String header, String reason) {

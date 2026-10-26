@@ -11,9 +11,12 @@ import com.linkedin.openhouse.relocated.org.springframework.web.reactive.functio
 import com.linkedin.openhouse.relocated.reactor.core.publisher.Mono;
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import okhttp3.mockwebserver.MockResponse;
@@ -161,7 +164,10 @@ public class SmokeTest {
     }
   }
 
-  /** Every catalog declares column-defaults; a configured value adds capabilities. */
+  /**
+   * The Java catalog declares no capability, an engine's catalog declares its own, and a configured
+   * value adds to either.
+   */
   @Test
   public void testCatalogDeclaresCapabilities() throws InterruptedException {
     String header = "X-OpenHouse-Client-Capabilities";
@@ -172,12 +178,30 @@ public class SmokeTest {
         "configured",
         ImmutableMap.of(
             CatalogProperties.URI, url, "header." + header, " V3, column-defaults,,branching"));
-    for (OpenHouseCatalog catalog : new OpenHouseCatalog[] {plain, configured}) {
+    OpenHouseCatalog engine = new ColumnDefaultsEngineCatalog();
+    engine.initialize("engine", ImmutableMap.of(CatalogProperties.URI, url));
+    OpenHouseCatalog engineConfigured = new ColumnDefaultsEngineCatalog();
+    engineConfigured.initialize(
+        "engineConfigured",
+        ImmutableMap.of(CatalogProperties.URI, url, "header." + header, " V3,,branching"));
+    Map<OpenHouseCatalog, String> expected = new LinkedHashMap<>();
+    expected.put(plain, null);
+    expected.put(configured, "v3,column-defaults,branching");
+    expected.put(engine, "column-defaults");
+    expected.put(engineConfigured, "column-defaults,v3,branching");
+    for (Map.Entry<OpenHouseCatalog, String> entry : expected.entrySet()) {
       mockTableService.enqueue(new MockResponse().setResponseCode(404));
-      Assertions.assertFalse(catalog.tableExists(TableIdentifier.of("db", "table")));
+      Assertions.assertFalse(entry.getKey().tableExists(TableIdentifier.of("db", "table")));
       Assertions.assertEquals(
-          catalog == plain ? "column-defaults" : "column-defaults,v3,branching",
-          mockTableService.takeRequest(1, TimeUnit.SECONDS).getHeader(header));
+          entry.getValue(), mockTableService.takeRequest(1, TimeUnit.SECONDS).getHeader(header));
+    }
+  }
+
+  /** A catalog for an engine that applies column defaults on read, as Spark's does. */
+  private static class ColumnDefaultsEngineCatalog extends OpenHouseCatalog {
+    @Override
+    protected Set<String> capabilities() {
+      return Collections.singleton(COLUMN_DEFAULTS_CAPABILITY);
     }
   }
 

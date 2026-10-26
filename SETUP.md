@@ -417,9 +417,12 @@ that declare `<name>`.
 `X-OpenHouse-Client-Capabilities` is a comma-separated, case-insensitive list; repeated headers add
 up. A capability is the client's promise about its own behavior: `column-defaults` means the client
 never returns rows from a table with column defaults without applying them, and never commits a
-schema that drops one. The Java catalogs (`OpenHouseCatalog`, and Spark catalogs built on it) apply
-column defaults and always declare `column-defaults`. Any other client declares capabilities itself:
-a Java catalog adds to its own with
+schema that drops one. The Spark catalog (`com.linkedin.openhouse.spark.OpenHouseCatalog`) declares
+`column-defaults`, because Spark reads rows through Iceberg's readers, which apply them. The Java
+catalog (`com.linkedin.openhouse.javaclient.OpenHouseCatalog`) loads column defaults into the
+table's schema but declares nothing: whether rows read through it carry them depends on the engine
+that reads them, so engines such as Trino that build on it are refused. Any other client declares
+capabilities itself: a Java catalog adds to its own with
 `spark.sql.catalog.openhouse.header.X-OpenHouse-Client-Capabilities=<name>,...` (or the same suffix
 in Java catalog properties), and other clients send the header. For example, a replication job that
 never scans rows can declare `column-defaults`. Every gated request is logged with the client's
