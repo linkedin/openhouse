@@ -131,7 +131,10 @@ public class ViewsController {
           @RequestParam(name = "pageToken", required = false)
           String pageToken,
       @Parameter(description = "Maximum number of views to return")
-          @RequestParam(name = "size", required = false, defaultValue = "50")
+          // TODO: 100 is a provisional default raised from 50 as a first step; the right value (or
+          // a hard cap / streamed listing) should be driven by experimentation and tracked
+          // separately. Keep in sync with the client listViews pagination loop.
+          @RequestParam(name = "size", required = false, defaultValue = "100")
           int size,
       @Parameter(description = "Optional single field to sort the results by")
           @RequestParam(name = "sortBy", required = false)

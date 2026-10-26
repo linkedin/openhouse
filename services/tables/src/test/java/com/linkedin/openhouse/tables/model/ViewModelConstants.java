@@ -79,9 +79,22 @@ public final class ViewModelConstants {
   public static final Map<String, String> VIEW_PROPERTIES;
 
   static {
+    VIEW_PROPERTIES = viewPropertiesWithSourceDialect(SOURCE_DIALECT);
+  }
+
+  /**
+   * The user view property every create/replace body must now carry, plus the required reserved
+   * source-dialect property set to {@code dialect}. {@link ReservedViewProperties#SOURCE_DIALECT}
+   * is a server-managed reserved key the client sets once at create, so the validator requires it
+   * and checks its value against the supported dialects and the supplied representations; fixtures
+   * aiming a request at a non-default dialect pass that dialect here so the value still names a
+   * supplied representation.
+   */
+  public static Map<String, String> viewPropertiesWithSourceDialect(String dialect) {
     Map<String, String> properties = new LinkedHashMap<>();
     properties.put("owner", "openhouse");
-    VIEW_PROPERTIES = Collections.unmodifiableMap(properties);
+    properties.put(ReservedViewProperties.SOURCE_DIALECT, dialect);
+    return Collections.unmodifiableMap(properties);
   }
 
   /** Every field populated, including both nullable optional fields and a replace token. */
@@ -298,7 +311,6 @@ public final class ViewModelConstants {
         .databaseId(DATABASE_ID)
         .schema(VIEW_SCHEMA_LITERAL)
         .representations(Collections.singletonList(SPARK_REPRESENTATION))
-        .sourceDialect(SOURCE_DIALECT)
         .defaultCatalog(DEFAULT_CATALOG)
         .defaultNamespace(DEFAULT_NAMESPACE)
         .viewProperties(VIEW_PROPERTIES);
