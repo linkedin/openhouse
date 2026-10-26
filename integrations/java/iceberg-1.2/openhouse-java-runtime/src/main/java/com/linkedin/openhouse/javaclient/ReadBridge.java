@@ -29,12 +29,6 @@ final class ReadBridge {
   /** Same prefix the server encoder stamps. */
   static final String COLUMN_DEFAULT_PREFIX = "openhouse.read-bridge.column-default.";
 
-  /**
-   * The capability this overlay gives every catalog, which declares it in {@code
-   * X-OpenHouse-Client-Capabilities}: tables that require it apply their column defaults on read.
-   */
-  static final String CAPABILITY = "column-defaults";
-
   /** Nothing to overlay. */
   static final ReadBridge INERT = new ReadBridge(Collections.emptyMap());
 
