@@ -59,6 +59,7 @@ dependencies {
   implementation("org.apache.hadoop:hadoop-client:" + hadoopVersion) {
     exclude group: 'junit', module: 'junit'
     exclude group: 'javax', module: 'servlet-api'
+    exclude group: 'org.mortbay.jetty', module: 'servlet-api' // see openhouse.hadoop-conventions.gradle
     exclude group: "io.netty"
     exclude group: 'com.zaxxer', module: 'HikariCP-java7'
     exclude group: 'org.apache.commons', module: 'commons-lang3'

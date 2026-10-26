@@ -31,11 +31,8 @@ import lombok.NoArgsConstructor;
 @Table(
     name = "table_operations",
     indexes = {
-      @Index(name = "idx_table_uuid", columnList = "table_uuid"),
-      @Index(name = "idx_op_type", columnList = "operation_type"),
-      @Index(name = "idx_status", columnList = "status"),
-      @Index(name = "idx_created_at", columnList = "created_at"),
-      @Index(name = "idx_scheduled_at", columnList = "scheduled_at")
+      @Index(name = "idx_to_table_uuid_optype", columnList = "table_uuid, operation_type"),
+      @Index(name = "idx_to_optype_status", columnList = "operation_type, status")
     })
 @Getter
 @EqualsAndHashCode

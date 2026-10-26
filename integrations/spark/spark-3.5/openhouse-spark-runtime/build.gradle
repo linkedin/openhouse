@@ -25,11 +25,12 @@ configurations {
   antlr
 }
 
-// Set source for antlr generated directory
+// Set source for antlr generated directory; builtBy gives every reader of the main source set
+// (compileJava, sourcesJar) the dependency on runAntlr.
 sourceSets {
   main {
     java {
-      srcDirs antlrMainGeneratedSrcDir
+      srcDir files(antlrMainGeneratedSrcDir).builtBy('runAntlr')
     }
   }
 }
@@ -47,8 +48,6 @@ task runAntlr(type: JavaExec) {
   maxHeapSize = "64m"
   classpath = configurations.antlr
 }
-
-compileJava.dependsOn runAntlr
 
 dependencies {
   // Required because we remove antlr plugin dependencies from the compile configuration

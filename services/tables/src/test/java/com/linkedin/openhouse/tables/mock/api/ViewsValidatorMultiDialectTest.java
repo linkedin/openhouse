@@ -47,22 +47,16 @@ public class ViewsValidatorMultiDialectTest {
 
   /** The source may name either configured dialect, not just the one that happens to be first. */
   @Test
-  public void validateAcceptsAConfiguredSourceDialectThatIsNotSpark() {
+  public void validateAcceptsOneRepresentationPerConfiguredDialectInEitherOrder() {
     assertDoesNotThrow(
         createOf(
             requestWith(
-                    Arrays.asList(ViewModelConstants.SPARK_REPRESENTATION, TRINO_REPRESENTATION))
-                .toBuilder()
-                .sourceDialect("trino")
-                .build()),
-        "trino is configured and is supplied as a representation, so it is a legal source dialect.");
+                Arrays.asList(TRINO_REPRESENTATION, ViewModelConstants.SPARK_REPRESENTATION))),
+        "A view defined in trino and spark is legal once both are configured, whichever order the"
+            + " representations arrive in.");
 
     assertDoesNotThrow(
-        createOf(
-            requestWith(Arrays.asList(TRINO_REPRESENTATION))
-                .toBuilder()
-                .sourceDialect("trino")
-                .build()),
+        createOf(requestWith(Arrays.asList(TRINO_REPRESENTATION))),
         "A view defined only in trino is legal once trino is configured.");
   }
 
@@ -80,15 +74,6 @@ public class ViewsValidatorMultiDialectTest {
                         .build()))),
         ViewErrorCode.UNSUPPORTED_VIEW_DIALECT,
         "representations[1].dialect : must be one of the supported dialects: spark, trino");
-
-    assertRejected(
-        createOf(
-            requestWith(Arrays.asList(ViewModelConstants.SPARK_REPRESENTATION))
-                .toBuilder()
-                .sourceDialect("presto")
-                .build()),
-        ViewErrorCode.UNSUPPORTED_VIEW_DIALECT,
-        "sourceDialect : must be one of the supported dialects: spark, trino");
   }
 
   /**
@@ -120,10 +105,32 @@ public class ViewsValidatorMultiDialectTest {
         "representations[1].dialect : must be one of the supported dialects: spark, trino");
   }
 
+  /**
+   * The source dialect must name one of the supplied representations. A supported dialect that is
+   * not among them is a dangling pointer, and only a multi-dialect deployment can exhibit it: the
+   * default configuration has a single dialect, so a supported source necessarily names the one
+   * representation. Here {@code trino} is configured and therefore passes the supported-set check,
+   * but the only representation is {@code spark}, so the source names nothing supplied.
+   */
+  @Test
+  public void validateRejectsASourceDialectThatNamesNoSuppliedRepresentation() {
+    assertRejected(
+        createOf(
+            ViewModelConstants.createRequestWithoutBaseVersion()
+                .toBuilder()
+                .representations(Arrays.asList(ViewModelConstants.SPARK_REPRESENTATION))
+                .viewProperties(ViewModelConstants.viewPropertiesWithSourceDialect("trino"))
+                .build()),
+        ViewErrorCode.UNSUPPORTED_VIEW_DIALECT,
+        "openhouse.view.sourceDialect : must name a supplied representation");
+  }
+
   private CreateUpdateViewRequestBody requestWith(List<ViewRepresentation> representations) {
     return ViewModelConstants.createRequestWithoutBaseVersion()
         .toBuilder()
         .representations(representations)
+        .viewProperties(
+            ViewModelConstants.viewPropertiesWithSourceDialect(representations.get(0).getDialect()))
         .build();
   }
 
