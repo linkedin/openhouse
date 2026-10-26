@@ -36,38 +36,27 @@ public class ViewPageTokenCodec {
   }
 
   public ViewPageCursor decode(String token) {
-    try {
-      String decoded = new String(Base64.getUrlDecoder().decode(token), StandardCharsets.UTF_8);
-      String[] fields = splitExact(decoded, 6);
-      String payload =
-          String.join(
-              String.valueOf(FIELD_SEPARATOR),
-              fields[0],
-              fields[1],
-              fields[2],
-              fields[3],
-              fields[4]);
-      String expectedChecksum = checksum(payload);
-      if (!expectedChecksum.equals(fields[5])) {
-        throw new IllegalArgumentException("View page token failed integrity check");
-      }
-      // Alternate padding bits in the last Base64 character decode to the same bytes, so require
-      // the token to equal its canonical encoding.
-      String canonical = encodeFields(payload, expectedChecksum);
-      if (!canonical.equals(token)) {
-        throw new IllegalArgumentException("View page token failed integrity check");
-      }
-      return new ViewPageCursor(
-          fields[0],
-          fields[1],
-          Integer.parseInt(fields[2]),
-          Integer.parseInt(fields[3]),
-          Integer.parseInt(fields[4]));
-    } catch (IllegalArgumentException e) {
-      throw e;
-    } catch (RuntimeException e) {
-      throw new IllegalArgumentException("Malformed view page token", e);
+    String decoded = new String(Base64.getUrlDecoder().decode(token), StandardCharsets.UTF_8);
+    String[] fields = splitExact(decoded, 6);
+    String payload =
+        String.join(
+            String.valueOf(FIELD_SEPARATOR), fields[0], fields[1], fields[2], fields[3], fields[4]);
+    String expectedChecksum = checksum(payload);
+    if (!expectedChecksum.equals(fields[5])) {
+      throw new IllegalArgumentException("View page token failed integrity check");
     }
+    // Alternate padding bits in the last Base64 character decode to the same bytes, so require
+    // the token to equal its canonical encoding.
+    String canonical = encodeFields(payload, expectedChecksum);
+    if (!canonical.equals(token)) {
+      throw new IllegalArgumentException("View page token failed integrity check");
+    }
+    return new ViewPageCursor(
+        fields[0],
+        fields[1],
+        Integer.parseInt(fields[2]),
+        Integer.parseInt(fields[3]),
+        Integer.parseInt(fields[4]));
   }
 
   private static String[] splitExact(String decoded, int expectedFieldCount) {
