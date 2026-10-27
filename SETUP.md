@@ -412,10 +412,15 @@ endpoints, such as search, delete, rename, ACL, lock, purge and restore, are not
 checks each request: it cannot revoke metadata a client already loaded, and it never sees reads or
 writes that go straight to the table's files in storage. Tables without that property are never
 checked. The same applies to any capability: `required-capability.<name>=true` admits only clients
-that declare `<name>`. The property must be lowercase; a write that sets one with an uppercase
-letter is rejected (`400`), because no client could declare that name.
+that declare `<name>`.
 
-`X-OpenHouse-Client-Capabilities` is a comma-separated, case-insensitive list; repeated headers add
+Capability names are case-insensitive: `X-OpenHouse-Client-Capabilities` values and the `<name>` in
+`required-capability.<name>` are compared in lowercase. Table property keys themselves follow
+Iceberg and are exact: only `required-capability.column-defaults` turns on column defaults and the
+opt-in rule above. `required-capability.Column-Defaults=true` still admits only clients that declare
+`column-defaults`, but it is not the opt-in.
+
+`X-OpenHouse-Client-Capabilities` is a comma-separated list; repeated headers add
 up. A capability is the client's promise about its own behavior: `column-defaults` means the client
 never returns rows from a table with column defaults without applying them, and never commits a
 schema that drops one. The Spark catalog (`com.linkedin.openhouse.spark.OpenHouseCatalog`) declares

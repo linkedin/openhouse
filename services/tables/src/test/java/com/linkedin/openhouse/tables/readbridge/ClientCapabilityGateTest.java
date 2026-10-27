@@ -3,7 +3,6 @@ package com.linkedin.openhouse.tables.readbridge;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.Collections;
@@ -96,21 +95,13 @@ public class ClientCapabilityGateTest {
         () -> bypass.checkLoad(table(ImmutableMap.of(COLUMN_DEFAULTS, "true", V3, "true"))));
   }
 
-  /** Clients declare in lowercase, so a mixed-case capability property would lock the table out. */
+  /** Names compare in lowercase, like the header, so a mixed-case property cannot lock a table. */
   @Test
-  void writesRejectMixedCaseCapabilityProperties() {
-    ClientCapabilityGate declared = gate(ImmutableSet.of("column-defaults"));
-    RequestValidationFailureException e =
-        Assertions.assertThrows(
-            RequestValidationFailureException.class,
-            () ->
-                declared.checkWrite(
-                    "db",
-                    "tbl",
-                    Optional.empty(),
-                    ImmutableMap.of("required-capability.Column-Defaults", "false")));
-    Assertions.assertTrue(e.getMessage().contains("required-capability.column-defaults"));
-    declared.checkWrite("db", "tbl", Optional.empty(), ImmutableMap.of(COLUMN_DEFAULTS, "true"));
+  void capabilityNamesIgnoreCase() {
+    TableDto table = table(ImmutableMap.of("required-capability.Column-Defaults", "true"));
+    gate(ImmutableSet.of("column-defaults")).checkLoad(table);
+    Assertions.assertThrows(
+        ClientCapabilityMissingException.class, () -> gate(ImmutableSet.of("v3")).checkLoad(table));
   }
 
   private static TableDto table(Map<String, String> properties) {
