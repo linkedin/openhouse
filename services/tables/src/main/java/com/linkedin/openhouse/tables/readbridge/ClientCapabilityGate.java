@@ -1,8 +1,10 @@
 package com.linkedin.openhouse.tables.readbridge;
 
+import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.model.TableDto;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -12,7 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * Admits a request to a table only if its client declares every capability the table requires. A
  * table requires capability {@code <name>} with the property {@code
- * required-capability.<name>=true}; a client declares capabilities in {@value
+ * required-capability.<name>=true}, all lowercase; a client declares capabilities in {@value
  * TablesMvcConstants#HTTP_HEADER_CLIENT_CAPABILITIES}. Called after authorization, before loads and
  * writes. Tables that require nothing are never checked.
  */
@@ -45,13 +47,37 @@ public class ClientCapabilityGate {
    * stored} table or the {@code proposed} properties require. {@code stored} is empty when the
    * write creates the table.
    *
+   * @throws RequestValidationFailureException (400) if a proposed {@code required-capability.*}
+   *     property is not lowercase
    * @throws ClientCapabilityMissingException (422) if the client lacks a required capability
    */
   public void checkWrite(
       String databaseId, String tableId, Optional<TableDto> stored, Map<String, String> proposed) {
+    rejectNonLowercase(proposed);
     Set<String> required = required(proposed);
     stored.ifPresent(table -> required.addAll(required(table.getTableProperties())));
     require(databaseId + "." + tableId, required);
+  }
+
+  /**
+   * Clients declare capabilities in lowercase, so a capability property with an uppercase letter
+   * would require a name no client can declare, locking the table out.
+   */
+  private static void rejectNonLowercase(Map<String, String> proposed) {
+    if (proposed == null) {
+      return;
+    }
+    proposed.keySet().stream()
+        .filter(key -> key.startsWith(REQUIRED_CAPABILITY_PREFIX))
+        .filter(key -> !key.equals(key.toLowerCase(Locale.ROOT)))
+        .findFirst()
+        .ifPresent(
+            key -> {
+              throw new RequestValidationFailureException(
+                  String.format(
+                      "Table property %s must be lowercase: use %s.",
+                      key, key.toLowerCase(Locale.ROOT)));
+            });
   }
 
   /**

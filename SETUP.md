@@ -412,7 +412,8 @@ endpoints, such as search, delete, rename, ACL, lock, purge and restore, are not
 checks each request: it cannot revoke metadata a client already loaded, and it never sees reads or
 writes that go straight to the table's files in storage. Tables without that property are never
 checked. The same applies to any capability: `required-capability.<name>=true` admits only clients
-that declare `<name>`.
+that declare `<name>`. The property must be lowercase; a write that sets one with an uppercase
+letter is rejected (`400`), because no client could declare that name.
 
 `X-OpenHouse-Client-Capabilities` is a comma-separated, case-insensitive list; repeated headers add
 up. A capability is the client's promise about its own behavior: `column-defaults` means the client
