@@ -21,9 +21,10 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.types.Types;
 
 /**
- * Type 1 / Type 2 strip protection for column defaults. Default-aware clients send {@code
- * initial-default} on the commit schema; this class uses that as the handshake, then drops every
- * {@code initial-default} before persist so overlays cannot land in Iceberg metadata.
+ * Type 1 / Type 2 strip protection for column defaults. Type 1 reads the {@code initial-default}
+ * values a commit's schema carries to check that stamped columns keep their defaults; Type 2 asks
+ * {@link ClientCapabilityGate} whether the commit's client is default-aware. Every {@code
+ * initial-default} is dropped before persist so overlays cannot land in Iceberg metadata.
  *
  * <p>The catalog applies the rules only after its stale-base check, so they always judge a commit
  * against the table's current version. A commit built on an older version gets the retryable
