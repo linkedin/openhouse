@@ -74,8 +74,8 @@ public class TableOperationsHistoryRow {
   private HistoryStatus status;
 
   /**
-   * Why the operation failed, as reported by the executor; {@code null} for SUCCESS. Free-form
-   * (exception class + message, or a classified category), truncated by the caller to fit.
+   * Why a FAILED operation failed, as {@code ExceptionClass: message} (truncated), as reported by
+   * the executor; {@code null} for SUCCESS. The full stack trace lives in the executor logs.
    */
   @Column(name = "failure_reason", length = 1024)
   private String failureReason;

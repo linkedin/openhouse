@@ -58,9 +58,6 @@ import org.apache.commons.lang3.StringUtils;
 @Slf4j
 public class BatchedTableStatsCollectionSparkApp extends BaseSparkApp {
 
-  /** Keep the reported failure reason within the optimizer {@code failure_reason} column bound. */
-  private static final int MAX_FAILURE_REASON_LENGTH = 1024;
-
   private final List<BatchEntry> entries;
   private final String resultsEndpoint;
   private final int driverParallelism;
@@ -151,11 +148,7 @@ public class BatchedTableStatsCollectionSparkApp extends BaseSparkApp {
           "Worker threw outside its own catch for fqtn={} — reporting FAILED",
           entry.getFqtn(),
           e.getCause());
-      reportResult(
-          entry,
-          UpdateOperationRequest.StatusEnum.FAILED,
-          "worker leaked: " + describeFailure(e.getCause()),
-          client);
+      reportResult(entry, TableOperationResult.failure(e.getCause()), client);
       return 0;
     }
   }
@@ -189,50 +182,45 @@ public class BatchedTableStatsCollectionSparkApp extends BaseSparkApp {
    * the Analyzer's stale-timeout can re-queue it.
    */
   private void reportResult(
-      BatchEntry entry,
-      UpdateOperationRequest.StatusEnum status,
-      String failureReason,
-      Optional<OptimizerServiceClient> client) {
+      BatchEntry entry, TableOperationResult result, Optional<OptimizerServiceClient> client) {
     if (!client.isPresent()) {
       return;
     }
-    UpdateOperationRequest body =
-        new UpdateOperationRequest()
-            .operationId(entry.getOperationId().orElse(null))
-            .status(status)
-            .tableUuid(entry.getTableUuid().orElse(null))
-            .databaseName(entry.getDatabaseName())
-            .tableName(entry.getTableName())
-            .operationType(UpdateOperationRequest.OperationTypeEnum.TABLE_STATS_COLLECTION)
-            .failureReason(
-                status == UpdateOperationRequest.StatusEnum.FAILED ? failureReason : null);
-    if (!client.get().updateOperation(entry.getOperationId().orElse(null), body).isPresent()) {
+    // Reporting must never throw out of the worker: a failure here (e.g. a missing operationId
+    // makes OptimizerServiceClient.updateOperation throw NPE) would otherwise leak to awaitOne, be
+    // re-reported, and fail the whole batch. Log and move on; the row stays SCHEDULED until the
+    // stale-timeout reclaims it.
+    try {
+      UpdateOperationRequest body =
+          new UpdateOperationRequest()
+              .operationId(entry.getOperationId().orElse(null))
+              .status(
+                  result.isSuccess()
+                      ? UpdateOperationRequest.StatusEnum.SUCCESS
+                      : UpdateOperationRequest.StatusEnum.FAILED)
+              .tableUuid(entry.getTableUuid().orElse(null))
+              .databaseName(entry.getDatabaseName())
+              .tableName(entry.getTableName())
+              .operationType(UpdateOperationRequest.OperationTypeEnum.TABLE_STATS_COLLECTION)
+              .failureReason(result.failureReason().orElse(null));
+      if (!client.get().updateOperation(entry.getOperationId().orElse(null), body).isPresent()) {
+        log.error(
+            "Failed to report operation result after retries; row will stay SCHEDULED until stale-timeout: operationId={} fqtn={}",
+            entry.getOperationId().orElse(null),
+            entry.getFqtn());
+        otelEmitter.count(
+            METRICS_SCOPE,
+            "optimizer_update_failed",
+            1,
+            Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), entry.getFqtn()));
+      }
+    } catch (Throwable t) {
       log.error(
-          "Failed to report operation result after retries; row will stay SCHEDULED until stale-timeout: operationId={} fqtn={}",
+          "reportResult threw; row will stay SCHEDULED until stale-timeout: operationId={} fqtn={}",
           entry.getOperationId().orElse(null),
-          entry.getFqtn());
-      otelEmitter.count(
-          METRICS_SCOPE,
-          "optimizer_update_failed",
-          1,
-          Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), entry.getFqtn()));
+          entry.getFqtn(),
+          t);
     }
-  }
-
-  /**
-   * Compact, bounded failure description for the optimizer history ({@code exceptionClass:
-   * message}), so dashboards can show why a table failed without a full stack trace. Truncated to
-   * fit the {@code failure_reason} column.
-   */
-  private static String describeFailure(Throwable t) {
-    if (t == null) {
-      return null;
-    }
-    String msg = t.getMessage();
-    String reason = t.getClass().getSimpleName() + (msg == null ? "" : ": " + msg);
-    return reason.length() > MAX_FAILURE_REASON_LENGTH
-        ? reason.substring(0, MAX_FAILURE_REASON_LENGTH)
-        : reason;
   }
 
   /** One unit of work in a batched stats-collection job. */
@@ -250,36 +238,25 @@ public class BatchedTableStatsCollectionSparkApp extends BaseSparkApp {
     @Override
     public Boolean call() {
       String fqtn = entry.getFqtn();
-      UpdateOperationRequest.StatusEnum status = UpdateOperationRequest.StatusEnum.FAILED;
-      String failureReason = null;
+      TableOperationResult result;
       try {
         log.info(
             "Stats collection start: fqtn={} operationId={}",
             fqtn,
             entry.getOperationId().orElse(""));
         collectAndPublish(fqtn);
-        status = UpdateOperationRequest.StatusEnum.SUCCESS;
         log.info("Stats collection success: fqtn={}", fqtn);
+        result = TableOperationResult.success();
       } catch (Throwable t) {
-        failureReason = describeFailure(t);
         log.error(
             "Stats collection failed: fqtn={} operationId={}",
             fqtn,
             entry.getOperationId().orElse(""),
             t);
-      } finally {
-        // Defensive: reportResult must not throw out of the finally block, since that would mask
-        // the original failure and propagate up to awaitOne, which would then report FAILED again.
-        try {
-          reportResult(entry, status, failureReason, client);
-        } catch (Throwable t) {
-          log.error(
-              "reportResult itself threw; operation row will stay SCHEDULED until stale-timeout: fqtn={}",
-              fqtn,
-              t);
-        }
+        result = TableOperationResult.failure(t);
       }
-      return status == UpdateOperationRequest.StatusEnum.SUCCESS;
+      reportResult(entry, result, client);
+      return result.isSuccess();
     }
 
     /**
