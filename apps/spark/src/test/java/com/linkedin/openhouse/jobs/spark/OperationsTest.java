@@ -1669,12 +1669,8 @@ public class OperationsTest extends OpenHouseSparkITest {
       Assertions.assertEquals(
           stats.getCurrentSnapshotTimestamp(), table.currentSnapshot().timestampMillis());
       Assertions.assertEquals(stats.getOldestSnapshotTimestamp(), oldestSnapshot);
-      Assertions.assertEquals(
-          stats.getNumObjectsInDirectory(),
-          stats.getNumReferencedDataFiles()
-              + stats.getNumExistingMetadataJsonFiles()
-              + stats.getNumReferencedManifestFiles()
-              + stats.getNumReferencedManifestLists());
+      Assertions.assertNull(stats.getNumObjectsInDirectory());
+      Assertions.assertNull(stats.getTotalDirectorySizeInBytes());
     }
   }
 
