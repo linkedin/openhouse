@@ -13,13 +13,7 @@ public enum HistoryStatusDto {
   SUCCESS,
 
   /** The operation failed. */
-  FAILED,
-
-  /**
-   * A submitted job that never reported a terminal result and has passed the stale-timeout. Treated
-   * as a non-success (a failure) by the circuit breaker's streak count.
-   */
-  TIMED_OUT;
+  FAILED;
 
   /** Convert to the DB-layer counterpart. */
   public com.linkedin.openhouse.optimizer.db.HistoryStatus toDb() {

@@ -102,7 +102,7 @@ class AnalyzerRunnerTest {
   }
 
   @Test
-  void analyze_countsConsecutiveFailures_fromRecentHistory_andPassesToShouldSchedule() {
+  void analyze_countsConsecutiveFailures_fromRecentSubmissions_andPassesToShouldSchedule() {
     TableStatsRow statsEntity =
         TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
     TableDto expectedTable = TableDto.fromRow(statsEntity);
@@ -119,29 +119,85 @@ class AnalyzerRunnerTest {
             eq(Optional.empty()),
             any()))
         .thenReturn(Collections.emptyList());
-    // Latest run FAILED → the runner loads the recent window to measure the streak.
+    // Latest run FAILED → not healthy → the runner walks recent submissions to measure the streak.
     when(historyRepo.findLatest(eq(OFD_DB), any()))
-        .thenReturn(List.of(failedHistoryRow(Instant.now().minusSeconds(36_000))));
+        .thenReturn(List.of(failedHistoryRow("op-1", Instant.now().minusSeconds(100))));
+    // Three submissions, each with a FAILED outcome (history shares the submission's op id).
+    when(operationsRepo.findRecentSubmissions(eq("uuid-1"), eq(OFD_DB), any()))
+        .thenReturn(
+            List.of(
+                submittedOpRow("op-1", Instant.now().minusSeconds(100)),
+                submittedOpRow("op-2", Instant.now().minusSeconds(200)),
+                submittedOpRow("op-3", Instant.now().minusSeconds(300))));
     when(historyRepo.findRecent(eq("uuid-1"), eq(OFD_DB), any()))
         .thenReturn(
             List.of(
-                failedHistoryRow(Instant.now().minusSeconds(100)),
-                failedHistoryRow(Instant.now().minusSeconds(200)),
-                failedHistoryRow(Instant.now().minusSeconds(300))));
+                failedHistoryRow("op-1", Instant.now().minusSeconds(100)),
+                failedHistoryRow("op-2", Instant.now().minusSeconds(200)),
+                failedHistoryRow("op-3", Instant.now().minusSeconds(300))));
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
-    when(analyzer.shouldSchedule(eq(expectedTable), eq(Optional.empty()), any(), eq(3)))
-        .thenReturn(false);
+    when(analyzer.shouldSchedule(eq(expectedTable), any(), any(), eq(3))).thenReturn(false);
 
     runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
 
-    // The runner derived consecutiveFailures=3 from the recent window and passed it through.
-    verify(analyzer).shouldSchedule(eq(expectedTable), eq(Optional.empty()), any(), eq(3));
+    // The runner derived consecutiveFailures=3 from the recent submissions and passed it through.
+    verify(analyzer).shouldSchedule(eq(expectedTable), any(), any(), eq(3));
     verify(operationsRepo, never()).save(any());
   }
 
-  private static TableOperationsHistoryRow failedHistoryRow(Instant completedAt) {
+  @Test
+  void analyze_countsLogicalTimeout_asNonSuccess() {
+    TableStatsRow statsEntity =
+        TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
+    TableDto expectedTable = TableDto.fromRow(statsEntity);
+    TableOperationsRow staleOp = submittedOpRow("op-dead", Instant.now().minusSeconds(20_000));
+
+    when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
+        .thenReturn(List.of(statsEntity));
+    // Current op is a stale SCHEDULED submission with no history → a logical timeout, no history
+    // row.
+    when(operationsRepo.find(
+            eq(Optional.of(OFD_DB)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.of(DB)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            any()))
+        .thenReturn(List.of(staleOp));
+    when(historyRepo.findLatest(eq(OFD_DB), any())).thenReturn(Collections.emptyList());
+    when(operationsRepo.findRecentSubmissions(eq("uuid-1"), eq(OFD_DB), any()))
+        .thenReturn(List.of(staleOp));
+    when(historyRepo.findRecent(eq("uuid-1"), eq(OFD_DB), any()))
+        .thenReturn(Collections.emptyList());
+    when(analyzer.isActiveOpTimedOut(any())).thenReturn(true);
+    when(analyzer.isEnabled(expectedTable)).thenReturn(true);
+    when(analyzer.shouldSchedule(eq(expectedTable), any(), any(), eq(1))).thenReturn(false);
+
+    runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
+
+    // The timed-out submission with no history counts as one non-success.
+    verify(analyzer).shouldSchedule(eq(expectedTable), any(), any(), eq(1));
+  }
+
+  private static TableOperationsRow submittedOpRow(String id, Instant scheduledAt) {
+    return TableOperationsRow.builder()
+        .id(id)
+        .status(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)
+        .tableUuid("uuid-1")
+        .databaseName(DB)
+        .tableName("tbl1")
+        .operationType(OFD_DB)
+        .createdAt(scheduledAt.minusSeconds(100))
+        .scheduledAt(scheduledAt)
+        .jobId("job-" + id)
+        .build();
+  }
+
+  private static TableOperationsHistoryRow failedHistoryRow(String id, Instant completedAt) {
     return TableOperationsHistoryRow.builder()
-        .id("hist-" + completedAt.toEpochMilli())
+        .id(id)
         .tableUuid("uuid-1")
         .databaseName(DB)
         .tableName("tbl1")
@@ -387,122 +443,5 @@ class AnalyzerRunnerTest {
     verify(operationsRepo).save(any());
     // A supplied database filter short-circuits the all-databases resolution.
     verify(statsRepo, never()).findDistinctDatabaseNames();
-  }
-
-  @Test
-  void analyze_recordsTimedOut_whenSupersedingStaleScheduledSubmission() {
-    TableStatsRow statsEntity =
-        TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
-    TableDto expectedTable = TableDto.fromRow(statsEntity);
-
-    TableOperationsRow scheduled = scheduledOpRow("dead-op-id");
-
-    when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
-        .thenReturn(List.of(statsEntity));
-    stubOpsFind(List.of(scheduled));
-    when(historyRepo.findLatest(eq(OFD_DB), any())).thenReturn(Collections.emptyList());
-    when(historyRepo.existsById("dead-op-id")).thenReturn(false);
-    when(analyzer.isEnabled(expectedTable)).thenReturn(true);
-    when(analyzer.shouldSchedule(eq(expectedTable), any(), any(), eq(0))).thenReturn(true);
-
-    runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
-
-    ArgumentCaptor<TableOperationsHistoryRow> histCaptor =
-        ArgumentCaptor.forClass(TableOperationsHistoryRow.class);
-    verify(historyRepo).save(histCaptor.capture());
-    assertThat(histCaptor.getValue().getId()).isEqualTo("dead-op-id");
-    assertThat(histCaptor.getValue().getStatus())
-        .isEqualTo(com.linkedin.openhouse.optimizer.db.HistoryStatus.TIMED_OUT);
-    // Still creates a fresh PENDING to retry the superseded submission.
-    verify(operationsRepo).save(any());
-  }
-
-  @Test
-  void analyze_doesNotRecordTimedOut_whenTerminalHistoryAlreadyExists() {
-    TableStatsRow statsEntity =
-        TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
-    TableDto expectedTable = TableDto.fromRow(statsEntity);
-
-    when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
-        .thenReturn(List.of(statsEntity));
-    stubOpsFind(List.of(scheduledOpRow("already-recorded")));
-    when(historyRepo.findLatest(eq(OFD_DB), any())).thenReturn(Collections.emptyList());
-    when(historyRepo.existsById("already-recorded")).thenReturn(true);
-    when(analyzer.isEnabled(expectedTable)).thenReturn(true);
-    when(analyzer.shouldSchedule(eq(expectedTable), any(), any(), eq(0))).thenReturn(true);
-
-    runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
-
-    verify(historyRepo, never()).save(any());
-    // A fresh PENDING is still created.
-    verify(operationsRepo).save(any());
-  }
-
-  @Test
-  void analyze_countsTimedOutAsNonSuccess_inStreak() {
-    TableStatsRow statsEntity =
-        TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
-    TableDto expectedTable = TableDto.fromRow(statsEntity);
-
-    when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
-        .thenReturn(List.of(statsEntity));
-    stubOpsFind(Collections.emptyList());
-    // Latest run TIMED_OUT (a non-success) → the runner measures the streak, which mixes
-    // TIMED_OUT and FAILED and stops at the first SUCCESS.
-    when(historyRepo.findLatest(eq(OFD_DB), any()))
-        .thenReturn(List.of(timedOutHistoryRow(Instant.now().minusSeconds(100))));
-    when(historyRepo.findRecent(eq("uuid-1"), eq(OFD_DB), any()))
-        .thenReturn(
-            List.of(
-                timedOutHistoryRow(Instant.now().minusSeconds(100)),
-                failedHistoryRow(Instant.now().minusSeconds(200)),
-                timedOutHistoryRow(Instant.now().minusSeconds(300))));
-    when(analyzer.isEnabled(expectedTable)).thenReturn(true);
-    when(analyzer.shouldSchedule(eq(expectedTable), eq(Optional.empty()), any(), eq(3)))
-        .thenReturn(false);
-
-    runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
-
-    verify(analyzer).shouldSchedule(eq(expectedTable), eq(Optional.empty()), any(), eq(3));
-    verify(operationsRepo, never()).save(any());
-  }
-
-  private void stubOpsFind(List<TableOperationsRow> rows) {
-    when(operationsRepo.find(
-            eq(Optional.of(OFD_DB)),
-            eq(Optional.empty()),
-            eq(Optional.empty()),
-            eq(Optional.of(DB)),
-            eq(Optional.empty()),
-            eq(Optional.empty()),
-            eq(Optional.empty()),
-            any()))
-        .thenReturn(rows);
-  }
-
-  private static TableOperationsRow scheduledOpRow(String id) {
-    return TableOperationsRow.builder()
-        .id(id)
-        .status(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)
-        .tableUuid("uuid-1")
-        .databaseName(DB)
-        .tableName("tbl1")
-        .operationType(OFD_DB)
-        .createdAt(Instant.now().minusSeconds(20_000))
-        .scheduledAt(Instant.now().minusSeconds(18_000))
-        .jobId("job-1")
-        .build();
-  }
-
-  private static TableOperationsHistoryRow timedOutHistoryRow(Instant completedAt) {
-    return TableOperationsHistoryRow.builder()
-        .id("hist-to-" + completedAt.toEpochMilli())
-        .tableUuid("uuid-1")
-        .databaseName(DB)
-        .tableName("tbl1")
-        .operationType(OFD_DB)
-        .completedAt(completedAt)
-        .status(com.linkedin.openhouse.optimizer.db.HistoryStatus.TIMED_OUT)
-        .build();
   }
 }

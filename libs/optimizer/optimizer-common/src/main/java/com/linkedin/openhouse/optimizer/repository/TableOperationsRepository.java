@@ -17,6 +17,23 @@ import org.springframework.transaction.annotation.Transactional;
 public interface TableOperationsRepository extends JpaRepository<TableOperationsRow, String> {
 
   /**
+   * Return the table's recent <i>submissions</i> for an operation type — rows that reached {@code
+   * SCHEDULED} (i.e. carry a {@code scheduledAt}) — newest first by submission time. Because a
+   * table has at most one active op at a time, this is the submission sequence the circuit breaker
+   * walks to count the consecutive non-success streak (each row's outcome comes from its same-id
+   * history row, or is a logical timeout when none exists). {@code pageable} caps the window.
+   */
+  @Query(
+      "SELECT r FROM TableOperationsRow r "
+          + "WHERE r.tableUuid = :tableUuid AND r.operationType = :operationType "
+          + "AND r.scheduledAt IS NOT NULL "
+          + "ORDER BY r.scheduledAt DESC")
+  List<TableOperationsRow> findRecentSubmissions(
+      @Param("tableUuid") String tableUuid,
+      @Param("operationType") OperationType operationType,
+      Pageable pageable);
+
+  /**
    * Find operation rows matching the given filters. Every filter is optional ({@link
    * Optional#empty()} to skip). {@code pageable} is required; callers pick the row cap (default
    * limit lives in {@code optimizer.repo.default-limit}).

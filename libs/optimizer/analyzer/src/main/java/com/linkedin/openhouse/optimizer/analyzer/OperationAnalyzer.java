@@ -45,14 +45,24 @@ public interface OperationAnalyzer {
   }
 
   /**
+   * Whether the given active op is a submitted job that has timed out — exceeded the stale-timeout
+   * with no success. This "logical timeout" is derived, never persisted; the circuit breaker counts
+   * it as a non-success alongside explicitly FAILED history.
+   *
+   * @param op an existing operation record for this (table, type)
+   */
+  boolean isActiveOpTimedOut(TableOperationDto op);
+
+  /**
    * Returns {@code true} if a new or refreshed operation record should be upserted.
    *
    * @param table the table entry
    * @param currentOp the existing active operation record, or empty if none exists
    * @param latestHistory the most recent history entry for this (table, type), or empty
-   * @param consecutiveFailures number of consecutive FAILED history entries ending at {@code
-   *     latestHistory} ({@code 0} when the latest run did not fail), used by the circuit breaker to
-   *     back off and signal a chronically-failing table
+   * @param consecutiveFailures number of consecutive non-success submissions ending at the latest
+   *     one — explicitly FAILED history plus logical timeouts (submitted-without-success); {@code
+   *     0} when the latest submission succeeded. Used by the circuit breaker to back off and signal
+   *     a chronically-failing table.
    */
   boolean shouldSchedule(
       TableDto table,

@@ -7,13 +7,7 @@ public enum HistoryStatus {
   SUCCESS,
 
   /** The Spark job for this operation failed. */
-  FAILED,
-
-  /**
-   * The operation was submitted but never reported a terminal result and timed out. Recorded by the
-   * analyzer when it supersedes the dead op.
-   */
-  TIMED_OUT;
+  FAILED;
 
   /** Convert to the internal-model counterpart. */
   public com.linkedin.openhouse.optimizer.model.HistoryStatusDto toModel() {

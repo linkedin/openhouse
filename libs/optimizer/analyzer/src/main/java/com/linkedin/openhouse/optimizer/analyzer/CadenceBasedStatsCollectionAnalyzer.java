@@ -95,6 +95,11 @@ public class CadenceBasedStatsCollectionAnalyzer implements OperationAnalyzer {
   }
 
   @Override
+  public boolean isActiveOpTimedOut(TableOperationDto op) {
+    return cadencePolicy.isSubmissionTimedOut(op);
+  }
+
+  @Override
   public boolean shouldSchedule(
       TableDto table,
       Optional<TableOperationDto> currentOp,

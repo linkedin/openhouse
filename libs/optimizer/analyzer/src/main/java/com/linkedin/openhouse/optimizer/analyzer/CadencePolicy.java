@@ -155,13 +155,19 @@ public class CadencePolicy {
         return Optional.of(true);
       case SCHEDULING:
       case SCHEDULED:
-        return Optional.of(!isPastStaleTimeout(op));
+        return Optional.of(!isSubmissionTimedOut(op));
       default:
         return Optional.empty();
     }
   }
 
-  private boolean isPastStaleTimeout(TableOperationDto op) {
+  /**
+   * Whether a submitted op has exceeded the stale-timeout with no success — i.e. it looks dead.
+   * Measured from the submission time ({@code scheduledAt}); an op without one cannot be proven
+   * stale, so it is treated as live. This is both the rescheduling trigger and the "logical
+   * timeout" the circuit breaker counts as a non-success — keeping the two in lockstep.
+   */
+  public boolean isSubmissionTimedOut(TableOperationDto op) {
     // Stale-timeout is measured from when the job was submitted (scheduledAt). Without a submission
     // time we cannot prove the job is stale, so conservatively treat it as live and never
     // reschedule a job we can't prove is dead.
@@ -173,24 +179,11 @@ public class CadencePolicy {
   }
 
   private boolean readyAfterHistoryEntry(TableOperationsHistoryDto entry, int consecutiveFailures) {
-    return Duration.between(entry.getCompletedAt(), Instant.now())
-            .compareTo(intervalFor(entry.getStatus(), consecutiveFailures))
-        > 0;
-  }
-
-  private Duration intervalFor(HistoryStatusDto status, int consecutiveFailures) {
-    // Explicit per-status mapping. Adding a new HistoryStatusDto value forces this switch to
-    // grow a case; the default throws so an un-handled value surfaces at runtime rather than
-    // silently falling into the success bucket.
-    switch (status) {
-      case SUCCESS:
-        return successRetryInterval;
-      case FAILED:
-      case TIMED_OUT:
-        return failureInterval(consecutiveFailures);
-      default:
-        throw new IllegalStateException("Unhandled HistoryStatusDto value: " + status);
-    }
+    Duration interval =
+        entry.getStatus() == HistoryStatusDto.SUCCESS
+            ? successRetryInterval
+            : failureInterval(consecutiveFailures);
+    return Duration.between(entry.getCompletedAt(), Instant.now()).compareTo(interval) > 0;
   }
 
   /**
@@ -203,13 +196,18 @@ public class CadencePolicy {
     if (consecutiveFailures < failureStreakThreshold) {
       return failureRetryInterval;
     }
-    // Double the flat interval once per failure beyond the first, stopping as soon as we hit the
-    // cap. failureBackoffMax bounds this (default 24h), so the loop runs only a handful of times —
-    // no risk of shift/multiply overflow, and no need for a large-exponent guard.
-    Duration backed = failureRetryInterval;
-    for (int i = 0; i < consecutiveFailures - 1 && backed.compareTo(failureBackoffMax) < 0; i++) {
-      backed = backed.multipliedBy(2);
+    return backoffInterval(failureRetryInterval, consecutiveFailures - 1);
+  }
+
+  /**
+   * Doubles {@code interval} up to {@code doublings} times, stopping early once it reaches {@link
+   * #failureBackoffMax}. Expressed as a fold so there is no mutable accumulator; the streak window
+   * and the cap both bound the recursion depth to a handful of frames.
+   */
+  private Duration backoffInterval(Duration interval, int doublings) {
+    if (doublings <= 0 || interval.compareTo(failureBackoffMax) >= 0) {
+      return interval.compareTo(failureBackoffMax) > 0 ? failureBackoffMax : interval;
     }
-    return backed.compareTo(failureBackoffMax) > 0 ? failureBackoffMax : backed;
+    return backoffInterval(interval.multipliedBy(2), doublings - 1);
   }
 }
