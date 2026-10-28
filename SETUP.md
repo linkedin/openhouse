@@ -430,7 +430,8 @@ that reads them, so engines such as Trino that build on it are refused. Any othe
 capabilities itself: a Java catalog adds to its own with
 `spark.sql.catalog.openhouse.header.X-OpenHouse-Client-Capabilities=<name>,...` (or the same suffix
 in Java catalog properties), and other clients send the header. For example, a replication job that
-never scans rows can declare `column-defaults`. Every gated request is logged with the client's
+never scans rows can declare `column-defaults`, and the jobs scheduler's tables client, which reads
+only table metadata, declares it. Every gated request is logged with the client's
 `X-Client-Name`, User-Agent and declared capabilities, and whether it was admitted.
 
 A client that does not declare a capability the table requires fails with HTTP **422**, and the

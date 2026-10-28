@@ -20,6 +20,12 @@ import org.springframework.retry.support.RetryTemplate;
 @Slf4j
 @RequiredArgsConstructor
 public class TablesClientFactory {
+  /**
+   * Declared on every request: the client reads only table metadata, never rows, so tables that
+   * require column-defaults are safe to schedule.
+   */
+  private static final String CAPABILITIES = "column-defaults";
+
   private final String basePath;
   private final DatabaseTableFilter filter;
   private final @Nullable String token;
@@ -45,6 +51,7 @@ public class TablesClientFactory {
           "Tables Client initialization failed: Failure while initializing ApiClient", e);
     }
     client.setBasePath(basePath);
+    client.addDefaultHeader(WebClientFactory.HTTP_HEADER_CLIENT_CAPABILITIES, CAPABILITIES);
     if (systemAction) {
       client.addDefaultHeader(
           WebClientFactory.HTTP_HEADER_ACTION_TYPE, WebClientFactory.ACTION_TYPE_SYSTEM);
