@@ -2,6 +2,8 @@ package com.linkedin.openhouse.tables.mock;
 
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
+import com.linkedin.openhouse.tables.config.CatalogRequestContext;
+import com.linkedin.openhouse.tables.readbridge.ClientCapabilityGate;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
@@ -65,5 +67,13 @@ public class MockTablesApplication {
   public ReadBridgeStripProtection readBridgeStripProtection() {
     return new ReadBridgeStripProtection(
         new ReadBridgeConfigResolver(tableDto -> Collections.emptyMap()));
+  }
+
+  /**
+   * Services require the client gate from {@code ApiConfig}; no mock table requires a capability.
+   */
+  @Bean
+  public ClientCapabilityGate clientCapabilityGate(CatalogRequestContext requestContext) {
+    return new ClientCapabilityGate(requestContext);
   }
 }

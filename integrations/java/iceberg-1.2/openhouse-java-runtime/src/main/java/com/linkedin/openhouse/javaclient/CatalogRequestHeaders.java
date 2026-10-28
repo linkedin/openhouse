@@ -2,8 +2,11 @@ package com.linkedin.openhouse.javaclient;
 
 import com.linkedin.openhouse.client.ssl.WebClientFactory;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.iceberg.CatalogProperties;
@@ -55,8 +58,12 @@ final class CatalogRequestHeaders {
    * that names no header, has a name or value HTTP cannot carry, names a header the catalog sets,
    * or names a header another property also names is ignored with a warning: initialization goes
    * on, and the catalog keeps its own values. The warning names the header, never the value.
+   *
+   * <p>{@code X-OpenHouse-Client-Capabilities} declares {@code capabilities}, the ones the catalog
+   * implements, followed by those a configured value adds; a configured value never removes one.
+   * With neither, the header is not sent.
    */
-  static HttpHeaders from(Map<String, String> properties) {
+  static HttpHeaders from(Map<String, String> properties, Set<String> capabilities) {
     HttpHeaders headers = new HttpHeaders();
     PropertyUtil.propertiesWithPrefix(properties, PREFIX)
         .forEach(
@@ -85,7 +92,29 @@ final class CatalogRequestHeaders {
         ignore(headers, header, "more than one property names it");
       }
     }
+    declare(headers, capabilities);
     return headers;
+  }
+
+  /**
+   * Declares {@code implemented} first, then those the configured header declares, lower-cased and
+   * without duplicates.
+   */
+  private static void declare(HttpHeaders headers, Set<String> implemented) {
+    Set<String> capabilities = new LinkedHashSet<>(implemented);
+    String configured = headers.getFirst(WebClientFactory.HTTP_HEADER_CLIENT_CAPABILITIES);
+    if (configured != null) {
+      for (String declared : configured.split(",")) {
+        if (!declared.trim().isEmpty()) {
+          capabilities.add(declared.trim().toLowerCase(Locale.ROOT));
+        }
+      }
+    }
+    if (capabilities.isEmpty()) {
+      headers.remove(WebClientFactory.HTTP_HEADER_CLIENT_CAPABILITIES);
+    } else {
+      headers.set(WebClientFactory.HTTP_HEADER_CLIENT_CAPABILITIES, String.join(",", capabilities));
+    }
   }
 
   private static void ignore(HttpHeaders headers, String header, String reason) {

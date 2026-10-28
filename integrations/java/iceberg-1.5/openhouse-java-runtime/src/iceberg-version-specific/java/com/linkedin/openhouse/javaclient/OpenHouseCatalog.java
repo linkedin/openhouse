@@ -143,6 +143,9 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
 
   public static final String ACTION_TYPE = "action-type";
 
+  /** Declared by a catalog whose engine applies column defaults; see {@link #capabilities}. */
+  public static final String COLUMN_DEFAULTS_CAPABILITY = "column-defaults";
+
   /** Catalog property that gates view support. Off by default. */
   private static final String VIEWS_ENABLED_PROPERTY = "iceberg-views-enabled";
 
@@ -165,7 +168,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     Preconditions.checkArgument(
         actionType == null || ACTION_TYPE_SYSTEM.equalsIgnoreCase(actionType),
         "action-type must be SYSTEM when supplied");
-    HttpHeaders headers = CatalogRequestHeaders.from(properties);
+    HttpHeaders headers = CatalogRequestHeaders.from(properties, capabilities());
     try {
       TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
       tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
@@ -200,6 +203,16 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
               + "Views service (not yet implemented -- expect 404); renameView is unsupported "
               + "(the service exposes no rename endpoint).");
     }
+  }
+
+  /**
+   * Capabilities this catalog declares in {@code X-OpenHouse-Client-Capabilities} on every request.
+   * None by default: this catalog loads column defaults into the table schema, but whether a read
+   * returns them depends on the engine's file readers, so only an engine's own catalog declares
+   * {@link #COLUMN_DEFAULTS_CAPABILITY}. Called once, from {@link #initialize}.
+   */
+  protected Set<String> capabilities() {
+    return Collections.emptySet();
   }
 
   protected FileIO loadFileIO(Map<String, String> properties) {
