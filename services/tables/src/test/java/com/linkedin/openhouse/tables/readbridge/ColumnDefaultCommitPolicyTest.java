@@ -1,12 +1,15 @@
 package com.linkedin.openhouse.tables.readbridge;
 
+import com.fasterxml.jackson.databind.node.TextNode;
 import com.google.common.collect.ImmutableMap;
 import com.linkedin.openhouse.common.exception.CommitRejectedException;
+import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.internal.catalog.PendingCommit;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Stream;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -30,6 +33,18 @@ public class ColumnDefaultCommitPolicyTest {
           Types.NestedField.optional(2, "country", Types.StringType.get()));
 
   private static final CatalogRequestContext NO_BYPASS = new CatalogRequestContext() {};
+
+  /** Every opted-in table has a default on field 2. */
+  private static final ColumnDefaultsSource FIELD_2 =
+      tableDto -> Collections.singletonMap(2, TextNode.valueOf("US"));
+
+  /** No table has a default, so only the opt-in lock can reject. */
+  private static final ColumnDefaultsSource NO_DEFAULTS = tableDto -> Collections.emptyMap();
+
+  private static final ColumnDefaultsSource NEVER_ASKED =
+      tableDto -> {
+        throw new IllegalStateException("looked up defaults for a commit the rules skip");
+      };
 
   private static final CatalogRequestContext BYPASS =
       new CatalogRequestContext() {
@@ -94,13 +109,70 @@ public class ColumnDefaultCommitPolicyTest {
         Arguments.of(Named.of("committed false", table("false")), "false"));
   }
 
+  /** The bypass lifts the opt-in lock and skips the rules, default lookups included. */
   @Test
-  void bypassLiftsTheLock() {
-    Assertions.assertDoesNotThrow(() -> policy(BYPASS).check(commit(table("true"), optIn(null))));
+  void bypassSkipsTheLockAndTheRules() {
+    Assertions.assertDoesNotThrow(
+        () -> policy(BYPASS, NEVER_ASKED).check(commit(table("true"), optIn(null))));
+  }
+
+  /**
+   * Type 2 has no capabilities to read outside a request, so a snapshot commit there is not
+   * default-aware.
+   */
+  @Test
+  void snapshotCommitOutsideARequestBreaksType2() {
+    CommitRejectedException error =
+        Assertions.assertThrows(
+            CommitRejectedException.class,
+            () -> policy(NO_BYPASS, FIELD_2).check(commit(table("true"), optIn("true"))));
+    Assertions.assertTrue(
+        error
+            .getMessage()
+            .contains(
+                "which this client does not declare (X-Client-Name: (none), User-Agent: (none),"
+                    + " X-OpenHouse-Client-Capabilities: (none))"),
+        error.getMessage());
+  }
+
+  /** Type 2 accepts exactly the clients that declare the {@code column-defaults} capability. */
+  @Test
+  void snapshotCommitFromDeclaringClientPassesType2() {
+    CatalogRequestContext declaring =
+        new CatalogRequestContext() {
+          @Override
+          public Set<String> clientCapabilities() {
+            return Collections.singleton(ClientCapabilityGate.COLUMN_DEFAULTS);
+          }
+        };
+
+    Assertions.assertDoesNotThrow(
+        () -> policy(declaring, FIELD_2).check(commit(table("true"), optIn("true"))));
+  }
+
+  /** A default the table already declares but cannot apply stays the server's error. */
+  @Test
+  void storedUnusableDefaultIsNotAClientError() {
+    ColumnDefaultsSource unusable =
+        tableDto -> {
+          throw new ColumnDefaultException("column country: default is not a string");
+        };
+
+    Assertions.assertThrows(
+        TableConfigUnavailableException.class,
+        () -> policy(NO_BYPASS, unusable).check(commit(table("true"), optIn("true"))));
   }
 
   private static ColumnDefaultCommitPolicy policy(CatalogRequestContext requestContext) {
-    return new ColumnDefaultCommitPolicy(requestContext);
+    return policy(requestContext, NO_DEFAULTS);
+  }
+
+  private static ColumnDefaultCommitPolicy policy(
+      CatalogRequestContext requestContext, ColumnDefaultsSource source) {
+    return new ColumnDefaultCommitPolicy(
+        requestContext,
+        new ClientCapabilityGate(requestContext),
+        new ReadBridgeStripProtection(new ReadBridgeConfigResolver(source)));
   }
 
   /** The table with {@code optIn} committed as its opt-in, or without one when null. */
