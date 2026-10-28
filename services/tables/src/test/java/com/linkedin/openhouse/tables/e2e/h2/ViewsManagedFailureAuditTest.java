@@ -17,6 +17,7 @@ import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
+import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRepositoryStateUnknownException;
 import com.linkedin.openhouse.internal.catalog.view.ViewCommitEngine;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
@@ -26,7 +27,6 @@ import com.linkedin.openhouse.tables.exception.ViewApiException;
 import com.linkedin.openhouse.tables.exception.ViewExceptionHandler;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
-import com.linkedin.openhouse.tables.services.DatabasesService;
 import com.linkedin.openhouse.tables.services.ViewPageCursor;
 import com.linkedin.openhouse.tables.services.ViewPageTokenCodec;
 import com.linkedin.openhouse.tables.services.ViewPaginationAdapter;
@@ -51,6 +51,10 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.context.annotation.Bean;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
@@ -95,6 +99,7 @@ public class ViewsManagedFailureAuditTest {
     SECRET_SQL, SECRET_SCHEMA, SECRET_BASE, SECRET_PAGE_TOKEN
   };
 
+  private static final Pageable SINGLE_ROW = PageRequest.of(0, 1);
   private static final String DROP_DIALECT_SENTINEL = "drop-dialect-value-sentinel";
   private static final String SIZE_BINDING_MESSAGE = "size : must be an integer";
   private static final String[] BINDING_PARSER_DETAILS = {
@@ -104,10 +109,9 @@ public class ViewsManagedFailureAuditTest {
   @Autowired private MockMvc mvc;
 
   @MockBean private ViewsFeatureGate viewsFeatureGate;
-  @MockBean private DatabasesService databasesService;
-  // DatabasesService is mocked, so no real House Table path is needed: capture, read, list and
-  // delete failures are injected at a mock of the primary H2 House Table bean the views service
-  // injects, commit failures at the engine mock.
+  // No real House Table path is needed: database probe, capture, read, list and delete failures
+  // are injected at a mock of the primary H2 House Table bean the views service injects, commit
+  // failures at the engine mock.
   @MockBean(name = "houseTablesH2Repository")
   private HouseTablesH2Repository houseTableRepository;
 
@@ -128,18 +132,16 @@ public class ViewsManagedFailureAuditTest {
   @BeforeEach
   public void setup() throws Exception {
     Mockito.reset(
-        viewsFeatureGate,
-        databasesService,
-        houseTableRepository,
-        viewCommitEngine,
-        opaHandler,
-        serviceAuditHandler);
+        viewsFeatureGate, houseTableRepository, viewCommitEngine, opaHandler, serviceAuditHandler);
     jwtAccessToken = new DummyTokenInterceptor.DummySecurityJWT(PRINCIPAL).buildNoopJWT();
     when(viewsFeatureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(true);
-    when(databasesService.getAllDatabases())
+    when(houseTableRepository.findAllByDatabaseId(ViewModelConstants.DATABASE_ID, SINGLE_ROW))
         .thenReturn(
-            Collections.singletonList(
-                DatabaseDto.builder().databaseId(ViewModelConstants.DATABASE_ID).build()));
+            new PageImpl<>(
+                Collections.singletonList(
+                    HouseTable.builder().databaseId(ViewModelConstants.DATABASE_ID).build()),
+                SINGLE_ROW,
+                1));
     when(houseTableRepository.findEntityById(ViewsManagedAuthMatrixBase.viewKey()))
         .thenReturn(Optional.empty());
   }
@@ -286,7 +288,7 @@ public class ViewsManagedFailureAuditTest {
       assertFalse(wire.contains(parserDetail), wire);
     }
     Mockito.verifyNoInteractions(
-        viewsFeatureGate, databasesService, houseTableRepository, viewCommitEngine, opaHandler);
+        viewsFeatureGate, houseTableRepository, viewCommitEngine, opaHandler);
   }
 
   @Test
@@ -553,7 +555,10 @@ public class ViewsManagedFailureAuditTest {
 
   @Test
   public void missingDatabaseWriteIsNotFoundBeforeCaptureOrAuthorization() throws Exception {
-    when(databasesService.getAllDatabases()).thenReturn(Collections.emptyList());
+    when(houseTableRepository.findAllByDatabaseId(ViewModelConstants.DATABASE_ID, SINGLE_ROW))
+        .thenReturn(Page.empty(SINGLE_ROW));
+    when(houseTableRepository.findAllViewsByDatabaseId(ViewModelConstants.DATABASE_ID, SINGLE_ROW))
+        .thenReturn(Page.empty(SINGLE_ROW));
 
     mvc.perform(withToken(postView())).andExpect(status().isNotFound());
 
@@ -600,13 +605,14 @@ public class ViewsManagedFailureAuditTest {
    */
   @Test
   public void databaseProbeOutageOnWritesIsTypedUnavailable() throws Exception {
-    when(databasesService.getAllDatabases())
+    when(houseTableRepository.findAllByDatabaseId(ViewModelConstants.DATABASE_ID, SINGLE_ROW))
         .thenThrow(
             new HouseTableRepositoryStateUnknownException(
                 SECRET_SQL, new RuntimeException(SECRET_BASE)));
 
     assertPrecommitOutage(withToken(postView()));
-    Mockito.verifyNoInteractions(houseTableRepository, viewCommitEngine, opaHandler);
+    verify(houseTableRepository, never()).findEntityById(any());
+    Mockito.verifyNoInteractions(viewCommitEngine, opaHandler);
   }
 
   @Test
@@ -661,11 +667,12 @@ public class ViewsManagedFailureAuditTest {
 
   @Test
   public void genericDatabaseProbeFailureOnWritesIsInternal500() throws Exception {
-    when(databasesService.getAllDatabases())
+    when(houseTableRepository.findAllByDatabaseId(ViewModelConstants.DATABASE_ID, SINGLE_ROW))
         .thenThrow(new IllegalStateException(SECRET_SQL, new RuntimeException(SECRET_BASE)));
 
     assertPrecommitFailure(withToken(postView()), 500);
-    Mockito.verifyNoInteractions(houseTableRepository, viewCommitEngine, opaHandler);
+    verify(houseTableRepository, never()).findEntityById(any());
+    Mockito.verifyNoInteractions(viewCommitEngine, opaHandler);
   }
 
   @Test

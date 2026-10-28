@@ -45,6 +45,7 @@ import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.support.TestPropertySourceUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 @SpringBootTest(
@@ -103,6 +104,61 @@ public class ViewsServiceH2IntegrationTest {
             MockMvcRequestBuilders.delete(viewsPath + "/missing_view")
                 .header("Authorization", "Bearer " + jwtAccessToken))
         .andExpect(status().isNotFound());
+  }
+
+  /**
+   * A database exists once it holds a table or a view, so a write into a database holding only
+   * views proceeds through the view probe, while a write into neither is a 404 with no row.
+   */
+  @Test
+  public void writesProbeTablesThenViewsAndNeverIntroduceADatabase() throws Exception {
+    String viewsOnlyDatabase = "views_only_write_database";
+    String missingDatabase = "missing_write_database";
+    Mockito.when(viewsFeatureGate.isEnabled(viewsOnlyDatabase)).thenReturn(true);
+    Mockito.when(viewsFeatureGate.isEnabled(missingDatabase)).thenReturn(true);
+    HouseTablePrimaryKey seededKey =
+        HouseTablePrimaryKey.builder().databaseId(viewsOnlyDatabase).tableId("seed_view").build();
+    HouseTablePrimaryKey createdKey =
+        HouseTablePrimaryKey.builder().databaseId(viewsOnlyDatabase).tableId("new_view").build();
+    houseTableRepository.saveView(
+        HouseTable.builder()
+            .databaseId(viewsOnlyDatabase)
+            .tableId(seededKey.getTableId())
+            .tableUUID("seed-view-uuid")
+            .tableLocation("file:/warehouse/" + viewsOnlyDatabase + "/seed_view/metadata.json")
+            .storageType("local")
+            .build());
+    try {
+      mvc.perform(postViewInto(missingDatabase, "new_view")).andExpect(status().isNotFound());
+      org.junit.jupiter.api.Assertions.assertFalse(
+          houseTableRepository
+              .findEntityById(
+                  HouseTablePrimaryKey.builder()
+                      .databaseId(missingDatabase)
+                      .tableId("new_view")
+                      .build())
+              .isPresent());
+
+      mvc.perform(postViewInto(viewsOnlyDatabase, createdKey.getTableId()))
+          .andExpect(status().isCreated());
+    } finally {
+      houseTableRepository.deleteViewById(createdKey);
+      houseTableRepository.deleteViewById(seededKey);
+    }
+  }
+
+  private MockHttpServletRequestBuilder postViewInto(String databaseId, String viewId) {
+    return MockMvcRequestBuilders.post("/v1/databases/" + databaseId + "/views")
+        .contentType(MediaType.APPLICATION_JSON)
+        .content(
+            ViewModelConstants.createRequestWithoutBaseVersion()
+                .toBuilder()
+                .databaseId(databaseId)
+                .viewId(viewId)
+                .build()
+                .toJson())
+        .accept(MediaType.APPLICATION_JSON)
+        .header("Authorization", "Bearer " + jwtAccessToken);
   }
 
   @Test

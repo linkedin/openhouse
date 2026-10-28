@@ -34,7 +34,6 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
 public class ViewsServiceStartupTest {
 
   private final ViewsFeatureGate featureGate = mock(ViewsFeatureGate.class);
-  private final DatabasesService databasesService = mock(DatabasesService.class);
   private final HouseTableRepository houseTableRepository = mock(HouseTableRepository.class);
   private final ViewCommitEngine viewCommitEngine = mock(ViewCommitEngine.class);
   private final StorageSelector storageSelector = mock(StorageSelector.class);
@@ -88,7 +87,6 @@ public class ViewsServiceStartupTest {
     // untouched while the service receives each of them by type.
     ConfigurableListableBeanFactory beanFactory = context.getBeanFactory();
     beanFactory.registerSingleton("viewsFeatureGate", featureGate);
-    beanFactory.registerSingleton("databasesService", databasesService);
     beanFactory.registerSingleton("houseTableRepository", houseTableRepository);
     beanFactory.registerSingleton("viewCommitEngine", viewCommitEngine);
     beanFactory.registerSingleton("storageSelector", storageSelector);

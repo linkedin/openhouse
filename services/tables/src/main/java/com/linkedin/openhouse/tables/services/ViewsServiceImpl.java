@@ -27,12 +27,12 @@ import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.exception.ViewApiException;
 import com.linkedin.openhouse.tables.exception.ViewErrorCode;
 import com.linkedin.openhouse.tables.exception.ViewFailureTranslator;
-import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.ReservedViewProperties;
 import com.linkedin.openhouse.tables.model.ViewDto;
 import com.linkedin.openhouse.tables.model.ViewListResult;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -51,6 +51,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.util.Pair;
 import org.springframework.stereotype.Component;
@@ -82,9 +83,9 @@ public class ViewsServiceImpl implements ViewsService {
 
   private static final String VIEWS_DISABLED_MESSAGE = "Views are disabled";
 
-  @Autowired private ViewsFeatureGate featureGate;
+  private static final Pageable SINGLE_ROW = PageRequest.of(0, 1);
 
-  @Autowired private DatabasesService databasesService;
+  @Autowired private ViewsFeatureGate featureGate;
 
   @Autowired private HouseTableRepository houseTableRepository;
 
@@ -319,24 +320,30 @@ public class ViewsServiceImpl implements ViewsService {
   }
 
   private void requireDatabasesExist(String databaseId, List<String> defaultNamespace) {
-    // HTS identity is case-insensitive, so compare database ids lowercased.
-    Set<String> existingDatabaseIds =
-        databasesService.getAllDatabases().stream()
-            .map(DatabaseDto::getDatabaseId)
-            .map(id -> id.toLowerCase(Locale.ROOT))
-            .collect(Collectors.toSet());
-    if (!existingDatabaseIds.contains(databaseId.toLowerCase(Locale.ROOT))) {
-      throw new ViewApiException(
-          ViewErrorCode.DATABASE_NOT_FOUND, "Database not found: " + databaseId);
-    }
+    // HTS identity is case-insensitive, so each database is probed once whatever its casing.
+    Set<String> probed = new HashSet<>();
+    requireDatabaseExists(databaseId, probed);
     if (defaultNamespace != null) {
       for (String namespaceDatabaseId : defaultNamespace) {
-        if (!existingDatabaseIds.contains(namespaceDatabaseId.toLowerCase(Locale.ROOT))) {
-          throw new ViewApiException(
-              ViewErrorCode.DATABASE_NOT_FOUND, "Database not found: " + namespaceDatabaseId);
-        }
+        requireDatabaseExists(namespaceDatabaseId, probed);
       }
     }
+  }
+
+  /**
+   * A database has no row of its own; it exists once it holds a table or a view. Tables are probed
+   * first because nearly every database holds one, so the view probe runs only on a miss.
+   */
+  private void requireDatabaseExists(String databaseId, Set<String> probed) {
+    if (!probed.add(databaseId.toLowerCase(Locale.ROOT))) {
+      return;
+    }
+    if (houseTableRepository.findAllByDatabaseId(databaseId, SINGLE_ROW).hasContent()
+        || houseTableRepository.findAllViewsByDatabaseId(databaseId, SINGLE_ROW).hasContent()) {
+      return;
+    }
+    throw new ViewApiException(
+        ViewErrorCode.DATABASE_NOT_FOUND, "Database not found: " + databaseId);
   }
 
   private ViewDto withClusterId(ViewDto dto) {

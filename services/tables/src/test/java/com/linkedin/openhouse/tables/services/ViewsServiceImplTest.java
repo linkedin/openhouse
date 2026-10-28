@@ -56,6 +56,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -81,6 +82,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -103,12 +105,12 @@ public class ViewsServiceImplTest {
   private static final String COMMITTED_POINTER =
       "file:/warehouse/my_database/my_view/metadata/00013-committed.metadata.json";
   private static final String CAPTURED_VIEW_UUID = "view-uuid";
+  private static final Pageable SINGLE_ROW = PageRequest.of(0, 1);
 
   /** Deliberately not a UUID, so it can never equal the tentative allocation UUID. */
   private static final String COMMITTED_CREATE_UUID = "committed-create-uuid";
 
   private ViewsFeatureGate featureGate;
-  private DatabasesService databasesService;
   private HouseTableRepository houseTableRepository;
   private ViewCommitEngine viewCommitEngine;
   private FileIOManager fileIOManager;
@@ -127,7 +129,6 @@ public class ViewsServiceImplTest {
   @BeforeEach
   public void setup() {
     featureGate = mock(ViewsFeatureGate.class);
-    databasesService = mock(DatabasesService.class);
     houseTableRepository = mock(HouseTableRepository.class);
     viewCommitEngine = mock(ViewCommitEngine.class);
     fileIOManager = mock(FileIOManager.class);
@@ -160,7 +161,6 @@ public class ViewsServiceImplTest {
     when(clusterProperties.getClusterName()).thenReturn(ViewModelConstants.CLUSTER_ID);
     service = new ViewsServiceImpl();
     ReflectionTestUtils.setField(service, "featureGate", featureGate);
-    ReflectionTestUtils.setField(service, "databasesService", databasesService);
     ReflectionTestUtils.setField(service, "authorizationUtils", authorizationUtils);
     ReflectionTestUtils.setField(service, "privilegeMapper", privilegeMapper);
     ReflectionTestUtils.setField(service, "clusterProperties", clusterProperties);
@@ -227,11 +227,7 @@ public class ViewsServiceImplTest {
                         ACTING_PRINCIPAL))
             .getErrorCode());
     verifyNoInteractions(
-        databasesService,
-        houseTableRepository,
-        viewCommitEngine,
-        storageSelector,
-        authorizationHandler);
+        houseTableRepository, viewCommitEngine, storageSelector, authorizationHandler);
   }
 
   @Test
@@ -261,7 +257,8 @@ public class ViewsServiceImplTest {
     verify(houseTableRepository, times(2)).findViewById(viewKey());
     verify(houseTableRepository, never()).deleteViewById(any());
     assertDatabaseAuthorization(Privileges.DELETE_TABLE);
-    verifyNoInteractions(databasesService, viewCommitEngine);
+    verifyNoMoreInteractions(houseTableRepository);
+    verifyNoInteractions(viewCommitEngine);
   }
 
   @Test
@@ -279,7 +276,8 @@ public class ViewsServiceImplTest {
     assertNull(result.getNextPageToken());
     verify(houseTableRepository)
         .findAllViewsByDatabaseId(ViewModelConstants.DATABASE_ID, requested);
-    verifyNoInteractions(databasesService, viewCommitEngine, authorizationHandler);
+    verifyNoMoreInteractions(houseTableRepository);
+    verifyNoInteractions(viewCommitEngine, authorizationHandler);
   }
 
   @Test
@@ -293,7 +291,8 @@ public class ViewsServiceImplTest {
             ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL);
 
     assertEquals("server-cluster", result.getClusterId());
-    verifyNoInteractions(databasesService, authorizationHandler);
+    verifyNoDatabaseProbe();
+    verifyNoInteractions(authorizationHandler);
   }
 
   /**
@@ -374,7 +373,6 @@ public class ViewsServiceImplTest {
     InOrder order =
         inOrder(
             featureGate,
-            databasesService,
             houseTableRepository,
             privilegeMapper,
             authorizationHandler,
@@ -382,7 +380,9 @@ public class ViewsServiceImplTest {
             selectedStorage,
             viewCommitEngine);
     order.verify(featureGate).isEnabled(ViewModelConstants.DATABASE_ID);
-    order.verify(databasesService).getAllDatabases();
+    order
+        .verify(houseTableRepository)
+        .findAllByDatabaseId(ViewModelConstants.DATABASE_ID, SINGLE_ROW);
     order.verify(houseTableRepository).findEntityById(viewKey());
     order.verify(privilegeMapper).forCreate();
     order.verify(authorizationHandler).checkAccessDecision(any(), any(DatabaseDto.class), any());
@@ -679,6 +679,7 @@ public class ViewsServiceImplTest {
     ArgumentCaptor<ViewCommitIntent> intent = ArgumentCaptor.forClass(ViewCommitIntent.class);
     verify(viewCommitEngine, times(1)).commit(intent.capture());
     verify(houseTableRepository, times(1)).findEntityById(viewKey());
+    verifyTableProbeOnly();
     verifyNoMoreInteractions(houseTableRepository);
     assertSame(captured, intent.getValue().getBaseRow());
     assertEquals(Boolean.FALSE, intent.getValue().getIsCreate());
@@ -732,12 +733,14 @@ public class ViewsServiceImplTest {
     assertEquals("engine-kept-creator", result.getFirst().getViewCreator());
     assertEquals(COMMITTED_POINTER, result.getFirst().getMetadataLocation());
     verify(houseTableRepository, times(1)).findEntityById(viewKey());
+    verifyTableProbeOnly();
     verifyNoMoreInteractions(houseTableRepository);
   }
 
   @Test
   public void missingDefaultNamespaceDatabaseFailsBeforeCapture() {
     existingEnabledDatabase();
+    absentDatabase("missing_database");
 
     ViewApiException thrown =
         assertThrows(
@@ -752,17 +755,14 @@ public class ViewsServiceImplTest {
                     false));
 
     assertEquals(ViewErrorCode.DATABASE_NOT_FOUND, thrown.getErrorCode());
-    verifyNoInteractions(houseTableRepository, viewCommitEngine);
+    verify(houseTableRepository, never()).findEntityById(any());
+    verifyNoInteractions(viewCommitEngine);
   }
 
   @Test
   public void existingDefaultNamespaceDatabaseAllowsCreateToProceed() {
-    when(featureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(true);
-    when(databasesService.getAllDatabases())
-        .thenReturn(
-            Arrays.asList(
-                DatabaseDto.builder().databaseId(ViewModelConstants.DATABASE_ID).build(),
-                DatabaseDto.builder().databaseId("dependency_database").build()));
+    existingEnabledDatabase();
+    databaseHoldingTable("dependency_database");
     CreateUpdateViewRequestBody request =
         ViewModelConstants.createRequestWithInitialBaseVersion()
             .toBuilder()
@@ -778,6 +778,70 @@ public class ViewsServiceImplTest {
     assertEquals(Boolean.TRUE, result.getSecond());
     assertEquals(COMMITTED_POINTER, result.getFirst().getMetadataLocation());
     verify(viewCommitEngine, times(1)).commit(any(ViewCommitIntent.class));
+  }
+
+  /** The table probe answers nearly every database, so the view probe runs only on its miss. */
+  @Test
+  public void databaseHoldingATableSkipsTheViewProbe() {
+    existingEnabledDatabase();
+    captureForWrite(Optional.empty());
+    when(privilegeMapper.forCreate()).thenReturn(Privileges.CREATE_TABLE);
+    selectableStorage();
+    when(viewCommitEngine.commit(any(ViewCommitIntent.class))).thenReturn(createdResult());
+
+    service.putView(ViewModelConstants.createRequestWithoutBaseVersion(), ACTING_PRINCIPAL, true);
+
+    verify(houseTableRepository, times(1))
+        .findAllByDatabaseId(ViewModelConstants.DATABASE_ID, SINGLE_ROW);
+    verify(houseTableRepository, never()).findAllViewsByDatabaseId(any(), any());
+  }
+
+  /** A database holding only views exists: the view probe answers once the table probe misses. */
+  @Test
+  public void databaseHoldingOnlyViewsAllowsTheWrite() {
+    when(featureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(true);
+    databaseHoldingOnlyViews(ViewModelConstants.DATABASE_ID);
+    captureForWrite(Optional.empty());
+    when(privilegeMapper.forCreate()).thenReturn(Privileges.CREATE_TABLE);
+    selectableStorage();
+    when(viewCommitEngine.commit(any(ViewCommitIntent.class))).thenReturn(createdResult());
+
+    Pair<ViewDto, Boolean> result =
+        service.putView(
+            ViewModelConstants.createRequestWithoutBaseVersion(), ACTING_PRINCIPAL, true);
+
+    assertEquals(Boolean.TRUE, result.getSecond());
+    InOrder order = inOrder(houseTableRepository);
+    order
+        .verify(houseTableRepository)
+        .findAllByDatabaseId(ViewModelConstants.DATABASE_ID, SINGLE_ROW);
+    order
+        .verify(houseTableRepository)
+        .findAllViewsByDatabaseId(ViewModelConstants.DATABASE_ID, SINGLE_ROW);
+    order.verify(houseTableRepository).findEntityById(viewKey());
+  }
+
+  /** HTS identity is case-insensitive, so a database repeated in any casing is probed once. */
+  @Test
+  public void databaseRepeatedInDefaultNamespaceIsProbedOnce() {
+    existingEnabledDatabase();
+    captureForWrite(Optional.empty());
+    when(privilegeMapper.forPut(false)).thenReturn(Privileges.CREATE_TABLE);
+    selectableStorage();
+    when(viewCommitEngine.commit(any(ViewCommitIntent.class))).thenReturn(createdResult());
+    CreateUpdateViewRequestBody request =
+        ViewModelConstants.createRequestWithInitialBaseVersion()
+            .toBuilder()
+            .defaultNamespace(
+                Arrays.asList(
+                    ViewModelConstants.DATABASE_ID,
+                    ViewModelConstants.DATABASE_ID.toUpperCase(Locale.ROOT)))
+            .build();
+
+    service.putView(request, ACTING_PRINCIPAL, false);
+
+    verify(houseTableRepository, times(1)).findAllByDatabaseId(any(), any());
+    verify(houseTableRepository, never()).findAllViewsByDatabaseId(any(), any());
   }
 
   /**
@@ -935,7 +999,8 @@ public class ViewsServiceImplTest {
     when(featureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(true);
     HouseTableRepositoryStateUnknownException outage =
         new HouseTableRepositoryStateUnknownException("down", new RuntimeException("503"));
-    when(databasesService.getAllDatabases()).thenThrow(outage);
+    when(houseTableRepository.findAllByDatabaseId(ViewModelConstants.DATABASE_ID, SINGLE_ROW))
+        .thenThrow(outage);
 
     ViewApiException post =
         assertThrows(
@@ -957,7 +1022,8 @@ public class ViewsServiceImplTest {
       assertEquals(HttpStatus.SERVICE_UNAVAILABLE, thrown.getHttpStatus());
       assertSame(outage, thrown.getCause());
     }
-    verifyNoInteractions(houseTableRepository);
+    verify(houseTableRepository, never()).findAllViewsByDatabaseId(any(), any());
+    verify(houseTableRepository, never()).findEntityById(any());
   }
 
   @Test
@@ -994,7 +1060,8 @@ public class ViewsServiceImplTest {
   public void genericDatabaseProbeFailureOnWritesIsInternalErrorWithCause() {
     when(featureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(true);
     IllegalStateException fault = new IllegalStateException("probe fault");
-    when(databasesService.getAllDatabases()).thenThrow(fault);
+    when(houseTableRepository.findAllByDatabaseId(ViewModelConstants.DATABASE_ID, SINGLE_ROW))
+        .thenThrow(fault);
 
     ViewApiException post =
         assertThrows(
@@ -1016,7 +1083,8 @@ public class ViewsServiceImplTest {
       assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, thrown.getHttpStatus());
       assertSame(fault, thrown.getCause());
     }
-    verifyNoInteractions(houseTableRepository);
+    verify(houseTableRepository, never()).findAllViewsByDatabaseId(any(), any());
+    verify(houseTableRepository, never()).findEntityById(any());
   }
 
   @Test
@@ -1089,7 +1157,7 @@ public class ViewsServiceImplTest {
             .getErrorCode());
 
     when(featureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(true);
-    when(databasesService.getAllDatabases()).thenReturn(Collections.emptyList());
+    absentDatabase(ViewModelConstants.DATABASE_ID);
     assertEquals(
         ViewErrorCode.DATABASE_NOT_FOUND,
         assertThrows(
@@ -1100,7 +1168,8 @@ public class ViewsServiceImplTest {
                         ACTING_PRINCIPAL,
                         true))
             .getErrorCode());
-    verifyNoInteractions(houseTableRepository, viewCommitEngine);
+    verify(houseTableRepository, never()).findEntityById(any());
+    verifyNoInteractions(viewCommitEngine);
   }
 
   @Test
@@ -1229,6 +1298,7 @@ public class ViewsServiceImplTest {
     assertEquals(Boolean.FALSE, result.getSecond());
     verify(houseTableRepository, times(1)).findEntityById(viewKey());
     verify(viewCommitEngine, times(1)).commit(any(ViewCommitIntent.class));
+    verifyTableProbeOnly();
     verifyNoMoreInteractions(houseTableRepository);
     verifyNoInteractions(storageSelector);
   }
@@ -1551,10 +1621,8 @@ public class ViewsServiceImplTest {
     HouseTablePrimaryKey requestedKey = primaryKey(requestedDatabaseId, requestedViewId);
     HouseTable stored = capturedViewRow();
     when(featureGate.isEnabled(requestedDatabaseId)).thenReturn(true);
-    when(databasesService.getAllDatabases())
-        .thenReturn(
-            Collections.singletonList(
-                DatabaseDto.builder().databaseId(ViewModelConstants.DATABASE_ID).build()));
+    // HTS answers the probe case-insensitively for the stored lower-case database.
+    databaseHoldingTable(requestedDatabaseId);
     when(houseTableRepository.findEntityById(requestedKey))
         .thenReturn(Optional.empty())
         .thenReturn(Optional.of(stored));
@@ -1597,10 +1665,40 @@ public class ViewsServiceImplTest {
 
   private void existingEnabledDatabase() {
     when(featureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(true);
-    when(databasesService.getAllDatabases())
-        .thenReturn(
-            Collections.singletonList(
-                DatabaseDto.builder().databaseId(ViewModelConstants.DATABASE_ID).build()));
+    databaseHoldingTable(ViewModelConstants.DATABASE_ID);
+  }
+
+  private void databaseHoldingTable(String databaseId) {
+    when(houseTableRepository.findAllByDatabaseId(databaseId, SINGLE_ROW))
+        .thenReturn(singleRowPage(HouseTable.builder().databaseId(databaseId).build()));
+  }
+
+  private void databaseHoldingOnlyViews(String databaseId) {
+    when(houseTableRepository.findAllByDatabaseId(databaseId, SINGLE_ROW))
+        .thenReturn(Page.empty(SINGLE_ROW));
+    when(houseTableRepository.findAllViewsByDatabaseId(databaseId, SINGLE_ROW))
+        .thenReturn(singleRowPage(HouseTable.builder().databaseId(databaseId).build()));
+  }
+
+  private void absentDatabase(String databaseId) {
+    when(houseTableRepository.findAllByDatabaseId(databaseId, SINGLE_ROW))
+        .thenReturn(Page.empty(SINGLE_ROW));
+    when(houseTableRepository.findAllViewsByDatabaseId(databaseId, SINGLE_ROW))
+        .thenReturn(Page.empty(SINGLE_ROW));
+  }
+
+  private static Page<HouseTable> singleRowPage(HouseTable row) {
+    return new PageImpl<>(Collections.singletonList(row), SINGLE_ROW, 1);
+  }
+
+  /** The database probe of a write: one table probe, answered without the view probe. */
+  private void verifyTableProbeOnly() {
+    verify(houseTableRepository, times(1))
+        .findAllByDatabaseId(ViewModelConstants.DATABASE_ID, SINGLE_ROW);
+  }
+
+  private void verifyNoDatabaseProbe() {
+    verify(houseTableRepository, never()).findAllByDatabaseId(any(), any());
   }
 
   /** The neutral POST/PUT capture at the requested key. */
