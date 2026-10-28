@@ -56,7 +56,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -737,47 +736,47 @@ public class ViewsServiceImplTest {
     verifyNoMoreInteractions(houseTableRepository);
   }
 
+  /**
+   * {@code defaultNamespace} is SQL-resolution metadata with no linkage inside OpenHouse: create
+   * and replace probe only the route database and carry a nonlocal, multi-level namespace through
+   * to the commit intent unchanged.
+   */
   @Test
-  public void missingDefaultNamespaceDatabaseFailsBeforeCapture() {
+  public void nonlocalDefaultNamespaceIsPassedThroughWithoutDatabaseProbes() {
     existingEnabledDatabase();
-    absentDatabase("missing_database");
-
-    ViewApiException thrown =
-        assertThrows(
-            ViewApiException.class,
-            () ->
-                service.putView(
-                    ViewModelConstants.createRequestWithInitialBaseVersion()
-                        .toBuilder()
-                        .defaultNamespace(Arrays.asList("missing_database"))
-                        .build(),
-                    ACTING_PRINCIPAL,
-                    false));
-
-    assertEquals(ViewErrorCode.DATABASE_NOT_FOUND, thrown.getErrorCode());
-    verify(houseTableRepository, never()).findEntityById(any());
-    verifyNoInteractions(viewCommitEngine);
-  }
-
-  @Test
-  public void existingDefaultNamespaceDatabaseAllowsCreateToProceed() {
-    existingEnabledDatabase();
-    databaseHoldingTable("dependency_database");
-    CreateUpdateViewRequestBody request =
-        ViewModelConstants.createRequestWithInitialBaseVersion()
-            .toBuilder()
-            .defaultNamespace(Arrays.asList("dependency_database"))
-            .build();
-    captureForWrite(Optional.empty());
-    when(privilegeMapper.forPut(false)).thenReturn(Privileges.CREATE_TABLE);
+    List<String> nonlocal = Arrays.asList("Other_Catalog_Db", "nested_level");
+    HouseTable captured = capturedViewRow();
+    when(houseTableRepository.findEntityById(viewKey()))
+        .thenReturn(Optional.empty())
+        .thenReturn(Optional.of(captured));
+    when(privilegeMapper.forCreate()).thenReturn(Privileges.CREATE_TABLE);
+    when(privilegeMapper.forPut(true)).thenReturn(Privileges.UPDATE_TABLE_METADATA);
     selectableStorage();
-    when(viewCommitEngine.commit(any(ViewCommitIntent.class))).thenReturn(createdResult());
+    when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
+        .thenReturn(createdResult())
+        .thenReturn(replacedResult(COMMITTED_POINTER, true));
 
-    Pair<ViewDto, Boolean> result = service.putView(request, ACTING_PRINCIPAL, false);
+    service.putView(
+        ViewModelConstants.createRequestWithoutBaseVersion()
+            .toBuilder()
+            .defaultNamespace(nonlocal)
+            .build(),
+        ACTING_PRINCIPAL,
+        true);
+    service.putView(
+        ViewModelConstants.fullyPopulatedRequest().toBuilder().defaultNamespace(nonlocal).build(),
+        ACTING_PRINCIPAL,
+        false);
 
-    assertEquals(Boolean.TRUE, result.getSecond());
-    assertEquals(COMMITTED_POINTER, result.getFirst().getMetadataLocation());
-    verify(viewCommitEngine, times(1)).commit(any(ViewCommitIntent.class));
+    ArgumentCaptor<ViewCommitIntent> intents = ArgumentCaptor.forClass(ViewCommitIntent.class);
+    verify(viewCommitEngine, times(2)).commit(intents.capture());
+    for (ViewCommitIntent intent : intents.getAllValues()) {
+      assertEquals(Namespace.of("Other_Catalog_Db", "nested_level"), intent.getDefaultNamespace());
+    }
+    verify(houseTableRepository, times(2))
+        .findAllByDatabaseId(ViewModelConstants.DATABASE_ID, SINGLE_ROW);
+    verify(houseTableRepository, times(2)).findEntityById(viewKey());
+    verifyNoMoreInteractions(houseTableRepository);
   }
 
   /** The table probe answers nearly every database, so the view probe runs only on its miss. */
@@ -819,29 +818,6 @@ public class ViewsServiceImplTest {
         .verify(houseTableRepository)
         .findAllViewsByDatabaseId(ViewModelConstants.DATABASE_ID, SINGLE_ROW);
     order.verify(houseTableRepository).findEntityById(viewKey());
-  }
-
-  /** HTS identity is case-insensitive, so a database repeated in any casing is probed once. */
-  @Test
-  public void databaseRepeatedInDefaultNamespaceIsProbedOnce() {
-    existingEnabledDatabase();
-    captureForWrite(Optional.empty());
-    when(privilegeMapper.forPut(false)).thenReturn(Privileges.CREATE_TABLE);
-    selectableStorage();
-    when(viewCommitEngine.commit(any(ViewCommitIntent.class))).thenReturn(createdResult());
-    CreateUpdateViewRequestBody request =
-        ViewModelConstants.createRequestWithInitialBaseVersion()
-            .toBuilder()
-            .defaultNamespace(
-                Arrays.asList(
-                    ViewModelConstants.DATABASE_ID,
-                    ViewModelConstants.DATABASE_ID.toUpperCase(Locale.ROOT)))
-            .build();
-
-    service.putView(request, ACTING_PRINCIPAL, false);
-
-    verify(houseTableRepository, times(1)).findAllByDatabaseId(any(), any());
-    verify(houseTableRepository, never()).findAllViewsByDatabaseId(any(), any());
   }
 
   /**

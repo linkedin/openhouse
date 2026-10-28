@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.e2e.h2;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -24,8 +25,13 @@ import com.linkedin.openhouse.tables.model.TableModelConstants;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.services.ViewsFeatureGate;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.Arrays;
+import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.view.ViewMetadata;
+import org.apache.iceberg.view.ViewMetadataParser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -377,11 +383,13 @@ public class ViewsServiceH2IntegrationTest {
         .andExpect(status().isOk());
   }
 
-  /** A default namespace naming the seeded database in another case also names an existing one. */
+  /**
+   * {@code defaultNamespace} has no linkage inside OpenHouse: a namespace naming no OpenHouse
+   * database is accepted and recorded verbatim in the committed view version.
+   */
   @Test
-  public void mixedCaseDefaultNamespaceAliasOfASeededDatabaseIsRecognizedAsExisting()
-      throws Exception {
-    String viewId = "case_alias_namespace_view";
+  public void nonlocalDefaultNamespaceIsAcceptedAndRecordedVerbatim() throws Exception {
+    String viewId = "nonlocal_namespace_view";
     try {
       mvc.perform(
               MockMvcRequestBuilders.post(VIEWS_PATH)
@@ -390,12 +398,20 @@ public class ViewsServiceH2IntegrationTest {
                       ViewModelConstants.createRequestWithoutBaseVersion()
                           .toBuilder()
                           .viewId(viewId)
-                          .defaultNamespace(java.util.Collections.singletonList("MY_DATABASE"))
+                          .defaultNamespace(Arrays.asList("Absent_Database", "nested_level"))
                           .build()
                           .toJson())
                   .accept(MediaType.APPLICATION_JSON)
                   .header("Authorization", "Bearer " + jwtAccessToken))
           .andExpect(status().isCreated());
+
+      String pointer = findViewRow(viewId).getTableLocation();
+      ViewMetadata metadata =
+          ViewMetadataParser.fromJson(
+              new String(Files.readAllBytes(Paths.get(URI.create(pointer).getPath())), UTF_8));
+      org.junit.jupiter.api.Assertions.assertEquals(
+          Namespace.of("Absent_Database", "nested_level"),
+          metadata.currentVersion().defaultNamespace());
     } finally {
       deleteViewIfPresent(viewId);
     }

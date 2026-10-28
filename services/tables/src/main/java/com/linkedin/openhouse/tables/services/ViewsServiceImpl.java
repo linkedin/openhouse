@@ -32,13 +32,10 @@ import com.linkedin.openhouse.tables.model.ViewDto;
 import com.linkedin.openhouse.tables.model.ViewListResult;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import javax.annotation.PostConstruct;
@@ -64,7 +61,7 @@ import org.springframework.stereotype.Component;
  * GET:  gate -> HTS read -> metadata read (no authorization)
  * LIST: gate -> HTS read (no authorization)
  *
- * POST / PUT: gate -> database existence -> prepared capture -> authorization
+ * POST / PUT: gate -> route database existence -> prepared capture -> authorization
  *             -> resource type / base-version -> allocate (create only)
  *             -> commit
  *
@@ -156,7 +153,7 @@ public class ViewsServiceImpl implements ViewsService {
     String viewId = requestBody.getViewId();
     try {
       requireEnabled(databaseId);
-      requireDatabasesExist(databaseId, requestBody.getDefaultNamespace());
+      requireDatabaseExists(databaseId);
 
       Optional<HouseTable> occupant =
           houseTableRepository.findEntityById(primaryKey(databaseId, viewId));
@@ -319,25 +316,13 @@ public class ViewsServiceImpl implements ViewsService {
     }
   }
 
-  private void requireDatabasesExist(String databaseId, List<String> defaultNamespace) {
-    // HTS identity is case-insensitive, so each database is probed once whatever its casing.
-    Set<String> probed = new HashSet<>();
-    requireDatabaseExists(databaseId, probed);
-    if (defaultNamespace != null) {
-      for (String namespaceDatabaseId : defaultNamespace) {
-        requireDatabaseExists(namespaceDatabaseId, probed);
-      }
-    }
-  }
-
   /**
    * A database has no row of its own; it exists once it holds a table or a view. Tables are probed
-   * first because nearly every database holds one, so the view probe runs only on a miss.
+   * first because nearly every database holds one, so the view probe runs only on a miss. Only the
+   * route database is probed: {@code defaultNamespace} is SQL-resolution metadata with no linkage
+   * inside OpenHouse, so it is passed through unchecked.
    */
-  private void requireDatabaseExists(String databaseId, Set<String> probed) {
-    if (!probed.add(databaseId.toLowerCase(Locale.ROOT))) {
-      return;
-    }
+  private void requireDatabaseExists(String databaseId) {
     if (houseTableRepository.findAllByDatabaseId(databaseId, SINGLE_ROW).hasContent()
         || houseTableRepository.findAllViewsByDatabaseId(databaseId, SINGLE_ROW).hasContent()) {
       return;
