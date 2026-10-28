@@ -423,8 +423,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     // Handle all schema-related processing (client schema, evolved schema, intermediate schemas)
     metadata = processSchemas(base, metadata);
 
-    Map<String, String> properties = new HashMap<>(metadata.properties());
-    checkBeforeWriting(base, metadata, properties);
+    Map<String, String> properties = prepareCommit(base, metadata);
 
     int version = currentVersion() + 1;
     CommitStatus commitStatus = CommitStatus.FAILURE;
@@ -666,16 +665,20 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    * the {@link PreCommitCheck}s. The checks run after the stale-base check, so a snapshot commit
    * built on an older table version gets the retryable conflict instead, and see the properties the
    * commit leaves. A rejected commit still counts as a failed commit.
+   *
+   * @return {@code metadata}'s properties, with the repository's temporary overrides restored and
+   *     the table property rules applied, in a new map
    */
-  private void checkBeforeWriting(
-      TableMetadata base, TableMetadata metadata, Map<String, String> properties) {
+  private Map<String, String> prepareCommit(TableMetadata base, TableMetadata metadata) {
     try {
       abortIfWriterBaseDivergedFromCatalog(base, metadata);
+      Map<String, String> properties = new HashMap<>(metadata.properties());
       restoreOverriddenProperties(properties);
       enforcePropertyRules(base, properties);
       if (preCommitCheckRunner != null) {
         preCommitCheckRunner.checkAll(tableIdentifier, base, metadata, properties);
       }
+      return properties;
     } catch (CommitFailedException | CommitRejectedException e) {
       metricsReporter.count(InternalCatalogMetricsConstant.COMMIT_FAILED_CTR);
       throw e;

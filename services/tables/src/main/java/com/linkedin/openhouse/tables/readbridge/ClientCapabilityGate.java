@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.readbridge;
 import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.model.TableDto;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -11,10 +12,12 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * Admits a request to a table only if its client declares every capability the table requires. A
- * table requires capability {@code <name>} with the property {@code
+ * table requires a capability the server knows, {@code <name>}, with the property {@code
  * required-capability.<name>=true}; a client declares capabilities in {@value
- * TablesMvcConstants#HTTP_HEADER_CLIENT_CAPABILITIES}. Called after authorization, before loads and
- * writes. Tables that require nothing are never checked.
+ * TablesMvcConstants#HTTP_HEADER_CLIENT_CAPABILITIES}. Clients may declare any name; the server
+ * enforces only {@link #KNOWN_CAPABILITIES}. Property keys are exact, as in Iceberg: a misspelled
+ * prefix, an unknown name or a different case is an ordinary property and requires nothing. Called
+ * after authorization, before loads and writes. Tables that require nothing are never checked.
  */
 @Slf4j
 public class ClientCapabilityGate {
@@ -23,6 +26,9 @@ public class ClientCapabilityGate {
 
   /** Applies column defaults on read and keeps them on write. */
   public static final String COLUMN_DEFAULTS = "column-defaults";
+
+  /** The capabilities the server enforces. */
+  static final Set<String> KNOWN_CAPABILITIES = Collections.singleton(COLUMN_DEFAULTS);
 
   private final CatalogRequestContext requestContext;
 
@@ -118,21 +124,18 @@ public class ClientCapabilityGate {
     return declared.isEmpty() ? "(none)" : String.join(",", new TreeSet<>(declared));
   }
 
-  /** The capabilities {@code properties} require, in name order. */
+  /** The known capabilities {@code properties} require, in name order. */
   private static Set<String> required(Map<String, String> properties) {
     Set<String> required = new TreeSet<>();
     if (properties == null) {
       return required;
     }
-    properties.forEach(
-        (key, value) -> {
-          if (key.startsWith(REQUIRED_CAPABILITY_PREFIX)
-              && key.length() > REQUIRED_CAPABILITY_PREFIX.length()
-              && value != null
-              && "true".equalsIgnoreCase(value.trim())) {
-            required.add(key.substring(REQUIRED_CAPABILITY_PREFIX.length()));
-          }
-        });
+    for (String capability : KNOWN_CAPABILITIES) {
+      String value = properties.get(REQUIRED_CAPABILITY_PREFIX + capability);
+      if (value != null && "true".equalsIgnoreCase(value.trim())) {
+        required.add(capability);
+      }
+    }
     return required;
   }
 }

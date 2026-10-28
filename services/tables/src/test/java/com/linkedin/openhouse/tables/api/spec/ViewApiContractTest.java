@@ -13,6 +13,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.ViewRepresen
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllViewsResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetViewResponseBody;
 import com.linkedin.openhouse.tables.exception.ViewErrorCode;
+import com.linkedin.openhouse.tables.model.ReservedViewProperties;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.lang.reflect.Field;
@@ -55,7 +56,6 @@ public class ViewApiContractTest {
             "databaseId",
             "schema",
             "representations",
-            "sourceDialect",
             "defaultCatalog",
             "defaultNamespace",
             "viewProperties",
@@ -188,7 +188,6 @@ public class ViewApiContractTest {
             "databaseId",
             "schema",
             "representations",
-            "sourceDialect",
             "defaultCatalog",
             "defaultNamespace",
             "viewProperties",
@@ -201,7 +200,6 @@ public class ViewApiContractTest {
         json.has("clusterId"),
         "Even a fully populated request emits no cluster key: the serving cluster is server"
             + " configuration, not something a caller declares.");
-    Assertions.assertEquals(ViewModelConstants.SOURCE_DIALECT, json.get("sourceDialect").asText());
     Assertions.assertEquals(
         ViewModelConstants.METADATA_LOCATION, json.get("baseMetadataLocation").asText());
 
@@ -219,7 +217,9 @@ public class ViewApiContractTest {
     Assertions.assertEquals(
         ViewModelConstants.DATABASE_ID, json.get("defaultNamespace").get(0).asText());
     Assertions.assertEquals(
-        setOf("owner"), keysOf(json.get("viewProperties")), "viewProperties is a free-form map");
+        setOf("owner", ReservedViewProperties.SOURCE_DIALECT),
+        keysOf(json.get("viewProperties")),
+        "viewProperties is a free-form map, plus the server-managed reserved sourceDialect key");
   }
 
   @Test
@@ -239,7 +239,6 @@ public class ViewApiContractTest {
             "databaseId",
             "schema",
             "representations",
-            "sourceDialect",
             "defaultCatalog",
             "defaultNamespace",
             "viewProperties"),

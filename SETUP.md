@@ -411,11 +411,16 @@ Tables with `required-capability.column-defaults=true` admit only clients that d
 endpoints, such as search, delete, rename, ACL, lock, purge and restore, are not gated. The gate
 checks each request: it cannot revoke metadata a client already loaded, and it never sees reads or
 writes that go straight to the table's files in storage. Tables without that property are never
-checked. The same applies to any capability: `required-capability.<name>=true` admits only clients
-that declare `<name>`.
+checked.
+
+The server enforces only capabilities it knows; today that is `column-defaults`. Table property
+keys are exact, as in Iceberg: only `required-capability.column-defaults` gates clients and turns
+on column defaults. Any other `required-capability.<name>`, a misspelled prefix or a different case
+(`required-capability.Column-Defaults`) is an ordinary property and requires nothing.
 
 `X-OpenHouse-Client-Capabilities` is a comma-separated, case-insensitive list; repeated headers add
-up. A capability is the client's promise about its own behavior: `column-defaults` means the client
+up. Clients may declare any name; the server ignores names it does not know. A capability is the
+client's promise about its own behavior: `column-defaults` means the client
 never returns rows from a table with column defaults without applying them, and never commits a
 schema that drops one. The Spark catalog (`com.linkedin.openhouse.spark.OpenHouseCatalog`) declares
 `column-defaults`, because Spark reads rows through Iceberg's readers, which apply them. The Java

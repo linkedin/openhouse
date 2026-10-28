@@ -60,7 +60,7 @@ public class ViewsPaginationControllerTest {
   /** The principal {@link DummyTokenInterceptor} establishes for these requests. */
   private static final String ACTING_PRINCIPAL = "DUMMY_ANONYMOUS_USER";
 
-  private static final int DEFAULT_SIZE = 50;
+  private static final int DEFAULT_SIZE = 100;
 
   /** Failure messages must not include service output. */
   private static final String MISSING_RESULT_MESSAGE = "viewsService returned no result";
@@ -213,7 +213,7 @@ public class ViewsPaginationControllerTest {
   public void anEmptyTerminalPageIsAnEmptyArrayWithoutAToken() throws Exception {
     Mockito.when(
             viewsService.getAllViews(
-                ViewModelConstants.DATABASE_ID, null, 50, null, ACTING_PRINCIPAL))
+                ViewModelConstants.DATABASE_ID, null, 100, null, ACTING_PRINCIPAL))
         .thenReturn(ViewListResult.builder().results(Collections.emptyList()).build());
 
     mvc.perform(listRequest())
@@ -229,7 +229,7 @@ public class ViewsPaginationControllerTest {
             viewsService.getAllViews(
                 ViewModelConstants.DATABASE_ID,
                 ViewModelConstants.REQUEST_PAGE_TOKEN,
-                50,
+                100,
                 null,
                 ACTING_PRINCIPAL))
         .thenReturn(ViewModelConstants.viewListResultWithNextPageToken());
@@ -249,7 +249,7 @@ public class ViewsPaginationControllerTest {
     String decodedToken = "opaque+/=%";
     Mockito.when(
             viewsService.getAllViews(
-                ViewModelConstants.DATABASE_ID, decodedToken, 50, null, ACTING_PRINCIPAL))
+                ViewModelConstants.DATABASE_ID, decodedToken, 100, null, ACTING_PRINCIPAL))
         .thenReturn(terminalResult());
 
     mvc.perform(
@@ -259,7 +259,7 @@ public class ViewsPaginationControllerTest {
         .andExpect(status().isOk());
 
     Mockito.verify(viewsService)
-        .getAllViews(ViewModelConstants.DATABASE_ID, decodedToken, 50, null, ACTING_PRINCIPAL);
+        .getAllViews(ViewModelConstants.DATABASE_ID, decodedToken, 100, null, ACTING_PRINCIPAL);
   }
 
   /** Nonblank tokens reach the service without interpretation. */
@@ -268,13 +268,13 @@ public class ViewsPaginationControllerTest {
   public void arbitraryNonBlankTokensAreForwardedVerbatim(String token) throws Exception {
     Mockito.when(
             viewsService.getAllViews(
-                ViewModelConstants.DATABASE_ID, token, 50, null, ACTING_PRINCIPAL))
+                ViewModelConstants.DATABASE_ID, token, 100, null, ACTING_PRINCIPAL))
         .thenReturn(terminalResult());
 
     mvc.perform(listRequest().param("pageToken", token)).andExpect(status().isOk());
 
     Mockito.verify(viewsService)
-        .getAllViews(ViewModelConstants.DATABASE_ID, token, 50, null, ACTING_PRINCIPAL);
+        .getAllViews(ViewModelConstants.DATABASE_ID, token, 100, null, ACTING_PRINCIPAL);
   }
 
   /** Returned tokens retain padding and reserved characters. */
@@ -283,7 +283,7 @@ public class ViewsPaginationControllerTest {
     String outgoingToken = "  a+b/c=%  ";
     Mockito.when(
             viewsService.getAllViews(
-                ViewModelConstants.DATABASE_ID, null, 50, null, ACTING_PRINCIPAL))
+                ViewModelConstants.DATABASE_ID, null, 100, null, ACTING_PRINCIPAL))
         .thenReturn(
             ViewListResult.builder()
                 .results(ViewModelConstants.sparseListDtos())
@@ -301,21 +301,21 @@ public class ViewsPaginationControllerTest {
   public void acceptedSortValuesReachTheServiceUnchanged(String sortBy) throws Exception {
     Mockito.when(
             viewsService.getAllViews(
-                ViewModelConstants.DATABASE_ID, null, 50, sortBy, ACTING_PRINCIPAL))
+                ViewModelConstants.DATABASE_ID, null, 100, sortBy, ACTING_PRINCIPAL))
         .thenReturn(terminalResult());
 
     mvc.perform(listRequest().param("sortBy", sortBy)).andExpect(status().isOk());
 
     Mockito.verify(viewsService)
-        .getAllViews(ViewModelConstants.DATABASE_ID, null, 50, sortBy, ACTING_PRINCIPAL);
+        .getAllViews(ViewModelConstants.DATABASE_ID, null, 100, sortBy, ACTING_PRINCIPAL);
   }
 
   // Per-request count
 
   private static Stream<Arguments> countsReachingTheService() {
     return Stream.of(
-        Arguments.of("omitted", null, 50),
-        Arguments.of("explicitly empty", "", 50),
+        Arguments.of("omitted", null, 100),
+        Arguments.of("explicitly empty", "", 100),
         Arguments.of("one", "1", 1),
         Arguments.of("no upper cap", String.valueOf(Integer.MAX_VALUE), Integer.MAX_VALUE));
   }
@@ -481,7 +481,7 @@ public class ViewsPaginationControllerTest {
       String name, ViewListResult result, String expectedMessage) throws Exception {
     Mockito.when(
             viewsService.getAllViews(
-                ViewModelConstants.DATABASE_ID, null, 50, null, ACTING_PRINCIPAL))
+                ViewModelConstants.DATABASE_ID, null, 100, null, ACTING_PRINCIPAL))
         .thenReturn(result);
 
     mvc.perform(listRequest())
@@ -496,7 +496,7 @@ public class ViewsPaginationControllerTest {
   public void serviceFailuresKeepTheirStatusAndProduceNoResults() throws Exception {
     Mockito.when(
             viewsService.getAllViews(
-                ViewModelConstants.DATABASE_ID, null, 50, null, ACTING_PRINCIPAL))
+                ViewModelConstants.DATABASE_ID, null, 100, null, ACTING_PRINCIPAL))
         .thenThrow(new ViewApiException(ViewErrorCode.DATABASE_NOT_FOUND, "Database not found"));
 
     mvc.perform(listRequest())
