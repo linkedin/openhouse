@@ -60,14 +60,14 @@ import org.springframework.stereotype.Component;
  * snapshots, partition specs, sort orders, or retention semantics. Per-intent order:
  *
  * <pre>
- * GET:  gate -> database existence -> HTS read -> metadata read (no authorization)
- * LIST: gate -> database existence -> HTS read (no authorization)
+ * GET:  gate -> HTS read -> metadata read (no authorization)
+ * LIST: gate -> HTS read (no authorization)
  *
  * POST / PUT: gate -> database existence -> prepared capture -> authorization
  *             -> resource type / base-version -> allocate (create only)
  *             -> commit
  *
- * DELETE:     gate -> database existence -> authorization -> prepared capture
+ * DELETE:     gate -> authorization -> prepared capture
  *             -> delete
  * </pre>
  *
@@ -122,7 +122,6 @@ public class ViewsServiceImpl implements ViewsService {
   public ViewDto getView(String databaseId, String viewId, String actingPrincipal) {
     try {
       requireEnabled(databaseId);
-      requireDatabasesExist(databaseId, null);
       HouseTable viewRow =
           houseTableRepository
               .findViewById(primaryKey(databaseId, viewId))
@@ -141,7 +140,6 @@ public class ViewsServiceImpl implements ViewsService {
       String databaseId, String pageToken, int size, String sortBy, String actingPrincipal) {
     try {
       requireEnabled(databaseId);
-      requireDatabasesExist(databaseId, null);
       return paginationAdapter.list(databaseId, pageToken, size, sortBy);
     } catch (ViewApiException e) {
       throw e;
@@ -202,7 +200,6 @@ public class ViewsServiceImpl implements ViewsService {
   public void deleteView(String databaseId, String viewId, String actingPrincipal) {
     try {
       requireEnabled(databaseId);
-      requireDatabasesExist(databaseId, null);
 
       Privileges privilege = privilegeMapper.forDelete();
       authorizationUtils.checkDatabasePrivilege(databaseId, actingPrincipal, privilege);

@@ -235,19 +235,51 @@ public class ViewsServiceImplTest {
   }
 
   @Test
-  public void missingDatabaseFailsBeforeCaptureOrAuthorization() {
+  public void missingViewGetAndDeleteUseTypedLookupWithoutDatabaseEnumeration() {
     when(featureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(true);
-    when(databasesService.getAllDatabases()).thenReturn(Collections.emptyList());
+    captureForDelete(Optional.empty());
+    when(privilegeMapper.forDelete()).thenReturn(Privileges.DELETE_TABLE);
 
-    ViewApiException thrown =
+    ViewApiException get =
         assertThrows(
             ViewApiException.class,
             () ->
                 service.getView(
                     ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL));
 
-    assertEquals(ViewErrorCode.DATABASE_NOT_FOUND, thrown.getErrorCode());
-    verifyNoInteractions(houseTableRepository, viewCommitEngine, authorizationHandler);
+    assertEquals(ViewErrorCode.NO_SUCH_VIEW, get.getErrorCode());
+    verifyNoInteractions(authorizationHandler);
+
+    ViewApiException delete =
+        assertThrows(
+            ViewApiException.class,
+            () ->
+                service.deleteView(
+                    ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL));
+
+    assertEquals(ViewErrorCode.NO_SUCH_VIEW, delete.getErrorCode());
+    verify(houseTableRepository, times(2)).findViewById(viewKey());
+    verify(houseTableRepository, never()).deleteViewById(any());
+    assertDatabaseAuthorization(Privileges.DELETE_TABLE);
+    verifyNoInteractions(databasesService, viewCommitEngine);
+  }
+
+  @Test
+  public void missingDatabaseListReturnsEmptyPageWithoutDatabaseEnumeration() {
+    when(featureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(true);
+    Pageable requested =
+        PageRequest.of(0, ViewPaginationAdapter.DEFAULT_SOURCE_PAGE_SIZE, Sort.by("tableId"));
+    when(houseTableRepository.findAllViewsByDatabaseId(ViewModelConstants.DATABASE_ID, requested))
+        .thenReturn(new PageImpl<>(Collections.emptyList(), requested, 0));
+
+    ViewListResult result =
+        service.getAllViews(ViewModelConstants.DATABASE_ID, null, 100, "viewId", ACTING_PRINCIPAL);
+
+    assertTrue(result.getResults().isEmpty());
+    assertNull(result.getNextPageToken());
+    verify(houseTableRepository)
+        .findAllViewsByDatabaseId(ViewModelConstants.DATABASE_ID, requested);
+    verifyNoInteractions(databasesService, viewCommitEngine, authorizationHandler);
   }
 
   @Test
@@ -261,7 +293,7 @@ public class ViewsServiceImplTest {
             ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL);
 
     assertEquals("server-cluster", result.getClusterId());
-    verifyNoInteractions(authorizationHandler);
+    verifyNoInteractions(databasesService, authorizationHandler);
   }
 
   /**
@@ -899,26 +931,28 @@ public class ViewsServiceImplTest {
   }
 
   @Test
-  public void databaseProbeOutageOnReadsIsTypedUnavailableWithCause() {
+  public void databaseProbeOutageOnWritesIsTypedUnavailableWithCause() {
     when(featureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(true);
     HouseTableRepositoryStateUnknownException outage =
         new HouseTableRepositoryStateUnknownException("down", new RuntimeException("503"));
     when(databasesService.getAllDatabases()).thenThrow(outage);
 
-    ViewApiException get =
+    ViewApiException post =
         assertThrows(
             ViewApiException.class,
             () ->
-                service.getView(
-                    ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL));
-    ViewApiException list =
+                service.putView(
+                    ViewModelConstants.createRequestWithoutBaseVersion(), ACTING_PRINCIPAL, true));
+    ViewApiException put =
         assertThrows(
             ViewApiException.class,
             () ->
-                service.getAllViews(
-                    ViewModelConstants.DATABASE_ID, null, 50, "viewId", ACTING_PRINCIPAL));
+                service.putView(
+                    ViewModelConstants.createRequestWithInitialBaseVersion(),
+                    ACTING_PRINCIPAL,
+                    false));
 
-    for (ViewApiException thrown : new ViewApiException[] {get, list}) {
+    for (ViewApiException thrown : new ViewApiException[] {post, put}) {
       assertEquals(ViewErrorCode.VIEW_SERVICE_UNAVAILABLE, thrown.getErrorCode());
       assertEquals(HttpStatus.SERVICE_UNAVAILABLE, thrown.getHttpStatus());
       assertSame(outage, thrown.getCause());
@@ -957,25 +991,27 @@ public class ViewsServiceImplTest {
   }
 
   @Test
-  public void genericDatabaseProbeFailureOnReadsIsInternalErrorWithCause() {
+  public void genericDatabaseProbeFailureOnWritesIsInternalErrorWithCause() {
     when(featureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(true);
     IllegalStateException fault = new IllegalStateException("probe fault");
     when(databasesService.getAllDatabases()).thenThrow(fault);
 
-    ViewApiException get =
+    ViewApiException post =
         assertThrows(
             ViewApiException.class,
             () ->
-                service.getView(
-                    ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL));
-    ViewApiException list =
+                service.putView(
+                    ViewModelConstants.createRequestWithoutBaseVersion(), ACTING_PRINCIPAL, true));
+    ViewApiException put =
         assertThrows(
             ViewApiException.class,
             () ->
-                service.getAllViews(
-                    ViewModelConstants.DATABASE_ID, null, 50, "viewId", ACTING_PRINCIPAL));
+                service.putView(
+                    ViewModelConstants.createRequestWithInitialBaseVersion(),
+                    ACTING_PRINCIPAL,
+                    false));
 
-    for (ViewApiException thrown : new ViewApiException[] {get, list}) {
+    for (ViewApiException thrown : new ViewApiException[] {post, put}) {
       assertEquals(ViewErrorCode.INTERNAL_VIEW_ERROR, thrown.getErrorCode());
       assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, thrown.getHttpStatus());
       assertSame(fault, thrown.getCause());

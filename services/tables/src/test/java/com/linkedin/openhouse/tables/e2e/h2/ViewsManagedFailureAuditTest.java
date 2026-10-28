@@ -596,16 +596,17 @@ public class ViewsManagedFailureAuditTest {
   }
 
   /**
-   * A transient failure while probing the database for a read is a typed 503, not a residual 500.
+   * A transient failure while probing the database for a write is a typed 503, not a residual 500.
    */
   @Test
-  public void databaseProbeOutageOnReadsIsTypedUnavailable() throws Exception {
+  public void databaseProbeOutageOnWritesIsTypedUnavailable() throws Exception {
     when(databasesService.getAllDatabases())
         .thenThrow(
             new HouseTableRepositoryStateUnknownException(
                 SECRET_SQL, new RuntimeException(SECRET_BASE)));
 
-    assertReadProbeOutage();
+    assertPrecommitOutage(withToken(postView()));
+    Mockito.verifyNoInteractions(houseTableRepository, viewCommitEngine, opaHandler);
   }
 
   @Test
@@ -659,11 +660,12 @@ public class ViewsManagedFailureAuditTest {
   }
 
   @Test
-  public void genericDatabaseProbeFailureOnReadsIsInternal500() throws Exception {
+  public void genericDatabaseProbeFailureOnWritesIsInternal500() throws Exception {
     when(databasesService.getAllDatabases())
         .thenThrow(new IllegalStateException(SECRET_SQL, new RuntimeException(SECRET_BASE)));
 
-    assertReadProbeFailure(500);
+    assertPrecommitFailure(withToken(postView()), 500);
+    Mockito.verifyNoInteractions(houseTableRepository, viewCommitEngine, opaHandler);
   }
 
   @Test

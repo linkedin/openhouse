@@ -84,6 +84,28 @@ public class ViewsServiceH2IntegrationTest {
   }
 
   @Test
+  public void missingDatabaseGetAndDeleteAreNotFoundAndListIsEmpty() throws Exception {
+    String databaseId = "missing_views_database";
+    String viewsPath = "/v1/databases/" + databaseId + "/views";
+    Mockito.when(viewsFeatureGate.isEnabled(databaseId)).thenReturn(true);
+
+    mvc.perform(
+            MockMvcRequestBuilders.get(viewsPath + "/missing_view")
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isNotFound());
+    mvc.perform(
+            MockMvcRequestBuilders.get(viewsPath)
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.results").isEmpty())
+        .andExpect(jsonPath("$.nextPageToken").doesNotExist());
+    mvc.perform(
+            MockMvcRequestBuilders.delete(viewsPath + "/missing_view")
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
   public void enabledViewRoutesCreateReadReplaceListAndDeleteUsingServerOwnedState()
       throws Exception {
     MvcResult create =
