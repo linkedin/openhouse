@@ -23,6 +23,17 @@ public final class AppConstants {
   public static final String RETENTION_POLICY_MISCONFIGURED_TABLE_COUNT =
       "retention_policy_misconfigured_table_count";
 
+  // Per-operation metrics emitted by batched Spark apps
+  public static final String OPERATION_TYPE = "operation_type";
+  public static final String CLUSTER_NAME = "cluster_name";
+  public static final String OPERATION_TERMINAL_COUNT = "operation_terminal_count";
+  public static final String OPERATION_DURATION = "operation_duration";
+  public static final String RECLAIMED_FILE_COUNT = "reclaimed_file_count";
+  public static final String RECLAIMED_FILE_BYTES = "reclaimed_file_bytes";
+  public static final String RECLAIMED_FILE_SIZE_UNKNOWN_COUNT =
+      "reclaimed_file_size_unknown_count";
+  public static final String POST_RUN_VALIDATION_COUNT = "post_run_validation_count";
+
   // Snapshot Expiration metrics
   public static final String SNAPSHOTS_EXPIRATION_DURATION = "snapshots_expiration_duration";
   public static final String DELETE_FILES_ENABLED = "delete_files_enabled";
