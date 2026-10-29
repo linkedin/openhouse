@@ -224,6 +224,14 @@ public class BatchedTableStatsCollectionSparkApp extends BaseSparkApp {
     @Override
     public Boolean call() {
       String fqtn = entry.getFqtn();
+      BatchedOperationMetrics metrics =
+          new BatchedOperationMetrics(
+              ops,
+              otelEmitter,
+              jobId,
+              UpdateOperationRequest.OperationTypeEnum.TABLE_STATS_COLLECTION,
+              entry.getDatabaseName(),
+              fqtn);
       UpdateOperationRequest.StatusEnum status = UpdateOperationRequest.StatusEnum.FAILED;
       try {
         log.info(
@@ -240,6 +248,7 @@ public class BatchedTableStatsCollectionSparkApp extends BaseSparkApp {
             entry.getOperationId().orElse(""),
             t);
       } finally {
+        metrics.complete(status);
         // Defensive: reportResult must not throw out of the finally block, since that would mask
         // the original failure and propagate up to awaitOne, which would then report FAILED again.
         try {

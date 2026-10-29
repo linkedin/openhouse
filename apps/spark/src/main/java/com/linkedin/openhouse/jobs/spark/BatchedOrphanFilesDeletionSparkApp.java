@@ -244,6 +244,17 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
     @Override
     public Boolean call() {
       String fqtn = entry.getFqtn();
+      BatchedOperationMetrics metrics =
+          new BatchedOperationMetrics(
+              ops,
+              otelEmitter,
+              jobId,
+              UpdateOperationRequest.OperationTypeEnum.ORPHAN_FILES_DELETION,
+              entry.getDatabaseName(),
+              fqtn);
+      Operations.FileDeletionMetrics deletionMetrics = new Operations.FileDeletionMetrics();
+      BatchedOperationMetrics.ValidationStatus validationStatus =
+          BatchedOperationMetrics.ValidationStatus.NOT_RUN;
       UpdateOperationRequest.StatusEnum status = UpdateOperationRequest.StatusEnum.FAILED;
       try {
         log.info("OFD start: fqtn={} operationId={}", fqtn, entry.getOperationId().orElse(""));
@@ -257,22 +268,23 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
                 backupDir,
                 concurrentDeletes,
                 streamResults,
-                maxOrphanFileSampleSize);
+                maxOrphanFileSampleSize,
+                deletionMetrics);
         // Count via iteration rather than materializing the full path list: a table with millions
         // of orphan files would otherwise OOM the driver, and that risk multiplies with
         // driverParallelism workers running concurrently.
         int orphanCount = Iterables.size(result.orphanFileLocations());
-        otelEmitter.count(
-            METRICS_SCOPE,
-            AppConstants.ORPHAN_FILE_COUNT,
-            orphanCount,
-            Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), fqtn));
-        validate(fqtn);
+        metrics.count(AppConstants.ORPHAN_FILE_COUNT, orphanCount, metrics.getTableAttributes());
+        validationStatus = BatchedOperationMetrics.ValidationStatus.FAILED;
+        validate(fqtn, metrics);
+        validationStatus = BatchedOperationMetrics.ValidationStatus.SUCCESS;
         status = UpdateOperationRequest.StatusEnum.SUCCESS;
         log.info("OFD success: fqtn={} orphansDetected={}", fqtn, orphanCount);
       } catch (Throwable t) {
         log.error("OFD failed: fqtn={} operationId={}", fqtn, entry.getOperationId().orElse(""), t);
       } finally {
+        metrics.complete(status);
+        metrics.recordDeletion(deletionMetrics, validationStatus);
         // Defensive: reportResult must not throw out of the finally block, since that would mask
         // the original failure and propagate up to awaitOne, which would then report FAILED again.
         try {
@@ -293,20 +305,20 @@ public class BatchedOrphanFilesDeletionSparkApp extends BaseSparkApp {
      * intact after deletion. A failure here is treated as a failed operation: it's logged, counted,
      * and re-thrown so the outer {@link #call()} marks {@code success=false}.
      */
-    private void validate(String fqtn) {
+    private void validate(String fqtn, BatchedOperationMetrics metrics) {
       try {
         TableStateValidator.run(ops.spark(), fqtn);
       } catch (TableValidationException e) {
         log.error("Post-job validation failed: fqtn={}", fqtn, e);
-        otelEmitter.count(
-            METRICS_SCOPE,
+        metrics.count(
             "post_run_validation_error",
             1,
-            Attributes.of(
-                AttributeKey.stringKey(AppConstants.TABLE_NAME),
-                fqtn,
-                AttributeKey.stringKey(AppConstants.JOB_NAME),
-                BatchedOrphanFilesDeletionSparkApp.class.getSimpleName()));
+            metrics
+                .getTableAttributes()
+                .toBuilder()
+                .put(
+                    AppConstants.JOB_NAME, BatchedOrphanFilesDeletionSparkApp.class.getSimpleName())
+                .build());
         throw e;
       }
     }

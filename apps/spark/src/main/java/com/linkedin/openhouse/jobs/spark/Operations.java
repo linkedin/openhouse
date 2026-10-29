@@ -22,11 +22,13 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -117,6 +119,28 @@ public final class Operations implements AutoCloseable {
       int concurrentDeletes,
       boolean streamResults,
       int maxOrphanFileSampleSize) {
+    return deleteOrphanFiles(
+        table,
+        olderThanTimestampMillis,
+        backupDir,
+        concurrentDeletes,
+        streamResults,
+        maxOrphanFileSampleSize,
+        null);
+  }
+
+  /**
+   * Collect actual successful deletions, not the sampled paths returned by streaming OFD. Counters
+   * are caller-owned so partial progress remains available if the action fails.
+   */
+  public DeleteOrphanFiles.Result deleteOrphanFiles(
+      Table table,
+      long olderThanTimestampMillis,
+      String backupDir,
+      int concurrentDeletes,
+      boolean streamResults,
+      int maxOrphanFileSampleSize,
+      FileDeletionMetrics deletionMetrics) {
 
     DeleteOrphanFiles operation =
         SparkActions.get(spark)
@@ -131,8 +155,37 @@ public final class Operations implements AutoCloseable {
       operation = operation.executeDeleteWith(removeFilesService(concurrentDeletes));
     }
     Map<String, Boolean> dataManifestsCache = new ConcurrentHashMap<>();
-    operation = operation.deleteWith(buildFileDeleteHandler(table, backupDir, dataManifestsCache));
+    operation =
+        operation.deleteWith(
+            buildFileDeleteHandler(table, backupDir, dataManifestsCache, deletionMetrics));
     return operation.execute();
+  }
+
+  public static final class FileDeletionMetrics {
+    private final LongAdder deletedFiles = new LongAdder();
+    private final LongAdder deletedBytes = new LongAdder();
+    private final LongAdder unknownFileSizes = new LongAdder();
+
+    void recordDeletion(OptionalLong size) {
+      deletedFiles.increment();
+      if (size.isPresent()) {
+        deletedBytes.add(size.getAsLong());
+      } else {
+        unknownFileSizes.increment();
+      }
+    }
+
+    public long getDeletedFiles() {
+      return deletedFiles.sum();
+    }
+
+    public long getDeletedBytes() {
+      return deletedBytes.sum();
+    }
+
+    public long getUnknownFileSizes() {
+      return unknownFileSizes.sum();
+    }
   }
 
   /**
@@ -146,6 +199,14 @@ public final class Operations implements AutoCloseable {
    */
   private Consumer<String> buildFileDeleteHandler(
       Table table, String backupDir, Map<String, Boolean> dataManifestsCache) {
+    return buildFileDeleteHandler(table, backupDir, dataManifestsCache, null);
+  }
+
+  private Consumer<String> buildFileDeleteHandler(
+      Table table,
+      String backupDir,
+      Map<String, Boolean> dataManifestsCache,
+      FileDeletionMetrics deletionMetrics) {
     Path backupDirRoot = new Path(table.location(), backupDir);
     Path dataDirRoot = new Path(table.location(), "data");
     return file -> {
@@ -162,7 +223,7 @@ public final class Operations implements AutoCloseable {
           && isExistBackupDataManifests(table, file, backupDir, dataManifestsCache)) {
         backupDataFile(file, table, backupDir);
       } else {
-        deleteFile(file);
+        deleteFile(file, deletionMetrics);
       }
     };
   }
@@ -181,10 +242,26 @@ public final class Operations implements AutoCloseable {
   }
 
   /** Delete a file directly (manifests, manifest lists, data files without a backup manifest). */
-  private void deleteFile(String file) {
+  private void deleteFile(String file, FileDeletionMetrics deletionMetrics) {
     log.info("Deleting file {}", file);
     try {
-      fs().delete(new Path(file), false);
+      FileSystem fileSystem = fs();
+      Path path = new Path(file);
+      OptionalLong size = OptionalLong.empty();
+      if (deletionMetrics != null) {
+        try {
+          size = OptionalLong.of(fileSystem.getFileStatus(path).getLen());
+        } catch (IOException e) {
+          log.warn("Cannot measure file size before deletion: file={}", file, e);
+        }
+      }
+      if (fileSystem.delete(path, false)) {
+        if (deletionMetrics != null) {
+          deletionMetrics.recordDeletion(size);
+        }
+      } else {
+        log.warn("File deletion returned false: file={}", file);
+      }
     } catch (IOException e) {
       log.error(String.format("Delete operation failed for file: %s", file), e);
     }
