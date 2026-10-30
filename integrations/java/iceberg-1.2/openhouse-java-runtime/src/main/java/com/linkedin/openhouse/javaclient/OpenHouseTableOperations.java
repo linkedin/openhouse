@@ -49,6 +49,7 @@ import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.exceptions.ServiceUnavailableException;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.util.Tasks;
@@ -292,7 +293,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations
       try {
         hook.evaluate(context);
       } catch (PreCommitHookBlockedException e) {
-        throw asCommitException(hook, e);
+        throw asCommitException(hook, e, base == null);
       } catch (CommitFailedException | CommitStateUnknownException e) {
         // A hook throwing either of these is a bug, so say so rather than passing it on. Iceberg
         // would retry a block that fails the same way every time, or report that a commit which
@@ -310,20 +311,31 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations
   /**
    * Turns a blocked commit into the exception Iceberg expects.
    *
-   * <p>The two cases differ in whether Iceberg should try again. {@code CommitFailedException} is
-   * retried by Iceberg's commit loop, which is right when the check could not reach a verdict and
-   * wrong when the commit itself is the problem. That would retry until the attempts run out and
-   * then report a conflict that never happened.
+   * <p>The two failure types differ in whether Iceberg should try again. {@code
+   * CommitFailedException} is retried by Iceberg's commit loop, which is right when the check could
+   * not reach a verdict and wrong when the commit itself is the problem. That would retry until the
+   * attempts run out and then report a conflict that never happened.
+   *
+   * <p>A create is the exception. {@code BaseMetastoreCatalog}'s table builder catches {@code
+   * CommitFailedException} from a create and rethrows {@code AlreadyExistsException("Table was
+   * created concurrently")} without the cause, so a hook that could not run would report a table
+   * that does not exist and lose the reason. Nothing retries a create either, so the retry signal
+   * buys nothing there. Operational failures on a create use {@code ServiceUnavailableException},
+   * which Iceberg passes through.
+   *
+   * <p>Validation failures need no special case: {@code ValidationException} is not caught on
+   * either path.
    */
-  private RuntimeException asCommitException(PreCommitHook hook, PreCommitHookBlockedException e) {
+  private RuntimeException asCommitException(
+      PreCommitHook hook, PreCommitHookBlockedException e, boolean create) {
     if (e.getFailureType() == PreCommitHookBlockedException.FailureType.OPERATIONAL) {
-      return new CommitFailedException(
-          e,
-          "Pre-commit hook %s could not check table %s [%s]: %s",
-          hook.getName(),
-          tableName(),
-          e.getReasonCode(),
-          e.getMessage());
+      String message =
+          String.format(
+              "Pre-commit hook %s could not check table %s [%s]: %s",
+              hook.getName(), tableName(), e.getReasonCode(), e.getMessage());
+      return create
+          ? new ServiceUnavailableException(e, "%s", message)
+          : new CommitFailedException(e, "%s", message);
     }
     return new ValidationException(
         e,

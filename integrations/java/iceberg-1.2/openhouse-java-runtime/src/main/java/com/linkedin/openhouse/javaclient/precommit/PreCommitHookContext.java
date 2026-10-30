@@ -64,9 +64,11 @@ public final class PreCommitHookContext {
   /**
    * Whether the writer asked for a replace.
    *
-   * <p>Not the same as {@link PreCommitHookOperation#REPLACE}: a {@code CREATE OR REPLACE TABLE} of
-   * a table that does not exist yet sets this flag but is an ordinary create, because there is
-   * nothing to replace.
+   * <p>Not the same as {@link PreCommitHookOperation#REPLACE}, which also needs a base to replace.
+   * {@code OpenHouseCatalog} only sets this flag when the table already exists, so the two agree
+   * there: a {@code CREATE OR REPLACE TABLE} of a table that does not exist yet is routed to a
+   * plain create and the flag stays false. The operation is derived from both so that an integrator
+   * setting the flag some other way still cannot produce a REPLACE with nothing to replace.
    */
   public boolean isReplaceTransaction() {
     return replaceTransaction;

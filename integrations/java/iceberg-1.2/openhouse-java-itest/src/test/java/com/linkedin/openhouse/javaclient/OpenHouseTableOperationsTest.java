@@ -1293,11 +1293,13 @@ public class OpenHouseTableOperationsTest {
   }
 
   /**
-   * A {@code CREATE OR REPLACE} of a table that does not exist yet is an ordinary create: there is
-   * nothing to replace. The hook can still see what the writer asked for.
+   * The replace flag with no base is still a create: there is nothing to replace. {@code
+   * OpenHouseCatalog} does not produce this state, since it routes a {@code CREATE OR REPLACE} of a
+   * missing table to a plain create, so this covers an integrator calling {@code
+   * markReplaceTransaction} itself. The hook can still see what the writer asked for.
    */
   @Test
-  public void testAReplaceOfAMissingTableIsACreate() {
+  public void testTheReplaceFlagWithoutABaseIsStillACreate() {
     OpenHouseTableOperationsForTest ops = opsFor(acceptingSnapshotApi());
     ops.markReplaceTransaction();
 

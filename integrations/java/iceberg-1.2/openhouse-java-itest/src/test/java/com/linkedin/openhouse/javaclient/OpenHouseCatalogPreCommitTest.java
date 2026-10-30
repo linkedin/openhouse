@@ -1,18 +1,23 @@
 package com.linkedin.openhouse.javaclient;
 
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.linkedin.openhouse.gen.tables.client.api.TableApi;
 import com.linkedin.openhouse.javaclient.precommit.PreCommitHook;
 import com.linkedin.openhouse.javaclient.precommit.PreCommitHookBlockedException;
 import com.linkedin.openhouse.javaclient.precommit.PreCommitHookContext;
+import com.linkedin.openhouse.relocated.reactor.core.publisher.Mono;
 import java.lang.reflect.Field;
 import java.util.Collections;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.ServiceUnavailableException;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -26,6 +31,11 @@ import org.junit.jupiter.api.Test;
 public class OpenHouseCatalogPreCommitTest {
 
   private static final TableIdentifier TABLE = TableIdentifier.of("db", "tbl");
+
+  private static final Schema SCHEMA =
+      new Schema(Types.NestedField.required(1, "id", Types.LongType.get()));
+
+  private static final String LOCATION = "file:///tmp/openhouse-precommit-test";
 
   /** Records whether it was called, and lets the commit through. */
   private static final class RecordingHook implements PreCommitHook {
@@ -44,14 +54,18 @@ public class OpenHouseCatalogPreCommitTest {
    */
   private static OpenHouseCatalog catalog() {
     OpenHouseCatalog catalog = new OpenHouseCatalog();
-    try {
-      Field cluster = OpenHouseCatalog.class.getDeclaredField("cluster");
-      cluster.setAccessible(true);
-      cluster.set(catalog, "local");
-    } catch (ReflectiveOperationException e) {
-      throw new IllegalStateException("Failed to set cluster", e);
-    }
+    set(catalog, "cluster", "local");
     return catalog;
+  }
+
+  private static void set(OpenHouseCatalog catalog, String name, Object value) {
+    try {
+      Field field = OpenHouseCatalog.class.getDeclaredField(name);
+      field.setAccessible(true);
+      field.set(catalog, value);
+    } catch (ReflectiveOperationException e) {
+      throw new IllegalStateException("Failed to set " + name, e);
+    }
   }
 
   /** Blocks every commit, under a name an error message can be checked for. */
@@ -176,5 +190,64 @@ public class OpenHouseCatalogPreCommitTest {
     OpenHouseCatalog catalog = catalog();
 
     Assertions.assertThrows(NullPointerException.class, () -> catalog.withPreCommit(null));
+  }
+
+  /** A catalog whose table lookups come back empty, so a create runs on to the commit. */
+  private static OpenHouseCatalog catalogWithNoTables() {
+    OpenHouseCatalog catalog = catalog();
+    TableApi tableApi = mock(TableApi.class);
+    when(tableApi.getTableV1(anyString(), anyString())).thenReturn(Mono.empty());
+    set(catalog, "tableApi", tableApi);
+    set(catalog, "properties", ImmutableMap.of());
+    return catalog;
+  }
+
+  /** Blocks every commit the way a hook whose service is down would. */
+  private static final class UnreachableHook implements PreCommitHook {
+    @Override
+    public void evaluate(PreCommitHookContext context) throws PreCommitHookBlockedException {
+      throw PreCommitHookBlockedException.operational("service-down", "cannot reach checker", null);
+    }
+
+    @Override
+    public String getName() {
+      return "unreachable-hook";
+    }
+  }
+
+  /**
+   * Iceberg's table builder catches {@code CommitFailedException} from a create and rethrows {@code
+   * AlreadyExistsException("Table was created concurrently")} without the cause. A hook that could
+   * not run must not come out that way: the table does not exist, and the reason is the only thing
+   * the caller can act on.
+   */
+  @Test
+  public void testACreateBlockedByAnUnreachableHookSaysWhyRatherThanAlreadyExists() {
+    OpenHouseCatalog catalog = catalogWithNoTables().withPreCommit(new UnreachableHook());
+
+    ServiceUnavailableException thrown =
+        Assertions.assertThrows(
+            ServiceUnavailableException.class,
+            () -> catalog.buildTable(TABLE, SCHEMA).withLocation(LOCATION).create());
+
+    Assertions.assertTrue(thrown.getMessage().contains("unreachable-hook"));
+    Assertions.assertTrue(thrown.getMessage().contains("service-down"));
+    Assertions.assertTrue(thrown.getCause() instanceof PreCommitHookBlockedException);
+  }
+
+  /**
+   * The create path only mistranslates {@code CommitFailedException}, so a hook that ran and
+   * blocked needs no special case and keeps reporting the same way it does on a write.
+   */
+  @Test
+  public void testACreateBlockedByAHookThatRanReportsTheBlock() {
+    OpenHouseCatalog catalog = catalogWithNoTables().withPreCommit(new BlockingHook("create-hook"));
+
+    ValidationException thrown =
+        Assertions.assertThrows(
+            ValidationException.class,
+            () -> catalog.buildTable(TABLE, SCHEMA).withLocation(LOCATION).create());
+
+    Assertions.assertTrue(thrown.getMessage().contains("create-hook"));
   }
 }
