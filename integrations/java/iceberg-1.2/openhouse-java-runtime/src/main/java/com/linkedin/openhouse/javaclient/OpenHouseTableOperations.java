@@ -10,6 +10,10 @@ import com.linkedin.openhouse.javaclient.builder.ClusteringSpecBuilder;
 import com.linkedin.openhouse.javaclient.builder.TimePartitionSpecBuilder;
 import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageException;
 import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
+import com.linkedin.openhouse.javaclient.precommit.PreCommitHook;
+import com.linkedin.openhouse.javaclient.precommit.PreCommitHookBlockedException;
+import com.linkedin.openhouse.javaclient.precommit.PreCommitHookContext;
+import com.linkedin.openhouse.javaclient.precommit.SupportsPreCommit;
 import com.linkedin.openhouse.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
 import com.linkedin.openhouse.tables.client.invoker.ApiClient;
@@ -22,6 +26,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -43,6 +48,7 @@ import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.util.Tasks;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
@@ -52,7 +58,8 @@ import reactor.core.publisher.Mono;
 @Builder
 @Slf4j
 @AllArgsConstructor(access = AccessLevel.PROTECTED)
-public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
+public class OpenHouseTableOperations extends BaseMetastoreTableOperations
+    implements SupportsPreCommit {
 
   @Getter(AccessLevel.PROTECTED)
   private TableIdentifier tableIdentifier;
@@ -87,6 +94,25 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
    * so skip-reload and a failed UUID check cannot desync stamps from overlays.
    */
   private final AtomicReference<Map<String, String>> config = new AtomicReference<>();
+
+  /**
+   * Check run before each commit is sent, or {@link PreCommitHook#NOOP}. A final holder keeps
+   * Lombok's all-args constructor unchanged, so nothing downstream has to be rebuilt.
+   */
+  private final AtomicReference<PreCommitHook> preCommitHook =
+      new AtomicReference<>(PreCommitHook.NOOP);
+
+  /**
+   * Registers a check to run before each commit is sent to the service. Replaces any hook already
+   * registered.
+   *
+   * @return this, so it can be chained onto a newly built instance
+   */
+  @Override
+  public OpenHouseTableOperations withPreCommit(PreCommitHook hook) {
+    preCommitHook.set(Objects.requireNonNull(hook, "hook"));
+    return this;
+  }
 
   /** Stamps last applied to {@code current()}, or {@code null}. */
   protected Map<String, String> currentConfig() {
@@ -205,6 +231,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
     // an RTAS at this point. A replace always replaces the table wholesale, even when only part of
     // the metadata changed, so the flag alone decides the route.
     boolean replaceCommit = isReplaceTransaction() && base != null;
+    runPreCommitHook(base, metadata, metadataUpdated, snapshotsUpdated);
     try {
       if (replaceCommit) {
         putSnapshotsForReplace(base, metadata);
@@ -231,6 +258,65 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations {
       replaceTransaction.set(false);
     }
     log.debug("Calling doCommit succeeded");
+  }
+
+  /**
+   * Runs the registered check, if there is one, before anything is sent.
+   *
+   * <p>Placed here on purpose: the routing flags are settled, nothing has been sent yet, and it is
+   * outside the {@code catch} above -- which turns an interrupt into a {@code
+   * CommitStateUnknownException}, the wrong thing to say about a commit that never left.
+   *
+   * <p>Compares against {@link PreCommitHook#NOOP} by identity, so a caller that registers no hook
+   * pays nothing.
+   */
+  private void runPreCommitHook(
+      TableMetadata base,
+      TableMetadata metadata,
+      boolean metadataUpdated,
+      boolean snapshotsUpdated) {
+    PreCommitHook hook = preCommitHook.get();
+    if (hook == PreCommitHook.NOOP) {
+      return;
+    }
+    try {
+      hook.evaluate(
+          new PreCommitHookContext(
+              getCluster(),
+              getTableIdentifier(),
+              base,
+              metadata,
+              isReplaceTransaction(),
+              metadataUpdated,
+              snapshotsUpdated));
+    } catch (PreCommitHookBlockedException e) {
+      throw asCommitException(e);
+    }
+  }
+
+  /**
+   * Turns a blocked commit into the exception Iceberg expects.
+   *
+   * <p>The two cases differ in whether Iceberg should try again. {@code CommitFailedException} is
+   * retried by Iceberg's commit loop, which is right when the check could not reach a verdict and
+   * wrong when the commit itself is the problem -- that would retry until the attempts run out and
+   * then report a conflict that never happened.
+   */
+  private RuntimeException asCommitException(PreCommitHookBlockedException e) {
+    if (e.getFailureType() == PreCommitHookBlockedException.FailureType.OPERATIONAL) {
+      return new CommitFailedException(
+          e,
+          "Pre-commit hook could not check table %s [%s]: %s",
+          tableName(),
+          e.getReasonCode(),
+          e.getMessage());
+    }
+    return new ValidationException(
+        e,
+        "Pre-commit hook blocked commit for table %s [%s]: %s",
+        tableName(),
+        e.getReasonCode(),
+        e.getMessage());
   }
 
   private Boolean isMetadataUpdated(TableMetadata base, TableMetadata metadata) {

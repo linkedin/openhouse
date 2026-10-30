@@ -14,6 +14,10 @@ import com.linkedin.openhouse.gen.tables.client.model.Policies;
 import com.linkedin.openhouse.gen.tables.client.model.PolicyTag;
 import com.linkedin.openhouse.gen.tables.client.model.Retention;
 import com.linkedin.openhouse.javaclient.exception.WebClientWithMessageException;
+import com.linkedin.openhouse.javaclient.precommit.PreCommitHook;
+import com.linkedin.openhouse.javaclient.precommit.PreCommitHookBlockedException;
+import com.linkedin.openhouse.javaclient.precommit.PreCommitHookContext;
+import com.linkedin.openhouse.javaclient.precommit.PreCommitHookOperation;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.node.ArrayNode;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.node.ObjectNode;
@@ -42,6 +46,7 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
@@ -1078,5 +1083,170 @@ public class OpenHouseTableOperationsTest {
 
     Assertions.assertTrue(sentReplaceCommitFlag(snapshotApi, 2));
     Assertions.assertFalse(ops.isReplaceTransaction());
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Pre-commit hook
+  // ---------------------------------------------------------------------------------------------
+
+  /** Records the context it was given and lets the commit through. */
+  private static final class RecordingHook implements PreCommitHook {
+    private PreCommitHookContext context;
+
+    @Override
+    public void evaluate(PreCommitHookContext context) {
+      this.context = context;
+    }
+  }
+
+  /** Runs a commit through a recording hook and hands back what the hook saw. */
+  private PreCommitHookContext contextSeenBy(OpenHouseTableOperationsForTest ops, Commit commit) {
+    RecordingHook hook = new RecordingHook();
+    ops.withPreCommit(hook);
+    ops.doCommit(commit.base, commit.metadata);
+    return hook.context;
+  }
+
+  /** Registration is fluent, so it can be chained onto a freshly built instance. */
+  @Test
+  public void testWithPreCommitReturnsTheSameInstance() {
+    OpenHouseTableOperationsForTest ops = opsFor(acceptingSnapshotApi());
+
+    Assertions.assertSame(ops, ops.withPreCommit(PreCommitHook.NOOP));
+  }
+
+  /** With no hook registered, commits behave exactly as they did before. */
+  @Test
+  public void testNoHookIsRegisteredByDefault() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    Commit commit = metadataAndSnapshotsUpdated();
+
+    opsFor(snapshotApi).doCommit(commit.base, commit.metadata);
+
+    verify(snapshotApi, times(1)).putSnapshotsV1(eq("db"), eq("tbl"), any());
+  }
+
+  /**
+   * The point of the hook: a blocked commit never reaches the service, so the table is left exactly
+   * as it was.
+   */
+  @Test
+  public void testABlockedCommitIsNeverSent() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
+    ops.withPreCommit(
+        context -> {
+          throw PreCommitHookBlockedException.validation("ROW_COUNT", "0 rows");
+        });
+    Commit commit = metadataAndSnapshotsUpdated();
+
+    Assertions.assertThrows(
+        ValidationException.class, () -> ops.doCommit(commit.base, commit.metadata));
+
+    verifyNoInteractions(snapshotApi);
+  }
+
+  /** A blocked commit says why, so the message is usable without opening a log. */
+  @Test
+  public void testABlockedCommitExplainsItself() {
+    OpenHouseTableOperationsForTest ops = opsFor(acceptingSnapshotApi());
+    ops.withPreCommit(
+        context -> {
+          throw PreCommitHookBlockedException.validation("ROW_COUNT", "expected > 0, got 0");
+        });
+    Commit commit = metadataAndSnapshotsUpdated();
+
+    ValidationException thrown =
+        Assertions.assertThrows(
+            ValidationException.class, () -> ops.doCommit(commit.base, commit.metadata));
+
+    Assertions.assertTrue(thrown.getMessage().contains("ROW_COUNT"));
+    Assertions.assertTrue(thrown.getMessage().contains("expected > 0, got 0"));
+  }
+
+  /**
+   * A check that could not reach a verdict is worth retrying, so it surfaces as the exception
+   * Iceberg's commit loop retries on.
+   */
+  @Test
+  public void testAFailedCheckIsRetryable() {
+    OpenHouseTableOperationsForTest ops = opsFor(acceptingSnapshotApi());
+    ops.withPreCommit(
+        context -> {
+          throw PreCommitHookBlockedException.operational(
+              "UNAVAILABLE", "validator unreachable", new java.io.IOException("connect timed out"));
+        });
+    Commit commit = metadataAndSnapshotsUpdated();
+
+    Assertions.assertThrows(
+        CommitFailedException.class, () -> ops.doCommit(commit.base, commit.metadata));
+  }
+
+  /**
+   * The other half of that contract: a commit the hook rejected on its merits must not be retried,
+   * because every attempt fails the same way. {@code ValidationException} is unrelated to {@code
+   * CommitFailedException}, so Iceberg's commit loop lets it straight through.
+   */
+  @Test
+  public void testARejectedCommitIsNotRetried() {
+    Assertions.assertFalse(
+        CommitFailedException.class.isAssignableFrom(ValidationException.class),
+        "a rejected commit must not look retryable to Iceberg");
+  }
+
+  /** The hook is told which branch doCommit is taking, rather than having to work it out. */
+  @Test
+  public void testTheHookIsToldTheOperation() {
+    PreCommitHookContext context =
+        contextSeenBy(opsFor(acceptingSnapshotApi()), metadataAndSnapshotsUpdated());
+
+    Assertions.assertEquals(PreCommitHookOperation.SNAPSHOT, context.getOperation());
+  }
+
+  /** A replace is only visible in the transaction, never in the diff -- so it has to be passed. */
+  @Test
+  public void testTheHookIsToldAboutAReplace() {
+    OpenHouseTableOperationsForTest ops = opsFor(acceptingSnapshotApi());
+    ops.markReplaceTransaction();
+
+    PreCommitHookContext context = contextSeenBy(ops, metadataAndSnapshotsUpdated());
+
+    Assertions.assertEquals(PreCommitHookOperation.REPLACE, context.getOperation());
+    Assertions.assertTrue(context.isReplaceTransaction());
+  }
+
+  /**
+   * A {@code CREATE OR REPLACE} of a table that does not exist yet is an ordinary create: there is
+   * nothing to replace. The hook can still see what the writer asked for.
+   */
+  @Test
+  public void testAReplaceOfAMissingTableIsACreate() {
+    OpenHouseTableOperationsForTest ops = opsFor(acceptingSnapshotApi());
+    ops.markReplaceTransaction();
+
+    PreCommitHookContext context =
+        contextSeenBy(ops, new Commit(null, metadataAndSnapshotsUpdated().metadata));
+
+    Assertions.assertFalse(context.getBase().isPresent());
+    Assertions.assertEquals(PreCommitHookOperation.SNAPSHOT, context.getOperation());
+    Assertions.assertTrue(context.isReplaceTransaction());
+  }
+
+  /** The hook gets the table it is checking, so one hook instance can serve many tables. */
+  @Test
+  public void testTheHookIsToldWhichTable() {
+    PreCommitHookContext context =
+        contextSeenBy(opsFor(acceptingSnapshotApi()), metadataAndSnapshotsUpdated());
+
+    Assertions.assertEquals(TableIdentifier.of("a", "b"), context.getTableIdentifier());
+    Assertions.assertEquals("cluster", context.getCluster());
+  }
+
+  /** Reason codes end up as metric tags, so a free-text one is rejected where it is written. */
+  @Test
+  public void testAReasonCodeMustBeATag() {
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> PreCommitHookBlockedException.validation("not a tag!", "message"));
   }
 }
