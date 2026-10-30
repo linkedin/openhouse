@@ -32,6 +32,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.apache.commons.compress.utils.Lists;
 import org.apache.iceberg.Files;
@@ -1279,7 +1280,7 @@ public class OpenHouseTableOperationsTest {
     Assertions.assertEquals(PreCommitHookOperation.SNAPSHOT, context.getOperation());
   }
 
-  /** A replace is only visible in the transaction, never in the diff -- so it has to be passed. */
+  /** A replace is only visible in the transaction, never in the diff, so it has to be passed. */
   @Test
   public void testTheHookIsToldAboutAReplace() {
     OpenHouseTableOperationsForTest ops = opsFor(acceptingSnapshotApi());
@@ -1442,5 +1443,113 @@ public class OpenHouseTableOperationsTest {
     PreCommitHook hook = new RecordingHook();
 
     Assertions.assertEquals("RecordingHook", hook.getName());
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // A worked example
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * The shape of hook an integrator writes, as opposed to the doubles above: a governance rule that
+   * refuses to let a table lose a property it already carries.
+   *
+   * <p>It exists so the usage example in the docs is compiled rather than hand-written, and so the
+   * accessors a real check reaches for are exercised together: the operation, the optional base,
+   * and the metadata being committed.
+   */
+  private static final class RequiredPropertyHook implements PreCommitHook {
+    private final String key;
+
+    RequiredPropertyHook(String key) {
+      this.key = key;
+    }
+
+    @Override
+    public String getName() {
+      return "required-property";
+    }
+
+    @Override
+    public void evaluate(PreCommitHookContext context) throws PreCommitHookBlockedException {
+      if (context.getOperation() == PreCommitHookOperation.NOOP) {
+        return;
+      }
+      // A create has no base, so there is no property to have lost.
+      Optional<TableMetadata> base = context.getBase();
+      if (!base.isPresent() || !base.get().properties().containsKey(key)) {
+        return;
+      }
+      if (!context.getMetadata().properties().containsKey(key)) {
+        throw PreCommitHookBlockedException.validation(
+            "missing-required-property", "commit drops required property " + key);
+      }
+    }
+  }
+
+  /** A snapshot-appending commit whose two sides carry the given properties. */
+  private static Commit snapshotCommitWithProperties(
+      Map<String, String> baseProperties, Map<String, String> metadataProperties) {
+    TableMetadata base = mock(TableMetadata.class);
+    TableMetadata metadata = mock(TableMetadata.class);
+
+    when(base.schema()).thenReturn(mock(Schema.class));
+    when(metadata.schema()).thenReturn(mock(Schema.class));
+    when(base.properties()).thenReturn(baseProperties);
+    when(metadata.properties()).thenReturn(metadataProperties);
+    when(base.metadataFileLocation()).thenReturn("file:/tmp/v1.metadata.json");
+
+    when(base.snapshots()).thenReturn(Collections.emptyList());
+    when(metadata.snapshots())
+        .thenReturn(Collections.singletonList(SnapshotParser.fromJson(SNAPSHOT_JSON)));
+    when(base.refs()).thenReturn(Collections.emptyMap());
+    when(metadata.refs()).thenReturn(Collections.emptyMap());
+
+    return new Commit(base, metadata);
+  }
+
+  /** The example hook stops a commit that drops the property, and the failure names both. */
+  @Test
+  public void testTheExampleHookBlocksACommitThatDropsARequiredProperty() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
+    ops.withPreCommit(new RequiredPropertyHook("owner"));
+    Commit commit =
+        snapshotCommitWithProperties(ImmutableMap.of("owner", "team"), ImmutableMap.of("a", "b"));
+
+    ValidationException thrown =
+        Assertions.assertThrows(
+            ValidationException.class, () -> ops.doCommit(commit.base, commit.metadata));
+
+    Assertions.assertTrue(thrown.getMessage().contains("required-property"));
+    Assertions.assertTrue(thrown.getMessage().contains("missing-required-property"));
+    verifyNoInteractions(snapshotApi);
+  }
+
+  /** The same hook lets the commit through when the property survives. */
+  @Test
+  public void testTheExampleHookAllowsACommitThatKeepsTheProperty() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
+    ops.withPreCommit(new RequiredPropertyHook("owner"));
+    Commit commit =
+        snapshotCommitWithProperties(
+            ImmutableMap.of("owner", "team"), ImmutableMap.of("owner", "team", "a", "b"));
+
+    ops.doCommit(commit.base, commit.metadata);
+
+    verify(snapshotApi, times(1)).putSnapshotsV1(anyString(), anyString(), any());
+  }
+
+  /** A create arrives with no base, so the hook has nothing to compare and allows it. */
+  @Test
+  public void testTheExampleHookAllowsACreate() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
+    ops.withPreCommit(new RequiredPropertyHook("owner"));
+    Commit commit = snapshotCommitWithProperties(ImmutableMap.of(), ImmutableMap.of("a", "b"));
+
+    ops.doCommit(null, commit.metadata);
+
+    verify(snapshotApi, times(1)).putSnapshotsV1(anyString(), anyString(), any());
   }
 }

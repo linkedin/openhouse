@@ -231,7 +231,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations
     // an RTAS at this point. A replace always replaces the table wholesale, even when only part of
     // the metadata changed, so the flag alone decides the route.
     boolean replaceCommit = isReplaceTransaction() && base != null;
-    runPreCommitHook(base, metadata, metadataUpdated, snapshotsUpdated);
+    runPreCommitHooks(base, metadata, metadataUpdated, snapshotsUpdated);
     try {
       if (replaceCommit) {
         putSnapshotsForReplace(base, metadata);
@@ -265,13 +265,13 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations
    * stops the commit and the rest do not run.
    *
    * <p>Placed here on purpose: the routing flags are settled, nothing has been sent yet, and it is
-   * outside the {@code catch} above -- which turns an interrupt into a {@code
+   * outside the {@code catch} above, which turns an interrupt into a {@code
    * CommitStateUnknownException}, the wrong thing to say about a commit that never left.
    *
    * <p>Each hook is evaluated in its own {@code try}, so an error names the hook that threw. A
    * caller that registers nothing pays an empty-list check.
    */
-  private void runPreCommitHook(
+  private void runPreCommitHooks(
       TableMetadata base,
       TableMetadata metadata,
       boolean metadataUpdated,
@@ -312,7 +312,7 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations
    *
    * <p>The two cases differ in whether Iceberg should try again. {@code CommitFailedException} is
    * retried by Iceberg's commit loop, which is right when the check could not reach a verdict and
-   * wrong when the commit itself is the problem -- that would retry until the attempts run out and
+   * wrong when the commit itself is the problem. That would retry until the attempts run out and
    * then report a conflict that never happened.
    */
   private RuntimeException asCommitException(PreCommitHook hook, PreCommitHookBlockedException e) {

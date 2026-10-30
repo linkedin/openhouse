@@ -6,7 +6,7 @@ import java.util.regex.Pattern;
 /**
  * Thrown by a {@link PreCommitHook} to stop a commit.
  *
- * <p>Checked on purpose, so a hook cannot block a commit by accident -- the only way to stop one is
+ * <p>Checked on purpose, so a hook cannot block a commit by accident. The only way to stop one is
  * to say so in the signature.
  *
  * <p>Use {@link #validation} when the commit itself is the problem and retrying would fail the same

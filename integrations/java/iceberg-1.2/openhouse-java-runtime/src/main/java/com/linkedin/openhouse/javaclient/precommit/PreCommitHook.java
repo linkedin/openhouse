@@ -37,8 +37,8 @@ public interface PreCommitHook {
   /**
    * A short, stable name for this hook, used in logs and error messages.
    *
-   * <p>Keep it low cardinality -- a constant like {@code "row-count-check"}, never a value built
-   * from the table or the commit, so it can safely be used as a metric tag.
+   * <p>Keep it low cardinality: a constant like {@code "row-count-check"}, never a value built from
+   * the table or the commit, so it can safely be used as a metric tag.
    */
   default String getName() {
     return getClass().getSimpleName();

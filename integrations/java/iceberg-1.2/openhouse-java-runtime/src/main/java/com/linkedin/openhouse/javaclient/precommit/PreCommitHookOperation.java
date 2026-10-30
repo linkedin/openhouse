@@ -6,7 +6,7 @@ import org.apache.iceberg.TableMetadata;
  * What the commit is about to do, mirroring the branch {@code
  * com.linkedin.openhouse.javaclient.OpenHouseTableOperations#doCommit} takes.
  *
- * <p>There is no {@code CREATE} value because {@code doCommit} has no create branch -- creating a
+ * <p>There is no {@code CREATE} value because {@code doCommit} has no create branch. Creating a
  * table lands in {@link #SNAPSHOT} or {@link #METADATA} like any other commit. To spot a create,
  * check {@link PreCommitHookContext#getBase()} for an empty value.
  */
