@@ -1249,4 +1249,79 @@ public class OpenHouseTableOperationsTest {
         IllegalArgumentException.class,
         () -> PreCommitHookBlockedException.validation("not a tag!", "message"));
   }
+
+  /**
+   * A hook that throws {@code CommitFailedException} would be retried by Iceberg's commit loop and
+   * fail the same way every time, so it is reported as the bug it is rather than passed on.
+   */
+  @Test
+  public void testAHookThatThrowsCommitFailedExceptionIsABug() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
+    ops.withPreCommit(
+        context -> {
+          throw new CommitFailedException("thrown by a hook that should not throw this");
+        });
+    Commit commit = metadataAndSnapshotsUpdated();
+
+    Assertions.assertThrows(
+        IllegalStateException.class, () -> ops.doCommit(commit.base, commit.metadata));
+
+    verifyNoInteractions(snapshotApi);
+  }
+
+  /**
+   * The other half: {@code CommitStateUnknownException} says a commit may have landed, which is the
+   * wrong thing to say about one that was never sent.
+   */
+  @Test
+  public void testAHookThatThrowsCommitStateUnknownExceptionIsABug() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
+    ops.withPreCommit(
+        context -> {
+          throw new CommitStateUnknownException(new RuntimeException("boom"));
+        });
+    Commit commit = metadataAndSnapshotsUpdated();
+
+    IllegalStateException thrown =
+        Assertions.assertThrows(
+            IllegalStateException.class, () -> ops.doCommit(commit.base, commit.metadata));
+
+    Assertions.assertTrue(thrown.getMessage().contains("CommitStateUnknownException"));
+    verifyNoInteractions(snapshotApi);
+  }
+
+  /** The name says which hook blocked, which is what makes the message useful with several. */
+  @Test
+  public void testABlockedCommitNamesTheHook() {
+    OpenHouseTableOperationsForTest ops = opsFor(acceptingSnapshotApi());
+    ops.withPreCommit(
+        new PreCommitHook() {
+          @Override
+          public void evaluate(PreCommitHookContext context) throws PreCommitHookBlockedException {
+            throw PreCommitHookBlockedException.validation("ROW_COUNT", "0 rows");
+          }
+
+          @Override
+          public String getName() {
+            return "row-count-check";
+          }
+        });
+    Commit commit = metadataAndSnapshotsUpdated();
+
+    ValidationException thrown =
+        Assertions.assertThrows(
+            ValidationException.class, () -> ops.doCommit(commit.base, commit.metadata));
+
+    Assertions.assertTrue(thrown.getMessage().contains("row-count-check"));
+  }
+
+  /** A hook that does not name itself still gets one, so the interface stays a lambda. */
+  @Test
+  public void testAHookHasAUsableDefaultName() {
+    PreCommitHook hook = new RecordingHook();
+
+    Assertions.assertEquals("RecordingHook", hook.getName());
+  }
 }

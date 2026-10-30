@@ -290,7 +290,17 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations
               metadataUpdated,
               snapshotsUpdated));
     } catch (PreCommitHookBlockedException e) {
-      throw asCommitException(e);
+      throw asCommitException(hook, e);
+    } catch (CommitFailedException | CommitStateUnknownException e) {
+      // A hook throwing either of these is a bug, so say so rather than passing it on. Iceberg
+      // would retry a block that fails the same way every time, or report that a commit which
+      // never left may have landed.
+      throw new IllegalStateException(
+          String.format(
+              "Pre-commit hook %s threw %s, which it must not: a hook reports a problem with "
+                  + "PreCommitHookBlockedException. Table %s.",
+              hook.getName(), e.getClass().getSimpleName(), tableName()),
+          e);
     }
   }
 
@@ -302,18 +312,20 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations
    * wrong when the commit itself is the problem -- that would retry until the attempts run out and
    * then report a conflict that never happened.
    */
-  private RuntimeException asCommitException(PreCommitHookBlockedException e) {
+  private RuntimeException asCommitException(PreCommitHook hook, PreCommitHookBlockedException e) {
     if (e.getFailureType() == PreCommitHookBlockedException.FailureType.OPERATIONAL) {
       return new CommitFailedException(
           e,
-          "Pre-commit hook could not check table %s [%s]: %s",
+          "Pre-commit hook %s could not check table %s [%s]: %s",
+          hook.getName(),
           tableName(),
           e.getReasonCode(),
           e.getMessage());
     }
     return new ValidationException(
         e,
-        "Pre-commit hook blocked commit for table %s [%s]: %s",
+        "Pre-commit hook %s blocked commit for table %s [%s]: %s",
+        hook.getName(),
         tableName(),
         e.getReasonCode(),
         e.getMessage());
