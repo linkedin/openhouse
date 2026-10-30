@@ -1,3 +1,5 @@
+New tests for the OpenHouse services don't go here; see [TESTING.md](../../TESTING.md).
+
 ##Setup virtual environment
 Run `python3 -m venv env` if environment doesn't exist.
 ##Activate environment
