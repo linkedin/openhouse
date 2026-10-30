@@ -1,7 +1,8 @@
 package com.linkedin.openhouse.javaclient.precommit;
 
 /**
- * Lets a caller attach a {@link PreCommitHook} to something that commits.
+ * Lets a caller attach a {@link PreCommitHook} to something that commits, or to something that
+ * creates them.
  *
  * <p>Registration is a capability you compose onto an object, rather than something built into the
  * commit path. The commit code stays as it is; it just calls whatever hook is registered.
