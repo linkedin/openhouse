@@ -144,8 +144,8 @@ public class OpenHouseCatalogPreCommitTest {
   }
 
   /**
-   * What composition buys: a hook registered on one table cannot switch off a catalog-wide one. The
-   * catalog's hook is registered first, so it blocks before the table's hook is reached.
+   * A hook registered on one table cannot switch off a catalog-wide one. The catalog's hook is
+   * registered first, so it blocks before the table's hook runs.
    */
   @Test
   public void testATableHookCannotSwitchOffTheCatalogHook() {

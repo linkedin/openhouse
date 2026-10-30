@@ -103,8 +103,8 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations
   private final List<PreCommitHook> preCommitHooks = new CopyOnWriteArrayList<>();
 
   /**
-   * Adds a check to run before each commit is sent to the service. Hooks run in the order they were
-   * registered, and the first one to block stops the commit.
+   * Adds a check to run before each commit is sent to the service. Hooks run in registration order
+   * and the first to block stops the commit.
    *
    * @return this, so it can be chained onto a newly built instance
    */
@@ -261,15 +261,15 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations
   }
 
   /**
-   * Runs the registered checks, in order, before anything is sent. The first one to block stops the
-   * commit; the rest do not run.
+   * Runs the registered checks, in registration order, before anything is sent. The first to block
+   * stops the commit and the rest do not run.
    *
    * <p>Placed here on purpose: the routing flags are settled, nothing has been sent yet, and it is
    * outside the {@code catch} above -- which turns an interrupt into a {@code
    * CommitStateUnknownException}, the wrong thing to say about a commit that never left.
    *
-   * <p>Each hook is evaluated in its own {@code try}, so an error names the hook that threw rather
-   * than the set it belongs to. A caller that registers nothing pays an empty-list check.
+   * <p>Each hook is evaluated in its own {@code try}, so an error names the hook that threw. A
+   * caller that registers nothing pays an empty-list check.
    */
   private void runPreCommitHook(
       TableMetadata base,
