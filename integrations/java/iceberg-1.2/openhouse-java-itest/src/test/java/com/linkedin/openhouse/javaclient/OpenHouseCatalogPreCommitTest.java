@@ -4,12 +4,14 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.linkedin.openhouse.javaclient.precommit.PreCommitHook;
+import com.linkedin.openhouse.javaclient.precommit.PreCommitHookBlockedException;
 import com.linkedin.openhouse.javaclient.precommit.PreCommitHookContext;
 import java.lang.reflect.Field;
 import java.util.Collections;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -52,8 +54,31 @@ public class OpenHouseCatalogPreCommitTest {
     return catalog;
   }
 
-  /** Runs a commit far enough to call the hook. Sending it afterwards always fails. */
-  private static void commit(OpenHouseTableOperations ops) {
+  /** Blocks every commit, under a name an error message can be checked for. */
+  private static final class BlockingHook implements PreCommitHook {
+    private final String name;
+
+    private BlockingHook(String name) {
+      this.name = name;
+    }
+
+    @Override
+    public void evaluate(PreCommitHookContext context) throws PreCommitHookBlockedException {
+      throw PreCommitHookBlockedException.validation("blocked", "nope");
+    }
+
+    @Override
+    public String getName() {
+      return name;
+    }
+  }
+
+  /**
+   * Runs a commit far enough to call the hooks.
+   *
+   * @return what stopped it: a block from a hook, or the failure to send
+   */
+  private static RuntimeException commit(OpenHouseTableOperations ops) {
     TableMetadata base = mock(TableMetadata.class);
     TableMetadata metadata = mock(TableMetadata.class);
     when(base.schema()).thenReturn(mock(Schema.class));
@@ -67,9 +92,9 @@ public class OpenHouseCatalogPreCommitTest {
 
     try {
       ops.doCommit(base, metadata);
-      Assertions.fail("Expected sending the commit to fail: this catalog has no service");
-    } catch (RuntimeException sendFailed) {
-      // Expected, and it happens after the hook has had its say.
+      return Assertions.fail("Expected sending the commit to fail: this catalog has no service");
+    } catch (RuntimeException stopped) {
+      return stopped;
     }
   }
 
@@ -105,17 +130,44 @@ public class OpenHouseCatalogPreCommitTest {
     Assertions.assertFalse(hook.called);
   }
 
-  /** Registering on one instance replaces what the catalog gave it, for that instance only. */
+  /** Registering on one instance adds to the catalog's hook rather than taking its place. */
   @Test
-  public void testAHookOnTheOperationsReplacesTheCatalogHook() {
+  public void testAHookOnTheOperationsRunsAlongsideTheCatalogHook() {
     RecordingHook catalogHook = new RecordingHook();
     RecordingHook operationsHook = new RecordingHook();
     OpenHouseCatalog catalog = catalog().withPreCommit(catalogHook);
 
     commit(catalog.newTableOps(TABLE).withPreCommit(operationsHook));
 
+    Assertions.assertTrue(catalogHook.called);
     Assertions.assertTrue(operationsHook.called);
-    Assertions.assertFalse(catalogHook.called);
+  }
+
+  /**
+   * What composition buys: a hook registered on one table cannot switch off a catalog-wide one. The
+   * catalog's hook is registered first, so it blocks before the table's hook is reached.
+   */
+  @Test
+  public void testATableHookCannotSwitchOffTheCatalogHook() {
+    RecordingHook operationsHook = new RecordingHook();
+    OpenHouseCatalog catalog = catalog().withPreCommit(new BlockingHook("catalog-hook"));
+
+    RuntimeException stopped = commit(catalog.newTableOps(TABLE).withPreCommit(operationsHook));
+
+    Assertions.assertTrue(stopped instanceof ValidationException);
+    Assertions.assertTrue(stopped.getMessage().contains("catalog-hook"));
+    Assertions.assertFalse(operationsHook.called);
+  }
+
+  /** An error names the hook that blocked, not whichever ran first. */
+  @Test
+  public void testTheBlockingHookIsTheOneReported() {
+    OpenHouseCatalog catalog = catalog().withPreCommit(new RecordingHook());
+
+    RuntimeException stopped =
+        commit(catalog.newTableOps(TABLE).withPreCommit(new BlockingHook("second-hook")));
+
+    Assertions.assertTrue(stopped.getMessage().contains("second-hook"));
   }
 
   /** Storing null would turn checking off without saying so. */

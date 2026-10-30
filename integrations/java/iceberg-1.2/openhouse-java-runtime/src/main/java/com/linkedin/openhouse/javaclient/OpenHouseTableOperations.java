@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -96,21 +97,20 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations
   private final AtomicReference<Map<String, String>> config = new AtomicReference<>();
 
   /**
-   * Check run before each commit is sent, or {@link PreCommitHook#NOOP}. A final holder keeps
-   * Lombok's all-args constructor unchanged, so nothing downstream has to be rebuilt.
+   * Checks run before each commit is sent, in registration order. A final holder keeps Lombok's
+   * all-args constructor unchanged, so nothing downstream has to be rebuilt.
    */
-  private final AtomicReference<PreCommitHook> preCommitHook =
-      new AtomicReference<>(PreCommitHook.NOOP);
+  private final List<PreCommitHook> preCommitHooks = new CopyOnWriteArrayList<>();
 
   /**
-   * Registers a check to run before each commit is sent to the service. Replaces any hook already
-   * registered.
+   * Adds a check to run before each commit is sent to the service. Hooks run in the order they were
+   * registered, and the first one to block stops the commit.
    *
    * @return this, so it can be chained onto a newly built instance
    */
   @Override
   public OpenHouseTableOperations withPreCommit(PreCommitHook hook) {
-    preCommitHook.set(Objects.requireNonNull(hook, "hook"));
+    preCommitHooks.add(Objects.requireNonNull(hook, "hook"));
     return this;
   }
 
@@ -261,46 +261,49 @@ public class OpenHouseTableOperations extends BaseMetastoreTableOperations
   }
 
   /**
-   * Runs the registered check, if there is one, before anything is sent.
+   * Runs the registered checks, in order, before anything is sent. The first one to block stops the
+   * commit; the rest do not run.
    *
    * <p>Placed here on purpose: the routing flags are settled, nothing has been sent yet, and it is
    * outside the {@code catch} above -- which turns an interrupt into a {@code
    * CommitStateUnknownException}, the wrong thing to say about a commit that never left.
    *
-   * <p>Compares against {@link PreCommitHook#NOOP} by identity, so a caller that registers no hook
-   * pays nothing.
+   * <p>Each hook is evaluated in its own {@code try}, so an error names the hook that threw rather
+   * than the set it belongs to. A caller that registers nothing pays an empty-list check.
    */
   private void runPreCommitHook(
       TableMetadata base,
       TableMetadata metadata,
       boolean metadataUpdated,
       boolean snapshotsUpdated) {
-    PreCommitHook hook = preCommitHook.get();
-    if (hook == PreCommitHook.NOOP) {
+    if (preCommitHooks.isEmpty()) {
       return;
     }
-    try {
-      hook.evaluate(
-          new PreCommitHookContext(
-              getCluster(),
-              getTableIdentifier(),
-              base,
-              metadata,
-              isReplaceTransaction(),
-              metadataUpdated,
-              snapshotsUpdated));
-    } catch (PreCommitHookBlockedException e) {
-      throw asCommitException(hook, e);
-    } catch (CommitFailedException | CommitStateUnknownException e) {
-      // A hook throwing either of these is a bug, so say so rather than passing it on. Iceberg
-      // would retry a block that fails the same way every time, or report that a commit which
-      // never left may have landed.
-      throw new IllegalStateException(
-          String.format(
-              "Pre-commit hook %s threw %s, which it must not: a hook reports a problem with "
-                  + "PreCommitHookBlockedException. Table %s.",
-              hook.getName(), e.getClass().getSimpleName(), tableName()),
-          e);
+    PreCommitHookContext context =
+        new PreCommitHookContext(
+            getCluster(),
+            getTableIdentifier(),
+            base,
+            metadata,
+            isReplaceTransaction(),
+            metadataUpdated,
+            snapshotsUpdated);
+    for (PreCommitHook hook : preCommitHooks) {
+      try {
+        hook.evaluate(context);
+      } catch (PreCommitHookBlockedException e) {
+        throw asCommitException(hook, e);
+      } catch (CommitFailedException | CommitStateUnknownException e) {
+        // A hook throwing either of these is a bug, so say so rather than passing it on. Iceberg
+        // would retry a block that fails the same way every time, or report that a commit which
+        // never left may have landed.
+        throw new IllegalStateException(
+            String.format(
+                "Pre-commit hook %s threw %s, which it must not: a hook reports a problem with "
+                    + "PreCommitHookBlockedException. Table %s.",
+                hook.getName(), e.getClass().getSimpleName(), tableName()),
+            e);
+      }
     }
   }
 

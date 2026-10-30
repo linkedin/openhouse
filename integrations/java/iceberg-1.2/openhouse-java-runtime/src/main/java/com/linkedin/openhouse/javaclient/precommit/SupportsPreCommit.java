@@ -10,7 +10,9 @@ package com.linkedin.openhouse.javaclient.precommit;
 public interface SupportsPreCommit {
 
   /**
-   * Registers the check to run before each commit. Replaces any hook already registered.
+   * Adds a check to run before each commit. Hooks run in the order they were registered, and the
+   * first one to block stops the commit -- so a hook registered here cannot switch off one
+   * registered earlier.
    *
    * @return this, so it can be chained onto a newly built instance
    */

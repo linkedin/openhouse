@@ -23,7 +23,7 @@ package com.linkedin.openhouse.javaclient.precommit;
 @FunctionalInterface
 public interface PreCommitHook {
 
-  /** Allows every commit. The default, and what you get when no hook is registered. */
+  /** Allows every commit. Same effect as registering nothing. */
   PreCommitHook NOOP = context -> {};
 
   /**
