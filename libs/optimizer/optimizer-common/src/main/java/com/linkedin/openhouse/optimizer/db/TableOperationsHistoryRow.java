@@ -72,4 +72,11 @@ public class TableOperationsHistoryRow {
   @Enumerated(EnumType.STRING)
   @Column(name = "status", nullable = false, length = 20)
   private HistoryStatus status;
+
+  /**
+   * Why a FAILED operation failed, as {@code ExceptionClass: message} (truncated), as reported by
+   * the executor; {@code null} for SUCCESS. The full stack trace lives in the executor logs.
+   */
+  @Column(name = "failure_reason", length = 1024)
+  private String failureReason;
 }
