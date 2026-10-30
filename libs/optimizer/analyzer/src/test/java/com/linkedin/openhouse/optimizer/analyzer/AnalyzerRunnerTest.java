@@ -8,6 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.linkedin.openhouse.optimizer.db.TableOperationsHistoryRow;
 import com.linkedin.openhouse.optimizer.db.TableOperationsRow;
 import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
@@ -70,7 +71,7 @@ class AnalyzerRunnerTest {
     when(historyRepo.find(eq("uuid-1"), any())).thenReturn(Collections.emptyList());
     when(analyzer.triggersOnCommit(table)).thenReturn(true);
     when(analyzer.isEnabled(table)).thenReturn(true);
-    when(analyzer.shouldSchedule(table, Optional.empty(), Optional.empty())).thenReturn(true);
+    when(analyzer.shouldSchedule(table, Optional.empty(), Optional.empty(), 0)).thenReturn(true);
 
     runner.analyze(AnalyzeRequest.builder().table(table).build());
 
@@ -101,6 +102,112 @@ class AnalyzerRunnerTest {
   }
 
   @Test
+  void analyze_countsConsecutiveFailures_fromRecentSubmissions_andPassesToShouldSchedule() {
+    TableStatsRow statsEntity =
+        TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
+    TableDto expectedTable = TableDto.fromRow(statsEntity);
+
+    when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
+        .thenReturn(List.of(statsEntity));
+    when(operationsRepo.find(
+            eq(Optional.of(OFD_DB)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.of(DB)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            any()))
+        .thenReturn(Collections.emptyList());
+    // Latest run FAILED → not healthy → the runner walks recent submissions to measure the streak.
+    when(historyRepo.findLatest(eq(OFD_DB), any()))
+        .thenReturn(List.of(failedHistoryRow("op-1", Instant.now().minusSeconds(100))));
+    // Three submissions, each with a FAILED outcome (history shares the submission's op id).
+    when(operationsRepo.findRecentSubmissions(eq("uuid-1"), eq(OFD_DB), any()))
+        .thenReturn(
+            List.of(
+                submittedOpRow("op-1", Instant.now().minusSeconds(100)),
+                submittedOpRow("op-2", Instant.now().minusSeconds(200)),
+                submittedOpRow("op-3", Instant.now().minusSeconds(300))));
+    when(historyRepo.findRecent(eq("uuid-1"), eq(OFD_DB), any()))
+        .thenReturn(
+            List.of(
+                failedHistoryRow("op-1", Instant.now().minusSeconds(100)),
+                failedHistoryRow("op-2", Instant.now().minusSeconds(200)),
+                failedHistoryRow("op-3", Instant.now().minusSeconds(300))));
+    when(analyzer.isEnabled(expectedTable)).thenReturn(true);
+    when(analyzer.shouldSchedule(eq(expectedTable), any(), any(), eq(3))).thenReturn(false);
+
+    runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
+
+    // The runner derived consecutiveFailures=3 from the recent submissions and passed it through.
+    verify(analyzer).shouldSchedule(eq(expectedTable), any(), any(), eq(3));
+    verify(operationsRepo, never()).save(any());
+  }
+
+  @Test
+  void analyze_countsLogicalTimeout_asNonSuccess() {
+    TableStatsRow statsEntity =
+        TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
+    TableDto expectedTable = TableDto.fromRow(statsEntity);
+    TableOperationsRow staleOp = submittedOpRow("op-dead", Instant.now().minusSeconds(20_000));
+
+    when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
+        .thenReturn(List.of(statsEntity));
+    // Current op is a stale SCHEDULED submission with no history → a logical timeout, no history
+    // row.
+    when(operationsRepo.find(
+            eq(Optional.of(OFD_DB)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.of(DB)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            any()))
+        .thenReturn(List.of(staleOp));
+    when(historyRepo.findLatest(eq(OFD_DB), any())).thenReturn(Collections.emptyList());
+    when(operationsRepo.findRecentSubmissions(eq("uuid-1"), eq(OFD_DB), any()))
+        .thenReturn(List.of(staleOp));
+    when(historyRepo.findRecent(eq("uuid-1"), eq(OFD_DB), any()))
+        .thenReturn(Collections.emptyList());
+    when(analyzer.isActiveOpTimedOut(any())).thenReturn(true);
+    when(analyzer.isEnabled(expectedTable)).thenReturn(true);
+    when(analyzer.shouldSchedule(eq(expectedTable), any(), any(), eq(1))).thenReturn(false);
+
+    runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
+
+    // The timed-out submission with no history counts as one non-success.
+    verify(analyzer).shouldSchedule(eq(expectedTable), any(), any(), eq(1));
+  }
+
+  private static TableOperationsRow submittedOpRow(String id, Instant scheduledAt) {
+    return TableOperationsRow.builder()
+        .id(id)
+        .status(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)
+        .tableUuid("uuid-1")
+        .databaseName(DB)
+        .tableName("tbl1")
+        .operationType(OFD_DB)
+        .createdAt(scheduledAt.minusSeconds(100))
+        .scheduledAt(scheduledAt)
+        .jobId("job-" + id)
+        .build();
+  }
+
+  private static TableOperationsHistoryRow failedHistoryRow(String id, Instant completedAt) {
+    return TableOperationsHistoryRow.builder()
+        .id(id)
+        .tableUuid("uuid-1")
+        .databaseName(DB)
+        .tableName("tbl1")
+        .operationType(OFD_DB)
+        .completedAt(completedAt)
+        .status(com.linkedin.openhouse.optimizer.db.HistoryStatus.FAILED)
+        .build();
+  }
+
+  @Test
   void analyze_insertsNewRow_forEligibleTableWithNoExistingOp() {
     TableStatsRow statsEntity =
         TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
@@ -121,7 +228,7 @@ class AnalyzerRunnerTest {
         .thenReturn(Collections.emptyList());
     when(historyRepo.findLatest(eq(OFD_DB), any())).thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
-    when(analyzer.shouldSchedule(expectedTable, Optional.empty(), Optional.empty()))
+    when(analyzer.shouldSchedule(expectedTable, Optional.empty(), Optional.empty(), 0))
         .thenReturn(true);
 
     runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
@@ -170,7 +277,7 @@ class AnalyzerRunnerTest {
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
 
     TableOperationDto existingOp = TableOperationDto.fromRow(existingEntity);
-    when(analyzer.shouldSchedule(expectedTable, Optional.of(existingOp), Optional.empty()))
+    when(analyzer.shouldSchedule(expectedTable, Optional.of(existingOp), Optional.empty(), 0))
         .thenReturn(false);
 
     runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
@@ -237,7 +344,7 @@ class AnalyzerRunnerTest {
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
 
     TableOperationDto scheduledOp = TableOperationDto.fromRow(scheduled);
-    when(analyzer.shouldSchedule(expectedTable, Optional.of(scheduledOp), Optional.empty()))
+    when(analyzer.shouldSchedule(expectedTable, Optional.of(scheduledOp), Optional.empty(), 0))
         .thenReturn(false);
 
     runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
@@ -298,7 +405,7 @@ class AnalyzerRunnerTest {
     when(historyRepo.find(eq("uuid-1"), any())).thenReturn(Collections.emptyList());
     when(analyzer.triggersOnCommit(table)).thenReturn(true);
     when(analyzer.isEnabled(table)).thenReturn(true);
-    when(analyzer.shouldSchedule(table, Optional.empty(), Optional.empty())).thenReturn(true);
+    when(analyzer.shouldSchedule(table, Optional.empty(), Optional.empty(), 0)).thenReturn(true);
 
     runner.analyze(AnalyzeRequest.builder().table(table).build());
 
@@ -328,7 +435,7 @@ class AnalyzerRunnerTest {
         .thenReturn(Collections.emptyList());
     when(historyRepo.findLatest(eq(OFD_DB), any())).thenReturn(Collections.emptyList());
     when(analyzer.isEnabled(expectedTable)).thenReturn(true);
-    when(analyzer.shouldSchedule(expectedTable, Optional.empty(), Optional.empty()))
+    when(analyzer.shouldSchedule(expectedTable, Optional.empty(), Optional.empty(), 0))
         .thenReturn(true);
 
     runner.analyze(AnalyzeRequest.builder().databaseName(DB).build());

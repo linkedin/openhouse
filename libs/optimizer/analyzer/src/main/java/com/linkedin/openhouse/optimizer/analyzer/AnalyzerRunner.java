@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.optimizer.analyzer;
 
+import com.linkedin.openhouse.optimizer.model.HistoryStatusDto;
 import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import com.linkedin.openhouse.optimizer.model.TableDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationDto;
@@ -14,6 +15,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +36,16 @@ import org.springframework.transaction.annotation.Transactional;
 @Component
 @RequiredArgsConstructor
 public class AnalyzerRunner {
+
+  /**
+   * Maximum number of recent submissions the circuit breaker inspects to measure the consecutive
+   * non-success streak. This is a <i>look-back bound, not a retry limit</i>: the breaker retries
+   * indefinitely at the backed-off cadence and never gives up after N attempts. The streak only
+   * sets the backoff exponent, and that backoff reaches its {@code failure-backoff-max} ceiling
+   * after a handful of failures (e.g. ~5 with a 1h base and a 21h cap), so inspecting further back
+   * than this cannot change the computed interval.
+   */
+  private static final int FAILURE_STREAK_WINDOW = 10;
 
   private final List<OperationAnalyzer> analyzers;
   private final TableStatsRepository statsRepo;
@@ -251,10 +263,78 @@ public class AnalyzerRunner {
       TableDto table,
       Optional<TableOperationDto> currentOp,
       Optional<TableOperationsHistoryDto> latestHistory) {
-    if (!analyzer.isEnabled(table) || !analyzer.shouldSchedule(table, currentOp, latestHistory)) {
+    if (!analyzer.isEnabled(table)) {
+      return false;
+    }
+    int consecutiveFailures = countConsecutiveNonSuccess(table, analyzer, currentOp, latestHistory);
+    if (!analyzer.shouldSchedule(table, currentOp, latestHistory, consecutiveFailures)) {
       return false;
     }
     return createPending(analyzer, table);
+  }
+
+  /**
+   * Count the table's current consecutive non-success streak for {@code operationType}, newest
+   * first, stopping at the first success. A "non-success" is any submitted job that did not reach
+   * SUCCESS — an explicitly FAILED history entry or a <i>logical timeout</i> (a submitted op past
+   * the stale-timeout with no history, i.e. it never reported back). Nothing is persisted: the
+   * timeout is derived at read time, so a late callback simply writes its real outcome and resets
+   * the streak on the next pass.
+   *
+   * <p>Lazy: healthy tables (latest history SUCCESS and no timed-out active op) return {@code 0}
+   * with no extra read. Only a non-healthy table pays for the recent-submissions / recent-history
+   * windows. Because a table has at most one active op at a time, recent submissions ordered by
+   * {@code scheduledAt} are the outcome sequence; each submission's result comes from its same-id
+   * history row.
+   */
+  private int countConsecutiveNonSuccess(
+      TableDto table,
+      OperationAnalyzer analyzer,
+      Optional<TableOperationDto> currentOp,
+      Optional<TableOperationsHistoryDto> latestHistory) {
+    boolean latestNonSuccess =
+        latestHistory.map(h -> h.getStatus() != HistoryStatusDto.SUCCESS).orElse(false);
+    boolean activeOpTimedOut = currentOp.map(analyzer::isActiveOpTimedOut).orElse(false);
+    if (!latestNonSuccess && !activeOpTimedOut) {
+      return 0;
+    }
+
+    OperationTypeDto operationType = analyzer.getOperationType();
+    Map<String, HistoryStatusDto> statusByOpId =
+        historyRepo
+            .findRecent(
+                table.getTableUuid(),
+                operationType.toDb(),
+                PageRequest.of(0, FAILURE_STREAK_WINDOW))
+            .stream()
+            .map(TableOperationsHistoryDto::fromRow)
+            .collect(
+                Collectors.toMap(
+                    TableOperationsHistoryDto::getId,
+                    TableOperationsHistoryDto::getStatus,
+                    (a, b) -> a));
+
+    int streak = 0;
+    for (TableOperationDto submission :
+        operationsRepo
+            .findRecentSubmissions(
+                table.getTableUuid(),
+                operationType.toDb(),
+                PageRequest.of(0, FAILURE_STREAK_WINDOW))
+            .stream()
+            .map(TableOperationDto::fromRow)
+            .collect(Collectors.toList())) {
+      HistoryStatusDto outcome = statusByOpId.get(submission.getId());
+      if (outcome == HistoryStatusDto.SUCCESS) {
+        break;
+      }
+      if (outcome == HistoryStatusDto.FAILED || analyzer.isActiveOpTimedOut(submission)) {
+        streak++;
+      }
+      // Otherwise the submission is still in-flight (no history, not yet timed out): skip it and
+      // keep walking older submissions.
+    }
+    return streak;
   }
 
   /**
