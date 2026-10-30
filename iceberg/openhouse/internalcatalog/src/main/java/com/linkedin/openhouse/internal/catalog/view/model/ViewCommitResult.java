@@ -16,6 +16,9 @@ public class ViewCommitResult {
 
   private final String viewUuid;
 
+  /** Creator recorded in the published metadata; a replace keeps the original creator. */
+  private final String viewCreator;
+
   private final long lastModifiedTime;
 
   private final boolean created;
