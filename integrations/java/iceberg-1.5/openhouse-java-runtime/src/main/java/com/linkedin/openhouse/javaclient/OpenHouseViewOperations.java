@@ -225,15 +225,9 @@ public class OpenHouseViewOperations extends BaseViewOperations {
             .databaseId(viewIdentifier.namespace().toString())
             .schema(SchemaParser.toJson(metadata.schema(), false))
             .representations(representations);
-
-    // defaultCatalog/defaultNamespace mirror the Iceberg view spec's resolution context (the
-    // "current" catalog/namespace used to resolve *unqualified* identifiers in the view SQL). Both
-    // are optional on the wire; we pass them through only to round-trip a faithful ViewMetadata.
-    // When the persisted view SQL is fully qualified, these defaults are never consulted at
-    // resolution time. Also, deferred decision, to check if engines want to populate default
-    // catalog
-    // or OH overrides ViewBuilder to setup default value.
-    // Optional fields: set only when present so each JsonNullable stays "undefined" otherwise.
+    // defaultCatalog/defaultNamespace carry the Iceberg view spec's resolution context (see
+    // OpenHouseViewBuilder#withDefaultCatalog). Optional fields: set only when present so each
+    // JsonNullable stays "undefined" otherwise.
     if (currentVersion.defaultCatalog() != null) {
       requestBody.defaultCatalog(currentVersion.defaultCatalog());
     }
