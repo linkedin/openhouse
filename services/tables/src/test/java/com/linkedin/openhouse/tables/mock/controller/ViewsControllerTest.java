@@ -625,7 +625,7 @@ public class ViewsControllerTest {
                 .header("Authorization", "Bearer " + jwtAccessToken))
         .andExpect(status().isOk());
 
-    Mockito.verify(viewsApiHandler).getAllViews("d200", null, 50, null, ACTING_PRINCIPAL);
+    Mockito.verify(viewsApiHandler).getAllViews("d200", null, 100, null, ACTING_PRINCIPAL);
   }
 
   /** Reject unsupported paging instead of silently ignoring it. */
@@ -675,7 +675,7 @@ public class ViewsControllerTest {
                 .header("Authorization", "Bearer " + jwtAccessToken))
         .andExpect(status().isOk());
 
-    Mockito.verify(viewsApiHandler).getAllViews("d200", null, 50, null, ACTING_PRINCIPAL);
+    Mockito.verify(viewsApiHandler).getAllViews("d200", null, 100, null, ACTING_PRINCIPAL);
   }
 
   /** A bare query key can have a null value while remaining present in the parameter map. */
@@ -769,9 +769,9 @@ public class ViewsControllerTest {
           parameter.getKey() + " is part of the published contract and must stay visible.");
     }
     Assertions.assertEquals(
-        "50",
+        "100",
         boundParameters.get("size").defaultValue(),
-        "An omitted or explicitly empty size keeps the documented default of 50.");
+        "An omitted or explicitly empty size keeps the documented default of 100.");
 
     Class<?>[] parameterTypes = listRouteMethod().getParameterTypes();
     Assertions.assertEquals(

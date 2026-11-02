@@ -66,6 +66,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.types.Types;
@@ -328,6 +329,55 @@ public class TablesControllerTest {
     dropOpenhouseProp.getTableProperties().remove("openhouse.tableUri");
     RequestAndValidateHelper.updateTableWithReservedPropsAndValidateResponse(
         mvc, dropOpenhouseProp, "openhouse.tableUri");
+
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+  }
+
+  /**
+   * A commit the max-ref-age rule rejects is a 400 with the rule's message and no cause, and the
+   * table keeps its committed value.
+   */
+  @Test
+  public void testMaxRefAgeRejectionIsBadRequest() throws Exception {
+    MvcResult mvcResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(
+            GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+    GetTableResponseBody update =
+        buildGetTableResponseBody(
+            mvcResult, GetTableResponseBody.builder().tableProperties(null).build());
+    String committed = update.getTableProperties().get(TableProperties.MAX_REF_AGE_MS);
+    update.getTableProperties().put(TableProperties.MAX_REF_AGE_MS, "0");
+    String tablePath =
+        String.format(
+            ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/%s",
+            update.getDatabaseId(),
+            update.getTableId());
+
+    mvc.perform(
+            MockMvcRequestBuilders.put(tablePath)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(buildCreateUpdateTableRequestBody(update).toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.error", is(equalTo(HttpStatus.BAD_REQUEST.getReasonPhrase()))))
+        .andExpect(
+            jsonPath(
+                "$.message",
+                is(
+                    equalTo(
+                        String.format(
+                            "Table property %s on table %s.%s must be a positive number of"
+                                + " milliseconds no greater than 604800000 (7 days).",
+                            TableProperties.MAX_REF_AGE_MS,
+                            update.getDatabaseId(),
+                            update.getTableId())))))
+        .andExpect(jsonPath("$.cause", is(equalTo("Not Available"))));
+    mvc.perform(MockMvcRequestBuilders.get(tablePath).accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath(
+                "$.tableProperties['" + TableProperties.MAX_REF_AGE_MS + "']",
+                is(equalTo(committed))));
 
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }

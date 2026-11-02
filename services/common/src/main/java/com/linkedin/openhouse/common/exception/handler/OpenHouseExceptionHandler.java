@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.linkedin.openhouse.common.api.spec.ErrorResponseBody;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.CodedApiException;
+import com.linkedin.openhouse.common.exception.CommitRejectedException;
 import com.linkedin.openhouse.common.exception.CorruptEntityTypeException;
 import com.linkedin.openhouse.common.exception.DependencyUnavailableException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
@@ -314,6 +315,25 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
             .message(unsupportedClientOperationException.getMessage())
             .stacktrace(getAbbreviatedStackTrace(unsupportedClientOperationException))
             .cause(getExceptionCause(unsupportedClientOperationException))
+            .build();
+    return buildResponseEntity(errorResponseBody);
+  }
+
+  /**
+   * A rule the internal catalog checks before writing rejected the commit: a bad request, reported
+   * with the rejecting rule's message and stack trace.
+   */
+  @Hidden
+  @ExceptionHandler(CommitRejectedException.class)
+  protected ResponseEntity<ErrorResponseBody> handleCommitRejectedException(
+      CommitRejectedException commitRejectedException) {
+    ErrorResponseBody errorResponseBody =
+        ErrorResponseBody.builder()
+            .status(HttpStatus.BAD_REQUEST)
+            .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
+            .message(commitRejectedException.getMessage())
+            .stacktrace(getAbbreviatedStackTrace(commitRejectedException))
+            .cause(getExceptionCause(commitRejectedException))
             .build();
     return buildResponseEntity(errorResponseBody);
   }

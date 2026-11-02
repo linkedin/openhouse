@@ -1,0 +1,62 @@
+package com.linkedin.openhouse.tablestest;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.IntNode;
+import com.fasterxml.jackson.databind.node.TextNode;
+import com.linkedin.openhouse.tables.model.TableDto;
+import com.linkedin.openhouse.tables.readbridge.ColumnDefaultsSource;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * Test-only configuration that supplies column defaults. Used by Spark catalog itests that validate
+ * ReadBridge end to end with a stubbed {@link ColumnDefaultsSource}. Scoped to {@link #DATABASE} so
+ * other catalog tests stay on empty maps. Stamps {@code country} and {@code tier} at any depth,
+ * including fields of structs inside list elements and map values.
+ */
+@Configuration
+public class SparkItestColumnDefaults {
+
+  public static final String DATABASE = "d1_column_default";
+
+  private static final ObjectMapper MAPPER = new ObjectMapper();
+
+  @Bean
+  ColumnDefaultsSource sparkItestColumnDefaultsSource() {
+    return SparkItestColumnDefaults::defaults;
+  }
+
+  static Map<Integer, JsonNode> defaults(TableDto tableDto) {
+    if (!DATABASE.equals(tableDto.getDatabaseId())) {
+      return Collections.emptyMap();
+    }
+    String schemaJson = tableDto.getSchema();
+    if (schemaJson == null || schemaJson.isEmpty()) {
+      return Collections.emptyMap();
+    }
+    List<JsonNode> fields;
+    try {
+      // Only field objects carry "id"; lists, maps, and the schema use element-id, key-id,
+      // value-id, and schema-id.
+      fields = MAPPER.readTree(schemaJson).findParents("id");
+    } catch (Exception e) {
+      return Collections.emptyMap();
+    }
+    Map<Integer, JsonNode> out = new LinkedHashMap<>();
+    for (JsonNode field : fields) {
+      String name = field.path("name").asText();
+      int id = field.get("id").asInt();
+      if ("country".equals(name)) {
+        out.put(id, TextNode.valueOf("US"));
+      } else if ("tier".equals(name)) {
+        out.put(id, IntNode.valueOf(1));
+      }
+    }
+    return out;
+  }
+}

@@ -100,7 +100,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
   private static final String CLUSTER_PROPERTY = "cluster";
 
-  private static final String AUTH_TOKEN = "auth-token";
+  static final String AUTH_TOKEN = "auth-token";
 
   private static final String TRUST_STORE = "trust-store";
 
@@ -111,6 +111,9 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
   public static final String CLIENT_VERSION = "client-version";
 
   public static final String ACTION_TYPE = "action-type";
+
+  /** Declared by a catalog whose engine applies column defaults; see {@link #capabilities}. */
+  public static final String COLUMN_DEFAULTS_CAPABILITY = "column-defaults";
 
   @Override
   public void initialize(String name, Map<String, String> properties) {
@@ -128,6 +131,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     Preconditions.checkArgument(
         actionType == null || ACTION_TYPE_SYSTEM.equalsIgnoreCase(actionType),
         "action-type must be SYSTEM when supplied");
+    HttpHeaders headers = CatalogRequestHeaders.from(properties, capabilities());
     try {
       TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
       tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
@@ -144,6 +148,8 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     if (actionType != null) {
       this.apiClient.addDefaultHeader(HTTP_HEADER_ACTION_TYPE, actionType.toUpperCase(Locale.ROOT));
     }
+    headers.toSingleValueMap().forEach(this.apiClient::addDefaultHeader);
+    log.info("Catalog {} sends configured headers {}", name, headers.keySet());
     this.tableApi = new TableApi(apiClient);
     this.snapshotApi = new SnapshotApi(apiClient);
     this.databaseApi = new DatabaseApi(apiClient);
@@ -151,6 +157,16 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     this.fileIO = loadFileIO(properties);
 
     this.cluster = properties.getOrDefault(CLUSTER_PROPERTY, DEFAULT_CLUSTER);
+  }
+
+  /**
+   * Capabilities this catalog declares in {@code X-OpenHouse-Client-Capabilities} on every request.
+   * None by default: this catalog loads column defaults into the table schema, but whether a read
+   * returns them depends on the engine's file readers, so only an engine's own catalog declares
+   * {@link #COLUMN_DEFAULTS_CAPABILITY}. Called once, from {@link #initialize}.
+   */
+  protected Set<String> capabilities() {
+    return Collections.emptySet();
   }
 
   protected FileIO loadFileIO(Map<String, String> properties) {
@@ -214,6 +230,29 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
             .block();
     log.debug("Calling listTables succeeded");
     return tables;
+  }
+
+  /**
+   * Checks existence without loading table metadata, even if the table is locked or its metadata is
+   * unreadable. Metadata-table identifiers retain Iceberg's load-based existence check.
+   */
+  @Override
+  public boolean tableExists(TableIdentifier identifier) {
+    log.info("Calling tableExists with identifier: {}", identifier);
+    if (!isValidIdentifier(identifier)) {
+      return super.tableExists(identifier);
+    }
+    return tableApi
+        .tableExistsV1(identifier.namespace().toString(), identifier.name())
+        .thenReturn(true)
+        .onErrorResume(WebClientResponseException.NotFound.class, e -> Mono.just(false))
+        .onErrorResume(
+            WebClientResponseException.class,
+            e -> Mono.error(new WebClientResponseWithMessageException(e)))
+        .onErrorResume(
+            WebClientRequestException.class,
+            e -> Mono.error(new WebClientRequestWithMessageException(e)))
+        .block();
   }
 
   @Override

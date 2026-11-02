@@ -77,13 +77,16 @@ public class TablesClientTest {
   private StorageClient storageClient;
 
   @Test
-  void testSystemActionHeaderIsSentOnlyWhenRequested() throws IOException {
+  void testSystemActionHeaderIsSentOnlyWhenRequestedAndColumnDefaultsAlways() throws IOException {
     List<String> declarations = Collections.synchronizedList(new ArrayList<>());
+    List<String> capabilities = Collections.synchronizedList(new ArrayList<>());
     HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
     server.createContext(
         "/v1/databases",
         exchange -> {
           declarations.add(exchange.getRequestHeaders().getFirst("X-OpenHouse-Action-Type"));
+          capabilities.add(
+              exchange.getRequestHeaders().getFirst("X-OpenHouse-Client-Capabilities"));
           byte[] body = "{\"results\":[]}".getBytes(StandardCharsets.UTF_8);
           exchange.getResponseHeaders().add("Content-Type", "application/json");
           exchange.sendResponseHeaders(200, body.length);
@@ -107,6 +110,7 @@ public class TablesClientTest {
       server.stop(0);
     }
     Assertions.assertEquals(Arrays.asList("SYSTEM", "SYSTEM", null, null), declarations);
+    Assertions.assertEquals(Collections.nCopies(4, "column-defaults"), capabilities);
   }
 
   @BeforeEach

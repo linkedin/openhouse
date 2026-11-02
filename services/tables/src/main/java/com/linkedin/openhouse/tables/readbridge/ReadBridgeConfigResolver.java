@@ -3,36 +3,40 @@ package com.linkedin.openhouse.tables.readbridge;
 import static java.util.stream.Collectors.toMap;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.linkedin.openhouse.common.exception.DependencyUnavailableException;
 import com.linkedin.openhouse.common.exception.TableConfigUnavailableException;
 import com.linkedin.openhouse.tables.model.TableDto;
-import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
 /**
- * Builds the per-table {@code config} that read-bridge clients apply. Owns policy (feature id,
- * ramp, keys); deployments supply data via {@link ColumnDefaultsSource}.
+ * Builds the per-table {@code config} that read-bridge clients apply. Owns policy (capability id,
+ * opt-in, keys); deployments supply data via {@link ColumnDefaultsSource}.
+ *
+ * <p>Column defaults apply only to a table that carries {@code
+ * required-capability.column-defaults=true}. Turning them on is therefore a table commit like any
+ * other: a writer that loaded the table earlier conflicts on its next commit and reloads the table,
+ * defaults included.
  */
 public class ReadBridgeConfigResolver {
 
-  /** Capability id; also names {@code <id>.enabled} and the config key prefix below. */
-  public static final String COLUMN_DEFAULT_FEATURE_ID = "read-bridge.column-default";
+  /**
+   * Table property: {@code true} declares that the table requires the column-defaults capability,
+   * so only clients that apply column defaults may use it; any other value, or none, leaves column
+   * defaults off. {@link ColumnDefaultCommitPolicy} keeps a committed {@code true} from being
+   * changed or removed unless the request carries the column-default policy bypass.
+   */
+  public static final String COLUMN_DEFAULTS_CAPABILITY_PROP =
+      "required-capability.column-defaults";
 
   /** Client contract: {@code openhouse.read-bridge.column-default.<fieldId>}. */
-  public static final String COLUMN_DEFAULT_PREFIX = "openhouse." + COLUMN_DEFAULT_FEATURE_ID + ".";
+  public static final String COLUMN_DEFAULT_PREFIX = "openhouse.read-bridge.column-default.";
 
   private final ColumnDefaultsSource columnDefaultsSource;
 
-  private final TableFeatureToggle featureToggle;
-
-  public ReadBridgeConfigResolver(
-      ColumnDefaultsSource columnDefaultsSource, TableFeatureToggle featureToggle) {
-    this.columnDefaultsSource =
-        Objects.requireNonNull(columnDefaultsSource, "columnDefaultsSource");
-    this.featureToggle = Objects.requireNonNull(featureToggle, "featureToggle");
+  public ReadBridgeConfigResolver(ColumnDefaultsSource columnDefaultsSource) {
+    this.columnDefaultsSource = columnDefaultsSource;
   }
 
   /**
@@ -41,7 +45,6 @@ public class ReadBridgeConfigResolver {
    * run without it.
    *
    * @throws TableConfigUnavailableException if the table's stored settings cannot be applied
-   * @throws DependencyUnavailableException if the ramp lookup cannot answer
    */
   public Map<String, String> resolve(TableDto tableDto) {
     return storedColumnDefaults(tableDto).entrySet().stream()
@@ -50,10 +53,9 @@ public class ReadBridgeConfigResolver {
 
   /**
    * The column defaults declared by a table a write sends, as Iceberg single-value JSON keyed by
-   * field ID. Empty when there is no source or the table is not bridged.
+   * field ID. Empty when the table is not bridged or the source declares none.
    *
    * @throws ColumnDefaultException if a default the table declares cannot be applied
-   * @throws DependencyUnavailableException if the ramp lookup cannot answer
    */
   public Map<Integer, String> incomingColumnDefaults(TableDto incoming)
       throws ColumnDefaultException {
@@ -65,7 +67,6 @@ public class ReadBridgeConfigResolver {
    * A stored default that cannot be applied leaves the table's config unavailable.
    *
    * @throws TableConfigUnavailableException if a stored default cannot be applied
-   * @throws DependencyUnavailableException if the ramp lookup cannot answer
    */
   public Map<Integer, String> storedColumnDefaults(TableDto storedTable) {
     try {
@@ -76,23 +77,20 @@ public class ReadBridgeConfigResolver {
   }
 
   /**
-   * Whether read-bridge applies to the table: its capability is ramped or the table opts in. {@code
-   * ColumnDefaultsSource.NONE} is never bridged, so the toggle is not consulted.
-   *
-   * @throws DependencyUnavailableException if the ramp lookup cannot answer
+   * Whether read-bridge applies to a table with these properties: it carries {@code
+   * required-capability.column-defaults=true}, which may be set at creation or on an existing
+   * table. A committed {@code true} is immutable unless the client sends the column-default policy
+   * bypass; {@code false}, an absent property and any other value mean off.
    */
-  public boolean isBridged(TableDto tableDto) {
-    Objects.requireNonNull(tableDto, "tableDto");
-    return isColumnDefaultRamped(tableDto);
+  public boolean isBridged(Map<String, String> tableProperties) {
+    String value = tableProperties.get(COLUMN_DEFAULTS_CAPABILITY_PROP);
+    return value != null && "true".equalsIgnoreCase(value.trim());
   }
 
   private Map<Integer, String> columnDefaultsByFieldId(TableDto tableDto)
       throws ColumnDefaultException {
     Objects.requireNonNull(tableDto, "tableDto");
-    if (columnDefaultsSource == ColumnDefaultsSource.NONE) {
-      return Collections.emptyMap();
-    }
-    if (!isColumnDefaultRamped(tableDto)) {
+    if (!isBridged(tableDto.getTableProperties())) {
       return Collections.emptyMap();
     }
     Map<Integer, JsonNode> columnDefaults = columnDefaultsSource.defaults(tableDto);
@@ -107,16 +105,5 @@ public class ReadBridgeConfigResolver {
           }
         });
     return byId;
-  }
-
-  /**
-   * Uses {@link TableFeatureToggle#isFeatureActivatedWithOverride} so {@code
-   * read-bridge.column-default.enabled} can opt in/out without HTS.
-   */
-  private boolean isColumnDefaultRamped(TableDto tableDto) {
-    if (columnDefaultsSource == ColumnDefaultsSource.NONE) {
-      return false;
-    }
-    return featureToggle.isFeatureActivatedWithOverride(tableDto, COLUMN_DEFAULT_FEATURE_ID);
   }
 }

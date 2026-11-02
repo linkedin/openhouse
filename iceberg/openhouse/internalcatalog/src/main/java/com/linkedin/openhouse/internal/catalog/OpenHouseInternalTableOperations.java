@@ -12,10 +12,10 @@ import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.hdfs.HdfsStorageClient;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
+import com.linkedin.openhouse.common.exception.CommitRejectedException;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.common.exception.MetadataRefreshFailureContext;
 import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableException;
-import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
@@ -96,9 +96,12 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
   PostCommitOperationRunner postCommitOperationRunner;
 
+  PreCommitCheckRunner preCommitCheckRunner;
+
   /**
-   * Backward-compatible constructor without a {@link PostCommitOperationRunner}. Post-commit
-   * operations are disabled (no runner wired).
+   * Backward-compatible constructor without a {@link PostCommitOperationRunner} or {@link
+   * PreCommitCheckRunner}: post-commit operations are disabled and no pre-commit checks run (no
+   * runners wired).
    */
   public OpenHouseInternalTableOperations(
       HouseTableRepository houseTableRepository,
@@ -116,6 +119,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         metricsReporter,
         fileIOManager,
         tableMetadataCache,
+        null,
         null);
   }
 
@@ -127,7 +131,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       MetricsReporter metricsReporter,
       FileIOManager fileIOManager,
       TableMetadataCache tableMetadataCache,
-      PostCommitOperationRunner postCommitOperationRunner) {
+      PostCommitOperationRunner postCommitOperationRunner,
+      PreCommitCheckRunner preCommitCheckRunner) {
     this.houseTableRepository = houseTableRepository;
     this.fileIO = fileIO;
     this.houseTableMapper = houseTableMapper;
@@ -136,6 +141,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     this.fileIOManager = fileIOManager;
     this.tableMetadataCache = tableMetadataCache;
     this.postCommitOperationRunner = postCommitOperationRunner;
+    this.preCommitCheckRunner = preCommitCheckRunner;
   }
 
   private static final Gson GSON = new Gson();
@@ -417,6 +423,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     // Handle all schema-related processing (client schema, evolved schema, intermediate schemas)
     metadata = processSchemas(base, metadata);
 
+    Map<String, String> properties = prepareCommit(base, metadata);
+
     int version = currentVersion() + 1;
     CommitStatus commitStatus = CommitStatus.FAILURE;
     Optional<TableMetadata> committedMetadata = Optional.empty();
@@ -427,13 +435,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     HouseTable houseTable = HouseTable.builder().build();
     try {
       // Now that we have metadataLocation we stamp it in metadata property.
-      Map<String, String> properties = new HashMap<>(metadata.properties());
-
-      abortIfWriterBaseDivergedFromCatalog(base, metadata);
-
-      restoreOverriddenProperties(properties);
-      enforcePropertyRules(base, properties);
-      // A rejected property change must not mark the unchanged table version as attempted.
+      properties.remove(CatalogConstants.IS_REPLACE_COMMIT_KEY);
       failIfRetryUpdate(properties);
 
       properties.put(
@@ -609,7 +611,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         throw new CommitFailedException(e);
       }
       throw new BadRequestException(e, e.getMessage());
-    } catch (CommitFailedException | UnsupportedClientOperationException e) {
+    } catch (CommitFailedException e) {
       throw e;
     } catch (HouseTableCallerException
         | HouseTableNotFoundException
@@ -658,11 +660,37 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   }
 
   /**
+   * Checks a commit before anything is written, so a rejection reaches the caller as thrown, with
+   * no commit status to recover: the stale-base check, then OpenHouse's table property rules, then
+   * the {@link PreCommitCheck}s. The checks run after the stale-base check, so a snapshot commit
+   * built on an older table version gets the retryable conflict instead, and see the properties the
+   * commit leaves. A rejected commit still counts as a failed commit.
+   *
+   * @return {@code metadata}'s properties, with the repository's temporary overrides restored and
+   *     the table property rules applied, in a new map
+   */
+  private Map<String, String> prepareCommit(TableMetadata base, TableMetadata metadata) {
+    try {
+      abortIfWriterBaseDivergedFromCatalog(base, metadata);
+      Map<String, String> properties = new HashMap<>(metadata.properties());
+      restoreOverriddenProperties(properties);
+      enforcePropertyRules(base, properties);
+      if (preCommitCheckRunner != null) {
+        preCommitCheckRunner.checkAll(tableIdentifier, base, metadata, properties);
+      }
+      return properties;
+    } catch (CommitFailedException | CommitRejectedException e) {
+      metricsReporter.count(InternalCatalogMetricsConstant.COMMIT_FAILED_CTR);
+      throw e;
+    }
+  }
+
+  /**
    * Applies OpenHouse's table property rules to the properties a commit will persist. doCommit runs
    * it on every commit path (create, replace, update, snapshot put, replication and rename),
    * including paths that skip repository-level property checks. Each rule sees the value committed
    * on {@code base} and the value this commit leaves, and returns the value to persist or rejects
-   * the commit with {@link UnsupportedClientOperationException}.
+   * the commit with a {@link CommitRejectedException} naming the rule.
    *
    * <p>Runs after restoreOverriddenProperties, so rules see the values that will be persisted, and
    * before failIfRetryUpdate, so a rejected commit does not mark its base version as attempted.
@@ -700,8 +728,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       return requested;
     }
     if (!requested.equals(committed)) {
-      throw new UnsupportedClientOperationException(
-          UnsupportedClientOperationException.Operation.ALTER_RESERVED_TBLPROPS,
+      throw new CommitRejectedException(
           String.format(
               "Table property %s on table %s must be a positive number of milliseconds no greater"
                   + " than %d (7 days).",

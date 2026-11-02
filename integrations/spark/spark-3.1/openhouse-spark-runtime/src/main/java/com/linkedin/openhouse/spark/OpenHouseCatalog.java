@@ -1,5 +1,8 @@
 package com.linkedin.openhouse.spark;
 
+import java.util.Collections;
+import java.util.Set;
+
 /**
  * Catalog implementation to create, read, update and delete tables in OpenHouse. This class
  * leverages Openhouse tableclient to perform CRUD operations on Tables resource in the Catalog
@@ -15,4 +18,14 @@ package com.linkedin.openhouse.spark;
  *
  * <p>It can be used in spark shell as follows: spark.sql("USE openhouse")
  */
-public class OpenHouseCatalog extends com.linkedin.openhouse.javaclient.OpenHouseCatalog {}
+public class OpenHouseCatalog extends com.linkedin.openhouse.javaclient.OpenHouseCatalog {
+
+  /**
+   * Declares {@link #COLUMN_DEFAULTS_CAPABILITY}: Spark reads rows through Iceberg's readers, which
+   * apply the column defaults this catalog loads into the schema.
+   */
+  @Override
+  protected Set<String> capabilities() {
+    return Collections.singleton(COLUMN_DEFAULTS_CAPABILITY);
+  }
+}
