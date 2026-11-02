@@ -46,9 +46,10 @@ public class UpdateOperationRequest {
   private OperationType operationType;
 
   /**
-   * Why the operation failed, reported by the executor (e.g. exception class + message, or a
-   * classified category). Null/ignored for {@code SUCCESS}. Persisted so dashboards can show why a
-   * table is failing; callers should keep it concise (the column is bounded).
+   * Why the operation failed ({@code ExceptionClass: message}), reported by the executor.
+   * Null/ignored for {@code SUCCESS}. A temporary debugging aid so a failing table can be diagnosed
+   * without pulling Spark executor logs; bounded to the column length (truncated server-side).
+   * Nothing is built on this field — no CDC, dashboards, runbooks, or retry logic.
    */
   private String failureReason;
 }

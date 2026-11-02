@@ -108,6 +108,38 @@ class OptimizerDataServiceImplTest {
   }
 
   @Test
+  void completeOperation_failed_truncatesOverlongFailureReason() {
+    String operationId = UUID.randomUUID().toString();
+    operationsRepository.save(
+        TableOperationsRow.builder()
+            .id(operationId)
+            .tableUuid(UUID.randomUUID().toString())
+            .databaseName("db1")
+            .tableName("tbl1")
+            .operationType(com.linkedin.openhouse.optimizer.db.OperationType.TABLE_STATS_COLLECTION)
+            .status(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)
+            .createdAt(Instant.now())
+            .scheduledAt(Instant.now())
+            .jobId("spark-job-789")
+            .build());
+    String overlong =
+        "x"
+            .repeat(
+                com.linkedin.openhouse.optimizer.db.TableOperationsHistoryRow
+                        .FAILURE_REASON_MAX_LENGTH
+                    + 500);
+
+    Optional<TableOperationsHistoryDto> result =
+        service.updateOperation(operationId, HistoryStatusDto.FAILED, overlong);
+
+    assertThat(result).isPresent();
+    assertThat(result.get().getFailureReason())
+        .hasSize(
+            com.linkedin.openhouse.optimizer.db.TableOperationsHistoryRow
+                .FAILURE_REASON_MAX_LENGTH);
+  }
+
+  @Test
   void completeOperation_success_ignoresFailureReason() {
     String operationId = UUID.randomUUID().toString();
     operationsRepository.save(

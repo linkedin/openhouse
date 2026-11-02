@@ -2,6 +2,7 @@ package com.linkedin.openhouse.optimizer.service;
 
 import com.linkedin.openhouse.optimizer.analyzer.AnalyzeRequest;
 import com.linkedin.openhouse.optimizer.analyzer.AnalyzerRunner;
+import com.linkedin.openhouse.optimizer.db.TableOperationsHistoryRow;
 import com.linkedin.openhouse.optimizer.db.TableStatsHistoryRow;
 import com.linkedin.openhouse.optimizer.db.TableStatsRow;
 import com.linkedin.openhouse.optimizer.model.HistoryStatusDto;
@@ -88,9 +89,25 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
                     .operationType(OperationTypeDto.fromDb(row.getOperationType()))
                     .completedAt(Instant.now())
                     .status(status)
-                    .failureReason(status == HistoryStatusDto.FAILED ? failureReason : null)
+                    .failureReason(
+                        status == HistoryStatusDto.FAILED
+                            ? boundFailureReason(failureReason)
+                            : null)
                     .build())
         .map(history -> TableOperationsHistoryDto.fromRow(historyRepository.save(history.toRow())));
+  }
+
+  /**
+   * Enforce the {@code failure_reason} column bound server-side. The Spark caller already
+   * truncates, but a longer value would otherwise be rejected by MySQL strict mode and fail the
+   * history insert, losing the operation's terminal status along with its message.
+   */
+  private static String boundFailureReason(String failureReason) {
+    if (failureReason == null
+        || failureReason.length() <= TableOperationsHistoryRow.FAILURE_REASON_MAX_LENGTH) {
+      return failureReason;
+    }
+    return failureReason.substring(0, TableOperationsHistoryRow.FAILURE_REASON_MAX_LENGTH);
   }
 
   @Override
