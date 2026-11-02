@@ -49,7 +49,6 @@ public class UpdateOperationRequest {
    * Why the operation failed ({@code ExceptionClass: message}), reported by the executor.
    * Null/ignored for {@code SUCCESS}. A temporary debugging aid so a failing table can be diagnosed
    * without pulling Spark executor logs; bounded to the column length (truncated server-side).
-   * Nothing is built on this field — no CDC, dashboards, runbooks, or retry logic.
    */
   private String failureReason;
 }
