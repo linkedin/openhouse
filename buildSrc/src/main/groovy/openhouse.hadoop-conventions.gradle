@@ -6,6 +6,9 @@ dependencies {
   api("org.apache.hadoop:hadoop-client:" + hadoopVersion) {
     exclude group: 'junit', module: 'junit'
     exclude group: 'javax', module: 'servlet-api'
+    // hadoop-project's dependencyManagement excludes this from jetty, but jetty-sslengine also depends on jetty
+    // without that exclusion. Gradle 7 dropped it anyway; Gradle 8 resolves Servlet 2.5 next to javax.servlet-api 4.
+    exclude group: 'org.mortbay.jetty', module: 'servlet-api'
     exclude group: 'com.zaxxer', module: 'HikariCP-java7'
     exclude group: 'org.apache.commons', module: 'commons-lang3'
     exclude group: 'com.codahale.metrics', module: 'metrics-core'

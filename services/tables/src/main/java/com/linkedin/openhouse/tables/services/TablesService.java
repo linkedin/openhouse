@@ -4,6 +4,7 @@ import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.response.components.AclPolicy;
 import com.linkedin.openhouse.tables.model.TableDto;
 import java.util.List;
@@ -25,6 +26,15 @@ public interface TablesService {
   TableDto getTable(String databaseId, String tableId, String actingPrincipal);
 
   /**
+   * Check whether a table identified by databaseId and tableId exists.
+   *
+   * @param databaseId
+   * @param tableId
+   * @return true iff the table exists in the catalog.
+   */
+  boolean tableExists(String databaseId, String tableId);
+
+  /**
    * Given a databaseId, prepare list of {@link TableDto}s.
    *
    * @param databaseId
@@ -33,15 +43,31 @@ public interface TablesService {
   List<TableDto> searchTables(String databaseId);
 
   /**
-   * Given a databaseId, prepare list of {@link TableDto}s.
+   * Given a databaseId, prepare list of {@link TableDto}s. The returned dtos are populated with
+   * identifier fields plus any HouseTable-resident fields listed in {@code fields}. Passing null or
+   * empty returns identifier-only dtos.
+   *
+   * <p>When {@code fields} is non-empty, {@code actingPrincipal} must hold the {@code
+   * GET_TABLE_METADATA} privilege on the database — per-table sharing ACLs are not consulted by
+   * this call, so this guard prevents callers from bulk-reading field data on tables they would not
+   * be authorized to read individually.
    *
    * @param databaseId
    * @param page
    * @param size
    * @param sortBy
+   * @param fields optional list of {@link TableDto}/{@code GetTableResponseBody} field names to
+   *     populate in addition to identifiers
+   * @param actingPrincipal authenticated user; required when {@code fields} is non-empty
    * @return list of {@link TableDto}
    */
-  Page<TableDto> searchTables(String databaseId, int page, int size, String sortBy);
+  Page<TableDto> searchTables(
+      String databaseId,
+      int page,
+      int size,
+      String sortBy,
+      List<String> fields,
+      String actingPrincipal);
 
   /**
    * Given a {@link CreateUpdateTableRequestBody}, create or update a Openhouse table for it
@@ -138,13 +164,24 @@ public interface TablesService {
 
   /**
    * Delete a table lock represented by databaseId and tableId if actingPrincipal has the right
-   * privilege.
+   * privilege. This overload only removes LEGACY locks.
    *
    * @param databaseId
    * @param tableId
    * @param actingPrincipal
    */
   void deleteLock(String databaseId, String tableId, String actingPrincipal);
+
+  /**
+   * Remove a lock only when its reason matches, using existing lock authorization. An inactive lock
+   * is a no-op.
+   *
+   * @param databaseId
+   * @param tableId
+   * @param reason expected lock reason
+   * @param actingPrincipal authenticated caller requiring LOCK_ADMIN permission
+   */
+  void deleteLock(String databaseId, String tableId, LockReason reason, String actingPrincipal);
 
   /**
    * Given a databaseId, return a paginated list of soft deleted {@link TableDto}s.

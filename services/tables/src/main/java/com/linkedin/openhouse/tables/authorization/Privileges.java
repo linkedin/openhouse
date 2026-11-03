@@ -16,7 +16,8 @@ public enum Privileges {
   UPDATE_ACL(Privilege.UPDATE_ACL),
   SYSTEM_ADMIN(Privilege.SYSTEM_ADMIN),
   LOCK_ADMIN(Privilege.LOCK_ADMIN),
-  SELECT(Privilege.SELECT);
+  SELECT(Privilege.SELECT),
+  AUTHENTICATED_VIEWS_OPS(Privilege.AUTHENTICATED_VIEWS_OPS);
 
   private String privilege;
 
@@ -43,6 +44,15 @@ public enum Privileges {
     public static final String LOCK_ADMIN = "LOCK_ADMIN";
 
     public static final String SELECT = "SELECT";
+
+    /**
+     * Route guard for the /v1 views routes that only requires an authenticated caller. Views are
+     * globally readable, so reads need no further check. Writes are authorized in {@code
+     * ViewsServiceImpl} against the database's table privileges, which the deployed {@link
+     * AuthorizationHandler} resolves (e.g. from HDFS permissions on the database).
+     */
+    public static final String AUTHENTICATED_VIEWS_OPS = "AUTHENTICATED_VIEWS_OPS";
+
     private static final Set<String> SUPPORTED_PRIVILEGES =
         Stream.of(Privileges.values()).map(Privileges::getPrivilege).collect(Collectors.toSet());
 

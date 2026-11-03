@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.internal.catalog;
 
 import com.linkedin.openhouse.cluster.storage.StorageManager;
+import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOConfig;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import java.io.IOException;
@@ -31,6 +32,9 @@ public class MockApplication {
   @MockBean FileIOManager fileIOManager;
 
   @MockBean FileIOConfig fileIOConfig;
+
+  /** Required by {@code ViewCommitEngineConfiguration}, and in a package this app does not scan. */
+  @MockBean StorageType storageType;
 
   static final FsPermission FS_PERMISSION =
       new FsPermission(FsAction.ALL, FsAction.NONE, FsAction.NONE);

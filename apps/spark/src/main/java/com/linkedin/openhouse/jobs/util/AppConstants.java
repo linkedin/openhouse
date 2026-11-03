@@ -20,6 +20,12 @@ public final class AppConstants {
   public static final String REWRITTEN_DATA_FILE_COUNT = "rewritten_data_file_count";
   public static final String REWRITTEN_DATA_FILE_BYTES = "rewritten_data_file_bytes";
   public static final String REWRITTEN_DATA_FILE_GROUP_COUNT = "rewritten_data_file_group_count";
+  public static final String RETENTION_POLICY_MISCONFIGURED_TABLE_COUNT =
+      "retention_policy_misconfigured_table_count";
+
+  // Snapshot Expiration metrics
+  public static final String SNAPSHOTS_EXPIRATION_DURATION = "snapshots_expiration_duration";
+  public static final String DELETE_FILES_ENABLED = "delete_files_enabled";
 
   // Openhouse jobs status tags
   public static final String STATUS = "status";
@@ -60,6 +66,24 @@ public final class AppConstants {
   public static final String TABLE_TYPE_PRIMARY = "PRIMARY_TABLE";
   public static final String TABLE_TYPE_REPLICA = "REPLICA_TABLE";
   public static final String OFD_ONE_DAY_TTL_ENABLED_KEY = "ofd.one_day_ttl.enabled";
+
+  /**
+   * Hard ceiling on the number of tables a single batched OFD job can carry. Wire path is parallel
+   * CSV CLI args (see {@code BatchedOrphanFilesDeletionSparkApp#buildEntries}); at ~120 chars per
+   * entry (36-char UUID × 3 lists) this gives ~24 KB on the command line, well under the typical
+   * Linux {@code ARG_MAX} of 128 KB but leaves headroom for the {@code spark-submit} envelope and
+   * JVM flags. The scheduler-driven path uses a smaller per-entry footprint but inherits the same
+   * cap for defense in depth. Operators tune the per-job batch size with {@code --batchMaxItems}
+   * (default {@code 25}); this constant is a footgun stop, not the operating point.
+   */
+  public static final int OFD_MAX_BATCH_SIZE = 200;
+
+  /**
+   * Hard upper bound on a single stats-collection batch. The scheduler bin-packs stats collection
+   * by file count with a far smaller default per-bin table cap (default {@code 25}); this constant
+   * is a footgun stop against an oversized batch OOMing the driver, not the operating point.
+   */
+  public static final int STATS_MAX_BATCH_SIZE = 100;
 
   private AppConstants() {}
 }

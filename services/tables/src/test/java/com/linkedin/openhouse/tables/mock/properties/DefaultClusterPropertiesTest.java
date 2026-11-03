@@ -19,6 +19,11 @@ public class DefaultClusterPropertiesTest {
     Assertions.assertEquals("local-cluster", clusterProperties.getClusterName());
   }
 
+  @Test
+  public void testClusterPropertiesIcebergOrcCompressionCodecDefaultsToNull() {
+    Assertions.assertNull(clusterProperties.getClusterIcebergWriteOrcCompressionCodec());
+  }
+
   @AfterAll
   static void unsetSysProp() {
     System.clearProperty("OPENHOUSE_CLUSTER_CONFIG_PATH");

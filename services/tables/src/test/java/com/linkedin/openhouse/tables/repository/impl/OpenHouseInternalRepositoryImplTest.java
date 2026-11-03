@@ -6,16 +6,21 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
+import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils;
+import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PoliciesSpecMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
+import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,6 +39,7 @@ public class OpenHouseInternalRepositoryImplTest {
   @Mock private MeterRegistry meterRegistry;
   @Mock private ClusterProperties clusterProperties;
   @Mock private PreservedKeyChecker preservedKeyChecker;
+  @Mock private OpenHouseInternalCatalog catalog;
 
   @InjectMocks private OpenHouseInternalRepositoryImpl openHouseInternalRepository;
 
@@ -91,6 +97,44 @@ public class OpenHouseInternalRepositoryImplTest {
   }
 
   @Test
+  void testComputePropsForTableCreation_ClusterOrcCompressionCodec() {
+    when(clusterProperties.getClusterIcebergWriteOrcCompressionCodec()).thenReturn("zstd");
+
+    TableDto tableDto = createTableDto(new HashMap<>());
+    Map<String, String> actualProps =
+        openHouseInternalRepository.computePropsForTableCreation(tableDto);
+
+    Assertions.assertEquals("zstd", actualProps.get(TableProperties.ORC_COMPRESSION));
+  }
+
+  @Test
+  void testComputePropsForTableCreation_UserProvidedOrcCompressionCodecWins() {
+    // Cluster default is set but the user-provided value should take precedence.
+    when(clusterProperties.getClusterIcebergWriteOrcCompressionCodec()).thenReturn("zstd");
+
+    Map<String, String> userProps = new HashMap<>();
+    userProps.put(TableProperties.ORC_COMPRESSION, "snappy");
+    TableDto tableDto = createTableDto(userProps);
+
+    Map<String, String> actualProps =
+        openHouseInternalRepository.computePropsForTableCreation(tableDto);
+
+    Assertions.assertEquals("snappy", actualProps.get(TableProperties.ORC_COMPRESSION));
+  }
+
+  @Test
+  void testComputePropsForTableCreation_NoOrcCompressionCodecWhenClusterUnset() {
+    // When the cluster does not configure a codec, the property should not be set.
+    when(clusterProperties.getClusterIcebergWriteOrcCompressionCodec()).thenReturn(null);
+
+    TableDto tableDto = createTableDto(new HashMap<>());
+    Map<String, String> actualProps =
+        openHouseInternalRepository.computePropsForTableCreation(tableDto);
+
+    Assertions.assertFalse(actualProps.containsKey(TableProperties.ORC_COMPRESSION));
+  }
+
+  @Test
   void testComputePropsForTableCreation_tableLocation() {
     TableDto tableDto = createTableDto(new HashMap<>());
     tableDto = tableDto.toBuilder().tableLocation("file:///data/openhouse/db/table").build();
@@ -101,6 +145,43 @@ public class OpenHouseInternalRepositoryImplTest {
     Assertions.assertEquals(
         "/data/openhouse/db/table",
         actualProps.get(HouseTableSerdeUtils.getCanonicalFieldName("tableLocation")));
+  }
+
+  @Test
+  void findTableRefByIdReturnsPartialTableDto() {
+    HouseTable row =
+        HouseTable.builder()
+            .databaseId(DB_ID)
+            .tableId(TABLE_ID)
+            .tableUUID("uuid-1")
+            .tableLocation("/base/db/table-uuid-1/00001-x.metadata.json")
+            .build();
+    when(catalog.findHouseTable(TableIdentifier.of(DB_ID, TABLE_ID))).thenReturn(Optional.of(row));
+
+    Optional<TableDto> result =
+        openHouseInternalRepository.findTableRefById(
+            TableDtoPrimaryKey.builder().databaseId(DB_ID).tableId(TABLE_ID).build());
+
+    Assertions.assertTrue(result.isPresent());
+    TableDto dto = result.get();
+    Assertions.assertEquals(DB_ID, dto.getDatabaseId());
+    Assertions.assertEquals(TABLE_ID, dto.getTableId());
+    Assertions.assertEquals("uuid-1", dto.getTableUUID());
+    Assertions.assertEquals("/base/db/table-uuid-1/00001-x.metadata.json", dto.getTableLocation());
+    // Fields not populated by the table-ref lookup should be null/default.
+    Assertions.assertNull(dto.getSchema());
+    Assertions.assertNull(dto.getTableCreator());
+  }
+
+  @Test
+  void findTableRefByIdReturnsEmptyWhenHouseTableMissing() {
+    when(catalog.findHouseTable(any(TableIdentifier.class))).thenReturn(Optional.empty());
+
+    Optional<TableDto> result =
+        openHouseInternalRepository.findTableRefById(
+            TableDtoPrimaryKey.builder().databaseId(DB_ID).tableId(TABLE_ID).build());
+
+    Assertions.assertFalse(result.isPresent());
   }
 
   private TableDto createTableDto(Map<String, String> properties) {

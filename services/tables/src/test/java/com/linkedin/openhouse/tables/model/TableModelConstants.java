@@ -560,8 +560,10 @@ public final class TableModelConstants {
             new ClusteringSpecConverter()
                 .convertToEntityAttribute(JsonPath.read(content, "$.clustering").toString()))
         .policies(
-            new PoliciesSpecConverter()
-                .convertToEntityAttribute(JsonPath.read(content, "$.policies").toString()))
+            JsonPath.read(content, "$.policies") == null
+                ? null
+                : new PoliciesSpecConverter()
+                    .convertToEntityAttribute(JsonPath.read(content, "$.policies").toString()))
         .sortOrder(JsonPath.read(content, "$.sortOrder"))
         .build();
   }

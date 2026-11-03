@@ -8,6 +8,7 @@ from sqlglot.parser import Parser as _Parser
 from sqlglot.tokens import Tokenizer as _Tokenizer
 from sqlglot.tokens import TokenType
 
+from openhouse.dataloader.filters import SqlTarget
 from openhouse.dataloader.table_identifier import TableIdentifier
 
 
@@ -100,7 +101,7 @@ class DataFusion(Dialect):
 
 def to_datafusion_sql(
     sql: str,
-    source_dialect: str,
+    source_dialect: SqlTarget,
     *,
     table: TableIdentifier | None = None,
 ) -> str:
@@ -110,28 +111,23 @@ def to_datafusion_sql(
     that table.
 
     Args:
-        sql: SQL statement in the source dialect.
-        source_dialect: sqlglot dialect name (e.g. "spark", "postgres").
+        sql: SQL statement written in *source_dialect*.
+        source_dialect: The SqlTarget the *sql* is written in (e.g. ``SqlTarget.SPARK``).
         table: Expected table the SQL must reference.  When set the function
             verifies the SQL contains exactly one table matching this
             identifier.
 
     Raises:
-        ValueError: If the dialect is unsupported, the SQL is invalid, the
-            input contains more than one statement, or (when *table* is set)
-            the table reference does not match.
+        ValueError: If the SQL is invalid, the input contains more than one
+            statement, or (when *table* is set) the table reference does not match.
     """
-    if source_dialect not in Dialect.classes:
-        raise ValueError(
-            f"Unsupported source dialect '{source_dialect}'. Supported dialects: {', '.join(sorted(Dialect.classes))}"
-        )
-    if source_dialect == DataFusion.DIALECT and table is None:
+    if source_dialect is SqlTarget.DATA_FUSION and table is None:
         return sql
 
     try:
-        statements = sqlglot.parse(sql, dialect=source_dialect)
+        statements = sqlglot.parse(sql, dialect=source_dialect.value)
     except sqlglot.errors.SqlglotError as e:
-        raise ValueError(f"Failed to transpile SQL from '{source_dialect}' to DataFusion: {e}") from e
+        raise ValueError(f"Failed to transpile SQL from '{source_dialect.value}' to DataFusion: {e}") from e
     if len(statements) != 1 or statements[0] is None:
         raise ValueError(f"Expected exactly one SQL statement, got {len(statements)}: {statements}")
     ast = statements[0]

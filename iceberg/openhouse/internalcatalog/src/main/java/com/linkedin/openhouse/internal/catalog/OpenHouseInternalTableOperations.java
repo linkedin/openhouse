@@ -12,7 +12,11 @@ import com.linkedin.openhouse.cluster.storage.Storage;
 import com.linkedin.openhouse.cluster.storage.StorageClient;
 import com.linkedin.openhouse.cluster.storage.hdfs.HdfsStorageClient;
 import com.linkedin.openhouse.cluster.storage.local.LocalStorageClient;
+import com.linkedin.openhouse.common.exception.CommitRejectedException;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
+import com.linkedin.openhouse.common.exception.MetadataRefreshFailureContext;
+import com.linkedin.openhouse.common.exception.StorageDependencyUnavailableException;
+import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
 import com.linkedin.openhouse.internal.catalog.exception.InvalidIcebergSnapshotException;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
@@ -29,7 +33,9 @@ import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -40,8 +46,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BinaryOperator;
 import java.util.stream.Collectors;
-import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.iceberg.BaseMetastoreTableOperations;
@@ -63,13 +69,14 @@ import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NotFoundException;
+import org.apache.iceberg.exceptions.RuntimeIOException;
+import org.apache.iceberg.exceptions.ServiceUnavailableException;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.base.Objects;
 
-@AllArgsConstructor
 @Slf4j
 public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperations {
 
@@ -85,10 +92,65 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
 
   FileIOManager fileIOManager;
 
+  TableMetadataCache tableMetadataCache;
+
+  PostCommitOperationRunner postCommitOperationRunner;
+
+  PreCommitCheckRunner preCommitCheckRunner;
+
+  /**
+   * Backward-compatible constructor without a {@link PostCommitOperationRunner} or {@link
+   * PreCommitCheckRunner}: post-commit operations are disabled and no pre-commit checks run (no
+   * runners wired).
+   */
+  public OpenHouseInternalTableOperations(
+      HouseTableRepository houseTableRepository,
+      FileIO fileIO,
+      HouseTableMapper houseTableMapper,
+      TableIdentifier tableIdentifier,
+      MetricsReporter metricsReporter,
+      FileIOManager fileIOManager,
+      TableMetadataCache tableMetadataCache) {
+    this(
+        houseTableRepository,
+        fileIO,
+        houseTableMapper,
+        tableIdentifier,
+        metricsReporter,
+        fileIOManager,
+        tableMetadataCache,
+        null,
+        null);
+  }
+
+  public OpenHouseInternalTableOperations(
+      HouseTableRepository houseTableRepository,
+      FileIO fileIO,
+      HouseTableMapper houseTableMapper,
+      TableIdentifier tableIdentifier,
+      MetricsReporter metricsReporter,
+      FileIOManager fileIOManager,
+      TableMetadataCache tableMetadataCache,
+      PostCommitOperationRunner postCommitOperationRunner,
+      PreCommitCheckRunner preCommitCheckRunner) {
+    this.houseTableRepository = houseTableRepository;
+    this.fileIO = fileIO;
+    this.houseTableMapper = houseTableMapper;
+    this.tableIdentifier = tableIdentifier;
+    this.metricsReporter = metricsReporter;
+    this.fileIOManager = fileIOManager;
+    this.tableMetadataCache = tableMetadataCache;
+    this.postCommitOperationRunner = postCommitOperationRunner;
+    this.preCommitCheckRunner = preCommitCheckRunner;
+  }
+
   private static final Gson GSON = new Gson();
 
   private static final Cache<String, Integer> CACHE =
       CacheBuilder.newBuilder().expireAfterWrite(5, TimeUnit.MINUTES).maximumSize(1000).build();
+
+  /** Upper bound, and value OpenHouse stamps, for {@link TableProperties#MAX_REF_AGE_MS}. */
+  private static final long MAX_REF_AGE_MS_LIMIT = TimeUnit.DAYS.toMillis(7);
 
   @Override
   protected String tableName() {
@@ -133,7 +195,10 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
   protected void refreshMetadata(final String metadataLoc) {
     long startTime = System.currentTimeMillis();
     boolean needToReload = !Objects.equal(currentMetadataLocation(), metadataLoc);
-    Runnable r = () -> super.refreshFromMetadataLocation(metadataLoc);
+    Runnable r =
+        () ->
+            super.refreshFromMetadataLocation(
+                metadataLoc, null, 20, this::loadTableMetadataWithCache);
     try {
       if (needToReload) {
         metricsReporter.executeWithStats(
@@ -145,25 +210,134 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           "refreshMetadata from location {} succeeded, took {} ms",
           metadataLoc,
           System.currentTimeMillis() - startTime);
-    } catch (IllegalArgumentException
-        | IllegalStateException
-        | NotFoundException
-        | ValidationException e) {
-      log.error(
-          "refreshMetadata from location {} failed after {} ms",
-          metadataLoc,
-          System.currentTimeMillis() - startTime,
-          e);
-      throw new InvalidTableMetadataException(
-          tableIdentifier.namespace().toString(), tableIdentifier.name(), e.getMessage(), e);
     } catch (Exception e) {
       log.error(
           "refreshMetadata from location {} failed after {} ms",
           metadataLoc,
-          System.currentTimeMillis() - startTime,
-          e);
-      throw e;
+          System.currentTimeMillis() - startTime);
+      throw classifyMetadataRefreshFailure(e);
     }
+  }
+
+  /**
+   * Classifies a failure encountered while reading a table's Iceberg metadata so the API returns an
+   * specific exception while preserving HTTP 500 for corrupt stored metadata.
+   *
+   * <p>Classification is by exception TYPE (walking the cause chain), never by parsing exception
+   * messages, so it stays stable across Iceberg/Hadoop versions and locales.
+   *
+   * <ul>
+   *   <li>Original exception (500) — stored metadata corruption: a missing metadata/manifest file
+   *       ({@link NotFoundException}/{@link FileNotFoundException} = dangling pointer), an Iceberg
+   *       invariant violation ({@link ValidationException}), or malformed metadata surfaced by the
+   *       Iceberg parser as an {@link IllegalArgumentException}/ {@link IllegalStateException}. The
+   *       table is permanently corrupted (repair or drop it).
+   *   <li>{@link StorageDependencyUnavailableException} (503) — a transient storage-dependency
+   *       failure: any other I/O error (Iceberg {@link ServiceUnavailableException}/{@link
+   *       RuntimeIOException}, a {@link UncheckedIOException}, or an {@link IOException} subtype
+   *       such as socket timeout, connection failure, or NameNode standby). Retriable, not
+   *       corruption.
+   *   <li>{@link InvalidTableMetadataException} (500) — anything else: an unexpected/uncategorized
+   *       failure, treated as an OpenHouse implementation defect.
+   * </ul>
+   */
+  @com.google.common.annotations.VisibleForTesting
+  RuntimeException classifyMetadataRefreshFailure(Throwable e) {
+    final String databaseId = tableIdentifier.namespace().toString();
+    final String tableId = tableIdentifier.name();
+
+    // 500: the metadata/manifest file is genuinely missing (dangling pointer). Checked before the
+    // generic I/O branch because FileNotFoundException is itself an IOException.
+    if (hasCauseOfType(e, NotFoundException.class)
+        || hasCauseOfType(e, FileNotFoundException.class)) {
+      return rethrowMetadataFailure(e, "PERSISTENT_DANGLING_METADATA_POINTER");
+    }
+    // 500: Iceberg invariant violation (e.g. snapshot-log/timestamp ordering).
+    if (hasCauseOfType(e, ValidationException.class)) {
+      return rethrowMetadataFailure(e, "SEMANTIC_METADATA_CORRUPTION");
+    }
+    // 503: any other I/O failure is a transient storage-dependency problem. Timeout / connection /
+    // NameNode standby all extend IOException; Iceberg wraps I/O as ServiceUnavailableException or
+    // RuntimeIOException, and UncheckedIOException wraps an IOException.
+    if (hasCauseOfType(e, ServiceUnavailableException.class)
+        || hasCauseOfType(e, RuntimeIOException.class)
+        || hasCauseOfType(e, UncheckedIOException.class)
+        || hasCauseOfType(e, IOException.class)) {
+      return logClassifiedFailure(
+          databaseId,
+          tableId,
+          "TRANSIENT_STORAGE_DEPENDENCY_FAILURE (503)",
+          new StorageDependencyUnavailableException(databaseId, tableId, rootCauseMessage(e), e),
+          e);
+    }
+    // 500: the Iceberg parser rejects malformed/inconsistent metadata with an
+    // IllegalArgumentException/IllegalStateException (e.g. a missing schema/spec id, or a name that
+    // is not a valid metadata file). In this metadata-load path these are corruption.
+    if (hasCauseOfType(e, IllegalArgumentException.class)
+        || hasCauseOfType(e, IllegalStateException.class)) {
+      return rethrowMetadataFailure(e, "MALFORMED_METADATA");
+    }
+    // 500: unexpected/uncategorized -> OpenHouse implementation defect.
+    return logClassifiedFailure(
+        databaseId,
+        tableId,
+        "OPENHOUSE_INTERNAL_FAILURE (500)",
+        new InvalidTableMetadataException(databaseId, tableId, rootCauseMessage(e), e),
+        e);
+  }
+
+  // Iceberg's refresh API cannot declare checked exceptions; preserve the original throwable.
+  @lombok.SneakyThrows
+  private RuntimeException rethrowMetadataFailure(Throwable failure, String category) {
+    MetadataRefreshFailureContext.mark(failure);
+    log.error(
+        "Metadata refresh failure for table {} classified as {} (500)",
+        tableIdentifier,
+        category,
+        failure);
+    throw failure;
+  }
+
+  /**
+   * Logs the classification decision together with the original exception (including its stack
+   * trace) so operators can see exactly which underlying failure was mapped to which category.
+   */
+  private static RuntimeException logClassifiedFailure(
+      String databaseId,
+      String tableId,
+      String category,
+      RuntimeException classified,
+      Throwable original) {
+    log.error(
+        "Classified metadata refresh failure for table {}.{} as [{}]; returning {}. Original exception:",
+        databaseId,
+        tableId,
+        category,
+        classified.getClass().getSimpleName(),
+        original);
+    return classified;
+  }
+
+  private static boolean hasCauseOfType(Throwable e, Class<? extends Throwable> type) {
+    for (Throwable t = e; t != null; t = t.getCause()) {
+      if (type.isInstance(t)) {
+        return true;
+      }
+      if (t == t.getCause()) {
+        break;
+      }
+    }
+    return false;
+  }
+
+  private static String rootCauseMessage(Throwable e) {
+    Throwable root = e;
+    while (root.getCause() != null && root.getCause() != root) {
+      root = root.getCause();
+    }
+    return root.getMessage() == null
+        ? root.getClass().getSimpleName()
+        : root.getClass().getSimpleName() + ": " + root.getMessage();
   }
 
   /**
@@ -249,8 +423,11 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     // Handle all schema-related processing (client schema, evolved schema, intermediate schemas)
     metadata = processSchemas(base, metadata);
 
+    Map<String, String> properties = prepareCommit(base, metadata);
+
     int version = currentVersion() + 1;
     CommitStatus commitStatus = CommitStatus.FAILURE;
+    Optional<TableMetadata> committedMetadata = Optional.empty();
 
     /* This method adds no fs scheme, and it persists in HTS that way. */
     final String newMetadataLocation = rootMetadataFileLocation(metadata, version);
@@ -258,9 +435,8 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     HouseTable houseTable = HouseTable.builder().build();
     try {
       // Now that we have metadataLocation we stamp it in metadata property.
-      Map<String, String> properties = new HashMap<>(metadata.properties());
+      properties.remove(CatalogConstants.IS_REPLACE_COMMIT_KEY);
       failIfRetryUpdate(properties);
-      restoreOverriddenProperties(properties);
 
       properties.put(
           getCanonicalFieldName("tableVersion"),
@@ -355,6 +531,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
                     updatedMtDataRef, io().newOutputFile(newMetadataLocation)),
             InternalCatalogMetricsConstant.METADATA_UPDATE_LATENCY,
             getCatalogMetricTags());
+        tableMetadataCache.seed(newMetadataLocation, updatedMtDataRef);
         log.info(
             "updateMetadata to location {} succeeded, took {} ms",
             newMetadataLocation,
@@ -372,7 +549,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         writeSpan.end();
       }
 
-      houseTable = houseTableMapper.toHouseTable(metadataToCommit, fileIO);
+      houseTable = houseTableMapper.toHouseTable(updatedMtDataRef, fileIO);
       if (base != null
           && (properties.containsKey(CatalogConstants.OPENHOUSE_TABLEID_KEY)
                   && !properties
@@ -405,11 +582,12 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
          * "forced refresh" in {@link OpenHouseInternalTableOperations#commit(TableMetadata,
          * TableMetadata)}
          */
-        refreshFromMetadataLocation(newMetadataLocation);
+        refreshMetadata(newMetadataLocation);
       }
       if (isReplicatedTableCreate(properties)) {
         updateMetadataFieldForTable(metadata, newMetadataLocation);
       }
+      committedMetadata = Optional.of(updatedMtDataRef);
       commitStatus = CommitStatus.SUCCESS;
     } catch (IOException ioe) {
       commitStatus = checkCommitStatus(newMetadataLocation, metadata);
@@ -472,9 +650,124 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
         case UNKNOWN:
           metricsReporter.count(InternalCatalogMetricsConstant.COMMIT_STATE_UNKNOWN);
           break;
+        case SUCCESS:
+          runPostCommitOperations(committedMetadata);
+          break;
         default:
           break; /*should never happen, kept to silence SpotBugs*/
       }
+    }
+  }
+
+  /**
+   * Checks a commit before anything is written, so a rejection reaches the caller as thrown, with
+   * no commit status to recover: the stale-base check, then OpenHouse's table property rules, then
+   * the {@link PreCommitCheck}s. The checks run after the stale-base check, so a snapshot commit
+   * built on an older table version gets the retryable conflict instead, and see the properties the
+   * commit leaves. A rejected commit still counts as a failed commit.
+   *
+   * @return {@code metadata}'s properties, with the repository's temporary overrides restored and
+   *     the table property rules applied, in a new map
+   */
+  private Map<String, String> prepareCommit(TableMetadata base, TableMetadata metadata) {
+    try {
+      abortIfWriterBaseDivergedFromCatalog(base, metadata);
+      Map<String, String> properties = new HashMap<>(metadata.properties());
+      restoreOverriddenProperties(properties);
+      enforcePropertyRules(base, properties);
+      if (preCommitCheckRunner != null) {
+        preCommitCheckRunner.checkAll(tableIdentifier, base, metadata, properties);
+      }
+      return properties;
+    } catch (CommitFailedException | CommitRejectedException e) {
+      metricsReporter.count(InternalCatalogMetricsConstant.COMMIT_FAILED_CTR);
+      throw e;
+    }
+  }
+
+  /**
+   * Applies OpenHouse's table property rules to the properties a commit will persist. doCommit runs
+   * it on every commit path (create, replace, update, snapshot put, replication and rename),
+   * including paths that skip repository-level property checks. Each rule sees the value committed
+   * on {@code base} and the value this commit leaves, and returns the value to persist or rejects
+   * the commit with a {@link CommitRejectedException} naming the rule.
+   *
+   * <p>Runs after restoreOverriddenProperties, so rules see the values that will be persisted, and
+   * before failIfRetryUpdate, so a rejected commit does not mark its base version as attempted.
+   */
+  private void enforcePropertyRules(TableMetadata base, Map<String, String> properties) {
+    enforcePropertyRule(base, properties, TableProperties.MAX_REF_AGE_MS, this::boundMaxRefAge);
+  }
+
+  /**
+   * Sets {@code key} to {@code rule.apply(committed, requested)}, where either argument is null
+   * when the property is absent; a null result removes the key.
+   */
+  private static void enforcePropertyRule(
+      TableMetadata base, Map<String, String> properties, String key, BinaryOperator<String> rule) {
+    String committed = base == null ? null : base.properties().get(key);
+    String persisted = rule.apply(committed, properties.get(key));
+    if (persisted == null) {
+      properties.remove(key);
+    } else {
+      properties.put(key, persisted);
+    }
+  }
+
+  /**
+   * Keeps {@link TableProperties#MAX_REF_AGE_MS} in (0, 7 days], so snapshot expiration drops
+   * branches and tags whose head snapshot is older than that. A missing value becomes seven days. A
+   * commit that sets an out-of-bound value is rejected; an out-of-bound value the table already
+   * held becomes seven days instead of failing an unrelated commit.
+   */
+  private String boundMaxRefAge(String committed, String requested) {
+    if (requested == null) {
+      return String.valueOf(MAX_REF_AGE_MS_LIMIT);
+    }
+    if (isWithinMaxRefAgeLimit(requested)) {
+      return requested;
+    }
+    if (!requested.equals(committed)) {
+      throw new CommitRejectedException(
+          String.format(
+              "Table property %s on table %s must be a positive number of milliseconds no greater"
+                  + " than %d (7 days).",
+              TableProperties.MAX_REF_AGE_MS, tableIdentifier, MAX_REF_AGE_MS_LIMIT));
+    }
+    log.info(
+        "Replacing out-of-bound {}={} with {} for table {}",
+        TableProperties.MAX_REF_AGE_MS,
+        requested,
+        MAX_REF_AGE_MS_LIMIT,
+        tableIdentifier);
+    return String.valueOf(MAX_REF_AGE_MS_LIMIT);
+  }
+
+  private static boolean isWithinMaxRefAgeLimit(String maxRefAgeMs) {
+    try {
+      long value = Long.parseLong(maxRefAgeMs);
+      return value > 0 && value <= MAX_REF_AGE_MS_LIMIT;
+    } catch (NumberFormatException e) {
+      return false;
+    }
+  }
+
+  /**
+   * Fires best-effort post-commit operations for a successful commit, gated by a server-side kill
+   * switch. Never throws: the commit has already durably succeeded and post-commit work must not
+   * affect its outcome.
+   */
+  private void runPostCommitOperations(Optional<TableMetadata> committedMetadata) {
+    if (postCommitOperationRunner == null || !postCommitOperationRunner.isEnabled()) {
+      return;
+    }
+    try {
+      committedMetadata.ifPresent(
+          metadata ->
+              postCommitOperationRunner.runAll(new PostCommitContext(tableIdentifier, metadata)));
+    } catch (Throwable t) {
+      log.error(
+          "Failed to dispatch post-commit operations for table {} (nonfatal)", tableIdentifier, t);
     }
   }
 
@@ -573,6 +866,55 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     }
 
     return builder.build();
+  }
+
+  /**
+   * Catalog-level CAS. Aborts the commit if the writer's declared base ({@code COMMIT_KEY}) does
+   * not match the catalog's current persisted base. Closes the BaseTransaction.applyUpdates
+   * silent-rebase variant of the stale-base bug class, where {@code applyUpdates} re-stamps the
+   * writer's original (non-null) {@code COMMIT_KEY} on top of a concurrently-advanced base.
+   *
+   * <p>Commits that leave {@code COMMIT_KEY} unset (wholesale replace / create — replaceTable,
+   * stage-create, stage-replace) are authoritative over the snapshot set and are intentionally not
+   * defended: there is no stale base to compare against.
+   *
+   * <p>Must run before failIfRetryUpdate, which strips COMMIT_KEY from the doCommit-local
+   * properties copy.
+   *
+   * @throws CommitFailedException when writer and catalog disagree on the base — retriable by
+   *     Iceberg's commit loop after the writer refreshes
+   */
+  private void abortIfWriterBaseDivergedFromCatalog(TableMetadata base, TableMetadata metadata) {
+    if (base == null || base.metadataFileLocation() == null) {
+      // No persisted catalog state to defend (initial CREATE, or mid-CREATE constructed
+      // metadata before any metadata.json has been written).
+      return;
+    }
+    if (!metadata.properties().containsKey(CatalogConstants.SNAPSHOTS_JSON_KEY)) {
+      // Not a snapshot-bearing writer commit (e.g. rename, property-only update, internal
+      // metadata-field write). These paths legitimately have no COMMIT_KEY because they don't
+      // go through OpenHouseInternalRepositoryImpl.save:187, and they don't carry the
+      // stale-snapshot-list payload that the subtractive merge would silently expire.
+      return;
+    }
+    String actualBase = base.metadataFileLocation();
+    String writerClaimedBase = metadata.properties().get(CatalogConstants.COMMIT_KEY);
+
+    if (writerClaimedBase == null) {
+      return;
+    }
+
+    if (CatalogConstants.INITIAL_VERSION.equals(writerClaimedBase)
+        || !new org.apache.hadoop.fs.Path(writerClaimedBase)
+            .toUri()
+            .getPath()
+            .equals(new org.apache.hadoop.fs.Path(actualBase).toUri().getPath())) {
+      throw new CommitFailedException(
+          "Cannot commit: writer's declared base [%s] does not match the catalog's current "
+              + "base [%s] for table %s. A concurrent commit landed between the writer's "
+              + "loadTable and commit. Refresh and retry.",
+          writerClaimedBase, actualBase, tableIdentifier);
+    }
   }
 
   /**
@@ -785,5 +1127,10 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     return new GsonBuilder()
         .create()
         .fromJson(serializedNewIntermediateSchemas, new TypeToken<List<String>>() {}.getType());
+  }
+
+  private TableMetadata loadTableMetadataWithCache(String metadataLocation) {
+    return tableMetadataCache.load(
+        metadataLocation, () -> TableMetadataParser.read(io(), metadataLocation));
   }
 }

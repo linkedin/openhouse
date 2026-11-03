@@ -8,6 +8,7 @@ plugins {
 dependencies {
     api project(':client:tableclient')
     api project(':client:jobsclient')
+    api project(':client:optimizerclient')
     api project(':client:hts')
     api 'org.springframework.boot:spring-boot-starter-webflux:2.7.8'
     testImplementation 'io.netty:netty-resolver-dns-native-macos:4.1.70.Final:osx-x86_64'
@@ -16,6 +17,29 @@ dependencies {
     testImplementation 'org.mockito:mockito-inline:4.11.0'
 
 }
+
+// Compile the release into the client so its User-Agent reports it. A jar manifest would not
+// survive: runtime uber jars and jars that re-bundle them replace it.
+def clientVersionDir = layout.buildDirectory.dir('generated/sources/clientVersion/java/main')
+def generateClientVersion = tasks.register('generateClientVersion') {
+    def clientVersion = project.version == Project.DEFAULT_VERSION ? 'unknown' : project.version.toString()
+    inputs.property('clientVersion', clientVersion)
+    outputs.dir(clientVersionDir)
+    doLast {
+        def source = clientVersionDir.get().file('com/linkedin/openhouse/client/ssl/ClientVersion.java').asFile
+        source.parentFile.mkdirs()
+        source.text = """package com.linkedin.openhouse.client.ssl;
+
+/** The OpenHouse release this client was built as, generated at build time. */
+final class ClientVersion {
+  static final String VALUE = "${clientVersion}";
+
+  private ClientVersion() {}
+}
+"""
+    }
+}
+sourceSets.main.java.srcDir(generateClientVersion)
 
 test {
     useJUnitPlatform()

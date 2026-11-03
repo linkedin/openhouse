@@ -111,6 +111,7 @@ container|Exposed ports
 /tables|8000
 /housetables|8001
 /jobs|8002
+/optimizer (oh-hadoop-spark)|8003
 prometheus|9090
 spark-master|9001
 livy-server|9003
@@ -399,6 +400,59 @@ scala> spark.sql("SHOW TBLPROPERTIES openhouse.db.tb").show()
 
 ```
 
+#### Default-value opt-in
+
+Once `required-capability.column-defaults=true` is committed, it cannot be changed or removed.
+`false`, an unparseable value and an absent property remain changeable.
+
+Tables with `required-capability.column-defaults=true` admit only clients that declare the
+`column-defaults` capability in `X-OpenHouse-Client-Capabilities`, for table loads (`GET`), creates
+(`POST`), updates (`PUT`) and snapshot commits (`PUT …/iceberg/v2/snapshots`). Other table
+endpoints, such as search, delete, rename, ACL, lock, purge and restore, are not gated. The gate
+checks each request: it cannot revoke metadata a client already loaded, and it never sees reads or
+writes that go straight to the table's files in storage. Tables without that property are never
+checked.
+
+The server enforces only capabilities it knows; today that is `column-defaults`. Table property
+keys are exact, as in Iceberg: only `required-capability.column-defaults` gates clients and turns
+on column defaults. Any other `required-capability.<name>`, a misspelled prefix or a different case
+(`required-capability.Column-Defaults`) is an ordinary property and requires nothing.
+
+`X-OpenHouse-Client-Capabilities` is a comma-separated, case-insensitive list; repeated headers add
+up. Clients may declare any name; the server ignores names it does not know. A capability is the
+client's promise about its own behavior: `column-defaults` means the client
+never returns rows from a table with column defaults without applying them, and never commits a
+schema that drops one. The Spark catalog (`com.linkedin.openhouse.spark.OpenHouseCatalog`) declares
+`column-defaults`, because Spark reads rows through Iceberg's readers, which apply them. The Java
+catalog (`com.linkedin.openhouse.javaclient.OpenHouseCatalog`) loads column defaults into the
+table's schema but declares nothing: whether rows read through it carry them depends on the engine
+that reads them, so engines such as Trino that build on it are refused. Any other client declares
+capabilities itself: a Java catalog adds to its own with
+`spark.sql.catalog.openhouse.header.X-OpenHouse-Client-Capabilities=<name>,...` (or the same suffix
+in Java catalog properties), and other clients send the header. For example, a replication job that
+never scans rows can declare `column-defaults`, and the jobs scheduler's tables client, which reads
+only table metadata, declares it. Every gated request is logged with the client's
+`X-Client-Name`, User-Agent and declared capabilities, and whether it was admitted.
+
+A client that does not declare a capability the table requires fails with HTTP **422**, and the
+rejection names the table, the capability and what the client sent:
+`CLIENT_CAPABILITY_MISSING: db.tbl requires the column-defaults capability, which this client does
+not declare (X-Client-Name: trino, User-Agent: ..., X-OpenHouse-Client-Capabilities: (none)). Use a
+client that declares column-defaults in X-OpenHouse-Client-Capabilities.` It does not mention the
+escape hatch.
+
+The default-off escape hatch is the request header
+`X-OpenHouse-Dangerously-Bypass-Column-Default-Policy: true`. A catalog sends it when configured with
+`spark.sql.catalog.openhouse.header.X-OpenHouse-Dangerously-Bypass-Column-Default-Policy=true` (or
+the same suffix in Java catalog properties); any `header.<name>=<value>` catalog property becomes a
+request header. It bypasses only column-default policy checks: the `column-defaults` capability (no
+other capability), the rule that a committed `required-capability.column-defaults=true` cannot be
+changed or removed, and the checks that a commit keeps a column's default and that a snapshot commit
+comes from a client that declares `column-defaults`. Incorrect reads or writes may result.
+Authentication, authorization and default resolution still apply, and `initial-default` is still
+stripped from writes. JARs without `header.` catalog properties need an upgrade/backport to send it.
+Removing table opt-in in a write is not a bypass.
+
 #### SET POLICY
 
 ```
@@ -618,6 +672,79 @@ docker compose --profile with_jobs_scheduler run openhouse-jobs-scheduler - \
 > Try HTTP plugin in IntelliJ to trigger /jobs service local endpoint in local mode by running HTTP scripts in
 services/jobs/src/test/http/.
 
+### Test batched orphan file deletion through job-scheduler
+
+The batched OFD scheduler runs orphan-files-deletion across multiple tables in a single Spark job, bin-packed per database. Builds on top of the table you created in [Test through Spark-shell](#test-through-spark-shell).
+
+1. **Manufacture an orphan file** that's older than the default OFD TTL (7 days). From the spark-shell session:
+   ```scala
+   scala> val fs = org.apache.hadoop.fs.FileSystem.get(spark.sparkContext.hadoopConfiguration)
+   scala> val orphan = new org.apache.hadoop.fs.Path("/data/openhouse/db/tb/data/test_orphan.orc")
+   scala> fs.createNewFile(orphan)
+   scala> fs.setTimes(orphan, System.currentTimeMillis() - 8L*24L*3600L*1000L, -1)  // 8 days old
+   ```
+
+2. **Build and run the batched scheduler.**
+   ```
+   docker compose --profile with_jobs_scheduler build
+   docker compose --profile with_jobs_scheduler run openhouse-jobs-scheduler - \
+       --type ORPHAN_FILES_DELETION_BATCH --cluster local \
+       --tablesURL http://openhouse-tables:8080 --jobsURL http://openhouse-jobs:8080 \
+       --batchMaxItems 5 \
+       --tableMinAgeThresholdHours 0 --taskPollIntervalMs 5000
+   ```
+
+> [!NOTE]
+> The orphan file at `/data/openhouse/db/tb/data/test_orphan.orc` should be gone after the job completes. Check the scheduler logs for `Packed N eligible tables into M batches` and the Spark app logs for `OFD success: fqtn=db.tb orphansDetected=1`.
+
+> [!NOTE]
+> The scheduler groups tables by database before bin-packing — no batch ever crosses a database. `--batchMaxItems` caps tables per batch (default 25; the Spark app enforces a hard ceiling of `MAX_BATCH_SIZE=200`).
+
+> [!NOTE]
+> To list files under the table from the HDFS namenode container:
+> ```
+> docker exec -it local.namenode hdfs dfs -ls -R /data/openhouse/db/tb
+> ```
+
+### Test Optimizer, Analyzer, and Scheduler
+
+The `oh-hadoop-spark` recipe supplies the [database configuration](DEPLOY.md#mysql-for-optimizer).
+Build from the repository root:
+
+```bash
+docker compose up -d
+```
+
+Populate table_stats through optimizer without creating a table. Then verify analyzer can create a pending job and scheduler can schedule the job.
+
+```bash
+TABLE_UUID=$(uuidgen)
+
+# Write table stats with maintenance enabled.
+curl --fail -X PUT "http://localhost:8003/v1/optimizer/stats/$TABLE_UUID" \
+  -H 'Content-Type: application/json' \
+  --data-raw '{
+    "databaseName": "optimizer_analyzer_test",
+    "tableName": "table_01",
+    "stats": {"snapshot": {"numCurrentFiles": 1, "tableSizeBytes": 1024}},
+    "tableProperties": {"maintenance.optimizer.ofd.enabled": "true"}
+  }'
+
+# Run one analysis pass with OFD enabled (disabled by default).
+docker compose run --rm --no-deps -e ANALYZER_OFD_ENABLED=true openhouse-optimizer-analyzer
+
+# Read the PENDING operation created by Analyzer.
+curl --fail \
+  "http://localhost:8003/v1/optimizer/operations?tableUuid=$TABLE_UUID&status=PENDING&limit=10"
+
+# Run one scheduler pass.
+docker compose run --rm --no-deps openhouse-optimizer-scheduler
+
+# Read the SCHEDULED operation created by Scheduler.
+curl --fail \
+  "http://localhost:8003/v1/optimizer/operations?tableUuid=$TABLE_UUID&status=SCHEDULED&limit=10"
+```
+
 ## FAQs
 
 ### Q. My docker setup fails to create LLB definition.
@@ -665,6 +792,15 @@ cd infra/recipes/docker-compose/{recipe-directory}
 ```
 
 ### Q. How do I monitor metrics emitted by my service?
+
+View commits emit `catalog_view_commit_latency` for the entire commit-engine call, including
+validation, failures and unchanged replacements. Commit timing excludes the caller's captured
+pointer lookup and storage allocation. The `catalog_view_metadata_retrieval_latency` and
+`catalog_view_metadata_update_latency` timers measure metadata file IO plus parsing or
+serialization, excluding HTS pointer lookup/publication. A replacement records retrieval of its
+captured metadata file even when unchanged, but records an update only when it writes a metadata
+file; a create records only an update. These timers have no per-view tags and use 600-second
+histogram bounds.
 
 We run prometheus that scrapes metrics emitted by services configured to do so. These metrics can be explored in
 prometheus UI by hitting below URL in browser.

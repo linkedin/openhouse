@@ -28,6 +28,39 @@ openApi {
   apiDocsUrl.set("http://localhost:8001/v3/api-docs")
 }
 
+tasks.matching { it.name == 'generateOpenApiDocs' }.configureEach {
+  doLast {
+    def specFile = file("$buildDir/specs/${project.name}.json")
+    def spec = new groovy.json.JsonSlurper().parse(specFile)
+    def userTableSchema = spec?.components?.schemas?.UserTable
+    if (!(userTableSchema instanceof Map)) {
+      throw new GradleException("Generated HTS OpenAPI spec is missing the UserTable schema")
+    }
+
+    def properties = userTableSchema.properties
+    if (properties == null) {
+      properties = [:]
+      userTableSchema.properties = properties
+    }
+    if (!(properties instanceof Map)) {
+      throw new GradleException("Generated HTS OpenAPI UserTable properties are invalid")
+    }
+
+    // Springdoc omits the runtime-visible entityType model property from the generated schema.
+    properties.putIfAbsent(
+        'entityType',
+        [
+          type: 'string',
+          description:
+              "Type of the catalog object occupying this (databaseId, tableId) key. Null or "
+                  + "'TABLE' means a table; 'VIEW' means a view. Matched case-insensitively.",
+          example: 'TABLE'
+        ])
+    specFile.setText(
+        groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(spec)) + '\n', 'UTF-8')
+  }
+}
+
 configurations {
   all {
     exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
@@ -51,4 +84,3 @@ dependencies {
   implementation "org.jetbrains:annotations:16.0.3"
   testImplementation(testFixtures(project(':services:common')))
 }
-

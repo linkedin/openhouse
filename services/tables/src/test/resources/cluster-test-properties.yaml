@@ -20,6 +20,10 @@ cluster:
         storage-type: local
   housetables:
     base-uri: "http://localhost:8080"
+  iceberg:
+    write:
+      orc:
+        compression-codec: "zstd"
   tables:
     allowed-client-name-values: trino,spark
   security:

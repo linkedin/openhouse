@@ -1,0 +1,57 @@
+plugins {
+  id 'openhouse.java-conventions'
+  id 'openhouse.maven-publish'
+}
+
+// `all-modules` aggregates every PUBLISHED OpenHouse module as a real (compile/runtime) dependency, so
+// its published POM lists every OpenHouse coordinate under <dependencies>. Downstream ELR tooling reads
+// this single coordinate's POM, walks those dependencies transitively, and mirrors the full artifact
+// set into the internal artifactory — instead of enumerating every module by hand.
+//
+// This MUST stay a real-dependency aggregate, NOT a BOM. A BOM publishes only lazy
+// <dependencyManagement> constraints, which ELR has nothing to walk, so the mirror would come up empty.
+//
+// Only leaf modules that actually apply maven-publish are included. Referencing an unpublished module
+// (e.g. the codegen-only client:common, which is consumed at build time via `apply from:` and never
+// published) would point the aggregate POM at a coordinate ELR cannot resolve and break the mirror.
+// Each candidate leaf is evaluated first so its plugin state is known before we decide to depend on it.
+def publishedMembers = []
+rootProject.subprojects.each { subproject ->
+  if (subproject.path != project.path && subproject.subprojects.isEmpty()) {
+    evaluationDependsOn(subproject.path)
+    if (subproject.pluginManager.hasPlugin('maven-publish')) {
+      publishedMembers << subproject
+    }
+  }
+}
+
+dependencies {
+  publishedMembers.each { member ->
+    implementation project(member.path)
+  }
+}
+
+// A project dependency only names a member's main artifact, so ELR would never mirror its classifier
+// jars: the shaded `uber` runtimes and the `lib` jars of the Spring Boot services. List each one as
+// its own <dependency> with a <classifier>. They are added to the POM only, so building this module
+// never resolves them.
+publishing.publications.named('mavenJava', MavenPublication) {
+  pom.withXml { xml ->
+    def root = xml.asNode()
+    def dependencies = root.dependencies ? root.dependencies[0] : root.appendNode('dependencies')
+    publishedMembers.each { member ->
+      member.publishing.publications.withType(MavenPublication).each { publication ->
+        publication.artifacts
+            .findAll { it.classifier && !(it.classifier in ['sources', 'javadoc']) }
+            .each { artifact ->
+              def dependency = dependencies.appendNode('dependency')
+              dependency.appendNode('groupId', publication.groupId)
+              dependency.appendNode('artifactId', publication.artifactId)
+              dependency.appendNode('version', publication.version)
+              dependency.appendNode('classifier', artifact.classifier)
+              dependency.appendNode('scope', 'runtime')
+            }
+      }
+    }
+  }
+}

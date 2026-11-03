@@ -5,11 +5,14 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.List;
+import org.apache.iceberg.DataFile;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.relocated.com.google.common.collect.Iterables;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Row;
@@ -60,6 +63,10 @@ public class RTASTest extends OpenHouseSparkITest {
 
       spark.sql(String.format("ALTER TABLE %s SET POLICY (HISTORY MAX_AGE=24H)", tableName));
 
+      // RTAS is disabled by default; opt the table in before replacing it.
+      spark.sql(
+          String.format("ALTER TABLE %s SET TBLPROPERTIES ('replace.enabled'='true')", tableName));
+
       String expectedTableLocation = catalog.loadTable(tableIdent).location();
 
       // replace table
@@ -83,10 +90,7 @@ public class RTASTest extends OpenHouseSparkITest {
       Table rtasTable = catalog.loadTable(tableIdent);
 
       // verify table location is unchanged
-      assertEquals(
-          stripPathScheme(expectedTableLocation),
-          stripPathScheme(rtasTable.location()),
-          "Should have same table location");
+      assertEquals(expectedTableLocation, rtasTable.location(), "Should have same table location");
       // verify schema and spec are changed
       assertEquals(
           expectedSchema.asStruct(),
@@ -103,14 +107,40 @@ public class RTASTest extends OpenHouseSparkITest {
       assertEquals(
           "val2", rtasTable.properties().get("prop2"), "Should have preserved table property");
       assertEquals("val3", rtasTable.properties().get("prop3"), "Should have new table property");
-      // verify policies are removed
-      assertEquals("", rtasTable.properties().get("policies"));
+      // verify policies are preserved across the replace (RTAS merges the existing policies plane
+      // rather than wiping it)
+      assertTrue(
+          rtasTable.properties().get("policies").contains("history"),
+          "History policy should be preserved across RTAS");
       // verify data is readable
       List<Row> rows =
           spark
               .sql(String.format("SELECT id, data, part FROM %s ORDER BY part, id", tableName))
               .collectAsList();
       assertEquals(3, rows.size());
+    }
+  }
+
+  @Test
+  public void testRTASFailsWhenReplaceDisabled() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      // create the table without opting into RTAS; replace is disabled by default
+      spark.sql(
+          String.format(
+              "CREATE TABLE %s USING iceberg AS SELECT * FROM %s", tableName, sourceName));
+
+      // REPLACE TABLE should be rejected because 'replace.enabled' is not set on the table
+      BadRequestException exception =
+          assertThrows(
+              BadRequestException.class,
+              () ->
+                  spark.sql(
+                      String.format(
+                          "REPLACE TABLE %s USING iceberg AS SELECT * FROM %s",
+                          tableName, sourceName)));
+      assertTrue(
+          exception.getMessage().contains("REPLACE TABLE AS SELECT is not enabled"),
+          "Expected an RTAS-disabled error but got: " + exception.getMessage());
     }
   }
 
@@ -127,6 +157,10 @@ public class RTASTest extends OpenHouseSparkITest {
               tableName, sourceName));
 
       String expectedTableLocation = catalog.loadTable(tableIdent).location();
+
+      // RTAS is disabled by default; opt the table in before replacing it.
+      spark.sql(
+          String.format("ALTER TABLE %s SET TBLPROPERTIES ('replace.enabled'='true')", tableName));
 
       // create or replace table should replace the table
       spark.sql(
@@ -151,10 +185,7 @@ public class RTASTest extends OpenHouseSparkITest {
       Table rtasTable = catalog.loadTable(tableIdent);
 
       // verify table location is unchanged
-      assertEquals(
-          stripPathScheme(expectedTableLocation),
-          stripPathScheme(rtasTable.location()),
-          "Should have same table location");
+      assertEquals(expectedTableLocation, rtasTable.location(), "Should have same table location");
       // verify schema and spec are changed
       assertEquals(
           expectedSchema.asStruct(),
@@ -174,6 +205,10 @@ public class RTASTest extends OpenHouseSparkITest {
       Catalog catalog = getOpenHouseCatalog(spark);
 
       spark.table(sourceName).writeTo(tableName).using("iceberg").create();
+
+      // RTAS is disabled by default; opt the table in before replacing it.
+      spark.sql(
+          String.format("ALTER TABLE %s SET TBLPROPERTIES ('replace.enabled'='true')", tableName));
 
       String expectedTableLocation = catalog.loadTable(tableIdent).location();
 
@@ -201,10 +236,7 @@ public class RTASTest extends OpenHouseSparkITest {
       Table rtasTable = catalog.loadTable(tableIdent);
 
       // verify table location is unchanged
-      assertEquals(
-          stripPathScheme(expectedTableLocation),
-          stripPathScheme(rtasTable.location()),
-          "Should have same table location");
+      assertEquals(expectedTableLocation, rtasTable.location(), "Should have same table location");
       // verify schema and spec are changed
       assertEquals(
           expectedSchema.asStruct(),
@@ -234,6 +266,10 @@ public class RTASTest extends OpenHouseSparkITest {
           .partitionedBy(col("part"))
           .using("iceberg")
           .createOrReplace();
+
+      // RTAS is disabled by default; opt the table in before replacing it.
+      spark.sql(
+          String.format("ALTER TABLE %s SET TBLPROPERTIES ('replace.enabled'='true')", tableName));
 
       String expectedTableLocation = catalog.loadTable(tableIdent).location();
 
@@ -265,10 +301,7 @@ public class RTASTest extends OpenHouseSparkITest {
       Table rtasTable = catalog.loadTable(tableIdent);
 
       // verify table location is unchanged
-      assertEquals(
-          stripPathScheme(expectedTableLocation),
-          stripPathScheme(rtasTable.location()),
-          "Should have same table location");
+      assertEquals(expectedTableLocation, rtasTable.location(), "Should have same table location");
       // verify schema and spec are changed
       assertEquals(
           expectedSchema.asStruct(),
@@ -279,6 +312,53 @@ public class RTASTest extends OpenHouseSparkITest {
       assertEquals(
           2, Iterables.size(rtasTable.snapshots()), "Table should have expected snapshots");
       assertNull(rtasTable.currentSnapshot().parentId(), "Current snapshot should have no parent");
+    }
+  }
+
+  /**
+   * An ordinary transaction is free to change metadata and append data in a single commit, and that
+   * must stay an update. It reaches the catalog client looking exactly like an RTAS — non-null
+   * base, metadata changed, snapshots changed — so the client has to take the replace intent from
+   * the transaction that produced the commit rather than from the diff.
+   *
+   * <p>Without that, the commit is sent as a replace and the server rejects it outright, since the
+   * table never opted into RTAS.
+   */
+  @Test
+  public void testMetadataAndAppendInOneTransactionIsNotAReplace() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      Catalog catalog = getOpenHouseCatalog(spark);
+      spark.sql(
+          String.format(
+              "CREATE TABLE %s USING iceberg AS SELECT * FROM %s", tableName, sourceName));
+
+      Table table = catalog.loadTable(tableIdent);
+      long baseSnapshotId = table.currentSnapshot().snapshotId();
+      DataFile existingFile =
+          Iterables.getOnlyElement(table.currentSnapshot().addedDataFiles(table.io()));
+
+      Transaction transaction = table.newTransaction();
+      transaction.updateProperties().set("prop1", "val1").commit();
+      transaction.newAppend().appendFile(existingFile).commit();
+      transaction.commitTransaction();
+
+      Table updated = catalog.loadTable(tableIdent);
+      assertEquals("val1", updated.properties().get("prop1"), "Property should have been set");
+      // A replace resets the main branch, so a misrouted commit would leave the current snapshot
+      // parentless and the previous data unreferenced.
+      assertEquals(
+          baseSnapshotId,
+          updated.currentSnapshot().parentId(),
+          "Commit should extend history, not replace the table");
+      assertEquals(2, Iterables.size(updated.snapshots()), "Append should have added a snapshot");
+      assertEquals(
+          1,
+          Iterables.size(updated.currentSnapshot().addedDataFiles(updated.io())),
+          "Append should have added the data file");
+
+      // The commit landed outside Spark, so drop its cached plan before reading the doubled data.
+      spark.sql(String.format("REFRESH TABLE %s", tableName));
+      assertEquals(6, spark.sql(String.format("SELECT * FROM %s", tableName)).count());
     }
   }
 }

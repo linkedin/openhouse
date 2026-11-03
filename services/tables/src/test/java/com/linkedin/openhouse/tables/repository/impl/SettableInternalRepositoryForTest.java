@@ -1,10 +1,10 @@
 package com.linkedin.openhouse.tables.repository.impl;
 
-import org.apache.iceberg.catalog.Catalog;
+import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 
 public class SettableInternalRepositoryForTest extends OpenHouseInternalRepositoryImpl {
 
-  public void setCatalog(Catalog catalog) {
+  public void setCatalog(OpenHouseInternalCatalog catalog) {
     this.catalog = catalog;
   }
 }

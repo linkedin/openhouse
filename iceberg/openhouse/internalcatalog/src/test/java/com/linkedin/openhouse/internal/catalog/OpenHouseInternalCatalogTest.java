@@ -1,10 +1,43 @@
 package com.linkedin.openhouse.internal.catalog;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
+
+import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
+import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
+import com.linkedin.openhouse.internal.catalog.model.HouseTable;
+import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
+import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.util.Optional;
+import java.util.stream.Stream;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.SupportsPrefixOperations;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 public class OpenHouseInternalCatalogTest {
+
+  private static final String DB = "test_db";
+  private static final String TABLE = "test_table";
+  private static final TableIdentifier IDENTIFIER = TableIdentifier.of(DB, TABLE);
+  private static final String METADATA_LOCATION =
+      "/data/openhouse/test_db/test_table-uuid/00001-aaa.metadata.json";
+  private static final String EXPECTED_BASE = "/data/openhouse/test_db/test_table-uuid";
 
   @Test
   void testIsValidIdentifierRequiresDatabaseTableShape() {
@@ -17,8 +50,223 @@ public class OpenHouseInternalCatalogTest {
         catalog.isValidBaseIdentifier(TableIdentifier.of("db", "table", "partitions")));
   }
 
-  private static class TestOpenHouseInternalCatalog extends OpenHouseInternalCatalog {
+  @Test
+  void findHouseTableReturnsRowWhenPresent() {
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    HouseTable row = HouseTable.builder().databaseId(DB).tableId(TABLE).tableUUID("uuid").build();
+    when(repo.findById(any(HouseTablePrimaryKey.class))).thenReturn(Optional.of(row));
+    OpenHouseInternalCatalog catalog = new OpenHouseInternalCatalog();
+    catalog.houseTableRepository = repo;
 
+    Optional<HouseTable> result = catalog.findHouseTable(IDENTIFIER);
+
+    Assertions.assertTrue(result.isPresent());
+    Assertions.assertEquals("uuid", result.get().getTableUUID());
+  }
+
+  @Test
+  void findHouseTableReturnsEmptyOnNotFoundException() {
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    when(repo.findById(any(HouseTablePrimaryKey.class)))
+        .thenThrow(new HouseTableNotFoundException("missing", new RuntimeException()));
+    OpenHouseInternalCatalog catalog = new OpenHouseInternalCatalog();
+    catalog.houseTableRepository = repo;
+
+    Assertions.assertFalse(catalog.findHouseTable(IDENTIFIER).isPresent());
+  }
+
+  @Test
+  void dropTableThrowsNoSuchTableWhenHouseTableMissing() {
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    when(repo.findById(any(HouseTablePrimaryKey.class))).thenReturn(Optional.empty());
+    FileIO fileIO =
+        mock(FileIO.class, withSettings().extraInterfaces(SupportsPrefixOperations.class));
+    OpenHouseInternalCatalog catalog = new FixedFileIOCatalog(fileIO);
+    catalog.houseTableRepository = repo;
+
+    Assertions.assertThrows(NoSuchTableException.class, () -> catalog.dropTable(IDENTIFIER, true));
+    verify(repo, never()).deleteById(any(), anyBoolean());
+    verify((SupportsPrefixOperations) fileIO, never()).deletePrefix(any());
+  }
+
+  @Test
+  void dropTableWithPurgeDeletesHtsRowAndPrefix() {
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    HouseTable row =
+        HouseTable.builder()
+            .databaseId(DB)
+            .tableId(TABLE)
+            .tableUUID("uuid")
+            .tableLocation(METADATA_LOCATION)
+            .build();
+    when(repo.findById(any(HouseTablePrimaryKey.class))).thenReturn(Optional.of(row));
+    FileIO fileIO =
+        mock(FileIO.class, withSettings().extraInterfaces(SupportsPrefixOperations.class));
+    OpenHouseInternalCatalog catalog = new FixedFileIOCatalog(fileIO);
+    catalog.houseTableRepository = repo;
+
+    Assertions.assertTrue(catalog.dropTable(IDENTIFIER, true));
+
+    verify(repo).deleteById(any(HouseTablePrimaryKey.class), eq(true));
+    verify((SupportsPrefixOperations) fileIO).deletePrefix(EXPECTED_BASE);
+  }
+
+  @Test
+  void dropTableRefusesWhenMetadataLocationIsNotAMetadataJsonFile() {
+    // Defensive: if metadata_location somehow points at a directory (bad migration, manual
+    // MySQL edit, future regression), the derived parent would be a level too high — e.g. the
+    // whole database directory — which deletePrefix would happily wipe. Refuse instead.
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    HouseTable row =
+        HouseTable.builder()
+            .databaseId(DB)
+            .tableId(TABLE)
+            .tableLocation("/data/openhouse/test_db/test_table-uuid") // directory, not file
+            .build();
+    when(repo.findById(any(HouseTablePrimaryKey.class))).thenReturn(Optional.of(row));
+    FileIO fileIO =
+        mock(FileIO.class, withSettings().extraInterfaces(SupportsPrefixOperations.class));
+    OpenHouseInternalCatalog catalog = new FixedFileIOCatalog(fileIO);
+    catalog.houseTableRepository = repo;
+
+    Assertions.assertThrows(IllegalStateException.class, () -> catalog.dropTable(IDENTIFIER, true));
+    verify(repo, never()).deleteById(any(), anyBoolean());
+    verify((SupportsPrefixOperations) fileIO, never()).deletePrefix(any());
+  }
+
+  @Test
+  void dropTableWithoutPurgeSkipsPrefixDelete() {
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    HouseTable row =
+        HouseTable.builder().databaseId(DB).tableId(TABLE).tableLocation(METADATA_LOCATION).build();
+    when(repo.findById(any(HouseTablePrimaryKey.class))).thenReturn(Optional.of(row));
+    FileIO fileIO =
+        mock(FileIO.class, withSettings().extraInterfaces(SupportsPrefixOperations.class));
+    OpenHouseInternalCatalog catalog = new FixedFileIOCatalog(fileIO);
+    catalog.houseTableRepository = repo;
+
+    Assertions.assertTrue(catalog.dropTable(IDENTIFIER, false));
+
+    verify(repo).deleteById(any(HouseTablePrimaryKey.class), eq(false));
+    verify((SupportsPrefixOperations) fileIO, never()).deletePrefix(any());
+  }
+
+  /**
+   * Wires the allocation collaborators as mocks so a pure-read test can assert the neutral
+   * occupancy read never touches them, and bypasses real fileIO resolution via {@link
+   * FixedFileIOCatalog}.
+   */
+  private static OpenHouseInternalCatalog catalogOver(HouseTableRepository repo, FileIO fileIO) {
+    OpenHouseInternalCatalog catalog = new FixedFileIOCatalog(fileIO);
+    catalog.houseTableRepository = repo;
+    catalog.fileIOManager = mock(FileIOManager.class);
+    catalog.storageSelector = mock(StorageSelector.class);
+    catalog.meterRegistry = new SimpleMeterRegistry();
+    return catalog;
+  }
+
+  private static FileIO recordingFileIO() {
+    return mock(FileIO.class, withSettings().extraInterfaces(SupportsPrefixOperations.class));
+  }
+
+  /**
+   * The typed table read filters out anything that is not a canonical table, as House Table does.
+   */
+  private static HouseTableRepository repoHolding(HouseTable occupant) {
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    Optional<HouseTable> row = Optional.ofNullable(occupant);
+    when(repo.findEntityById(any(HouseTablePrimaryKey.class))).thenReturn(row);
+    when(repo.findById(any(HouseTablePrimaryKey.class)))
+        .thenReturn(row.filter(o -> "TABLE".equals(o.getEntityType())));
+    return repo;
+  }
+
+  private static HouseTable occupantOfType(String entityType) {
+    return HouseTable.builder()
+        .databaseId(DB)
+        .tableId(TABLE)
+        .tableLocation(METADATA_LOCATION)
+        .entityType(entityType)
+        .build();
+  }
+
+  /**
+   * Whatever holds the name — a view, a table, or a non-canonical 'Table' — the neutral occupancy
+   * read reports it with its own type from the pointer row alone, so no occupied name looks free
+   * and no create can reach allocation. Classification of a canonical view is the caller's. The
+   * read allocates nothing, reads no metadata.json, writes nothing, and never falls back to the raw
+   * table- or view-typed lookups.
+   */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("populatedOccupants")
+  void findEntityByIdReportsAnyOccupantByItsTypeWithoutAllocatingOrReading(
+      String caseName, String entityType) {
+    HouseTableRepository repo = repoHolding(occupantOfType(entityType));
+    FileIO fileIO = recordingFileIO();
+    OpenHouseInternalCatalog catalog = catalogOver(repo, fileIO);
+
+    Optional<HouseTable> occupant = catalog.findEntityById(IDENTIFIER);
+
+    // Present, carrying its own type back to the caller who classifies it.
+    Assertions.assertTrue(occupant.isPresent());
+    Assertions.assertEquals(entityType, occupant.get().getEntityType());
+    // Exactly one neutral occupancy read at the key, and never the raw table- or view-typed reads.
+    verify(repo, times(1))
+        .findEntityById(HouseTablePrimaryKey.builder().databaseId(DB).tableId(TABLE).build());
+    verify(repo, never()).findById(any(HouseTablePrimaryKey.class));
+    verify(repo, never()).findViewById(any(HouseTablePrimaryKey.class));
+    // A pure read allocates nothing, reads no metadata.json, and writes nothing while answering.
+    verify(catalog.storageSelector, never()).selectStorage(any(), any());
+    verifyNoInteractions(catalog.fileIOManager);
+    verifyNoInteractions(fileIO);
+    verify(repo, never()).save(any(HouseTable.class));
+    verify(repo, never()).saveView(any(HouseTable.class));
+  }
+
+  private static Stream<Arguments> populatedOccupants() {
+    return Stream.of(
+        Arguments.of("a view occupant is reported with its VIEW type", "VIEW"),
+        Arguments.of("a table occupant is reported with its TABLE type", "TABLE"),
+        Arguments.of("a non-canonical 'Table' occupant still holds the name", "Table"));
+  }
+
+  /** The parse boundary resolves a legacy null to TABLE, so the catalog never sees a null. */
+  @Test
+  void findEntityByIdReportsAFreeNameAsAbsentAndLeavesTheRaceToTheServerGuard() {
+    OpenHouseInternalCatalog catalog = catalogOver(repoHolding(null), recordingFileIO());
+
+    Assertions.assertFalse(catalog.findEntityById(IDENTIFIER).isPresent());
+  }
+
+  /**
+   * An identifier this catalog does not own short-circuits the guard, so metadata-table and
+   * invalid-identifier handling are untouched by the create-decision change.
+   */
+  @Test
+  void findEntityByIdReturnsEmptyForAnIdentifierThisCatalogDoesNotOwn() {
+    HouseTableRepository repo = repoHolding(occupantOfType("VIEW"));
+    OpenHouseInternalCatalog catalog = catalogOver(repo, recordingFileIO());
+
+    Assertions.assertFalse(catalog.findEntityById(TableIdentifier.of(TABLE)).isPresent());
+
+    verify(repo, never()).findEntityById(any(HouseTablePrimaryKey.class));
+  }
+
+  /** Test subclass that bypasses the real {@link OpenHouseInternalCatalog#resolveFileIO} wiring. */
+  private static class FixedFileIOCatalog extends OpenHouseInternalCatalog {
+    private final FileIO fileIO;
+
+    FixedFileIOCatalog(FileIO fileIO) {
+      this.fileIO = fileIO;
+    }
+
+    @Override
+    protected FileIO resolveFileIO(TableIdentifier identifier) {
+      return fileIO;
+    }
+  }
+
+  private static class TestOpenHouseInternalCatalog extends OpenHouseInternalCatalog {
     boolean isValidBaseIdentifier(TableIdentifier identifier) {
       return isValidIdentifier(identifier);
     }

@@ -34,12 +34,14 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -122,6 +124,9 @@ public class JobsScheduler {
   private static final String SUPPORTED_OPERATIONS_STRING =
       String.join(",", OPERATIONS_REGISTRY.keySet());
 
+  private static final Set<JobConf.JobTypeEnum> SYSTEM_ACTION_JOB_TYPES =
+      EnumSet.of(JobConf.JobTypeEnum.SNAPSHOTS_EXPIRATION);
+
   @Getter(AccessLevel.PROTECTED)
   private final ThreadPoolExecutor jobExecutors;
 
@@ -190,7 +195,8 @@ public class JobsScheduler {
     JobConf.JobTypeEnum operationType = getOperationJobType(cmdLine);
     Class<? extends OperationTask> operationTaskCls = getOperationTaskCls(operationType.toString());
     TablesClientFactory tablesClientFactory = getTablesClientFactory(cmdLine);
-    TablesClient tablesClient = tablesClientFactory.create();
+    TablesClient tablesClient =
+        tablesClientFactory.withSystemAction(isSystemAction(operationType)).create();
     JobsClientFactory jobsClientFactory = getJobsClientFactory(cmdLine);
     JobsClient jobsClient = jobsClientFactory.create();
     Properties properties = getAdditionalProperties(cmdLine);
@@ -265,6 +271,19 @@ public class JobsScheduler {
                   }
                   log.info("Shutdown hook completed.");
                 }));
+    log.info(
+        "OH_SCHED_START job_type={} numParallelJobs={} tasksWaitHours={} numJobsSubmitter={} "
+            + "numJobsPoller={} taskPollIntervalMs={} taskQueuedTimeoutMs={} taskTimeoutMs={} "
+            + "multiOperationMode={}",
+        operationType.getValue(),
+        getNumParallelJobs(cmdLine),
+        getTasksWaitHours(cmdLine),
+        getNumJobsSubmitter(cmdLine),
+        getNumJobsPoller(cmdLine),
+        getTaskPollIntervalMs(cmdLine),
+        getTaskQueuedTimeoutMs(cmdLine),
+        getTaskTimeoutMs(cmdLine),
+        isMultiOperationMode(cmdLine));
     app.run(
         operationType,
         operationTaskCls.toString(),
@@ -587,6 +606,13 @@ public class JobsScheduler {
         Option.builder(null)
             .required(false)
             .hasArg()
+            .longOpt(OperationTasksBuilder.BATCH_MAX_ITEMS)
+            .desc("Max tables per batched OFD job (ORPHAN_FILES_DELETION_BATCH only)")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
             .longOpt("parallelMetadataFetchMode")
             .desc("Turn on/off parallel metadata fetch mode")
             .build());
@@ -677,6 +703,11 @@ public class JobsScheduler {
     return JobConf.JobTypeEnum.fromValue(operationType);
   }
 
+  /** Whether jobs of this type declare SYSTEM, so they also maintain SYSTEM_ONLY-locked tables. */
+  protected static boolean isSystemAction(JobConf.JobTypeEnum jobType) {
+    return SYSTEM_ACTION_JOB_TYPES.contains(jobType);
+  }
+
   protected static boolean isDryRun(CommandLine cmdLine) {
     return cmdLine.hasOption("dryRun");
   }
@@ -743,6 +774,17 @@ public class JobsScheduler {
       result.setProperty(
           OperationTasksBuilder.MAX_STRATEGIES_COUNT,
           cmdLine.getOptionValue(OperationTasksBuilder.MAX_STRATEGIES_COUNT));
+    }
+    if (cmdLine.hasOption(OperationTasksBuilder.BATCH_MAX_ITEMS)) {
+      String raw = cmdLine.getOptionValue(OperationTasksBuilder.BATCH_MAX_ITEMS);
+      int parsed = Integer.parseInt(raw);
+      if (parsed > AppConstants.OFD_MAX_BATCH_SIZE) {
+        throw new IllegalArgumentException(
+            String.format(
+                "--%s=%d exceeds Spark-app ceiling OFD_MAX_BATCH_SIZE=%d",
+                OperationTasksBuilder.BATCH_MAX_ITEMS, parsed, AppConstants.OFD_MAX_BATCH_SIZE));
+      }
+      result.setProperty(OperationTasksBuilder.BATCH_MAX_ITEMS, raw);
     }
     return result;
   }

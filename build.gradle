@@ -30,8 +30,8 @@ ext {
   spark_version = "3.1.1"
   ok_http3_version = "4.11.0"
   junit_version = "5.11.0"
-  iceberg_1_2_version = "1.2.0.16"
-  iceberg_1_5_version = "1.5.2.11"
+  iceberg_1_2_version = "1.2.0.25"
+  iceberg_1_5_version = "1.5.2.23"
   otel_agent_version = "2.12.0" // Bundles OTel SDK 1.47.0
   otel_annotations_version = "2.12.0" // Match agent version
 }
@@ -91,6 +91,7 @@ allprojects {
         force 'com.fasterxml.jackson.core:jackson-databind:2.13.4'
         force 'org.apache.orc:orc-core:1.8.3'
         force 'com.google.guava:guava:33.5.0-jre'
+        force 'org.apache.avro:avro:1.11.4' // CVE-2024-47561; outranks strict transitive pin via iceberg-core
       }
     }
   }
@@ -161,10 +162,15 @@ allprojects {
 }
 
 // Local Git Hooks cannot be shared, as .git directory is gitignore'd.
+def gitHooksDirectory = providers.exec {
+  workingDir rootProject.projectDir
+  commandLine 'git', 'rev-parse', '--git-path', 'hooks'
+}.standardOutput.asText.map { rootProject.file(it.trim()) }
+
 tasks.register('CopyGitHooksTask', Copy) {
   println 'Make the git hook available in .git/hooks directory.'
   from file('scripts/git-hooks')
-  into file('.git/hooks/')
+  into gitHooksDirectory
 }
 
 // =============================================================================
@@ -177,6 +183,9 @@ tasks.register('CopyGitHooksTask', Copy) {
 //   tables-service.Dockerfile      -> :services:tables:bootJar
 //   housetables-service.Dockerfile -> :services:housetables:bootJar
 //   jobs-service.Dockerfile        -> :services:jobs:bootJar
+//   optimizer-service.Dockerfile   -> :services:optimizer:bootJar
+//                                 -> :apps:optimizer:analyzerapp:bootJar (APP_NAME=analyzerapp)
+//                                 -> :apps:optimizer:schedulerapp:bootJar (APP_NAME=schedulerapp)
 //   jobs-scheduler.Dockerfile      -> :apps:openhouse-spark-apps_2.12:shadowJar (uber JAR)
 //   spark-base-hadoop2.8.dockerfile ->
 //       :integrations:spark:spark-3.1:openhouse-spark-runtime_2.12:shadowJar (uber JAR)
@@ -196,6 +205,9 @@ tasks.register('dockerPrereqs') {
   dependsOn ':services:tables:bootJar'
   dependsOn ':services:housetables:bootJar'
   dependsOn ':services:jobs:bootJar'
+  dependsOn ':services:optimizer:bootJar'
+  dependsOn ':apps:optimizer:analyzerapp:bootJar'
+  dependsOn ':apps:optimizer:schedulerapp:bootJar'
 
   // Spark runtime uber JARs (shadowJar)
   dependsOn ':integrations:spark:spark-3.1:openhouse-spark-runtime_2.12:shadowJar'
@@ -219,6 +231,9 @@ tasks.register('dockerPrereqs') {
     println '  build/tables/libs/tables.jar'
     println '  build/housetables/libs/housetables.jar'
     println '  build/jobs/libs/jobs.jar'
+    println '  build/optimizer/libs/optimizer.jar'
+    println '  build/analyzerapp/libs/analyzerapp.jar'
+    println '  build/schedulerapp/libs/schedulerapp.jar'
     println '  build/openhouse-spark-runtime_2.12/libs/openhouse-spark-runtime_2.12-uber.jar'
     println '  build/openhouse-spark-3.5-runtime_2.12/libs/openhouse-spark-3.5-runtime_2.12-uber.jar'
     println '  build/openhouse-spark-apps_2.12/libs/openhouse-spark-apps_2.12-uber.jar'
@@ -285,6 +300,9 @@ tasks.register('dockerUp', Exec) {
     println '  Tables Service:      http://localhost:8000'
     println '  HouseTables Service: http://localhost:8001'
     println '  Jobs Service:        http://localhost:8002'
+    if (recipe == 'oh-hadoop-spark') {
+      println '  Optimizer Service:   http://localhost:8003'
+    }
     println '  Prometheus:          http://localhost:9090'
     println '  Jaeger UI (traces):  http://localhost:16686'
     println ''

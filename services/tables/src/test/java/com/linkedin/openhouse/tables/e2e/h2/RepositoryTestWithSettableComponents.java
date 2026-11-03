@@ -7,7 +7,9 @@ import static org.mockito.Mockito.*;
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
+import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalTableOperations;
+import com.linkedin.openhouse.internal.catalog.cache.TableMetadataCache;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableMapper;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -26,9 +28,12 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import javax.annotation.PostConstruct;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -88,6 +93,22 @@ public class RepositoryTestWithSettableComponents {
     return htsRepo;
   }
 
+  private TableMetadataCache newTableMetadataCache() {
+    Map<String, TableMetadata> cache = new ConcurrentHashMap<>();
+    return new TableMetadataCache() {
+      @Override
+      public TableMetadata load(String metadataLocation, Supplier<TableMetadata> metadataLoader) {
+        return cache.computeIfAbsent(metadataLocation, ignored -> metadataLoader.get());
+      }
+
+      @Override
+      public TableMetadata seed(String metadataLocation, TableMetadata tableMetadata) {
+        cache.put(metadataLocation, tableMetadata);
+        return tableMetadata;
+      }
+    };
+  }
+
   @Test
   void testNoRetryInternalRepo() throws Exception {
     TableIdentifier tableIdentifier =
@@ -104,7 +125,8 @@ public class RepositoryTestWithSettableComponents {
             houseTableMapper,
             tableIdentifier,
             metricsReporter,
-            fileIOManager);
+            fileIOManager,
+            newTableMetadataCache());
     ((SettableCatalogForTest) catalog).setOperation(actualOps);
     TableDto creationDTO = TABLE_DTO.toBuilder().tableVersion(INITIAL_TABLE_VERSION).build();
     creationDTO = openHouseInternalRepository.save(creationDTO);
@@ -120,24 +142,33 @@ public class RepositoryTestWithSettableComponents {
         new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList());
     OpenHouseInternalTableOperations mockOps =
         new OpenHouseInternalTableOperations(
-            htsRepo, fileIO, houseTableMapper, tableIdentifier, metricsReporter2, fileIOManager);
+            htsRepo,
+            fileIO,
+            houseTableMapper,
+            tableIdentifier,
+            metricsReporter2,
+            fileIOManager,
+            newTableMetadataCache());
     OpenHouseInternalTableOperations spyOperations = Mockito.spy(mockOps);
 
     BaseTable spyOptsMockedTable = Mockito.spy(new BaseTable(spyOperations, realTable.name()));
 
-    Catalog spyCatalog = Mockito.spy(Catalog.class);
+    OpenHouseInternalCatalog spyCatalog = Mockito.spy(OpenHouseInternalCatalog.class);
     Mockito.doReturn(spyOptsMockedTable).when(spyCatalog).loadTable(tableIdentifier);
+    // Route save() down the update branch: the neutral occupancy read reports an existing
+    // (non-view) table at the name, so no create/allocation runs.
+    Mockito.doReturn(
+            Optional.of(
+                HouseTable.builder()
+                    .databaseId(TABLE_DTO.getDatabaseId())
+                    .tableId(TABLE_DTO.getTableId())
+                    .entityType("TABLE")
+                    .build()))
+        .when(spyCatalog)
+        .findEntityById(tableIdentifier);
     ((SettableInternalRepositoryForTest) openHouseInternalRepository).setCatalog(spyCatalog);
-    // the following spy object avoid execution path enter table-creation branch that doesn't
-    // contain retry logic.
+    // the following spy object serves as the client of the Iceberg Catalog that drives the update.
     OpenHouseInternalRepository spyRepo = Mockito.spy(openHouseInternalRepository);
-    Mockito.doReturn(true)
-        .when(spyRepo)
-        .existsById(
-            TableDtoPrimaryKey.builder()
-                .tableId(TABLE_DTO.getTableId())
-                .databaseId(TABLE_DTO.getDatabaseId())
-                .build());
 
     // step IV execute the table update in internal repository level.
     Map<String, String> props = new HashMap<>(creationDTO.getTableProperties());
@@ -192,7 +223,8 @@ public class RepositoryTestWithSettableComponents {
             houseTableMapper,
             tableIdentifier,
             metricsReporter,
-            fileIOManager);
+            fileIOManager,
+            newTableMetadataCache());
     ((SettableCatalogForTest) catalog).setOperation(actualOps);
 
     TableDto creationDTO = TABLE_DTO.toBuilder().tableVersion(INITIAL_TABLE_VERSION).build();
@@ -251,7 +283,13 @@ public class RepositoryTestWithSettableComponents {
           new MetricsReporter(this.meterRegistry, "test", Lists.newArrayList());
       OpenHouseInternalTableOperations mockOps =
           new OpenHouseInternalTableOperations(
-              htsRepo, fileIO, houseTableMapper, tableIdentifier, metricsReporter, fileIOManager);
+              htsRepo,
+              fileIO,
+              houseTableMapper,
+              tableIdentifier,
+              metricsReporter,
+              fileIOManager,
+              newTableMetadataCache());
       OpenHouseInternalTableOperations spyOperations = Mockito.spy(mockOps);
       BaseTable spyOptsMockedTable =
           Mockito.spy(
@@ -262,7 +300,7 @@ public class RepositoryTestWithSettableComponents {
                       + "."
                       + TABLE_DTO.getTableId()));
 
-      Catalog spyCatalog = Mockito.spy(Catalog.class);
+      OpenHouseInternalCatalog spyCatalog = Mockito.spy(OpenHouseInternalCatalog.class);
       Mockito.doReturn(spyOptsMockedTable).when(spyCatalog).loadTable(tableIdentifier);
 
       ((SettableInternalRepositoryForTest) openHouseInternalRepository).setCatalog(spyCatalog);

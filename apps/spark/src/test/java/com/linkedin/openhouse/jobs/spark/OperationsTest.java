@@ -14,10 +14,14 @@ import com.linkedin.openhouse.tables.client.model.Policies;
 import com.linkedin.openhouse.tables.client.model.Retention;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -30,19 +34,27 @@ import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Triple;
+import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.actions.DeleteOrphanFiles;
+import org.apache.iceberg.actions.ExpireSnapshots;
+import org.apache.iceberg.actions.ImmutableExpireSnapshots;
 import org.apache.iceberg.actions.RewriteDataFiles;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Row;
 import org.assertj.core.util.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mockito;
 
 @Slf4j
 public class OperationsTest extends OpenHouseSparkITest {
@@ -310,6 +322,252 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
+  public void testRetentionWithStringDatePartitionHonorsLosAngelesZone() throws Exception {
+    final String zonedTableName = "db.test_retention_zoned_string_date";
+    final String utcTableName = "db.test_retention_utc_string_date";
+    ZonedDateTime now = ZonedDateTime.of(2024, 2, 1, 2, 0, 0, 0, ZoneOffset.UTC);
+    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    String losAngelesCutoff =
+        formatter.format(now.withZoneSameInstant(ZoneId.of("America/Los_Angeles")).minusDays(1));
+    String utcCutoff = formatter.format(now.minusDays(1));
+    Assertions.assertEquals("2024-01-30", losAngelesCutoff);
+    Assertions.assertEquals("2024-01-31", utcCutoff);
+
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTableWithStringColumn(ops, zonedTableName);
+      prepareTableWithStringColumn(ops, utcTableName);
+      String fixtureRows =
+          "('older_than_zoned_cutoff', '2024-01-29'), "
+              + "('kept_only_by_los_angeles_zone', '2024-01-30'), "
+              + "('kept_by_both', '2024-01-31')";
+      ops.spark().sql(String.format("INSERT INTO %s VALUES %s", zonedTableName, fixtureRows));
+      ops.spark().sql(String.format("INSERT INTO %s VALUES %s", utcTableName, fixtureRows));
+
+      ops.runRetention(
+          zonedTableName,
+          "datePartition",
+          "yyyy-MM-dd",
+          "day",
+          1,
+          false,
+          "",
+          now.withZoneSameInstant(ZoneId.of("America/Los_Angeles")));
+      ops.runRetention(utcTableName, "datePartition", "yyyy-MM-dd", "day", 1, false, "", now);
+
+      Assertions.assertEquals(
+          Arrays.asList("kept_by_both", "kept_only_by_los_angeles_zone"),
+          collectSortedDataValues(ops, zonedTableName));
+      Assertions.assertEquals(
+          Arrays.asList("kept_by_both"), collectSortedDataValues(ops, utcTableName));
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "America/Los_Angeles,2024-03-11T07:30Z,2024-03-09,2024-03-10,2024-03-11,true",
+    "America/Los_Angeles,2024-11-04T07:30Z,2024-11-01,2024-11-02,2024-11-03,true",
+    "Asia/Tokyo,2024-01-09T20:45Z,2024-01-08,2024-01-09,2024-01-10,true",
+    "+05:30,2024-02-01T02:00Z,2024-01-30,2024-01-31,2024-02-01,true",
+    "America/Los_Angeles,2024-02-01T02:00Z,2024-01-29,2024-01-30,2024-01-31,false",
+    "UTC,2024-02-01T02:00Z,2024-01-30,2024-01-31,2024-02-01,true"
+  })
+  public void testRetentionWithDateStringsKeepsWholeLocalDays(
+      String timeZone,
+      String evaluationTime,
+      String expiredDate,
+      String retainedDate,
+      String currentDate,
+      boolean partitioned)
+      throws Exception {
+    final String tableName = "db.test_retention_zoned_calendar";
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      ops.spark().sql("DROP TABLE IF EXISTS " + tableName);
+      ops.spark()
+          .sql(
+              "CREATE TABLE "
+                  + tableName
+                  + " (data string, datePartition string)"
+                  + (partitioned ? " PARTITIONED BY (datePartition)" : ""));
+      String fixtureRows =
+          String.format(
+              "('expired', '%s'), ('yesterday', '%s'), ('today', '%s')",
+              expiredDate, retainedDate, currentDate);
+      ops.spark().sql(String.format("INSERT INTO %s VALUES %s", tableName, fixtureRows));
+
+      ops.runRetention(
+          tableName,
+          "datePartition",
+          "yyyy-MM-dd",
+          "day",
+          1,
+          false,
+          "",
+          ZonedDateTime.parse(evaluationTime).withZoneSameInstant(ZoneId.of(timeZone)));
+
+      Assertions.assertEquals(
+          Arrays.asList("today", "yesterday"), collectSortedDataValues(ops, tableName));
+    }
+  }
+
+  @Test
+  public void testRetentionWithBackupOnStringDateHonorsZone() throws Exception {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      String tableName = "db.test_retention_backup_zoned_string";
+      prepareTableWithStringColumn(ops, tableName);
+      ops.spark().sql(String.format("insert into %s values ('old', '2024-01-28')", tableName));
+      ops.spark().sql(String.format("insert into %s values ('old', '2024-01-28')", tableName));
+      ops.spark().sql(String.format("insert into %s values ('kept', '2024-01-30')", tableName));
+      ZonedDateTime now = ZonedDateTime.of(2024, 2, 1, 2, 0, 0, 0, ZoneOffset.UTC);
+      ops.runRetention(
+          tableName,
+          "datePartition",
+          "yyyy-MM-dd",
+          "day",
+          1,
+          true,
+          ".backup",
+          now.withZoneSameInstant(ZoneId.of("America/Los_Angeles")));
+
+      Table table = ops.getTable(tableName);
+      String manifestName = String.format("data_manifest_%d.json", now.toInstant().toEpochMilli());
+      Path manifestPath =
+          new Path(
+              String.format(
+                  "%s/.backup/data/datePartition=2024-01-28/%s", table.location(), manifestName));
+      Assertions.assertTrue(ops.fs().exists(manifestPath));
+      try (InputStream in = ops.fs().open(manifestPath);
+          InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
+        JsonObject jsonObject = JsonParser.parseReader(reader).getAsJsonObject();
+        Assertions.assertEquals(2, jsonObject.get("file_count").getAsInt());
+      }
+      Assertions.assertEquals(Arrays.asList("kept"), collectSortedDataValues(ops, tableName));
+    }
+  }
+
+  @Test
+  public void testRetentionWithQuotedDatePattern() throws Exception {
+    final String tableName = "db.test_retention_quoted_date_pattern";
+    try (Operations operations = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTableWithStringColumn(operations, tableName);
+      operations
+          .spark()
+          .createDataFrame(
+              Arrays.asList(
+                  org.apache.spark.sql.RowFactory.create("expired", "O'Reilly_2024-01-29"),
+                  org.apache.spark.sql.RowFactory.create("yesterday", "O'Reilly_2024-01-30")),
+              org.apache.spark.sql.types.DataTypes.createStructType(
+                  Arrays.asList(
+                      org.apache.spark.sql.types.DataTypes.createStructField(
+                          "data", org.apache.spark.sql.types.DataTypes.StringType, false),
+                      org.apache.spark.sql.types.DataTypes.createStructField(
+                          "datePartition",
+                          org.apache.spark.sql.types.DataTypes.StringType,
+                          false))))
+          .write()
+          .insertInto(tableName);
+      operations.runRetention(
+          tableName,
+          "datePartition",
+          "'O''Reilly_'yyyy-MM-dd",
+          "day",
+          1,
+          false,
+          "",
+          ZonedDateTime.parse("2024-02-01T02:00Z")
+              .withZoneSameInstant(ZoneId.of("America/Los_Angeles")));
+      Assertions.assertEquals(
+          Arrays.asList("yesterday"), collectSortedDataValues(operations, tableName));
+    }
+  }
+
+  @Test
+  public void testRetentionWithZonedBackupRejectsUnpartitionedRows() throws Exception {
+    final String tableName = "db.test_retention_zoned_backup_unpartitioned";
+    try (Operations operations = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      operations.spark().sql("DROP TABLE IF EXISTS " + tableName);
+      operations.spark().sql("CREATE TABLE " + tableName + " (data string, datePartition string)");
+      operations
+          .spark()
+          .sql(
+              "INSERT INTO "
+                  + tableName
+                  + " VALUES ('expired', '2024-01-29'), ('yesterday', '2024-01-30')");
+      Assertions.assertThrows(
+          IllegalStateException.class,
+          () ->
+              operations.runRetention(
+                  tableName,
+                  "datePartition",
+                  "yyyy-MM-dd",
+                  "day",
+                  1,
+                  true,
+                  ".backup",
+                  ZonedDateTime.parse("2024-02-01T02:00Z")
+                      .withZoneSameInstant(ZoneId.of("America/Los_Angeles"))));
+      Assertions.assertEquals(
+          Arrays.asList("expired", "yesterday"), collectSortedDataValues(operations, tableName));
+    }
+  }
+
+  @Test
+  public void testRetentionWithBackupFailsWhenColumnPatternMismatchesPartition() throws Exception {
+    final String tableName = "db.test_retention_backup_pattern_mismatch";
+    OtelEmitter spyEmitter = Mockito.spy(otelEmitter);
+    try (Operations ops = Operations.withCatalog(getSparkSession(), spyEmitter)) {
+      // The table is partitioned on `datepartition`, but retention will filter
+      // on `time_col` using a pattern unrelated to the partitioning. For each
+      // file's per-file min/max to actually straddle the cutoff (and produce
+      // a non-trivial residual), both `time_col` values within a partition
+      // must live in the same data file — so we force a single writer task
+      // via the COALESCE(1) hint.
+      ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", tableName)).show();
+      ops.spark()
+          .sql(
+              String.format(
+                  "CREATE TABLE %s (data string, datepartition string, time_col string) "
+                      + "PARTITIONED BY (datepartition)",
+                  tableName))
+          .show();
+      ops.spark()
+          .sql(
+              "SELECT data, datepartition, time_col FROM VALUES "
+                  + "('a', '2024-01', '2020-01-01-00'), "
+                  + "('b', '2024-01', '2030-01-01-00'), "
+                  + "('c', '2024-02', '2020-01-01-00'), "
+                  + "('d', '2024-02', '2030-01-01-00') "
+                  + "AS t(data, datepartition, time_col)")
+          .coalesce(1)
+          .writeTo(tableName)
+          .append();
+
+      // Fix `now` so the cutoff (now - 1 day, formatted yyyy-MM-dd-HH) falls
+      // strictly between each file's min ("2020-01-01-00") and max
+      // ("2030-01-01-00") — forcing a non-trivial residual on every file.
+      ZonedDateTime now = ZonedDateTime.of(2025, 6, 15, 10, 0, 0, 0, ZoneOffset.UTC);
+      IllegalStateException ex =
+          Assertions.assertThrows(
+              IllegalStateException.class,
+              () ->
+                  ops.runRetention(
+                      tableName, "time_col", "yyyy-MM-dd-HH", "day", 1, true, ".backup", now));
+      Assertions.assertTrue(
+          ex.getMessage().contains("metadata-only delete"),
+          "Expected metadata-only delete error, got: " + ex.getMessage());
+      // The misconfiguration is alertable: a metric tagged with the table name is emitted.
+      Mockito.verify(spyEmitter)
+          .count(
+              ArgumentMatchers.anyString(),
+              ArgumentMatchers.eq(AppConstants.RETENTION_POLICY_MISCONFIGURED_TABLE_COUNT),
+              ArgumentMatchers.eq(1L),
+              ArgumentMatchers.eq(
+                  Attributes.of(AttributeKey.stringKey(AppConstants.TABLE_NAME), tableName)));
+      // DELETE should not have executed: all 4 rows remain.
+      verifyRowCount(ops, tableName, 4);
+    }
+  }
+
+  @Test
   public void testOrphanFilesDeletionJavaAPI() throws Exception {
     final String tableName = "db.test_ofd_java";
     final String testOrphanFileName = "data/test_orphan_file.orc";
@@ -325,8 +583,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       fs.createNewFile(orphanFilePath);
       fs.createNewFile(dataManifestPath);
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(
-              table, System.currentTimeMillis(), true, BACKUP_DIR, 5, false, 20000);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), BACKUP_DIR, 5, false, 20000);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
       Assertions.assertTrue(
           fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
@@ -352,13 +609,12 @@ public class OperationsTest extends OpenHouseSparkITest {
       FileSystem fs = ops.fs();
       fs.createNewFile(orphanFilePath);
       fs.createNewFile(dataManifestPath);
-      ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, BACKUP_DIR, 5, false, 20000);
+      ops.deleteOrphanFiles(table, System.currentTimeMillis(), BACKUP_DIR, 5, false, 20000);
       Path backupFilePath = new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName));
       Assertions.assertTrue(fs.exists(backupFilePath));
       // run delete operation again and verify that files in .backup are not listed as Orphan
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(
-              table, System.currentTimeMillis(), true, BACKUP_DIR, 5, false, 20000);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), BACKUP_DIR, 5, false, 20000);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
       Assertions.assertEquals(0, orphanFiles.size());
       Assertions.assertTrue(fs.exists(backupFilePath));
@@ -381,8 +637,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       fs.createNewFile(orphanFilePath);
       fs.createNewFile(dataManifestPath);
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(
-              table, System.currentTimeMillis(), true, BACKUP_DIR, 5, false, 20000);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), BACKUP_DIR, 5, false, 20000);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
       Assertions.assertFalse(
           fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
@@ -394,7 +649,12 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testOrphanFilesDeletionBackupDisabled() throws Exception {
+  public void testOrphanFilesDeletionMovesToBackupWhenManifestExistsRegardlessOfBackupFlag()
+      throws Exception {
+    // Regression test: a user reduces retention with backup enabled (which writes a data manifest
+    // into the backup dir), then raises retention and disables backup. Partitions that already
+    // expired still have a data manifest under the backup dir. The OFD job must move those orphan
+    // files to backup rather than delete them, even though backup is no longer enabled.
     final String tableName = "db.test_ofd";
     final String testOrphanFileName = "data/test_orphan_file.orc";
     final int numInserts = 3;
@@ -409,10 +669,10 @@ public class OperationsTest extends OpenHouseSparkITest {
       fs.createNewFile(orphanFilePath);
       fs.createNewFile(dataManifestPath);
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(
-              table, System.currentTimeMillis(), false, BACKUP_DIR, 5, false, 20000);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), BACKUP_DIR, 5, false, 20000);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
-      Assertions.assertFalse(
+      // File is moved to backup (not deleted) because a data manifest exists for the partition.
+      Assertions.assertTrue(
           fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
       Assertions.assertEquals(1, orphanFiles.size());
       Assertions.assertTrue(
@@ -435,8 +695,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       FileSystem fs = ops.fs();
       fs.createNewFile(orphanFilePath);
       DeleteOrphanFiles.Result result =
-          ops.deleteOrphanFiles(
-              table, System.currentTimeMillis(), true, BACKUP_DIR, 5, false, 20000);
+          ops.deleteOrphanFiles(table, System.currentTimeMillis(), BACKUP_DIR, 5, false, 20000);
       List<String> orphanFiles = Lists.newArrayList(result.orphanFileLocations().iterator());
       Assertions.assertFalse(
           fs.exists(new Path(table.location(), new Path(BACKUP_DIR, testOrphanFileName))));
@@ -509,6 +768,113 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
+  public void testSnapshotsExpirationExpiresReferencesPastMaximumAge() throws Exception {
+    final String tableName = "db.test_es_expired_refs_java";
+    final String branchName = "expired-branch";
+    final String tagName = "expired-tag";
+
+    // Explicit short ages expire both ref types while the table keeps its seven-day default.
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, 1);
+      Table table = ops.getTable(tableName);
+      long branchSnapshotId = table.currentSnapshot().snapshotId();
+      populateTable(ops, tableName, 1);
+      table.refresh();
+      table
+          .manageSnapshots()
+          .createBranch(branchName, branchSnapshotId)
+          .setMaxRefAgeMs(branchName, 1)
+          .createTag(tagName, branchSnapshotId)
+          .setMaxRefAgeMs(tagName, 1)
+          .commit();
+      Assertions.assertTrue(table.refs().containsKey(branchName));
+      Assertions.assertTrue(table.refs().containsKey(tagName));
+
+      ops.expireSnapshots(table, 3, "DAYS", 0);
+      table.refresh();
+
+      Assertions.assertFalse(table.refs().containsKey(branchName));
+      Assertions.assertFalse(table.refs().containsKey(tagName));
+      Assertions.assertEquals(
+          String.valueOf(Duration.ofDays(7).toMillis()),
+          table.properties().get(TableProperties.MAX_REF_AGE_MS));
+    }
+  }
+
+  @Test
+  public void testSnapshotsExpirationPreservesLiveBranchWithinMaximumReferenceAge()
+      throws Exception {
+    final String tableName = "db.test_es_live_branch_java";
+    final String branchName = "live-branch";
+
+    // The table's seven-day age preserves a branch whose snapshot remains within that window.
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, 1);
+      Table table = ops.getTable(tableName);
+      long branchSnapshotId = table.currentSnapshot().snapshotId();
+      populateTable(ops, tableName, 1);
+      table.refresh();
+      table.manageSnapshots().createBranch(branchName, branchSnapshotId).commit();
+      Assertions.assertTrue(table.refs().containsKey(branchName));
+
+      ops.expireSnapshots(table, 3, "DAYS", 0);
+      table.refresh();
+
+      Assertions.assertTrue(table.refs().containsKey(branchName));
+      Assertions.assertEquals(
+          String.valueOf(Duration.ofDays(7).toMillis()),
+          table.properties().get(TableProperties.MAX_REF_AGE_MS));
+    }
+  }
+
+  @Test
+  public void testSnapshotsExpirationWithFilesHonorsTableAndReferenceMaximumAges()
+      throws Exception {
+    final String tableName = "db.test_es_reference_age_matrix_java";
+    final String tableAgeBranchName = "table-age-branch";
+    final String referenceAgeBranchName = "reference-age-branch";
+    final String tableMaximumReferenceAgeMillis = "1";
+    final long branchMaximumReferenceAgeMillis = Duration.ofDays(10).toMillis();
+
+    // SparkActions expires a table-aged branch while a longer branch-specific age preserves its
+    // peer.
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, 1);
+      Table table = ops.getTable(tableName);
+      long branchSnapshotId = table.currentSnapshot().snapshotId();
+      populateTable(ops, tableName, 1);
+      table.refresh();
+      table
+          .manageSnapshots()
+          .createBranch(tableAgeBranchName, branchSnapshotId)
+          .createBranch(referenceAgeBranchName, branchSnapshotId)
+          .setMaxRefAgeMs(referenceAgeBranchName, branchMaximumReferenceAgeMillis)
+          .commit();
+      table
+          .updateProperties()
+          .set(TableProperties.MAX_REF_AGE_MS, tableMaximumReferenceAgeMillis)
+          .commit();
+      Assertions.assertTrue(
+          System.currentTimeMillis() - table.snapshot(branchSnapshotId).timestampMillis() > 1,
+          "The branch snapshot must exceed the table-level maximum reference age");
+      Assertions.assertTrue(table.refs().containsKey(tableAgeBranchName));
+      Assertions.assertTrue(table.refs().containsKey(referenceAgeBranchName));
+
+      ops.expireSnapshots(table, 3, "DAYS", 0, true, BACKUP_DIR);
+      table.refresh();
+
+      Assertions.assertFalse(table.refs().containsKey(tableAgeBranchName));
+      Assertions.assertTrue(table.refs().containsKey(referenceAgeBranchName));
+      Assertions.assertNotNull(table.snapshot(branchSnapshotId));
+      Assertions.assertEquals(
+          tableMaximumReferenceAgeMillis, table.properties().get(TableProperties.MAX_REF_AGE_MS));
+    }
+  }
+
+  @Test
   public void testSnapshotsExpirationVersionsNoop() throws Exception {
     final String tableName = "db.test_es_versions_noop_java";
     final int numInserts = 3;
@@ -536,6 +902,38 @@ public class OperationsTest extends OpenHouseSparkITest {
       // verify that new apps see snapshots correctly
       checkSnapshots(ops, tableName, snapshotIds);
     }
+  }
+
+  @Test
+  public void testCombineResultsSumsCountsAcrossPhases() {
+    // Regression test for a bug where Operations#expireSnapshots overwrote the maxAge-phase
+    // Result with the versions-phase Result instead of accumulating them, silently dropping the
+    // first phase's deleted file/manifest counts from metrics and logs.
+    ExpireSnapshots.Result maxAgePhaseResult =
+        ImmutableExpireSnapshots.Result.builder()
+            .deletedDataFilesCount(2L)
+            .deletedManifestsCount(3L)
+            .deletedManifestListsCount(1L)
+            .deletedPositionDeleteFilesCount(4L)
+            .deletedEqualityDeleteFilesCount(5L)
+            .build();
+    ExpireSnapshots.Result versionsPhaseResult =
+        ImmutableExpireSnapshots.Result.builder()
+            .deletedDataFilesCount(10L)
+            .deletedManifestsCount(20L)
+            .deletedManifestListsCount(30L)
+            .deletedPositionDeleteFilesCount(40L)
+            .deletedEqualityDeleteFilesCount(50L)
+            .build();
+
+    ExpireSnapshots.Result combined =
+        Operations.combineResults(maxAgePhaseResult, versionsPhaseResult);
+
+    Assertions.assertEquals(12L, combined.deletedDataFilesCount());
+    Assertions.assertEquals(23L, combined.deletedManifestsCount());
+    Assertions.assertEquals(31L, combined.deletedManifestListsCount());
+    Assertions.assertEquals(44L, combined.deletedPositionDeleteFilesCount());
+    Assertions.assertEquals(55L, combined.deletedEqualityDeleteFilesCount());
   }
 
   @Test
@@ -603,6 +1001,72 @@ public class OperationsTest extends OpenHouseSparkITest {
           ops,
           tableName,
           snapshotIds.subList(snapshotIds.size() - versionsToKeep, snapshotIds.size()));
+    }
+  }
+
+  @Test
+  public void testSnapshotsExpirationAccumulatesResultsAcrossBothPhases() throws Exception {
+    // Regression test for a bug where, when both the maxAge-based and versions-based expiration
+    // phases run and delete files, the versions-phase Result silently replaced (instead of being
+    // combined with) the maxAge-phase Result, dropping the first phase's deleted-file counts from
+    // the returned Result (and therefore from SnapshotsExpirationSparkApp's logs/metrics).
+    //
+    // Setup: an old snapshot (S1) is created, its data file is orphaned via RTAS (S2), then a
+    // recent append (S3) is added. maxAge expires only S1 (deleting its now-orphaned data file);
+    // versions (retain last 1) then further expires S2. Only the maxAge phase deletes a data
+    // file; if its contribution were dropped, the final result would incorrectly show 0.
+    final String tableName = "db.test_es_accumulate_results";
+    final String sourceName = "db.test_es_accumulate_results_source";
+    final int maxAge = 20;
+    final String timeGranularity = "SECONDS";
+    final int versionsToKeep = 1;
+
+    List<Long> snapshotIds;
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, 1);
+      Thread.sleep(30000); // Sleep to age the first snapshot past maxAge
+
+      ops.spark()
+          .sql(
+              String.format(
+                  "CREATE TABLE %s (data string, ts timestamp) USING iceberg", sourceName));
+      ops.spark()
+          .sql(String.format("INSERT INTO %s VALUES ('a', current_timestamp())", sourceName));
+      ops.spark()
+          .sql(
+              String.format(
+                  "ALTER TABLE %s SET TBLPROPERTIES ('replace.enabled'='true')", tableName));
+      // RTAS orphans the original (now-aged) data file from the first insert.
+      ops.spark()
+          .sql(
+              String.format(
+                  "REPLACE TABLE %s USING iceberg AS SELECT * FROM %s", tableName, sourceName));
+      populateTable(ops, tableName, 1); // recent append on top of the RTAS snapshot
+
+      Table table = ops.getTable(tableName);
+      snapshotIds = getSnapshotIds(ops, tableName);
+      Assertions.assertEquals(
+          3, snapshotIds.size(), "Should have 3 snapshots: original insert, RTAS, and append");
+
+      ExpireSnapshots.Result result =
+          ops.expireSnapshots(table, maxAge, timeGranularity, versionsToKeep, true);
+      Assertions.assertNotNull(result, "Result should not be null");
+
+      // Only retain the last (most recent append) snapshot.
+      checkSnapshots(table, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+
+      Assertions.assertTrue(
+          result.deletedDataFilesCount() > 0,
+          "The maxAge phase's deleted data file (orphaned by RTAS) must be reflected in the "
+              + "combined result, not dropped by the subsequent versions phase");
+    }
+
+    // restart the app to reload catalog cache
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      checkSnapshots(
+          ops, tableName, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+      ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", sourceName));
     }
   }
 
@@ -680,16 +1144,125 @@ public class OperationsTest extends OpenHouseSparkITest {
   }
 
   @Test
-  public void testSnapshotsExpirationAfterReplaceTable() throws Exception {
-    final String tableName = "db.test_es_rtas";
-    final String sourceName = "db.test_es_rtas_source";
+  public void testSnapshotsExpirationWithFilesDeletion() throws Exception {
+    final String tableName = "db.test_es_delete_files";
+    final int numInserts = 5;
+    final int maxAge = 0;
+    final String timeGranularity = "DAYS";
+
+    List<Long> snapshotIds;
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, numInserts);
+      snapshotIds = getSnapshotIds(ops, tableName);
+      Assertions.assertEquals(
+          numInserts,
+          snapshotIds.size(),
+          String.format("There must be %d snapshot(s) after inserts", numInserts));
+      Table table = ops.getTable(tableName);
+      log.info("Loaded table {}, location {}", table.name(), table.location());
+
+      // Expire snapshots with deleteFiles=true
+      org.apache.iceberg.actions.ExpireSnapshots.Result resultWithDeletion =
+          ops.expireSnapshots(table, maxAge, timeGranularity, 0, true);
+
+      // Verify that the result object is returned properly
+      log.info(
+          "Snapshot expiration with deleteFiles=true: deleted {} data files, {} equality delete files, {} position delete files, {} manifests, {} manifest lists",
+          resultWithDeletion.deletedDataFilesCount(),
+          resultWithDeletion.deletedEqualityDeleteFilesCount(),
+          resultWithDeletion.deletedPositionDeleteFilesCount(),
+          resultWithDeletion.deletedManifestsCount(),
+          resultWithDeletion.deletedManifestListsCount());
+
+      // Verify result is not null and has the expected structure
+      Assertions.assertNotNull(resultWithDeletion, "Result should not be null");
+
+      // When deleteFiles=true, manifests and manifest lists should be deleted
+      // Data files may or may not be deleted depending on whether they're still referenced
+      Assertions.assertTrue(
+          resultWithDeletion.deletedManifestsCount() > 0
+              || resultWithDeletion.deletedManifestListsCount() > 0,
+          "Should have deleted manifests or manifest lists from expired snapshots");
+
+      // Only retain the last snapshot
+      checkSnapshots(table, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+    }
+
+    // restart the app to reload catalog cache
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // verify that new apps see snapshots correctly
+      checkSnapshots(
+          ops, tableName, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+    }
+  }
+
+  @Test
+  public void testSnapshotsExpirationWithoutFilesDeletion() throws Exception {
+    final String tableName = "db.test_es_no_delete_files";
+    final int numInserts = 5;
+    final int maxAge = 0;
+    final String timeGranularity = "DAYS";
+
+    List<Long> snapshotIds;
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, numInserts);
+      snapshotIds = getSnapshotIds(ops, tableName);
+      Assertions.assertEquals(
+          numInserts,
+          snapshotIds.size(),
+          String.format("There must be %d snapshot(s) after inserts", numInserts));
+      Table table = ops.getTable(tableName);
+      log.info("Loaded table {}, location {}", table.name(), table.location());
+
+      // Expire snapshots with deleteFiles=false (default behavior)
+      org.apache.iceberg.actions.ExpireSnapshots.Result resultWithoutDeletion =
+          ops.expireSnapshots(table, maxAge, timeGranularity, 0, false);
+
+      // Verify that no files were deleted (custom delete function prevents deletion)
+      log.info(
+          "Snapshot expiration with deleteFiles=false: deleted {} data files, {} manifests, {} manifest lists",
+          resultWithoutDeletion.deletedDataFilesCount(),
+          resultWithoutDeletion.deletedManifestsCount(),
+          resultWithoutDeletion.deletedManifestListsCount());
+
+      // With deleteFiles=false, no files should be physically deleted
+      Assertions.assertEquals(
+          0,
+          resultWithoutDeletion.deletedDataFilesCount(),
+          "Should not delete data files when deleteFiles=false");
+      Assertions.assertEquals(
+          0,
+          resultWithoutDeletion.deletedManifestsCount(),
+          "Should not delete manifest files when deleteFiles=false");
+
+      // Only retain the last snapshot
+      checkSnapshots(table, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+    }
+
+    // restart the app to reload catalog cache
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      // verify that new apps see snapshots correctly
+      checkSnapshots(
+          ops, tableName, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+    }
+  }
+
+  // The following tests exercise Operations#buildFileDeleteHandler from the SE side.
+  // Table content is replaced via RTAS (rather than plain appends) so the original data files
+  // become unreferenced by the current snapshot and are eligible for deletion/backup once their
+  // snapshots expire.
+  @Test
+  public void testSnapshotsExpirationWithManifestMovesDataFilesToBackupDir() throws Exception {
+    final String tableName = "db.test_es_backup_delete_files";
+    final String sourceName = "db.test_es_backup_delete_files_source";
     final int numInserts = 3;
     final int maxAge = 0;
     final String timeGranularity = "DAYS";
 
     List<Long> snapshotIds;
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
-      // create source table with data
       ops.spark()
           .sql(
               String.format(
@@ -700,11 +1273,15 @@ public class OperationsTest extends OpenHouseSparkITest {
                   "INSERT INTO %s VALUES ('a', current_timestamp()), ('b', current_timestamp())",
                   sourceName));
 
-      // create original table and populate with multiple inserts to create snapshots
       prepareTable(ops, tableName);
       populateTable(ops, tableName, numInserts);
 
-      // replace the table using RTAS
+      // RTAS is disabled by default; opt the table in before replacing it.
+      ops.spark()
+          .sql(
+              String.format(
+                  "ALTER TABLE %s SET TBLPROPERTIES ('replace.enabled'='true')", tableName));
+      // replace the table so original data files become unreferenced by the current snapshot
       ops.spark()
           .sql(
               String.format(
@@ -712,14 +1289,159 @@ public class OperationsTest extends OpenHouseSparkITest {
 
       Table table = ops.getTable(tableName);
       snapshotIds = getSnapshotIds(ops, tableName);
-      // original inserts + RTAS snapshot (old snapshots are preserved but branch is reset)
       Assertions.assertTrue(
           snapshotIds.size() > 1, "Should have multiple snapshots after inserts and RTAS");
+      FileSystem fs = ops.fs();
 
-      ops.expireSnapshots(table, maxAge, timeGranularity, 0);
+      // A manifest for the data partition marks the expired files for backup.
+      Path dataManifestPath =
+          new Path(table.location(), BACKUP_DIR + "/data/data_manifest_pre.json");
+      fs.createNewFile(dataManifestPath);
+
+      org.apache.iceberg.actions.ExpireSnapshots.Result result =
+          ops.expireSnapshots(table, maxAge, timeGranularity, 0, true, BACKUP_DIR);
+      Assertions.assertNotNull(result, "Result should not be null");
+
       // Only retain the last snapshot (the RTAS one)
       checkSnapshots(table, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+
+      FileStatus[] backedUpDataFiles =
+          fs.globStatus(new Path(table.location(), BACKUP_DIR + "/data/*.orc"));
+      Assertions.assertNotNull(backedUpDataFiles);
+      Assertions.assertTrue(
+          backedUpDataFiles.length > 0,
+          "Expired data files should be backed up when a data manifest already exists for the"
+              + " partition");
     }
+
+    // restart the app to reload catalog cache
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      checkSnapshots(
+          ops, tableName, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+      ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", sourceName));
+    }
+  }
+
+  @Test
+  public void testSnapshotsExpirationWithoutManifestDeletesDataFilesDirectly() throws Exception {
+    final String tableName = "db.test_es_no_backup_delete_files";
+    final String sourceName = "db.test_es_no_backup_delete_files_source";
+    final int numInserts = 3;
+    final int maxAge = 0;
+    final String timeGranularity = "DAYS";
+
+    List<Long> snapshotIds;
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      ops.spark()
+          .sql(
+              String.format(
+                  "CREATE TABLE %s (data string, ts timestamp) USING iceberg", sourceName));
+      ops.spark()
+          .sql(
+              String.format(
+                  "INSERT INTO %s VALUES ('a', current_timestamp()), ('b', current_timestamp())",
+                  sourceName));
+
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, numInserts);
+
+      ops.spark()
+          .sql(
+              String.format(
+                  "ALTER TABLE %s SET TBLPROPERTIES ('replace.enabled'='true')", tableName));
+      ops.spark()
+          .sql(
+              String.format(
+                  "REPLACE TABLE %s USING iceberg AS SELECT * FROM %s", tableName, sourceName));
+
+      Table table = ops.getTable(tableName);
+      snapshotIds = getSnapshotIds(ops, tableName);
+      Assertions.assertTrue(
+          snapshotIds.size() > 1, "Should have multiple snapshots after inserts and RTAS");
+      FileSystem fs = ops.fs();
+
+      // No manifest for the partition, so the expired data files are deleted.
+      ops.expireSnapshots(table, maxAge, timeGranularity, 0, true, BACKUP_DIR);
+
+      checkSnapshots(table, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+
+      FileStatus[] backedUpDataFiles =
+          fs.globStatus(new Path(table.location(), BACKUP_DIR + "/data/*.orc"));
+      Assertions.assertTrue(
+          backedUpDataFiles == null || backedUpDataFiles.length == 0,
+          "No data files should be backed up when no data manifest exists for the partition");
+    }
+
+    // restart the app to reload catalog cache
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      checkSnapshots(
+          ops, tableName, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+      ops.spark().sql(String.format("DROP TABLE IF EXISTS %s", sourceName));
+    }
+  }
+
+  // Regression guard: SE must ignore retention.backup.enabled and key off the manifest only.
+  @Test
+  public void testSnapshotsExpirationIgnoresBackupEnabledPropertyWithoutManifest()
+      throws Exception {
+    final String tableName = "db.test_es_flag_ignored";
+    final String sourceName = "db.test_es_flag_ignored_source";
+    final int numInserts = 3;
+    final int maxAge = 0;
+    final String timeGranularity = "DAYS";
+
+    List<Long> snapshotIds;
+    try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
+      ops.spark()
+          .sql(
+              String.format(
+                  "CREATE TABLE %s (data string, ts timestamp) USING iceberg", sourceName));
+      ops.spark()
+          .sql(
+              String.format(
+                  "INSERT INTO %s VALUES ('a', current_timestamp()), ('b', current_timestamp())",
+                  sourceName));
+
+      prepareTable(ops, tableName);
+      populateTable(ops, tableName, numInserts);
+
+      ops.spark()
+          .sql(
+              String.format(
+                  "ALTER TABLE %s SET TBLPROPERTIES ('replace.enabled'='true')", tableName));
+      ops.spark()
+          .sql(
+              String.format(
+                  "REPLACE TABLE %s USING iceberg AS SELECT * FROM %s", tableName, sourceName));
+
+      // Set the flag after the RTAS so it survives on the current table. No manifest is written.
+      ops.spark()
+          .sql(
+              String.format(
+                  "ALTER TABLE %s SET TBLPROPERTIES ('%s'='true')",
+                  tableName, AppConstants.BACKUP_ENABLED_KEY));
+
+      Table table = ops.getTable(tableName);
+      snapshotIds = getSnapshotIds(ops, tableName);
+      Assertions.assertTrue(
+          snapshotIds.size() > 1, "Should have multiple snapshots after inserts and RTAS");
+      Assertions.assertEquals(
+          "true",
+          table.properties().get(AppConstants.BACKUP_ENABLED_KEY),
+          "The backup flag must be set on the table for this test to be meaningful");
+      FileSystem fs = ops.fs();
+
+      ops.expireSnapshots(table, maxAge, timeGranularity, 0, true, BACKUP_DIR);
+
+      checkSnapshots(table, snapshotIds.subList(snapshotIds.size() - 1, snapshotIds.size()));
+
+      FileStatus[] backedUpDataFiles =
+          fs.globStatus(new Path(table.location(), BACKUP_DIR + "/data/*.orc"));
+      Assertions.assertTrue(
+          backedUpDataFiles == null || backedUpDataFiles.length == 0,
+          "No data files should be backed up without a manifest, even when the backup flag is on");
+    }
+
     // restart the app to reload catalog cache
     try (Operations ops = Operations.withCatalog(getSparkSession(), otelEmitter)) {
       checkSnapshots(
@@ -748,7 +1470,7 @@ public class OperationsTest extends OpenHouseSparkITest {
       fs.createNewFile(dataManifestPath);
       log.info("Created orphan file {}", testOrphanFile1);
       log.info("Created orphan file {}", testOrphanFile2);
-      ops.deleteOrphanFiles(table, System.currentTimeMillis(), true, TRASH_DIR, 5, false, 20000);
+      ops.deleteOrphanFiles(table, System.currentTimeMillis(), TRASH_DIR, 5, false, 20000);
       Assertions.assertTrue(
           fs.exists(new Path(table.location(), (new Path(TRASH_DIR, testOrphanFile1)))));
       Assertions.assertTrue(
@@ -1191,6 +1913,13 @@ public class OperationsTest extends OpenHouseSparkITest {
     List<Row> resultRows =
         ops.spark().sql(String.format("SELECT * FROM %s", tableName)).collectAsList();
     Assertions.assertEquals(expectedRowCount, resultRows.size());
+  }
+
+  private static List<String> collectSortedDataValues(Operations ops, String tableName) {
+    return ops.spark().sql(String.format("SELECT data FROM %s", tableName)).collectAsList().stream()
+        .map(row -> row.getString(0))
+        .sorted()
+        .collect(Collectors.toList());
   }
 
   private static void populateTable(

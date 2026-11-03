@@ -1,10 +1,14 @@
 package com.linkedin.openhouse.javaclient;
 
+import static com.linkedin.openhouse.client.ssl.WebClientFactory.ACTION_TYPE_SYSTEM;
+import static com.linkedin.openhouse.client.ssl.WebClientFactory.HTTP_HEADER_ACTION_TYPE;
 import static com.linkedin.openhouse.javaclient.OpenHouseTableOperations.*;
 
 import com.linkedin.openhouse.client.ssl.HttpConnectionStrategy;
 import com.linkedin.openhouse.client.ssl.TablesApiClientFactory;
 import com.linkedin.openhouse.javaclient.api.SupportsGrantRevoke;
+import com.linkedin.openhouse.javaclient.api.SupportsUnlock;
+import com.linkedin.openhouse.javaclient.api.UnlockTableTarget;
 import com.linkedin.openhouse.javaclient.builder.ClusteringSpecBuilder;
 import com.linkedin.openhouse.javaclient.builder.TimePartitionSpecBuilder;
 import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageException;
@@ -14,16 +18,21 @@ import com.linkedin.openhouse.javaclient.mapper.SparkMapper;
 import com.linkedin.openhouse.tables.client.api.DatabaseApi;
 import com.linkedin.openhouse.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
+import com.linkedin.openhouse.tables.client.api.ViewApi;
 import com.linkedin.openhouse.tables.client.invoker.ApiClient;
+import com.linkedin.openhouse.tables.client.model.CreateUpdateLockRequestBody.ReasonEnum;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.client.model.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
+import com.linkedin.openhouse.tables.client.model.GetAllViewsResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.UpdateAclPoliciesRequestBody;
 import java.net.MalformedURLException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -51,11 +60,16 @@ import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.NamespaceNotEmptyException;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.exceptions.NoSuchViewException;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.view.BaseMetastoreViewCatalog;
+import org.apache.iceberg.view.View;
+import org.apache.iceberg.view.ViewBuilder;
+import org.apache.iceberg.view.ViewOperations;
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -67,12 +81,35 @@ import reactor.core.publisher.Mono;
  * leverages Openhouse tableclient to perform CRUD operations on Tables resource in the Catalog
  * service. This implementation provides client side catalog implementation for Iceberg tables in
  * Java.
+ *
+ * <p>This is the iceberg-1.5 / Spark-3.5 copy of {@code OpenHouseCatalog}. It extends {@link
+ * BaseMetastoreViewCatalog} (instead of {@link BaseMetastoreCatalog}) so a single catalog object
+ * serves both tables (inherited, unchanged) and views. View operations are gated: active only when
+ * {@code spark.sql.catalog.<name>.iceberg-views-enabled=true}. Create and read ({@code buildView},
+ * {@code loadView}) are served by the OpenHouse Views service through {@link
+ * OpenHouseViewOperations} (the service returns {@code 404} until it is implemented), as are {@code
+ * listViews} (via {@code getAllViewsV1}) and {@code dropView} (via {@code deleteViewV1}). {@code
+ * renameView} is unsupported because the Views service exposes no rename endpoint.
+ *
+ * <p>Because extending {@link BaseMetastoreViewCatalog} makes this an Iceberg {@code ViewCatalog},
+ * Spark's {@code SparkCatalog} routes view probes to this instance instead of short-circuiting them
+ * (it only calls a catalog's view methods when the catalog is {@code instanceof ViewCatalog};
+ * otherwise it answers view ops itself). Notably {@code SparkCatalog.loadView} is invoked while
+ * resolving every unqualified identifier. So when views are disabled we mirror, method-for-method,
+ * how {@code SparkCatalog} behaves for a non-{@code ViewCatalog} (table-only) catalog, making the
+ * default state indistinguishable from {@code extends BaseMetastoreCatalog}: {@code loadView}
+ * throws {@link NoSuchViewException} (so Spark falls back to table resolution rather than
+ * hard-failing), {@code listViews} returns empty, and {@code dropView} returns {@code false}, while
+ * the create/modify operations {@code buildView} and {@code renameView} throw {@link
+ * UnsupportedOperationException}.
  */
 @Slf4j
-public class OpenHouseCatalog extends BaseMetastoreCatalog
-    implements Configurable, SupportsNamespaces, SupportsGrantRevoke {
+public class OpenHouseCatalog extends BaseMetastoreViewCatalog
+    implements Configurable, SupportsNamespaces, SupportsGrantRevoke, SupportsUnlock {
 
   private TableApi tableApi;
+
+  private ViewApi viewApi;
 
   private ApiClient apiClient;
 
@@ -94,13 +131,26 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
   private static final String CLUSTER_PROPERTY = "cluster";
 
-  private static final String AUTH_TOKEN = "auth-token";
+  static final String AUTH_TOKEN = "auth-token";
 
   private static final String TRUST_STORE = "trust-store";
 
   private static final String HTTP_CONNECTION_STRATEGY = "http-connection-strategy";
 
   public static final String CLIENT_NAME = "client-name";
+
+  public static final String CLIENT_VERSION = "client-version";
+
+  public static final String ACTION_TYPE = "action-type";
+
+  /** Declared by a catalog whose engine applies column defaults; see {@link #capabilities}. */
+  public static final String COLUMN_DEFAULTS_CAPABILITY = "column-defaults";
+
+  /** Catalog property that gates view support. Off by default. */
+  private static final String VIEWS_ENABLED_PROPERTY = "iceberg-views-enabled";
+
+  /** Whether view operations are enabled for this catalog instance (set in {@link #initialize}). */
+  private boolean viewsEnabled = false;
 
   @Override
   public void initialize(String name, Map<String, String> properties) {
@@ -113,10 +163,17 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     String token = properties.getOrDefault(AUTH_TOKEN, null);
     String httpConnectionStrategy = properties.getOrDefault(HTTP_CONNECTION_STRATEGY, null);
     String clientName = properties.getOrDefault(CLIENT_NAME, null);
+    String clientVersion = properties.getOrDefault(CLIENT_VERSION, null);
+    String actionType = properties.get(ACTION_TYPE);
+    Preconditions.checkArgument(
+        actionType == null || ACTION_TYPE_SYSTEM.equalsIgnoreCase(actionType),
+        "action-type must be SYSTEM when supplied");
+    HttpHeaders headers = CatalogRequestHeaders.from(properties, capabilities());
     try {
       TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
       tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
       tablesApiClientFactory.setClientName(clientName);
+      tablesApiClientFactory.setClientVersion(clientVersion);
       if (properties.containsKey(CatalogProperties.APP_ID)) {
         tablesApiClientFactory.setSessionId(properties.get(CatalogProperties.APP_ID));
       }
@@ -125,13 +182,37 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
       throw new RuntimeException(
           "OpenHouse Catalog initialization failed: Failure while initializing ApiClient", e);
     }
+    if (actionType != null) {
+      this.apiClient.addDefaultHeader(HTTP_HEADER_ACTION_TYPE, actionType.toUpperCase(Locale.ROOT));
+    }
+    headers.toSingleValueMap().forEach(this.apiClient::addDefaultHeader);
+    log.info("Catalog {} sends configured headers {}", name, headers.keySet());
     this.tableApi = new TableApi(apiClient);
+    this.viewApi = new ViewApi(apiClient);
     this.snapshotApi = new SnapshotApi(apiClient);
     this.databaseApi = new DatabaseApi(apiClient);
 
     this.fileIO = loadFileIO(properties);
 
     this.cluster = properties.getOrDefault(CLUSTER_PROPERTY, DEFAULT_CLUSTER);
+    this.viewsEnabled =
+        Boolean.parseBoolean(properties.getOrDefault(VIEWS_ENABLED_PROPERTY, "false"));
+    if (viewsEnabled) {
+      log.warn(
+          "OpenHouse view support is ENABLED. Create/read/list/drop are routed to the OpenHouse "
+              + "Views service (not yet implemented -- expect 404); renameView is unsupported "
+              + "(the service exposes no rename endpoint).");
+    }
+  }
+
+  /**
+   * Capabilities this catalog declares in {@code X-OpenHouse-Client-Capabilities} on every request.
+   * None by default: this catalog loads column defaults into the table schema, but whether a read
+   * returns them depends on the engine's file readers, so only an engine's own catalog declares
+   * {@link #COLUMN_DEFAULTS_CAPABILITY}. Called once, from {@link #initialize}.
+   */
+  protected Set<String> capabilities() {
+    return Collections.emptySet();
   }
 
   protected FileIO loadFileIO(Map<String, String> properties) {
@@ -195,6 +276,29 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
             .block();
     log.debug("Calling listTables succeeded");
     return tables;
+  }
+
+  /**
+   * Checks existence without loading table metadata, even if the table is locked or its metadata is
+   * unreadable. Metadata-table identifiers retain Iceberg's load-based existence check.
+   */
+  @Override
+  public boolean tableExists(TableIdentifier identifier) {
+    log.info("Calling tableExists with identifier: {}", identifier);
+    if (!isValidIdentifier(identifier)) {
+      return super.tableExists(identifier);
+    }
+    return tableApi
+        .tableExistsV1(identifier.namespace().toString(), identifier.name())
+        .thenReturn(true)
+        .onErrorResume(WebClientResponseException.NotFound.class, e -> Mono.just(false))
+        .onErrorResume(
+            WebClientResponseException.class,
+            e -> Mono.error(new WebClientResponseWithMessageException(e)))
+        .onErrorResume(
+            WebClientRequestException.class,
+            e -> Mono.error(new WebClientRequestWithMessageException(e)))
+        .block();
   }
 
   @Override
@@ -275,7 +379,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
   }
 
   @Override
-  public TableOperations newTableOps(TableIdentifier tableIdentifier) {
+  public OpenHouseTableOperations newTableOps(TableIdentifier tableIdentifier) {
     return OpenHouseTableOperations.builder()
         .tableIdentifier(tableIdentifier)
         .fileIO(fileIO)
@@ -519,6 +623,24 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     return aclPolicies;
   }
 
+  @Override
+  public void unlockTable(UnlockTableTarget target, ReasonEnum reason) {
+    log.debug("Calling unlockTable with identifier: {}, reason: {}", target, reason);
+    String databaseId = target.getDatabaseId();
+    String tableId = target.getTableId();
+    (reason == ReasonEnum.LEGACY
+            ? tableApi.deleteLockV1(databaseId, tableId)
+            : tableApi.deleteLockByReasonV1(databaseId, tableId, reason.getValue()))
+        .onErrorResume(
+            WebClientResponseException.class,
+            e -> Mono.error(new WebClientResponseWithMessageException(e)))
+        .onErrorResume(
+            WebClientRequestException.class,
+            e -> Mono.error(new WebClientRequestWithMessageException(e)))
+        .block();
+    log.info("Calling unlockTable succeeded with identifier: {}, reason: {}", target, reason);
+  }
+
   private UpdateAclPoliciesRequestBody getUpdateAclPoliciesRequestBody(
       boolean isGrant, String principal, String role) {
     UpdateAclPoliciesRequestBody updateAclPoliciesRequestBody = new UpdateAclPoliciesRequestBody();
@@ -534,6 +656,270 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
   @Override
   public TableBuilder buildTable(TableIdentifier identifier, Schema schema) {
     return new OpenHouseTableBuilder(identifier, schema);
+  }
+
+  // ============================= OpenHouse Views (gated, off by default)
+  // =============================
+  // Gated by VIEWS_ENABLED_PROPERTY. loadView/buildView reuse the BaseMetastoreViewCatalog
+  // machinery via newViewOps, which is backed by the OpenHouse Views service (ViewApi).
+  // listViews (getAllViewsV1) and dropView (deleteViewV1) call the Views service directly;
+  // renameView is unsupported because the service exposes no rename endpoint.
+  //
+  // Each operation gates inline on viewsEnabled, choosing the disabled-state signal that makes
+  // SparkCatalog fall back to table-only (non-ViewCatalog) behavior:
+  //   loadView   -> NoSuchViewException (catches only this, then resolves a table)
+  //   buildView  -> NoSuchNamespaceException (normalizes CREATE VIEW to AnalysisException)
+  //   listViews  -> empty list; dropView -> false (SHOW/DROP VIEW behave as no-ops)
+  //   renameView -> UnsupportedOperationException (ALTER VIEW ... RENAME unsupported)
+
+  @Override
+  protected ViewOperations newViewOps(TableIdentifier identifier) {
+    return OpenHouseViewOperations.builder()
+        .viewIdentifier(identifier)
+        .fileIO(fileIO)
+        .viewApi(viewApi)
+        .build();
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>When views are disabled, throws {@link NoSuchViewException} rather than {@link
+   * UnsupportedOperationException}. Spark's {@code SparkCatalog.loadView} probes this method while
+   * resolving every unqualified identifier and catches only {@code NoSuchViewException} to fall
+   * back to table resolution; any other exception propagates and breaks table reads. Throwing
+   * {@code NoSuchViewException} here therefore reproduces the table-only (non-{@code ViewCatalog})
+   * behavior.
+   */
+  @Override
+  public View loadView(TableIdentifier identifier) {
+    if (!viewsEnabled) {
+      throw new NoSuchViewException("View does not exist: %s", identifier);
+    }
+    log.info("Calling loadView with identifier: {}", identifier);
+    return super.loadView(identifier);
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>A create operation. When views are disabled this throws Iceberg's {@link
+   * NoSuchNamespaceException}. {@code CREATE VIEW} reaches this method through {@code
+   * SparkCatalog.createView}, which calls {@code buildView(...).create()} and catches only {@code
+   * NoSuchNamespaceException} / {@code AlreadyExistsException} (rethrowing them as Spark {@code
+   * AnalysisException}s); any other exception — e.g. {@link UnsupportedOperationException} — would
+   * leak as a raw runtime error and break callers that expect an {@code AnalysisException}.
+   * Throwing {@code NoSuchNamespaceException} is therefore the signal that normalizes {@code CREATE
+   * VIEW} rejection to a Spark {@code AnalysisException}, matching how a table-only catalog
+   * (Iceberg 1.2 / Spark 3.1) rejects it. See {@code OpenHouseViewSparkITest}.
+   */
+  @Override
+  public ViewBuilder buildView(TableIdentifier identifier) {
+    if (!viewsEnabled) {
+      throw new NoSuchNamespaceException(
+          "OpenHouse views are not enabled; cannot create view: %s", identifier);
+    }
+    log.info("Calling buildView with identifier: {}", identifier);
+    return new OpenHouseViewBuilder(super.buildView(identifier));
+  }
+
+  /**
+   * OpenHouse's {@link ViewBuilder}: wraps the Iceberg builder to apply OpenHouse-specific policy,
+   * delegating every other call unchanged. It currently enforces the server-owned view location --
+   * {@link #withLocation(String)} is a no-op over a transient, non-null placeholder that is never
+   * sent to the Views service; the server assigns the authoritative location, which the client
+   * reloads on refresh.
+   */
+  private static final class OpenHouseViewBuilder implements ViewBuilder {
+    private static final String PLACEHOLDER_LOCATION = "mock://openhouse/views/";
+    private final ViewBuilder delegate;
+
+    private OpenHouseViewBuilder(ViewBuilder delegate) {
+      this.delegate = delegate.withLocation(PLACEHOLDER_LOCATION);
+    }
+
+    @Override
+    public ViewBuilder withLocation(String newLocation) {
+      // OpenHouse server-owns-location, so defaultWarehouseLocation() returns null. Unlike
+      // TableMetadata, Iceberg's ViewMetadata.Builder forbids a null location, so this no-op keeps
+      // SparkCatalog's post-buildView withLocation(null) from reaching the builder; it drops every
+      // caller-supplied location and keeps the non-null placeholder.
+      return this;
+    }
+
+    @Override
+    public ViewBuilder withSchema(Schema newSchema) {
+      delegate.withSchema(newSchema);
+      return this;
+    }
+
+    @Override
+    public ViewBuilder withQuery(String dialect, String sql) {
+      delegate.withQuery(dialect, sql);
+      return this;
+    }
+
+    @Override
+    public ViewBuilder withDefaultCatalog(String catalog) {
+      // defaultCatalog mirrors the Iceberg view spec's resolution context (the "current"
+      // catalog used to resolve *unqualified* identifiers in the view SQL).
+      // OpenHouseViewOperations forwards whatever is set here to the Views service on create.
+      // Deferred: whether engines should populate it, or OpenHouse should override this builder
+      // to set a default, is undecided -- and moot while the persisted view SQL is fully
+      // qualified, since the default is then never consulted at resolution time.
+      delegate.withDefaultCatalog(catalog);
+      return this;
+    }
+
+    @Override
+    public ViewBuilder withDefaultNamespace(Namespace namespace) {
+      // defaultNamespace mirrors the Iceberg view spec's resolution context (the "current"
+      // namespace used to resolve *unqualified* identifiers in the view SQL).
+      // OpenHouseViewOperations forwards whatever is set here to the Views service on create.
+      // Deferred: whether engines should populate it, or OpenHouse should override this builder
+      // to set a default, is undecided -- and moot while the persisted view SQL is fully
+      // qualified, since the default is then never consulted at resolution time.
+      delegate.withDefaultNamespace(namespace);
+      return this;
+    }
+
+    @Override
+    public ViewBuilder withProperties(Map<String, String> newProperties) {
+      delegate.withProperties(newProperties);
+      return this;
+    }
+
+    @Override
+    public ViewBuilder withProperty(String key, String value) {
+      delegate.withProperty(key, value);
+      return this;
+    }
+
+    @Override
+    public View create() {
+      return delegate.create();
+    }
+
+    @Override
+    public View replace() {
+      return delegate.replace();
+    }
+
+    @Override
+    public View createOrReplace() {
+      return delegate.createOrReplace();
+    }
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>When views are disabled, returns an empty list, matching how {@code SparkCatalog} answers
+   * {@code SHOW VIEWS} for a non-{@code ViewCatalog} catalog (no views, rather than an error).
+   */
+  @Override
+  public List<TableIdentifier> listViews(Namespace namespace) {
+    if (!viewsEnabled) {
+      return Collections.emptyList();
+    }
+    log.info("Calling listViews with namespace: {}", namespace.toString());
+    if (namespace.toString().isEmpty()) {
+      throw new ValidationException(
+          "A databaseId must be provided to list views; received an empty namespace");
+    } else if (namespace.levels().length > 1) {
+      throw new ValidationException(
+          "Input namespace has more than one levels " + String.join(".", namespace.levels()));
+    }
+    String databaseId = namespace.toString();
+    List<TableIdentifier> views = new ArrayList<>();
+    String pageToken = null;
+    // TODO: this loop requests the server-default page size (null) and accumulates every page into
+    // memory, so latency and footprint grow with the total number of views in the database. The
+    // analogous table path has been observed to start OOMing around ~20k entries; views likely
+    // have a similar ceiling, pending experimentation for a higher-confidence number. The server
+    // default is being raised 50 -> 100 as a first step; further tuning (an explicit page size, a
+    // bounded/streamed result, or a server-side cap) should be driven by experimentation and
+    // tracked separately.
+    // TODO: no response timeout on this (or any) blocking catalog call in this class — a slow or
+    // stuck server hangs the caller. Fix centrally in WebClientFactory (responseTimeout), not per
+    // method; on timeout, fail rather than return a partial list.
+    do {
+      GetAllViewsResponseBody page =
+          viewApi
+              .getAllViewsV1(databaseId, pageToken, null, null)
+              .onErrorResume(
+                  WebClientResponseException.class,
+                  e -> Mono.error(new WebClientResponseWithMessageException(e)))
+              .onErrorResume(
+                  WebClientRequestException.class,
+                  e -> Mono.error(new WebClientRequestWithMessageException(e)))
+              .block();
+      if (page == null || page.getResults() == null) {
+        break;
+      }
+      page.getResults().stream()
+          .map(view -> TableIdentifier.of(namespace, view.getViewId()))
+          .forEach(views::add);
+      pageToken = page.getNextPageToken();
+    } while (pageToken != null && !pageToken.isEmpty());
+    log.debug("Calling listViews succeeded");
+    return views;
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>When views are disabled, returns {@code false} (nothing to drop), matching how {@code
+   * SparkCatalog} answers {@code DROP VIEW} for a non-{@code ViewCatalog} catalog; this keeps
+   * {@code DROP VIEW ... IF EXISTS} a no-op rather than an error.
+   */
+  @Override
+  public boolean dropView(TableIdentifier identifier) {
+    if (!viewsEnabled) {
+      return false;
+    }
+    log.info("Calling dropView with identifier: {}", identifier);
+    if (identifier.namespace().levels().length > 1) {
+      throw new ValidationException(
+          "Input namespace has more than one levels "
+              + String.join(".", identifier.namespace().levels()));
+    }
+    try {
+      viewApi
+          .deleteViewV1(identifier.namespace().toString(), identifier.name())
+          .onErrorResume(
+              WebClientResponseException.NotFound.class,
+              e -> Mono.error(new NoSuchViewException("View does not exist: %s", identifier)))
+          .onErrorResume(
+              WebClientResponseException.class,
+              e -> Mono.error(new WebClientResponseWithMessageException(e)))
+          .onErrorResume(
+              WebClientRequestException.class,
+              e -> Mono.error(new WebClientRequestWithMessageException(e)))
+          .block();
+    } catch (NoSuchViewException e) {
+      log.debug("View: {} does not exist", identifier.toString());
+      return false;
+    }
+    log.debug("Calling dropView succeeded");
+    return true;
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>Rename is unsupported in both states, so it throws {@link UnsupportedOperationException}
+   * either way: when views are disabled this matches how {@code SparkCatalog} fails {@code ALTER
+   * VIEW ... RENAME} for a non-{@code ViewCatalog} catalog; when enabled it still throws because
+   * the OpenHouse Views service exposes no rename endpoint.
+   */
+  @Override
+  public void renameView(TableIdentifier from, TableIdentifier to) {
+    if (!viewsEnabled) {
+      throw new UnsupportedOperationException("OpenHouse views are unsupported.");
+    }
+    throw new UnsupportedOperationException(
+        String.format("OpenHouse views do not support rename: %s -> %s", from, to));
   }
 
   /**
@@ -596,7 +982,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
      */
     @Override
     public Transaction createOrReplaceTransaction() {
-      TableOperations ops = newTableOps(this.identifier);
+      OpenHouseTableOperations ops = newTableOps(this.identifier);
       if (ops.current() == null) {
         return createTransaction();
       } else {
@@ -611,11 +997,16 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
      */
     @Override
     public Transaction replaceTransaction() {
-      TableOperations ops = newTableOps(this.identifier);
+      OpenHouseTableOperations ops = newTableOps(this.identifier);
       if (ops.current() == null) {
         throw new NoSuchTableException("Table does not exist: %s", new Object[] {this.identifier});
       }
       TableMetadata metadata = replaceStagedMetadata(ops);
+      // Record the replace intent on the very instance that will receive the commit. This is the
+      // only place where RTAS is unambiguously known: by the time doCommit runs, a replace and an
+      // ordinary metadata-plus-snapshot transaction look identical. Every Catalog replace entry
+      // point (including Catalog#newReplaceTableTransaction) funnels through this builder.
+      ops.markReplaceTransaction();
       return Transactions.replaceTableTransaction(this.identifier.toString(), ops, metadata);
     }
 
@@ -626,7 +1017,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
      */
     @Override
     public Transaction createTransaction() {
-      TableOperations ops = newTableOps(this.identifier);
+      OpenHouseTableOperations ops = newTableOps(this.identifier);
       if (ops.current() != null) {
         throw new AlreadyExistsException(
             "Table already exists: %s", new Object[] {this.identifier});

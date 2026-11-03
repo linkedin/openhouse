@@ -47,11 +47,19 @@ jobs:
         << : *livy-engine
       - type: SNAPSHOTS_EXPIRATION
         class-name: com.linkedin.openhouse.jobs.spark.SnapshotsExpirationSparkApp
-        args: []
+        args: ["--deleteFiles", "--backupDir", ".backup"]
         << : *apps-defaults
         << : *livy-engine
       - type: ORPHAN_FILES_DELETION
         class-name: com.linkedin.openhouse.jobs.spark.OrphanFilesDeletionSparkApp
+        args: ["--backupDir", ".backup"]
+        <<: *apps-defaults
+        spark-properties:
+          <<: *spark-defaults
+          "spark.driver.memory": "2g"
+        << : *livy-engine
+      - type: ORPHAN_FILES_DELETION_BATCH
+        class-name: com.linkedin.openhouse.jobs.spark.BatchedOrphanFilesDeletionSparkApp
         args: ["--backupDir", ".backup"]
         <<: *apps-defaults
         spark-properties:
@@ -72,6 +80,14 @@ jobs:
         class-name: com.linkedin.openhouse.jobs.spark.TableStatsCollectionSparkApp
         args: []
         <<: *apps-defaults
+        << : *livy-engine
+      - type: TABLE_STATS_COLLECTION_BATCH
+        class-name: com.linkedin.openhouse.jobs.spark.BatchedTableStatsCollectionSparkApp
+        args: []
+        <<: *apps-defaults
+        spark-properties:
+          <<: *spark-defaults
+          "spark.driver.memory": "2g"
         << : *livy-engine
       - type: DATA_LAYOUT_STRATEGY_GENERATION
         class-name: com.linkedin.openhouse.jobs.spark.DataLayoutStrategyGeneratorSparkApp

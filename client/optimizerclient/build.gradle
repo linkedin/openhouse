@@ -1,0 +1,11 @@
+plugins {
+    id 'openhouse.java-minimal-conventions'
+    id 'openhouse.client-codegen-convention'
+    id 'openhouse.maven-publish'
+}
+
+ext {
+    codeGenForService = ":services:optimizer"
+}
+
+apply from: "${project(':client:common').file("codegen.build.gradle")}"

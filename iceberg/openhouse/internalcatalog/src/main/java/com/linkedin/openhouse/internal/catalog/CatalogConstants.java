@@ -2,6 +2,8 @@ package com.linkedin.openhouse.internal.catalog;
 
 /** Constants used across service and catalog layer. */
 public final class CatalogConstants {
+  public static final String ENTITY_TYPE_TABLE = "TABLE";
+  public static final String ENTITY_TYPE_VIEW = "VIEW";
   public static final String SNAPSHOTS_JSON_KEY = "snapshotsJsonToBePut";
   public static final String SNAPSHOTS_REFS_KEY = "snapshotsRefs";
   public static final String INTERMEDIATE_SCHEMAS_KEY = "newIntermediateSchemas";
@@ -29,6 +31,13 @@ public final class CatalogConstants {
   public static final String COMMIT_KEY = "commitKey";
 
   public static final String EVOLVED_SCHEMA_KEY = "evolved.table.schema";
+
+  public static final String RTAS_ENABLED_TABLE_PROP = "replace.enabled";
+
+  public static final String WAP_ENABLED_TABLE_PROP = "write.wap.enabled";
+
+  public static final String FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP =
+      "feature.compatibility.validation.disabled";
 
   static final String FEATURE_TOGGLE_STOP_CREATE = "stop_create";
 

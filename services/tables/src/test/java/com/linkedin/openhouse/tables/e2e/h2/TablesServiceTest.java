@@ -29,8 +29,12 @@ import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.services.TablesService;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import java.io.IOException;
+import java.net.URI;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.UUID;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.types.Types;
@@ -249,6 +253,40 @@ public class TablesServiceTest {
   }
 
   @Test
+  public void testStagedReplaceChecksUpdateTableMetadataPrivilege() {
+    TableDto tableDto =
+        TABLE_DTO
+            .toBuilder()
+            .databaseId("rtas_auth_database")
+            .tableId("rtas_auth_table")
+            .tableUri(CLUSTER_NAME + ".rtas_auth_database.rtas_auth_table")
+            .policies(null)
+            .tableProperties(
+                ImmutableMap.<String, String>builder()
+                    .putAll(TABLE_DTO.getTableProperties())
+                    .put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true")
+                    .build())
+            .build();
+    TableDto createdTable = verifyPutTableRequest(tableDto, null, true);
+    Mockito.clearInvocations(authorizationHandler);
+
+    Assertions.assertDoesNotThrow(
+        () ->
+            tablesService.putTable(
+                buildCreateUpdateTableRequestBody(tableDto)
+                    .toBuilder()
+                    .baseTableVersion(createdTable.getTableLocation())
+                    .stageReplace(true)
+                    .build(),
+                TEST_USER,
+                false));
+
+    Mockito.verify(authorizationHandler)
+        .checkAccessDecision(TEST_USER, createdTable, Privileges.UPDATE_TABLE_METADATA);
+    tablesService.deleteTable(tableDto.getDatabaseId(), tableDto.getTableId(), TEST_USER);
+  }
+
+  @Test
   public void testTableDeleteThatDoesNotExist() {
     Assertions.assertThrows(
         NoSuchUserTableException.class,
@@ -264,6 +302,84 @@ public class TablesServiceTest {
         () ->
             tablesService.deleteTable(
                 TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+  }
+
+  /**
+   * Regression test for the corrupted-metadata drop path: even when metadata.json cannot be parsed
+   * (loadTable would throw), deleteTable must still succeed because it goes through the HTS-only
+   * findTableRefById lookup and avoids loadTable entirely.
+   */
+  @Test
+  public void testTableDeleteSucceedsWhenMetadataJsonIsCorrupted() throws IOException {
+    TableDto created = verifyPutTableRequest(TABLE_DTO, null, true);
+
+    // tableLocation on TableDto is the metadata.json path (file:/<base>/<filename>.metadata.json).
+    Path metadataPath = Paths.get(URI.create(created.getTableLocation()));
+    Assertions.assertTrue(
+        Files.exists(metadataPath),
+        "metadata.json should exist on disk after create: " + metadataPath);
+
+    // Corrupt the file so TableMetadataParser.read fails.
+    Files.write(metadataPath, "{\"not\":\"valid iceberg metadata\"}".getBytes());
+
+    // Sanity check: reading the table now fails because loadTable parses metadata.json.
+    Assertions.assertThrows(
+        Exception.class,
+        () -> tablesService.getTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+
+    // Drop should still succeed despite the corruption.
+    Assertions.assertDoesNotThrow(
+        () ->
+            tablesService.deleteTable(
+                TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+
+    // Verify HTS row is gone — a second delete should now hit the not-found path.
+    Assertions.assertThrows(
+        NoSuchUserTableException.class,
+        () ->
+            tablesService.deleteTable(
+                TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+  }
+
+  @Test
+  public void testTableExists() {
+    Assertions.assertFalse(
+        tablesService.tableExists(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId()),
+        "tableExists should be false before the table is created");
+
+    verifyPutTableRequest(TABLE_DTO, null, true);
+    Assertions.assertTrue(
+        tablesService.tableExists(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId()),
+        "tableExists should be true after the table is created");
+
+    tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    Assertions.assertFalse(
+        tablesService.tableExists(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId()),
+        "tableExists should be false after the table is deleted");
+  }
+
+  /**
+   * tableExists relies on the HTS-only findTableRefById lookup, so it must report existence without
+   * parsing metadata.json — even when metadata.json is corrupted and loadTable would throw.
+   */
+  @Test
+  public void testTableExistsWhenMetadataJsonIsCorrupted() throws IOException {
+    TableDto created = verifyPutTableRequest(TABLE_DTO, null, true);
+
+    try {
+      Path metadataPath = Paths.get(URI.create(created.getTableLocation()));
+      Files.write(metadataPath, "{\"not\":\"valid iceberg metadata\"}".getBytes());
+
+      // getTable parses metadata.json and fails, but tableExists only consults HTS and succeeds.
+      Assertions.assertThrows(
+          Exception.class,
+          () ->
+              tablesService.getTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+      Assertions.assertTrue(
+          tablesService.tableExists(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId()));
+    } finally {
+      tablesService.deleteTable(TABLE_DTO.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
+    }
   }
 
   @Test
@@ -630,6 +746,58 @@ public class TablesServiceTest {
         () ->
             tablesService.deleteTable(
                 tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER));
+  }
+
+  @Test
+  public void testSearchTablesWithFieldsRequiresGetTableMetadata() {
+    TableDto tableDtoCopy = TABLE_DTO.toBuilder().build();
+    verifyPutTableRequest(tableDtoCopy, null, true);
+
+    // No fields requested — identifier-only search must succeed regardless of GET_TABLE_METADATA.
+    Mockito.when(
+            authorizationHandler.checkAccessDecision(
+                Mockito.any(),
+                Mockito.any(DatabaseDto.class),
+                Mockito.eq(Privileges.GET_TABLE_METADATA)))
+        .thenReturn(false);
+    Assertions.assertDoesNotThrow(
+        () ->
+            tablesService.searchTables(
+                tableDtoCopy.getDatabaseId(), 0, 10, null, Collections.emptyList(), TEST_USER));
+    Assertions.assertDoesNotThrow(
+        () ->
+            tablesService.searchTables(tableDtoCopy.getDatabaseId(), 0, 10, null, null, TEST_USER));
+
+    // Fields requested but GET_TABLE_METADATA denied — must throw.
+    Assertions.assertThrows(
+        AccessDeniedException.class,
+        () ->
+            tablesService.searchTables(
+                tableDtoCopy.getDatabaseId(),
+                0,
+                10,
+                null,
+                Arrays.asList("tableLocation"),
+                TEST_USER));
+
+    // Allow GET_TABLE_METADATA — field-projection search now succeeds.
+    Mockito.when(
+            authorizationHandler.checkAccessDecision(
+                Mockito.any(),
+                Mockito.any(DatabaseDto.class),
+                Mockito.eq(Privileges.GET_TABLE_METADATA)))
+        .thenReturn(true);
+    Assertions.assertDoesNotThrow(
+        () ->
+            tablesService.searchTables(
+                tableDtoCopy.getDatabaseId(),
+                0,
+                10,
+                null,
+                Arrays.asList("tableLocation"),
+                TEST_USER));
+
+    tablesService.deleteTable(tableDtoCopy.getDatabaseId(), TABLE_DTO.getTableId(), TEST_USER);
   }
 
   /** assert lock is created as policy object on createLock call */

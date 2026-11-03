@@ -12,6 +12,7 @@ import javax.net.ssl.SSLException;
 import lombok.NonNull;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.netty.http.client.HttpClient;
@@ -23,10 +24,18 @@ public abstract class WebClientFactory {
 
   private static final String HTTP = "http";
   private static final String HTTPS = "https";
-  private static final String SESSION_ID = "session-id";
 
+  public static final String HTTP_HEADER_SESSION_ID = "session-id";
   public static final String HTTP_HEADER_CLIENT_NAME = "X-Client-Name";
-  private static final int IN_MEMORY_BUFFER_SIZE = 20 * 1024 * 1024;
+  public static final String HTTP_HEADER_ACTION_TYPE = "X-OpenHouse-Action-Type";
+  /** Comma-separated capabilities the client declares, such as {@code column-defaults}. */
+  public static final String HTTP_HEADER_CLIENT_CAPABILITIES = "X-OpenHouse-Client-Capabilities";
+
+  public static final String ACTION_TYPE_SYSTEM = "SYSTEM";
+  // Product token advertised in the User-Agent header so the server can observe the client version.
+  // The resulting header looks like "openhouse-java-client/1.5.2".
+  public static final String USER_AGENT_CLIENT_PRODUCT = "openhouse-java-client";
+  private static final int IN_MEMORY_BUFFER_SIZE = 40 * 1024 * 1024;
   // The maximum number of connections per connection pool
   private static final int MAX_CONNECTION_POOL_SIZE = 500;
   // Max time to keep requests in pending queue before acquiring a connection
@@ -44,6 +53,10 @@ public abstract class WebClientFactory {
   @Setter private String sessionId = null;
 
   @Setter private String clientName = null;
+
+  // When null, the User-Agent reports the release this client was built as (ClientVersion,
+  // generated at build time). Callers may set an explicit value to override.
+  @Setter private String clientVersion = null;
 
   protected WebClientFactory() {
     setStrategy();
@@ -159,6 +172,7 @@ public abstract class WebClientFactory {
     WebClient.Builder webClientBuilder = createWebClientBuilder();
     setSessionIdInWebClientHeader(webClientBuilder);
     setClientNameInWebClientHeader(webClientBuilder);
+    setUserAgentInWebClientHeader(webClientBuilder);
     return webClientBuilder
         .baseUrl(baseUrl)
         .clientConnector(new ReactorClientHttpConnector(httpClient))
@@ -194,7 +208,7 @@ public abstract class WebClientFactory {
       sessionId = UUID.randomUUID().toString();
     }
     log.info("Client session id: {}", sessionId);
-    webClientBuilder.defaultHeaders(h -> h.add(SESSION_ID, sessionId));
+    webClientBuilder.defaultHeaders(h -> h.add(HTTP_HEADER_SESSION_ID, sessionId));
   }
 
   /**
@@ -207,6 +221,31 @@ public abstract class WebClientFactory {
       webClientBuilder.defaultHeaders(h -> h.add(HTTP_HEADER_CLIENT_NAME, clientName));
     }
     log.info("Client name: {}", clientName);
+  }
+
+  /**
+   * Set the User-Agent header on the webClient so the server can observe the client version on
+   * every request, e.g. "openhouse-java-client/1.5.2". The version is resolved via {@link
+   * #resolveClientVersion()}. Setting our own default User-Agent replaces the transport's default
+   * (e.g. "ReactorNetty/x.y.z").
+   *
+   * @param webClientBuilder
+   */
+  private void setUserAgentInWebClientHeader(WebClient.Builder webClientBuilder) {
+    String userAgent = USER_AGENT_CLIENT_PRODUCT + "/" + resolveClientVersion();
+    webClientBuilder.defaultHeaders(h -> h.set(HttpHeaders.USER_AGENT, userAgent));
+    log.info("Client User-Agent: {}", userAgent);
+  }
+
+  /**
+   * Resolve the client version to advertise: an explicitly set {@link #clientVersion} takes
+   * precedence, otherwise the release this client was built as. That release is compiled in, unlike
+   * a jar manifest, which shaded and re-bundled runtimes drop.
+   *
+   * @return the resolved client version, never null
+   */
+  private String resolveClientVersion() {
+    return StringUtil.isNullOrEmpty(clientVersion) ? ClientVersion.VALUE : clientVersion;
   }
 
   /**

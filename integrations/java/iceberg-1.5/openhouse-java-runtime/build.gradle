@@ -25,10 +25,21 @@ ext {
   hadoopVersion = '2.10.0'
 }
 
+// Inherit shared sources from the iceberg-1.2 module's src/main/java, but NOT its
+// src/iceberg-version-specific/java (whose classes bind to version-specific Iceberg base classes,
+// e.g. a view-capable OpenHouseCatalog that extends BaseMetastoreViewCatalog). This module supplies
+// its own copies of those classes under its own src/iceberg-version-specific/java.
+// This module ALSO has its own src/main/java (a Gradle-default source root) for single-copy,
+// iceberg-1.5-only classes that have no iceberg-1.2 counterpart, e.g. OpenHouseViewOperations
+// (binds to the 1.5-only Iceberg view API).
 sourceSets {
   main {
     java {
-      srcDirs += project(':integrations:java:iceberg-1.2:openhouse-java-runtime').sourceSets.main.java.srcDirs
+      def base = project(':integrations:java:iceberg-1.2:openhouse-java-runtime')
+      srcDirs += base.sourceSets.main.java.srcDirs.findAll {
+        !it.absolutePath.endsWith('src/iceberg-version-specific/java')
+      }
+      srcDirs += 'src/iceberg-version-specific/java'
     }
     resources {
       srcDirs += project(':integrations:java:iceberg-1.2:openhouse-java-runtime').sourceSets.main.resources.srcDirs
@@ -48,6 +59,7 @@ dependencies {
   implementation("org.apache.hadoop:hadoop-client:" + hadoopVersion) {
     exclude group: 'junit', module: 'junit'
     exclude group: 'javax', module: 'servlet-api'
+    exclude group: 'org.mortbay.jetty', module: 'servlet-api' // see openhouse.hadoop-conventions.gradle
     exclude group: "io.netty"
     exclude group: 'com.zaxxer', module: 'HikariCP-java7'
     exclude group: 'org.apache.commons', module: 'commons-lang3'

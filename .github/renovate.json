@@ -1,0 +1,38 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "enabledManagers": [
+    "custom.regex"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": [
+        "^build\\.gradle$"
+      ],
+      "matchStrings": [
+        "iceberg_1_[25]_version\\s*=\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "com.linkedin.iceberg:iceberg-core",
+      "datasourceTemplate": "maven"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchPackageNames": [
+        "com.linkedin.iceberg:iceberg-core"
+      ],
+      "matchCurrentVersion": "/^1\\.2\\./",
+      "allowedVersions": "/^1\\.2\\./"
+    },
+    {
+      "matchPackageNames": [
+        "com.linkedin.iceberg:iceberg-core"
+      ],
+      "matchCurrentVersion": "/^1\\.5\\./",
+      "allowedVersions": "/^1\\.5\\./"
+    }
+  ]
+}

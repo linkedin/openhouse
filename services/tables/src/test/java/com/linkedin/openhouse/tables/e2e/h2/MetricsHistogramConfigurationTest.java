@@ -11,12 +11,14 @@ import io.micrometer.core.instrument.distribution.HistogramSnapshot;
 import io.micrometer.prometheus.PrometheusMeterRegistry;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.autoconfigure.actuate.metrics.AutoConfigureMetrics;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.env.Environment;
 import org.springframework.test.context.ContextConfiguration;
 
 /**
@@ -62,6 +64,28 @@ public class MetricsHistogramConfigurationTest {
 
   @Value("${management.metrics.distribution.percentiles-histogram.all:false}")
   private boolean percentilesHistogramEnabled;
+
+  @Autowired private Environment environment;
+
+  @Test
+  void testViewTimersHave600SecondHistograms() {
+    List<String> suffixes =
+        Arrays.asList("commit_latency", "metadata_retrieval_latency", "metadata_update_latency");
+    for (String suffix : suffixes) {
+      String name = "catalog_view_" + suffix;
+      String property = "management.metrics.distribution.maximum-expected-value." + name;
+      assertEquals("600s", environment.getProperty(property));
+      assertTimerHistogramExtendsTo600s(name, property);
+    }
+  }
+
+  /** The engine no longer loads views, so no histogram bound may outlive its retired timer. */
+  @Test
+  void testRetiredViewLoadTimerHasNoHistogramConfiguration() {
+    assertNull(
+        environment.getProperty(
+            "management.metrics.distribution.maximum-expected-value.catalog_view_load_latency"));
+  }
 
   /**
    * Tests that the application.properties has the correct histogram configuration for

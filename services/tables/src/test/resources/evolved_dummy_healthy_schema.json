@@ -41,8 +41,7 @@
       "id": 7,
       "required": false,
       "name": "favorite_number",
-      "type": "int",
-      "initial-default": null
+      "type": "int"
     }
   ]
 }

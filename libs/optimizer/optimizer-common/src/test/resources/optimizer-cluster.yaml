@@ -1,0 +1,17 @@
+cluster:
+  housetables:
+    database:
+      type: MYSQL
+      url: "jdbc:mysql://hts.invalid:3306/hts"
+      cert-based-auth:
+        enabled: false
+  optimizer:
+    database:
+      type: MYSQL
+      url: "jdbc:mysql://optimizer.invalid:3306/optimizer"
+      cert-based-auth:
+        enabled: true
+        client-cert-keystore-url: "file:/optimizer/client.jks"
+        client-cert-keystore-password: "${OPTIMIZER_TEST_KEYSTORE_PASSWORD}"
+        truststore-url: "file:/optimizer/trust.jks"
+        truststore-password: "${OPTIMIZER_TEST_TRUSTSTORE_PASSWORD}"

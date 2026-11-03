@@ -1,13 +1,16 @@
 package com.linkedin.openhouse.spark.sql.catalyst.parser.extensions
 
+import com.linkedin.openhouse.gen.tables.client.model.CreateUpdateLockRequestBody.ReasonEnum
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes
 import com.linkedin.openhouse.spark.sql.catalyst.parser.extensions.OpenhouseSqlExtensionsParser._
-import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement, UnSetReplicationPolicy}
+import com.linkedin.openhouse.spark.sql.catalyst.plans.logical.{GrantRevokeStatement, SetColumnPolicyTag, SetHistoryPolicy, SetReplicationPolicy, SetRetentionPolicy, SetSharingPolicy, ShowGrantsStatement, UnSetReplicationPolicy, UnlockTable}
 import com.linkedin.openhouse.spark.sql.catalyst.enums.GrantableResourceTypes.GrantableResourceType
 import com.linkedin.openhouse.gen.tables.client.model.TimePartitionSpec
 import org.antlr.v4.runtime.tree.ParseTree
 import org.apache.spark.sql.catalyst.parser.ParserInterface
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+
+import java.util.Locale
 
 import scala.collection.JavaConversions.iterableAsScalaIterable
 import scala.collection.JavaConverters._
@@ -50,6 +53,24 @@ class OpenhouseSqlExtensionsAstBuilder (delegate: ParserInterface) extends Openh
     val colName = ctx.columnNameClause().identifier().getText
     val policyTags = typedVisit[Seq[String]](ctx.columnPolicy())
     SetColumnPolicyTag(tableName, colName, policyTags)
+  }
+
+  override def visitUnlockTable(ctx: UnlockTableContext): UnlockTable = {
+    val tableName = typedVisit[Seq[String]](ctx.multipartIdentifier)
+    val reason = if (ctx.lockReason == null) {
+      ReasonEnum.LEGACY
+    } else {
+      val reasonText = ctx.lockReason.getText
+      val parsedReason = ReasonEnum.fromValue(reasonText.toUpperCase(Locale.ROOT))
+      if (parsedReason == null) {
+        throw new OpenhouseParseException(
+          s"Invalid lock reason '$reasonText'. Expected one of: ${ReasonEnum.values().map(_.getValue).mkString(", ")}.",
+          ctx.lockReason.start.getLine,
+          ctx.lockReason.start.getCharPositionInLine)
+      }
+      parsedReason
+    }
+    UnlockTable(tableName, reason)
   }
 
   override def visitGrantStatement(ctx: GrantStatementContext): GrantRevokeStatement = {

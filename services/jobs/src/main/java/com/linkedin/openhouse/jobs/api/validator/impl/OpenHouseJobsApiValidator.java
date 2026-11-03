@@ -9,8 +9,6 @@ import com.linkedin.openhouse.jobs.api.spec.request.CreateJobRequestBody;
 import com.linkedin.openhouse.jobs.api.validator.JobsApiValidator;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
-import javax.validation.ConstraintViolation;
 import javax.validation.Validator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -22,12 +20,7 @@ public class OpenHouseJobsApiValidator implements JobsApiValidator {
   @Override
   public void validateCreateJob(CreateJobRequestBody createJobRequestBody) {
     List<String> validationFailures = new ArrayList<>();
-    Set<ConstraintViolation<CreateJobRequestBody>> violationSet =
-        validator.validate(createJobRequestBody);
-    for (ConstraintViolation<CreateJobRequestBody> violation : violationSet) {
-      validationFailures.add(
-          String.format("%s : %s", ApiValidatorUtil.getField(violation), violation.getMessage()));
-    }
+    ApiValidatorUtil.collectViolations(validator, createJobRequestBody, validationFailures);
     if (!createJobRequestBody.getJobName().matches(ALPHA_NUM_UNDERSCORE_REGEX_HYPHEN_ALLOW)) {
       validationFailures.add(
           String.format(

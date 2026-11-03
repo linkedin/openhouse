@@ -74,6 +74,8 @@ shadowJar {
   append 'META-INF/spring.handlers'
   append 'META-INF/spring.schemas'
   append 'META-INF/spring.tooling'
+  // Spring Boot 2.7+ registers auto-configurations here, one file per jar; keep every jar's entries.
+  append 'META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports'
 
   dependencies {
 

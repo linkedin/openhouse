@@ -6,6 +6,7 @@ import com.linkedin.openhouse.tables.api.handler.TablesApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAclPoliciesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.api.spec.v0.response.GetAllTablesResponseBody;
@@ -16,6 +17,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.annotation.Secured;
@@ -70,6 +72,35 @@ public class TablesController {
   }
 
   @Operation(
+      summary = "Check if a Table exists in a Database",
+      description =
+          "Returns HTTP 200 if the Table identified by tableId exists in the database identified by "
+              + "databaseId, and HTTP 404 otherwise.",
+      tags = {"Table"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "200", description = "Table EXISTS: OK"),
+        @ApiResponse(responseCode = "401", description = "Table EXISTS: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "404", description = "Table EXISTS: NOT_FOUND")
+      })
+  @GetMapping(
+      value = {
+        "/v0/databases/{databaseId}/tables/{tableId}/exists",
+        "/v1/databases/{databaseId}/tables/{tableId}/exists"
+      },
+      produces = {"application/json"})
+  public ResponseEntity<Void> tableExists(
+      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
+      @Parameter(description = "Table ID", required = true) @PathVariable String tableId) {
+
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
+        tablesApiHandler.tableExists(databaseId, tableId);
+
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
       summary = "Search Tables in a Database",
       description =
           "Returns a list of Table resources present in a database. Only filter supported is 'database_id'.",
@@ -118,10 +149,19 @@ public class TablesController {
       @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
       @RequestParam(required = false, defaultValue = "0") int page,
       @RequestParam(required = false, defaultValue = "50") int size,
-      @RequestParam(required = false) String sortBy) {
+      @RequestParam(required = false) String sortBy,
+      @Parameter(
+              description =
+                  "Optional list of GetTableResponseBody field names to populate beyond the "
+                      + "identifiers (databaseId, tableId). Requires GET_TABLE_METADATA on the "
+                      + "database when set. Supported values: \"tableLocation\". Accepts "
+                      + "comma-separated (?fields=a,b) or repeated (?fields=a&fields=b) values.")
+          @RequestParam(name = "fields", required = false)
+          List<String> fields) {
 
     com.linkedin.openhouse.common.api.spec.ApiResponse<GetAllTablesResponseBody> apiResponse =
-        tablesApiHandler.searchTables(databaseId, page, size, sortBy);
+        tablesApiHandler.searchTables(
+            databaseId, page, size, sortBy, fields, extractAuthenticatedUserPrincipal());
 
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
@@ -408,6 +448,34 @@ public class TablesController {
       @Parameter(description = "Table ID", required = true) @PathVariable String tableId) {
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
         tablesApiHandler.deleteLock(databaseId, tableId, extractAuthenticatedUserPrincipal());
+    return new ResponseEntity<>(
+        apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
+  }
+
+  @Operation(
+      summary = "Delete a lock by reason",
+      description = "Requires existing LOCK_ADMIN authorization and a matching active lock reason.",
+      tags = {"Table"})
+  @ApiResponses(
+      value = {
+        @ApiResponse(responseCode = "204", description = "lock DELETE: NO_CONTENT"),
+        @ApiResponse(responseCode = "400", description = "lock DELETE: BAD_REQUEST"),
+        @ApiResponse(responseCode = "401", description = "lock DELETE: UNAUTHORIZED"),
+        @ApiResponse(responseCode = "403", description = "lock DELETE: FORBIDDEN"),
+        @ApiResponse(responseCode = "404", description = "lock DELETE: TABLE_NOT_FOUND"),
+        @ApiResponse(responseCode = "409", description = "lock DELETE: REASON_CONFLICT")
+      })
+  @DeleteMapping(
+      value = {"/v1/databases/{databaseId}/tables/{tableId}/lock/{reason}"},
+      produces = {"application/json"})
+  public ResponseEntity<Void> deleteLockByReason(
+      @Parameter(description = "Database ID", required = true) @PathVariable String databaseId,
+      @Parameter(description = "Table ID", required = true) @PathVariable String tableId,
+      @Parameter(description = "Expected lock reason", required = true) @PathVariable
+          LockReason reason) {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> apiResponse =
+        tablesApiHandler.deleteLock(
+            databaseId, tableId, reason, extractAuthenticatedUserPrincipal());
     return new ResponseEntity<>(
         apiResponse.getResponseBody(), apiResponse.getHttpHeaders(), apiResponse.getHttpStatus());
   }

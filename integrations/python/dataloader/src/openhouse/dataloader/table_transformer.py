@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 
+from openhouse.dataloader.filters import SqlTarget
 from openhouse.dataloader.table_identifier import TableIdentifier
 
 
@@ -13,11 +14,11 @@ class TableTransformer(ABC):
     projections and filters can reference them.
 
     Args:
-        dialect: The SQL dialect used by ``transform()`` (e.g. ``"spark"``).
+        dialect: The SQL flavor that ``transform()`` emits (e.g. ``SqlTarget.SPARK``).
     """
 
-    def __init__(self, dialect: str) -> None:
-        self.dialect: str = dialect
+    def __init__(self, dialect: SqlTarget) -> None:
+        self.dialect: SqlTarget = dialect
 
     @abstractmethod
     def transform(self, table: TableIdentifier, context: Mapping[str, str]) -> str | None:

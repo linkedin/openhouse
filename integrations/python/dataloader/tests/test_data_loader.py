@@ -15,9 +15,17 @@ from pyiceberg.types import DoubleType, LongType, NestedField, StringType
 from requests import ConnectionError as RequestsConnectionError
 from requests import HTTPError, Response, Timeout
 
-from openhouse.dataloader import DataLoaderContext, JvmConfig, OpenHouseDataLoader, __version__
+from openhouse.dataloader import (
+    DataLoaderContext,
+    JvmConfig,
+    OpenHouseAuthenticationError,
+    OpenHouseDataLoader,
+    OpenHouseHTTPError,
+    OpenHouseTransportError,
+    __version__,
+)
 from openhouse.dataloader.data_loader_split import DataLoaderSplit, to_sql_identifier
-from openhouse.dataloader.filters import col
+from openhouse.dataloader.filters import SqlTarget, col
 from openhouse.dataloader.table_transformer import TableTransformer
 from openhouse.dataloader.udf_registry import UDFRegistry
 
@@ -125,6 +133,18 @@ def test_table_properties_returns_metadata_properties(tmp_path):
     assert loader.table_properties["custom.key"] == "myvalue"
 
 
+def test_id_is_unique_per_loader_instance(tmp_path):
+    catalog = _make_real_catalog(tmp_path)
+
+    loader_a = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
+    loader_b = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
+
+    assert isinstance(loader_a.id, str)
+    assert loader_a.id.startswith("dataloader-")
+    assert loader_a.id == loader_a.id
+    assert loader_a.id != loader_b.id
+
+
 def test_snapshot_id_returns_current_snapshot_id(tmp_path):
     catalog = _make_real_catalog(tmp_path)
 
@@ -198,8 +218,10 @@ def _make_http_error(status_code: int) -> HTTPError:
         RequestsConnectionError("refused"),
         Timeout("timed out"),
         _make_http_error(503),
+        OpenHouseTransportError("connection reset", request_id="request-id"),
+        OpenHouseHTTPError("db", "tbl", status_code=503, response_body="unavailable", request_id="request-id"),
     ],
-    ids=["OSError", "ConnectionError", "Timeout", "5xx"],
+    ids=["OSError", "ConnectionError", "Timeout", "requests-5xx", "OpenHouseTransportError", "OpenHouse-5xx"],
 )
 def test_load_table_retries_on_transient_error(tmp_path, error):
     """load_table retries on transient errors and succeeds on the second attempt."""
@@ -224,6 +246,22 @@ def test_load_table_does_not_retry_on_4xx_http_error():
     with pytest.raises(HTTPError):
         list(loader)
 
+    catalog.load_table.assert_called_once()
+
+
+def test_load_table_does_not_retry_on_authentication_error():
+    """OpenHouse authentication failures are typed and not retried."""
+    catalog = MagicMock()
+    catalog.load_table.side_effect = OpenHouseAuthenticationError(
+        "db", "tbl", status_code=401, response_body="Authentication failed", request_id="request-id"
+    )
+
+    loader = OpenHouseDataLoader(catalog=catalog, database="db", table="tbl")
+
+    with pytest.raises(OpenHouseAuthenticationError) as exc_info:
+        list(loader)
+
+    assert exc_info.value.request_id == "request-id"
     catalog.load_table.assert_called_once()
 
 
@@ -334,7 +372,7 @@ class _NoneTransformer(TableTransformer):
     """Transformer that returns None (no transformation)."""
 
     def __init__(self):
-        super().__init__(dialect="datafusion")
+        super().__init__(dialect=SqlTarget.DATA_FUSION)
 
     def transform(self, table, context):
         return None
@@ -344,7 +382,7 @@ class _MaskingTransformer(TableTransformer):
     """Transformer that masks the name column."""
 
     def __init__(self):
-        super().__init__(dialect="datafusion")
+        super().__init__(dialect=SqlTarget.DATA_FUSION)
 
     def transform(self, table, context):
         return f"SELECT id, 'MASKED' as name, value FROM {to_sql_identifier(table)}"
@@ -431,7 +469,7 @@ class _SparkMaskingTransformer(TableTransformer):
     """Transformer using Spark SQL dialect."""
 
     def __init__(self):
-        super().__init__(dialect="spark")
+        super().__init__(dialect=SqlTarget.SPARK)
 
     def transform(self, table, context):
         return f"SELECT id, CAST('MASKED' AS STRING) AS name, value FROM {to_sql_identifier(table)}"
@@ -453,35 +491,13 @@ def test_iter_with_spark_dialect_transformer_transpiles(tmp_path):
     assert result.column("name").to_pylist() == ["MASKED", "MASKED", "MASKED"]
 
 
-def test_iter_with_invalid_dialect_raises(tmp_path):
-    """Unsupported dialect raises ValueError during iteration."""
-
-    class _BadDialectTransformer(TableTransformer):
-        def __init__(self):
-            super().__init__(dialect="not_a_real_dialect")
-
-        def transform(self, table, context):
-            return f"SELECT * FROM {to_sql_identifier(table)}"
-
-    catalog = _make_real_catalog(tmp_path)
-    loader = OpenHouseDataLoader(
-        catalog=catalog,
-        database="db",
-        table="tbl",
-        context=DataLoaderContext(table_transformer=_BadDialectTransformer()),
-    )
-
-    with pytest.raises(ValueError, match="Unsupported source dialect"):
-        _materialize(loader)
-
-
 def test_iter_with_transformer_and_special_char_database(tmp_path):
     """Transformer works when the database name contains special characters."""
     catalog = _make_real_catalog(tmp_path)
 
     class _QuotedMaskingTransformer(TableTransformer):
         def __init__(self):
-            super().__init__(dialect="datafusion")
+            super().__init__(dialect=SqlTarget.DATA_FUSION)
 
         def transform(self, table, context):
             return f"SELECT id, 'MASKED' as name, value FROM {to_sql_identifier(table)}"
@@ -652,7 +668,7 @@ class _FilteringTransformer(TableTransformer):
     """Transformer that has a WHERE clause filtering on status."""
 
     def __init__(self):
-        super().__init__(dialect="datafusion")
+        super().__init__(dialect=SqlTarget.DATA_FUSION)
 
     def transform(self, table, context):
         return f"SELECT id, name, value, status FROM {to_sql_identifier(table)} WHERE status = 'active'"
@@ -695,7 +711,7 @@ class _MaskingFilteringTransformer(TableTransformer):
     """Transformer that masks name and filters on value."""
 
     def __init__(self):
-        super().__init__(dialect="datafusion")
+        super().__init__(dialect=SqlTarget.DATA_FUSION)
 
     def transform(self, table, context):
         return f"SELECT id, 'MASKED' as name, value FROM {to_sql_identifier(table)} WHERE value > 1.5"
@@ -772,7 +788,7 @@ class _PassthroughTransformer(TableTransformer):
     """Transformer that selects all columns unchanged."""
 
     def __init__(self):
-        super().__init__(dialect="datafusion")
+        super().__init__(dialect=SqlTarget.DATA_FUSION)
 
     def transform(self, table, context):
         return f"SELECT id, name, value FROM {to_sql_identifier(table)}"
@@ -795,7 +811,7 @@ class _MixedCaseTransformer(TableTransformer):
     """Transformer that selects mixed-case columns."""
 
     def __init__(self):
-        super().__init__(dialect="datafusion")
+        super().__init__(dialect=SqlTarget.DATA_FUSION)
 
     def transform(self, table, context):
         return f'SELECT "purchaseAmount", "itemCount", "discountRate" FROM {to_sql_identifier(table)}'
@@ -966,7 +982,7 @@ class _NestedUDFTransformer(TableTransformer):
     """Nested subquery with UDF at two levels — triggers alias rewrite bug."""
 
     def __init__(self):
-        super().__init__(dialect="datafusion")
+        super().__init__(dialect=SqlTarget.DATA_FUSION)
 
     def transform(self, table, context):
         tbl = to_sql_identifier(table)
@@ -983,7 +999,7 @@ class _SelectStarUDFTransformer(TableTransformer):
     """SELECT * with UDF — triggers unquoted column bug after projection pushdown."""
 
     def __init__(self):
-        super().__init__(dialect="datafusion")
+        super().__init__(dialect=SqlTarget.DATA_FUSION)
 
     def transform(self, table, context):
         tbl = to_sql_identifier(table)
@@ -995,7 +1011,7 @@ class _ProjectionUDFTransformer(TableTransformer):
     """UDF in projection with inner SELECT * — triggers unquoted column bug in projection."""
 
     def __init__(self):
-        super().__init__(dialect="datafusion")
+        super().__init__(dialect=SqlTarget.DATA_FUSION)
 
     def transform(self, table, context):
         tbl = to_sql_identifier(table)

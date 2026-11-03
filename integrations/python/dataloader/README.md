@@ -52,6 +52,19 @@ filters = col("score").between(0.5, 1.0)
 filters = (col("age") >= 18) & (col("country").is_in(["US", "CA"])) & ~col("email").is_null()
 ```
 
+### Rendering a filter as SQL
+
+Use `to_sql()` to render a filter as a SQL boolean expression (a `WHERE`-clause
+predicate) for a given `SqlTarget` (`SPARK`, `TRINO`, or `DATA_FUSION`):
+
+```python
+from openhouse.dataloader import SqlTarget, col, to_sql
+
+to_sql(col("age") > 21)                                  # `age` > 21  (defaults to Spark)
+to_sql((col("country") == "US") & col("email").is_null(), SqlTarget.SPARK)
+# `country` = 'US' AND `email` IS NULL
+```
+
 ## Development
 
 ```bash

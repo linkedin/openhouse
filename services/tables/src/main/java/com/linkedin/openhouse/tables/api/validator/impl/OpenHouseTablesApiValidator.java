@@ -10,6 +10,8 @@ import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
 import com.linkedin.openhouse.tables.api.validator.TablesApiValidator;
 import com.linkedin.openhouse.tables.common.TableType;
 import java.util.ArrayDeque;
@@ -24,11 +26,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
-import javax.validation.ConstraintViolation;
 import javax.validation.Validator;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang.StringUtils;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SortOrder;
@@ -42,6 +43,13 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 public class OpenHouseTablesApiValidator implements TablesApiValidator {
+
+  /**
+   * Fields selectable via the v2 search {@code ?fields=} query param. Each entry must match a field
+   * name on {@link com.linkedin.openhouse.tables.api.spec.v0.response.GetTableResponseBody}.
+   */
+  private static final Set<String> SUPPORTED_SEARCH_FIELDS =
+      Collections.unmodifiableSet(new HashSet<>(Arrays.asList("tableLocation")));
 
   @Autowired private Validator validator;
 
@@ -73,27 +81,35 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
   }
 
   @Override
-  public void validateSearchTables(String databaseId, int page, int size, String sortBy) {
+  public void validateSearchTables(
+      String databaseId, int page, int size, String sortBy, List<String> fields) {
     List<String> validationFailures = new ArrayList<>();
     validateDatabaseId(databaseId, validationFailures);
     ApiValidatorUtil.validatePageable(page, size, sortBy, validationFailures);
+    if (fields != null && !fields.isEmpty()) {
+      List<String> unsupported =
+          fields.stream()
+              .filter(f -> !SUPPORTED_SEARCH_FIELDS.contains(f))
+              .collect(Collectors.toList());
+      if (!unsupported.isEmpty()) {
+        validationFailures.add(
+            String.format(
+                "fields : unsupported field(s) %s. Supported fields: %s",
+                unsupported, SUPPORTED_SEARCH_FIELDS));
+      }
+    }
     if (!validationFailures.isEmpty()) {
       throw new RequestValidationFailureException(validationFailures);
     }
   }
 
-  @SuppressWarnings("checkstyle:OperatorWrap")
   @Override
   public void validateCreateTable(
       String clusterId,
       String databaseId,
       CreateUpdateTableRequestBody createUpdateTableRequestBody) {
     List<String> validationFailures = new ArrayList<>();
-    for (ConstraintViolation<CreateUpdateTableRequestBody> violation :
-        validator.validate(createUpdateTableRequestBody)) {
-      validationFailures.add(
-          String.format("%s : %s", ApiValidatorUtil.getField(violation), violation.getMessage()));
-    }
+    ApiValidatorUtil.collectViolations(validator, createUpdateTableRequestBody, validationFailures);
     if (!createUpdateTableRequestBody.getClusterId().equals(clusterId)) {
       validationFailures.add(
           String.format(
@@ -128,6 +144,7 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
       throw new RequestValidationFailureException(validationFailures);
     }
     validatePolicies(createUpdateTableRequestBody);
+    validateFeatureCompatibility(createUpdateTableRequestBody, MUTUALLY_EXCLUSIVE_FEATURES);
     if (createUpdateTableRequestBody.getClustering() != null) {
       clusteringSpecValidator.validate(
           createUpdateTableRequestBody.getClustering(),
@@ -216,7 +233,82 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     }
   }
 
-  @SuppressWarnings("checkstyle:OperatorWrap")
+  private static final class Feature {
+    private final String label;
+    private final Predicate<CreateUpdateTableRequestBody> enabled;
+
+    private Feature(String label, Predicate<CreateUpdateTableRequestBody> enabled) {
+      this.label = label;
+      this.enabled = enabled;
+    }
+  }
+
+  private static final class IncompatibleFeatures {
+    private final Feature feature;
+    private final Feature conflictingFeature;
+
+    private IncompatibleFeatures(Feature feature, Feature conflictingFeature) {
+      this.feature = feature;
+      this.conflictingFeature = conflictingFeature;
+    }
+  }
+
+  private static boolean isTablePropertyEnabled(
+      CreateUpdateTableRequestBody requestBody, String propertyName) {
+    return Boolean.parseBoolean(requestBody.getTableProperties().get(propertyName));
+  }
+
+  private static final Feature RTAS_FEATURE =
+      new Feature(
+          String.format("RTAS ('%s=true')", CatalogConstants.RTAS_ENABLED_TABLE_PROP),
+          requestBody ->
+              isTablePropertyEnabled(requestBody, CatalogConstants.RTAS_ENABLED_TABLE_PROP));
+  private static final Feature WAP_FEATURE =
+      new Feature(
+          String.format("WAP ('%s=true')", CatalogConstants.WAP_ENABLED_TABLE_PROP),
+          requestBody ->
+              isTablePropertyEnabled(requestBody, CatalogConstants.WAP_ENABLED_TABLE_PROP));
+  private static final Feature REPLICATION_FEATURE =
+      new Feature(
+          "replication",
+          requestBody ->
+              Optional.ofNullable(requestBody.getPolicies())
+                  .map(Policies::getReplication)
+                  .map(Replication::getConfig)
+                  .filter(config -> !config.isEmpty())
+                  .isPresent());
+
+  private static final List<IncompatibleFeatures> MUTUALLY_EXCLUSIVE_FEATURES =
+      Arrays.asList(
+          new IncompatibleFeatures(RTAS_FEATURE, WAP_FEATURE),
+          new IncompatibleFeatures(RTAS_FEATURE, REPLICATION_FEATURE));
+
+  private void validateFeatureCompatibility(
+      CreateUpdateTableRequestBody requestBody, List<IncompatibleFeatures> incompatibleFeatures) {
+    if (isTablePropertyEnabled(
+        requestBody, CatalogConstants.FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP)) {
+      return;
+    }
+
+    incompatibleFeatures.stream()
+        .filter(
+            incompatibleFeature ->
+                incompatibleFeature.feature.enabled.test(requestBody)
+                    && incompatibleFeature.conflictingFeature.enabled.test(requestBody))
+        .findFirst()
+        .ifPresent(
+            incompatibleFeature -> {
+              throw new RequestValidationFailureException(
+                  String.format(
+                      "Table %s.%s cannot enable %s and %s together. "
+                          + "Disable either feature so only one remains enabled.",
+                      requestBody.getDatabaseId(),
+                      requestBody.getTableId(),
+                      incompatibleFeature.feature.label,
+                      incompatibleFeature.conflictingFeature.label));
+            });
+  }
+
   @Override
   public void validateUpdateTable(
       String clusterId,
@@ -224,11 +316,7 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
       String tableId,
       CreateUpdateTableRequestBody createUpdateTableRequestBody) {
     List<String> validationFailures = new ArrayList<>();
-    for (ConstraintViolation<CreateUpdateTableRequestBody> violation :
-        validator.validate(createUpdateTableRequestBody)) {
-      validationFailures.add(
-          String.format("%s : %s", ApiValidatorUtil.getField(violation), violation.getMessage()));
-    }
+    ApiValidatorUtil.collectViolations(validator, createUpdateTableRequestBody, validationFailures);
     if (!createUpdateTableRequestBody.getClusterId().equals(clusterId)) {
       validationFailures.add(
           String.format(
@@ -281,6 +369,7 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
       throw new RequestValidationFailureException(validationFailures);
     }
     validatePolicies(createUpdateTableRequestBody);
+    validateFeatureCompatibility(createUpdateTableRequestBody, MUTUALLY_EXCLUSIVE_FEATURES);
     if (createUpdateTableRequestBody.getClustering() != null) {
       clusteringSpecValidator.validate(
           createUpdateTableRequestBody.getClustering(),
@@ -317,7 +406,6 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
     }
   }
 
-  @SuppressWarnings("checkstyle:OperatorWrap")
   @Override
   public void validateUpdateAclPolicies(
       String databaseId,
@@ -325,11 +413,7 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
       UpdateAclPoliciesRequestBody updateAclPoliciesRequestBody) {
     List<String> validationFailures = new ArrayList<>();
 
-    for (ConstraintViolation<UpdateAclPoliciesRequestBody> violation :
-        validator.validate(updateAclPoliciesRequestBody)) {
-      validationFailures.add(
-          String.format("%s : %s", ApiValidatorUtil.getField(violation), violation.getMessage()));
-    }
+    ApiValidatorUtil.collectViolations(validator, updateAclPoliciesRequestBody, validationFailures);
     if (!validationFailures.isEmpty()) {
       throw new RequestValidationFailureException(validationFailures);
     }
@@ -504,22 +588,11 @@ public class OpenHouseTablesApiValidator implements TablesApiValidator {
   }
 
   private void validateDatabaseId(String databaseId, List<String> validationFailures) {
-    if (StringUtils.isEmpty(databaseId)) {
-      validationFailures.add("databaseId : Cannot be empty");
-    } else if (!databaseId.matches(ALPHA_NUM_UNDERSCORE_REGEX)) {
-      validationFailures.add(
-          String.format(
-              "databaseId : provided %s, %s", databaseId, ALPHA_NUM_UNDERSCORE_ERROR_MSG));
-    }
+    ApiValidatorUtil.validateIdentifier("databaseId", databaseId, validationFailures);
   }
 
   private void validateTableId(String tableId, List<String> validationFailures) {
-    if (StringUtils.isEmpty(tableId)) {
-      validationFailures.add("tableId : Cannot be empty");
-    } else if (!tableId.matches(ALPHA_NUM_UNDERSCORE_REGEX)) {
-      validationFailures.add(
-          String.format("tableId : provided %s, %s", tableId, ALPHA_NUM_UNDERSCORE_ERROR_MSG));
-    }
+    ApiValidatorUtil.validateIdentifier("tableId", tableId, validationFailures);
   }
 
   private void validateSortOrder(String sortOrder, String schema, List<String> validationFailures) {

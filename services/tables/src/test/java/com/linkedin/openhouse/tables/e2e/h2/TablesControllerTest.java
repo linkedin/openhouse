@@ -23,11 +23,14 @@ import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitial
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
+import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
+import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ClusteringColumn;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.History;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.PolicyTag;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
@@ -51,6 +54,7 @@ import io.micrometer.core.instrument.search.MeterNotFoundException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -62,6 +66,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.types.Types;
@@ -103,6 +108,8 @@ public class TablesControllerTest {
   @Autowired MockMvc mvc;
 
   @Autowired StorageManager storageManager;
+
+  @Autowired HouseTableRepository houseTablesRepository;
 
   @Captor private ArgumentCaptor<ServiceAuditEvent> argCaptorServiceAudit;
 
@@ -326,6 +333,55 @@ public class TablesControllerTest {
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
   }
 
+  /**
+   * A commit the max-ref-age rule rejects is a 400 with the rule's message and no cause, and the
+   * table keeps its committed value.
+   */
+  @Test
+  public void testMaxRefAgeRejectionIsBadRequest() throws Exception {
+    MvcResult mvcResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(
+            GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+    GetTableResponseBody update =
+        buildGetTableResponseBody(
+            mvcResult, GetTableResponseBody.builder().tableProperties(null).build());
+    String committed = update.getTableProperties().get(TableProperties.MAX_REF_AGE_MS);
+    update.getTableProperties().put(TableProperties.MAX_REF_AGE_MS, "0");
+    String tablePath =
+        String.format(
+            ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/%s",
+            update.getDatabaseId(),
+            update.getTableId());
+
+    mvc.perform(
+            MockMvcRequestBuilders.put(tablePath)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(buildCreateUpdateTableRequestBody(update).toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.error", is(equalTo(HttpStatus.BAD_REQUEST.getReasonPhrase()))))
+        .andExpect(
+            jsonPath(
+                "$.message",
+                is(
+                    equalTo(
+                        String.format(
+                            "Table property %s on table %s.%s must be a positive number of"
+                                + " milliseconds no greater than 604800000 (7 days).",
+                            TableProperties.MAX_REF_AGE_MS,
+                            update.getDatabaseId(),
+                            update.getTableId())))))
+        .andExpect(jsonPath("$.cause", is(equalTo("Not Available"))));
+    mvc.perform(MockMvcRequestBuilders.get(tablePath).accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath(
+                "$.tableProperties['" + TableProperties.MAX_REF_AGE_MS + "']",
+                is(equalTo(committed))));
+
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+  }
+
   @Test
   public void testTblPropsThruFeatureToggle() throws Exception {
     /**
@@ -395,6 +451,54 @@ public class TablesControllerTest {
                         + "/databases/not_found/tables/not_found")
                 .accept(MediaType.APPLICATION_JSON))
         .andExpect(status().isNotFound());
+  }
+
+  /** The user-visible half of the fix: a clean 409, not a commit-failed surprise. */
+  @Test
+  public void testCreateTableOverAViewIsAConflictNamingTheView() throws Exception {
+    String databaseId = GET_TABLE_RESPONSE_BODY.getDatabaseId();
+    String tableId = "held_by_a_view";
+    HouseTablePrimaryKey key =
+        HouseTablePrimaryKey.builder().databaseId(databaseId).tableId(tableId).build();
+    houseTablesRepository.saveView(
+        HouseTable.builder()
+            .databaseId(databaseId)
+            .tableId(tableId)
+            .tableLocation("/loc/" + tableId + "/00001-a.metadata.json")
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .storageType("local")
+            .build());
+    HouseTable before = houseTablesRepository.findEntityById(key).get();
+
+    try {
+      mvc.perform(
+              MockMvcRequestBuilders.post(
+                      String.format(
+                          ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                              + "/databases/%s/tables/",
+                          databaseId))
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(
+                      buildCreateUpdateTableRequestBody(
+                              GET_TABLE_RESPONSE_BODY.toBuilder().tableId(tableId).build())
+                          .toJson())
+                  .accept(MediaType.APPLICATION_JSON))
+          .andExpect(status().isConflict())
+          .andExpect(
+              jsonPath("$.status", is(equalToIgnoringCase(HttpStatus.CONFLICT.getReasonPhrase()))))
+          .andExpect(
+              jsonPath(
+                  "$.message",
+                  is(equalTo(String.format("VIEW %s.%s already exists", databaseId, tableId)))));
+
+      HouseTable after = houseTablesRepository.findEntityById(key).get();
+      Assertions.assertEquals("VIEW", after.getEntityType());
+      Assertions.assertEquals(before.getTableLocation(), after.getTableLocation());
+    } finally {
+      if (houseTablesRepository.findEntityById(key).isPresent()) {
+        houseTablesRepository.deleteById(key);
+      }
+    }
   }
 
   @Test
@@ -829,8 +933,13 @@ public class TablesControllerTest {
   @SneakyThrows
   @Test
   public void testStagedReplace() {
-    GetTableResponseBody stageReplaceTable =
+    // Enable RTAS and remove policy
+    GetTableResponseBody baseTable =
         TableModelConstants.buildGetTableResponseBodyWithDbTbl("d_sr", "t_sr");
+    Map<String, String> propsWithRtas = new HashMap<>(baseTable.getTableProperties());
+    propsWithRtas.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    GetTableResponseBody stageReplaceTable =
+        baseTable.toBuilder().tableProperties(propsWithRtas).policies(null).build();
 
     // Create a real table first
     MvcResult createResult =
@@ -902,6 +1011,180 @@ public class TablesControllerTest {
     Assertions.assertEquals(originalSchema, currentSchema);
 
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, stageReplaceTable);
+  }
+
+  @SneakyThrows
+  @Test
+  public void testStagedReplaceFailsWhenRtasDisabled() {
+    // Table created without enabling RTAS; replace is disabled by default.
+    GetTableResponseBody table =
+        TableModelConstants.buildGetTableResponseBodyWithDbTbl("d_sr_dis", "t_sr_dis");
+    MvcResult createResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(table, mvc, storageManager);
+    String originalTableLocation =
+        JsonPath.read(createResult.getResponse().getContentAsString(), "$.tableLocation");
+
+    // A stageReplace against a table without replaceEnabled should be rejected.
+    mvc.perform(
+            MockMvcRequestBuilders.post(
+                    String.format(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/",
+                        table.getDatabaseId()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    buildCreateUpdateTableRequestBody(table)
+                        .toBuilder()
+                        .baseTableVersion(originalTableLocation)
+                        .stageReplace(true)
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message", containsString("REPLACE TABLE AS SELECT is not enabled")));
+
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, table);
+  }
+
+  @SneakyThrows
+  @Test
+  public void testStagedReplaceFailsWhenRetentionIncompatibleWithNewSchema() {
+    // Table with RTAS enabled and a retention policy that relies on time-partitioning.
+    GetTableResponseBody baseTable =
+        TableModelConstants.buildGetTableResponseBodyWithDbTbl("d_sr_ret", "t_sr_ret");
+    Map<String, String> propsWithRtas = new HashMap<>(baseTable.getTableProperties());
+    propsWithRtas.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    GetTableResponseBody table =
+        baseTable
+            .toBuilder()
+            .tableProperties(propsWithRtas)
+            .policies(Policies.builder().retention(RETENTION_POLICY).build())
+            .build();
+    MvcResult createResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(table, mvc, storageManager);
+    String originalTableLocation =
+        JsonPath.read(createResult.getResponse().getContentAsString(), "$.tableLocation");
+
+    // A stageReplace that drops time-partitioning leaves the carried-over retention policy
+    // unsatisfiable. It must fail here, at CREATE TABLE time, rather than at commit time after the
+    // whole write has been done.
+    mvc.perform(
+            MockMvcRequestBuilders.post(
+                    String.format(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/",
+                        table.getDatabaseId()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    buildCreateUpdateTableRequestBody(table)
+                        .toBuilder()
+                        .baseTableVersion(originalTableLocation)
+                        .timePartitioning(null)
+                        .policies(null)
+                        .stageReplace(true)
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath(
+                "$.message",
+                containsString("retention policy is incompatible with the new schema")));
+
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, table);
+  }
+
+  @SneakyThrows
+  @Test
+  public void testReplaceWithWapEnabledIsRejected() {
+    // Enable RTAS and remove policy
+    GetTableResponseBody baseTable =
+        TableModelConstants.buildGetTableResponseBodyWithDbTbl("d_sr", "t_sr");
+    Map<String, String> props = new HashMap<>(baseTable.getTableProperties());
+    props.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    props.put(CatalogConstants.WAP_ENABLED_TABLE_PROP, "true");
+    props.put(CatalogConstants.FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP, "true");
+    GetTableResponseBody table =
+        baseTable.toBuilder().tableProperties(props).policies(null).build();
+    MvcResult createResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(table, mvc, storageManager);
+    String originalTableLocation =
+        JsonPath.read(createResult.getResponse().getContentAsString(), "$.tableLocation");
+
+    // A stageReplace whose resulting table enables WAP must be rejected.
+    mvc.perform(
+            MockMvcRequestBuilders.post(
+                    String.format(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/",
+                        table.getDatabaseId()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    buildCreateUpdateTableRequestBody(table)
+                        .toBuilder()
+                        .tableProperties(props)
+                        .baseTableVersion(originalTableLocation)
+                        .stageReplace(true)
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath("$.message", containsString("REPLACE TABLE AS SELECT cannot be performed")))
+        .andExpect(jsonPath("$.message", containsString("WAP")));
+
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, table);
+  }
+
+  @SneakyThrows
+  @Test
+  public void testReplaceWithReplicationEnabledIsRejected() {
+    // Enable RTAS
+    GetTableResponseBody baseTable =
+        TableModelConstants.buildGetTableResponseBodyWithDbTbl("d_sr", "t_sr");
+    Map<String, String> propsWithRtas = new HashMap<>(baseTable.getTableProperties());
+    propsWithRtas.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    propsWithRtas.put(
+        CatalogConstants.FEATURE_COMPATIBILITY_VALIDATION_DISABLED_TABLE_PROP, "true");
+    GetTableResponseBody table = baseTable.toBuilder().tableProperties(propsWithRtas).build();
+    MvcResult createResult =
+        RequestAndValidateHelper.createTableAndValidateResponse(table, mvc, storageManager);
+    String originalTableLocation =
+        JsonPath.read(createResult.getResponse().getContentAsString(), "$.tableLocation");
+
+    // A stageReplace whose resulting table enables replication must be rejected.
+    Policies policiesWithReplication =
+        table
+            .getPolicies()
+            .toBuilder()
+            .replication(
+                Replication.builder()
+                    .config(
+                        Collections.singletonList(
+                            ReplicationConfig.builder()
+                                .destination("CLUSTER1")
+                                .interval("12H")
+                                .build()))
+                    .build())
+            .build();
+    mvc.perform(
+            MockMvcRequestBuilders.post(
+                    String.format(
+                        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX + "/databases/%s/tables/",
+                        table.getDatabaseId()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    buildCreateUpdateTableRequestBody(table)
+                        .toBuilder()
+                        .policies(policiesWithReplication)
+                        .baseTableVersion(originalTableLocation)
+                        .stageReplace(true)
+                        .build()
+                        .toJson())
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(
+            jsonPath("$.message", containsString("REPLACE TABLE AS SELECT cannot be performed")))
+        .andExpect(jsonPath("$.message", containsString("replication")));
+
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, table);
   }
 
   @SneakyThrows
@@ -1024,6 +1307,48 @@ public class TablesControllerTest {
     for (int i = 0; i < 10; i++) {
       RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, tables.get(i));
     }
+  }
+
+  @Test
+  public void testSearchTablesPaginatedWithTableLocationField() throws Exception {
+    List<GetTableResponseBody> tables = new ArrayList<>();
+    for (int i = 0; i < 3; i++) {
+      GetTableResponseBody table = buildGetTableResponseBodyWithDbTbl("d1", "tloc" + i);
+      tables.add(table);
+      RequestAndValidateHelper.createTableAndValidateResponse(table, mvc, storageManager);
+    }
+
+    mvc.perform(
+            MockMvcRequestBuilders.post("/v2/databases/d1/tables/search")
+                .param("page", "0")
+                .param("size", "10")
+                .param("fields", "tableLocation")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+        .andExpect(jsonPath("$.pageResults.content", hasSize(3)))
+        .andExpect(jsonPath("$.pageResults.content[0].tableId", notNullValue()))
+        .andExpect(jsonPath("$.pageResults.content[0].databaseId", is("d1")))
+        .andExpect(jsonPath("$.pageResults.content[0].tableLocation", notNullValue()))
+        .andExpect(
+            jsonPath(
+                "$.pageResults.content[0].tableLocation",
+                org.hamcrest.Matchers.endsWith(".metadata.json")));
+
+    for (GetTableResponseBody t : tables) {
+      RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, t);
+    }
+  }
+
+  @Test
+  public void testSearchTablesPaginatedRejectsUnknownField() throws Exception {
+    mvc.perform(
+            MockMvcRequestBuilders.post("/v2/databases/d1/tables/search")
+                .param("fields", "schema")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message", containsString("schema")))
+        .andExpect(jsonPath("$.message", containsString("tableLocation")));
   }
 
   @Test
@@ -1455,6 +1780,112 @@ public class TablesControllerTest {
     Assertions.assertNotNull(updatedPolicies.get("lockState").get("creationTime"));
     RequestAndValidateHelper.deleteLockOnTableAndValidate(mvc, GET_TABLE_RESPONSE_BODY);
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+  }
+
+  @Test
+  public void systemOnlyLockRequiresSystemActionForTableReads() throws Exception {
+    RequestAndValidateHelper.createTableAndValidateResponse(
+        GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+    try {
+      String tablePath =
+          ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+              + "/databases/"
+              + GET_TABLE_RESPONSE_BODY.getDatabaseId()
+              + "/tables/"
+              + GET_TABLE_RESPONSE_BODY.getTableId();
+      mvc.perform(
+              MockMvcRequestBuilders.post(tablePath + "/lock")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content("{\"locked\":true,\"reason\":\"SYSTEM_ONLY\"}"))
+          .andExpect(status().isCreated());
+      mvc.perform(
+              MockMvcRequestBuilders.post(tablePath + "/lock")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content("{\"locked\":true,\"reason\":\"SYSTEM_ONLY\"}"))
+          .andExpect(status().isCreated());
+      mvc.perform(
+              MockMvcRequestBuilders.post(tablePath + "/lock")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content("{\"locked\":true}"))
+          .andExpect(status().isConflict())
+          .andExpect(jsonPath("$.message").value("Table d1.t1 already has a SYSTEM_ONLY lock."));
+      mvc.perform(MockMvcRequestBuilders.get(tablePath))
+          .andExpect(status().isLocked())
+          .andExpect(jsonPath("$.message", containsString("SYSTEM_ONLY")))
+          .andExpect(jsonPath("$.message", containsString("reason-targeted OpenHouse unlock")));
+      mvc.perform(MockMvcRequestBuilders.get(tablePath).header(HTTP_HEADER_ACTION_TYPE, "SYSTEM"))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.policies.lockState.reason").value("SYSTEM_ONLY"));
+      mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock"))
+          .andExpect(status().isConflict())
+          .andExpect(
+              jsonPath("$.message")
+                  .value("Table d1.t1 has a SYSTEM_ONLY lock. Remove it with reason SYSTEM_ONLY."));
+      mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock/UNKNOWN"))
+          .andExpect(status().isBadRequest())
+          .andExpect(content().string(""));
+      mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock/LEGACY"))
+          .andExpect(status().isConflict())
+          .andExpect(
+              jsonPath("$.message").value("Table d1.t1 has a SYSTEM_ONLY lock, not LEGACY."));
+      mvc.perform(MockMvcRequestBuilders.delete(tablePath + "/lock/SYSTEM_ONLY"))
+          .andExpect(status().isNoContent());
+      mvc.perform(MockMvcRequestBuilders.get(tablePath))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.policies.lockState").value(nullValue()));
+    } finally {
+      RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+    }
+  }
+
+  @Test
+  public void systemOnlyLockDoesNotBlockDrop() throws Exception {
+    RequestAndValidateHelper.createTableAndValidateResponse(
+        GET_TABLE_RESPONSE_BODY, mvc, storageManager);
+    String tablePath =
+        ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+            + "/databases/"
+            + GET_TABLE_RESPONSE_BODY.getDatabaseId()
+            + "/tables/"
+            + GET_TABLE_RESPONSE_BODY.getTableId();
+    mvc.perform(
+            MockMvcRequestBuilders.post(tablePath + "/lock")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"locked\":true,\"reason\":\"SYSTEM_ONLY\"}"))
+        .andExpect(status().isCreated());
+    RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+    mvc.perform(MockMvcRequestBuilders.get(tablePath).header(HTTP_HEADER_ACTION_TYPE, "SYSTEM"))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  public void inactiveLockStateHasNoDefaultReason() throws Exception {
+    RequestAndValidateHelper.createTableAndValidateResponse(
+        GET_TABLE_RESPONSE_BODY
+            .toBuilder()
+            .policies(
+                GET_TABLE_RESPONSE_BODY
+                    .getPolicies()
+                    .toBuilder()
+                    .lockState(LockState.builder().locked(false).build())
+                    .build())
+            .build(),
+        mvc,
+        storageManager);
+    try {
+      mvc.perform(
+              MockMvcRequestBuilders.get(
+                  CURRENT_MAJOR_VERSION_PREFIX
+                      + "/databases/"
+                      + GET_TABLE_RESPONSE_BODY.getDatabaseId()
+                      + "/tables/"
+                      + GET_TABLE_RESPONSE_BODY.getTableId()))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.policies.lockState.locked").value(false))
+          .andExpect(jsonPath("$.policies.lockState.reason").value(nullValue()));
+    } finally {
+      RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
+    }
   }
 
   @Test

@@ -9,12 +9,14 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableReques
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapperImpl;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.services.IcebergSnapshotsService;
+import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
 import java.util.Optional;
 import java.util.UUID;
@@ -44,6 +46,8 @@ public class IcebergSnapshotsServiceTest {
   @Autowired private TablesMapper tablesMapper;
 
   @MockBean private TableUUIDGenerator tableUUIDGenerator;
+
+  @MockBean private AuthorizationUtils authorizationUtils;
 
   private OpenHouseInternalRepository mockRepository;
 
@@ -169,8 +173,83 @@ public class IcebergSnapshotsServiceTest {
   }
 
   @Test
+  public void testReplaceCommitChecksUpdateTableMetadataPrivilege() {
+    final IcebergSnapshotsRequestBody base = TEST_ICEBERG_SNAPSHOTS_REQUEST_BODY;
+    final IcebergSnapshotsRequestBody requestBody =
+        IcebergSnapshotsRequestBody.builder()
+            .baseTableVersion(base.getBaseTableVersion())
+            .jsonSnapshots(base.getJsonSnapshots())
+            .snapshotRefs(base.getSnapshotRefs())
+            .createUpdateTableRequestBody(
+                base.getCreateUpdateTableRequestBody().toBuilder().replaceCommit(true).build())
+            .build();
+    final String databaseId = requestBody.getCreateUpdateTableRequestBody().getDatabaseId();
+    final String tableId = requestBody.getCreateUpdateTableRequestBody().getTableId();
+    final TableDtoPrimaryKey key =
+        TableDtoPrimaryKey.builder().databaseId(databaseId).tableId(tableId).build();
+    final TableDto tableDto =
+        tablesMapper.toTableDto(
+            TableDto.builder()
+                .clusterId(requestBody.getCreateUpdateTableRequestBody().getClusterId())
+                .databaseId(databaseId)
+                .tableId(tableId)
+                .tableLocation(requestBody.getBaseTableVersion())
+                .tableCreator(TEST_TABLE_CREATOR)
+                .build(),
+            requestBody);
+    Mockito.when(mockRepository.findById(key)).thenReturn(Optional.of(tableDto));
+    Mockito.when(mockRepository.save(Mockito.any(TableDto.class))).thenReturn(tableDto);
+
+    service.putIcebergSnapshots(databaseId, tableId, requestBody, TEST_TABLE_CREATOR);
+
+    Mockito.verify(authorizationUtils)
+        .checkTableWritePathPrivileges(
+            tableDto, TEST_TABLE_CREATOR, Privileges.UPDATE_TABLE_METADATA);
+  }
+
+  @Test
   public void testTableUpdatedForLockedTableThrowsException() {
     final IcebergSnapshotsRequestBody requestBody = TEST_ICEBERG_SNAPSHOTS_REQUEST_BODY_FOR_LOCKED;
+    final String dbId = requestBody.getCreateUpdateTableRequestBody().getDatabaseId();
+    final String tableId = requestBody.getCreateUpdateTableRequestBody().getTableId();
+    final TableDtoPrimaryKey key =
+        TableDtoPrimaryKey.builder().databaseId(dbId).tableId(tableId).build();
+    final TableDto tableDto =
+        tablesMapper.toTableDto(
+            TableDto.builder()
+                .clusterId(requestBody.getCreateUpdateTableRequestBody().getClusterId())
+                .databaseId(dbId)
+                .tableId(tableId)
+                .tableLocation(requestBody.getBaseTableVersion())
+                .policies(
+                    Policies.builder().lockState(LockState.builder().locked(true).build()).build())
+                .tableCreator(TEST_TABLE_CREATOR)
+                .build(),
+            requestBody);
+    Mockito.when(tableUUIDGenerator.generateUUID(Mockito.any(IcebergSnapshotsRequestBody.class)))
+        .thenReturn(UUID.randomUUID());
+    Mockito.when(mockRepository.findById(key)).thenReturn(Optional.of(tableDto));
+    Mockito.when(mockRepository.save(tableDtoArgumentCaptor.capture())).thenReturn(tableDto);
+
+    Assertions.assertThrows(
+        UnsupportedClientOperationException.class,
+        () -> service.putIcebergSnapshots(dbId, tableId, requestBody, null));
+  }
+
+  @Test
+  public void testReplaceCommitOnLockedTableThrowsException() {
+    // A CREATE OR REPLACE (RTAS) against a locked table must be rejected just like a normal write.
+    // Regression guard for the gap where the replace-commit path bypassed the table lock and could
+    // silently overwrite a locked table.
+    final IcebergSnapshotsRequestBody base = TEST_ICEBERG_SNAPSHOTS_REQUEST_BODY_FOR_LOCKED;
+    final IcebergSnapshotsRequestBody requestBody =
+        IcebergSnapshotsRequestBody.builder()
+            .baseTableVersion(base.getBaseTableVersion())
+            .jsonSnapshots(base.getJsonSnapshots())
+            .snapshotRefs(base.getSnapshotRefs())
+            .createUpdateTableRequestBody(
+                base.getCreateUpdateTableRequestBody().toBuilder().replaceCommit(true).build())
+            .build();
     final String dbId = requestBody.getCreateUpdateTableRequestBody().getDatabaseId();
     final String tableId = requestBody.getCreateUpdateTableRequestBody().getTableId();
     final TableDtoPrimaryKey key =

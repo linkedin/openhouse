@@ -131,11 +131,4 @@ public class OpenHouseSparkITest {
         catalogProperties,
         spark.sparkContext().hadoopConfiguration());
   }
-
-  /**
-   * Getting rid of "file:" part if needed for ease of comparison of tableLocation / tableVersion
-   */
-  protected String stripPathScheme(String path) {
-    return path.startsWith("file:") ? path.split("file:")[1] : path;
-  }
 }
