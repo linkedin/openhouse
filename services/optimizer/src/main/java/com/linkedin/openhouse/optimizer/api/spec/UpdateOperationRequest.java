@@ -44,4 +44,11 @@ public class UpdateOperationRequest {
 
   /** Debug echo: operation type. */
   private OperationType operationType;
+
+  /**
+   * Why the operation failed ({@code ExceptionClass: message}), reported by the executor.
+   * Null/ignored for {@code SUCCESS}. A temporary debugging aid so a failing table can be diagnosed
+   * without pulling Spark executor logs; bounded to the column length (truncated server-side).
+   */
+  private String failureReason;
 }
