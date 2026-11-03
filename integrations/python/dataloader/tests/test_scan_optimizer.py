@@ -366,3 +366,33 @@ def test_udf_in_projection_with_select_star_projects_needed_columns():
     )
     assert plan.source_columns == ["memberId", "policyField", "unknownField"]
     assert isinstance(plan.row_filter, AlwaysTrue)
+
+
+# --- Table identifier casing ---
+
+
+@pytest.mark.parametrize("sql_table", ["myTable", "mytable", "MYTABLE"])
+def test_table_reference_case_differing_from_requested_identifier(sql_table):
+    """View SQL may reference the table with different casing than the requested identifier."""
+    sql = f'SELECT "a", "b" FROM (SELECT * FROM "myDb"."{sql_table}") AS _t'
+
+    plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b", "c"])
+
+    assert plan.source_columns == ["a", "b"]
+    assert '"myDb"."myTable"' in plan.sql
+
+
+def test_table_reference_case_unquoted_view_sql():
+    sql = 'SELECT "a" FROM (SELECT * FROM mydb.mytable) AS _t'
+
+    plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])
+
+    assert plan.source_columns == ["a"]
+    assert '"myDb"."myTable"' in plan.sql
+
+
+def test_different_table_with_similar_name_is_still_rejected():
+    sql = 'SELECT "a" FROM (SELECT * FROM "myDb"."myTable_other") AS _t'
+
+    with pytest.raises(sqlglot.errors.OptimizeError):
+        _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])

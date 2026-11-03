@@ -76,6 +76,7 @@ def optimize_scan(sql: str, dialect: str, *, database: str, table: str, column_n
     # Type is arbitrary — qualify only uses column names to expand SELECT *, not types.
     schema = {database: {table: {c: "VARCHAR" for c in column_names}}}
     ast = sqlglot.parse_one(sql, dialect=dialect)
+    _match_table_case(ast, database, table)
     ast = qualify.qualify(ast, dialect=dialect, schema=schema)
     ast = pushdown_predicates.pushdown_predicates(ast, dialect=dialect)
     ast = pushdown_projections.pushdown_projections(ast, dialect=dialect)
@@ -96,6 +97,21 @@ def optimize_scan(sql: str, dialect: str, *, database: str, table: str, column_n
         source_columns=sorted(source_columns),
         row_filter=row_filter,
     )
+
+
+def _match_table_case(ast: exp.Expression, database: str, table: str) -> None:
+    """Rewrite references to the scanned table so they use the casing of the requested identifier.
+
+    View SQL can reference the table with different casing than the identifier it was requested under (for example
+    Hive Metastore stores view text with lower-cased names). The qualify schema and the table registered for query
+    execution are keyed by the requested identifier, so a differently-cased reference would leave ``SELECT *``
+    unexpanded and make projected columns unresolvable.
+    """
+    for table_node in ast.find_all(exp.Table):
+        if table_node.db.lower() != database.lower() or table_node.name.lower() != table.lower():
+            continue
+        table_node.this.set("this", table)
+        table_node.args["db"].set("this", database)
 
 
 def _find_single_table(ast: exp.Expression, original_sql: str) -> exp.Table:
