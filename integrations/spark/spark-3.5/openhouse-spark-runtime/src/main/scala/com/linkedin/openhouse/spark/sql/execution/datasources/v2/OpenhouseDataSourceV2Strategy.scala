@@ -13,8 +13,8 @@ import scala.collection.JavaConverters._
 /* Strategy to convert a logical plan to physical plans */
 case class OpenhouseDataSourceV2Strategy(spark: SparkSession) extends Strategy with PredicateHelper {
   override def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
-    case SetRetentionPolicy(CatalogAndIdentifierExtractor(catalog, ident), granularity, count, colName, colPattern) =>
-      SetRetentionPolicyExec(catalog, ident, granularity, count, colName, colPattern) :: Nil
+    case SetRetentionPolicy(CatalogAndIdentifierExtractor(catalog, ident), granularity, count, colName, colPattern, timeZone) =>
+      SetRetentionPolicyExec(catalog, ident, granularity, count, colName, colPattern, timeZone) :: Nil
     case SetReplicationPolicy(CatalogAndIdentifierExtractor(catalog, ident), replicationPolicies) =>
       SetReplicationPolicyExec(catalog, ident, replicationPolicies) :: Nil
     case UnSetReplicationPolicy(CatalogAndIdentifierExtractor(catalog, ident), replicationPolicies) =>
