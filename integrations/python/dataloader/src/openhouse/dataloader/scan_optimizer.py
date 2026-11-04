@@ -107,11 +107,29 @@ def _match_table_case(ast: exp.Expression, database: str, table: str) -> None:
     execution are keyed by the requested identifier, so a differently-cased reference would leave ``SELECT *``
     unexpanded and make projected columns unresolvable.
     """
-    for table_node in ast.find_all(exp.Table):
+    for table_node in list(ast.find_all(exp.Table)):
         if table_node.db.lower() != database.lower() or table_node.name.lower() != table.lower():
             continue
+        # Without an explicit alias the table name is the implicit alias, so qualifiers that point at it
+        # (``t.col``, ``db.t.col``, ``t.*``) must be rebound together with the table itself.
+        rebind = not table_node.alias
         table_node.this.set("this", table)
         table_node.args["db"].set("this", database)
+        if rebind:
+            _rebind_qualifiers(ast, database, table)
+
+
+def _rebind_qualifiers(ast: exp.Expression, database: str, table: str) -> None:
+    for column in ast.find_all(exp.Column):
+        qualifier = column.args.get("table")
+        if qualifier is None or qualifier.name.lower() != table.lower():
+            continue
+        db_qualifier = column.args.get("db")
+        if db_qualifier is not None and db_qualifier.name.lower() != database.lower():
+            continue
+        qualifier.set("this", table)
+        if db_qualifier is not None:
+            db_qualifier.set("this", database)
 
 
 def _find_single_table(ast: exp.Expression, original_sql: str) -> exp.Table:

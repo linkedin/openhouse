@@ -422,3 +422,38 @@ def test_different_table_with_similar_name_is_still_rejected():
 
     with pytest.raises(sqlglot.errors.OptimizeError):
         _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])
+
+
+@pytest.mark.parametrize(
+    "inner",
+    [
+        "SELECT mytable.a, mytable.b FROM mydb.mytable",
+        "SELECT mydb.mytable.a, mydb.mytable.b FROM mydb.mytable",
+        "SELECT mytable.* FROM mydb.mytable",
+        'SELECT "mytable"."a", "mytable"."b" FROM "mydb"."mytable"',
+    ],
+)
+def test_table_reference_case_rebinds_qualifiers(inner):
+    sql = f'SELECT "a", "b" FROM ({inner}) AS _t'
+
+    plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b", "c"])
+
+    assert plan.source_columns == ["a", "b"]
+    assert '"myDb"."myTable"' in plan.sql
+    assert "mytable" not in plan.sql
+
+
+def test_table_reference_case_preserves_explicit_alias():
+    sql = 'SELECT "a" FROM (SELECT x.a FROM mydb.mytable AS x) AS _t'
+
+    plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])
+
+    assert plan.source_columns == ["a"]
+    assert '"myDb"."myTable" AS "x"' in plan.sql
+
+
+def test_table_reference_case_does_not_rebind_other_database_qualifier():
+    sql = 'SELECT "b" FROM (SELECT otherdb.mytable.a AS b FROM mydb.mytable) AS _t'
+
+    with pytest.raises(sqlglot.errors.OptimizeError):
+        _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])
