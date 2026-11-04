@@ -100,6 +100,10 @@ public class ClusterProperties {
   @Value("${cluster.tables.allowed-client-name-values:}")
   private List<String> allowedClientNameValues;
 
+  /** Per-database live-table ceiling. Non-positive values disable the create-time quota. */
+  @Value("${cluster.tables.max-tables-per-database:0}")
+  private long maxTablesPerDatabase;
+
   /**
    * View SQL dialects this deployment accepts on the /v1 views API. A representation, and the
    * source dialect naming one, is rejected unless its dialect is listed here. Defaults to Spark
