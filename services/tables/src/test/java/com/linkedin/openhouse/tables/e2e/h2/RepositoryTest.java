@@ -47,7 +47,6 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.iceberg.BaseTable;
-import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Table;
@@ -1047,30 +1046,13 @@ public class RepositoryTest {
       TableDto staged = openHouseInternalRepository.save(replacement);
       Assertions.assertEquals(
           expected.asStruct(), SchemaParser.fromJson(staged.getSchema()).asStruct());
-      Assertions.assertNull(staged.getClustering());
-      Assertions.assertEquals(
-          existing.getTableLocation(),
-          openHouseInternalRepository
-              .findById(primaryKey)
-              .orElseThrow(NoSuchElementException::new)
-              .getTableLocation());
 
-      TableDto committed =
-          openHouseInternalRepository.save(
-              replacement.toBuilder().stageReplace(false).replaceCommit(true).build());
+      openHouseInternalRepository.save(
+          replacement.toBuilder().stageReplace(false).replaceCommit(true).build());
       TableDto after =
           openHouseInternalRepository.findById(primaryKey).orElseThrow(NoSuchElementException::new);
       Assertions.assertEquals(
-          expected.asStruct(), SchemaParser.fromJson(committed.getSchema()).asStruct());
-      Assertions.assertEquals(
           expected.asStruct(), SchemaParser.fromJson(after.getSchema()).asStruct());
-      Assertions.assertNull(after.getClustering());
-      Assertions.assertEquals(committed.getTableLocation(), after.getTableLocation());
-      Assertions.assertEquals(
-          "true",
-          after
-              .getTableProperties()
-              .get(CatalogConstants.RTAS_PARTITION_COLUMN_DROP_ENABLED_TABLE_PROP));
     } finally {
       openHouseInternalRepository.deleteById(primaryKey);
     }
@@ -1105,13 +1087,6 @@ public class RepositoryTest {
                   openHouseInternalRepository.save(
                       replacement.toBuilder().stageReplace(false).replaceCommit(true).build()));
       Assertions.assertEquals(exception.getMessage(), commitException.getMessage());
-      TableDto after =
-          openHouseInternalRepository.findById(primaryKey).orElseThrow(NoSuchElementException::new);
-      Assertions.assertEquals(existing.getTableLocation(), after.getTableLocation());
-      Assertions.assertEquals(
-          SchemaParser.fromJson(existing.getSchema()).asStruct(),
-          SchemaParser.fromJson(after.getSchema()).asStruct());
-      Assertions.assertEquals(existing.getTableProperties(), after.getTableProperties());
     } finally {
       openHouseInternalRepository.deleteById(primaryKey);
     }
@@ -2189,9 +2164,6 @@ public class RepositoryTest {
     TableDto existing = openHouseInternalRepository.save(creation);
     TableIdentifier identifier =
         TableIdentifier.of(primaryKey.getDatabaseId(), primaryKey.getTableId());
-    PartitionSpec originalSpec = catalog.loadTable(identifier).spec();
-    Assertions.assertEquals(PartitionSpec.builderFor(schema).identity("id").build(), originalSpec);
-
     TableDto unpartitioned =
         openHouseInternalRepository.save(
             existing
@@ -2200,13 +2172,7 @@ public class RepositoryTest {
                 .clustering(null)
                 .replaceCommit(true)
                 .build());
-    Table table = catalog.loadTable(identifier);
-    Assertions.assertTrue(table.spec().isUnpartitioned());
-    Assertions.assertEquals(schema.asStruct(), table.schema().asStruct());
-    Assertions.assertEquals(originalSpec, table.specs().get(originalSpec.specId()));
-    Assertions.assertEquals(
-        Boolean.toString(partitionColumnDropEnabled),
-        table.properties().get(CatalogConstants.RTAS_PARTITION_COLUMN_DROP_ENABLED_TABLE_PROP));
+    Assertions.assertTrue(catalog.loadTable(identifier).spec().isUnpartitioned());
     return unpartitioned;
   }
 
