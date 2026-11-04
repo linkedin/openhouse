@@ -63,7 +63,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
-import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
@@ -1029,112 +1028,90 @@ public class RepositoryTest {
     Assertions.assertFalse(openHouseInternalRepository.existsById(pk));
   }
 
-  @ParameterizedTest
-  @CsvSource({"true, false", "false, false", "true, true", "false, true"})
-  public void testReplacePartitionColumnDropGate(boolean stageReplace, boolean removePartitioning) {
-    Schema schema =
-        new Schema(
-            required(1, "id", Types.LongType.get()), optional(2, "data", Types.StringType.get()));
-    Map<String, String> properties = new HashMap<>();
-    properties.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
-    properties.put(CatalogConstants.RTAS_PARTITION_COLUMN_DROP_ENABLED_TABLE_PROP, "false");
-    TableDto creation =
-        TABLE_DTO
-            .toBuilder()
-            .tableId("tblPartitionColumnDropGate")
-            .tableVersion(INITIAL_TABLE_VERSION)
-            .schema(SchemaParser.toJson(schema))
-            .timePartitioning(null)
-            .clustering(
-                Collections.singletonList(ClusteringColumn.builder().columnName("id").build()))
-            .sortOrder(null)
-            .policies(null)
-            .tableProperties(properties)
-            .build();
+  @Test
+  public void testReplacePartitionColumnDropEnabledAllowsReplacement() {
     TableDtoPrimaryKey primaryKey =
-        TableDtoPrimaryKey.builder()
-            .databaseId(creation.getDatabaseId())
-            .tableId(creation.getTableId())
-            .build();
-    TableIdentifier identifier =
-        TableIdentifier.of(creation.getDatabaseId(), creation.getTableId());
-
+        getPrimaryKey(TABLE_DTO.toBuilder().tableId("tblPartitionColumnDropEnabled").build());
     try {
-      TableDto existing = openHouseInternalRepository.save(creation);
-      PartitionSpec originalSpec = catalog.loadTable(identifier).spec();
-      if (removePartitioning) {
-        existing =
-            openHouseInternalRepository.save(
-                existing
-                    .toBuilder()
-                    .tableVersion(existing.getTableLocation())
-                    .clustering(null)
-                    .replaceCommit(true)
-                    .build());
-      }
-      Table before = catalog.loadTable(identifier);
-      Assertions.assertEquals(removePartitioning, before.spec().isUnpartitioned());
-      Assertions.assertEquals(originalSpec, before.specs().get(originalSpec.specId()));
-
+      TableDto existing = createTableWithFormerPartitionColumn(primaryKey, true);
       TableDto replacement =
           existing
               .toBuilder()
               .tableVersion(existing.getTableLocation())
               .schema(SchemaParser.toJson(new Schema(optional(1, "data", Types.StringType.get()))))
-              .clustering(null)
-              .stageReplace(stageReplace)
-              .replaceCommit(!stageReplace)
+              .stageReplace(true)
+              .replaceCommit(false)
+              .build();
+      Schema expected = new Schema(optional(2, "data", Types.StringType.get()));
+
+      TableDto staged = openHouseInternalRepository.save(replacement);
+      Assertions.assertEquals(
+          expected.asStruct(), SchemaParser.fromJson(staged.getSchema()).asStruct());
+      Assertions.assertNull(staged.getClustering());
+      Assertions.assertEquals(
+          existing.getTableLocation(),
+          openHouseInternalRepository
+              .findById(primaryKey)
+              .orElseThrow(NoSuchElementException::new)
+              .getTableLocation());
+
+      TableDto committed =
+          openHouseInternalRepository.save(
+              replacement.toBuilder().stageReplace(false).replaceCommit(true).build());
+      TableDto after =
+          openHouseInternalRepository.findById(primaryKey).orElseThrow(NoSuchElementException::new);
+      Assertions.assertEquals(
+          expected.asStruct(), SchemaParser.fromJson(committed.getSchema()).asStruct());
+      Assertions.assertEquals(
+          expected.asStruct(), SchemaParser.fromJson(after.getSchema()).asStruct());
+      Assertions.assertNull(after.getClustering());
+      Assertions.assertEquals(committed.getTableLocation(), after.getTableLocation());
+      Assertions.assertEquals(
+          "true",
+          after
+              .getTableProperties()
+              .get(CatalogConstants.RTAS_PARTITION_COLUMN_DROP_ENABLED_TABLE_PROP));
+    } finally {
+      openHouseInternalRepository.deleteById(primaryKey);
+    }
+  }
+
+  @Test
+  public void testReplacePartitionColumnDropDisabledIsRejected() {
+    TableDtoPrimaryKey primaryKey =
+        getPrimaryKey(TABLE_DTO.toBuilder().tableId("tblPartitionColumnDropDisabled").build());
+    try {
+      TableDto existing = createTableWithFormerPartitionColumn(primaryKey, false);
+      TableDto replacement =
+          existing
+              .toBuilder()
+              .tableVersion(existing.getTableLocation())
+              .schema(SchemaParser.toJson(new Schema(optional(1, "data", Types.StringType.get()))))
+              .stageReplace(true)
+              .replaceCommit(false)
               .build();
       UnsupportedClientOperationException exception =
           Assertions.assertThrows(
               UnsupportedClientOperationException.class,
               () -> openHouseInternalRepository.save(replacement));
       Assertions.assertEquals(
-          "RTAS does not support dropping a partition column id. Only removing partitioning is allowed",
+          "RTAS does not support dropping a partition column [id]. Only removing partitioning is allowed",
           exception.getMessage());
 
-      Map<String, String> enabledProperties = new HashMap<>(existing.getTableProperties());
-      enabledProperties.put(CatalogConstants.RTAS_PARTITION_COLUMN_DROP_ENABLED_TABLE_PROP, "true");
-      UnsupportedClientOperationException requestOnlyException =
+      UnsupportedClientOperationException commitException =
           Assertions.assertThrows(
               UnsupportedClientOperationException.class,
               () ->
                   openHouseInternalRepository.save(
-                      replacement.toBuilder().tableProperties(enabledProperties).build()));
-      Assertions.assertEquals(exception.getMessage(), requestOnlyException.getMessage());
+                      replacement.toBuilder().stageReplace(false).replaceCommit(true).build()));
+      Assertions.assertEquals(exception.getMessage(), commitException.getMessage());
+      TableDto after =
+          openHouseInternalRepository.findById(primaryKey).orElseThrow(NoSuchElementException::new);
+      Assertions.assertEquals(existing.getTableLocation(), after.getTableLocation());
       Assertions.assertEquals(
-          existing.getTableLocation(),
-          openHouseInternalRepository.findById(primaryKey).get().getTableLocation());
-
-      TableDto enabled =
-          openHouseInternalRepository.save(
-              existing
-                  .toBuilder()
-                  .tableVersion(existing.getTableLocation())
-                  .tableProperties(enabledProperties)
-                  .stageReplace(false)
-                  .replaceCommit(false)
-                  .build());
-      Assertions.assertEquals(
-          "true",
-          enabled
-              .getTableProperties()
-              .get(CatalogConstants.RTAS_PARTITION_COLUMN_DROP_ENABLED_TABLE_PROP));
-      TableDto result =
-          openHouseInternalRepository.save(
-              replacement
-                  .toBuilder()
-                  .tableVersion(enabled.getTableLocation())
-                  .tableProperties(enabled.getTableProperties())
-                  .build());
-
-      Schema expected = new Schema(optional(2, "data", Types.StringType.get()));
-      Assertions.assertEquals(
-          expected.asStruct(), SchemaParser.fromJson(result.getSchema()).asStruct());
-      Assertions.assertNull(result.getClustering());
-      Assertions.assertEquals(
-          stageReplace ? schema.asStruct() : expected.asStruct(),
-          catalog.loadTable(identifier).schema().asStruct());
+          SchemaParser.fromJson(existing.getSchema()).asStruct(),
+          SchemaParser.fromJson(after.getSchema()).asStruct());
+      Assertions.assertEquals(existing.getTableProperties(), after.getTableProperties());
     } finally {
       openHouseInternalRepository.deleteById(primaryKey);
     }
@@ -2183,6 +2160,54 @@ public class RepositoryTest {
             .build();
     openHouseInternalRepository.deleteById(primaryKey);
     Assertions.assertFalse(openHouseInternalRepository.existsById(primaryKey));
+  }
+
+  private TableDto createTableWithFormerPartitionColumn(
+      TableDtoPrimaryKey primaryKey, boolean partitionColumnDropEnabled) {
+    Schema schema =
+        new Schema(
+            required(1, "id", Types.LongType.get()), optional(2, "data", Types.StringType.get()));
+    Map<String, String> properties = new HashMap<>();
+    properties.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    properties.put(
+        CatalogConstants.RTAS_PARTITION_COLUMN_DROP_ENABLED_TABLE_PROP,
+        Boolean.toString(partitionColumnDropEnabled));
+    TableDto creation =
+        TABLE_DTO
+            .toBuilder()
+            .databaseId(primaryKey.getDatabaseId())
+            .tableId(primaryKey.getTableId())
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .schema(SchemaParser.toJson(schema))
+            .timePartitioning(null)
+            .clustering(
+                Collections.singletonList(ClusteringColumn.builder().columnName("id").build()))
+            .sortOrder(null)
+            .policies(null)
+            .tableProperties(properties)
+            .build();
+    TableDto existing = openHouseInternalRepository.save(creation);
+    TableIdentifier identifier =
+        TableIdentifier.of(primaryKey.getDatabaseId(), primaryKey.getTableId());
+    PartitionSpec originalSpec = catalog.loadTable(identifier).spec();
+    Assertions.assertEquals(PartitionSpec.builderFor(schema).identity("id").build(), originalSpec);
+
+    TableDto unpartitioned =
+        openHouseInternalRepository.save(
+            existing
+                .toBuilder()
+                .tableVersion(existing.getTableLocation())
+                .clustering(null)
+                .replaceCommit(true)
+                .build());
+    Table table = catalog.loadTable(identifier);
+    Assertions.assertTrue(table.spec().isUnpartitioned());
+    Assertions.assertEquals(schema.asStruct(), table.schema().asStruct());
+    Assertions.assertEquals(originalSpec, table.specs().get(originalSpec.specId()));
+    Assertions.assertEquals(
+        Boolean.toString(partitionColumnDropEnabled),
+        table.properties().get(CatalogConstants.RTAS_PARTITION_COLUMN_DROP_ENABLED_TABLE_PROP));
+    return unpartitioned;
   }
 
   private TableDtoPrimaryKey getPrimaryKey(TableDto tableDto) {

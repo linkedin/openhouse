@@ -405,7 +405,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
               throw new UnsupportedClientOperationException(
                   UnsupportedClientOperationException.Operation.RTAS_DROP_PARTITION_COLUMN,
                   String.format(
-                      "RTAS does not support dropping a partition column %s. Only removing partitioning is allowed",
+                      "RTAS does not support dropping a partition column [%s]. Only removing partitioning is allowed",
                       columnName));
             });
   }

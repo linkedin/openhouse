@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.Arrays;
 import java.util.List;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -14,8 +15,10 @@ import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.BadRequestException;
+import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.relocated.com.google.common.collect.Iterables;
 import org.apache.iceberg.types.Types;
+import org.apache.spark.SparkException;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.RowFactory;
 import org.apache.spark.sql.SparkSession;
@@ -23,8 +26,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class RTASTest extends OpenHouseSparkITest {
@@ -125,55 +126,64 @@ public class RTASTest extends OpenHouseSparkITest {
     }
   }
 
-  @ParameterizedTest
-  @CsvSource({"false, false", "true, false", "true, true"})
-  public void testRTASFailsWhenDroppingPartitionColumn(
-      boolean removePartitioning, boolean enableGateInRequest) throws Exception {
+  @Test
+  public void testRTASPartitionColumnDropEnabledReachesIcebergValidation() throws Exception {
     try (SparkSession spark = getSparkSession()) {
       Catalog catalog = getOpenHouseCatalog(spark);
+      createTableWithFormerPartitionColumn(spark, catalog);
       spark.sql(
           String.format(
-              "CREATE TABLE %s USING iceberg PARTITIONED BY (id) "
-                  + "TBLPROPERTIES ('replace.enabled'='true') AS SELECT * FROM %s",
-              tableName, sourceName));
-      PartitionSpec originalSpec = catalog.loadTable(tableIdent).spec();
-      if (removePartitioning) {
-        spark.sql(
-            String.format(
-                "REPLACE TABLE %s USING iceberg AS SELECT * FROM %s", tableName, sourceName));
-      }
+              "ALTER TABLE %s SET TBLPROPERTIES ('replace.partition-column-drop.enabled'='true')",
+              tableName));
       Table before = catalog.loadTable(tableIdent);
-      assertEquals(removePartitioning, before.spec().isUnpartitioned());
-      assertEquals(originalSpec, before.specs().get(originalSpec.specId()));
+      assertEquals("true", before.properties().get("replace.partition-column-drop.enabled"));
 
-      String properties =
-          enableGateInRequest
-              ? "TBLPROPERTIES ('replace.partition-column-drop.enabled'='true') "
-              : "";
+      SparkException exception =
+          assertThrows(
+              SparkException.class,
+              () ->
+                  spark.sql(
+                      String.format(
+                          "REPLACE TABLE %s USING iceberg AS SELECT data FROM %s",
+                          tableName, sourceName)));
+      ValidationException cause =
+          assertInstanceOf(ValidationException.class, ExceptionUtils.getRootCause(exception));
+      assertEquals(
+          "Cannot find source column for partition field: 1000: id: identity(1)",
+          cause.getMessage());
+
+      assertTableUnchangedAfterFailedRtas(spark, catalog, before);
+    }
+  }
+
+  @Test
+  public void testRTASPartitionColumnDropDisabledIsRejected() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      Catalog catalog = getOpenHouseCatalog(spark);
+      createTableWithFormerPartitionColumn(spark, catalog);
+      spark.sql(
+          String.format(
+              "ALTER TABLE %s SET TBLPROPERTIES ('replace.partition-column-drop.enabled'='false')",
+              tableName));
+      Table before = catalog.loadTable(tableIdent);
+      assertEquals("false", before.properties().get("replace.partition-column-drop.enabled"));
+
       BadRequestException exception =
           assertThrows(
               BadRequestException.class,
               () ->
                   spark.sql(
                       String.format(
-                          "REPLACE TABLE %s USING iceberg %sAS SELECT data FROM %s",
-                          tableName, properties, sourceName)));
+                          "REPLACE TABLE %s USING iceberg AS SELECT data FROM %s",
+                          tableName, sourceName)));
       assertTrue(
           exception
               .getMessage()
               .contains(
-                  "RTAS does not support dropping a partition column id. Only removing partitioning is allowed"),
+                  "RTAS does not support dropping a partition column [id]. Only removing partitioning is allowed"),
           exception.getMessage());
 
-      Table after = catalog.loadTable(tableIdent);
-      assertEquals(before.schema().asStruct(), after.schema().asStruct());
-      assertEquals(before.spec(), after.spec());
-      assertEquals(before.currentSnapshot().snapshotId(), after.currentSnapshot().snapshotId());
-      assertEquals(before.properties(), after.properties());
-      assertEquals(
-          Arrays.asList(
-              RowFactory.create(1L, "a"), RowFactory.create(2L, "b"), RowFactory.create(3L, "c")),
-          spark.sql(String.format("SELECT * FROM %s ORDER BY id", tableName)).collectAsList());
+      assertTableUnchangedAfterFailedRtas(spark, catalog, before);
     }
   }
 
@@ -446,5 +456,37 @@ public class RTASTest extends OpenHouseSparkITest {
       spark.sql(String.format("REFRESH TABLE %s", tableName));
       assertEquals(6, spark.sql(String.format("SELECT * FROM %s", tableName)).count());
     }
+  }
+
+  private static void createTableWithFormerPartitionColumn(SparkSession spark, Catalog catalog) {
+    spark.sql(
+        String.format(
+            "CREATE TABLE %s USING iceberg PARTITIONED BY (id) "
+                + "TBLPROPERTIES ('replace.enabled'='true') AS SELECT * FROM %s",
+            tableName, sourceName));
+    Table original = catalog.loadTable(tableIdent);
+    PartitionSpec originalSpec = original.spec();
+    assertEquals(PartitionSpec.builderFor(original.schema()).identity("id").build(), originalSpec);
+
+    // OpenHouse does not support ALTER DROP PARTITION FIELD; RTAS removes only the partitioning.
+    spark.sql(
+        String.format("REPLACE TABLE %s USING iceberg AS SELECT * FROM %s", tableName, sourceName));
+    Table unpartitioned = catalog.loadTable(tableIdent);
+    assertTrue(unpartitioned.spec().isUnpartitioned());
+    assertEquals(original.schema().asStruct(), unpartitioned.schema().asStruct());
+    assertEquals(originalSpec, unpartitioned.specs().get(originalSpec.specId()));
+  }
+
+  private static void assertTableUnchangedAfterFailedRtas(
+      SparkSession spark, Catalog catalog, Table before) {
+    Table after = catalog.loadTable(tableIdent);
+    assertEquals(before.schema().asStruct(), after.schema().asStruct());
+    assertEquals(before.spec(), after.spec());
+    assertEquals(before.currentSnapshot().snapshotId(), after.currentSnapshot().snapshotId());
+    assertEquals(before.properties(), after.properties());
+    assertEquals(
+        Arrays.asList(
+            RowFactory.create(1L, "a"), RowFactory.create(2L, "b"), RowFactory.create(3L, "c")),
+        spark.sql(String.format("SELECT * FROM %s ORDER BY id", tableName)).collectAsList());
   }
 }

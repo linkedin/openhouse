@@ -109,9 +109,7 @@ public class CreateUpdateTableRequestBody {
       defaultValue = "false",
       description =
           "Boolean that determines replacing an existing table in a staged manner. "
-              + "When true, normal schema and partition evolution checks are bypassed. "
-              + "Dropping current or historical partition source columns requires "
-              + "replace.partition-column-drop.enabled=true on the existing table.",
+              + "When true, schema and partition evolution checks are bypassed.",
       example = "false")
   @Builder.Default
   private boolean stageReplace = false;
@@ -120,8 +118,7 @@ public class CreateUpdateTableRequestBody {
       defaultValue = "false",
       description =
           "Boolean that determines committing a previously staged replace. "
-              + "When true, the table is saved as a new table without requiring INITIAL_TABLE_VERSION. "
-              + "The same RTAS eligibility and partition source column checks apply as for stageReplace.",
+              + "When true, the table is saved as a new table without requiring INITIAL_TABLE_VERSION.",
       example = "false")
   @Builder.Default
   private boolean replaceCommit = false;
