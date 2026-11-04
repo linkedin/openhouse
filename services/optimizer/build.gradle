@@ -9,8 +9,8 @@ plugins {
 }
 
 // Port allocation: tables 8000, housetables 8001, jobs 8002, optimizer 8003.
-// H2 overrides let the Spring context finish startup so springdoc can extract the spec. Flyway stays
-// off: the migrations are MySQL's.
+// H2 overrides let the Spring context finish startup so springdoc can extract the spec. Schema
+// migration and validation stay off: this spec-only database has no tables.
 openApi {
   customBootRun {
     args = [
@@ -21,6 +21,7 @@ openApi {
       "--spring.datasource.username=sa",
       "--spring.datasource.password=",
       "--spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect",
+      "--spring.jpa.hibernate.ddl-auto=none",
       "--spring.flyway.enabled=false"
     ]
   }
