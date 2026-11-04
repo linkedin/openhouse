@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.linkedin.openhouse.common.exception.UnprocessableEntityException;
+import com.linkedin.openhouse.common.exception.TableCountLimitExceededException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -97,9 +97,9 @@ public class TableCountLimitTest {
     String db = newDatabase("at_limit");
     createTables(db, LIMIT);
 
-    UnprocessableEntityException e =
+    TableCountLimitExceededException e =
         assertThrows(
-            UnprocessableEntityException.class,
+            TableCountLimitExceededException.class,
             () -> openHouseInternalRepository.save(dto(db, "t_over", false)));
 
     assertTrue(e.getMessage().contains(db), e.getMessage());
@@ -123,7 +123,7 @@ public class TableCountLimitTest {
     assertEquals(LIMIT, liveTableCount(db));
 
     assertThrows(
-        UnprocessableEntityException.class,
+        TableCountLimitExceededException.class,
         () -> openHouseInternalRepository.restoreTable(softKey));
     assertFalse(openHouseInternalRepository.existsById(key(db, restored)));
     assertTrue(HouseTablesH2Repository.softDeletedTables.containsKey(softKey));
@@ -141,7 +141,7 @@ public class TableCountLimitTest {
     TableDto staged = STAGED_TABLE_DTO.toBuilder().databaseId(db).tableId("t_staged").build();
 
     assertThrows(
-        UnprocessableEntityException.class, () -> openHouseInternalRepository.save(staged));
+        TableCountLimitExceededException.class, () -> openHouseInternalRepository.save(staged));
     assertEquals(LIMIT, liveTableCount(db));
   }
 
@@ -165,7 +165,7 @@ public class TableCountLimitTest {
             .build();
 
     assertThrows(
-        UnprocessableEntityException.class, () -> openHouseInternalRepository.save(bypass));
+        TableCountLimitExceededException.class, () -> openHouseInternalRepository.save(bypass));
     assertFalse(openHouseInternalRepository.existsById(key(db, "t_bypass")));
   }
 
@@ -177,7 +177,7 @@ public class TableCountLimitTest {
 
     assertDoesNotThrow(() -> openHouseInternalRepository.save(dto(other, "t_first", false)));
     assertThrows(
-        UnprocessableEntityException.class,
+        TableCountLimitExceededException.class,
         () -> openHouseInternalRepository.save(dto(full, "t_over", false)));
     assertEquals(1, liveTableCount(other));
   }
@@ -207,7 +207,7 @@ public class TableCountLimitTest {
     // One live table, one view and one soft-deleted table: only the live table counts.
     assertDoesNotThrow(() -> openHouseInternalRepository.save(dto(db, "t_second", false)));
     assertThrows(
-        UnprocessableEntityException.class,
+        TableCountLimitExceededException.class,
         () -> openHouseInternalRepository.save(dto(db, "t_third", false)));
     assertEquals(LIMIT, liveTableCount(db));
   }
@@ -233,7 +233,7 @@ public class TableCountLimitTest {
     openHouseInternalRepository.deleteById(key(db, first.getTableId()));
     assertDoesNotThrow(() -> openHouseInternalRepository.save(dto(db, "t_after_drop", false)));
     assertThrows(
-        UnprocessableEntityException.class,
+        TableCountLimitExceededException.class,
         () -> openHouseInternalRepository.save(dto(db, "t_over", false)));
     assertEquals(LIMIT, liveTableCount(db));
   }

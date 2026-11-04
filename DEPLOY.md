@@ -142,8 +142,9 @@ Set `cluster.tables.max-tables-per-database` in the tables-service `cluster.yaml
 number to limit persisted live tables in each database. The default is `0`; non-positive values
 disable enforcement. Changing this configuration requires restarting or redeploying the tables service.
 
-New-table creation (including staged creation) and restoration return HTTP 422 when the database
-already has at least that many live tables. Reads, updates and drops of existing tables are unchanged.
+New-table creation (including staged creation) and restoration throw `TableCountLimitExceededException`
+when the database already has at least that many live tables. It maps to HTTP 422 through
+`UnprocessableEntityException`. Reads, updates and drops of existing tables are unchanged.
 Views, soft-deleted tables and uncommitted stages do not count. A drop frees capacity; staged creation
 is checked again when committed. This is best-effort admission control: concurrent creates or restores
 can pass the count check together and exceed the ceiling.

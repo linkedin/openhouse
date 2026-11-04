@@ -17,7 +17,7 @@ import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
-import com.linkedin.openhouse.common.exception.UnprocessableEntityException;
+import com.linkedin.openhouse.common.exception.TableCountLimitExceededException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
@@ -348,7 +348,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         catalog.listTables(Namespace.of(databaseId), PageRequest.of(0, 1)).getTotalElements();
     if (tableCount >= limit
         && !tableFeatureToggle.isFeatureActivated(databaseId, tableId, BYPASS_TABLE_COUNT_LIMIT)) {
-      throw new UnprocessableEntityException(
+      throw new TableCountLimitExceededException(
           String.format(
               "Database %s has %d live tables, reaching the configured limit of %d. "
                   + "Drop unused tables or contact the OpenHouse operators before creating or restoring another table.",
