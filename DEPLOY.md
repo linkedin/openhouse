@@ -159,6 +159,9 @@ VALUES ('bypass_table_count_limit', 'my_database', '*');
 
 Use a specific table name instead of `*` for a narrower exception. The check consults HouseTables
 when a create or restore reaches the limit; no tables-service restart is needed for rule changes.
+Toggle patterns are case-sensitive even though catalog identity and table counts are case-insensitive.
+Match the database and table spelling sent by the affected caller; add a rule for each spelling in use.
+Verify the toggle reports `ACTIVE` for the database and table IDs in the rejected request.
 Users cannot self-exempt by setting `bypass_table_count_limit.enabled` in table properties.
 Exempt tables still count toward the database total. Remove the rule to end the exception:
 
