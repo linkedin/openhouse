@@ -6,9 +6,14 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
+import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
+import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.OpenHouseInternalCatalog;
 import com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.Replication;
+import com.linkedin.openhouse.tables.api.spec.v0.request.components.ReplicationConfig;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.iceberg.PoliciesSpecMapper;
 import com.linkedin.openhouse.tables.model.TableDto;
@@ -16,15 +21,25 @@ import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -182,6 +197,114 @@ public class OpenHouseInternalRepositoryImplTest {
             TableDtoPrimaryKey.builder().databaseId(DB_ID).tableId(TABLE_ID).build());
 
     Assertions.assertFalse(result.isPresent());
+  }
+
+  @ParameterizedTest
+  @MethodSource("droppedPartitionColumns")
+  void testValidateReplaceTable_DroppedPartitionSourceRejected(
+      Schema existingSchema, PartitionSpec spec, Schema replacementSchema, String columnName) {
+    TableIdentifier identifier = TableIdentifier.of(DB_ID, TABLE_ID);
+    Table table = mock(Table.class);
+    when(catalog.loadTable(identifier)).thenReturn(table);
+    when(table.properties())
+        .thenReturn(Collections.singletonMap(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true"));
+    when(table.schema()).thenReturn(existingSchema);
+    when(table.specs()).thenReturn(Collections.singletonMap(spec.specId(), spec));
+
+    UnsupportedClientOperationException exception =
+        Assertions.assertThrows(
+            UnsupportedClientOperationException.class,
+            () -> openHouseInternalRepository.validateReplaceTable(identifier, replacementSchema));
+
+    Assertions.assertEquals(
+        "RTAS does not support dropping a partition column "
+            + columnName
+            + ". Only removing partitioning is allowed",
+        exception.getMessage());
+  }
+
+  private static Stream<Arguments> droppedPartitionColumns() {
+    Schema flatSchema =
+        new Schema(
+            Types.NestedField.required(1, "id", Types.LongType.get()),
+            Types.NestedField.optional(2, "data", Types.StringType.get()));
+    Schema droppedId = new Schema(Types.NestedField.optional(1, "data", Types.StringType.get()));
+    Schema renamedId =
+        new Schema(
+            Types.NestedField.required(1, "renamedId", Types.LongType.get()),
+            Types.NestedField.optional(2, "data", Types.StringType.get()));
+    Schema nestedSchema =
+        new Schema(
+            Types.NestedField.required(
+                1,
+                "header",
+                Types.StructType.of(Types.NestedField.required(2, "id", Types.LongType.get()))),
+            Types.NestedField.required(3, "id", Types.LongType.get()),
+            Types.NestedField.optional(4, "data", Types.StringType.get()));
+    return Stream.of(
+        Arguments.of(
+            flatSchema,
+            PartitionSpec.builderFor(flatSchema).identity("id").build(),
+            droppedId,
+            "id"),
+        Arguments.of(
+            flatSchema,
+            PartitionSpec.builderFor(flatSchema).bucket("id", 4).build(),
+            droppedId,
+            "id"),
+        Arguments.of(
+            flatSchema,
+            PartitionSpec.builderFor(flatSchema).identity("id").build(),
+            renamedId,
+            "id"),
+        Arguments.of(
+            nestedSchema,
+            PartitionSpec.builderFor(nestedSchema).bucket("header.id", 4).build(),
+            flatSchema,
+            "header.id"));
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "false, false, false, REPLACE TABLE AS SELECT is not enabled",
+    "true, true, false, while WAP",
+    "true, false, true, while replication"
+  })
+  void testValidateReplaceTable_PartitionColumnDropGatePreservesOtherRestrictions(
+      boolean replaceEnabled, boolean wapEnabled, boolean replicationEnabled, String message) {
+    TableIdentifier identifier = TableIdentifier.of(DB_ID, TABLE_ID);
+    Table table = mock(Table.class);
+    Map<String, String> properties = new HashMap<>();
+    properties.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, Boolean.toString(replaceEnabled));
+    properties.put(CatalogConstants.WAP_ENABLED_TABLE_PROP, Boolean.toString(wapEnabled));
+    properties.put(CatalogConstants.RTAS_PARTITION_COLUMN_DROP_ENABLED_TABLE_PROP, "true");
+    when(catalog.loadTable(identifier)).thenReturn(table);
+    when(table.properties()).thenReturn(properties);
+    if (replicationEnabled) {
+      when(policiesMapper.toPoliciesObject(null))
+          .thenReturn(
+              Policies.builder()
+                  .replication(
+                      Replication.builder()
+                          .config(
+                              Collections.singletonList(
+                                  ReplicationConfig.builder()
+                                      .destination("WAR")
+                                      .interval("12H")
+                                      .build()))
+                          .build())
+                  .build());
+    }
+
+    UnsupportedClientOperationException exception =
+        Assertions.assertThrows(
+            UnsupportedClientOperationException.class,
+            () ->
+                openHouseInternalRepository.validateReplaceTable(
+                    identifier,
+                    new Schema(Types.NestedField.optional(1, "data", Types.StringType.get()))));
+
+    Assertions.assertTrue(exception.getMessage().contains(message), exception.getMessage());
   }
 
   private TableDto createTableDto(Map<String, String> properties) {

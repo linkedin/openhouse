@@ -83,6 +83,29 @@ For detailed configuration options and testing instructions, see the [SETUP](SET
 To deploy OpenHouse to Kubernetes, you can use the [DEPLOY](DEPLOY.md) guide. You would build the container images for
 all the OpenHouse services, and deploy them to a Kubernetes cluster using Helm.
 
+### Replacing tables (RTAS)
+
+`REPLACE TABLE ... AS SELECT` requires `replace.enabled=true` on the existing table.
+By default, the replacement schema must retain the source columns referenced by any current or
+historical partition spec. Removing partitioning while keeping those columns is allowed.
+Dropping a source column is rejected before Spark writes data, even if the table is now unpartitioned.
+
+To opt out of this check, enable the following property on the existing table before running RTAS:
+
+```sql
+ALTER TABLE openhouse.my_database.my_table SET TBLPROPERTIES (
+  'replace.enabled' = 'true',
+  'replace.partition-column-drop.enabled' = 'true'
+);
+```
+
+`replace.partition-column-drop.enabled` defaults to `false`. Setting it only in the RTAS statement
+does not bypass the check. The stored property is checked during both staging and commit.
+This gate bypasses only the partition-column check; other RTAS restrictions still apply.
+It does not fix underlying Iceberg/Spark limitations: writes may still fail when historical
+partition specs reference a column missing from the replacement schema. Set the property to
+`false` to restore the check.
+
 ### Compability Matrix
 
 OpenHouse is built with the following versions of the open-source projects:

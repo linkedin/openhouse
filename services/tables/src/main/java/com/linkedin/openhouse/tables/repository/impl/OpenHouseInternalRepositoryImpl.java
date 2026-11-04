@@ -160,7 +160,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
           tableIdentifier,
           System.currentTimeMillis() - startTime);
     } else if (tableDto.isStageReplace() || tableDto.isReplaceCommit()) {
-      validateReplaceTable(tableIdentifier);
+      validateReplaceTable(tableIdentifier, writeSchema);
       // Policies are governance metadata (retention, sharing, PII column tags, replication,
       // history, lock) that must survive a replace. Merge the existing table's policies with the
       // request's so RTAS consistently merges properties.
@@ -331,11 +331,13 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   /**
    * RTAS is only permitted when the {@value CatalogConstants#RTAS_ENABLED_TABLE_PROP} table
-   * property is set. And it is not allowed on table where WAP or replication is enabled.
+   * property is set and neither WAP nor replication is enabled. Partition source columns must be
+   * retained unless the existing table explicitly enables dropping them.
    *
    * @param tableIdentifier identifier for the table
+   * @param writeSchema replacement schema
    */
-  protected void validateReplaceTable(TableIdentifier tableIdentifier) {
+  protected void validateReplaceTable(TableIdentifier tableIdentifier, Schema writeSchema) {
     // A replace is only permitted when RTAS is enabled on the table.
     Table table = catalog.loadTable(tableIdentifier);
     Map<String, String> existingProperties = table.properties();
@@ -376,6 +378,36 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
               tableIdentifier.name(),
               String.join(" and ", conflictingFeatures)));
     }
+
+    if (!Boolean.parseBoolean(
+        existingProperties.get(RTAS_PARTITION_COLUMN_DROP_ENABLED_TABLE_PROP))) {
+      validatePartitionColumnsForReplace(table, writeSchema);
+    }
+  }
+
+  private void validatePartitionColumnsForReplace(Table table, Schema writeSchema) {
+    // Historical specs still reference their source columns after partitioning is removed.
+    Set<Integer> partitionSourceIds =
+        table.specs().values().stream()
+            .flatMap(spec -> spec.fields().stream())
+            .map(PartitionField::sourceId)
+            .collect(Collectors.toSet());
+
+    // RTAS request field IDs may be reassigned, so compare existing column paths by name.
+    table.schema().idToName().entrySet().stream()
+        .filter(column -> partitionSourceIds.contains(column.getKey()))
+        .map(Map.Entry::getValue)
+        .filter(columnName -> writeSchema.findField(columnName) == null)
+        .sorted()
+        .findFirst()
+        .ifPresent(
+            columnName -> {
+              throw new UnsupportedClientOperationException(
+                  UnsupportedClientOperationException.Operation.RTAS_DROP_PARTITION_COLUMN,
+                  String.format(
+                      "RTAS does not support dropping a partition column %s. Only removing partitioning is allowed",
+                      columnName));
+            });
   }
 
   /**

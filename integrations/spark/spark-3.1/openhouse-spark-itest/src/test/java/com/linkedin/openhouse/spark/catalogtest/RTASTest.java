@@ -4,6 +4,7 @@ import static org.apache.spark.sql.functions.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
+import java.util.Arrays;
 import java.util.List;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.PartitionSpec;
@@ -16,11 +17,14 @@ import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.relocated.com.google.common.collect.Iterables;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Row;
+import org.apache.spark.sql.RowFactory;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class RTASTest extends OpenHouseSparkITest {
@@ -118,6 +122,88 @@ public class RTASTest extends OpenHouseSparkITest {
               .sql(String.format("SELECT id, data, part FROM %s ORDER BY part, id", tableName))
               .collectAsList();
       assertEquals(3, rows.size());
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"false, false", "true, false", "true, true"})
+  public void testRTASFailsWhenDroppingPartitionColumn(
+      boolean removePartitioning, boolean enableGateInRequest) throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      Catalog catalog = getOpenHouseCatalog(spark);
+      spark.sql(
+          String.format(
+              "CREATE TABLE %s USING iceberg PARTITIONED BY (id) "
+                  + "TBLPROPERTIES ('replace.enabled'='true') AS SELECT * FROM %s",
+              tableName, sourceName));
+      PartitionSpec originalSpec = catalog.loadTable(tableIdent).spec();
+      if (removePartitioning) {
+        spark.sql(
+            String.format(
+                "REPLACE TABLE %s USING iceberg AS SELECT * FROM %s", tableName, sourceName));
+      }
+      Table before = catalog.loadTable(tableIdent);
+      assertEquals(removePartitioning, before.spec().isUnpartitioned());
+      assertEquals(originalSpec, before.specs().get(originalSpec.specId()));
+
+      String properties =
+          enableGateInRequest
+              ? "TBLPROPERTIES ('replace.partition-column-drop.enabled'='true') "
+              : "";
+      BadRequestException exception =
+          assertThrows(
+              BadRequestException.class,
+              () ->
+                  spark.sql(
+                      String.format(
+                          "REPLACE TABLE %s USING iceberg %sAS SELECT data FROM %s",
+                          tableName, properties, sourceName)));
+      assertTrue(
+          exception
+              .getMessage()
+              .contains(
+                  "RTAS does not support dropping a partition column id. Only removing partitioning is allowed"),
+          exception.getMessage());
+
+      Table after = catalog.loadTable(tableIdent);
+      assertEquals(before.schema().asStruct(), after.schema().asStruct());
+      assertEquals(before.spec(), after.spec());
+      assertEquals(before.currentSnapshot().snapshotId(), after.currentSnapshot().snapshotId());
+      assertEquals(before.properties(), after.properties());
+      assertEquals(
+          Arrays.asList(
+              RowFactory.create(1L, "a"), RowFactory.create(2L, "b"), RowFactory.create(3L, "c")),
+          spark.sql(String.format("SELECT * FROM %s ORDER BY id", tableName)).collectAsList());
+    }
+  }
+
+  @Test
+  public void testRTASKeepsNestedPartitionColumnWithReassignedRequestIds() throws Exception {
+    try (SparkSession spark = getSparkSession()) {
+      Catalog catalog = getOpenHouseCatalog(spark);
+      spark.sql(
+          String.format(
+              "CREATE TABLE %s USING iceberg PARTITIONED BY (bucket(4, header.id)) "
+                  + "TBLPROPERTIES ('replace.enabled'='true') "
+                  + "AS SELECT data, named_struct('id', id) AS header FROM %s",
+              tableName, sourceName));
+      Table before = catalog.loadTable(tableIdent);
+
+      spark.sql(
+          String.format(
+              "REPLACE TABLE %s USING iceberg "
+                  + "AS SELECT named_struct('id', id) AS header FROM %s",
+              tableName, sourceName));
+
+      Table after = catalog.loadTable(tableIdent);
+      assertEquals(before.schema().select("header").asStruct(), after.schema().asStruct());
+      assertTrue(after.spec().isUnpartitioned());
+      assertEquals(before.spec(), after.specs().get(before.spec().specId()));
+      assertEquals(
+          Arrays.asList(RowFactory.create(1L), RowFactory.create(2L), RowFactory.create(3L)),
+          spark
+              .sql(String.format("SELECT header.id FROM %s ORDER BY header.id", tableName))
+              .collectAsList());
     }
   }
 
