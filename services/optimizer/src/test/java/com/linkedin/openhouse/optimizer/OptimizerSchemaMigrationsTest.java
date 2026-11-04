@@ -148,8 +148,7 @@ class OptimizerSchemaMigrationsTest {
             Arrays.asList(
                 "--cluster.optimizer.database.url=" + jdbcUrl(database),
                 "--spring.datasource.username=" + MYSQL.getUsername(),
-                "--spring.datasource.password=" + MYSQL.getPassword(),
-                "--spring.jpa.hibernate.ddl-auto=validate"));
+                "--spring.datasource.password=" + MYSQL.getPassword()));
     serviceArgs.addAll(Arrays.asList(args));
     new SpringApplicationBuilder(OptimizerServiceApplication.class)
         .web(WebApplicationType.NONE)

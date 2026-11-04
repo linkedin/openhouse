@@ -98,9 +98,12 @@ that hasn't shipped, run `atlas migrate hash --env local`.
 
 ## What Happens at Startup
 
-Spring Boot runs Flyway before JPA starts and before the HTTP port opens. Flyway records each
-applied migration in `optimizer_schema_history` and applies the pending ones in version order.
-Replicas that start together take turns through a MySQL named lock, so each migration runs once.
+Spring Boot runs Flyway before JPA starts. Hibernate then validates the mapped tables, columns, and
+types (`spring.jpa.hibernate.ddl-auto=validate`) before the service accepts requests; it does not
+change the schema. Validation does not check stored values, indexes, or compatibility with other
+application versions. Flyway records each applied migration in `optimizer_schema_history` and applies
+the pending ones in version order. Replicas that start together take turns through a MySQL named lock,
+so each migration runs once.
 
 The service can share HouseTables' database. Its MySQL user can read and write HouseTables' tables,
 so Flyway sees them: it records a baseline at version 0 in the nonempty database, then applies every
@@ -126,8 +129,9 @@ running in MySQL, and the service may not start again until someone recovers it 
 Flyway's `clean`, which drops every table in the database, HouseTables' included, is disabled. That
 guards only against `clean`, not against migration SQL that touches other tables.
 
-Flyway ignores applied migrations newer than the newest one it knows, so a rolled-back release
-still starts against the newer schema.
+Flyway ignores applied migrations newer than the newest one it knows. A rolled-back release can
+still start if the newer schema satisfies its entity mappings; migrations must preserve compatibility
+with the previous release.
 
 The analyzer and scheduler apps don't migrate. Hibernate checks at their startup that the tables
 match their entities (`spring.jpa.hibernate.ddl-auto=validate`), so an app ahead of the service's
@@ -136,6 +140,11 @@ schema exits before it reads or writes anything. Roll out the service before the
 ```
 SchemaManagementException: Schema-validation: missing column [attempts] in table [table_operations]
 ```
+
+Validation is a packaged default for the optimizer service and apps, not a setting for other services.
+Rebuild and redeploy to adopt it. Spring Boot external configuration, such as
+`SPRING_JPA_HIBERNATE_DDL_AUTO`, can override the default. OpenAPI generation alone disables both
+Flyway and validation because its spec-only H2 database has no tables.
 
 The service runs Flyway 8.5.13, the release Spring Boot 2.7 is built against. It supports MySQL up
 to 8.0; on a later MySQL it logs that support hasn't been tested.
