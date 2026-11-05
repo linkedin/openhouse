@@ -24,9 +24,9 @@ import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.testcontainers.containers.MySQLContainer;
 
 /**
- * Starts the service on a database that already holds HouseTables' real schema and seeded rows.
- * The database must end up with the optimizer tables that Flyway creates in an empty one, without
- * changing any HouseTables table definition or row.
+ * Starts the service on a database that already holds HouseTables' real schema and seeded rows. The
+ * database must end up with the optimizer tables that Flyway creates in an empty one, without changing
+ * any HouseTables table definition or row.
  */
 class OptimizerSchemaMigrationsTest {
 
@@ -96,9 +96,11 @@ class OptimizerSchemaMigrationsTest {
 
     Map<String, List<String>> tables = tables(database);
     for (String table : tablesBefore.keySet()) {
-      assertThat(tables.remove(table)).as("HouseTables definition: %s", table)
+      assertThat(tables.remove(table))
+          .as("HouseTables definition: %s", table)
           .isEqualTo(tablesBefore.get(table));
-      assertThat(rows(database, table)).as("HouseTables rows: %s", table)
+      assertThat(rows(database, table))
+          .as("HouseTables rows: %s", table)
           .containsExactlyInAnyOrderElementsOf(rowsBefore.get(table));
     }
     assertThat(tables).isEqualTo(emptyDatabaseTables);

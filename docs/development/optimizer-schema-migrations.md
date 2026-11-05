@@ -14,9 +14,10 @@ stay untouched.
 
 ## Tests
 
-The repository and service tests run on MySQL 8.0.46, the release production runs, in Docker, so
-start Docker before you run them. `MySqlContainerInitializer` (optimizer-common test fixtures) gives
-each Spring test context a new [MySQL container](https://java.testcontainers.org/modules/databases/mysql/),
+The optimizer repository, service, and scheduler integration tests run on MySQL 8.0.46, the release
+production runs, in Docker, so start Docker before you run them. The test modules include Flyway on
+their test runtime classpath. `MySqlContainerInitializer` (optimizer-common test fixtures) gives each
+Spring test context a new [MySQL container](https://java.testcontainers.org/modules/databases/mysql/),
 and Flyway migrates it as the service does at startup. Add it to a `@SpringBootTest`:
 
 ```java
