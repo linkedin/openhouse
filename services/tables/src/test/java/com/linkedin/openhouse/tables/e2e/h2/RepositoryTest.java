@@ -8,6 +8,7 @@ import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.CommitRejectedException;
+import com.linkedin.openhouse.common.exception.HistoricPartitionColumnRemovedException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
@@ -1072,17 +1073,18 @@ public class RepositoryTest {
               .stageReplace(true)
               .replaceCommit(false)
               .build();
-      UnsupportedClientOperationException exception =
+      HistoricPartitionColumnRemovedException exception =
           Assertions.assertThrows(
-              UnsupportedClientOperationException.class,
+              HistoricPartitionColumnRemovedException.class,
               () -> openHouseInternalRepository.save(replacement));
+      Assertions.assertEquals("id", exception.getColumnName());
       Assertions.assertEquals(
           "RTAS does not support dropping a partition column [id]. Only removing partitioning is allowed",
           exception.getMessage());
 
-      UnsupportedClientOperationException commitException =
+      HistoricPartitionColumnRemovedException commitException =
           Assertions.assertThrows(
-              UnsupportedClientOperationException.class,
+              HistoricPartitionColumnRemovedException.class,
               () ->
                   openHouseInternalRepository.save(
                       replacement.toBuilder().stageReplace(false).replaceCommit(true).build()));

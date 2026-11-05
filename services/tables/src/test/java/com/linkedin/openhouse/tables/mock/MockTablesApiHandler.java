@@ -3,6 +3,7 @@ package com.linkedin.openhouse.tables.mock;
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
+import com.linkedin.openhouse.common.exception.HistoricPartitionColumnRemovedException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.common.exception.MetadataRefreshFailureContext;
@@ -371,6 +372,8 @@ public class MockTablesApiHandler implements TablesApiHandler {
       case "invalidschemaevolutionexception":
         throw new InvalidSchemaEvolutionException(
             "Invalid Schema Evolution Exception", "oldSchema", "newSchema");
+      case "historicpartitioncolumnremovedexception":
+        throw new HistoricPartitionColumnRemovedException("id");
       case "unsupportedclientoperationexception":
         throw new UnsupportedClientOperationException(
             UnsupportedClientOperationException.Operation.ALTER_TABLE_TYPE,

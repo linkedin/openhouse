@@ -15,6 +15,7 @@ import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
+import com.linkedin.openhouse.common.exception.HistoricPartitionColumnRemovedException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
@@ -402,11 +403,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
         .findFirst()
         .ifPresent(
             columnName -> {
-              throw new UnsupportedClientOperationException(
-                  UnsupportedClientOperationException.Operation.RTAS_DROP_PARTITION_COLUMN,
-                  String.format(
-                      "RTAS does not support dropping a partition column [%s]. Only removing partitioning is allowed",
-                      columnName));
+              throw new HistoricPartitionColumnRemovedException(columnName);
             });
   }
 

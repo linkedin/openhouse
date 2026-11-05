@@ -604,6 +604,8 @@ public class TablesControllerTest {
             new AbstractMap.SimpleEntry<>(
                 "invalidschemaevolutionexception", HttpStatus.BAD_REQUEST.value()),
             new AbstractMap.SimpleEntry<>(
+                "historicpartitioncolumnremovedexception", HttpStatus.BAD_REQUEST.value()),
+            new AbstractMap.SimpleEntry<>(
                 "unsupportedclientoperationexception", HttpStatus.BAD_REQUEST.value()),
             new AbstractMap.SimpleEntry<>("accessdeniedexception", HttpStatus.FORBIDDEN.value()),
             new AbstractMap.SimpleEntry<>(

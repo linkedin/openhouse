@@ -8,6 +8,7 @@ import com.linkedin.openhouse.common.exception.CommitRejectedException;
 import com.linkedin.openhouse.common.exception.CorruptEntityTypeException;
 import com.linkedin.openhouse.common.exception.DependencyUnavailableException;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
+import com.linkedin.openhouse.common.exception.HistoricPartitionColumnRemovedException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.InvalidTableMetadataException;
 import com.linkedin.openhouse.common.exception.JobEngineException;
@@ -266,6 +267,21 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
             .message(alreadyExistsException.getMessage())
             .stacktrace(getAbbreviatedStackTrace(alreadyExistsException))
             .cause(getExceptionCause(alreadyExistsException))
+            .build();
+    return buildResponseEntity(errorResponseBody);
+  }
+
+  @Hidden
+  @ExceptionHandler(HistoricPartitionColumnRemovedException.class)
+  protected ResponseEntity<ErrorResponseBody> handleHistoricPartitionColumnRemoved(
+      HistoricPartitionColumnRemovedException exception) {
+    ErrorResponseBody errorResponseBody =
+        ErrorResponseBody.builder()
+            .status(HttpStatus.BAD_REQUEST)
+            .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
+            .message(exception.getMessage())
+            .stacktrace(getAbbreviatedStackTrace(exception))
+            .cause(getExceptionCause(exception))
             .build();
     return buildResponseEntity(errorResponseBody);
   }
