@@ -15,6 +15,8 @@ import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageEx
 import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.javaclient.mapper.Privileges;
 import com.linkedin.openhouse.javaclient.mapper.SparkMapper;
+import com.linkedin.openhouse.javaclient.precommit.PreCommitHook;
+import com.linkedin.openhouse.javaclient.precommit.SupportsPreCommit;
 import com.linkedin.openhouse.tables.client.api.DatabaseApi;
 import com.linkedin.openhouse.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
@@ -31,7 +33,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 import javax.net.ssl.SSLException;
 import lombok.extern.slf4j.Slf4j;
@@ -76,7 +80,11 @@ import reactor.core.publisher.Mono;
  */
 @Slf4j
 public class OpenHouseCatalog extends BaseMetastoreCatalog
-    implements Configurable, SupportsNamespaces, SupportsGrantRevoke, SupportsUnlock {
+    implements Configurable,
+        SupportsNamespaces,
+        SupportsGrantRevoke,
+        SupportsUnlock,
+        SupportsPreCommit {
 
   private TableApi tableApi;
 
@@ -95,6 +103,25 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
   private String name;
 
   protected Map<String, String> properties;
+
+  /** Checks applied to every {@link OpenHouseTableOperations} this catalog creates, in order. */
+  private final List<PreCommitHook> preCommitHooks = new CopyOnWriteArrayList<>();
+
+  /**
+   * Adds a check to run before each commit, for every table loaded through this catalog.
+   *
+   * <p>Applied when the table-operations instance is created, so a hook registered here only
+   * affects tables loaded afterwards. {@link OpenHouseTableOperations#withPreCommit} on an
+   * individual instance adds to what the catalog gave it, so a table-level hook cannot switch off a
+   * catalog-wide one.
+   *
+   * @return this, so it can be chained onto a freshly built catalog
+   */
+  @Override
+  public OpenHouseCatalog withPreCommit(PreCommitHook hook) {
+    preCommitHooks.add(Objects.requireNonNull(hook, "hook"));
+    return this;
+  }
 
   private static final String DEFAULT_CLUSTER = "local";
 
@@ -334,13 +361,16 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
   @Override
   public OpenHouseTableOperations newTableOps(TableIdentifier tableIdentifier) {
-    return OpenHouseTableOperations.builder()
-        .tableIdentifier(tableIdentifier)
-        .fileIO(fileIO)
-        .tableApi(tableApi)
-        .snapshotApi(snapshotApi)
-        .cluster(cluster)
-        .build();
+    OpenHouseTableOperations ops =
+        OpenHouseTableOperations.builder()
+            .tableIdentifier(tableIdentifier)
+            .fileIO(fileIO)
+            .tableApi(tableApi)
+            .snapshotApi(snapshotApi)
+            .cluster(cluster)
+            .build();
+    preCommitHooks.forEach(ops::withPreCommit);
+    return ops;
   }
 
   @Override

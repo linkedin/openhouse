@@ -14,6 +14,10 @@ import com.linkedin.openhouse.gen.tables.client.model.Policies;
 import com.linkedin.openhouse.gen.tables.client.model.PolicyTag;
 import com.linkedin.openhouse.gen.tables.client.model.Retention;
 import com.linkedin.openhouse.javaclient.exception.WebClientWithMessageException;
+import com.linkedin.openhouse.javaclient.precommit.PreCommitHook;
+import com.linkedin.openhouse.javaclient.precommit.PreCommitHookBlockedException;
+import com.linkedin.openhouse.javaclient.precommit.PreCommitHookContext;
+import com.linkedin.openhouse.javaclient.precommit.PreCommitHookOperation;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.node.ArrayNode;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.node.ObjectNode;
@@ -28,6 +32,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.apache.commons.compress.utils.Lists;
 import org.apache.iceberg.Files;
@@ -36,12 +41,14 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotParser;
+import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
@@ -951,6 +958,54 @@ public class OpenHouseTableOperationsTest {
     return new Commit(base, metadata);
   }
 
+  /** Properties differ, snapshots and refs do not, so doCommit takes the metadata branch. */
+  private static Commit onlyMetadataUpdated() {
+    TableMetadata base = mock(TableMetadata.class);
+    TableMetadata metadata = mock(TableMetadata.class);
+
+    Schema schema = mock(Schema.class);
+    when(base.schema()).thenReturn(schema);
+    when(metadata.schema()).thenReturn(schema);
+    when(schema.sameSchema(schema)).thenReturn(true);
+    when(base.properties()).thenReturn(ImmutableMap.of());
+    when(metadata.properties()).thenReturn(ImmutableMap.of("a", "b"));
+    when(base.metadataFileLocation()).thenReturn("file:/tmp/v1.metadata.json");
+
+    when(base.snapshots()).thenReturn(Collections.emptyList());
+    when(metadata.snapshots()).thenReturn(Collections.emptyList());
+    when(base.refs()).thenReturn(Collections.emptyMap());
+    when(metadata.refs()).thenReturn(Collections.emptyMap());
+
+    return new Commit(base, metadata);
+  }
+
+  /** Every field doCommit compares is equal, so neither flag is set. */
+  private static Commit nothingUpdated() {
+    TableMetadata base = mock(TableMetadata.class);
+    TableMetadata metadata = mock(TableMetadata.class);
+
+    Schema schema = mock(Schema.class);
+    PartitionSpec spec = mock(PartitionSpec.class);
+    SortOrder sortOrder = mock(SortOrder.class);
+    when(base.schema()).thenReturn(schema);
+    when(metadata.schema()).thenReturn(schema);
+    when(schema.sameSchema(schema)).thenReturn(true);
+    when(base.properties()).thenReturn(ImmutableMap.of("a", "b"));
+    when(metadata.properties()).thenReturn(ImmutableMap.of("a", "b"));
+    when(base.spec()).thenReturn(spec);
+    when(metadata.spec()).thenReturn(spec);
+    when(base.sortOrder()).thenReturn(sortOrder);
+    when(metadata.sortOrder()).thenReturn(sortOrder);
+    when(base.metadataFileLocation()).thenReturn("file:/tmp/v1.metadata.json");
+
+    when(base.snapshots()).thenReturn(Collections.emptyList());
+    when(metadata.snapshots()).thenReturn(Collections.emptyList());
+    when(base.refs()).thenReturn(Collections.emptyMap());
+    when(metadata.refs()).thenReturn(Collections.emptyMap());
+
+    return new Commit(base, metadata);
+  }
+
   private OpenHouseTableOperationsForTest opsFor(SnapshotApi snapshotApi) {
     return new OpenHouseTableOperationsForTest(
         TableIdentifier.of("a", "b"),
@@ -1078,5 +1133,425 @@ public class OpenHouseTableOperationsTest {
 
     Assertions.assertTrue(sentReplaceCommitFlag(snapshotApi, 2));
     Assertions.assertFalse(ops.isReplaceTransaction());
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Pre-commit hook
+  // ---------------------------------------------------------------------------------------------
+
+  /** Records the context it was given and lets the commit through. */
+  private static final class RecordingHook implements PreCommitHook {
+    private PreCommitHookContext context;
+
+    @Override
+    public void evaluate(PreCommitHookContext context) {
+      this.context = context;
+    }
+  }
+
+  /**
+   * Same as {@link #contextSeenBy}, but a second hook blocks so the commit stops before doCommit
+   * reaches the server. Used where the branch under test would need the whole API stubbed.
+   */
+  private PreCommitHookContext contextSeenByStoppedCommit(
+      OpenHouseTableOperationsForTest ops, Commit commit) {
+    RecordingHook hook = new RecordingHook();
+    ops.withPreCommit(hook);
+    ops.withPreCommit(
+        context -> {
+          throw PreCommitHookBlockedException.validation("STOP", "stop before the commit is sent");
+        });
+
+    Assertions.assertThrows(
+        RuntimeException.class, () -> ops.doCommit(commit.base, commit.metadata));
+
+    return hook.context;
+  }
+
+  /** Runs a commit through a recording hook and hands back what the hook saw. */
+  private PreCommitHookContext contextSeenBy(OpenHouseTableOperationsForTest ops, Commit commit) {
+    RecordingHook hook = new RecordingHook();
+    ops.withPreCommit(hook);
+    ops.doCommit(commit.base, commit.metadata);
+    return hook.context;
+  }
+
+  /** Registration is fluent, so it can be chained onto a freshly built instance. */
+  @Test
+  public void testWithPreCommitReturnsTheSameInstance() {
+    OpenHouseTableOperationsForTest ops = opsFor(acceptingSnapshotApi());
+
+    Assertions.assertSame(ops, ops.withPreCommit(PreCommitHook.NOOP));
+  }
+
+  /** A null hook fails at registration, not on the first commit that tries to run it. */
+  @Test
+  public void testARegisteredHookCannotBeNull() {
+    OpenHouseTableOperationsForTest ops = opsFor(acceptingSnapshotApi());
+
+    Assertions.assertThrows(NullPointerException.class, () -> ops.withPreCommit(null));
+  }
+
+  /** With no hook registered, commits behave exactly as they did before. */
+  @Test
+  public void testNoHookIsRegisteredByDefault() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    Commit commit = metadataAndSnapshotsUpdated();
+
+    opsFor(snapshotApi).doCommit(commit.base, commit.metadata);
+
+    verify(snapshotApi, times(1)).putSnapshotsV1(eq("db"), eq("tbl"), any());
+  }
+
+  /**
+   * The point of the hook: a blocked commit never reaches the service, so the table is left exactly
+   * as it was.
+   */
+  @Test
+  public void testABlockedCommitIsNeverSent() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
+    ops.withPreCommit(
+        context -> {
+          throw PreCommitHookBlockedException.validation("ROW_COUNT", "0 rows");
+        });
+    Commit commit = metadataAndSnapshotsUpdated();
+
+    Assertions.assertThrows(
+        ValidationException.class, () -> ops.doCommit(commit.base, commit.metadata));
+
+    verifyNoInteractions(snapshotApi);
+  }
+
+  /** A blocked commit says why, so the message is usable without opening a log. */
+  @Test
+  public void testABlockedCommitExplainsItself() {
+    OpenHouseTableOperationsForTest ops = opsFor(acceptingSnapshotApi());
+    ops.withPreCommit(
+        context -> {
+          throw PreCommitHookBlockedException.validation("ROW_COUNT", "expected > 0, got 0");
+        });
+    Commit commit = metadataAndSnapshotsUpdated();
+
+    ValidationException thrown =
+        Assertions.assertThrows(
+            ValidationException.class, () -> ops.doCommit(commit.base, commit.metadata));
+
+    Assertions.assertTrue(thrown.getMessage().contains("ROW_COUNT"));
+    Assertions.assertTrue(thrown.getMessage().contains("expected > 0, got 0"));
+  }
+
+  /**
+   * A check that could not reach a verdict is worth retrying, so it surfaces as the exception
+   * Iceberg's commit loop retries on.
+   */
+  @Test
+  public void testAFailedCheckIsRetryable() {
+    OpenHouseTableOperationsForTest ops = opsFor(acceptingSnapshotApi());
+    ops.withPreCommit(
+        context -> {
+          throw PreCommitHookBlockedException.operational(
+              "UNAVAILABLE", "validator unreachable", new java.io.IOException("connect timed out"));
+        });
+    Commit commit = metadataAndSnapshotsUpdated();
+
+    Assertions.assertThrows(
+        CommitFailedException.class, () -> ops.doCommit(commit.base, commit.metadata));
+  }
+
+  /**
+   * The other half of that contract: a commit the hook rejected on its merits must not be retried,
+   * because every attempt fails the same way. {@code ValidationException} is unrelated to {@code
+   * CommitFailedException}, so Iceberg's commit loop lets it straight through.
+   */
+  @Test
+  public void testARejectedCommitIsNotRetried() {
+    Assertions.assertFalse(
+        CommitFailedException.class.isAssignableFrom(ValidationException.class),
+        "a rejected commit must not look retryable to Iceberg");
+  }
+
+  /** The hook is told which branch doCommit is taking, rather than having to work it out. */
+  @Test
+  public void testTheHookIsToldTheOperation() {
+    PreCommitHookContext context =
+        contextSeenBy(opsFor(acceptingSnapshotApi()), metadataAndSnapshotsUpdated());
+
+    Assertions.assertEquals(PreCommitHookOperation.SNAPSHOT, context.getOperation());
+  }
+
+  /** A replace is only visible in the transaction, never in the diff, so it has to be passed. */
+  @Test
+  public void testTheHookIsToldAboutAReplace() {
+    OpenHouseTableOperationsForTest ops = opsFor(acceptingSnapshotApi());
+    ops.markReplaceTransaction();
+
+    PreCommitHookContext context = contextSeenBy(ops, metadataAndSnapshotsUpdated());
+
+    Assertions.assertEquals(PreCommitHookOperation.REPLACE, context.getOperation());
+    Assertions.assertTrue(context.isReplaceTransaction());
+  }
+
+  /**
+   * The replace flag with no base is still a create: there is nothing to replace. {@code
+   * OpenHouseCatalog} does not produce this state, since it routes a {@code CREATE OR REPLACE} of a
+   * missing table to a plain create, so this covers an integrator calling {@code
+   * markReplaceTransaction} itself. The hook can still see what the writer asked for.
+   */
+  @Test
+  public void testTheReplaceFlagWithoutABaseIsStillACreate() {
+    OpenHouseTableOperationsForTest ops = opsFor(acceptingSnapshotApi());
+    ops.markReplaceTransaction();
+
+    PreCommitHookContext context =
+        contextSeenBy(ops, new Commit(null, metadataAndSnapshotsUpdated().metadata));
+
+    Assertions.assertFalse(context.getBase().isPresent());
+    Assertions.assertEquals(PreCommitHookOperation.SNAPSHOT, context.getOperation());
+    Assertions.assertTrue(context.isReplaceTransaction());
+  }
+
+  /**
+   * A commit that only evolves schema, partitioning, sort order or properties takes its own branch
+   * in doCommit, so the hook is told that rather than SNAPSHOT.
+   */
+  @Test
+  public void testTheHookIsToldWhenOnlyMetadataChanged() {
+    PreCommitHookContext context =
+        contextSeenByStoppedCommit(opsFor(acceptingSnapshotApi()), onlyMetadataUpdated());
+
+    Assertions.assertEquals(PreCommitHookOperation.METADATA, context.getOperation());
+  }
+
+  /** Nothing is sent when nothing changed, but the hook still runs and is told so. */
+  @Test
+  public void testTheHookIsToldWhenNothingChanged() {
+    PreCommitHookContext context = contextSeenBy(opsFor(acceptingSnapshotApi()), nothingUpdated());
+
+    Assertions.assertEquals(PreCommitHookOperation.NOOP, context.getOperation());
+  }
+
+  /** The hook gets the table it is checking, so one hook instance can serve many tables. */
+  @Test
+  public void testTheHookIsToldWhichTable() {
+    PreCommitHookContext context =
+        contextSeenBy(opsFor(acceptingSnapshotApi()), metadataAndSnapshotsUpdated());
+
+    Assertions.assertEquals(TableIdentifier.of("a", "b"), context.getTableIdentifier());
+    Assertions.assertEquals("cluster", context.getCluster());
+  }
+
+  /** Reason codes end up as metric tags, so a free-text one is rejected where it is written. */
+  @Test
+  public void testAReasonCodeMustBeATag() {
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> PreCommitHookBlockedException.validation("not a tag!", "message"));
+  }
+
+  /**
+   * A hook that throws {@code CommitFailedException} would be retried by Iceberg's commit loop and
+   * fail the same way every time, so it is reported as the bug it is rather than passed on.
+   */
+  @Test
+  public void testAHookThatThrowsCommitFailedExceptionIsABug() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
+    ops.withPreCommit(
+        context -> {
+          throw new CommitFailedException("thrown by a hook that should not throw this");
+        });
+    Commit commit = metadataAndSnapshotsUpdated();
+
+    Assertions.assertThrows(
+        IllegalStateException.class, () -> ops.doCommit(commit.base, commit.metadata));
+
+    verifyNoInteractions(snapshotApi);
+  }
+
+  /**
+   * The other half: {@code CommitStateUnknownException} says a commit may have landed, which is the
+   * wrong thing to say about one that was never sent.
+   */
+  @Test
+  public void testAHookThatThrowsCommitStateUnknownExceptionIsABug() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
+    ops.withPreCommit(
+        context -> {
+          throw new CommitStateUnknownException(new RuntimeException("boom"));
+        });
+    Commit commit = metadataAndSnapshotsUpdated();
+
+    IllegalStateException thrown =
+        Assertions.assertThrows(
+            IllegalStateException.class, () -> ops.doCommit(commit.base, commit.metadata));
+
+    Assertions.assertTrue(thrown.getMessage().contains("CommitStateUnknownException"));
+    verifyNoInteractions(snapshotApi);
+  }
+
+  /**
+   * Only the two commit exceptions are translated. Anything else a hook throws is a bug in that
+   * hook, and it stops the commit as it is rather than being dressed up as something else.
+   */
+  @Test
+  public void testAnyOtherExceptionFromAHookStopsTheCommit() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
+    IllegalArgumentException bug = new IllegalArgumentException("thrown by a buggy hook");
+    ops.withPreCommit(
+        context -> {
+          throw bug;
+        });
+    Commit commit = metadataAndSnapshotsUpdated();
+
+    Assertions.assertSame(
+        bug,
+        Assertions.assertThrows(
+            IllegalArgumentException.class, () -> ops.doCommit(commit.base, commit.metadata)));
+
+    verifyNoInteractions(snapshotApi);
+  }
+
+  /** The name says which hook blocked, which is what makes the message useful with several. */
+  @Test
+  public void testABlockedCommitNamesTheHook() {
+    OpenHouseTableOperationsForTest ops = opsFor(acceptingSnapshotApi());
+    ops.withPreCommit(
+        new PreCommitHook() {
+          @Override
+          public void evaluate(PreCommitHookContext context) throws PreCommitHookBlockedException {
+            throw PreCommitHookBlockedException.validation("ROW_COUNT", "0 rows");
+          }
+
+          @Override
+          public String getName() {
+            return "row-count-check";
+          }
+        });
+    Commit commit = metadataAndSnapshotsUpdated();
+
+    ValidationException thrown =
+        Assertions.assertThrows(
+            ValidationException.class, () -> ops.doCommit(commit.base, commit.metadata));
+
+    Assertions.assertTrue(thrown.getMessage().contains("row-count-check"));
+  }
+
+  /** A hook that does not name itself still gets one, so the interface stays a lambda. */
+  @Test
+  public void testAHookHasAUsableDefaultName() {
+    PreCommitHook hook = new RecordingHook();
+
+    Assertions.assertEquals("RecordingHook", hook.getName());
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // A worked example
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * The shape of hook an integrator writes, as opposed to the doubles above: a governance rule that
+   * refuses to let a table lose a property it already carries.
+   *
+   * <p>It exists so the usage example in the docs is compiled rather than hand-written, and so the
+   * accessors a real check reaches for are exercised together: the operation, the optional base,
+   * and the metadata being committed.
+   */
+  private static final class RequiredPropertyHook implements PreCommitHook {
+    private final String key;
+
+    RequiredPropertyHook(String key) {
+      this.key = key;
+    }
+
+    @Override
+    public String getName() {
+      return "required-property";
+    }
+
+    @Override
+    public void evaluate(PreCommitHookContext context) throws PreCommitHookBlockedException {
+      if (context.getOperation() == PreCommitHookOperation.NOOP) {
+        return;
+      }
+      // A create has no base, so there is no property to have lost.
+      Optional<TableMetadata> base = context.getBase();
+      if (!base.isPresent() || !base.get().properties().containsKey(key)) {
+        return;
+      }
+      if (!context.getMetadata().properties().containsKey(key)) {
+        throw PreCommitHookBlockedException.validation(
+            "missing-required-property", "commit drops required property " + key);
+      }
+    }
+  }
+
+  /** A snapshot-appending commit whose two sides carry the given properties. */
+  private static Commit snapshotCommitWithProperties(
+      Map<String, String> baseProperties, Map<String, String> metadataProperties) {
+    TableMetadata base = mock(TableMetadata.class);
+    TableMetadata metadata = mock(TableMetadata.class);
+
+    when(base.schema()).thenReturn(mock(Schema.class));
+    when(metadata.schema()).thenReturn(mock(Schema.class));
+    when(base.properties()).thenReturn(baseProperties);
+    when(metadata.properties()).thenReturn(metadataProperties);
+    when(base.metadataFileLocation()).thenReturn("file:/tmp/v1.metadata.json");
+
+    when(base.snapshots()).thenReturn(Collections.emptyList());
+    when(metadata.snapshots())
+        .thenReturn(Collections.singletonList(SnapshotParser.fromJson(SNAPSHOT_JSON)));
+    when(base.refs()).thenReturn(Collections.emptyMap());
+    when(metadata.refs()).thenReturn(Collections.emptyMap());
+
+    return new Commit(base, metadata);
+  }
+
+  /** The example hook stops a commit that drops the property, and the failure names both. */
+  @Test
+  public void testTheExampleHookBlocksACommitThatDropsARequiredProperty() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
+    ops.withPreCommit(new RequiredPropertyHook("owner"));
+    Commit commit =
+        snapshotCommitWithProperties(ImmutableMap.of("owner", "team"), ImmutableMap.of("a", "b"));
+
+    ValidationException thrown =
+        Assertions.assertThrows(
+            ValidationException.class, () -> ops.doCommit(commit.base, commit.metadata));
+
+    Assertions.assertTrue(thrown.getMessage().contains("required-property"));
+    Assertions.assertTrue(thrown.getMessage().contains("missing-required-property"));
+    verifyNoInteractions(snapshotApi);
+  }
+
+  /** The same hook lets the commit through when the property survives. */
+  @Test
+  public void testTheExampleHookAllowsACommitThatKeepsTheProperty() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
+    ops.withPreCommit(new RequiredPropertyHook("owner"));
+    Commit commit =
+        snapshotCommitWithProperties(
+            ImmutableMap.of("owner", "team"), ImmutableMap.of("owner", "team", "a", "b"));
+
+    ops.doCommit(commit.base, commit.metadata);
+
+    verify(snapshotApi, times(1)).putSnapshotsV1(anyString(), anyString(), any());
+  }
+
+  /** A create arrives with no base, so the hook has nothing to compare and allows it. */
+  @Test
+  public void testTheExampleHookAllowsACreate() {
+    SnapshotApi snapshotApi = acceptingSnapshotApi();
+    OpenHouseTableOperationsForTest ops = opsFor(snapshotApi);
+    ops.withPreCommit(new RequiredPropertyHook("owner"));
+    Commit commit = snapshotCommitWithProperties(ImmutableMap.of(), ImmutableMap.of("a", "b"));
+
+    ops.doCommit(null, commit.metadata);
+
+    verify(snapshotApi, times(1)).putSnapshotsV1(anyString(), anyString(), any());
   }
 }
