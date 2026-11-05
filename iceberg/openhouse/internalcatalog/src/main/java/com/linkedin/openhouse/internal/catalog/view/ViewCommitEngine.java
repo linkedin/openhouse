@@ -14,6 +14,9 @@ public interface ViewCommitEngine {
    * requires a view. No-op REPLACE returns the captured snapshot without publishing. The source
    * dialect is required on CREATE and immutable on REPLACE: it must exactly (case-sensitively)
    * match the current version's source dialect in the captured snapshot.
+   *
+   * @throws ViewSourceDialectMismatchException if REPLACE changes a valid stored source dialect;
+   *     missing or blank stored source dialects are corrupt state, not caller errors
    */
   ViewCommitResult commit(ViewCommitIntent intent);
 }

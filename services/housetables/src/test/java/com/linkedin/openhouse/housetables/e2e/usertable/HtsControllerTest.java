@@ -1418,6 +1418,48 @@ public class HtsControllerTest {
         .andExpect(jsonPath("$.pageResults.content[0].tableId", is("t01_view")));
   }
 
+  /**
+   * Real HTS controller -> validator -> JDBC path, pinned to the single tableId sort vocabulary.
+   */
+  @Test
+  public void testPagedViewQueryUsesValidatorAndJdbcSortWithChangedRequestSizes() throws Exception {
+    seedCanonicalRows("");
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/v1/hts/views/query")
+                .params(queryParams("databaseId", ENTITY_TYPE_DB))
+                .param("page", "0")
+                .param("size", "2")
+                .param("sortBy", "tableId")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pageResults.content", hasSize(2)))
+        .andExpect(jsonPath("$.pageResults.content[0].tableId", is("t01_view")))
+        .andExpect(jsonPath("$.pageResults.content[1].tableId", is("t03_view")));
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/v1/hts/views/query")
+                .params(queryParams("databaseId", ENTITY_TYPE_DB))
+                .param("page", "1")
+                .param("size", "2")
+                .param("sortBy", "tableId")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pageResults.content", hasSize(1)))
+        .andExpect(jsonPath("$.pageResults.content[0].tableId", is("t05_view")))
+        .andExpect(jsonPath("$.pageResults.totalElements", is(3)));
+
+    mvc.perform(
+            MockMvcRequestBuilders.get("/v1/hts/views/query")
+                .params(queryParams("databaseId", ENTITY_TYPE_DB))
+                .param("page", "0")
+                .param("size", "2")
+                .param("sortBy", "tableId,creationTime")
+                .accept(MediaType.APPLICATION_JSON))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message", containsString("sortBy")));
+  }
+
   /** The paged route drops it at the same boundary; the two routes must not diverge here. */
   @ParameterizedTest
   @ValueSource(strings = {"TABLE", "table", "VIEW", "UNKNOWN"})

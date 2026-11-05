@@ -8,6 +8,7 @@ import com.linkedin.openhouse.internal.catalog.view.model.SqlViewRepresentationI
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewPointer;
+import com.linkedin.openhouse.tables.services.ViewsService;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -51,6 +52,10 @@ public class IcebergViewBeanBoundaryTest {
       "com.linkedin.openhouse.internal.catalog.view.ViewMetadataCodec";
   private static final String VIEW_COMMIT_ENGINE_IMPL_CLASS =
       "com.linkedin.openhouse.internal.catalog.view.ViewCommitEngineImpl";
+  private static final String VIEWS_SERVICE_IMPL_CLASS =
+      "com.linkedin.openhouse.tables.services.ViewsServiceImpl";
+  private static final String VIEWS_DISABLED_SERVICE_CLASS =
+      "com.linkedin.openhouse.tables.services.ViewsDisabledService";
 
   private static final List<Class<?>> VERSION_NEUTRAL_TYPES =
       Arrays.asList(
@@ -70,6 +75,37 @@ public class IcebergViewBeanBoundaryTest {
       return true;
     } catch (ClassNotFoundException e) {
       return false;
+    }
+  }
+
+  @Test
+  public void exactlyOneViewsServiceExistsForEachIcebergRuntime() {
+    try (ConfigurableApplicationContext context = boot()) {
+      String[] serviceBeans = context.getBeanNamesForType(ViewsService.class);
+      Assertions.assertEquals(
+          1,
+          serviceBeans.length,
+          "exactly one ViewsService must be registered, found " + Arrays.toString(serviceBeans));
+
+      if (icebergViewApiPresent()) {
+        Assertions.assertTrue(
+            loadOrFail(VIEWS_SERVICE_IMPL_CLASS).isAssignableFrom(context.getType(serviceBeans[0])),
+            "Iceberg-view-capable runtimes must use the real bridge service");
+        Assertions.assertEquals(
+            0,
+            context.getBeanNamesForType(loadOrFail(VIEWS_DISABLED_SERVICE_CLASS)).length,
+            "disabled service must not also be registered with the real bridge");
+      } else {
+        Assertions.assertTrue(
+            loadOrFail(VIEWS_DISABLED_SERVICE_CLASS)
+                .isAssignableFrom(context.getType(serviceBeans[0])),
+            "Iceberg 1.2 runtimes must use the disabled service");
+        for (String name : context.getBeanDefinitionNames()) {
+          Assertions.assertFalse(
+              name.toLowerCase().contains("viewsserviceimpl"),
+              "real ViewsServiceImpl may not be loaded under Iceberg 1.2: " + name);
+        }
+      }
     }
   }
 
