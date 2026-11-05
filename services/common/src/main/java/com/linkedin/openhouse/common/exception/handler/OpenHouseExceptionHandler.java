@@ -275,15 +275,11 @@ public class OpenHouseExceptionHandler extends ResponseEntityExceptionHandler {
   @ExceptionHandler(HistoricPartitionColumnRemovedException.class)
   protected ResponseEntity<ErrorResponseBody> handleHistoricPartitionColumnRemoved(
       HistoricPartitionColumnRemovedException exception) {
-    ErrorResponseBody errorResponseBody =
-        ErrorResponseBody.builder()
-            .status(HttpStatus.BAD_REQUEST)
-            .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
-            .message(exception.getMessage())
-            .stacktrace(getAbbreviatedStackTrace(exception))
-            .cause(getExceptionCause(exception))
-            .build();
-    return buildResponseEntity(errorResponseBody);
+    return handleUnsupportedClientOperationException(
+        new UnsupportedClientOperationException(
+            UnsupportedClientOperationException.Operation.RTAS_DROP_PARTITION_COLUMN,
+            exception.getMessage(),
+            exception));
   }
 
   @Hidden

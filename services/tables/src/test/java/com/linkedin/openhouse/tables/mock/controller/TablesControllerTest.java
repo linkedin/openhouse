@@ -57,6 +57,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -633,24 +634,31 @@ public class TablesControllerTest {
       int status = pair.getValue();
       GetTableResponseBody responseBodyForException =
           GET_TABLE_RESPONSE_BODY.toBuilder().databaseId("dException").tableId(error).build();
-      mvcUnauthenticated
-          .perform(
-              MockMvcRequestBuilders.put(
-                      String.format(
-                          ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
-                              + "/databases/%s/tables/%s",
-                          responseBodyForException.getDatabaseId(),
-                          responseBodyForException.getTableId()))
-                  .contentType(MediaType.APPLICATION_JSON)
-                  .content(
-                      buildCreateUpdateTableRequestBody(responseBodyForException)
-                          .toBuilder()
-                          .baseTableVersion(INITIAL_TABLE_VERSION)
-                          .build()
-                          .toJson())
-                  .accept(MediaType.APPLICATION_JSON))
-          .andExpect(status().is(status))
-          .andReturn();
+      ResultActions response =
+          mvcUnauthenticated
+              .perform(
+                  MockMvcRequestBuilders.put(
+                          String.format(
+                              ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                                  + "/databases/%s/tables/%s",
+                              responseBodyForException.getDatabaseId(),
+                              responseBodyForException.getTableId()))
+                      .contentType(MediaType.APPLICATION_JSON)
+                      .content(
+                          buildCreateUpdateTableRequestBody(responseBodyForException)
+                              .toBuilder()
+                              .baseTableVersion(INITIAL_TABLE_VERSION)
+                              .build()
+                              .toJson())
+                      .accept(MediaType.APPLICATION_JSON))
+              .andExpect(status().is(status));
+      if ("historicpartitioncolumnremovedexception".equals(error)) {
+        String message =
+            "RTAS does not support dropping a partition column [id]. Only removing partitioning is allowed";
+        response
+            .andExpect(jsonPath("$.message").value(message))
+            .andExpect(jsonPath("$.cause").value(message));
+      }
     }
   }
 
