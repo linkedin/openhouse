@@ -2,7 +2,10 @@
 
 The Optimizer Service creates and changes its MySQL tables with
 [Flyway](https://documentation.red-gate.com/fd) migrations, which it applies when it starts. The
-tables can share a database with HouseTables' tables.
+tables can share a database with HouseTables' tables. The migrations' only targets are the four
+optimizer tables (`table_operations`, `table_operations_history`, `table_stats`,
+`table_stats_history`) and `optimizer_schema_history`. HouseTables' production schema and data must
+stay untouched.
 
 | Path | Role |
 |------|------|
@@ -22,9 +25,9 @@ and Flyway migrates it as the service does at startup. Add it to a `@SpringBootT
 class MyRepositoryTest { ... }
 ```
 
-`OptimizerSchemaMigrationsTest` starts the service on an empty database, and on one that already
-holds HouseTables' tables, as the database it shares with HouseTables does. The second must end up
-with the first one's tables and keep HouseTables' tables and rows.
+`OptimizerSchemaMigrationsTest` starts the service on an empty database, and on one that holds the
+real HouseTables schema with seeded rows. Both must end up with the same optimizer tables, and
+HouseTables' table definitions and row contents must be identical before and after.
 
 ## Changing the Schema
 
@@ -66,12 +69,20 @@ Spring Boot runs Flyway before JPA starts and before the HTTP port opens. Flyway
 applied migration in `optimizer_schema_history` and applies the pending ones in version order.
 Replicas that start together take turns through a MySQL named lock, so each migration runs once.
 
-The service can share HouseTables' database. A MySQL user granted only the optimizer's tables, as
-[Database Privileges](#database-privileges) allows, sees none of HouseTables' tables, so Flyway
-finds the database empty and applies every migration. A user granted the whole database sees them,
-and Flyway first records a baseline at version 0; it still applies every migration, since each has
-a higher version. Flyway doesn't check whose the other tables are: pointed at the wrong database,
-the service adds its tables there.
+The service can share HouseTables' database. Its MySQL user can read and write HouseTables' tables,
+so Flyway sees them: it records a baseline at version 0 in the nonempty database, then applies every
+migration, since each has a higher version. Flyway doesn't check whose the other tables are: pointed
+at the wrong database, the service adds its tables there.
+
+The migrations may only create and change the optimizer tables and `optimizer_schema_history`.
+Neither Flyway nor the MySQL account enforces that: Flyway runs whatever SQL a migration holds, and
+the user can write HouseTables' tables. Review each migration so that it doesn't reference
+HouseTables' tables, and rely on the preservation test ([Tests](#tests)) as a check.
+
+On the first rollout, HouseTables' tables may exist and the optimizer's tables must not. Flyway
+doesn't adopt or diff optimizer tables that exist without history: the initial migration fails on
+the existing table and the service doesn't start. Any reset of such tables needs a separate,
+explicit approval of what happens to their data, and never includes HouseTables' tables.
 
 The HTTP port opens only once the migrations finish, so the liveness probe fails for as long as one
 runs. Give the deployment a startup probe that allows for the slowest migration: Kubernetes holds off
@@ -79,7 +90,8 @@ the liveness probe until the startup probe passes. A pod killed mid-migration le
 running in MySQL, and the service may not start again until someone recovers it by hand
 ([Recovering from a Failed Migration](#recovering-from-a-failed-migration)).
 
-Flyway's `clean`, which drops every table in the database, HouseTables' included, is disabled.
+Flyway's `clean`, which drops every table in the database, HouseTables' included, is disabled. That
+guards only against `clean`, not against migration SQL that touches other tables.
 
 Flyway ignores applied migrations newer than the newest one it knows, so a rolled-back release
 still starts against the newer schema.
@@ -138,14 +150,14 @@ Recover by hand, as a MySQL admin connected to the optimizer's database:
 
 ## Database Privileges
 
-The service's MySQL user needs these privileges, which a database it shares can grant on the
-optimizer's tables alone:
+The service's MySQL user needs at least these privileges on the optimizer's tables. It can also
+read and write HouseTables' tables in a shared database, so the account's privileges are not a
+safety boundary: migration review and the preservation test are.
 
 | Tables | Privileges |
 |--------|------------|
 | `table_operations`, `table_operations_history`, `table_stats`, `table_stats_history` | `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, and `DROP` once a migration drops a table |
 | `optimizer_schema_history` | `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `INDEX`: Flyway creates the table, then its index with `CREATE INDEX`. Without `INDEX`, it keeps the table and goes on without the index. |
 
-MySQL accepts a grant on a table that doesn't exist yet if the grant includes `CREATE`, so grant them
-all before the service first starts. Write index changes on the optimizer's tables as `ALTER TABLE`,
-which doesn't need `INDEX`.
+Grant these before the service first starts; the optimizer tables don't exist until then. Write
+index changes on the optimizer's tables as `ALTER TABLE`, which doesn't need `INDEX`.

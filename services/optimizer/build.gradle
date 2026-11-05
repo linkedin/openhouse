@@ -50,6 +50,13 @@ dependencies {
   testImplementation testFixtures(project(':libs:optimizer:optimizer-common'))
 }
 
+// Reuse HouseTables' schema without adding its service to the optimizer's test classpath.
+def houseTablesSchema = rootProject.file('services/housetables/src/main/resources/schema.sql')
+
 test {
   useJUnitPlatform()
+  inputs.file(houseTablesSchema).withPathSensitivity(PathSensitivity.RELATIVE)
+  doFirst {
+    systemProperty 'optimizer.house-tables-schema', houseTablesSchema.absolutePath
+  }
 }
