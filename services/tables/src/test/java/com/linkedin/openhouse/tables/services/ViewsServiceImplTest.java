@@ -1316,32 +1316,39 @@ public class ViewsServiceImplTest {
 
   /**
    * The neutral write capture keeps a TABLE occupant (the same reference) without exposing it as a
-   * view base; the collision is revealed only after database authorization, before allocation.
+   * view base; the collision is revealed only after database authorization, before allocation. A
+   * PUT onto a table-occupied name is a create attempt too: its decision stays database-scoped,
+   * never an authorization on the occupant as a view object.
    */
-  @Test
-  public void tableCollisionIsRevealedOnlyAfterDatabaseAuthorization() {
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  public void tableCollisionIsRevealedOnlyAfterDatabaseAuthorization(boolean failOnExist) {
     existingEnabledDatabase();
     HouseTable tableOccupant =
         HouseTable.builder()
             .databaseId(ViewModelConstants.DATABASE_ID)
             .tableId(ViewModelConstants.VIEW_ID)
+            .tableUUID("table-uuid")
             .tableLocation(CAPTURED_POINTER)
             .storageType("local")
             .entityType("TABLE")
             .build();
     captureForWrite(Optional.of(tableOccupant));
     when(privilegeMapper.forCreate()).thenReturn(Privileges.CREATE_TABLE);
+    when(privilegeMapper.forPut(false)).thenReturn(Privileges.CREATE_TABLE);
+    // Object access stays denied: only the database CREATE_TABLE decision may admit this attempt.
+    CreateUpdateViewRequestBody request =
+        failOnExist
+            ? ViewModelConstants.createRequestWithoutBaseVersion()
+            : ViewModelConstants.createRequestWithInitialBaseVersion();
 
     ViewApiException thrown =
         assertThrows(
-            ViewApiException.class,
-            () ->
-                service.putView(
-                    ViewModelConstants.createRequestWithoutBaseVersion(), ACTING_PRINCIPAL, true));
+            ViewApiException.class, () -> service.putView(request, ACTING_PRINCIPAL, failOnExist));
 
     assertEquals(ViewErrorCode.NAME_ALREADY_EXISTS_AS_TABLE, thrown.getErrorCode());
     assertDatabaseAuthorization(Privileges.CREATE_TABLE);
-    verifyNoInteractions(storageSelector, viewCommitEngine);
+    verifyNoInteractions(storageSelector, selectedStorage, viewCommitEngine);
   }
 
   @Test
