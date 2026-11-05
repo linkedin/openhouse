@@ -10,11 +10,13 @@ import java.util.Optional;
  * Strategy interface for a single operation type. Each implementation decides whether a given table
  * needs an operation recommendation upserted in the Optimizer Service.
  *
- * <p>TODO(circuit-breaker): a chronically-failing table currently produces a new PENDING row on
- * every Analyzer pass. Add a circuit breaker that suppresses scheduling for a (table, type) after N
- * consecutive FAILED history entries. Requirements: configurable threshold per operation type,
- * automatic reset via exponential backoff so tables can recover, and an operator-visible signal
- * (metric or query) so tripped breakers are diagnosable.
+ * <p>Per-table retry backoff is in place: a chronically-failing table spaces out its retries
+ * instead of producing a new PENDING row on every Analyzer pass. Once a (table, type) accrues
+ * {@code failureStreakThreshold} consecutive non-success submissions (configurable per operation
+ * type), the retry interval grows exponentially — capped at {@code failureBackoffMax} — and resets
+ * to the flat interval on the next success, with an operator-visible WARN when it engages. Note
+ * this spaces out retries for one table; it is not a dependency-level circuit breaker that stops
+ * many tables from launching work against a shared failing dependency (a separate change).
  */
 public interface OperationAnalyzer {
 
@@ -46,8 +48,8 @@ public interface OperationAnalyzer {
 
   /**
    * Whether the given active op is a submitted job that has timed out — exceeded the stale-timeout
-   * with no success. This "logical timeout" is derived, never persisted; the circuit breaker counts
-   * it as a non-success alongside explicitly FAILED history.
+   * with no success. This "logical timeout" is derived, never persisted; the per-table retry
+   * backoff counts it as a non-success alongside explicitly FAILED history.
    *
    * @param op an existing operation record for this (table, type)
    */
@@ -61,8 +63,8 @@ public interface OperationAnalyzer {
    * @param latestHistory the most recent history entry for this (table, type), or empty
    * @param consecutiveFailures number of consecutive non-success submissions ending at the latest
    *     one — explicitly FAILED history plus logical timeouts (submitted-without-success); {@code
-   *     0} when the latest submission succeeded. Used by the circuit breaker to back off and signal
-   *     a chronically-failing table.
+   *     0} when the latest submission succeeded. Used by the per-table retry backoff to space out
+   *     retries and signal a chronically-failing table.
    */
   boolean shouldSchedule(
       TableDto table,

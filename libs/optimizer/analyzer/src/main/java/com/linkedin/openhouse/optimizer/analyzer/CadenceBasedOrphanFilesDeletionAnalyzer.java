@@ -71,7 +71,8 @@ public class CadenceBasedOrphanFilesDeletionAnalyzer implements OperationAnalyze
       @Value("${ofd.failure-backoff-max-hours:24}") long failureBackoffMaxHours) {
     // OFD mutates the table and can eat customer quota on a duplicate run, so it biases toward a
     // longer active-op deadline (prefer a missed job over a duplicate) — see CadencePolicy. After
-    // failureStreakThreshold consecutive failures the circuit breaker backs off exponentially.
+    // failureStreakThreshold consecutive failures the per-table retry backoff backs off
+    // exponentially.
     this.cadencePolicy =
         new CadencePolicy(
             Duration.ofHours(successRetryHours),
@@ -107,12 +108,13 @@ public class CadenceBasedOrphanFilesDeletionAnalyzer implements OperationAnalyze
       Optional<TableOperationDto> currentOp,
       Optional<TableOperationsHistoryDto> latestHistory,
       int consecutiveFailures) {
-    if (cadencePolicy.isBreakerTripped(consecutiveFailures)) {
-      // Operator-visible signal for a chronically-failing table (circuit breaker tripped). TODO:
-      // emit a metric here once a MeterRegistry is on the optimizer classpath; the breaker then
+    if (cadencePolicy.isRetryBackoffEngaged(consecutiveFailures)) {
+      // Operator-visible signal for a chronically-failing table (per-table retry backoff tripped).
+      // TODO:
+      // emit a metric here once a MeterRegistry is on the optimizer classpath; the backoff then
       // backs off exponentially rather than rescheduling every cadence.
       log.warn(
-          "OFD circuit breaker tripped for {}.{} (uuid={}): {} consecutive failures; backing off",
+          "OFD retry backoff engaged for {}.{} (uuid={}): {} consecutive failures; backing off",
           table.getDatabaseName(),
           table.getTableId(),
           table.getTableUuid(),

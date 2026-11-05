@@ -68,7 +68,8 @@ public class CadenceBasedStatsCollectionAnalyzer implements OperationAnalyzer {
       @Value("${stats.failure-backoff-max-hours:24}") long failureBackoffMaxHours) {
     // Stats collection is idempotent and does not mutate the table, so it biases toward an "extra
     // job": a short active-op deadline reschedules a stuck SCHEDULED job sooner — see
-    // CadencePolicy. After failureStreakThreshold consecutive failures the circuit breaker backs
+    // CadencePolicy. After failureStreakThreshold consecutive failures the per-table retry backoff
+    // backs
     // off exponentially so a chronically-failing table stops burning jobs.
     this.cadencePolicy =
         new CadencePolicy(
@@ -105,12 +106,13 @@ public class CadenceBasedStatsCollectionAnalyzer implements OperationAnalyzer {
       Optional<TableOperationDto> currentOp,
       Optional<TableOperationsHistoryDto> latestHistory,
       int consecutiveFailures) {
-    if (cadencePolicy.isBreakerTripped(consecutiveFailures)) {
-      // Operator-visible signal for a chronically-failing table (circuit breaker tripped). TODO:
-      // emit a metric here once a MeterRegistry is on the optimizer classpath; the breaker then
+    if (cadencePolicy.isRetryBackoffEngaged(consecutiveFailures)) {
+      // Operator-visible signal for a chronically-failing table (per-table retry backoff tripped).
+      // TODO:
+      // emit a metric here once a MeterRegistry is on the optimizer classpath; the backoff then
       // backs off exponentially rather than rescheduling every cadence.
       log.warn(
-          "Stats-collection circuit breaker tripped for {}.{} (uuid={}): {} consecutive failures; backing off",
+          "Stats-collection retry backoff engaged for {}.{} (uuid={}): {} consecutive failures; backing off",
           table.getDatabaseName(),
           table.getTableId(),
           table.getTableUuid(),

@@ -111,7 +111,8 @@ class CadenceBasedStatsCollectionAnalyzerTest {
         .isFalse();
   }
 
-  // --- circuit breaker: exponential backoff once the consecutive-failure streak hits threshold ---
+  // --- per-table retry backoff: exponential backoff once the consecutive-failure streak hits
+  // threshold ---
 
   @Test
   void shouldSchedule_belowStreakThreshold_usesFlatFailureInterval_returnsTrue() {

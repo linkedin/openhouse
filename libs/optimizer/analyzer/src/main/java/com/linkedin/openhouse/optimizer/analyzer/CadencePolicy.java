@@ -26,16 +26,23 @@ import java.util.Optional;
  *   <li><b>Cadence guard.</b> With no live op, the decision is based on the most recent completed
  *       history entry: re-evaluate after {@code successRetryInterval} on success, or after {@code
  *       failureRetryInterval} on failure (shorter, for quick recovery).
- *   <li><b>Circuit breaker.</b> Once a table accrues {@code failureStreakThreshold} consecutive
- *       FAILED runs, the failure interval grows exponentially per additional failure (capped at
- *       {@code failureBackoffMax}) so a chronically-failing table stops burning jobs. A single
- *       SUCCESS resets the streak, restoring the flat interval — automatic recovery.
+ *   <li><b>Per-table retry backoff.</b> Once a table accrues {@code failureStreakThreshold}
+ *       consecutive FAILED runs, the failure interval grows exponentially per additional failure
+ *       (capped at {@code failureBackoffMax}) so a chronically-failing table stops burning jobs. A
+ *       single SUCCESS resets the streak, restoring the flat interval — automatic recovery.
  * </ol>
  *
- * <p>The deadline here is derived from the op's {@code scheduledAt} (falling back to {@code
- * createdAt}) plus {@code activeOpStaleTimeout}. A future enhancement can store an explicit
- * per-operation deadline at schedule time to support per-table overrides (e.g. a larger table gets
- * a longer deadline); this policy already treats the stale timeout as that default deadline.
+ * <p>The deadline here is derived from the op's {@code scheduledAt} plus {@code
+ * activeOpStaleTimeout}. A future enhancement can store an explicit per-operation deadline at
+ * schedule time to support per-table overrides (e.g. a larger table gets a longer deadline); this
+ * policy already treats the stale timeout as that default deadline.
+ *
+ * <p>TODO (heartbeats): the fixed {@code activeOpStaleTimeout} cannot distinguish a dead job from a
+ * healthy long-running one, so a legitimately slow job that crosses the deadline is rescheduled
+ * while still making progress (a "zombie"). A heartbeat from the running job would push its
+ * deadline forward so healthy long jobs keep ownership — gated on an {@code attempt_generation}
+ * match so a superseded zombie cannot renew and clobber its replacement. Out of scope here; see the
+ * PR #812 review discussion.
  */
 public class CadencePolicy {
 
@@ -66,14 +73,14 @@ public class CadencePolicy {
   /**
    * How long a {@code SCHEDULING}/{@code SCHEDULED} operation may sit without reaching a terminal
    * history entry before it is considered dead (missed/hung job) and stops blocking reschedule.
-   * Measured from the op's {@code scheduledAt} (fallback {@code createdAt}).
+   * Measured from the op's {@code scheduledAt}; an op without one cannot be proven stale.
    */
   private final Duration activeOpStaleTimeout;
 
   /**
-   * Consecutive-FAILED-history count at which the circuit breaker engages exponential backoff.
-   * Below this, a failed run retries at the flat {@link #failureRetryInterval} (transient failures
-   * recover fast); at or above it, the retry interval doubles per additional failure.
+   * Consecutive-FAILED-history count at which the per-table retry backoff engages exponential
+   * backoff. Below this, a failed run retries at the flat {@link #failureRetryInterval} (transient
+   * failures recover fast); at or above it, the retry interval doubles per additional failure.
    */
   private final int failureStreakThreshold;
 
@@ -95,7 +102,7 @@ public class CadencePolicy {
 
   /**
    * Uses {@link #DEFAULT_FAILURE_STREAK_THRESHOLD} and {@link #DEFAULT_FAILURE_BACKOFF_MAX} for the
-   * circuit breaker.
+   * per-table retry backoff.
    */
   public CadencePolicy(
       Duration successRetryInterval, Duration failureRetryInterval, Duration activeOpStaleTimeout) {
@@ -112,8 +119,8 @@ public class CadencePolicy {
     this(successRetryInterval, failureRetryInterval, DEFAULT_ACTIVE_OP_STALE_TIMEOUT);
   }
 
-  /** Whether a table's consecutive-failure streak has tripped the circuit breaker. */
-  public boolean isBreakerTripped(int consecutiveFailures) {
+  /** Whether a table's consecutive-failure streak has tripped the per-table retry backoff. */
+  public boolean isRetryBackoffEngaged(int consecutiveFailures) {
     return consecutiveFailures >= failureStreakThreshold;
   }
 
@@ -165,7 +172,10 @@ public class CadencePolicy {
    * Whether a submitted op has exceeded the stale-timeout with no success — i.e. it looks dead.
    * Measured from the submission time ({@code scheduledAt}); an op without one cannot be proven
    * stale, so it is treated as live. This is both the rescheduling trigger and the "logical
-   * timeout" the circuit breaker counts as a non-success — keeping the two in lockstep.
+   * timeout" the per-table retry backoff counts as a non-success — keeping the two in lockstep.
+   *
+   * <p>TODO (heartbeats): a fixed deadline flags healthy long-running jobs as dead; see the
+   * class-level note on heartbeat-based ownership renewal.
    */
   public boolean isSubmissionTimedOut(TableOperationDto op) {
     // Stale-timeout is measured from when the job was submitted (scheduledAt). Without a submission
@@ -190,7 +200,7 @@ public class CadencePolicy {
    * Flat {@link #failureRetryInterval} until the streak reaches {@link #failureStreakThreshold};
    * from there the interval doubles per additional consecutive failure (exponential backoff),
    * capped at {@link #failureBackoffMax}. A single SUCCESS resets the streak to 0, restoring the
-   * flat interval — this is the circuit breaker's automatic recovery.
+   * flat interval — this is the per-table retry backoff's automatic recovery.
    */
   private Duration failureInterval(int consecutiveFailures) {
     if (consecutiveFailures < failureStreakThreshold) {

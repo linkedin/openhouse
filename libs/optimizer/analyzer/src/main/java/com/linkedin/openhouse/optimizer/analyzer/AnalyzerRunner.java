@@ -38,12 +38,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class AnalyzerRunner {
 
   /**
-   * Maximum number of recent submissions the circuit breaker inspects to measure the consecutive
-   * non-success streak. This is a <i>look-back bound, not a retry limit</i>: the breaker retries
-   * indefinitely at the backed-off cadence and never gives up after N attempts. The streak only
-   * sets the backoff exponent, and that backoff reaches its {@code failure-backoff-max} ceiling
-   * after a handful of failures (e.g. ~5 with a 1h base and a 21h cap), so inspecting further back
-   * than this cannot change the computed interval.
+   * Maximum number of recent submissions the per-table retry backoff inspects to measure the
+   * consecutive non-success streak. This is a <i>look-back bound, not a retry limit</i>: retries
+   * continue indefinitely at the backed-off cadence and never give up after N attempts. The streak
+   * only sets the backoff exponent, and that backoff reaches its {@code failure-backoff-max}
+   * ceiling after a handful of failures (e.g. ~5 with a 1h base and a 21h cap), so inspecting
+   * further back than this cannot change the computed interval.
    */
   private static final int FAILURE_STREAK_WINDOW = 10;
 
