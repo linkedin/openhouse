@@ -457,3 +457,34 @@ def test_table_reference_case_does_not_rebind_other_database_qualifier():
 
     with pytest.raises(sqlglot.errors.OptimizeError):
         _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])
+
+
+def test_table_reference_case_preserves_outer_subquery_alias_spelled_like_table():
+    sql = 'SELECT mytable.a FROM (SELECT a FROM "myDb"."myTable") AS mytable'
+
+    plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])
+
+    assert plan.source_columns == ["a"]
+    assert 'AS "mytable"' in plan.sql
+    assert '"mytable"."a"' in plan.sql
+
+
+def test_table_reference_case_rebinds_correlated_subquery_qualifier():
+    sql = 'SELECT "a" FROM (SELECT a FROM mydb.mytable WHERE a > (SELECT MAX(mytable.b))) AS _t'
+
+    plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])
+
+    assert plan.source_columns == ["a", "b"]
+    assert '"mytable"' not in plan.sql
+
+
+def test_table_reference_case_nested_subquery_alias_shadows_table():
+    sql = (
+        'SELECT "a" FROM (SELECT a FROM mydb.mytable '
+        "WHERE a > (SELECT MAX(mytable.b) FROM (SELECT 1 AS b) AS mytable)) AS _t"
+    )
+
+    plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])
+
+    assert 'AS "mytable"' in plan.sql
+    assert 'max("mytable"."b")' in plan.sql
