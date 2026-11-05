@@ -488,3 +488,15 @@ def test_table_reference_case_nested_subquery_alias_shadows_table():
 
     assert 'AS "mytable"' in plan.sql
     assert 'max("mytable"."b")' in plan.sql
+
+
+def test_table_reference_case_nested_join_alias_shadows_table():
+    sql = (
+        'SELECT "a" FROM (SELECT a FROM mydb.mytable WHERE a > ('
+        "SELECT MAX(mytable.b) FROM (SELECT 1 AS c) AS z JOIN (SELECT 1 AS b) AS mytable ON 1 = 1)) AS _t"
+    )
+
+    plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])
+
+    assert 'AS "mytable"' in plan.sql
+    assert 'max("mytable"."b")' in plan.sql
