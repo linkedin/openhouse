@@ -12,8 +12,9 @@ import org.springframework.stereotype.Component;
  * drop                       -> DELETE_TABLE
  * </pre>
  *
- * All three are checked at the database level (checkDatabasePrivilege), reusing existing production
- * role-data. No view write ever sends a {@code *_VIEW} privilege name to OPA.
+ * Create and absent-PUT-create are checked on the database; replace and drop are checked on the
+ * captured view object. All reuse existing production role-data. No view write ever sends a {@code
+ * *_VIEW} privilege name to OPA.
  */
 @Component
 public class ViewWritePrivilegeMapper {
