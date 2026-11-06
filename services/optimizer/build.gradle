@@ -62,18 +62,67 @@ def entitySchema = layout.buildDirectory.file('entity-schema.sql')
 tasks.register('exportEntitySchema', JavaExec) {
   group = 'verification'
   description = 'Writes the DDL of the tables the JPA entities define to build/entity-schema.sql'
-  classpath = sourceSets.test.runtimeClasspath + configurations.developmentOnly
-  mainClass = 'com.linkedin.openhouse.optimizer.OptimizerEntitySchemaExport'
+  classpath = sourceSets.main.runtimeClasspath + configurations.developmentOnly
+  mainClass = 'com.linkedin.openhouse.optimizer.OptimizerServiceApplication'
   outputs.file(entitySchema)
   doFirst {
     def file = entitySchema.get().asFile
     delete(file)
     file.parentFile.mkdirs()
-    args = [file.absolutePath]
+    args = [
+      '--spring.main.web-application-type=none',
+      '--cluster.optimizer.database.url=jdbc:h2:mem:entity-schema;MODE=MYSQL;DB_CLOSE_DELAY=-1',
+      '--cluster.optimizer.database.type=IN_MEMORY',
+      '--cluster.optimizer.database.cert-based-auth.enabled=false',
+      '--spring.datasource.username=sa',
+      '--spring.datasource.password=',
+      '--spring.flyway.enabled=false',
+      '--spring.jpa.hibernate.ddl-auto=none',
+      '--spring.jpa.properties.javax.persistence.schema-generation.database.action=none',
+      '--spring.jpa.properties.javax.persistence.schema-generation.scripts.action=create',
+      "--spring.jpa.properties.javax.persistence.schema-generation.scripts.create-target=${file}",
+      '--spring.jpa.properties.hibernate.hbm2ddl.schema-generation.script.append=false',
+      '--spring.jpa.properties.hibernate.hbm2ddl.delimiter=;'
+    ]
   }
   doLast {
     if (!entitySchema.get().asFile.isFile()) {
       throw new GradleException("Hibernate did not write ${entitySchema.get().asFile}")
+    }
+  }
+}
+
+def optimizerCommon = project(':libs:optimizer:optimizer-common')
+def migrations = optimizerCommon.file('src/main/resources/db/migration')
+def generatedMigrations = layout.buildDirectory.dir('generated-migrations')
+
+tasks.register('generateMigration', Exec) {
+  group = 'database'
+  description = 'Generates a Flyway migration from the optimizer entities using Atlas Community'
+  dependsOn tasks.named('exportEntitySchema')
+  workingDir optimizerCommon.projectDir
+  commandLine 'atlas', 'migrate', 'diff', '--env', 'local',
+      providers.gradleProperty('migrationName').getOrElse('sync_entities')
+  def existingFiles = []
+  doFirst {
+    delete(generatedMigrations)
+    existingFiles = fileTree(migrations).files*.name
+  }
+  doLast {
+    // Flyway Community cannot apply Atlas's undo scripts. Leave existing files alone.
+    delete fileTree(migrations) { include 'U*.sql'; exclude existingFiles }
+    providers.exec {
+      workingDir optimizerCommon.projectDir
+      commandLine 'atlas', 'migrate', 'hash', '--env', 'local'
+    }.result.get().assertNormalExitValue()
+    def added = fileTree(migrations) { include 'V*.sql'; exclude existingFiles }
+    if (!added.isEmpty()) {
+      copy {
+        from migrations
+        include 'atlas.sum'
+        include added.files*.name
+        into generatedMigrations
+      }
     }
   }
 }
