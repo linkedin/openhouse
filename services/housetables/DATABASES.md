@@ -1,93 +1,64 @@
 # Independent database metadata
 
-Database metadata has its own identity and lifecycle. The HTTP handler translates request and
-response objects to the HouseTables service models. Existing table operations remain independent
-of these records.
+Database properties live as one JSON document in `database_row`, alongside the database's
+immutable UUID, logical name, normalized name, and version. Every metadata read needs the
+whole map, so a single row matches the access pattern. A sparse update rewrites the document;
+its storage cost grows with the map size.
 
 ## Storage
 
-The property table is a JPA collection owned by the versioned database row. The foreign key
-prevents orphan properties, and service transactions commit the owner and collection together.
-Optimistic version checks reject competing updates and stale deletes. A failed transaction
-rolls back property removals as well as additions.
+The document uses a JPA converter and a `LONGTEXT` column, with the same representation in
+MySQL and H2. JSON preserves property spelling independently of database collation.
+The normalized name has a unique index; the UUID is the primary key.
 
-Property-key queries are not a requirement. A single serialized property document is a viable
-alternative that could reduce collection round trips, while still requiring transactional
-read-modify-write and version checks. This implementation retains the relational collection
-and additive DDL. It does not claim that property-level queries require this layout.
+Sparse updates read the row, preserve unspecified keys, assign a replacement map, and commit
+within a transaction. Optimistic version checks reject competing updates and stale deletes,
+including empty updates. A failed transaction rolls back the whole document.
+The HTTP handler translates wire objects to service models and checked failures to HTTP errors.
+Deleting database metadata leaves table rows and files untouched.
 
-Keys are case-sensitive UTF-8 bytes. Empty keys, spaces, accents, and supplementary Unicode
-characters round-trip. Create, update, and removal requests reject unpaired UTF-16 surrogates
-through bean validation before persistence.
+Create, update, and removal keys must contain well-formed Unicode and at most 512 UTF-16 code
+units. Empty keys, spaces, accents, case differences, and supplementary characters round-trip.
+Unpaired surrogates and overlength keys return HTTP 400 before persistence.
 
 ## Local MySQL validation
 
-Use an isolated MySQL 8.0 schema containing synthetic data only. Apply
-`ddl/0000__baseline.sql`, `ddl/0001__add_entity_type_to_user_table_row.sql`, and
-`ddl/0002__add_database_metadata.sql` unchanged before running either task. Both tasks disable
-automatic schema creation and Spring SQL initialization.
+The service tests exercise persistence through Spring and Hibernate on H2 and local MySQL.
+They cover exact strings, UUID stability, sparse updates, optimistic conflicts and rollback,
+empty maps, and table independence. HTTP tests cover request validation and error responses.
+
+Use an isolated MySQL 8.0 schema containing synthetic data only. Apply the
+[baseline DDL](https://github.com/linkedin/openhouse/blob/mkuchenbecker/database-properties-hts/services/housetables/ddl/0000__baseline.sql),
+[entity-type DDL](https://github.com/linkedin/openhouse/blob/mkuchenbecker/database-properties-hts/services/housetables/ddl/0001__add_entity_type_to_user_table_row.sql), and
+[database DDL](https://github.com/linkedin/openhouse/blob/mkuchenbecker/database-properties-hts/services/housetables/ddl/0002__add_database_metadata.sql)
+to a new schema before running either task. Both tasks disable automatic schema creation and
+Spring SQL initialization. The database DDL describes this undeployed feature's initial schema,
+not a migration for an existing deployment.
 
 ```bash
 ./gradlew :services:housetables:databaseMysqlTest \
-  -PdatabaseMysqlUrl='jdbc:mysql://127.0.0.1:33316/feedback?useSSL=false&allowPublicKeyRetrieval=true' \
+  -PdatabaseMysqlUrl='jdbc:mysql://127.0.0.1:33316/revision_document_service?useSSL=false&allowPublicKeyRetrieval=true' \
   -x CopyGitHooksTask
 ```
 
-The service suite covers exact keys, normalized uniqueness, sparse updates, competing writers,
-stale deletion, storage-failure rollback, and table independence. The tests use the dedicated
-local root account with an empty password, so this task is unsuitable for shared environments.
+The task uses a local root account with an empty password and cleans its test records.
+It is unsuitable for shared environments.
 
 Run the workload task against a fresh schema:
 
 ```bash
 ./gradlew :services:housetables:databaseMysqlWorkload \
-  -PdatabaseMysqlUrl='jdbc:mysql://127.0.0.1:33316/feedback_workload?useSSL=false&allowPublicKeyRetrieval=true' \
+  -PdatabaseMysqlUrl='jdbc:mysql://127.0.0.1:33316/revision_document_workload?useSSL=false&allowPublicKeyRetrieval=true' \
   -x CopyGitHooksTask
 ```
 
-The workload retains its synthetic fixture. It measures 10, 100, and 1,000 properties with one
-and four writers, plus generated occupancy queries over 10,000 views and 20,000 unrelated
-entities. Each configuration warms up once, then records three runs of 100 operations.
-`WORKLOAD` rows contain workload name, concurrency, run, successes, conflicts, statement count,
-median milliseconds, p95 milliseconds, attempts per second, and successful operations per
-second. `SQL_CAPTURE` rows contain the actual Hibernate SQL, including pagination and counts.
+The [workload harness](https://github.com/linkedin/openhouse/blob/mkuchenbecker/database-properties-hts/services/housetables/src/test/java/com/linkedin/openhouse/housetables/e2e/database/DatabaseMysqlWorkloadTest.java)
+retains its synthetic fixture and captures generated SQL, successful operations, conflicts,
+statement counts, and timing samples. It exercises maps of 10, 100, and 1,000 properties and
+table/view occupancy queries. A one-row occupancy response can still require filtering and
+counting every entity in that namespace.
 
-Compare identical baseline and candidate configurations. The declared local investigation
-criteria allow at most 25% higher median-of-run p95 latency and require at least 80% of baseline
-throughput. Unstable baselines make a timing comparison inconclusive. These are local
-investigation criteria, not production SLOs. Statement counts and persistence assertions remain
-deterministic checks. Occupancy is a policy check whose filtering and count work scales with
-namespace size; returning one row does not limit all database work to one row.
-
-## Local measurements on November 6, 2026
-
-The original implementation and corrective changes used the same harness, MySQL 8.0.45
-container, production-recorded DDL, fixtures, and connection settings. The following
-median-of-three-run values come from a sequential pair without concurrent Gradle builds.
-Throughput counts attempted operations, including checked concurrency conflicts; the raw
-workload output also reports successful throughput.
-
-| Workload | Concurrency | Baseline p95 ms | Candidate p95 ms | Baseline attempts/s | Candidate attempts/s |
-|---|---:|---:|---:|---:|---:|
-| 10 properties | 1 | 11.84 | 7.17 | 136.81 | 182.12 |
-| 10 properties | 4 | 7.78 | 8.28 | 653.49 | 611.51 |
-| 100 properties | 1 | 9.16 | 6.64 | 181.75 | 200.29 |
-| 100 properties | 4 | 7.40 | 8.60 | 670.41 | 655.87 |
-| 1,000 properties | 1 | 14.15 | 7.60 | 118.37 | 169.70 |
-| 1,000 properties | 4 | 9.84 | 11.42 | 526.06 | 481.88 |
-| 10,000 views | 1 | 63.17 | 61.35 | 17.21 | 17.14 |
-| 10,000 views | 4 | 84.47 | 83.17 | 51.20 | 51.33 |
-
-All numerical median comparisons meet the declared local criteria. Sparse-update timing remains
-inconclusive because some baseline p95 runs varied by up to 81%, which prevents attributing
-the apparent improvements to the changes. Deterministic sparse-update checks passed: omitted
-properties survive, successful uncontended updates use five statements, and competing writers
-produce checked conflicts rather than lost updates.
-
-The quiet occupancy comparison meets both timing criteria with baseline p95 variation below
-5%. An earlier pair overlapped other builds and exceeded the four-reader p95 criterion by
-reporting a 28.97% increase; it is retained as a failed initial measurement, not counted as a
-pass. Both pairs used three statements per views-only check. Captured generated SQL and
-`EXPLAIN ANALYZE` show indexed access through `idx_user_table_upper_db_table`, with 10,000
-target-namespace candidates visited by each page/count query and no cross-database scan.
-These measurements establish local application behavior, not production capacity.
+Historical measurements of the child-table implementation do not validate this document schema.
+Those sparse-update timing comparisons were inconclusive because the baseline varied.
+The current checks establish local correctness and query access paths, not a performance
+improvement or production capacity.

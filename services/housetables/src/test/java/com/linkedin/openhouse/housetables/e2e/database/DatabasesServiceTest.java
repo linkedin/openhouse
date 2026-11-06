@@ -3,6 +3,7 @@ package com.linkedin.openhouse.housetables.e2e.database;
 import static com.linkedin.openhouse.housetables.services.DatabaseMetadataException.Reason.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.model.DatabaseMetadata;
@@ -34,6 +35,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ContextConfiguration;
 
@@ -54,7 +56,19 @@ class DatabasesServiceTest {
   @Test
   void testIndependentIdentityAndExactPropertyKeysPersist() throws DatabaseMetadataException {
     Map<String, String> properties =
-        Map.of("foo", "one", "FOO", "two", "foo ", "three", "fóo", "four", "", "five", "😀", "six");
+        Map.of(
+            "foo",
+            "one",
+            "FOO",
+            "\ud800",
+            "foo ",
+            "three ",
+            "fóo",
+            "\"four\"\n",
+            "",
+            "",
+            "😀",
+            "😀");
     DatabaseMetadata created = databasesService.createDatabase("Database_Foo", properties);
     assertThat(UUID.fromString(created.getDatabaseUuid()).toString())
         .isEqualTo(created.getDatabaseUuid());
@@ -128,6 +142,17 @@ class DatabasesServiceTest {
   }
 
   @Test
+  void testEmptyDocumentPersistsAcrossPropertyChanges() throws DatabaseMetadataException {
+    DatabaseMetadata created = databasesService.createDatabase("database_foo", Map.of());
+    assertThat(databasesService.getDatabase("database_foo")).isEqualTo(created);
+    databasesService.updateDatabaseProperties("database_foo", Map.of("foo", "one"), Set.of());
+    assertThat(databasesService.getDatabase("database_foo").getProperties())
+        .containsExactlyInAnyOrderEntriesOf(Map.of("foo", "one"));
+    databasesService.updateDatabaseProperties("database_foo", Map.of(), Set.of("foo"));
+    assertThat(databasesService.getDatabase("database_foo")).isEqualTo(created);
+  }
+
+  @Test
   void testDeletionRemovesOnlyDatabaseMetadata() throws DatabaseMetadataException {
     JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
     jdbcTemplate.update(
@@ -143,7 +168,7 @@ class DatabasesServiceTest {
     assertThat(repository.findById(created.getDatabaseUuid())).isEmpty();
     assertThat(
             jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM database_property WHERE database_uuid = ?",
+                "SELECT COUNT(*) FROM database_row WHERE database_uuid = ?",
                 Long.class,
                 created.getDatabaseUuid()))
         .isZero();
@@ -236,19 +261,21 @@ class DatabasesServiceTest {
   void testStorageFailureRollsBackSparseChanges() throws DatabaseMetadataException {
     DatabaseMetadata created =
         databasesService.createDatabase("database_foo", Map.of("foo", "one", "bar", "two"));
+    doThrow(new DataAccessResourceFailureException("storage unavailable")).when(repository).flush();
     assertThatThrownBy(
             () ->
                 databasesService.updateDatabaseProperties(
-                    "database_foo", Map.of("x".repeat(2050), "three"), Set.of("foo")))
+                    "database_foo", Map.of("baz", "three"), Set.of("foo")))
         .isInstanceOfSatisfying(
             DatabaseMetadataException.class,
             exception -> assertThat(exception.getReason()).isEqualTo(STORAGE_FAILURE));
+    org.mockito.Mockito.reset(repository);
     assertThat(databasesService.getDatabase("database_foo")).isEqualTo(created);
   }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void testConcurrentCollectionMutationsRejectLostUpdate(boolean emptyUpdates) throws Exception {
+  void testConcurrentDocumentMutationsRejectLostUpdate(boolean emptyUpdates) throws Exception {
     DatabaseMetadata created =
         databasesService.createDatabase("database_foo", Map.of("keep", "one"));
     CyclicBarrier readers = new CyclicBarrier(2);

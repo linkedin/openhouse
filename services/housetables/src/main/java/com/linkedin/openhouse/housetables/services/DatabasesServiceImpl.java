@@ -121,7 +121,7 @@ public class DatabasesServiceImpl implements DatabasesService {
                     .findByDatabaseNameKey(databaseName.toLowerCase(Locale.ROOT))
                     .map(
                         database -> {
-                          // The owner version serializes collection-only changes and empty updates.
+                          // Empty updates also participate in optimistic concurrency checks.
                           entityManager.lock(database, LockModeType.OPTIMISTIC_FORCE_INCREMENT);
                           List<String> removed =
                               removals.stream()
@@ -133,8 +133,10 @@ public class DatabasesServiceImpl implements DatabasesService {
                                   .filter(key -> !database.getProperties().containsKey(key))
                                   .sorted()
                                   .collect(Collectors.toList());
-                          database.getProperties().keySet().removeAll(removals);
-                          database.getProperties().putAll(updates);
+                          Map<String, String> properties = new HashMap<>(database.getProperties());
+                          properties.keySet().removeAll(removals);
+                          properties.putAll(updates);
+                          database.replaceProperties(properties);
                           repository.flush();
                           return DatabasePropertyUpdate.builder()
                               .updated(

@@ -4,14 +4,10 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
-import javax.persistence.CollectionTable;
 import javax.persistence.Column;
 import javax.persistence.Convert;
-import javax.persistence.ElementCollection;
 import javax.persistence.Entity;
 import javax.persistence.Id;
-import javax.persistence.JoinColumn;
-import javax.persistence.MapKeyColumn;
 import javax.persistence.Table;
 import javax.persistence.Version;
 import lombok.AccessLevel;
@@ -38,11 +34,8 @@ public class DatabaseRow {
       updatable = false)
   private String databaseNameKey;
 
-  @ElementCollection
-  @CollectionTable(name = "database_property", joinColumns = @JoinColumn(name = "database_uuid"))
-  @MapKeyColumn(name = "property_key", columnDefinition = "VARBINARY(2048)")
-  @Convert(attributeName = "key", converter = DatabasePropertyKeyConverter.class)
-  @Column(name = "property_value", nullable = false, columnDefinition = "MEDIUMTEXT")
+  @Convert(converter = DatabasePropertiesConverter.class)
+  @Column(name = "properties", nullable = false, columnDefinition = "LONGTEXT")
   private Map<String, String> properties = new HashMap<>();
 
   @Version private long version;
@@ -52,5 +45,9 @@ public class DatabaseRow {
     this.databaseName = databaseName;
     this.databaseNameKey = databaseName.toLowerCase(Locale.ROOT);
     this.properties.putAll(properties);
+  }
+
+  public void replaceProperties(Map<String, String> properties) {
+    this.properties = new HashMap<>(properties);
   }
 }

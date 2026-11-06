@@ -183,7 +183,8 @@ class DatabaseMysqlWorkloadTest {
         if (concurrency == 1) {
           assertThat(conflicts.get()).isZero();
           if (name.startsWith("sparse")) {
-            assertThat(statistics.getPrepareStatementCount()).isEqualTo(500);
+            // Each request loads the document, writes it, and advances the optimistic version.
+            assertThat(statistics.getPrepareStatementCount()).isEqualTo(300);
           }
         }
         if (name.startsWith("occupancy")) {

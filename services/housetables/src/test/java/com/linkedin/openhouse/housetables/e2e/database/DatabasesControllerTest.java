@@ -151,6 +151,75 @@ class DatabasesControllerTest {
         .andExpect(status().isBadRequest());
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = {"a", "😀"})
+  void testPropertyKeyLimitUsesUtf16Units(String character) throws Exception {
+    String key = character.repeat(512 / character.length());
+    String oversizedKey = key + "a";
+    mockMvc
+        .perform(
+            post("/hts/databases")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        Map.of("databaseName", "foo", "properties", Map.of(key, "one")))))
+        .andExpect(status().isCreated());
+    mockMvc
+        .perform(
+            post("/hts/databases")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        Map.of("databaseName", "bar", "properties", Map.of(oversizedKey, "one")))))
+        .andExpect(status().isBadRequest());
+    mockMvc
+        .perform(
+            post("/hts/databases/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        Map.of("updates", Map.of(oversizedKey, "two")))))
+        .andExpect(status().isBadRequest());
+    mockMvc
+        .perform(
+            post("/hts/databases/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        Map.of("removals", java.util.List.of(oversizedKey)))))
+        .andExpect(status().isBadRequest());
+    mockMvc
+        .perform(get("/hts/databases/foo"))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath("$.properties").value(org.hamcrest.Matchers.equalTo(Map.of(key, "one"))));
+    assertThat(repository.count()).isEqualTo(1);
+    mockMvc
+        .perform(
+            post("/hts/databases/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(Map.of("updates", Map.of(key, "two")))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.updated[0]").value(key));
+    mockMvc
+        .perform(get("/hts/databases/foo"))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath("$.properties").value(org.hamcrest.Matchers.equalTo(Map.of(key, "two"))));
+    mockMvc
+        .perform(
+            post("/hts/databases/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(Map.of("removals", java.util.List.of(key)))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.removed[0]").value(key));
+    mockMvc
+        .perform(get("/hts/databases/foo"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.properties").isEmpty());
+  }
+
   @Test
   void testGeneratedOpenApiHasStableDatabaseContract() throws Exception {
     JsonNode document =

@@ -3,18 +3,10 @@ CREATE TABLE IF NOT EXISTS database_row (
     database_uuid       VARCHAR (36)    NOT NULL,
     database_name       VARCHAR (128)   NOT NULL,
     database_name_key   VARCHAR (128)   NOT NULL,
+    properties          LONGTEXT        NOT NULL,
     version             BIGINT          NOT NULL,
     PRIMARY KEY (database_uuid),
     CONSTRAINT uq_database_name UNIQUE (database_name_key)
-);
-
-CREATE TABLE IF NOT EXISTS database_property (
-    database_uuid       VARCHAR (36)    NOT NULL,
-    property_key        VARBINARY (2048) NOT NULL,
-    property_value      MEDIUMTEXT      NOT NULL,
-    PRIMARY KEY (database_uuid, property_key),
-    CONSTRAINT fk_database_property_database
-        FOREIGN KEY (database_uuid) REFERENCES database_row (database_uuid) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS user_table_row (
