@@ -76,6 +76,7 @@ def optimize_scan(sql: str, dialect: str, *, database: str, table: str, column_n
     # Type is arbitrary — qualify only uses column names to expand SELECT *, not types.
     schema = {database: {table: {c: "VARCHAR" for c in column_names}}}
     ast = sqlglot.parse_one(sql, dialect=dialect)
+    _match_table_case(ast, database, table)
     ast = qualify.qualify(ast, dialect=dialect, schema=schema)
     ast = pushdown_predicates.pushdown_predicates(ast, dialect=dialect)
     ast = pushdown_projections.pushdown_projections(ast, dialect=dialect)
@@ -96,6 +97,63 @@ def optimize_scan(sql: str, dialect: str, *, database: str, table: str, column_n
         source_columns=sorted(source_columns),
         row_filter=row_filter,
     )
+
+
+def _match_table_case(ast: exp.Expression, database: str, table: str) -> None:
+    """Rewrite references to the scanned table so they use the casing of the requested identifier.
+
+    View SQL can reference the table with different casing than the identifier it was requested under (for example
+    Hive Metastore stores view text with lower-cased names). The qualify schema and the table registered for query
+    execution are keyed by the requested identifier, so a differently-cased reference would leave ``SELECT *``
+    unexpanded and make projected columns unresolvable.
+    """
+    for table_node in list(ast.find_all(exp.Table)):
+        if table_node.db.lower() != database.lower() or table_node.name.lower() != table.lower():
+            continue
+        # Without an explicit alias the table name is the implicit alias, so qualifiers that point at it
+        # (``t.col``, ``db.t.col``, ``t.*``) must be rebound together with the table itself.
+        rebind = not table_node.alias
+        table_node.this.set("this", table)
+        table_node.args["db"].set("this", database)
+        if rebind:
+            _rebind_qualifiers(table_node, database, table)
+
+
+def _rebind_qualifiers(table_node: exp.Table, database: str, table: str) -> None:
+    """Rebind qualifiers that refer to ``table_node`` through its implicit alias.
+
+    Columns in the table's own SELECT and in subqueries nested inside it (correlated references) are considered.
+    A nested SELECT that declares its own source with the same name shadows the table, and the outer query is out of
+    scope, so an explicit subquery alias spelled like the table (``SELECT t.a FROM (SELECT a FROM db.t) AS t``) is
+    left untouched.
+    """
+    scope = table_node.find_ancestor(exp.Select)
+    if scope is None:
+        return
+    for column in scope.find_all(exp.Column):
+        qualifier = column.args.get("table")
+        if qualifier is None or qualifier.name.lower() != table.lower():
+            continue
+        db_qualifier = column.args.get("db")
+        if db_qualifier is not None and db_qualifier.name.lower() != database.lower():
+            continue
+        if _is_shadowed(column, scope, table):
+            continue
+        qualifier.set("this", table)
+        if db_qualifier is not None:
+            db_qualifier.set("this", database)
+
+
+def _is_shadowed(column: exp.Column, scope: exp.Select, table: str) -> bool:
+    """Whether a SELECT between ``column`` and ``scope`` declares its own source named ``table``."""
+    select = column.find_ancestor(exp.Select)
+    while select is not None and select is not scope:
+        sources = [select.args["from_"]] if select.args.get("from_") else []
+        sources += select.args.get("joins") or []
+        if any(source.this.alias_or_name.lower() == table.lower() for source in sources):
+            return True
+        select = select.find_ancestor(exp.Select)
+    return False
 
 
 def _find_single_table(ast: exp.Expression, original_sql: str) -> exp.Table:
