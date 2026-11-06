@@ -27,6 +27,10 @@ The service tests exercise persistence through Spring and Hibernate on H2 and lo
 They cover exact strings, UUID stability, sparse updates, optimistic conflicts and rollback,
 empty maps, and table independence. HTTP tests cover request validation and error responses.
 
+Current-schema MySQL plans use `uq_database_name` for normalized-name reads and `PRIMARY`
+for UUID reads and versioned updates/deletes. The read plans return one row.
+Write plans were checked with `EXPLAIN` only; those statements were not executed.
+
 Use an isolated MySQL 8.0 schema containing synthetic data only. Apply the
 [baseline DDL](https://github.com/linkedin/openhouse/blob/mkuchenbecker/database-properties-hts/services/housetables/ddl/0000__baseline.sql),
 [entity-type DDL](https://github.com/linkedin/openhouse/blob/mkuchenbecker/database-properties-hts/services/housetables/ddl/0001__add_entity_type_to_user_table_row.sql), and
