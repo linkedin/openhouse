@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doReturn;
@@ -48,6 +49,7 @@ import com.linkedin.openhouse.tables.exception.ViewApiException;
 import com.linkedin.openhouse.tables.exception.ViewErrorCode;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.ReservedViewProperties;
+import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.ViewDto;
 import com.linkedin.openhouse.tables.model.ViewListResult;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
@@ -57,6 +59,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
@@ -79,6 +82,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.springframework.data.domain.Page;
@@ -89,6 +93,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.util.Pair;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.access.AuthorizationServiceException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
@@ -108,6 +113,12 @@ public class ViewsServiceImplTest {
 
   /** Deliberately not a UUID, so it can never equal the tentative allocation UUID. */
   private static final String COMMITTED_CREATE_UUID = "committed-create-uuid";
+
+  /** A persisted view identity as a create leaves it: the pointer sits directly under its root. */
+  private static final String ALLOCATED_VIEW_UUID = "4b1c8f3e-2d6a-4e1b-9c7f-0a5d3e8b2f61";
+
+  private static final String ALLOCATED_POINTER =
+      allocatedRoot(ALLOCATED_VIEW_UUID) + "/00001-7d2e9a40-allocated.metadata.json";
 
   private ViewsFeatureGate featureGate;
   private HouseTableRepository houseTableRepository;
@@ -255,7 +266,7 @@ public class ViewsServiceImplTest {
     assertEquals(ViewErrorCode.NO_SUCH_VIEW, delete.getErrorCode());
     verify(houseTableRepository, times(2)).findViewById(viewKey());
     verify(houseTableRepository, never()).deleteViewById(any());
-    assertDatabaseAuthorization(Privileges.DELETE_TABLE);
+    verifyNoInteractions(authorizationHandler);
     verifyNoMoreInteractions(houseTableRepository);
     verifyNoInteractions(viewCommitEngine);
   }
@@ -515,6 +526,7 @@ public class ViewsServiceImplTest {
         base = ViewModelConstants.fullyPopulatedRequest();
         captureForWrite(Optional.of(capturedViewRow()));
         when(privilegeMapper.forPut(true)).thenReturn(Privileges.UPDATE_TABLE_METADATA);
+        allowViewObject(capturedViewRow(), Privileges.UPDATE_TABLE_METADATA);
         boolean changed = path == WritePath.CHANGED_REPLACE;
         when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
             .thenReturn(replacedResult(changed ? COMMITTED_POINTER : CAPTURED_POINTER, changed));
@@ -608,18 +620,20 @@ public class ViewsServiceImplTest {
                     ViewModelConstants.fullyPopulatedRequest(), ACTING_PRINCIPAL, false));
     assertEquals(ViewErrorCode.CONCURRENT_VIEW_MODIFICATION, stale.getErrorCode());
     verifyNoInteractions(storageSelector, viewCommitEngine);
+    verify(authorizationHandler, never()).checkAccessDecision(any(), any(TableDto.class), any());
   }
 
   @Test
   public void existingPutWithStaleBaseTokenRejectsBeforeCommit() {
     existingEnabledDatabase();
-    captureForWrite(
-        Optional.of(
-            capturedViewRow()
-                .toBuilder()
-                .tableLocation("file:/warehouse/current.metadata.json")
-                .build()));
+    HouseTable captured =
+        capturedViewRow()
+            .toBuilder()
+            .tableLocation("file:/warehouse/current.metadata.json")
+            .build();
+    captureForWrite(Optional.of(captured));
     when(privilegeMapper.forPut(true)).thenReturn(Privileges.UPDATE_TABLE_METADATA);
+    allowViewObject(captured, Privileges.UPDATE_TABLE_METADATA);
 
     ViewApiException stale =
         assertThrows(
@@ -629,7 +643,70 @@ public class ViewsServiceImplTest {
                     ViewModelConstants.fullyPopulatedRequest(), ACTING_PRINCIPAL, false));
 
     assertEquals(ViewErrorCode.CONCURRENT_VIEW_MODIFICATION, stale.getErrorCode());
-    assertDatabaseAuthorization(Privileges.UPDATE_TABLE_METADATA);
+    assertViewObjectAuthorization(captured, Privileges.UPDATE_TABLE_METADATA);
+    verifyNoInteractions(storageSelector, viewCommitEngine);
+  }
+
+  /**
+   * An existing view's replacement, changed or no-op, is decided on the captured view object: it
+   * succeeds without database update privilege, commits the exact captured row, and never allocates
+   * or provisions storage again.
+   */
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  public void replacementIsAuthorizedOnTheCapturedViewObjectWithoutDatabaseUpdatePrivilege(
+      boolean metadataChanged) {
+    existingEnabledDatabase();
+    HouseTable captured = allocatedViewRow();
+    captureForWrite(Optional.of(captured));
+    when(privilegeMapper.forPut(true)).thenReturn(Privileges.UPDATE_TABLE_METADATA);
+    when(authorizationHandler.checkAccessDecision(any(), any(DatabaseDto.class), any()))
+        .thenReturn(false);
+    allowViewObject(captured, Privileges.UPDATE_TABLE_METADATA);
+    when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
+        .thenReturn(
+            replacedResult(
+                metadataChanged ? COMMITTED_POINTER : ALLOCATED_POINTER, metadataChanged));
+
+    Pair<ViewDto, Boolean> result =
+        service.putView(
+            ViewModelConstants.fullyPopulatedRequest()
+                .toBuilder()
+                .baseMetadataLocation(ALLOCATED_POINTER)
+                .build(),
+            ACTING_PRINCIPAL,
+            false);
+
+    assertEquals(Boolean.FALSE, result.getSecond());
+    assertViewObjectAuthorization(captured, Privileges.UPDATE_TABLE_METADATA);
+    ArgumentCaptor<ViewCommitIntent> intent = ArgumentCaptor.forClass(ViewCommitIntent.class);
+    verify(viewCommitEngine, times(1)).commit(intent.capture());
+    assertSame(captured, intent.getValue().getBaseRow());
+    verifyNoInteractions(storageSelector, selectedStorage, storageManager);
+  }
+
+  /**
+   * A database allowance, and an object grant on another view's UUID (such as a namesake), never
+   * authorize replacing this view; the denial also precedes the stale-base disclosure.
+   */
+  @Test
+  public void deniedReplacementIsForbiddenBeforeBaseVersionDisclosureOrAnyWrite() {
+    existingEnabledDatabase();
+    HouseTable captured =
+        capturedViewRow()
+            .toBuilder()
+            .tableLocation("file:/warehouse/current.metadata.json")
+            .build();
+    captureForWrite(Optional.of(captured));
+    when(privilegeMapper.forPut(true)).thenReturn(Privileges.UPDATE_TABLE_METADATA);
+    allowViewObject(allocatedViewRow(), Privileges.UPDATE_TABLE_METADATA);
+
+    assertThrows(
+        AccessDeniedException.class,
+        () -> service.putView(ViewModelConstants.fullyPopulatedRequest(), ACTING_PRINCIPAL, false));
+
+    assertViewObjectAuthorization(captured, Privileges.UPDATE_TABLE_METADATA);
+    verify(houseTableRepository, never()).deleteViewById(any());
     verifyNoInteractions(storageSelector, viewCommitEngine);
   }
 
@@ -638,6 +715,7 @@ public class ViewsServiceImplTest {
     existingEnabledDatabase();
     captureForWrite(Optional.of(capturedViewRow()));
     when(privilegeMapper.forPut(true)).thenReturn(Privileges.UPDATE_TABLE_METADATA);
+    allowViewObject(capturedViewRow(), Privileges.UPDATE_TABLE_METADATA);
     CommitFailedException source = new CommitFailedException("stale replace");
     when(viewCommitEngine.commit(any(ViewCommitIntent.class))).thenThrow(source);
 
@@ -669,6 +747,7 @@ public class ViewsServiceImplTest {
         .thenReturn(Optional.of(captured))
         .thenThrow(new AssertionError("commit must not refresh the captured row"));
     when(privilegeMapper.forPut(true)).thenReturn(Privileges.UPDATE_TABLE_METADATA);
+    allowViewObject(captured, Privileges.UPDATE_TABLE_METADATA);
     when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
         .thenReturn(replacedResult(COMMITTED_POINTER, true));
 
@@ -715,6 +794,7 @@ public class ViewsServiceImplTest {
     when(managed.getTableCreator()).thenReturn(null);
     captureForWrite(Optional.of(managed));
     when(privilegeMapper.forPut(true)).thenReturn(Privileges.UPDATE_TABLE_METADATA);
+    allowViewObject(capturedViewRow(), Privileges.UPDATE_TABLE_METADATA);
     when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
         .thenAnswer(
             invocation -> {
@@ -751,6 +831,7 @@ public class ViewsServiceImplTest {
         .thenReturn(Optional.of(captured));
     when(privilegeMapper.forCreate()).thenReturn(Privileges.CREATE_TABLE);
     when(privilegeMapper.forPut(true)).thenReturn(Privileges.UPDATE_TABLE_METADATA);
+    allowViewObject(captured, Privileges.UPDATE_TABLE_METADATA);
     selectableStorage();
     when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
         .thenReturn(createdResult())
@@ -866,6 +947,7 @@ public class ViewsServiceImplTest {
     HouseTable row = capturedViewRow();
     captureForDelete(Optional.of(row));
     when(privilegeMapper.forDelete()).thenReturn(Privileges.DELETE_TABLE);
+    allowViewObject(row, Privileges.DELETE_TABLE);
     HouseTableRepositoryStateUnknownException ambiguous =
         new HouseTableRepositoryStateUnknownException("", new RuntimeException("504"));
     when(houseTableRepository.deleteViewById(viewKey())).thenThrow(ambiguous);
@@ -890,28 +972,32 @@ public class ViewsServiceImplTest {
   }
 
   /**
-   * DELETE is one typed capture after authorization and one typed name-based hard delete: no
-   * reread, generic/table delete overload, purge, engine, or storage work.
+   * DELETE is one typed capture, then the object decision on the captured view, then one typed
+   * name-based hard delete. Database delete privilege is neither needed nor consulted, and there is
+   * no reread, metadata read, generic/table delete overload, purge, engine, or storage work.
    */
   @Test
-  public void databaseAuthorizedDropDeletesByNameAfterTypedViewCapture() {
+  public void dropIsAuthorizedOnTheCapturedViewObjectWithoutDatabaseDeletePrivilege() {
     existingEnabledDatabase();
-    HouseTable row = capturedViewRow();
+    HouseTable row = allocatedViewRow();
     captureForDelete(Optional.of(row));
     when(houseTableRepository.deleteViewById(viewKey())).thenReturn(true);
     when(privilegeMapper.forDelete()).thenReturn(Privileges.DELETE_TABLE);
+    when(authorizationHandler.checkAccessDecision(any(), any(DatabaseDto.class), any()))
+        .thenReturn(false);
+    allowViewObject(row, Privileges.DELETE_TABLE);
 
     service.deleteView(
         ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL);
 
-    InOrder order = inOrder(privilegeMapper, authorizationHandler, houseTableRepository);
-    order.verify(privilegeMapper).forDelete();
-    order.verify(authorizationHandler).checkAccessDecision(any(), any(DatabaseDto.class), any());
+    InOrder order = inOrder(houseTableRepository, authorizationHandler);
     order.verify(houseTableRepository).findViewById(viewKey());
+    order.verify(authorizationHandler).checkAccessDecision(any(), any(TableDto.class), any());
     order.verify(houseTableRepository).deleteViewById(viewKey());
-    assertDatabaseAuthorization(Privileges.DELETE_TABLE);
+    assertViewObjectAuthorization(row, Privileges.DELETE_TABLE);
     verifyNoMoreInteractions(houseTableRepository);
-    verifyNoInteractions(viewCommitEngine, storageSelector, storageManager);
+    verifyNoInteractions(
+        viewCommitEngine, storageSelector, storageManager, fileIOManager, viewMetadataCodec);
   }
 
   /**
@@ -924,6 +1010,7 @@ public class ViewsServiceImplTest {
     captureForDelete(Optional.of(capturedViewRow()));
     when(houseTableRepository.deleteViewById(viewKey())).thenReturn(false);
     when(privilegeMapper.forDelete()).thenReturn(Privileges.DELETE_TABLE);
+    allowViewObject(capturedViewRow(), Privileges.DELETE_TABLE);
 
     ViewApiException thrown =
         assertThrows(
@@ -949,6 +1036,7 @@ public class ViewsServiceImplTest {
     existingEnabledDatabase();
     captureForDelete(Optional.of(capturedViewRow()));
     when(privilegeMapper.forDelete()).thenReturn(Privileges.DELETE_TABLE);
+    allowViewObject(capturedViewRow(), Privileges.DELETE_TABLE);
     HouseTableRepositoryException failure =
         new HouseTableRepositoryException("rejected", new RuntimeException("400"));
     when(houseTableRepository.deleteViewById(viewKey())).thenThrow(failure);
@@ -1148,12 +1236,17 @@ public class ViewsServiceImplTest {
     verifyNoInteractions(viewCommitEngine);
   }
 
+  /**
+   * A database allowance, and the same object grant held by another principal, never authorize this
+   * caller's drop: the view is captured once and nothing is deleted.
+   */
   @Test
-  public void deniedDropDoesNotCaptureOrMutate() {
+  public void deniedDropCapturesOnceAndDoesNotMutate() {
     existingEnabledDatabase();
+    HouseTable row = capturedViewRow();
+    captureForDelete(Optional.of(row));
     when(privilegeMapper.forDelete()).thenReturn(Privileges.DELETE_TABLE);
-    when(authorizationHandler.checkAccessDecision(any(), any(DatabaseDto.class), any()))
-        .thenReturn(false);
+    allowViewObject("bob", row, Privileges.DELETE_TABLE);
 
     assertThrows(
         AccessDeniedException.class,
@@ -1161,11 +1254,14 @@ public class ViewsServiceImplTest {
             service.deleteView(
                 ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL));
 
-    verifyNoInteractions(houseTableRepository, viewCommitEngine);
+    assertViewObjectAuthorization(row, Privileges.DELETE_TABLE);
+    verify(houseTableRepository, times(1)).findViewById(viewKey());
+    verifyNoMoreInteractions(houseTableRepository);
+    verifyNoInteractions(viewCommitEngine, storageSelector);
   }
 
   @Test
-  public void absentDropReportsNoSuchViewAfterDatabaseAuthorizationWithoutMutation() {
+  public void absentDropReportsNoSuchViewWithoutAuthorizationOrMutation() {
     existingEnabledDatabase();
     captureForDelete(Optional.empty());
     when(privilegeMapper.forDelete()).thenReturn(Privileges.DELETE_TABLE);
@@ -1178,38 +1274,97 @@ public class ViewsServiceImplTest {
                     ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL));
 
     assertEquals(ViewErrorCode.NO_SUCH_VIEW, thrown.getErrorCode());
-    assertDatabaseAuthorization(Privileges.DELETE_TABLE);
+    verifyNoInteractions(authorizationHandler);
     verify(houseTableRepository, never()).deleteViewById(any());
   }
 
   /**
-   * The neutral write capture keeps a TABLE occupant (the same reference) without exposing it as a
-   * view base; the collision is revealed only after database authorization, before allocation.
+   * As for a table, a view row without a usable UUID is still authorized on its captured object:
+   * the exact database, name and metadata pointer, with the UUID passed as stored. The object
+   * decision alone admits the replace and the drop (once each) or refuses them with no write; the
+   * allowed database is never consulted.
    */
-  @Test
-  public void tableCollisionIsRevealedOnlyAfterDatabaseAuthorization() {
+  @ParameterizedTest
+  @MethodSource("missingUuidAuthorizationCases")
+  public void viewWithoutAPersistedUuidIsAuthorizedOnItsCapturedObjectAsIs(
+      String uuid, boolean authorized) {
+    existingEnabledDatabase();
+    HouseTable captured = capturedViewRow().toBuilder().tableUUID(uuid).build();
+    captureForWrite(Optional.of(captured));
+    captureForDelete(Optional.of(captured));
+    when(houseTableRepository.deleteViewById(viewKey())).thenReturn(true);
+    when(privilegeMapper.forPut(true)).thenReturn(Privileges.UPDATE_TABLE_METADATA);
+    when(privilegeMapper.forDelete()).thenReturn(Privileges.DELETE_TABLE);
+    when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
+        .thenReturn(replacedResult(COMMITTED_POINTER, true));
+    if (authorized) {
+      allowViewObject(captured, Privileges.UPDATE_TABLE_METADATA);
+      allowViewObject(captured, Privileges.DELETE_TABLE);
+    }
+
+    if (authorized) {
+      service.putView(ViewModelConstants.fullyPopulatedRequest(), ACTING_PRINCIPAL, false);
+    } else {
+      assertThrows(
+          AccessDeniedException.class,
+          () ->
+              service.putView(ViewModelConstants.fullyPopulatedRequest(), ACTING_PRINCIPAL, false));
+    }
+    assertViewObjectAuthorization(captured, Privileges.UPDATE_TABLE_METADATA);
+    clearInvocations(authorizationHandler);
+    if (authorized) {
+      service.deleteView(
+          ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL);
+    } else {
+      assertThrows(
+          AccessDeniedException.class,
+          () ->
+              service.deleteView(
+                  ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL));
+    }
+    assertViewObjectAuthorization(captured, Privileges.DELETE_TABLE);
+
+    int writes = authorized ? 1 : 0;
+    verify(viewCommitEngine, times(writes)).commit(any(ViewCommitIntent.class));
+    verify(houseTableRepository, times(writes)).deleteViewById(viewKey());
+    verifyNoInteractions(storageSelector);
+  }
+
+  /**
+   * The neutral write capture keeps a TABLE occupant (the same reference) without exposing it as a
+   * view base; the collision is revealed only after database authorization, before allocation. A
+   * PUT onto a table-occupied name is a create attempt too: its decision stays database-scoped,
+   * never an authorization on the occupant as a view object.
+   */
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  public void tableCollisionIsRevealedOnlyAfterDatabaseAuthorization(boolean failOnExist) {
     existingEnabledDatabase();
     HouseTable tableOccupant =
         HouseTable.builder()
             .databaseId(ViewModelConstants.DATABASE_ID)
             .tableId(ViewModelConstants.VIEW_ID)
+            .tableUUID("table-uuid")
             .tableLocation(CAPTURED_POINTER)
             .storageType("local")
             .entityType("TABLE")
             .build();
     captureForWrite(Optional.of(tableOccupant));
     when(privilegeMapper.forCreate()).thenReturn(Privileges.CREATE_TABLE);
+    when(privilegeMapper.forPut(false)).thenReturn(Privileges.CREATE_TABLE);
+    // Object access stays denied: only the database CREATE_TABLE decision may admit this attempt.
+    CreateUpdateViewRequestBody request =
+        failOnExist
+            ? ViewModelConstants.createRequestWithoutBaseVersion()
+            : ViewModelConstants.createRequestWithInitialBaseVersion();
 
     ViewApiException thrown =
         assertThrows(
-            ViewApiException.class,
-            () ->
-                service.putView(
-                    ViewModelConstants.createRequestWithoutBaseVersion(), ACTING_PRINCIPAL, true));
+            ViewApiException.class, () -> service.putView(request, ACTING_PRINCIPAL, failOnExist));
 
     assertEquals(ViewErrorCode.NAME_ALREADY_EXISTS_AS_TABLE, thrown.getErrorCode());
     assertDatabaseAuthorization(Privileges.CREATE_TABLE);
-    verifyNoInteractions(storageSelector, viewCommitEngine);
+    verifyNoInteractions(storageSelector, selectedStorage, viewCommitEngine);
   }
 
   @Test
@@ -1255,6 +1410,41 @@ public class ViewsServiceImplTest {
     verifyNoInteractions(viewCommitEngine);
   }
 
+  /**
+   * The selected storage provisions the creator's access to the new view while allocating it. When
+   * that provisioning fails with an authorization-service error, the error is preserved for the
+   * view advice's safe 503, and nothing is committed or granted afterwards.
+   */
+  @Test
+  public void creatorProvisioningFailureDuringAllocationIsPreservedWithoutCommit() {
+    existingEnabledDatabase();
+    captureForWrite(Optional.empty());
+    when(privilegeMapper.forCreate()).thenReturn(Privileges.CREATE_TABLE);
+    when(storageSelector.selectStorage(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID))
+        .thenReturn(selectedStorage);
+    when(selectedStorage.getType()).thenReturn(StorageType.HDFS);
+    AuthorizationServiceException provisioningFailure =
+        new AuthorizationServiceException("creator role grant failed");
+    when(selectedStorage.allocateTableLocation(
+            eq(ViewModelConstants.DATABASE_ID),
+            eq(ViewModelConstants.VIEW_ID),
+            any(),
+            eq(ACTING_PRINCIPAL),
+            anyMap()))
+        .thenThrow(provisioningFailure);
+
+    AuthorizationServiceException thrown =
+        assertThrows(
+            AuthorizationServiceException.class,
+            () ->
+                service.putView(
+                    ViewModelConstants.createRequestWithoutBaseVersion(), ACTING_PRINCIPAL, true));
+
+    assertSame(provisioningFailure, thrown);
+    assertDatabaseAuthorization(Privileges.CREATE_TABLE);
+    verifyNoInteractions(viewCommitEngine);
+  }
+
   @Test
   public void noOpReplacementReturnsSnapshotPointerWithoutRefreshingCapturedState() {
     existingEnabledDatabase();
@@ -1263,6 +1453,7 @@ public class ViewsServiceImplTest {
         .thenReturn(Optional.of(captured))
         .thenThrow(new AssertionError("service must not refresh after no-op commit"));
     when(privilegeMapper.forPut(true)).thenReturn(Privileges.UPDATE_TABLE_METADATA);
+    allowViewObject(captured, Privileges.UPDATE_TABLE_METADATA);
     when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
         .thenReturn(replacedResult(CAPTURED_POINTER, false));
 
@@ -1344,6 +1535,7 @@ public class ViewsServiceImplTest {
             .build();
     captureForWrite(Optional.of(captured));
     when(privilegeMapper.forPut(true)).thenReturn(Privileges.UPDATE_TABLE_METADATA);
+    allowViewObject(captured, Privileges.UPDATE_TABLE_METADATA);
     when(viewCommitEngine.commit(any(ViewCommitIntent.class))).thenThrow(source);
 
     ViewApiException thrown =
@@ -1607,6 +1799,8 @@ public class ViewsServiceImplTest {
     when(privilegeMapper.forCreate()).thenReturn(Privileges.CREATE_TABLE);
     when(privilegeMapper.forPut(true)).thenReturn(Privileges.UPDATE_TABLE_METADATA);
     when(privilegeMapper.forDelete()).thenReturn(Privileges.DELETE_TABLE);
+    allowViewObject(stored, Privileges.UPDATE_TABLE_METADATA);
+    allowViewObject(stored, Privileges.DELETE_TABLE);
     selectableStorage(requestedDatabaseId, requestedViewId);
     doReturn(createdResult())
         .doReturn(replacedResult(COMMITTED_POINTER, true))
@@ -1827,9 +2021,66 @@ public class ViewsServiceImplTest {
     ArgumentCaptor<Privileges> checkedPrivilege = ArgumentCaptor.forClass(Privileges.class);
     verify(authorizationHandler)
         .checkAccessDecision(principal.capture(), database.capture(), checkedPrivilege.capture());
+    verify(authorizationHandler, never()).checkAccessDecision(any(), any(TableDto.class), any());
     assertEquals(ACTING_PRINCIPAL, principal.getValue());
     assertEquals(ViewModelConstants.DATABASE_ID, database.getValue().getDatabaseId());
     assertEquals(privilege, checkedPrivilege.getValue());
+  }
+
+  /**
+   * One object decision on the captured view, for the acting principal, and no database decision.
+   * The resource is the captured row's persisted identity, including its exact metadata pointer.
+   */
+  private void assertViewObjectAuthorization(HouseTable captured, Privileges privilege) {
+    ArgumentCaptor<String> principal = ArgumentCaptor.forClass(String.class);
+    ArgumentCaptor<TableDto> view = ArgumentCaptor.forClass(TableDto.class);
+    ArgumentCaptor<Privileges> checkedPrivilege = ArgumentCaptor.forClass(Privileges.class);
+    verify(authorizationHandler)
+        .checkAccessDecision(principal.capture(), view.capture(), checkedPrivilege.capture());
+    verify(authorizationHandler, never()).checkAccessDecision(any(), any(DatabaseDto.class), any());
+    assertEquals(ACTING_PRINCIPAL, principal.getValue());
+    assertEquals(captured.getDatabaseId(), view.getValue().getDatabaseId());
+    assertEquals(captured.getTableId(), view.getValue().getTableId());
+    assertEquals(captured.getTableUUID(), view.getValue().getTableUUID());
+    assertEquals(captured.getTableLocation(), view.getValue().getTableLocation());
+    assertEquals(privilege, checkedPrivilege.getValue());
+  }
+
+  /** Grants the acting principal the privilege on the captured view object only. */
+  private void allowViewObject(HouseTable captured, Privileges privilege) {
+    allowViewObject(ACTING_PRINCIPAL, captured, privilege);
+  }
+
+  /**
+   * Grants the privilege only to this principal, on this persisted view (database and UUID). Any
+   * other principal, view UUID, or privilege keeps the default denial.
+   */
+  private void allowViewObject(String principal, HouseTable captured, Privileges privilege) {
+    String databaseId = captured.getDatabaseId();
+    String viewUuid = captured.getTableUUID();
+    when(authorizationHandler.checkAccessDecision(
+            eq(principal),
+            argThat(
+                (TableDto view) ->
+                    view != null
+                        && Objects.equals(databaseId, view.getDatabaseId())
+                        && Objects.equals(viewUuid, view.getTableUUID())),
+            eq(privilege)))
+        .thenReturn(true);
+  }
+
+  /** A captured view row in the shape a create persists it, with a real UUID under its root. */
+  private static HouseTable allocatedViewRow() {
+    return capturedViewRow()
+        .toBuilder()
+        .tableUUID(ALLOCATED_VIEW_UUID)
+        .tableLocation(ALLOCATED_POINTER)
+        .build();
+  }
+
+  private static Stream<Arguments> missingUuidAuthorizationCases() {
+    return Stream.of(null, "", " ")
+        .flatMap(uuid -> Stream.of(Arguments.of(uuid, true), Arguments.of(uuid, false)));
   }
 
   private static Stream<Arguments> replaceFailureMappings() {
