@@ -225,14 +225,9 @@ public class ViewsServiceImpl implements ViewsService {
 
   /**
    * The object resource of a captured view for authorization: its persisted identifiers and exact
-   * metadata pointer, with no metadata read. A view without a UUID cannot be identified and fails
-   * closed.
+   * metadata pointer, with no metadata read.
    */
   private static TableDto authorizationReference(HouseTable viewRow) {
-    if (StringUtils.isBlank(viewRow.getTableUUID())) {
-      throw new IllegalStateException(
-          "Persisted view has no UUID: " + viewRow.getDatabaseId() + "." + viewRow.getTableId());
-    }
     return TableDto.builder()
         .databaseId(viewRow.getDatabaseId())
         .tableId(viewRow.getTableId())
