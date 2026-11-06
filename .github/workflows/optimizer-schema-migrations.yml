@@ -1,0 +1,268 @@
+name: Optimizer Schema Migrations
+
+# Generates the Flyway migration for optimizer entity changes that forgot one.
+#
+# Trust model:
+#   * `generate` runs PR code (Gradle, the generator script) so it only gets `contents: read`, a
+#     checkout without persisted credentials, and no secrets. Fork PRs get this job too.
+#   * `publish` never checks out or executes PR code. It downloads the generated directory as
+#     inert data, validates it against a strict allowlist, and commits it through the REST Git
+#     API. It only runs for same-repository PRs.
+# The generated SQL still needs review (it can contain destructive DDL); nothing is auto-merged.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - main
+      - chbush/optimizer-flyway-atlas
+    paths:
+      - 'libs/optimizer/optimizer-common/src/main/java/com/linkedin/openhouse/optimizer/db/**'
+      - 'libs/optimizer/optimizer-common/src/main/java/com/linkedin/openhouse/optimizer/config/**'
+      - 'libs/optimizer/optimizer-common/atlas.hcl'
+      - 'libs/optimizer/optimizer-common/build.gradle'
+      - 'libs/optimizer/optimizer-common/src/main/resources/db/migration/**'
+      - 'services/optimizer/build.gradle'
+      - 'services/optimizer/src/main/resources/application.properties'
+      - 'services/optimizer/src/test/java/com/linkedin/openhouse/optimizer/OptimizerEntitySchemaExport.java'
+      - 'buildSrc/**'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - 'gradle.properties'
+      - 'gradle/**'
+      - 'scripts/python/generate_optimizer_migration.py'
+      - '.github/workflows/optimizer-schema-migrations.yml'
+
+concurrency:
+  group: optimizer-migrations-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # Atlas Community (Apache 2.0) release binary, pinned. sha256 from
+  # https://atlasbinaries.com/atlas/atlas-community-linux-amd64-v1.3.0.sha256
+  ATLAS_VERSION: v1.3.0
+  ATLAS_SHA256: 10d7913e3dce43ab99b8d71534a4cbadaf11a16dc293adf3b91d10e83a0ac70b
+
+jobs:
+  generate:
+    name: Generate optimizer migration
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.generate.outputs.changed }}
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'microsoft'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+        with:
+          cache-read-only: true
+
+      - name: Install Atlas Community
+        run: |
+          set -euo pipefail
+          curl -sSfL -o "$RUNNER_TEMP/atlas" \
+            "https://atlasbinaries.com/atlas/atlas-community-linux-amd64-${ATLAS_VERSION}"
+          echo "${ATLAS_SHA256}  $RUNNER_TEMP/atlas" | sha256sum -c -
+          sudo install -m 0755 "$RUNNER_TEMP/atlas" /usr/local/bin/atlas
+          atlas version
+
+      - name: Generate missing migration
+        id: generate
+        run: python3 scripts/python/generate_optimizer_migration.py
+
+      - name: Upload generated migration
+        if: steps.generate.outputs.changed == 'true'
+        uses: actions/upload-artifact@v5
+        with:
+          name: optimizer-migration-${{ github.event.pull_request.number }}
+          path: build/optimizer/generated-migrations
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+      - name: Summary
+        env:
+          CHANGED: ${{ steps.generate.outputs.changed }}
+          IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          {
+            echo "## Optimizer schema migration"
+            if [ "$CHANGED" != "true" ]; then
+              echo "Entities and migrations are in sync. Nothing generated."
+            else
+              echo "Entity changes need a migration. Generated:"
+              echo
+              echo '```'
+              ls -1 build/optimizer/generated-migrations
+              echo '```'
+              echo
+              if [ "$IS_FORK" = "true" ]; then
+                echo "This PR comes from a fork, so no token here can push to it. Download the"
+                echo "\`optimizer-migration-${{ github.event.pull_request.number }}\` artifact from this run, copy its"
+                echo "files into \`libs/optimizer/optimizer-common/src/main/resources/db/migration/\`, and commit them."
+                echo "The required build keeps failing until the migration is committed."
+              else
+                echo "The \`publish\` job commits these files to the PR branch and dispatches the PR"
+                echo "validations. Review the SQL: it may contain destructive DDL."
+              fi
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: Publish generated migration
+    needs: generate
+    if: >-
+      needs.generate.outputs.changed == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    # Runs no PR code: no checkout, artifact treated as data, script is inline in this workflow.
+    permissions:
+      contents: write
+      actions: write
+      pull-requests: read
+    steps:
+      - name: Download generated migration
+        uses: actions/download-artifact@v5
+        with:
+          name: optimizer-migration-${{ github.event.pull_request.number }}
+          path: ${{ runner.temp }}/optimizer-migration
+
+      - name: Commit migration and dispatch validations
+        uses: actions/github-script@v8
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/optimizer-migration
+          EXPECTED_PR: ${{ github.event.pull_request.number }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const {owner, repo} = context.repo;
+            const MIGRATION_DIR = 'libs/optimizer/optimizer-common/src/main/resources/db/migration';
+            const NEW_FILE = /^V([0-9]{14})__sync_entities\.sql$/;
+            const EXISTING_FILE = /^V([0-9]+)__.*\.sql$/;
+            const MAX_BYTES = 1024 * 1024;
+            const stop = (msg) => { core.warning(msg); core.summary.addRaw(msg, true); return core.summary.write(); };
+
+            // 1. Artifact is data: flat directory, regular files only, exactly atlas.sum + one new migration.
+            const dir = process.env.ARTIFACT_DIR;
+            const names = fs.readdirSync(dir).sort();
+            const sqlNames = names.filter((n) => NEW_FILE.test(n));
+            if (names.length !== 2 || !names.includes('atlas.sum') || sqlNames.length !== 1) {
+              core.setFailed(`Unexpected artifact contents: ${JSON.stringify(names)}`);
+              return;
+            }
+            const files = {};
+            for (const name of names) {
+              const st = fs.lstatSync(path.join(dir, name));
+              if (!st.isFile() || st.isSymbolicLink() || st.size === 0 || st.size > MAX_BYTES) {
+                core.setFailed(`Artifact entry ${name} is not a regular file of acceptable size`);
+                return;
+              }
+              files[name] = fs.readFileSync(path.join(dir, name));
+            }
+            const newName = sqlNames[0];
+            const newVersion = NEW_FILE.exec(newName)[1];
+
+            // 2. Current PR state must still match the event.
+            const getPr = async () =>
+              (await github.rest.pulls.get({owner, repo, pull_number: Number(process.env.EXPECTED_PR)})).data;
+            const pr = await getPr();
+            const defaultBranch = (await github.rest.repos.get({owner, repo})).data.default_branch;
+            if (pr.state !== 'open') return stop('PR is no longer open; not publishing.');
+            if (!pr.head.repo || pr.head.repo.full_name !== `${owner}/${repo}`) {
+              core.setFailed('PR head is not in this repository; refusing to push.');
+              return;
+            }
+            if (pr.head.sha !== process.env.EXPECTED_HEAD_SHA) {
+              return stop(`PR head moved to ${pr.head.sha}; a newer run will regenerate. Not publishing.`);
+            }
+            const branch = pr.head.ref;
+            if (branch === defaultBranch || branch === pr.base.ref) {
+              core.setFailed(`Refusing to push to ${branch}.`);
+              return;
+            }
+
+            // Dispatch resolves the workflow on this branch and requires registration on main.
+            // Do not push a bot commit that cannot get the required validation.
+            for (const ref of [defaultBranch, pr.head.sha]) {
+              const workflow = await github.rest.repos.getContent({
+                owner, repo, path: '.github/workflows/pr-validations.yml', ref,
+              });
+              const source = Buffer.from(workflow.data.content, workflow.data.encoding).toString('utf8');
+              if (!/^  workflow_dispatch:/m.test(source)) {
+                return stop(`pr-validations.yml on ${ref} cannot be dispatched yet; merge the workflow setup and rebase this PR before generating.`);
+              }
+            }
+
+            // 3. The new migration must be new and sort after every existing one.
+            const listing = await github.rest.repos.getContent({owner, repo, path: MIGRATION_DIR, ref: pr.head.sha});
+            if (!Array.isArray(listing.data)) {
+              core.setFailed('Migration directory listing was not a directory.');
+              return;
+            }
+            const existing = listing.data.map((e) => e.name);
+            if (existing.includes(newName)) {
+              core.setFailed(`${newName} already exists.`);
+              return;
+            }
+            for (const name of existing) {
+              const m = EXISTING_FILE.exec(name);
+              if (m && BigInt(m[1]) >= BigInt(newVersion)) {
+                core.setFailed(`${newName} does not sort after existing migration ${name}.`);
+                return;
+              }
+            }
+
+            // 4. Commit exactly the two files on top of the original commit tree (no force).
+            const baseCommit = (await github.rest.git.getCommit({owner, repo, commit_sha: pr.head.sha})).data;
+            const entries = [];
+            for (const name of [newName, 'atlas.sum']) {
+              const blob = await github.rest.git.createBlob({
+                owner, repo, content: files[name].toString('base64'), encoding: 'base64',
+              });
+              entries.push({path: `${MIGRATION_DIR}/${name}`, mode: '100644', type: 'blob', sha: blob.data.sha});
+            }
+            const tree = await github.rest.git.createTree({owner, repo, base_tree: baseCommit.tree.sha, tree: entries});
+            const bot = {name: 'github-actions[bot]', email: '41898282+github-actions[bot]@users.noreply.github.com'};
+            const commit = await github.rest.git.createCommit({
+              owner, repo,
+              message: `Generate optimizer migration ${newName}`,
+              tree: tree.data.sha,
+              parents: [pr.head.sha],
+              author: bot,
+              committer: bot,
+            });
+
+            // 5. Recheck the head right before pushing; updateRef without force fails on any race.
+            const latest = await getPr();
+            if (latest.state !== 'open' || latest.head.sha !== pr.head.sha) {
+              return stop('PR head changed while committing; not overwriting.');
+            }
+            await github.rest.git.updateRef({owner, repo, ref: `heads/${branch}`, sha: commit.data.sha, force: false});
+
+            // 6. GITHUB_TOKEN pushes do not trigger workflows; run the required validations explicitly.
+            await github.rest.actions.createWorkflowDispatch({
+              owner, repo,
+              workflow_id: 'pr-validations.yml',
+              ref: branch,
+              inputs: {pr_number: String(pr.number)},
+            });
+            await core.summary
+              .addRaw(`Committed ${newName} and atlas.sum to \`${branch}\` as ${commit.data.sha}; dispatched pr-validations.yml.`, true)
+              .write();

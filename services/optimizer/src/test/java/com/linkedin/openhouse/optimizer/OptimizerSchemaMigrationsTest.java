@@ -26,9 +26,9 @@ import org.testcontainers.containers.MySQLContainer;
 
 /**
  * Starts the service on a database that already holds HouseTables' real schema and seeded rows, and
- * checks the migrations against the JPA entities. The database must end up with the optimizer tables
- * that Flyway creates in an empty one, without changing any HouseTables table definition or row; the
- * optimizer tables must be the ones the entities define.
+ * checks the migrations against the JPA entities. The database must end up with the optimizer
+ * tables that Flyway creates in an empty one, without changing any HouseTables table definition or
+ * row; the optimizer tables must be the ones the entities define.
  */
 class OptimizerSchemaMigrationsTest {
 
@@ -57,16 +57,7 @@ class OptimizerSchemaMigrationsTest {
   static void migrateEmptyDatabase() throws SQLException {
     MYSQL.start();
     createDatabase("new_database");
-    startService(
-        "new_database",
-        // Hibernate also writes the DDL of the tables the entities define, before it validates the
-        // entities. A script action turns ddl-auto off, so validation is a JPA action here too.
-        "--spring.jpa.properties.javax.persistence.schema-generation.scripts.action=create",
-        "--spring.jpa.properties.javax.persistence.schema-generation.scripts.create-target="
-            + entitySchema(),
-        "--spring.jpa.properties.hibernate.hbm2ddl.schema-generation.script.append=false",
-        "--spring.jpa.properties.hibernate.hbm2ddl.delimiter=;",
-        "--spring.jpa.properties.javax.persistence.schema-generation.database.action=validate");
+    startService("new_database");
     emptyDatabaseTables = tables("new_database");
     assertThat(emptyDatabaseTables)
         .containsOnlyKeys(
@@ -118,10 +109,10 @@ class OptimizerSchemaMigrationsTest {
   }
 
   /**
-   * Fails when an entity changes without a migration that makes the same change. When the service
-   * started on the empty database, Hibernate validated the entities against the migrated tables and
-   * wrote the DDL of the tables the entities define; this runs that DDL on another empty database
-   * and compares the two, indexes included.
+   * Fails when an entity changes without a migration that makes the same change. The service
+   * started on the empty database and validated the entities against the migrated tables; this runs
+   * the DDL that the exportEntitySchema task wrote from the entities on another empty database and
+   * compares the two, indexes included.
    */
   @Test
   void migrationsCreateTheTablesTheEntitiesDefine() throws SQLException {
@@ -142,21 +133,20 @@ class OptimizerSchemaMigrationsTest {
    * Starts the service on the database, which migrates it and checks that the entities match the
    * result (ddl-auto=validate), and stops the service.
    */
-  private static void startService(String database, String... args) {
+  private static void startService(String database) {
     List<String> serviceArgs =
         new ArrayList<>(
             Arrays.asList(
                 "--cluster.optimizer.database.url=" + jdbcUrl(database),
                 "--spring.datasource.username=" + MYSQL.getUsername(),
                 "--spring.datasource.password=" + MYSQL.getPassword()));
-    serviceArgs.addAll(Arrays.asList(args));
     new SpringApplicationBuilder(OptimizerServiceApplication.class)
         .web(WebApplicationType.NONE)
         .run(serviceArgs.toArray(new String[0]))
         .close();
   }
 
-  /** The file Hibernate writes the entities' DDL to. Gradle sets it; atlas.hcl reads it. */
+  /** The DDL the entities define, which :services:optimizer:exportEntitySchema wrote. */
   private static String entitySchema() {
     return Objects.requireNonNull(
         System.getProperty("optimizer.entity-schema"),
