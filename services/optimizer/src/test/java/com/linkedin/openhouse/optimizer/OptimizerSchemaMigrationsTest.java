@@ -16,7 +16,8 @@ import java.util.Objects;
 import java.util.TreeMap;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.core.io.FileSystemResource;
@@ -24,14 +25,24 @@ import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.testcontainers.containers.MySQLContainer;
 
 /**
- * Starts the service on a database that already holds HouseTables' real schema and seeded rows. The
- * database must end up with the optimizer tables that Flyway creates in an empty one, without changing
- * any HouseTables table definition or row.
+ * Starts the service beside HouseTables' real schema and seeded rows, using shared credentials and
+ * optimizer-only table grants. The database must end up with the optimizer tables that Flyway
+ * creates in an empty one, without changing any HouseTables table definition or row.
  */
 class OptimizerSchemaMigrationsTest {
 
   private static final MySQLContainer<?> MYSQL =
       MySqlContainerInitializer.newContainer().withUsername("root");
+
+  private static final String MIGRATION_USER = "optimizer_migrations";
+
+  private static final String[] OPTIMIZER_TABLES = {
+    "optimizer_schema_history",
+    "table_operations",
+    "table_operations_history",
+    "table_stats",
+    "table_stats_history"
+  };
 
   private static final String[] HOUSE_TABLES_SEED_SQL = {
     "INSERT INTO user_table_row (database_id, table_id, version, metadata_location) VALUES"
@@ -57,13 +68,7 @@ class OptimizerSchemaMigrationsTest {
     createDatabase("new_database");
     startService("new_database");
     emptyDatabaseTables = tables("new_database");
-    assertThat(emptyDatabaseTables)
-        .containsOnlyKeys(
-            "optimizer_schema_history",
-            "table_operations",
-            "table_operations_history",
-            "table_stats",
-            "table_stats_history");
+    assertThat(emptyDatabaseTables).containsOnlyKeys(OPTIMIZER_TABLES);
   }
 
   @AfterAll
@@ -71,9 +76,10 @@ class OptimizerSchemaMigrationsTest {
     MYSQL.stop();
   }
 
-  @Test
-  void createsTablesBesideHouseTables() throws SQLException {
-    String database = "house_tables";
+  @ParameterizedTest(name = "preserves HouseTables with optimizer-only grants: {0}")
+  @ValueSource(booleans = {false, true})
+  void createsTablesBesideHouseTables(boolean optimizerOnlyGrants) throws SQLException {
+    String database = optimizerOnlyGrants ? "house_tables_restricted" : "house_tables";
     createDatabase(database);
     try (Connection connection = connect(database);
         Statement statement = connection.createStatement()) {
@@ -86,13 +92,17 @@ class OptimizerSchemaMigrationsTest {
         statement.execute(sql);
       }
     }
+    if (optimizerOnlyGrants) {
+      createRestrictedMigrationUser(database);
+    }
     Map<String, List<String>> tablesBefore = tables(database);
     Map<String, List<List<String>>> rowsBefore = new TreeMap<>();
     for (String table : tablesBefore.keySet()) {
       rowsBefore.put(table, rows(database, table));
     }
 
-    startService(database);
+    startService(
+        database, optimizerOnlyGrants ? MIGRATION_USER : MYSQL.getUsername(), MYSQL.getPassword());
 
     Map<String, List<String>> tables = tables(database);
     for (String table : tablesBefore.keySet()) {
@@ -108,12 +118,16 @@ class OptimizerSchemaMigrationsTest {
 
   /** Starts the service on the database, which migrates it, and stops the service. */
   private static void startService(String database) {
+    startService(database, MYSQL.getUsername(), MYSQL.getPassword());
+  }
+
+  private static void startService(String database, String username, String password) {
     new SpringApplicationBuilder(OptimizerServiceApplication.class)
         .web(WebApplicationType.NONE)
         .run(
             "--cluster.optimizer.database.url=" + jdbcUrl(database),
-            "--spring.datasource.username=" + MYSQL.getUsername(),
-            "--spring.datasource.password=" + MYSQL.getPassword())
+            "--spring.datasource.username=" + username,
+            "--spring.datasource.password=" + password)
         .close();
   }
 
@@ -163,6 +177,30 @@ class OptimizerSchemaMigrationsTest {
     try (Connection connection = connect(MYSQL.getDatabaseName());
         Statement statement = connection.createStatement()) {
       statement.execute("CREATE DATABASE " + database);
+    }
+  }
+
+  private static void createRestrictedMigrationUser(String database) throws SQLException {
+    try (Connection connection = connect(database);
+        Statement statement = connection.createStatement()) {
+      statement.execute(
+          "CREATE USER '" + MIGRATION_USER + "'@'%' IDENTIFIED BY '" + MYSQL.getPassword() + "'");
+      for (String table : OPTIMIZER_TABLES) {
+        String privileges =
+            table.equals("optimizer_schema_history")
+                ? "SELECT, INSERT, UPDATE, DELETE, CREATE, INDEX"
+                : "SELECT, INSERT, UPDATE, DELETE, CREATE, INDEX, ALTER, DROP";
+        statement.execute(
+            "GRANT "
+                + privileges
+                + " ON `"
+                + database
+                + "`.`"
+                + table
+                + "` TO '"
+                + MIGRATION_USER
+                + "'@'%'");
+      }
     }
   }
 

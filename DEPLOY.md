@@ -195,7 +195,9 @@ migrations may only touch the optimizer tables and HouseTables' tables must stay
 first rollout the optimizer tables must not already exist. Roll it out
 before the Analyzer and Scheduler, and give it a startup probe that allows for the slowest migration.
 [Optimizer Schema Migrations](docs/development/optimizer-schema-migrations.md#database-privileges)
-lists the privileges its MySQL user needs; they are not a safety boundary.
+describes optimizer-only table grants. CI tests migrations under those grants, but production still
+uses shared credentials: the test is not production isolation. Require the build and review the SQL
+before deploying; the migrations must not reference HouseTables.
 
 #### Hadoop Compatible File System for Tables Service
 
