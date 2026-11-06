@@ -26,9 +26,26 @@ and Flyway migrates it as the service does at startup. Add it to a `@SpringBootT
 class MyRepositoryTest { ... }
 ```
 
-`OptimizerSchemaMigrationsTest` starts the service on an empty database, and on one that holds the
-real HouseTables schema with seeded rows. Both must end up with the same optimizer tables, and
-HouseTables' table definitions and row contents must be identical before and after.
+`OptimizerSchemaMigrationsTest` starts the service on an empty database, and twice beside the real
+HouseTables schema with seeded rows:
+
+- With shared credentials, as deployed today, including Flyway's baseline of the nonempty database.
+- With a disposable user granted access only to the four optimizer tables and
+  `optimizer_schema_history`. MySQL rejects migration statements that read or change other tables,
+  including `DROP TABLE IF EXISTS` for a table that is absent from the test database.
+
+All runs must end up with the same optimizer tables. An administrative connection compares every
+HouseTables table definition and row before and after both shared-database runs; the restricted
+account cannot see those tables. Its reduced visibility also means Flyway sees an empty database
+before migration, so the shared-credential run remains necessary to cover baselining.
+
+The grants use the explicit `OPTIMIZER_TABLES` allowlist in the test, not the tables found in the
+migrations. Adding an optimizer table requires reviewing and extending that list; never broaden it
+to a database-wide grant. The normal `:services:optimizer:test` task runs both cases.
+
+This is a pre-deployment check, not production isolation. It cannot cover SQL paths conditional on
+production-only data or configuration, nor protect a deployment that bypasses the checked migrations.
+Production credentials are unchanged; review the SQL and require the build before deploying.
 
 ## Changing the Schema
 
@@ -76,9 +93,11 @@ migration, since each has a higher version. Flyway doesn't check whose the other
 at the wrong database, the service adds its tables there.
 
 The migrations may only create and change the optimizer tables and `optimizer_schema_history`.
-Neither Flyway nor the MySQL account enforces that: Flyway runs whatever SQL a migration holds, and
-the user can write HouseTables' tables. Review each migration so that it doesn't reference
-HouseTables' tables, and rely on the preservation test ([Tests](#tests)) as a check.
+Neither Flyway nor the current shared production account enforces that: Flyway runs whatever SQL a
+migration holds, and the user can write HouseTables' tables. Review each migration so that it doesn't
+reference HouseTables' tables. The [tests](#tests) execute the migrations under optimizer-only grants
+as well as checking HouseTables preservation with shared credentials; those test grants do not alter
+production permissions.
 
 On the first rollout, HouseTables' tables may exist and the optimizer's tables must not. Flyway
 doesn't adopt or diff optimizer tables that exist without history: the initial migration fails on
@@ -151,14 +170,21 @@ Recover by hand, as a MySQL admin connected to the optimizer's database:
 
 ## Database Privileges
 
-The service's MySQL user needs at least these privileges on the optimizer's tables. It can also
-read and write HouseTables' tables in a shared database, so the account's privileges are not a
-safety boundary: migration review and the preservation test are.
+The production boundary should be a separate optimizer identity with grants on exact optimizer table
+names and no HouseTables access, including `SELECT`. A database-wide or global grant (including one
+inherited through a role) defeats that boundary; narrower table grants do not deny broader access.
+When migrations run separately from the service, give DDL privileges only to the migration identity
+and leave the runtime identity with the DML privileges it needs.
+
+That production ACL change is not part of the current rollout. The restricted test user has these
+table-level grants; the shared production account can still access HouseTables:
 
 | Tables | Privileges |
 |--------|------------|
-| `table_operations`, `table_operations_history`, `table_stats`, `table_stats_history` | `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, and `DROP` once a migration drops a table |
+| `table_operations`, `table_operations_history`, `table_stats`, `table_stats_history` | `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, `DROP`, `INDEX` |
 | `optimizer_schema_history` | `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `INDEX`: Flyway creates the table, then its index with `CREATE INDEX`. Without `INDEX`, it keeps the table and goes on without the index. |
 
-Grant these before the service first starts; the optimizer tables don't exist until then. Write
-index changes on the optimizer's tables as `ALTER TABLE`, which doesn't need `INDEX`.
+Grant access before the service first starts; MySQL permits table-level grants including `CREATE`
+before the named tables exist. Grant only the privileges required by the deployed migrations in
+production. `INDEX` is needed for standalone `CREATE INDEX` and `DROP INDEX`; index changes inside
+`ALTER TABLE` use `ALTER` instead.
