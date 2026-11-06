@@ -54,13 +54,35 @@ dependencies {
 // Reuse HouseTables' schema without adding its service to the optimizer's test classpath.
 def houseTablesSchema = rootProject.file('services/housetables/src/main/resources/schema.sql')
 
-// OptimizerSchemaMigrationsTest has Hibernate write the DDL of the tables the entities define here,
-// where libs/optimizer/optimizer-common/atlas.hcl reads it.
+// The DDL of the tables the entities define, where libs/optimizer/optimizer-common/atlas.hcl reads it.
 def entitySchema = layout.buildDirectory.file('entity-schema.sql')
+
+// Has Hibernate write the entities' DDL from an in-memory H2 database: no migrations, Docker, passing
+// tests or production credentials needed, so it works while the committed migrations are behind.
+tasks.register('exportEntitySchema', JavaExec) {
+  group = 'verification'
+  description = 'Writes the DDL of the tables the JPA entities define to build/entity-schema.sql'
+  classpath = sourceSets.test.runtimeClasspath + configurations.developmentOnly
+  mainClass = 'com.linkedin.openhouse.optimizer.OptimizerEntitySchemaExport'
+  outputs.file(entitySchema)
+  doFirst {
+    def file = entitySchema.get().asFile
+    delete(file)
+    file.parentFile.mkdirs()
+    args = [file.absolutePath]
+  }
+  doLast {
+    if (!entitySchema.get().asFile.isFile()) {
+      throw new GradleException("Hibernate did not write ${entitySchema.get().asFile}")
+    }
+  }
+}
+
 test {
   useJUnitPlatform()
+  dependsOn tasks.named('exportEntitySchema')
   inputs.file(houseTablesSchema).withPathSensitivity(PathSensitivity.RELATIVE)
-  outputs.file(entitySchema)
+  inputs.file(entitySchema).withPathSensitivity(PathSensitivity.NONE)
   doFirst {
     // Set here, not as inputs: the absolute paths differ between checkouts that share the build
     // cache.

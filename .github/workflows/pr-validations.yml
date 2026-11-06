@@ -5,10 +5,22 @@ on:
     types: [opened, synchronize, reopened]
     branches:
       - main
+      - chbush/optimizer-flyway-atlas
+  # Used by optimizer-schema-migrations.yml: pushes made with GITHUB_TOKEN do not trigger
+  # pull_request runs, so the bot commit's required validation is dispatched explicitly.
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Pull request number, so the concurrency group matches the pull_request runs'
+        required: false
+        type: string
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event.pull_request.number || inputs.pr_number || github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   build-run-tests:

@@ -13,7 +13,7 @@ stay untouched.
 | `libs/optimizer/optimizer-common/src/main/java/com/linkedin/openhouse/optimizer/db/` | The entities, with their columns in `@Column` and their indexes in `@Table(indexes = ...)`. They declare the tables. |
 | `libs/optimizer/optimizer-common/src/main/resources/db/migration/` | The migrations, and Atlas's checksums of them in `atlas.sum`. They ship in the optimizer-common jar; only the service runs them. |
 | `libs/optimizer/optimizer-common/atlas.hcl` | Atlas's configuration: the entities' DDL, the migrations, and the MySQL image Atlas compares them on. |
-| `build/optimizer/entity-schema.sql` | The entities' DDL, which Hibernate writes when `OptimizerSchemaMigrationsTest` runs. Not committed. |
+| `build/optimizer/entity-schema.sql` | The entities' DDL, written by `:services:optimizer:exportEntitySchema` without migrations or validation. Not committed. |
 | `OptimizerDatabaseConfiguration` (optimizer-common) | Maps the entities to the table and column names their annotations give, in the service and both apps, as in the entities' DDL. Hibernate doesn't turn camelCase into snake_case, so name each column in `@Column(name = ...)`. |
 
 ## Tests
@@ -30,35 +30,71 @@ and Flyway migrates it as the service does at startup. Add it to a `@SpringBootT
 class MyRepositoryTest { ... }
 ```
 
-`OptimizerSchemaMigrationsTest` starts the service on an empty database: Flyway applies every
-migration, and Hibernate writes the entities' DDL and validates the entities against the tables. The
-test runs the DDL on another empty database and fails unless both hold the same tables, indexes
-included, so an entity change without its migration fails the build. It also starts the service on
-a database holding the real HouseTables schema with seeded rows. Both must end up with the same
-optimizer tables, and HouseTables' table definitions and row contents must be identical before and
-after.
+`exportEntitySchema` boots the service against an in-memory H2 database with the MySQL dialect and
+both Flyway and database schema actions disabled. Hibernate writes the entities' DDL without needing
+Docker or matching migrations. The service test task depends on this export.
+
+`OptimizerSchemaMigrationsTest` starts the service on an empty MySQL database: Flyway applies every
+migration and Hibernate validates the entities against the tables. The test runs the exported DDL on
+another empty database and fails unless both hold the same tables, indexes included, so an entity
+change without its migration fails the required build. It also starts the service on a database
+holding the real HouseTables schema with seeded rows. Both must end up with the same optimizer
+tables, and HouseTables' table definitions and row contents must be identical before and after.
 
 ## Changing the Schema
+
+### Automatic Generation in Pull Requests
+
+Edit the entities and open or update a PR. The **Optimizer Schema Migrations** workflow exports their
+DDL and runs the pinned Atlas Community CLI against a disposable MySQL database. If the committed
+migrations already match, it writes nothing. Otherwise it generates a new
+`V<UTC timestamp>__sync_entities.sql`, removes Atlas's undo script, and updates `atlas.sum`; existing
+versioned migrations stay untouched.
+
+For a branch in this repository, a separate publishing job commits only the new migration and
+`atlas.sum` to the PR branch. Generation has a read-only token; publishing executes no PR code and
+treats the generated files as data. If the branch changes while generation runs, the publisher does
+not overwrite the newer head. It explicitly dispatches **Pull Request Validations** after the bot
+commit, because a push made with `GITHUB_TOKEN` does not reliably start those checks automatically.
+The required build runs the schema comparison on the committed result, not an uncommitted fix.
+
+Review the generated SQL before approving the new head. The bot never approves or merges, and its
+commit dismisses earlier approvals under the repository's rules. A rename can be generated as a
+drop and add; backfills and compatibility with the previous release still need human judgment.
+Migration failures or invalid checksums fail generation rather than being ignored.
+
+For a fork PR, the upstream token cannot push to the fork. The workflow instead uploads an
+`optimizer-migration-<PR number>` artifact: copy its two files into
+`libs/optimizer/optimizer-common/src/main/resources/db/migration/` and commit them to the fork. The
+required build continues to reject drift until those files are committed. This is the exception to
+zero-command authoring; the automation does not request contributors' write credentials.
+
+The automatic publisher uses only `GITHUB_TOKEN` with job-scoped `contents: write` and
+`actions: write`; no Atlas account or paid features are needed. Both workflow files, including the
+`workflow_dispatch` trigger on `pr-validations.yml`, must be on the default branch before the bot can
+dispatch validation. Until then, use the local command below to commit a migration yourself.
+
+### Local Generation and SQL Review
 
 You need Docker, for the throwaway MySQL that Atlas compares on, and the
 [Atlas Community](https://atlasgo.io/community-edition) CLI (Apache 2.0):
 
 ```bash
-curl -sSf https://atlasgo.sh | sh -s -- --community
+curl -sSf https://atlasgo.sh | ATLAS_VERSION=v1.3.0 sh -s -- --community
 ```
 
 1. Edit the entities in `com.linkedin.openhouse.optimizer.db`.
-2. Write their DDL, then generate the migration, such as `add_job_attempts`:
+2. Generate the migration, such as `add_job_attempts`:
    ```bash
-   ./gradlew :services:optimizer:test --tests '*OptimizerSchemaMigrationsTest'
-   cd libs/optimizer/optimizer-common
-   atlas migrate diff --env local add_job_attempts
+   python3 scripts/python/generate_optimizer_migration.py --name add_job_attempts
    ```
-   The test fails, as no migration makes the change yet, but Hibernate writes the entities' DDL
-   first. Atlas applies the migrations and that DDL to a throwaway MySQL, writes the difference to
-   `V<UTC timestamp>__add_job_attempts.sql`, and adds the file to `atlas.sum`. Delete the
-   `U<UTC timestamp>__add_job_attempts.sql` undo script it writes too: undo needs Flyway Teams, and
-   the service never runs it.
+   This exports the entities' DDL, validates the existing checksums, runs Atlas against a throwaway
+   MySQL, and writes the new migration and checksums into the migration directory. It removes any
+   generated undo script and rehashes the directory; the service never runs undo migrations. No
+   passing migration test is needed to export the DDL. It also copies the two generated files to
+   `build/optimizer/generated-migrations/` for the PR workflow; no changes leave that directory empty.
+   To export DDL without generating a migration, run
+   `./gradlew :services:optimizer:exportEntitySchema`.
 3. Review the SQL:
    - Prefer one DDL statement per migration. MySQL commits each DDL statement on its own, so a
      migration that fails partway keeps its earlier statements, and the service won't start until
@@ -82,10 +118,11 @@ The timestamp columns declare `columnDefinition = "TIMESTAMP(6)"`, the type thei
 for an `Instant`, Hibernate's DDL would say `DATETIME(6)`.
 
 If another change merged a migration first, `atlas.sum` conflicts when you rebase. Delete your
-migration, take `atlas.sum` from the base branch, and run step 2 again, so that yours gets a later
-version. Don't keep a migration that sorts before the base branch's newest: Flyway won't apply it to
-a database that already has the newer one, and the service stops starting there. The tests can't
-catch it, because they migrate databases that have none of the migrations.
+migration, take `atlas.sum` from the base branch, and rerun local generation or update the PR so the
+workflow generates a later version. Don't keep a migration that sorts before the base branch's
+newest: Flyway won't apply it to a database that already has the newer one, and the service stops
+starting there. The tests can't catch it, because they migrate databases that have none of the
+migrations.
 
 ```
 Validate failed: Migrations have failed validation
