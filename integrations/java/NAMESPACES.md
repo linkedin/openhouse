@@ -13,7 +13,8 @@ defensive copy. Calling `table.properties()` still returns the actual table prop
 Existing table operations, including `loadTable`, retain their existing request counts.
 
 The checked exception makes remote I/O and its expected failures explicit to callers.
-Only HTTP 404 from the namespace lookup means that the database has no inherited properties.
+HTTP 404 is the only error response that falls back to table-only properties. Successful responses
+with empty, omitted, or null properties also contribute no database properties.
 Authorization failures, connection failures, timeouts, malformed responses, and other service
 errors fail the call. Reads have a 30-second budget; mutations have a 60-second budget.
 Interruption cancels the request and preserves the thread's interrupted status.
@@ -60,10 +61,18 @@ signatures cannot declare this checked exception.
 | HTTP 403 | `ForbiddenException` |
 | HTTP 404 | `NoSuchNamespaceException`, except that drop returns false |
 | HTTP 409 during creation | `AlreadyExistsException` |
-| HTTP 409 during deletion | `NamespaceNotEmptyException` |
+| HTTP 409 during deletion with `NamespaceNotEmptyException` | `NamespaceNotEmptyException` |
+| HTTP 409 during deletion with `CommitFailedException` | `CommitFailedException` |
+| HTTP 409 during deletion with an absent or unknown type | `RESTException` |
 | HTTP 409 during property updates | `CommitFailedException` |
+| An explicit `CommitStateUnknownException` error type | `CommitStateUnknownException` |
 | Transport, malformed response, or other service failure | `RESTException` |
 
 `namespaceExists` remains explicitly unsupported. `listNamespaces()` retains the legacy
 table-derived endpoint, so an empty newly created namespace can be absent from that listing.
 Namespace metadata does not change table lifecycle behavior.
+
+The checked exception retains the optional structured service error type and the original cause.
+An uncertain mutation outcome requires reloading metadata and reconciling it before retrying.
+External Iceberg REST clients may apply their own retry policies; disabling a HouseTables transport
+retry does not control those clients.

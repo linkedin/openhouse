@@ -35,6 +35,7 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.CommitFailedException;
+import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.ForbiddenException;
 import org.apache.iceberg.exceptions.NamespaceNotEmptyException;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
@@ -221,7 +222,10 @@ class NamespaceMetadataTest {
         "openhouse.local.database.table name",
         "openhouse.local.database",
         "",
-        "openhouse.local.database%2Fother.table"
+        "openhouse.local.database%2Fother.table",
+        "openhouse.local.database\u0000.table",
+        "openhouse.local.database/name.table",
+        "openhouse.local.database name.table"
       })
   void invalidOrForeignTableNamesFailBeforeRequest(String name) {
     when(table.name()).thenReturn(name);
@@ -368,6 +372,34 @@ class NamespaceMetadataTest {
     assertEquals(1, tableService.getRequestCount());
   }
 
+  @ParameterizedTest
+  @MethodSource("dropFailureTypes")
+  void deletionPreservesStructuredFailureTypes(
+      int status, String body, Class<? extends RuntimeException> expected) {
+    respond(status, body);
+    RuntimeException exception =
+        assertThrows(expected, () -> catalog.dropNamespace(Namespace.of("database")));
+    assertInstanceOf(NamespaceMetadataException.class, exception.getCause());
+    assertEquals(1, tableService.getRequestCount());
+  }
+
+  static Stream<Arguments> dropFailureTypes() {
+    return Stream.of(
+        Arguments.of(
+            409,
+            "{\"error\":{\"type\":\"NamespaceNotEmptyException\"}}",
+            NamespaceNotEmptyException.class),
+        Arguments.of(
+            409, "{\"error\":{\"type\":\"CommitFailedException\"}}", CommitFailedException.class),
+        Arguments.of(
+            500,
+            "{\"error\":{\"type\":\"CommitStateUnknownException\"}}",
+            CommitStateUnknownException.class),
+        Arguments.of(409, "{\"error\":{\"type\":\"OtherException\"}}", RESTException.class),
+        Arguments.of(409, "{\"error\":{\"type\":42}}", RESTException.class),
+        Arguments.of(409, "{", RESTException.class));
+  }
+
   static Stream<Arguments> namespaceFailures() {
     return Stream.of(
         Arguments.of("create", 409, AlreadyExistsException.class),
@@ -377,7 +409,7 @@ class NamespaceMetadataTest {
         Arguments.of("load", 404, NoSuchNamespaceException.class),
         Arguments.of("load", 500, RESTException.class),
         Arguments.of("load", 503, RESTException.class),
-        Arguments.of("drop", 409, NamespaceNotEmptyException.class),
+        Arguments.of("drop", 409, RESTException.class),
         Arguments.of("drop", 403, ForbiddenException.class),
         Arguments.of("set", 404, NoSuchNamespaceException.class),
         Arguments.of("set", 409, CommitFailedException.class),

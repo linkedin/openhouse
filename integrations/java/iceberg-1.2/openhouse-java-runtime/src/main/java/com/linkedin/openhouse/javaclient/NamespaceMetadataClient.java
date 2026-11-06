@@ -1,5 +1,8 @@
 package com.linkedin.openhouse.javaclient;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataException;
 import com.linkedin.openhouse.tables.client.api.NamespaceApi;
 import com.linkedin.openhouse.tables.client.invoker.ApiClient;
@@ -26,6 +29,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.CommitFailedException;
+import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.ForbiddenException;
 import org.apache.iceberg.exceptions.NamespaceNotEmptyException;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
@@ -38,6 +42,13 @@ import reactor.core.publisher.Mono;
 
 /** Shared namespace request and validation logic for the version-specific catalog adapters. */
 final class NamespaceMetadataClient {
+  enum Operation {
+    CREATE,
+    LOAD,
+    DROP,
+    UPDATE
+  }
+
   private final NamespaceApi namespaceApi;
   private final String catalogName;
 
@@ -136,7 +147,9 @@ final class NamespaceMetadataClient {
       throw new NamespaceMetadataException(400, "Table name must belong to this catalog");
     }
     String[] identifier = tableName.substring(catalogPrefix.length()).split("\\.", -1);
-    if (identifier.length != 2 || !identifier[1].matches("[a-zA-Z0-9_]{1,128}")) {
+    if (identifier.length != 2
+        || !identifier[0].matches("[a-zA-Z0-9_]{1,128}")
+        || !identifier[1].matches("[a-zA-Z0-9_]{1,128}")) {
       throw new NamespaceMetadataException(400, "Expected a catalog-qualified database and table");
     }
     Map<String, String> effective = new HashMap<>();
@@ -155,7 +168,11 @@ final class NamespaceMetadataClient {
     return Collections.unmodifiableMap(effective);
   }
 
-  static RuntimeException icebergFailure(NamespaceMetadataException failure, String operation) {
+  static RuntimeException icebergFailure(NamespaceMetadataException failure, Operation operation) {
+    if (failure.getStatusCode() == 500
+        && failure.getErrorType().filter("CommitStateUnknownException"::equals).isPresent()) {
+      return new CommitStateUnknownException(failure);
+    }
     switch (failure.getStatusCode()) {
       case 400:
       case 422:
@@ -167,11 +184,17 @@ final class NamespaceMetadataClient {
       case 404:
         return new NoSuchNamespaceException(failure, "Namespace metadata does not exist");
       case 409:
-        if ("create".equals(operation)) {
+        if (operation == Operation.CREATE) {
           return new AlreadyExistsException(failure, "Namespace already exists");
         }
-        if ("drop".equals(operation)) {
-          return new NamespaceNotEmptyException(failure, "Namespace is nonempty or changed");
+        if (operation == Operation.DROP) {
+          if (failure.getErrorType().filter("NamespaceNotEmptyException"::equals).isPresent()) {
+            return new NamespaceNotEmptyException(failure, "Namespace contains tables or views");
+          }
+          if (failure.getErrorType().filter("CommitFailedException"::equals).isPresent()) {
+            return new CommitFailedException(failure, "Namespace metadata changed concurrently");
+          }
+          return new RESTException(failure, "Namespace deletion conflict has an unknown reason");
         }
         return new CommitFailedException(failure, "Namespace metadata changed concurrently");
       default:
@@ -221,7 +244,7 @@ final class NamespaceMetadataClient {
   /**
    * Bounds each generated request and converts asynchronous client failures to checked failures.
    */
-  private static <T> ResponseEntity<T> request(
+  static <T> ResponseEntity<T> request(
       Mono<ResponseEntity<T>> request, int expectedStatus, int timeoutSeconds)
       throws NamespaceMetadataException {
     CompletableFuture<ResponseEntity<T>> pending = request.toFuture();
@@ -247,7 +270,22 @@ final class NamespaceMetadataClient {
                   && ((WebClientResponseException) cause).getRawStatusCode() >= 400
               ? ((WebClientResponseException) cause).getRawStatusCode()
               : 0;
-      throw new NamespaceMetadataException(statusCode, "Namespace request failed", cause);
+      Optional<String> errorType = Optional.empty();
+      if (cause instanceof WebClientResponseException) {
+        try {
+          errorType =
+              Optional.ofNullable(
+                      new ObjectMapper()
+                          .readTree(((WebClientResponseException) cause).getResponseBodyAsString()))
+                  .map(body -> body.path("error").path("type"))
+                  .filter(JsonNode::isTextual)
+                  .map(JsonNode::asText);
+        } catch (JsonProcessingException decodingFailure) {
+          cause.addSuppressed(decodingFailure);
+        }
+      }
+      throw new NamespaceMetadataException(
+          statusCode, "Namespace request failed", cause, errorType);
     }
   }
 }

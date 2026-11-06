@@ -393,7 +393,8 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     try {
       namespaceMetadataClient.create(namespace, properties);
     } catch (NamespaceMetadataException failure) {
-      throw NamespaceMetadataClient.icebergFailure(failure, "create");
+      throw NamespaceMetadataClient.icebergFailure(
+          failure, NamespaceMetadataClient.Operation.CREATE);
     }
   }
 
@@ -436,7 +437,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     try {
       return namespaceMetadataClient.load(namespace);
     } catch (NamespaceMetadataException failure) {
-      throw NamespaceMetadataClient.icebergFailure(failure, "load");
+      throw NamespaceMetadataClient.icebergFailure(failure, NamespaceMetadataClient.Operation.LOAD);
     }
   }
 
@@ -445,7 +446,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     try {
       return namespaceMetadataClient.drop(namespace);
     } catch (NamespaceMetadataException failure) {
-      throw NamespaceMetadataClient.icebergFailure(failure, "drop");
+      throw NamespaceMetadataClient.icebergFailure(failure, NamespaceMetadataClient.Operation.DROP);
     }
   }
 
@@ -454,7 +455,8 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     try {
       return namespaceMetadataClient.update(namespace, properties, Collections.emptySet());
     } catch (NamespaceMetadataException failure) {
-      throw NamespaceMetadataClient.icebergFailure(failure, "update");
+      throw NamespaceMetadataClient.icebergFailure(
+          failure, NamespaceMetadataClient.Operation.UPDATE);
     }
   }
 
@@ -463,7 +465,8 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     try {
       return namespaceMetadataClient.update(namespace, Collections.emptyMap(), properties);
     } catch (NamespaceMetadataException failure) {
-      throw NamespaceMetadataClient.icebergFailure(failure, "update");
+      throw NamespaceMetadataClient.icebergFailure(
+          failure, NamespaceMetadataClient.Operation.UPDATE);
     }
   }
 
