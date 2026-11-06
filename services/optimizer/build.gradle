@@ -94,42 +94,142 @@ tasks.register('exportEntitySchema', JavaExec) {
 
 def optimizerCommon = project(':libs:optimizer:optimizer-common')
 def migrations = optimizerCommon.file('src/main/resources/db/migration')
-def generatedMigrations = layout.buildDirectory.dir('generated-migrations')
 
-tasks.register('generateMigration', Exec) {
-  group = 'database'
-  description = 'Generates a Flyway migration from the optimizer entities using Atlas Community'
-  dependsOn tasks.named('exportEntitySchema')
-  workingDir optimizerCommon.projectDir
-  commandLine 'atlas', 'migrate', 'diff', '--env', 'local',
-      providers.gradleProperty('migrationName').getOrElse('sync_entities')
-  def existingFiles = []
-  doFirst {
-    delete(generatedMigrations)
-    existingFiles = fileTree(migrations).files*.name
-  }
-  doLast {
-    // Flyway Community cannot apply Atlas's undo scripts. Leave existing files alone.
-    delete fileTree(migrations) { include 'U*.sql'; exclude existingFiles }
-    providers.exec {
-      workingDir optimizerCommon.projectDir
-      commandLine 'atlas', 'migrate', 'hash', '--env', 'local'
-    }.result.get().assertNormalExitValue()
-    def added = fileTree(migrations) { include 'V*.sql'; exclude existingFiles }
-    if (!added.isEmpty()) {
-      copy {
-        from migrations
-        include 'atlas.sum'
-        include added.files*.name
-        into generatedMigrations
+// Atlas Community (Apache 2.0) writes the migrations. Gradle downloads the CLI built for this
+// machine and checks it against the SHA-256 that Ariga publishes beside it, at
+// https://atlasbinaries.com/atlas/atlas-community-<platform>-v<version>.sha256, so neither CI nor
+// developers install Atlas.
+def atlasVersion = '1.3.0'
+def atlasSha256 = [
+  'darwin-amd64': '650981a024301775ec964e5134e2d5712b7ef1b25fec4b2ec54bad762b4bdf6f',
+  'darwin-arm64': '4e5ffdc10b2b4fd3a06074aba72848150907d5316cacad7b19bae6c6ae3db991',
+  'linux-amd64': '10d7913e3dce43ab99b8d71534a4cbadaf11a16dc293adf3b91d10e83a0ac70b',
+  'linux-arm64': '082188c57a53439596a3ee52173b12e785aa83ec718505674e2052db0fec0c4c'
+]
+def osName = System.getProperty('os.name').toLowerCase(Locale.ROOT)
+def osArch = System.getProperty('os.arch')
+def atlasPlatform = [
+  osName.startsWith('mac') ? 'darwin' : osName.startsWith('linux') ? 'linux' : osName,
+  osArch in ['aarch64', 'arm64'] ? 'arm64' : osArch in ['amd64', 'x86_64'] ? 'amd64' : osArch
+].join('-')
+
+repositories {
+  exclusiveContent {
+    forRepository {
+      ivy {
+        name = 'AtlasCommunity'
+        url = 'https://atlasbinaries.com/atlas'
+        patternLayout { artifact '[artifact]-[classifier]-v[revision]' }
+        metadataSources { artifact() }
       }
     }
+    filter { includeModule('io.atlasgo', 'atlas-community') }
   }
+}
+
+configurations {
+  atlasCli {
+    canBeConsumed = false
+    transitive = false
+  }
+}
+
+dependencies {
+  if (atlasSha256.containsKey(atlasPlatform)) {
+    atlasCli "io.atlasgo:atlas-community:${atlasVersion}:${atlasPlatform}@bin"
+  }
+}
+
+def atlasExecutable = layout.buildDirectory.file('atlas/atlas').get().asFile
+
+tasks.register('installAtlas', Sync) {
+  description = "Installs Atlas Community ${atlasVersion} for ${atlasPlatform} after checking its SHA-256"
+  from configurations.atlasCli
+  into atlasExecutable.parentFile
+  rename { atlasExecutable.name }
+  filePermissions { unix('rwxr-xr-x') }
+  doFirst {
+    def expected = atlasSha256[atlasPlatform]
+    if (expected == null) {
+      throw new GradleException(
+          "No Atlas Community ${atlasVersion} checksum for ${atlasPlatform} in services/optimizer/build.gradle")
+    }
+    def actual = configurations.atlasCli.singleFile.bytes.sha256()
+    if (actual != expected) {
+      throw new GradleException(
+          "Atlas Community ${atlasVersion} for ${atlasPlatform} has SHA-256 ${actual}, not ${expected}")
+    }
+  }
+}
+
+def migrationName = providers.gradleProperty('migrationName').getOrElse('sync_entities')
+def migrationsMatchEntities = layout.buildDirectory.file('migrations-match-entities')
+
+// Part of check, so every build compares the migrations with the entities. When the entities declare
+// a change that no migration makes, Atlas writes that migration into optimizer-common and the build
+// fails: no build passes on SQL it generated, and the jars it builds hold only the migrations that
+// were there when it started. CI builds the committed files, so it fails until the migration is
+// committed. Atlas also fails when the migrations don't match atlas.sum.
+tasks.register('generateMigration', Exec) {
+  group = 'verification'
+  description = 'Writes the migration for entity changes that no migration makes, and then fails'
+  inputs.files(tasks.named('exportEntitySchema'))
+  inputs.files(tasks.named('installAtlas'))
+  inputs.dir(migrations)
+  inputs.file(optimizerCommon.file('atlas.hcl'))
+  inputs.property('migrationName', migrationName)
+  outputs.file(migrationsMatchEntities)
+  workingDir optimizerCommon.projectDir
+  executable atlasExecutable
+  args 'migrate', 'diff', '--env', 'local', migrationName
+  Map<String, String> before = [:]
+  doFirst {
+    before = fileTree(migrations).files.collectEntries { [(it.name): it.bytes.sha256()] }
+  }
+  doLast {
+    def written = fileTree(migrations).files.findAll { before[it.name] != it.bytes.sha256() }
+    if (written.isEmpty()) {
+      migrationsMatchEntities.get().asFile.text = 'The migrations make every change the entities declare.\n'
+      return
+    }
+    // Flyway Community can't apply Atlas's undo scripts.
+    delete written.findAll { it.name.startsWith('U') }
+    providers.exec {
+      workingDir optimizerCommon.projectDir
+      commandLine atlasExecutable, 'migrate', 'hash', '--env', 'local'
+    }.result.get().assertNormalExitValue()
+    def kept = written.findAll { it.exists() }
+    throw new GradleException("""\
+Atlas wrote the migration for entity changes that no migration makes:
+${kept.collect { '  ' + rootProject.relativePath(it) }.join('\n')}
+Review the SQL (docs/development/optimizer-schema-migrations.md), then commit these files with the
+entity change. A build that writes a migration fails; CI fails until the migration is committed.
+
+${kept.findAll { it.name.endsWith('.sql') }.collect { it.text.trim() }.join('\n\n')}
+""")
+  }
+}
+
+tasks.named('check') {
+  dependsOn tasks.named('generateMigration')
+}
+
+// Atlas fails until atlas.sum matches the migrations.
+tasks.register('hashMigrations', Exec) {
+  group = 'database'
+  description = 'Updates atlas.sum after a migration is added or edited by hand'
+  dependsOn tasks.named('installAtlas')
+  workingDir optimizerCommon.projectDir
+  executable atlasExecutable
+  args 'migrate', 'hash', '--env', 'local'
 }
 
 test {
   useJUnitPlatform()
   dependsOn tasks.named('exportEntitySchema')
+  // In a build, generation goes first: an entity change without its migration fails with the
+  // migration to commit, not with OptimizerSchemaMigrationsTest.
+  mustRunAfter tasks.named('generateMigration')
   inputs.file(houseTablesSchema).withPathSensitivity(PathSensitivity.RELATIVE)
   inputs.file(entitySchema).withPathSensitivity(PathSensitivity.NONE)
   doFirst {

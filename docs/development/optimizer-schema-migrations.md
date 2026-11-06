@@ -32,7 +32,7 @@ class MyRepositoryTest { ... }
 
 `exportEntitySchema` boots the service against an in-memory H2 database with the MySQL dialect and
 both Flyway and database schema actions disabled. Hibernate writes the entities' DDL without needing
-Docker or matching migrations. The service test task depends on this export.
+Docker or matching migrations. Generation and the service tests depend on this export.
 
 `OptimizerSchemaMigrationsTest` starts the service on an empty MySQL database: Flyway applies every
 migration and Hibernate validates the entities against the tables. The test runs the exported DDL on
@@ -43,60 +43,27 @@ tables, and HouseTables' table definitions and row contents must be identical be
 
 ## Changing the Schema
 
-### Automatic Generation in Pull Requests
+`check`, and so `build`, runs `:services:optimizer:generateMigration`, which compares the
+migrations with the entities. It exports the entities' DDL and runs
+[Atlas Community](https://atlasgo.io/community-edition) (Apache 2.0) `migrate diff`, which replays
+the migrations and that DDL on a throwaway MySQL in Docker. When the entities declare a change that
+no migration makes, Atlas writes that migration and adds it to `atlas.sum`, and the build fails,
+showing the SQL. Atlas also fails when the migrations don't match `atlas.sum`. Gradle downloads the
+Atlas CLI and checks its SHA-256: you need Docker, but no Atlas install, account, or paid features.
 
-Edit the entities and open or update a PR. The **Optimizer Schema Migrations** workflow runs
-`./gradlew :services:optimizer:generateMigration`. Gradle exports the entities' DDL and invokes the
-pinned Atlas Community CLI against a disposable MySQL database. If the committed migrations already
-match, it writes nothing. Otherwise it generates a new `V<UTC timestamp>__sync_entities.sql`, removes
-Atlas's undo script, and updates `atlas.sum`; existing versioned migrations stay untouched.
-
-For a branch in this repository, a separate publishing job uses
-[`git-auto-commit-action`](https://github.com/stefanzweifel/git-auto-commit-action) to commit
-only the new migration and `atlas.sum` to the PR branch. Generation has a read-only token; publishing
-executes no PR code and accepts only those two files as data. It pushes without force, so a newer
-branch head rejects the stale commit. It explicitly dispatches **Pull Request Validations** after
-the bot commit, because a push made with `GITHUB_TOKEN` does not start those checks automatically.
-The required build runs the schema comparison on the committed result, not an uncommitted fix.
-`build` and `test` do not generate migrations: their schema comparison must still reject entity
-changes whose migrations have not been committed.
-
-Review the generated SQL before approving the new head. The bot never approves or merges, and its
-commit dismisses earlier approvals under the repository's rules. A rename can be generated as a
-drop and add; backfills and compatibility with the previous release still need human judgment.
-Migration failures or invalid checksums fail generation rather than being ignored.
-
-For a fork PR, the upstream token cannot push to the fork. The workflow instead uploads an
-`optimizer-migration-<PR number>` artifact: copy its two files into
-`libs/optimizer/optimizer-common/src/main/resources/db/migration/` and commit them to the fork. The
-required build continues to reject drift until those files are committed. This is the exception to
-zero-command authoring; the automation does not request contributors' write credentials.
-
-The automatic publisher uses only `GITHUB_TOKEN` with job-scoped `contents: write` and
-`actions: write`; no Atlas account or paid features are needed. Both workflow files, including the
-`workflow_dispatch` trigger on `pr-validations.yml`, must be on the default branch before the bot can
-dispatch validation. Until then, use the local command below to commit a migration yourself.
-
-### Local Generation and SQL Review
-
-You need Docker, for the throwaway MySQL that Atlas compares on, and the
-[Atlas Community](https://atlasgo.io/community-edition) CLI (Apache 2.0):
-
-```bash
-curl -sSf https://atlasgo.sh | ATLAS_VERSION=v1.3.0 sh -s -- --community
-```
+No build passes on SQL it generated. Generation needs the optimizer-common jar, so the jars of the
+build that writes a migration hold only the migrations that were there when it started. CI builds
+the committed files, so it fails until the migration is committed. Gradle skips generation while
+the entities and the migrations stay the same.
 
 1. Edit the entities in `com.linkedin.openhouse.optimizer.db`.
-2. Generate the migration, such as `add_job_attempts`:
+2. Build:
    ```bash
-   ./gradlew :services:optimizer:generateMigration -PmigrationName=add_job_attempts
+   ./gradlew :services:optimizer:build
    ```
-   This task depends on `exportEntitySchema` and runs Atlas's `migrate diff`, which validates the
-   existing checksums before generating SQL. Gradle removes only newly generated undo scripts,
-   rehashes the directory, and copies the new migration and `atlas.sum` to
-   `build/optimizer/generated-migrations/` for the PR workflow. Without schema changes, it produces
-   no artifact. No passing migration test is needed to export the DDL. To export DDL alone, run
-   `./gradlew :services:optimizer:exportEntitySchema`.
+   It fails, and Atlas has written the migration to `V<UTC timestamp>__sync_entities.sql`. To name
+   it, such as `add_job_attempts`, add `-PmigrationName=add_job_attempts`. Gradle deletes the undo
+   script Atlas writes too: undo needs Flyway Teams, and the service never runs it.
 3. Review the SQL:
    - Prefer one DDL statement per migration. MySQL commits each DDL statement on its own, so a
      migration that fails partway keeps its earlier statements, and the service won't start until
@@ -106,25 +73,21 @@ curl -sSf https://atlasgo.sh | ATLAS_VERSION=v1.3.0 sh -s -- --community
      give a new `NOT NULL` column a default.
    - Startup waits for the migration, so a long `ALTER TABLE` on a large table delays readiness and
      has to fit the deployment's startup probe ([What Happens at Startup](#what-happens-at-startup)).
-4. Run the tests:
-   ```bash
-   ./gradlew :libs:optimizer:optimizer-common:test :services:optimizer:test
-   ```
+4. Build again. Atlas finds nothing left to write, and the tests run on the new migration.
 5. Commit the entity change, the migration, and `atlas.sum` together.
 
 Atlas writes DDL only. Write a migration that it can't, such as one that copies data, by hand: add
-the file, then run `atlas migrate hash --env local` to update `atlas.sum`. The test still checks
-that the tables end up as the entities declare them.
+the file, then run `./gradlew :services:optimizer:hashMigrations` to update `atlas.sum`. The build
+still checks that the tables end up as the entities declare them.
 
 The timestamp columns declare `columnDefinition = "TIMESTAMP(6)"`, the type their migration created;
 for an `Instant`, Hibernate's DDL would say `DATETIME(6)`.
 
 If another change merged a migration first, `atlas.sum` conflicts when you rebase. Delete your
-migration, take `atlas.sum` from the base branch, and rerun local generation or update the PR so the
-workflow generates a later version. Don't keep a migration that sorts before the base branch's
-newest: Flyway won't apply it to a database that already has the newer one, and the service stops
-starting there. The tests can't catch it, because they migrate databases that have none of the
-migrations.
+migration, take `atlas.sum` from the base branch, and build again so that yours gets a later
+version. Don't keep a migration that sorts before the base branch's newest: Flyway won't apply it to
+a database that already has the newer one, and the service stops starting there. The tests can't
+catch it, because they migrate databases that have none of the migrations.
 
 ```
 Validate failed: Migrations have failed validation
@@ -133,7 +96,7 @@ Detected resolved migration not applied to database: 20261020000000.
 
 Never edit a migration that has shipped: Flyway compares every applied migration's checksum at
 startup and refuses to start on a mismatch. Fix it with a new migration instead. After editing one
-that hasn't shipped, run `atlas migrate hash --env local`.
+that hasn't shipped, run `./gradlew :services:optimizer:hashMigrations`.
 
 ## What Happens at Startup
 
