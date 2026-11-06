@@ -13,4 +13,10 @@ public class NamespaceException extends Exception {
     this.status = status;
     this.type = type;
   }
+
+  public NamespaceException(HttpStatus status, String type, String message, Throwable cause) {
+    super(message, cause);
+    this.status = status;
+    this.type = type;
+  }
 }

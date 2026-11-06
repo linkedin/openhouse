@@ -55,8 +55,11 @@ Existing table and view lifecycles are deliberately unchanged, and namespace dro
 their rows or files.
 
 The generated HouseTables adapter uses a 30-second budget for each read and a 60-second budget
-for each write. Requests are issued once; the database client's automatic transport retry is
-disabled. An ambiguous write failure is surfaced to the caller.
+for each write. Automatic transport retries are disabled for `DatabaseApi` requests.
+Occupancy reads through `UserTableApi` retain their configured transport retries.
+An uncertain mutation outcome returns HTTP 500 with `CommitStateUnknownException`; callers must
+reload metadata and reconcile before retrying. This transport setting does not control retries
+in external clients.
 
 ## Generated client and validation
 

@@ -1,7 +1,7 @@
 package com.linkedin.openhouse.internal.catalog.repository;
 
-import com.linkedin.openhouse.housetables.client.model.DatabaseMetadata;
-import com.linkedin.openhouse.housetables.client.model.UpdateDatabasePropertiesResponseBody;
+import com.linkedin.openhouse.internal.catalog.model.DatabaseMetadata;
+import com.linkedin.openhouse.internal.catalog.model.DatabasePropertyUpdate;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException;
 import java.util.Map;
 import java.util.Optional;
@@ -15,7 +15,7 @@ public interface HouseDatabaseRepository {
 
   void delete(String databaseName) throws HouseDatabaseException;
 
-  UpdateDatabasePropertiesResponseBody updateProperties(
+  DatabasePropertyUpdate updateProperties(
       String databaseName, Map<String, String> updates, Set<String> removals)
       throws HouseDatabaseException;
 

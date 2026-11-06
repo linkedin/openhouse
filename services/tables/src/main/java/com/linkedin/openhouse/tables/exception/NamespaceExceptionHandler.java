@@ -53,6 +53,12 @@ public class NamespaceExceptionHandler {
             "UnprocessableEntityException",
             "Invalid property update",
             request);
+      case UNKNOWN_OUTCOME:
+        return respond(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "CommitStateUnknownException",
+            "The mutation outcome is unknown. Reload namespace metadata and reconcile before retrying.",
+            request);
       case UNAVAILABLE:
         return respond(
             HttpStatus.SERVICE_UNAVAILABLE,

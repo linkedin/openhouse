@@ -27,6 +27,6 @@ public class CreateNamespaceRequest {
   @NotNull
   @Builder.Default
   @JsonDeserialize(contentUsing = NamespaceStringDeserializer.class)
-  private Map<@NotNull @Size(max = 512) String, @NotNull String> properties =
-      Collections.emptyMap();
+  private Map<@NotNull @Size(max = 512) @Pattern(regexp = "\\P{Cs}*") String, @NotNull String>
+      properties = Collections.emptyMap();
 }

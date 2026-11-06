@@ -102,7 +102,7 @@ class HouseDatabaseRepositoryImplTest {
     "404,NOT_FOUND",
     "409,CONFLICT",
     "422,INVALID_PROPERTIES",
-    "500,FAILURE",
+    "500,UNKNOWN_OUTCOME",
     "503,UNAVAILABLE",
     "403,UNAVAILABLE"
   })
@@ -182,10 +182,48 @@ class HouseDatabaseRepositoryImplTest {
     HouseDatabaseRepository timedRepository =
         new HouseDatabaseRepositoryImpl(databaseApi, mock(UserTableApi.class));
     assertEquals(
-        Reason.UNAVAILABLE,
+        Reason.UNKNOWN_OUTCOME,
         assertThrows(HouseDatabaseException.class, () -> timedRepository.delete("foo"))
             .getReason());
     verify(databaseApi).deleteDatabase("foo");
     verifyNoMoreInteractions(databaseApi);
+  }
+
+  @Test
+  void malformedDomainValuesRemainCheckedFailures() {
+    server.enqueue(
+        new MockResponse()
+            .addHeader("Content-Type", "application/json")
+            .setBody(
+                "{\"databaseUuid\":\"foo\",\"databaseName\":\"bar\",\"properties\":{\"key\":null}}"));
+    assertEquals(
+        Reason.FAILURE,
+        assertThrows(HouseDatabaseException.class, () -> repository.findByName("bar")).getReason());
+    server.enqueue(
+        new MockResponse()
+            .addHeader("Content-Type", "application/json")
+            .setBody("{\"updated\":[null],\"removed\":[],\"missing\":[]}"));
+    assertEquals(
+        Reason.UNKNOWN_OUTCOME,
+        assertThrows(
+                HouseDatabaseException.class,
+                () ->
+                    repository.updateProperties(
+                        "bar", Collections.emptyMap(), Collections.emptySet()))
+            .getReason());
+  }
+
+  @Test
+  void failedViewListingCannotEstablishEmptyNamespace() {
+    server.enqueue(
+        new MockResponse()
+            .addHeader("Content-Type", "application/json")
+            .setBody("{\"pageResults\":{\"content\":[]}}"));
+    server.enqueue(new MockResponse().setResponseCode(503));
+    assertEquals(
+        Reason.UNAVAILABLE,
+        assertThrows(HouseDatabaseException.class, () -> repository.containsEntities("foo"))
+            .getReason());
+    assertEquals(2, server.getRequestCount());
   }
 }

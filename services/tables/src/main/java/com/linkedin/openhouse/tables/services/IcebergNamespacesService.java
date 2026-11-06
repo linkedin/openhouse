@@ -1,19 +1,18 @@
 package com.linkedin.openhouse.tables.services;
 
-import com.linkedin.openhouse.housetables.client.model.DatabaseMetadata;
-import com.linkedin.openhouse.housetables.client.model.UpdateDatabasePropertiesResponseBody;
+import com.linkedin.openhouse.internal.catalog.model.DatabaseMetadata;
+import com.linkedin.openhouse.internal.catalog.model.DatabasePropertyUpdate;
 import com.linkedin.openhouse.internal.catalog.repository.HouseDatabaseRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException.Reason;
-import com.linkedin.openhouse.tables.api.spec.namespace.CreateNamespaceRequest;
-import com.linkedin.openhouse.tables.api.spec.namespace.NamespaceResponse;
-import com.linkedin.openhouse.tables.api.spec.namespace.UpdateNamespacePropertiesRequest;
-import com.linkedin.openhouse.tables.api.spec.namespace.UpdateNamespacePropertiesResponse;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.exception.NamespaceException;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import java.util.Collections;
-import java.util.Optional;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
@@ -26,57 +25,36 @@ public class IcebergNamespacesService {
   private final HouseDatabaseRepository databaseRepository;
   private final AuthorizationUtils authorizationUtils;
 
-  public NamespaceResponse create(CreateNamespaceRequest request, String principal)
+  public DatabaseMetadata create(
+      List<String> namespace, Map<String, String> properties, String principal)
       throws NamespaceException, HouseDatabaseException {
-    if (request.getNamespace().size() != 1) {
+    if (namespace.size() != 1) {
       throw new NamespaceException(
           HttpStatus.BAD_REQUEST, "BadRequestException", "Exactly one namespace level is required");
     }
-    authorize(request.getNamespace().get(0), principal, Privileges.CREATE_TABLE);
-    DatabaseMetadata metadata =
-        databaseRepository.create(request.getNamespace().get(0), request.getProperties());
-    return new NamespaceResponse(
-        Collections.singletonList(
-            Optional.ofNullable(metadata.getDatabaseName())
-                .orElseThrow(() -> new HouseDatabaseException(Reason.FAILURE))),
-        Optional.ofNullable(metadata.getProperties())
-            .orElseThrow(() -> new HouseDatabaseException(Reason.FAILURE)));
+    authorize(namespace.get(0), principal, Privileges.CREATE_TABLE);
+    return databaseRepository.create(namespace.get(0), properties);
   }
 
-  public NamespaceResponse load(String namespace, String principal)
+  public DatabaseMetadata load(String namespace, String principal)
       throws NamespaceException, HouseDatabaseException {
     authorize(namespace, principal, Privileges.GET_TABLE_METADATA);
-    DatabaseMetadata metadata =
-        databaseRepository
-            .findByName(namespace)
-            .orElseThrow(() -> new HouseDatabaseException(Reason.NOT_FOUND));
-    return new NamespaceResponse(
-        Collections.singletonList(
-            Optional.ofNullable(metadata.getDatabaseName())
-                .orElseThrow(() -> new HouseDatabaseException(Reason.FAILURE))),
-        Optional.ofNullable(metadata.getProperties())
-            .orElseThrow(() -> new HouseDatabaseException(Reason.FAILURE)));
+    return databaseRepository
+        .findByName(namespace)
+        .orElseThrow(() -> new HouseDatabaseException(Reason.NOT_FOUND));
   }
 
-  public UpdateNamespacePropertiesResponse update(
-      String namespace, UpdateNamespacePropertiesRequest request, String principal)
+  public DatabasePropertyUpdate update(
+      String namespace, Map<String, String> updates, Set<String> removals, String principal)
       throws NamespaceException, HouseDatabaseException {
     authorize(namespace, principal, Privileges.UPDATE_TABLE_METADATA);
-    if (request.getUpdates().keySet().stream().anyMatch(request.getRemovals()::contains)) {
+    if (!Collections.disjoint(updates.keySet(), removals)) {
       throw new NamespaceException(
           HttpStatus.UNPROCESSABLE_ENTITY,
           "UnprocessableEntityException",
           "Updates and removals must use disjoint keys");
     }
-    UpdateDatabasePropertiesResponseBody result =
-        databaseRepository.updateProperties(namespace, request.getUpdates(), request.getRemovals());
-    return new UpdateNamespacePropertiesResponse(
-        Optional.ofNullable(result.getUpdated())
-            .orElseThrow(() -> new HouseDatabaseException(Reason.FAILURE)),
-        Optional.ofNullable(result.getRemoved())
-            .orElseThrow(() -> new HouseDatabaseException(Reason.FAILURE)),
-        Optional.ofNullable(result.getMissing())
-            .orElseThrow(() -> new HouseDatabaseException(Reason.FAILURE)));
+    return databaseRepository.updateProperties(namespace, updates, removals);
   }
 
   public void drop(String namespace, String principal)
@@ -101,14 +79,17 @@ public class IcebergNamespacesService {
           "Namespace must be one database name of at most 128 letters, digits, or underscores");
     }
     try {
-      authorizationUtils.checkDatabasePrivilege(namespace, principal, privilege);
+      authorizationUtils.checkDatabasePrivilege(
+          namespace.toLowerCase(Locale.ROOT), principal, privilege);
     } catch (AuthorizationServiceException exception) {
       throw new NamespaceException(
           HttpStatus.SERVICE_UNAVAILABLE,
           "ServiceUnavailableException",
-          "Authorization service unavailable");
+          "Authorization service unavailable",
+          exception);
     } catch (AccessDeniedException exception) {
-      throw new NamespaceException(HttpStatus.FORBIDDEN, "ForbiddenException", "Access denied");
+      throw new NamespaceException(
+          HttpStatus.FORBIDDEN, "ForbiddenException", "Access denied", exception);
     }
   }
 }

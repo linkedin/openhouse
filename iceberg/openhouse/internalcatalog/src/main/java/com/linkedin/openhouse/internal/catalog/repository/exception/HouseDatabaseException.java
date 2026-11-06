@@ -11,6 +11,7 @@ public class HouseDatabaseException extends Exception {
     CONFLICT,
     INVALID_PROPERTIES,
     UNAVAILABLE,
+    UNKNOWN_OUTCOME,
     FAILURE
   }
 

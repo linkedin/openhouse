@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import javax.validation.constraints.NotNull;
+import javax.validation.constraints.Pattern;
 import javax.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -19,10 +20,12 @@ public class UpdateNamespacePropertiesRequest {
   @NotNull
   @Builder.Default
   @JsonDeserialize(contentUsing = NamespaceStringDeserializer.class)
-  private Map<@NotNull @Size(max = 512) String, @NotNull String> updates = Collections.emptyMap();
+  private Map<@NotNull @Size(max = 512) @Pattern(regexp = "\\P{Cs}*") String, @NotNull String>
+      updates = Collections.emptyMap();
 
   @NotNull
   @Builder.Default
   @JsonDeserialize(contentUsing = NamespaceStringDeserializer.class)
-  private Set<@NotNull @Size(max = 512) String> removals = Collections.emptySet();
+  private Set<@NotNull @Size(max = 512) @Pattern(regexp = "\\P{Cs}*") String> removals =
+      Collections.emptySet();
 }
