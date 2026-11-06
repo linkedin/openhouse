@@ -5,6 +5,7 @@ import com.linkedin.openhouse.optimizer.model.TableDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -100,6 +101,11 @@ public class CadenceBasedOrphanFilesDeletionAnalyzer implements OperationAnalyze
   @Override
   public boolean isActiveOpTimedOut(TableOperationDto op) {
     return cadencePolicy.isSubmissionTimedOut(op);
+  }
+
+  @Override
+  public Instant nextAvailableAt(Instant from, boolean succeeded, int attemptsSinceSuccess) {
+    return cadencePolicy.nextAvailableAt(from, succeeded, attemptsSinceSuccess);
   }
 
   @Override

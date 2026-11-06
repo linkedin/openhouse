@@ -80,21 +80,36 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
     return operationsRepository
         .findById(operationId)
         .map(
-            row ->
-                TableOperationsHistoryDto.builder()
-                    .id(row.getId())
-                    .tableUuid(row.getTableUuid())
-                    .databaseName(row.getDatabaseName())
-                    .tableName(row.getTableName())
-                    .operationType(OperationTypeDto.fromDb(row.getOperationType()))
-                    .completedAt(Instant.now())
-                    .status(status)
-                    .failureReason(
-                        status == HistoryStatusDto.FAILED
-                            ? boundFailureReason(failureReason)
-                            : null)
-                    .build())
-        .map(history -> TableOperationsHistoryDto.fromRow(historyRepository.save(history.toRow())));
+            row -> {
+              boolean succeeded = status == HistoryStatusDto.SUCCESS;
+              TableOperationsHistoryDto saved =
+                  TableOperationsHistoryDto.fromRow(
+                      historyRepository.save(
+                          TableOperationsHistoryDto.builder()
+                              .id(row.getId())
+                              .tableUuid(row.getTableUuid())
+                              .databaseName(row.getDatabaseName())
+                              .tableName(row.getTableName())
+                              .operationType(OperationTypeDto.fromDb(row.getOperationType()))
+                              .completedAt(Instant.now())
+                              .status(status)
+                              .failureReason(succeeded ? null : boundFailureReason(failureReason))
+                              .build()
+                              .toRow()));
+              // Stamp the next retry time on the operation row from this outcome, so a reported
+              // failure retries after its backoff instead of waiting out the stale-timeout.
+              analyzerRunner
+                  .nextAvailableAt(
+                      OperationTypeDto.fromDb(row.getOperationType()),
+                      Instant.now(),
+                      succeeded,
+                      row.getAttemptsSinceSuccess())
+                  .ifPresent(
+                      availableAt ->
+                          operationsRepository.save(
+                              row.toBuilder().availableAt(availableAt).build()));
+              return saved;
+            });
   }
 
   /**

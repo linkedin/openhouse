@@ -81,4 +81,21 @@ public class TableOperationsRow {
   /** Spark job ID written by the scheduler at claim time. Internal-only; never exposed on wire. */
   @Column(name = "job_id", length = 255)
   private String jobId;
+
+  /**
+   * Attempt number since the last success for this {@code (table_uuid, operation_type)}: 1 for the
+   * first attempt after a success, incremented per retry. Carried forward across attempts and reset
+   * on success; drives the retry backoff independently of the history windows.
+   */
+  @Column(name = "attempts_since_success", nullable = false)
+  private int attemptsSinceSuccess;
+
+  /**
+   * Earliest time this operation's {@code (table_uuid, operation_type)} may be (re)scheduled, set
+   * when an attempt reaches a terminal outcome (reported success/failure, or expiry). {@code null}
+   * means available now. Gating on this makes a reported failure retry after its backoff instead of
+   * waiting out the stale-timeout, and a dead job back off instead of rescheduling immediately.
+   */
+  @Column(name = "available_at")
+  private Instant availableAt;
 }

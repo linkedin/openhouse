@@ -2,6 +2,7 @@ package com.linkedin.openhouse.optimizer.analyzer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -146,16 +147,17 @@ class AnalyzerRunnerTest {
   }
 
   @Test
-  void analyze_countsLogicalTimeout_asNonSuccess() {
+  void analyze_timedOutCurrentOpWithoutAvailableAt_stampsBackoff_andDefers() {
     TableStatsRow statsEntity =
         TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
     TableDto expectedTable = TableDto.fromRow(statsEntity);
+    // A submitted op that crossed the stale timeout with no reported outcome (dead/missed job) and
+    // no available_at yet — the completion callback never ran to stamp its retry time.
     TableOperationsRow staleOp = submittedOpRow("op-dead", Instant.now().minusSeconds(20_000));
+    Instant backoffUntil = Instant.now().plusSeconds(3_600);
 
     when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
         .thenReturn(List.of(statsEntity));
-    // Current op is a stale SCHEDULED submission with no history → a logical timeout, no history
-    // row.
     when(operationsRepo.find(
             eq(Optional.of(OFD_DB)),
             eq(Optional.empty()),
@@ -166,9 +168,51 @@ class AnalyzerRunnerTest {
             eq(Optional.empty()),
             any()))
         .thenReturn(List.of(staleOp));
+    when(analyzer.isEnabled(expectedTable)).thenReturn(true);
+    when(analyzer.isActiveOpTimedOut(any())).thenReturn(true);
+    when(analyzer.nextAvailableAt(any(Instant.class), eq(false), anyInt()))
+        .thenReturn(backoffUntil);
+
+    runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
+
+    // The dead job is stamped with its failure backoff (so it is not rescheduled immediately) and
+    // this pass defers: no streak walk, no shouldSchedule, no new PENDING row.
+    ArgumentCaptor<TableOperationsRow> captor = ArgumentCaptor.forClass(TableOperationsRow.class);
+    verify(operationsRepo).save(captor.capture());
+    TableOperationsRow stamped = captor.getValue();
+    assertThat(stamped.getId()).isEqualTo("op-dead");
+    assertThat(stamped.getAvailableAt()).isEqualTo(backoffUntil);
+    verify(analyzer, never()).shouldSchedule(any(), any(), any(), anyInt());
+  }
+
+  @Test
+  void analyze_timedOutCurrentOpAlreadyStamped_doesNotReStamp() {
+    TableStatsRow statsEntity =
+        TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
+    TableDto expectedTable = TableDto.fromRow(statsEntity);
+    // Same dead job, but available_at is already set (stamped on an earlier pass). The gate — not a
+    // re-stamp — now governs it, so the expiry-write must be a no-op.
+    TableOperationsRow staleStampedOp =
+        submittedOpRow("op-dead", Instant.now().minusSeconds(20_000))
+            .toBuilder()
+            .availableAt(Instant.now().plusSeconds(3_600))
+            .build();
+
+    when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
+        .thenReturn(List.of(statsEntity));
+    when(operationsRepo.find(
+            eq(Optional.of(OFD_DB)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.of(DB)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            any()))
+        .thenReturn(List.of(staleStampedOp));
     when(historyRepo.findLatest(eq(OFD_DB), any())).thenReturn(Collections.emptyList());
     when(operationsRepo.findRecentSubmissions(eq("uuid-1"), eq(OFD_DB), any()))
-        .thenReturn(List.of(staleOp));
+        .thenReturn(List.of(staleStampedOp));
     when(historyRepo.findRecent(eq("uuid-1"), eq(OFD_DB), any()))
         .thenReturn(Collections.emptyList());
     when(analyzer.isActiveOpTimedOut(any())).thenReturn(true);
@@ -177,7 +221,9 @@ class AnalyzerRunnerTest {
 
     runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
 
-    // The timed-out submission with no history counts as one non-success.
+    // No re-stamp (available_at already set); the pass proceeds to the normal gate decision. The
+    // timed-out submission still counts as one non-success in the streak passed to shouldSchedule.
+    verify(operationsRepo, never()).save(any());
     verify(analyzer).shouldSchedule(eq(expectedTable), any(), any(), eq(1));
   }
 
@@ -243,6 +289,86 @@ class AnalyzerRunnerTest {
     assertThat(saved.getStatus())
         .isEqualTo(com.linkedin.openhouse.optimizer.db.OperationStatus.PENDING);
     assertThat(saved.getId()).isNotNull();
+    // First attempt since success → counter starts at 1.
+    assertThat(saved.getAttemptsSinceSuccess()).isEqualTo(1);
+  }
+
+  @Test
+  void analyze_attemptsSinceSuccess_carriesForwardFromPriorOp() {
+    TableStatsRow statsEntity =
+        TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
+    TableDto expectedTable = TableDto.fromRow(statsEntity);
+    TableOperationsRow priorOp =
+        TableOperationsRow.builder()
+            .id("prior-op")
+            .status(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)
+            .tableUuid("uuid-1")
+            .databaseName(DB)
+            .tableName("tbl1")
+            .operationType(OFD_DB)
+            .createdAt(Instant.now().minusSeconds(10_000))
+            .scheduledAt(Instant.now().minusSeconds(9_000))
+            .attemptsSinceSuccess(2)
+            .build();
+
+    when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
+        .thenReturn(List.of(statsEntity));
+    stubOpsFind(List.of(priorOp));
+    when(historyRepo.findLatest(eq(OFD_DB), any())).thenReturn(Collections.emptyList());
+    when(analyzer.isEnabled(expectedTable)).thenReturn(true);
+    when(analyzer.shouldSchedule(eq(expectedTable), any(), any(), anyInt())).thenReturn(true);
+
+    runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
+
+    ArgumentCaptor<TableOperationsRow> captor = ArgumentCaptor.forClass(TableOperationsRow.class);
+    verify(operationsRepo).save(captor.capture());
+    // Prior attempt was 2 and the latest run did not succeed → next attempt is 3.
+    assertThat(captor.getValue().getAttemptsSinceSuccess()).isEqualTo(3);
+  }
+
+  @Test
+  void analyze_attemptsSinceSuccess_resetsAfterSuccess() {
+    TableStatsRow statsEntity =
+        TableStatsRow.builder().tableUuid("uuid-1").databaseName(DB).tableName("tbl1").build();
+    TableDto expectedTable = TableDto.fromRow(statsEntity);
+    TableOperationsRow priorOp =
+        TableOperationsRow.builder()
+            .id("prior-op")
+            .status(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)
+            .tableUuid("uuid-1")
+            .databaseName(DB)
+            .tableName("tbl1")
+            .operationType(OFD_DB)
+            .createdAt(Instant.now().minusSeconds(10_000))
+            .scheduledAt(Instant.now().minusSeconds(9_000))
+            .attemptsSinceSuccess(4)
+            .build();
+
+    when(statsRepo.find(eq(Optional.of(DB)), eq(Optional.empty()), eq(Optional.empty()), any()))
+        .thenReturn(List.of(statsEntity));
+    stubOpsFind(List.of(priorOp));
+    // Latest run SUCCEEDED → the streak resets regardless of the prior attempt count.
+    when(historyRepo.findLatest(eq(OFD_DB), any()))
+        .thenReturn(
+            List.of(
+                TableOperationsHistoryRow.builder()
+                    .id("prior-op")
+                    .tableUuid("uuid-1")
+                    .databaseName(DB)
+                    .tableName("tbl1")
+                    .operationType(OFD_DB)
+                    .completedAt(Instant.now().minusSeconds(8_000))
+                    .status(com.linkedin.openhouse.optimizer.db.HistoryStatus.SUCCESS)
+                    .build()));
+    when(analyzer.isEnabled(expectedTable)).thenReturn(true);
+    when(analyzer.shouldSchedule(eq(expectedTable), any(), any(), anyInt())).thenReturn(true);
+
+    runner.analyze(AnalyzeRequest.builder().operationTypes(java.util.Set.of(OFD_TYPE)).build());
+
+    ArgumentCaptor<TableOperationsRow> captor = ArgumentCaptor.forClass(TableOperationsRow.class);
+    verify(operationsRepo).save(captor.capture());
+    // Latest run succeeded → next attempt resets to 1.
+    assertThat(captor.getValue().getAttemptsSinceSuccess()).isEqualTo(1);
   }
 
   @Test
@@ -443,5 +569,18 @@ class AnalyzerRunnerTest {
     verify(operationsRepo).save(any());
     // A supplied database filter short-circuits the all-databases resolution.
     verify(statsRepo, never()).findDistinctDatabaseNames();
+  }
+
+  private void stubOpsFind(List<TableOperationsRow> rows) {
+    when(operationsRepo.find(
+            eq(Optional.of(OFD_DB)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.of(DB)),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            any()))
+        .thenReturn(rows);
   }
 }

@@ -8,6 +8,7 @@ import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsHistoryRepository;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -101,6 +102,19 @@ public class AnalyzerRunner {
         : analyzers.stream()
             .filter(a -> operationTypes.contains(a.getOperationType()))
             .collect(Collectors.toList());
+  }
+
+  /**
+   * Earliest retry time for {@code operationType} after an outcome observed at {@code from}, using
+   * that analyzer's cadence policy. Empty if no registered analyzer handles the type. Used by the
+   * completion callback to stamp {@code available_at} on the operation row.
+   */
+  public Optional<Instant> nextAvailableAt(
+      OperationTypeDto operationType, Instant from, boolean succeeded, int attemptsSinceSuccess) {
+    return analyzers.stream()
+        .filter(a -> a.getOperationType() == operationType)
+        .findFirst()
+        .map(a -> a.nextAvailableAt(from, succeeded, attemptsSinceSuccess));
   }
 
   /**
@@ -266,11 +280,58 @@ public class AnalyzerRunner {
     if (!analyzer.isEnabled(table)) {
       return false;
     }
+    if (stampExpiryBackoff(analyzer, currentOp)) {
+      // The active op just timed out with no reported outcome; we recorded its retry backoff on
+      // this pass and defer. The gate picks it up once available_at elapses.
+      return false;
+    }
     int consecutiveFailures = countConsecutiveNonSuccess(table, analyzer, currentOp, latestHistory);
     if (!analyzer.shouldSchedule(table, currentOp, latestHistory, consecutiveFailures)) {
       return false;
     }
-    return createPending(analyzer, table);
+    return createPending(analyzer, table, nextAttemptsSinceSuccess(currentOp, latestHistory));
+  }
+
+  /**
+   * Expiry-write for a dead/missed job: a submitted op that crossed the stale-timeout without ever
+   * reporting a terminal outcome never got an {@code available_at} stamped by the completion
+   * callback, so its retry would fire immediately on timeout. Stamp the failure backoff here — the
+   * same interval a reported failure would get — so the dead job backs off like any other failure.
+   * No-op unless the op is timed out and not yet stamped. Returns whether a backoff was written.
+   */
+  private boolean stampExpiryBackoff(
+      OperationAnalyzer analyzer, Optional<TableOperationDto> currentOp) {
+    if (currentOp.isEmpty()) {
+      return false;
+    }
+    TableOperationDto op = currentOp.get();
+    if (op.getAvailableAt() != null || !analyzer.isActiveOpTimedOut(op)) {
+      return false;
+    }
+    Instant availableAt =
+        analyzer.nextAvailableAt(Instant.now(), false, op.getAttemptsSinceSuccess());
+    operationsRepo.save(op.toRow().toBuilder().availableAt(availableAt).build());
+    log.info(
+        "Operation {} for table {}.{} timed out without reporting; backing off retry until {}",
+        op.getId(),
+        op.getDatabaseName(),
+        op.getTableName(),
+        availableAt);
+    return true;
+  }
+
+  /**
+   * Attempt number for the next PENDING: reset to 1 when the latest run succeeded, otherwise one
+   * past the prior attempt (carried forward on the operation row). Maintained independently of the
+   * history windows so a recorded success can't be miscounted.
+   */
+  private static int nextAttemptsSinceSuccess(
+      Optional<TableOperationDto> currentOp, Optional<TableOperationsHistoryDto> latestHistory) {
+    boolean lastSucceeded =
+        latestHistory.map(h -> h.getStatus() == HistoryStatusDto.SUCCESS).orElse(false);
+    int prior =
+        lastSucceeded ? 0 : currentOp.map(TableOperationDto::getAttemptsSinceSuccess).orElse(0);
+    return prior + 1;
   }
 
   /**
@@ -341,9 +402,12 @@ public class AnalyzerRunner {
    * Persist one PENDING operation, isolating failures so a single bad table never aborts the rest
    * of the pass; the next pass retries it. Returns whether the save succeeded.
    */
-  private boolean createPending(OperationAnalyzer analyzer, TableDto table) {
+  private boolean createPending(
+      OperationAnalyzer analyzer, TableDto table, int attemptsSinceSuccess) {
     try {
-      operationsRepo.save(TableOperationDto.pending(table, analyzer.getOperationType()).toRow());
+      operationsRepo.save(
+          TableOperationDto.pending(table, analyzer.getOperationType(), attemptsSinceSuccess)
+              .toRow());
       log.debug(
           "Created PENDING {} operation for table {}.{}",
           analyzer.getOperationType(),
