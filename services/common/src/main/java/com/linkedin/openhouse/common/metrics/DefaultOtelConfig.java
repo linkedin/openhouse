@@ -6,21 +6,25 @@ import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.common.AttributesBuilder;
+import io.opentelemetry.api.metrics.MeterProvider;
 import io.opentelemetry.exporter.otlp.http.metrics.OtlpHttpMetricExporter;
 import io.opentelemetry.exporter.otlp.http.metrics.OtlpHttpMetricExporterBuilder;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
+import io.opentelemetry.sdk.common.CompletableResultCode;
 import io.opentelemetry.sdk.metrics.SdkMeterProvider;
 import io.opentelemetry.sdk.metrics.export.AggregationTemporalitySelector;
 import io.opentelemetry.sdk.metrics.export.PeriodicMetricReader;
 import io.opentelemetry.sdk.resources.Resource;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
 
 @Slf4j
 public final class DefaultOtelConfig {
   private static final int METRIC_READER_INTERVAL_MS = 1000;
+  private static final int SHUTDOWN_TIMEOUT_SECONDS = 10;
   private static OpenTelemetry otel;
 
   private DefaultOtelConfig() {}
@@ -67,11 +71,11 @@ public final class DefaultOtelConfig {
    * instance that handles both tracing and metrics. In that case, we reuse the agent's instance
    * instead of creating a second SDK to avoid conflicts.
    */
-  private static OpenTelemetry initOpenTelemetry() {
-    // If the OTel Java Agent is attached, it registers a non-noop global OpenTelemetry.
-    // Reuse it to avoid IllegalStateException from double SDK registration.
+  static OpenTelemetry initOpenTelemetry() {
+    // GlobalOpenTelemetry wraps registered instances, including noop. Inspect the provider rather
+    // than comparing the wrapper to OpenTelemetry.noop(), which can silently disable job metrics.
     OpenTelemetry globalOtel = GlobalOpenTelemetry.get();
-    if (globalOtel != OpenTelemetry.noop()) {
+    if (globalOtel.getMeterProvider() != MeterProvider.noop()) {
       log.info("OpenTelemetry Java Agent detected, reusing agent-provided instance");
       return globalOtel;
     }
@@ -122,9 +126,16 @@ public final class DefaultOtelConfig {
     OpenTelemetrySdk openTelemetrySdk =
         OpenTelemetrySdk.builder().setMeterProvider(meterProvider).build();
 
-    Runtime.getRuntime()
-        .addShutdownHook(new Thread(openTelemetrySdk.getSdkMeterProvider()::shutdown));
+    Runtime.getRuntime().addShutdownHook(new Thread(() -> shutdownMetrics(meterProvider)));
     return openTelemetrySdk;
+  }
+
+  static void shutdownMetrics(SdkMeterProvider meterProvider) {
+    CompletableResultCode result = meterProvider.shutdown();
+    result.join(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    if (!result.isSuccess()) {
+      log.error("OpenTelemetry shutdown failed or timed out; final job metrics may be lost");
+    }
   }
 
   @SuppressWarnings("checkstyle:ParameterAssignment")

@@ -238,6 +238,14 @@ public class BatchedTableStatsCollectionSparkApp extends BaseSparkApp {
     @Override
     public Boolean call() {
       String fqtn = entry.getFqtn();
+      BatchedOperationMetrics metrics =
+          new BatchedOperationMetrics(
+              ops,
+              otelEmitter,
+              jobId,
+              UpdateOperationRequest.OperationTypeEnum.TABLE_STATS_COLLECTION,
+              entry.getDatabaseName(),
+              fqtn);
       TableOperationResult result;
       try {
         log.info(
@@ -255,6 +263,10 @@ public class BatchedTableStatsCollectionSparkApp extends BaseSparkApp {
             t);
         result = TableOperationResult.failure(t);
       }
+      metrics.complete(
+          result.isSuccess()
+              ? UpdateOperationRequest.StatusEnum.SUCCESS
+              : UpdateOperationRequest.StatusEnum.FAILED);
       reportResult(entry, result, client);
       return result.isSuccess();
     }

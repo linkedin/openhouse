@@ -6,7 +6,9 @@ import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.Table;
@@ -53,15 +55,23 @@ public class StreamResultsOrphanFilesDeletionTest extends OpenHouseSparkITest {
       Table table = ops.getTable(tableName);
       FileSystem fs = ops.fs();
       for (int i = 0; i < numOrphanFiles; i++) {
-        fs.createNewFile(new Path(table.location(), "data/orphan_stream_" + i + ".orc"));
+        Path orphan = new Path(table.location(), "data/orphan_stream_" + i + ".orc");
+        try (FSDataOutputStream file = fs.create(orphan)) {
+          file.write(new byte[i + 1]);
+        }
+        fs.setTimes(orphan, System.currentTimeMillis() - TimeUnit.DAYS.toMillis(1), -1);
       }
+      Operations.FileDeletionMetrics metrics = new Operations.FileDeletionMetrics();
       DeleteOrphanFiles.Result result =
           ops.deleteOrphanFiles(
-              table, System.currentTimeMillis(), BACKUP_DIR, 1, true, maxSampleSize);
+              table, System.currentTimeMillis(), BACKUP_DIR, 1, true, maxSampleSize, metrics);
       List<String> paths = Lists.newArrayList(result.orphanFileLocations().iterator());
       // Streaming mode caps returned paths at maxSampleSize
       Assertions.assertEquals(
           maxSampleSize, paths.size(), "Streaming should return at most maxSampleSize paths");
+      Assertions.assertEquals(numOrphanFiles, metrics.getDeletedFiles());
+      Assertions.assertEquals(numOrphanFiles * (numOrphanFiles + 1) / 2, metrics.getDeletedBytes());
+      Assertions.assertEquals(0, metrics.getUnknownFileSizes());
       // All orphan files should still be deleted
       for (int i = 0; i < numOrphanFiles; i++) {
         Assertions.assertFalse(
