@@ -1,6 +1,6 @@
 # Namespace metadata API
 
-Tables Service implements four operations from the
+Tables Service exposes independent database metadata through four namespace operations from the
 [Apache Iceberg REST catalog specification](https://github.com/apache/iceberg/blob/main/open-api/rest-catalog-open-api.yaml).
 The `prefix` is the client catalog name. A namespace contains exactly one logical database name,
 using 1 to 128 letters, digits, or underscores. Lookup is case-insensitive.
@@ -20,8 +20,9 @@ Property updates accept `{"updates":{"b":"2"},"removals":["a","c"]}`.
 Either collection may be omitted. Explicit null collections, null elements, and non-string values
 are rejected. Updates preserve unspecified keys. Responses contain `updated`, `removed`, and
 `missing` arrays. A key appearing in both collections returns 422.
-Create, update, and removal keys must contain well-formed Unicode. Empty keys, spaces, accents,
-case differences, and supplementary characters are preserved; unpaired UTF-16 surrogates return 400.
+Create, update, and removal keys must contain well-formed Unicode and at most 512 UTF-16 code
+units. Empty keys, spaces, accents, case differences, and supplementary characters are preserved.
+Unpaired UTF-16 surrogates and overlength keys return 400.
 
 ## Authorization and errors
 
@@ -46,8 +47,9 @@ retain their error format.
 
 ## Storage and compatibility
 
-Database metadata is an independent HouseTables resource. Apply the HouseTables database DDL
-before enabling the API. Existing table creation, loading, updates, deletion, and database listing
+Database metadata is an independent HouseTables resource whose properties share the database row.
+Apply the [HouseTables database DDL](https://github.com/linkedin/openhouse/blob/mkuchenbecker/database-properties-hts/services/housetables/ddl/0002__add_database_metadata.sql)
+before serving these requests. Existing table creation, loading, updates, deletion, and database listing
 retain their existing behavior and perform zero database-metadata lookups.
 An empty namespace need not appear in the legacy table-derived database listing.
 
@@ -68,6 +70,13 @@ An uncertain mutation outcome returns HTTP 500 with `CommitStateUnknownException
 reload metadata and reconcile before retrying. This transport setting does not control retries
 in external clients.
 
+Internal HouseTables metadata responses require `databaseUuid`, `databaseName`, and `properties`;
+update responses require `updated`, `removed`, and `missing`. The decoder checks presence before
+generated defaults can conceal omissions. Empty maps and lists are valid. Deletion succeeds only
+after HTTP 204 from HouseTables; other successful or redirect statuses leave its outcome uncertain.
+Conflict reasons come from the operation: duplicate creation uses `AlreadyExistsException`,
+while concurrent updates and deletes use `CommitFailedException`, regardless of the route spelling.
+
 ## Generated client and validation
 
 The stable tag is `Namespace`. The generated `NamespaceApi` methods are:
@@ -85,7 +94,7 @@ generated files are build outputs.
 
 ```bash
 ./gradlew :client:tableclient:compileJava -x CopyGitHooksTask
-./gradlew :iceberg:openhouse:internalcatalog:test --tests '*HouseDatabaseRepositoryImplTest' \
+./gradlew :iceberg:openhouse:internalcatalog:test --tests '*HouseDatabase*Test' \
   :services:tables:test --tests '*IcebergNamespaces*Test' --tests '*NamespaceTableIsolationTest' \
   :services:tables:namespaceIntegrationTest -x CopyGitHooksTask
 ```

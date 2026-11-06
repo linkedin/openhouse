@@ -12,6 +12,7 @@ import com.linkedin.openhouse.housetables.client.api.DatabaseApi;
 import com.linkedin.openhouse.housetables.client.api.ToggleStatusApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
+import com.linkedin.openhouse.internal.catalog.repository.DatabaseResponseModule;
 import com.linkedin.openhouse.internal.catalog.repository.HouseDatabaseRepository;
 import com.linkedin.openhouse.internal.catalog.repository.HouseDatabaseRepositoryImpl;
 import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;
@@ -101,7 +102,9 @@ public class MainApplicationConfig extends BaseApplicationConfig {
             .resolver(spec -> spec.queryTimeout(Duration.ofSeconds(DNS_QUERY_TIMEOUT_SECONDS)))
             .disableRetry(disableRetries);
     WebClient webClient =
-        ApiClient.buildWebClientBuilder()
+        ApiClient.buildWebClientBuilder(
+                ApiClient.createDefaultObjectMapper(null)
+                    .registerModule(new DatabaseResponseModule()))
             .baseUrl(htsBasePath)
             .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(IN_MEMORY_BUFFER_SIZE))
             .clientConnector(new ReactorClientHttpConnector(httpClient))

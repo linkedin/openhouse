@@ -39,7 +39,7 @@ class HouseDatabaseDeadlineTest {
                   subscribed.countDown();
                 })
             .doOnCancel(cancellations::incrementAndGet);
-    when(databaseApi.deleteDatabase("foo")).thenReturn(pending);
+    when(databaseApi.deleteDatabaseWithHttpInfo("foo")).thenReturn(pending.then(Mono.empty()));
     when(databaseApi.getDatabase("foo")).thenReturn(pending.then(Mono.empty()));
     HouseDatabaseRepository repository =
         new HouseDatabaseRepositoryImpl(databaseApi, mock(UserTableApi.class));

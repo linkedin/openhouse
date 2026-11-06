@@ -36,13 +36,14 @@ public class NamespaceExceptionHandler {
       case NOT_FOUND:
         return respond(
             HttpStatus.NOT_FOUND, "NoSuchNamespaceException", "Namespace does not exist", request);
-      case CONFLICT:
+      case ALREADY_EXISTS:
+        return respond(
+            HttpStatus.CONFLICT, "AlreadyExistsException", "Namespace already exists", request);
+      case CONCURRENT_MODIFICATION:
         return respond(
             HttpStatus.CONFLICT,
-            request.getRequestURI().endsWith("/namespaces")
-                ? "AlreadyExistsException"
-                : "CommitFailedException",
-            "Namespace already exists or was modified concurrently",
+            "CommitFailedException",
+            "Namespace was modified concurrently",
             request);
       case BAD_REQUEST:
         return respond(

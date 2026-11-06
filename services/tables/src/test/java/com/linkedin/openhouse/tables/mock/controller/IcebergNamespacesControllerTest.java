@@ -19,7 +19,10 @@ import com.linkedin.openhouse.tables.exception.NamespaceExceptionHandler;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import javax.servlet.Filter;
 import javax.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.AfterEach;
@@ -191,6 +194,127 @@ class IcebergNamespacesControllerTest {
     verifyNoInteractions(repository);
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = {"updates", "removals", "neither"})
+  void omittedUpdateCollectionsPreserveSuppliedChanges(String supplied) throws Exception {
+    Map<String, String> updates = supplied.equals("updates") ? Map.of("a", "1") : Map.of();
+    Set<String> removals = supplied.equals("removals") ? Set.of("b") : Set.of();
+    Map<String, Object> request =
+        supplied.equals("updates")
+            ? Map.of("updates", updates)
+            : supplied.equals("removals") ? Map.of("removals", removals) : Map.of();
+    when(repository.updateProperties("foo", updates, removals))
+        .thenReturn(
+            new DatabasePropertyUpdate(
+                List.copyOf(updates.keySet()), List.copyOf(removals), List.of()));
+    mvc.perform(
+            post("/v1/foo/namespaces/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(new ObjectMapper().writeValueAsString(request)))
+        .andExpect(status().isOk())
+        .andExpect(
+            content()
+                .json(
+                    new ObjectMapper()
+                        .writeValueAsString(
+                            Map.of(
+                                "updated",
+                                updates.keySet(),
+                                "removed",
+                                removals,
+                                "missing",
+                                List.of())),
+                    true));
+    verify(repository).updateProperties("foo", updates, removals);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"a", "😀"})
+  void propertyKeyLimitUsesUtf16Units(String character) throws Exception {
+    String key = character.repeat(512 / character.length());
+    String oversizedKey = key + "a";
+    when(repository.create("foo", Map.of(key, "one")))
+        .thenReturn(new DatabaseMetadata("identifier", "foo", Map.of(key, "one")));
+    when(repository.updateProperties("foo", Map.of(key, "two"), Set.of()))
+        .thenReturn(new DatabasePropertyUpdate(List.of(key), List.of(), List.of()));
+    when(repository.updateProperties("foo", Map.of(), Set.of(key)))
+        .thenReturn(new DatabasePropertyUpdate(List.of(), List.of(key), List.of()));
+    ObjectMapper mapper = new ObjectMapper();
+    mvc.perform(
+            post("/v1/foo/namespaces")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    mapper.writeValueAsString(
+                        Map.of("namespace", List.of("foo"), "properties", Map.of(key, "one")))))
+        .andExpect(status().isOk());
+    mvc.perform(
+            post("/v1/foo/namespaces/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(Map.of("updates", Map.of(key, "two")))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.updated[0]").value(key));
+    mvc.perform(
+            post("/v1/foo/namespaces/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(Map.of("removals", List.of(key)))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.removed[0]").value(key));
+    verify(repository).create("foo", Map.of(key, "one"));
+    verify(repository).updateProperties("foo", Map.of(key, "two"), Set.of());
+    verify(repository).updateProperties("foo", Map.of(), Set.of(key));
+    clearInvocations(repository);
+    mvc.perform(
+            post("/v1/foo/namespaces")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    mapper.writeValueAsString(
+                        Map.of(
+                            "namespace",
+                            List.of("foo"),
+                            "properties",
+                            Map.of(oversizedKey, "one")))))
+        .andExpect(status().isBadRequest());
+    mvc.perform(
+            post("/v1/foo/namespaces/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(Map.of("updates", Map.of(oversizedKey, "two")))))
+        .andExpect(status().isBadRequest());
+    mvc.perform(
+            post("/v1/foo/namespaces/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(Map.of("removals", List.of(oversizedKey)))))
+        .andExpect(status().isBadRequest());
+    verifyNoInteractions(repository);
+  }
+
+  @Test
+  void conflictsUseOperationReasonsForEveryAcceptedRoute() throws Exception {
+    when(repository.create("foo", Map.of()))
+        .thenThrow(new HouseDatabaseException(Reason.ALREADY_EXISTS));
+    mvc.perform(
+            post("/v1/foo/namespaces/")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"namespace\":[\"foo\"]}"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.error.type").value("AlreadyExistsException"));
+    when(repository.updateProperties("namespaces", Map.of(), Set.of()))
+        .thenThrow(new HouseDatabaseException(Reason.CONCURRENT_MODIFICATION));
+    mvc.perform(
+            post("/v1/foo/namespaces/namespaces/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.error.type").value("CommitFailedException"));
+    when(repository.findByName("namespaces"))
+        .thenReturn(Optional.of(new DatabaseMetadata("identifier", "namespaces", Map.of())));
+    doThrow(new HouseDatabaseException(Reason.CONCURRENT_MODIFICATION))
+        .when(repository)
+        .delete("namespaces");
+    mvc.perform(delete("/v1/foo/namespaces/namespaces"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.error.type").value("CommitFailedException"));
+  }
+
   @Test
   void uncertainMutationUsesReconciliationErrorRatherThanUnavailable() throws Exception {
     when(repository.create(eq("foo"), any()))
@@ -239,7 +363,7 @@ class IcebergNamespacesControllerTest {
             content()
                 .string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("secret"))));
     when(repository.create(anyString(), any()))
-        .thenThrow(new HouseDatabaseException(Reason.CONFLICT));
+        .thenThrow(new HouseDatabaseException(Reason.ALREADY_EXISTS));
     mvc.perform(
             post("/v1/foo/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)

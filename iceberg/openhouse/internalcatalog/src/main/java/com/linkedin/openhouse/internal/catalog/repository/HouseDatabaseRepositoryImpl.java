@@ -43,7 +43,8 @@ public class HouseDatabaseRepositoryImpl implements HouseDatabaseRepository {
                         new CreateDatabaseRequestBody()
                             .databaseName(databaseName)
                             .properties(properties)),
-                WRITE_TIMEOUT)
+                WRITE_TIMEOUT,
+                Reason.ALREADY_EXISTS)
             .orElseThrow(() -> new HouseDatabaseException(Reason.UNKNOWN_OUTCOME));
     return new DatabaseMetadata(
         Optional.ofNullable(result.getDatabaseUuid())
@@ -60,7 +61,10 @@ public class HouseDatabaseRepositoryImpl implements HouseDatabaseRepository {
   public Optional<DatabaseMetadata> findByName(String databaseName) throws HouseDatabaseException {
     try {
       com.linkedin.openhouse.housetables.client.model.DatabaseMetadata result =
-          execute(() -> databaseApi.getDatabase(databaseName), READ_TIMEOUT)
+          execute(
+                  () -> databaseApi.getDatabase(databaseName),
+                  READ_TIMEOUT,
+                  Reason.CONCURRENT_MODIFICATION)
               .orElseThrow(() -> new HouseDatabaseException(Reason.FAILURE));
       return Optional.of(
           new DatabaseMetadata(
@@ -84,7 +88,12 @@ public class HouseDatabaseRepositoryImpl implements HouseDatabaseRepository {
 
   @Override
   public void delete(String databaseName) throws HouseDatabaseException {
-    execute(() -> databaseApi.deleteDatabase(databaseName), WRITE_TIMEOUT);
+    execute(
+            () -> databaseApi.deleteDatabaseWithHttpInfo(databaseName),
+            WRITE_TIMEOUT,
+            Reason.CONCURRENT_MODIFICATION)
+        .filter(response -> response.getStatusCodeValue() == 204)
+        .orElseThrow(() -> new HouseDatabaseException(Reason.UNKNOWN_OUTCOME));
   }
 
   @Override
@@ -99,7 +108,8 @@ public class HouseDatabaseRepositoryImpl implements HouseDatabaseRepository {
                         new UpdateDatabasePropertiesRequestBody()
                             .updates(updates)
                             .removals(removals)),
-                WRITE_TIMEOUT)
+                WRITE_TIMEOUT,
+                Reason.CONCURRENT_MODIFICATION)
             .orElseThrow(() -> new HouseDatabaseException(Reason.UNKNOWN_OUTCOME));
     return new DatabasePropertyUpdate(
         java.util.List.copyOf(
@@ -123,7 +133,9 @@ public class HouseDatabaseRepositoryImpl implements HouseDatabaseRepository {
     try {
       Optional<GetAllEntityResponseBodyUserTable> tables =
           execute(
-              () -> userTableApi.getPaginatedUserTables(filters, 0, 1, "tableId"), READ_TIMEOUT);
+              () -> userTableApi.getPaginatedUserTables(filters, 0, 1, "tableId"),
+              READ_TIMEOUT,
+              Reason.CONCURRENT_MODIFICATION);
       if (!tables
           .map(GetAllEntityResponseBodyUserTable::getPageResults)
           .map(PageUserTable::getContent)
@@ -132,7 +144,9 @@ public class HouseDatabaseRepositoryImpl implements HouseDatabaseRepository {
         return true;
       }
       return !execute(
-              () -> userTableApi.getPaginatedUserViews(filters, 0, 1, "tableId"), READ_TIMEOUT)
+              () -> userTableApi.getPaginatedUserViews(filters, 0, 1, "tableId"),
+              READ_TIMEOUT,
+              Reason.CONCURRENT_MODIFICATION)
           .map(GetAllEntityResponseBodyUserTable::getPageResults)
           .map(PageUserTable::getContent)
           .orElseThrow(() -> new HouseDatabaseException(Reason.FAILURE))
@@ -146,7 +160,8 @@ public class HouseDatabaseRepositoryImpl implements HouseDatabaseRepository {
     }
   }
 
-  private <T> Optional<T> execute(Supplier<Mono<T>> request, Duration timeout)
+  private <T> Optional<T> execute(
+      Supplier<Mono<T>> request, Duration timeout, Reason conflictReason)
       throws HouseDatabaseException {
     Reason uncertainFailure =
         timeout.equals(WRITE_TIMEOUT) ? Reason.UNKNOWN_OUTCOME : Reason.UNAVAILABLE;
@@ -169,7 +184,7 @@ public class HouseDatabaseRepositoryImpl implements HouseDatabaseRepository {
           case 404:
             throw new HouseDatabaseException(Reason.NOT_FOUND, cause);
           case 409:
-            throw new HouseDatabaseException(Reason.CONFLICT, cause);
+            throw new HouseDatabaseException(conflictReason, cause);
           case 422:
             throw new HouseDatabaseException(Reason.INVALID_PROPERTIES, cause);
           case 401:
