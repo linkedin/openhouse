@@ -2,9 +2,7 @@ name: Pull Request Validations
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
-    branches:
-      - main
+    types: [opened, synchronize, reopened, edited]
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
