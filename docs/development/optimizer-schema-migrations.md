@@ -51,10 +51,12 @@ no migration makes, Atlas writes that migration and adds it to `atlas.sum`, and 
 showing the SQL. Atlas also fails when the migrations don't match `atlas.sum`. Gradle downloads the
 Atlas CLI and checks its SHA-256: you need Docker, but no Atlas install, account, or paid features.
 
-No build passes on SQL it generated. Generation needs the optimizer-common jar, so the jars of the
-build that writes a migration hold only the migrations that were there when it started. CI builds
-the committed files, so it fails until the migration is committed. Gradle skips generation while
+The build invocation that writes SQL fails. Generation needs the optimizer-common jar, so that
+invocation's jars hold only the migrations that were there when it started. The next local build
+validates the migrations on disk; CI only sees committed migrations. Gradle skips generation while
 the entities and the migrations stay the same.
+When generation is in the task graph, the service, optimizer-common, and scheduler database tests
+run afterward, including in parallel builds. Standalone library tests don't request generation.
 
 1. Edit the entities in `com.linkedin.openhouse.optimizer.db`.
 2. Build:
