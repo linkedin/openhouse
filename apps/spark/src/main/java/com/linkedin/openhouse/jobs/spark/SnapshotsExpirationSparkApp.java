@@ -15,8 +15,10 @@ import org.apache.commons.cli.Option;
 import org.apache.iceberg.actions.ExpireSnapshots;
 
 /**
- * Class with main entry point to run as a table snapshot expiration job. Snapshots for table which
- * are older than provided count of granularities are deleted. Current snapshot is always preserved.
+ * Class with main entry point to run as a table history expiration job. The table's history window
+ * governs both snapshots and branches: non-main branches whose history has left the window are
+ * removed first, and then snapshots older than the window are expired. The main branch and the
+ * current snapshot are always preserved.
  *
  * <p>Example of invocation: com.linkedin.openhouse.jobs.spark.SnapshotsExpirationSparkApp
  * --tableName db.testTable --maxAge 3 --granularity day --versions 10
@@ -47,7 +49,7 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
       String backupDir,
       OtelEmitter otelEmitter) {
     super(jobId, stateManager, fqtn, otelEmitter);
-    // By default, always enforce a time to live for snapshots even if unconfigured
+    // By default, always enforce a time to live for snapshots and branches even if unconfigured
     if (maxAge == 0) {
       this.maxAge = DEFAULT_CONFIGURATION.MAX_AGE;
       this.granularity = DEFAULT_CONFIGURATION.GRANULARITY;
@@ -68,7 +70,7 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
   @Override
   protected void runInner(Operations ops) {
     log.info(
-        "Snapshot expiration app start for table {}, expiring older than {} {}s or with more than {} versions, deleteFiles={}, backupDir={}",
+        "Snapshot expiration app start for table {}, expiring snapshots and branches older than {} {}s, snapshots beyond {} versions, deleteFiles={}, backupDir={}",
         fqtn,
         maxAge,
         granularity,
@@ -119,7 +121,11 @@ public class SnapshotsExpirationSparkApp extends BaseTableSparkApp {
     List<Option> extraOptions = new ArrayList<>();
     extraOptions.add(new Option("t", "tableName", true, "Fully-qualified table name"));
     extraOptions.add(
-        new Option("a", "maxAge", true, "Delete snapshots older than <maxAge> <granularity>s"));
+        new Option(
+            "a",
+            "maxAge",
+            true,
+            "Expire snapshots older than <maxAge> <granularity>s, and branches whose history is older"));
     extraOptions.add(new Option("g", "granularity", true, "Granularity: day"));
     extraOptions.add(
         new Option("v", "versions", true, "Number of versions to keep after snapshot expiration"));
