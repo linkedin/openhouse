@@ -59,6 +59,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
@@ -81,7 +82,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
@@ -1279,39 +1279,55 @@ public class ViewsServiceImplTest {
   }
 
   /**
-   * A persisted view without a UUID cannot name an authorization resource. Replace and drop fail
-   * closed as an internal error, with no decision (never a database fallback) and no write.
+   * As for a table, a view row without a usable UUID is still authorized on its captured object:
+   * the exact database, name and metadata pointer, with the UUID passed as stored. The object
+   * decision alone admits the replace and the drop (once each) or refuses them with no write; the
+   * allowed database is never consulted.
    */
   @ParameterizedTest
-  @NullSource
-  @ValueSource(strings = {"", " "})
-  public void viewWithoutAPersistedUuidFailsClosedWithoutAuthorizationOrWrite(String uuid) {
+  @MethodSource("missingUuidAuthorizationCases")
+  public void viewWithoutAPersistedUuidIsAuthorizedOnItsCapturedObjectAsIs(
+      String uuid, boolean authorized) {
     existingEnabledDatabase();
-    HouseTable corrupt = capturedViewRow().toBuilder().tableUUID(uuid).build();
-    captureForWrite(Optional.of(corrupt));
-    captureForDelete(Optional.of(corrupt));
+    HouseTable captured = capturedViewRow().toBuilder().tableUUID(uuid).build();
+    captureForWrite(Optional.of(captured));
+    captureForDelete(Optional.of(captured));
+    when(houseTableRepository.deleteViewById(viewKey())).thenReturn(true);
     when(privilegeMapper.forPut(true)).thenReturn(Privileges.UPDATE_TABLE_METADATA);
     when(privilegeMapper.forDelete()).thenReturn(Privileges.DELETE_TABLE);
-
-    ViewApiException replace =
-        assertThrows(
-            ViewApiException.class,
-            () ->
-                service.putView(
-                    ViewModelConstants.fullyPopulatedRequest(), ACTING_PRINCIPAL, false));
-    ViewApiException drop =
-        assertThrows(
-            ViewApiException.class,
-            () ->
-                service.deleteView(
-                    ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL));
-
-    for (ViewApiException thrown : new ViewApiException[] {replace, drop}) {
-      assertEquals(ViewErrorCode.INTERNAL_VIEW_ERROR, thrown.getErrorCode());
-      assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, thrown.getHttpStatus());
+    when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
+        .thenReturn(replacedResult(COMMITTED_POINTER, true));
+    if (authorized) {
+      allowViewObject(captured, Privileges.UPDATE_TABLE_METADATA);
+      allowViewObject(captured, Privileges.DELETE_TABLE);
     }
-    verifyNoInteractions(authorizationHandler, viewCommitEngine, storageSelector);
-    verify(houseTableRepository, never()).deleteViewById(any());
+
+    if (authorized) {
+      service.putView(ViewModelConstants.fullyPopulatedRequest(), ACTING_PRINCIPAL, false);
+    } else {
+      assertThrows(
+          AccessDeniedException.class,
+          () ->
+              service.putView(ViewModelConstants.fullyPopulatedRequest(), ACTING_PRINCIPAL, false));
+    }
+    assertViewObjectAuthorization(captured, Privileges.UPDATE_TABLE_METADATA);
+    clearInvocations(authorizationHandler);
+    if (authorized) {
+      service.deleteView(
+          ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL);
+    } else {
+      assertThrows(
+          AccessDeniedException.class,
+          () ->
+              service.deleteView(
+                  ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID, ACTING_PRINCIPAL));
+    }
+    assertViewObjectAuthorization(captured, Privileges.DELETE_TABLE);
+
+    int writes = authorized ? 1 : 0;
+    verify(viewCommitEngine, times(writes)).commit(any(ViewCommitIntent.class));
+    verify(houseTableRepository, times(writes)).deleteViewById(viewKey());
+    verifyNoInteractions(storageSelector);
   }
 
   /**
@@ -2047,8 +2063,8 @@ public class ViewsServiceImplTest {
             argThat(
                 (TableDto view) ->
                     view != null
-                        && databaseId.equals(view.getDatabaseId())
-                        && viewUuid.equals(view.getTableUUID())),
+                        && Objects.equals(databaseId, view.getDatabaseId())
+                        && Objects.equals(viewUuid, view.getTableUUID())),
             eq(privilege)))
         .thenReturn(true);
   }
@@ -2060,6 +2076,11 @@ public class ViewsServiceImplTest {
         .tableUUID(ALLOCATED_VIEW_UUID)
         .tableLocation(ALLOCATED_POINTER)
         .build();
+  }
+
+  private static Stream<Arguments> missingUuidAuthorizationCases() {
+    return Stream.of(null, "", " ")
+        .flatMap(uuid -> Stream.of(Arguments.of(uuid, true), Arguments.of(uuid, false)));
   }
 
   private static Stream<Arguments> replaceFailureMappings() {
