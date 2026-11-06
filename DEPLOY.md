@@ -136,6 +136,41 @@ services:
 
 ### Custom Configurations
 
+#### Per-database table-count limit
+
+Set `cluster.tables.max-tables-per-database` in the tables-service `cluster.yaml` to a positive
+number to limit persisted live tables in each database. The default is `0`; non-positive values
+disable enforcement. Changing this configuration requires restarting or redeploying the tables service.
+
+New-table creation (including staged creation) and restoration throw `TableCountLimitExceededException`
+when the database already has at least that many live tables. It maps to HTTP 422 through
+`UnprocessableEntityException`. Reads, updates and drops of existing tables are unchanged.
+Views, soft-deleted tables and uncommitted stages do not count. A drop frees capacity; staged creation
+is checked again when committed. This is best-effort admission control: concurrent creates or restores
+can pass the count check together and exceed the ceiling.
+
+Operators can grant a runtime exception with the existing HouseTables table-toggle rules. For example,
+the following rule exempts new tables in `my_database`:
+
+```sql
+INSERT INTO table_toggle_rule (feature, database_pattern, table_pattern)
+VALUES ('bypass_table_count_limit', 'my_database', '*');
+```
+
+Use a specific table name instead of `*` for a narrower exception. The check consults HouseTables
+when a create or restore reaches the limit; no tables-service restart is needed for rule changes.
+Toggle patterns are case-sensitive even though catalog identity and table counts are case-insensitive.
+Match the database and table spelling sent by the affected caller; add a rule for each spelling in use.
+Verify the toggle reports `ACTIVE` for the database and table IDs in the rejected request.
+Users cannot self-exempt by setting `bypass_table_count_limit.enabled` in table properties.
+Exempt tables still count toward the database total. Remove the rule to end the exception:
+
+```sql
+DELETE FROM table_toggle_rule
+WHERE feature = 'bypass_table_count_limit'
+  AND database_pattern = 'my_database' AND table_pattern = '*';
+```
+
 #### MySQL for HouseTables Service
 
 To use MySQL, update [cluster.yaml](infra/recipes/k8s/config/housetables/minikube/housetables.yaml). Sample
