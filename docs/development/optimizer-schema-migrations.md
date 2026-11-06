@@ -45,18 +45,21 @@ tables, and HouseTables' table definitions and row contents must be identical be
 
 ### Automatic Generation in Pull Requests
 
-Edit the entities and open or update a PR. The **Optimizer Schema Migrations** workflow exports their
-DDL and runs the pinned Atlas Community CLI against a disposable MySQL database. If the committed
-migrations already match, it writes nothing. Otherwise it generates a new
-`V<UTC timestamp>__sync_entities.sql`, removes Atlas's undo script, and updates `atlas.sum`; existing
-versioned migrations stay untouched.
+Edit the entities and open or update a PR. The **Optimizer Schema Migrations** workflow runs
+`./gradlew :services:optimizer:generateMigration`. Gradle exports the entities' DDL and invokes the
+pinned Atlas Community CLI against a disposable MySQL database. If the committed migrations already
+match, it writes nothing. Otherwise it generates a new `V<UTC timestamp>__sync_entities.sql`, removes
+Atlas's undo script, and updates `atlas.sum`; existing versioned migrations stay untouched.
 
-For a branch in this repository, a separate publishing job commits only the new migration and
-`atlas.sum` to the PR branch. Generation has a read-only token; publishing executes no PR code and
-treats the generated files as data. If the branch changes while generation runs, the publisher does
-not overwrite the newer head. It explicitly dispatches **Pull Request Validations** after the bot
-commit, because a push made with `GITHUB_TOKEN` does not reliably start those checks automatically.
+For a branch in this repository, a separate publishing job uses
+[`git-auto-commit-action`](https://github.com/stefanzweifel/git-auto-commit-action) to commit
+only the new migration and `atlas.sum` to the PR branch. Generation has a read-only token; publishing
+executes no PR code and accepts only those two files as data. It pushes without force, so a newer
+branch head rejects the stale commit. It explicitly dispatches **Pull Request Validations** after
+the bot commit, because a push made with `GITHUB_TOKEN` does not start those checks automatically.
 The required build runs the schema comparison on the committed result, not an uncommitted fix.
+`build` and `test` do not generate migrations: their schema comparison must still reject entity
+changes whose migrations have not been committed.
 
 Review the generated SQL before approving the new head. The bot never approves or merges, and its
 commit dismisses earlier approvals under the repository's rules. A rename can be generated as a
@@ -86,14 +89,13 @@ curl -sSf https://atlasgo.sh | ATLAS_VERSION=v1.3.0 sh -s -- --community
 1. Edit the entities in `com.linkedin.openhouse.optimizer.db`.
 2. Generate the migration, such as `add_job_attempts`:
    ```bash
-   python3 scripts/python/generate_optimizer_migration.py --name add_job_attempts
+   ./gradlew :services:optimizer:generateMigration -PmigrationName=add_job_attempts
    ```
-   This exports the entities' DDL, validates the existing checksums, runs Atlas against a throwaway
-   MySQL, and writes the new migration and checksums into the migration directory. It removes any
-   generated undo script and rehashes the directory; the service never runs undo migrations. No
-   passing migration test is needed to export the DDL. It also copies the two generated files to
-   `build/optimizer/generated-migrations/` for the PR workflow; no changes leave that directory empty.
-   To export DDL without generating a migration, run
+   This task depends on `exportEntitySchema` and runs Atlas's `migrate diff`, which validates the
+   existing checksums before generating SQL. Gradle removes only newly generated undo scripts,
+   rehashes the directory, and copies the new migration and `atlas.sum` to
+   `build/optimizer/generated-migrations/` for the PR workflow. Without schema changes, it produces
+   no artifact. No passing migration test is needed to export the DDL. To export DDL alone, run
    `./gradlew :services:optimizer:exportEntitySchema`.
 3. Review the SQL:
    - Prefer one DDL statement per migration. MySQL commits each DDL statement on its own, so a
