@@ -1,6 +1,7 @@
 # Java namespace metadata and effective table properties
 
-Both packaged Java catalogs, for Iceberg 1.2 and 1.5, expose the same opt-in API:
+Both packaged Java catalogs, for Iceberg 1.2 and 1.5, resolve database defaults only when callers
+request effective properties. Actual table properties keep precedence:
 
 ```java
 Map<String, String> effective = catalog.getEffectiveTableProperties(table);
@@ -65,7 +66,7 @@ signatures cannot declare this checked exception.
 | HTTP 409 during deletion with `CommitFailedException` | `CommitFailedException` |
 | HTTP 409 during deletion with an absent or unknown type | `RESTException` |
 | HTTP 409 during property updates | `CommitFailedException` |
-| An explicit `CommitStateUnknownException` error type | `CommitStateUnknownException` |
+| HTTP 500 with `CommitStateUnknownException` error type | `CommitStateUnknownException` |
 | Transport, malformed response, or other service failure | `RESTException` |
 
 `namespaceExists` remains explicitly unsupported. `listNamespaces()` retains the legacy

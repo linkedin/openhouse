@@ -49,6 +49,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -123,6 +124,51 @@ class NamespaceMetadataTest {
         "Bearer refreshed-token",
         tableService.takeRequest(5, TimeUnit.SECONDS).getHeader("Authorization"));
     assertEquals(1, tableService.getRequestCount());
+  }
+
+  @ParameterizedTest
+  @CsvSource({"128,database", "129,database", "128,table", "129,table"})
+  void identifierLengthIsCheckedBeforeEffectivePropertyRequests(int length, String component)
+      throws Exception {
+    String identifier = String.join("", Collections.nCopies(length, "a"));
+    String database = component.equals("database") ? identifier : "database";
+    String tableName = component.equals("table") ? identifier : "table";
+    when(table.name()).thenReturn("openhouse.local." + database + "." + tableName);
+    if (length == 128) {
+      respond(200, "{\"namespace\":[\"" + database + "\"],\"properties\":{}}");
+      assertEquals(tableProperties, catalog.getEffectiveTableProperties(table));
+      assertEquals(1, tableService.getRequestCount());
+      assertEquals(
+          "/v1/openhouse.local/namespaces/" + database,
+          tableService.takeRequest(5, TimeUnit.SECONDS).getPath());
+    } else {
+      assertThrows(
+          NamespaceMetadataException.class, () -> catalog.getEffectiveTableProperties(table));
+      assertEquals(0, tableService.getRequestCount());
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {128, 129})
+  void namespaceIdentifierLengthIsCheckedBeforeRequests(int length) {
+    String identifier = String.join("", Collections.nCopies(length, "a"));
+    Namespace namespace = Namespace.of(identifier);
+    if (length == 128) {
+      respond(200, "{\"namespace\":[\"" + identifier + "\"],\"properties\":{}}");
+      assertTrue(catalog.loadNamespaceMetadata(namespace).isEmpty());
+      assertEquals(1, tableService.getRequestCount());
+    } else {
+      assertThrows(ValidationException.class, () -> catalog.createNamespace(namespace));
+      assertThrows(ValidationException.class, () -> catalog.loadNamespaceMetadata(namespace));
+      assertThrows(ValidationException.class, () -> catalog.dropNamespace(namespace));
+      assertThrows(
+          ValidationException.class,
+          () -> catalog.setProperties(namespace, Collections.emptyMap()));
+      assertThrows(
+          ValidationException.class,
+          () -> catalog.removeProperties(namespace, Collections.emptySet()));
+      assertEquals(0, tableService.getRequestCount());
+    }
   }
 
   @ParameterizedTest
@@ -363,10 +409,12 @@ class NamespaceMetadataTest {
             case "remove":
               catalog.removeProperties(Namespace.of("database"), Collections.singleton("key"));
               break;
-            default:
+            case "set":
               catalog.setProperties(
                   Namespace.of("database"), Collections.singletonMap("key", "value"));
               break;
+            default:
+              fail("Unknown namespace operation: " + operation);
           }
         });
     assertEquals(1, tableService.getRequestCount());
@@ -395,6 +443,8 @@ class NamespaceMetadataTest {
             500,
             "{\"error\":{\"type\":\"CommitStateUnknownException\"}}",
             CommitStateUnknownException.class),
+        Arguments.of(
+            503, "{\"error\":{\"type\":\"CommitStateUnknownException\"}}", RESTException.class),
         Arguments.of(409, "{\"error\":{\"type\":\"OtherException\"}}", RESTException.class),
         Arguments.of(409, "{\"error\":{\"type\":42}}", RESTException.class),
         Arguments.of(409, "{", RESTException.class));
