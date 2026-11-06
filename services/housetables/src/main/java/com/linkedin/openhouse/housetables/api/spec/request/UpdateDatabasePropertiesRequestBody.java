@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.housetables.api.spec.request;
 
+import com.linkedin.openhouse.housetables.api.validator.WellFormedUnicode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.Collections;
 import java.util.Map;
@@ -20,10 +21,12 @@ public class UpdateDatabasePropertiesRequestBody {
   @Schema(description = "Keys to add or replace. Omitted keys retain their values.")
   @NotNull
   @Builder.Default
-  private Map<@NotNull @Size(max = 512) String, @NotNull String> updates = Collections.emptyMap();
+  private Map<@NotNull @Size(max = 512) @WellFormedUnicode String, @NotNull String> updates =
+      Collections.emptyMap();
 
   @Schema(description = "Keys to remove. A key must occur in only one of updates and removals.")
   @NotNull
   @Builder.Default
-  private Set<@NotNull @Size(max = 512) String> removals = Collections.emptySet();
+  private Set<@NotNull @Size(max = 512) @WellFormedUnicode String> removals =
+      Collections.emptySet();
 }

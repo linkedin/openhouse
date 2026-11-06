@@ -2,6 +2,7 @@ package com.linkedin.openhouse.housetables.api.spec.request;
 
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.ALPHA_NUM_UNDERSCORE_REGEX;
 
+import com.linkedin.openhouse.housetables.api.validator.WellFormedUnicode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.Collections;
 import java.util.Map;
@@ -29,6 +30,6 @@ public class CreateDatabaseRequestBody {
   @Schema(description = "Initial properties. Omitted properties default to an empty map.")
   @NotNull
   @Builder.Default
-  private Map<@NotNull @Size(max = 512) String, @NotNull String> properties =
+  private Map<@NotNull @Size(max = 512) @WellFormedUnicode String, @NotNull String> properties =
       Collections.emptyMap();
 }

@@ -3,9 +3,9 @@ package com.linkedin.openhouse.housetables.services;
 import static com.linkedin.openhouse.housetables.services.DatabaseMetadataException.Reason.*;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
-import com.linkedin.openhouse.housetables.api.spec.model.DatabaseMetadata;
-import com.linkedin.openhouse.housetables.api.spec.response.UpdateDatabasePropertiesResponseBody;
 import com.linkedin.openhouse.housetables.config.db.DatabaseConfiguration.SupportedDbTypes;
+import com.linkedin.openhouse.housetables.model.DatabaseMetadata;
+import com.linkedin.openhouse.housetables.model.DatabasePropertyUpdate;
 import com.linkedin.openhouse.housetables.model.DatabaseRow;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.DatabaseHtsJdbcRepository;
 import java.util.Collections;
@@ -108,7 +108,7 @@ public class DatabasesServiceImpl implements DatabasesService {
   }
 
   @Override
-  public UpdateDatabasePropertiesResponseBody updateDatabaseProperties(
+  public DatabasePropertyUpdate updateDatabaseProperties(
       String databaseName, Map<String, String> updates, Set<String> removals)
       throws DatabaseMetadataException {
     if (!Collections.disjoint(updates.keySet(), removals)) {
@@ -133,10 +133,10 @@ public class DatabasesServiceImpl implements DatabasesService {
                                   .filter(key -> !database.getProperties().containsKey(key))
                                   .sorted()
                                   .collect(Collectors.toList());
-                          removals.forEach(database.getProperties()::remove);
+                          database.getProperties().keySet().removeAll(removals);
                           database.getProperties().putAll(updates);
                           repository.flush();
-                          return UpdateDatabasePropertiesResponseBody.builder()
+                          return DatabasePropertyUpdate.builder()
                               .updated(
                                   updates.keySet().stream().sorted().collect(Collectors.toList()))
                               .removed(removed)

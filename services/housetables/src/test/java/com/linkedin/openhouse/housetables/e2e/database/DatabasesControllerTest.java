@@ -187,4 +187,69 @@ class DatabasesControllerTest {
                 .asText())
         .isEqualTo("#/components/schemas/ErrorResponseBody");
   }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"\\ud800", "\\udc00", "foo\\ud800bar"})
+  void testMalformedUnicodeKeysAreRejectedEverywhere(String escapedKey) throws Exception {
+    mockMvc
+        .perform(
+            post("/hts/databases")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"databaseName\":\"foo\",\"properties\":{\"" + escapedKey + "\":\"one\"}}"))
+        .andExpect(status().isBadRequest());
+    assertThat(repository.count()).isZero();
+    mockMvc
+        .perform(
+            post("/hts/databases")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"databaseName\":\"foo\",\"properties\":{\"bar\":\"one\"}}"))
+        .andExpect(status().isCreated());
+    mockMvc
+        .perform(
+            post("/hts/databases/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"updates\":{\"" + escapedKey + "\":\"two\"}}"))
+        .andExpect(status().isBadRequest());
+    mockMvc
+        .perform(
+            post("/hts/databases/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"removals\":[\"" + escapedKey + "\"]}"))
+        .andExpect(status().isBadRequest());
+    mockMvc
+        .perform(get("/hts/databases/foo"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.properties.bar").value("one"));
+  }
+
+  @Test
+  void testSupplementaryUnicodeKeysRoundTripThroughValidation() throws Exception {
+    mockMvc
+        .perform(
+            post("/hts/databases")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"databaseName\":\"foo\",\"properties\":{\"\\ud83d\\ude00\":\"one\"}}"))
+        .andExpect(status().isCreated());
+    String loaded =
+        mockMvc
+            .perform(get("/hts/databases/foo"))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    assertThat(objectMapper.readTree(loaded).get("properties").get("😀").asText()).isEqualTo("one");
+    mockMvc
+        .perform(
+            post("/hts/databases/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"updates\":{\"\\ud83d\\ude00\":\"two\"}}"))
+        .andExpect(status().isOk());
+    mockMvc
+        .perform(
+            post("/hts/databases/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"removals\":[\"\\ud83d\\ude00\"]}"))
+        .andExpect(status().isOk());
+  }
 }
