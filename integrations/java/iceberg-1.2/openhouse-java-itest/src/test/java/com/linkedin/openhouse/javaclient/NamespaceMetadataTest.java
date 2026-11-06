@@ -131,8 +131,8 @@ class NamespaceMetadataTest {
   void identifierLengthIsCheckedBeforeEffectivePropertyRequests(int length, String component)
       throws Exception {
     String identifier = String.join("", Collections.nCopies(length, "a"));
-    String database = component.equals("database") ? identifier : "database";
-    String tableName = component.equals("table") ? identifier : "table";
+    String database = "database".equals(component) ? identifier : "database";
+    String tableName = "table".equals(component) ? identifier : "table";
     when(table.name()).thenReturn("openhouse.local." + database + "." + tableName);
     if (length == 128) {
       respond(200, "{\"namespace\":[\"" + database + "\"],\"properties\":{}}");
@@ -415,6 +415,7 @@ class NamespaceMetadataTest {
               break;
             default:
               fail("Unknown namespace operation: " + operation);
+              break;
           }
         });
     assertEquals(1, tableService.getRequestCount());
