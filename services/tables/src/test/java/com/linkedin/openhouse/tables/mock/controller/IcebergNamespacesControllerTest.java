@@ -197,12 +197,12 @@ class IcebergNamespacesControllerTest {
   @ParameterizedTest
   @ValueSource(strings = {"updates", "removals", "neither"})
   void omittedUpdateCollectionsPreserveSuppliedChanges(String supplied) throws Exception {
-    Map<String, String> updates = supplied.equals("updates") ? Map.of("a", "1") : Map.of();
-    Set<String> removals = supplied.equals("removals") ? Set.of("b") : Set.of();
+    Map<String, String> updates = "updates".equals(supplied) ? Map.of("a", "1") : Map.of();
+    Set<String> removals = "removals".equals(supplied) ? Set.of("b") : Set.of();
     Map<String, Object> request =
-        supplied.equals("updates")
+        "updates".equals(supplied)
             ? Map.of("updates", updates)
-            : supplied.equals("removals") ? Map.of("removals", removals) : Map.of();
+            : "removals".equals(supplied) ? Map.of("removals", removals) : Map.of();
     when(repository.updateProperties("foo", updates, removals))
         .thenReturn(
             new DatabasePropertyUpdate(
