@@ -355,8 +355,8 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
   /**
    * it's necessary to return null. This function only gets called from {@link
    * BaseMetastoreCatalog}, just before doCommit(). {@link
-   * OpenHouseTableOperations#doCommit(org.apache.iceberg.TableMetadata,
-   * org.apache.iceberg.TableMetadata)} currently ignores the return value of null.
+   * OpenHouseTableOperations#doCommit(TableMetadata, TableMetadata)} currently ignores the return
+   * value of null.
    *
    * <p>Without this return, an error will be thrown for a simple (CREATE TABLE) statement.
    *
@@ -370,8 +370,8 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
   /**
    * A {@link BaseMetastoreCatalog} needs to be set as {@link Configurable}.
    *
-   * <p>The {@link org.apache.iceberg.spark.SparkCatalog} extensions will provide the right Hadoop
-   * configurations from the spark environment when building a custom catalog.
+   * <p>The {@code SparkCatalog} extensions will provide the right Hadoop configurations from the
+   * spark environment when building a custom catalog.
    */
   @Override
   public void setConf(Configuration conf) {

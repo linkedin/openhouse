@@ -7,6 +7,7 @@ import com.linkedin.openhouse.relocated.org.springframework.http.ResponseEntity;
 import com.linkedin.openhouse.relocated.reactor.core.publisher.Mono;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -26,7 +27,7 @@ class NamespaceCancellationTest {
             NamespaceMetadataException.class,
             () -> NamespaceMetadataClient.request(pending, 200, 0));
     assertEquals(0, failure.getStatusCode());
-    assertInstanceOf(java.util.concurrent.TimeoutException.class, failure.getCause());
+    assertInstanceOf(TimeoutException.class, failure.getCause());
     assertEquals(1, subscriptions.get());
     assertTrue(cancelled.get());
   }
