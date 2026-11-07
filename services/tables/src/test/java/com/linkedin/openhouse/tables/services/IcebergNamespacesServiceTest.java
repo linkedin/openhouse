@@ -19,6 +19,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.AuthorizationServiceException;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -162,8 +163,7 @@ class IcebergNamespacesServiceTest {
     NamespaceException denied =
         assertThrows(NamespaceException.class, () -> service.load("FoO", "bar"));
     assertEquals(HttpStatus.FORBIDDEN, denied.getStatus());
-    assertInstanceOf(
-        org.springframework.security.access.AccessDeniedException.class, denied.getCause());
+    assertInstanceOf(AccessDeniedException.class, denied.getCause());
     verifyNoInteractions(repository);
   }
 }

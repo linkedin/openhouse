@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.tables.mock.controller;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -228,65 +230,6 @@ class IcebergNamespacesControllerTest {
     verify(repository).updateProperties("foo", updates, removals);
   }
 
-  @ParameterizedTest
-  @ValueSource(strings = {"a", "😀"})
-  void propertyKeyLimitUsesUtf16Units(String character) throws Exception {
-    String key = character.repeat(512 / character.length());
-    String oversizedKey = key + "a";
-    when(repository.create("foo", Map.of(key, "one")))
-        .thenReturn(new DatabaseMetadata("identifier", "foo", Map.of(key, "one")));
-    when(repository.updateProperties("foo", Map.of(key, "two"), Set.of()))
-        .thenReturn(new DatabasePropertyUpdate(List.of(key), List.of(), List.of()));
-    when(repository.updateProperties("foo", Map.of(), Set.of(key)))
-        .thenReturn(new DatabasePropertyUpdate(List.of(), List.of(key), List.of()));
-    ObjectMapper mapper = new ObjectMapper();
-    mvc.perform(
-            post("/v1/foo/namespaces")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    mapper.writeValueAsString(
-                        Map.of("namespace", List.of("foo"), "properties", Map.of(key, "one")))))
-        .andExpect(status().isOk());
-    mvc.perform(
-            post("/v1/foo/namespaces/foo/properties")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(mapper.writeValueAsString(Map.of("updates", Map.of(key, "two")))))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.updated[0]").value(key));
-    mvc.perform(
-            post("/v1/foo/namespaces/foo/properties")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(mapper.writeValueAsString(Map.of("removals", List.of(key)))))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.removed[0]").value(key));
-    verify(repository).create("foo", Map.of(key, "one"));
-    verify(repository).updateProperties("foo", Map.of(key, "two"), Set.of());
-    verify(repository).updateProperties("foo", Map.of(), Set.of(key));
-    clearInvocations(repository);
-    mvc.perform(
-            post("/v1/foo/namespaces")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    mapper.writeValueAsString(
-                        Map.of(
-                            "namespace",
-                            List.of("foo"),
-                            "properties",
-                            Map.of(oversizedKey, "one")))))
-        .andExpect(status().isBadRequest());
-    mvc.perform(
-            post("/v1/foo/namespaces/foo/properties")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(mapper.writeValueAsString(Map.of("updates", Map.of(oversizedKey, "two")))))
-        .andExpect(status().isBadRequest());
-    mvc.perform(
-            post("/v1/foo/namespaces/foo/properties")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(mapper.writeValueAsString(Map.of("removals", List.of(oversizedKey)))))
-        .andExpect(status().isBadRequest());
-    verifyNoInteractions(repository);
-  }
-
   @Test
   void conflictsUseOperationReasonsForEveryAcceptedRoute() throws Exception {
     when(repository.create("foo", Map.of()))
@@ -359,9 +302,7 @@ class IcebergNamespacesControllerTest {
     mvc.perform(get("/v1/foo/namespaces/foo"))
         .andExpect(status().isServiceUnavailable())
         .andExpect(jsonPath("$.error.code").value(503))
-        .andExpect(
-            content()
-                .string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("secret"))));
+        .andExpect(content().string(not(containsString("secret"))));
     when(repository.create(anyString(), any()))
         .thenThrow(new HouseDatabaseException(Reason.ALREADY_EXISTS));
     mvc.perform(

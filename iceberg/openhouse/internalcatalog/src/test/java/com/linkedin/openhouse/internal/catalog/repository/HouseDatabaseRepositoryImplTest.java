@@ -7,10 +7,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.housetables.client.api.DatabaseApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
+import com.linkedin.openhouse.internal.catalog.model.DatabasePropertyUpdate;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException.Reason;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeoutException;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -247,9 +250,7 @@ class HouseDatabaseRepositoryImplTest {
         Reason.UNKNOWN_OUTCOME,
         assertThrows(
                 HouseDatabaseException.class,
-                () ->
-                    repository.updateProperties(
-                        "foo", java.util.Map.of("a", "1"), java.util.Set.of("b")))
+                () -> repository.updateProperties("foo", Map.of("a", "1"), Set.of("b")))
             .getReason());
     assertEquals(1, server.getRequestCount());
   }
@@ -274,8 +275,7 @@ class HouseDatabaseRepositoryImplTest {
             .setBody(response));
     assertEquals(
         Reason.UNKNOWN_OUTCOME,
-        assertThrows(
-                HouseDatabaseException.class, () -> repository.create("bar", java.util.Map.of()))
+        assertThrows(HouseDatabaseException.class, () -> repository.create("bar", Map.of()))
             .getReason());
     assertEquals(2, server.getRequestCount());
   }
@@ -291,8 +291,7 @@ class HouseDatabaseRepositoryImplTest {
         new MockResponse()
             .addHeader("Content-Type", "application/json")
             .setBody("{\"updated\":[],\"removed\":[],\"missing\":[]}"));
-    com.linkedin.openhouse.internal.catalog.model.DatabasePropertyUpdate update =
-        repository.updateProperties("bar", java.util.Map.of(), java.util.Set.of());
+    DatabasePropertyUpdate update = repository.updateProperties("bar", Map.of(), Set.of());
     assertTrue(update.getUpdated().isEmpty());
     assertTrue(update.getRemoved().isEmpty());
     assertTrue(update.getMissing().isEmpty());
@@ -313,8 +312,7 @@ class HouseDatabaseRepositoryImplTest {
     server.enqueue(new MockResponse().setResponseCode(409));
     assertEquals(
         Reason.ALREADY_EXISTS,
-        assertThrows(
-                HouseDatabaseException.class, () -> repository.create("foo", java.util.Map.of()))
+        assertThrows(HouseDatabaseException.class, () -> repository.create("foo", Map.of()))
             .getReason());
     server.enqueue(new MockResponse().setResponseCode(409));
     assertEquals(

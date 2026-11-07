@@ -6,16 +6,19 @@ import com.linkedin.openhouse.housetables.client.model.CreateDatabaseRequestBody
 import com.linkedin.openhouse.housetables.client.model.GetAllEntityResponseBodyUserTable;
 import com.linkedin.openhouse.housetables.client.model.PageUserTable;
 import com.linkedin.openhouse.housetables.client.model.UpdateDatabasePropertiesRequestBody;
+import com.linkedin.openhouse.housetables.client.model.UpdateDatabasePropertiesResponseBody;
 import com.linkedin.openhouse.internal.catalog.model.DatabaseMetadata;
 import com.linkedin.openhouse.internal.catalog.model.DatabasePropertyUpdate;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException.Reason;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
@@ -100,7 +103,7 @@ public class HouseDatabaseRepositoryImpl implements HouseDatabaseRepository {
   public DatabasePropertyUpdate updateProperties(
       String databaseName, Map<String, String> updates, Set<String> removals)
       throws HouseDatabaseException {
-    com.linkedin.openhouse.housetables.client.model.UpdateDatabasePropertiesResponseBody result =
+    UpdateDatabasePropertiesResponseBody result =
         execute(
                 () ->
                     databaseApi.updateDatabaseProperties(
@@ -112,15 +115,15 @@ public class HouseDatabaseRepositoryImpl implements HouseDatabaseRepository {
                 Reason.CONCURRENT_MODIFICATION)
             .orElseThrow(() -> new HouseDatabaseException(Reason.UNKNOWN_OUTCOME));
     return new DatabasePropertyUpdate(
-        java.util.List.copyOf(
+        List.copyOf(
             Optional.ofNullable(result.getUpdated())
                 .filter(keys -> keys.stream().noneMatch(Objects::isNull))
                 .orElseThrow(() -> new HouseDatabaseException(Reason.UNKNOWN_OUTCOME))),
-        java.util.List.copyOf(
+        List.copyOf(
             Optional.ofNullable(result.getRemoved())
                 .filter(keys -> keys.stream().noneMatch(Objects::isNull))
                 .orElseThrow(() -> new HouseDatabaseException(Reason.UNKNOWN_OUTCOME))),
-        java.util.List.copyOf(
+        List.copyOf(
             Optional.ofNullable(result.getMissing())
                 .filter(keys -> keys.stream().noneMatch(Objects::isNull))
                 .orElseThrow(() -> new HouseDatabaseException(Reason.UNKNOWN_OUTCOME))));
@@ -165,8 +168,7 @@ public class HouseDatabaseRepositoryImpl implements HouseDatabaseRepository {
       throws HouseDatabaseException {
     Reason uncertainFailure =
         timeout.equals(WRITE_TIMEOUT) ? Reason.UNKNOWN_OUTCOME : Reason.UNAVAILABLE;
-    java.util.concurrent.CompletableFuture<T> pending =
-        Mono.defer(request).timeout(timeout).toFuture();
+    CompletableFuture<T> pending = Mono.defer(request).timeout(timeout).toFuture();
     try {
       return Optional.ofNullable(pending.get());
     } catch (InterruptedException exception) {

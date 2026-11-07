@@ -14,6 +14,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import reactor.core.publisher.Mono;
@@ -28,8 +30,7 @@ class HouseDatabaseDeadlineTest {
     CountDownLatch subscribed = new CountDownLatch(1);
     AtomicInteger subscriptions = new AtomicInteger();
     AtomicInteger cancellations = new AtomicInteger();
-    java.util.concurrent.atomic.AtomicReference<Thread> worker =
-        new java.util.concurrent.atomic.AtomicReference<>();
+    AtomicReference<Thread> worker = new AtomicReference<>();
     DatabaseApi databaseApi = mock(DatabaseApi.class);
     Mono<Void> pending =
         Mono.<Void>never()
@@ -58,7 +59,7 @@ class HouseDatabaseDeadlineTest {
                         }
                       }));
       assertTrue(subscribed.await(10, TimeUnit.SECONDS));
-      org.awaitility.Awaitility.await()
+      Awaitility.await()
           .atMost(Duration.ofSeconds(10))
           .until(
               () ->

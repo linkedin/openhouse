@@ -47,7 +47,7 @@ retain their error format.
 
 ## Storage and compatibility
 
-Database metadata is an independent HouseTables resource whose properties share the database row.
+Database metadata is an independent HouseTables resource stored with its properties in `catalog_databases`.
 Apply the [HouseTables database DDL](https://github.com/linkedin/openhouse/blob/mkuchenbecker/database-properties-hts/services/housetables/ddl/0002__add_database_metadata.sql)
 before serving these requests. Existing table creation, loading, updates, deletion, and database listing
 retain their existing behavior and perform zero database-metadata lookups.
