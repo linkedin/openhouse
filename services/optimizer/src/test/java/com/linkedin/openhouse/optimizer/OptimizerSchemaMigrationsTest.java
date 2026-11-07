@@ -25,8 +25,8 @@ import org.testcontainers.containers.MySQLContainer;
 
 /**
  * Starts the service on a database that already holds HouseTables' real schema and seeded rows. The
- * database must end up with the optimizer tables that Flyway creates in an empty one, without changing
- * any HouseTables table definition or row.
+ * database must end up with the optimizer tables that Flyway creates in an empty one, without
+ * changing any HouseTables table definition or row.
  */
 class OptimizerSchemaMigrationsTest {
 
