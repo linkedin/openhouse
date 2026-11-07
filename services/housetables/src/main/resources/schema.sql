@@ -1,4 +1,14 @@
 -- DDL in this file is in alpha stage and would be subject to change.
+CREATE TABLE IF NOT EXISTS catalog_databases (
+    database_uuid       VARCHAR (36)    NOT NULL,
+    database_name       VARCHAR (128)   NOT NULL,
+    database_name_key   VARCHAR (128)   NOT NULL,
+    properties          LONGTEXT        NOT NULL,
+    version             BIGINT          NOT NULL,
+    PRIMARY KEY (database_uuid),
+    CONSTRAINT uq_database_name UNIQUE (database_name_key)
+);
+
 CREATE TABLE IF NOT EXISTS user_table_row (
                          database_id         VARCHAR (128)     NOT NULL,
                          table_id            VARCHAR (128)     NOT NULL,
