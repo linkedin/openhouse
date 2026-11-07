@@ -102,6 +102,7 @@ tasks.matching { it.name == 'generateOpenApiDocs' }.configureEach {
 }
 
 dependencies {
+  testImplementation "org.mockito:mockito-inline:4.11.0"
   implementation "io.opentelemetry.instrumentation:opentelemetry-instrumentation-annotations:${otel_annotations_version}"
   api project(':services:common')
   api project(':iceberg:openhouse:internalcatalog')
@@ -126,4 +127,33 @@ dependencies {
 tasks.named('test') {
   // Bound retained Spring contexts so the full service suite fits the test worker's default heap.
   systemProperty 'spring.test.context.cache.maxSize', '8'
+}
+
+// Keep the HTS bootstrap resources isolated from existing Tables Service tests.
+sourceSets {
+  namespaceIntegrationTest {
+    compileClasspath += sourceSets.main.output
+    runtimeClasspath += sourceSets.main.output
+  }
+}
+
+configurations {
+  namespaceIntegrationTestImplementation.extendsFrom testImplementation
+  namespaceIntegrationTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
+dependencies {
+  namespaceIntegrationTestImplementation project(':services:housetables')
+}
+
+tasks.register('namespaceIntegrationTest', Test) {
+  description = 'Tests namespace operations through the generated HTS client against H2.'
+  group = 'verification'
+  testClassesDirs = sourceSets.namespaceIntegrationTest.output.classesDirs
+  classpath = sourceSets.namespaceIntegrationTest.runtimeClasspath
+  useJUnitPlatform()
+}
+
+tasks.named('check') {
+  dependsOn tasks.named('namespaceIntegrationTest')
 }
