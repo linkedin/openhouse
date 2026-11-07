@@ -1,6 +1,6 @@
 # Independent database metadata
 
-Database properties live as one JSON document in `database_row`, alongside the database's
+Database properties live as one JSON document in `catalog_databases`, alongside the database's
 immutable UUID, logical name, normalized name, and version. Every metadata read needs the
 whole map, so a single row matches the access pattern. A sparse update rewrites the document;
 its storage cost grows with the map size.

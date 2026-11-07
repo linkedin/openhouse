@@ -21,6 +21,7 @@ import javax.persistence.EntityManager;
 import javax.persistence.LockModeType;
 import javax.persistence.OptimisticLockException;
 import javax.persistence.PersistenceException;
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -169,9 +170,9 @@ public class DatabasesServiceImpl implements DatabasesService {
       boolean duplicateName =
           creating
               && Optional.ofNullable(exception.getCause())
-                  .filter(org.hibernate.exception.ConstraintViolationException.class::isInstance)
-                  .map(org.hibernate.exception.ConstraintViolationException.class::cast)
-                  .map(org.hibernate.exception.ConstraintViolationException::getConstraintName)
+                  .filter(ConstraintViolationException.class::isInstance)
+                  .map(ConstraintViolationException.class::cast)
+                  .map(ConstraintViolationException::getConstraintName)
                   .map(name -> name.toLowerCase(Locale.ROOT).contains("uq_database_name"))
                   .orElse(false);
       throw new DatabaseMetadataException(

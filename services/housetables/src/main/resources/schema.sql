@@ -1,5 +1,5 @@
 -- DDL in this file is in alpha stage and would be subject to change.
-CREATE TABLE IF NOT EXISTS database_row (
+CREATE TABLE IF NOT EXISTS catalog_databases (
     database_uuid       VARCHAR (36)    NOT NULL,
     database_name       VARCHAR (128)   NOT NULL,
     database_name_key   VARCHAR (128)   NOT NULL,

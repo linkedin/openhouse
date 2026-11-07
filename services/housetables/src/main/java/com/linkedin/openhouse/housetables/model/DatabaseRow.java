@@ -15,7 +15,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 @Entity
-@Table(name = "database_row")
+@Table(name = "catalog_databases")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class DatabaseRow {

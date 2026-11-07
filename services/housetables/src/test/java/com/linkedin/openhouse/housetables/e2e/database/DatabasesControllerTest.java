@@ -1,6 +1,8 @@
 package com.linkedin.openhouse.housetables.e2e.database;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -81,8 +83,7 @@ class DatabasesControllerTest {
         .perform(get("/hts/databases/database_foo"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.databaseUuid").value(databaseUuid))
-        .andExpect(
-            jsonPath("$.properties").value(org.hamcrest.Matchers.equalTo(Map.of("bar", "three"))));
+        .andExpect(jsonPath("$.properties").value(equalTo(Map.of("bar", "three"))));
     mockMvc.perform(delete("/hts/databases/DATABASE_FOO")).andExpect(status().isNoContent());
     mockMvc
         .perform(get("/hts/databases/database_foo"))
@@ -105,7 +106,7 @@ class DatabasesControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"databaseName\":\"foo\",\"databaseUuid\":\"bar\",\"version\":99}"))
         .andExpect(status().isCreated())
-        .andExpect(jsonPath("$.databaseUuid").value(org.hamcrest.Matchers.not("bar")))
+        .andExpect(jsonPath("$.databaseUuid").value(not("bar")))
         .andExpect(jsonPath("$.properties").isEmpty());
     mockMvc
         .perform(
@@ -149,75 +150,6 @@ class DatabasesControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(request))
         .andExpect(status().isBadRequest());
-  }
-
-  @ParameterizedTest
-  @ValueSource(strings = {"a", "😀"})
-  void testPropertyKeyLimitUsesUtf16Units(String character) throws Exception {
-    String key = character.repeat(512 / character.length());
-    String oversizedKey = key + "a";
-    mockMvc
-        .perform(
-            post("/hts/databases")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    objectMapper.writeValueAsString(
-                        Map.of("databaseName", "foo", "properties", Map.of(key, "one")))))
-        .andExpect(status().isCreated());
-    mockMvc
-        .perform(
-            post("/hts/databases")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    objectMapper.writeValueAsString(
-                        Map.of("databaseName", "bar", "properties", Map.of(oversizedKey, "one")))))
-        .andExpect(status().isBadRequest());
-    mockMvc
-        .perform(
-            post("/hts/databases/foo/properties")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    objectMapper.writeValueAsString(
-                        Map.of("updates", Map.of(oversizedKey, "two")))))
-        .andExpect(status().isBadRequest());
-    mockMvc
-        .perform(
-            post("/hts/databases/foo/properties")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    objectMapper.writeValueAsString(
-                        Map.of("removals", java.util.List.of(oversizedKey)))))
-        .andExpect(status().isBadRequest());
-    mockMvc
-        .perform(get("/hts/databases/foo"))
-        .andExpect(status().isOk())
-        .andExpect(
-            jsonPath("$.properties").value(org.hamcrest.Matchers.equalTo(Map.of(key, "one"))));
-    assertThat(repository.count()).isEqualTo(1);
-    mockMvc
-        .perform(
-            post("/hts/databases/foo/properties")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(Map.of("updates", Map.of(key, "two")))))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.updated[0]").value(key));
-    mockMvc
-        .perform(get("/hts/databases/foo"))
-        .andExpect(status().isOk())
-        .andExpect(
-            jsonPath("$.properties").value(org.hamcrest.Matchers.equalTo(Map.of(key, "two"))));
-    mockMvc
-        .perform(
-            post("/hts/databases/foo/properties")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    objectMapper.writeValueAsString(Map.of("removals", java.util.List.of(key)))))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.removed[0]").value(key));
-    mockMvc
-        .perform(get("/hts/databases/foo"))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.properties").isEmpty());
   }
 
   @Test

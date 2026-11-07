@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -49,8 +50,7 @@ class DatabaseMysqlWorkloadTest {
   @Autowired private DataSource dataSource;
 
   public static class SqlCapture implements StatementInspector {
-    private static final Set<String> STATEMENTS =
-        java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private static final Set<String> STATEMENTS = ConcurrentHashMap.newKeySet();
 
     @Override
     public String inspect(String sql) {

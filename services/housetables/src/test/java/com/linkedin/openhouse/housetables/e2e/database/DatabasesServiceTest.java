@@ -4,6 +4,7 @@ import static com.linkedin.openhouse.housetables.services.DatabaseMetadataExcept
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.reset;
 
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.model.DatabaseMetadata;
@@ -168,7 +169,7 @@ class DatabasesServiceTest {
     assertThat(repository.findById(created.getDatabaseUuid())).isEmpty();
     assertThat(
             jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM database_row WHERE database_uuid = ?",
+                "SELECT COUNT(*) FROM catalog_databases WHERE database_uuid = ?",
                 Long.class,
                 created.getDatabaseUuid()))
         .isZero();
@@ -245,7 +246,7 @@ class DatabasesServiceTest {
       updateCommitted.countDown();
       executor.shutdownNow();
       assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
-      org.mockito.Mockito.reset(repository);
+      reset(repository);
     }
     assertThat(databasesService.getDatabase("database_metadata_foo").getDatabaseUuid())
         .isEqualTo(created.getDatabaseUuid());
@@ -269,7 +270,7 @@ class DatabasesServiceTest {
         .isInstanceOfSatisfying(
             DatabaseMetadataException.class,
             exception -> assertThat(exception.getReason()).isEqualTo(STORAGE_FAILURE));
-    org.mockito.Mockito.reset(repository);
+    reset(repository);
     assertThat(databasesService.getDatabase("database_foo")).isEqualTo(created);
   }
 
@@ -317,7 +318,7 @@ class DatabasesServiceTest {
     } finally {
       executor.shutdownNow();
       assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
-      org.mockito.Mockito.reset(repository);
+      reset(repository);
     }
     if (emptyUpdates) {
       assertThat(databasesService.getDatabase("database_foo").getProperties())

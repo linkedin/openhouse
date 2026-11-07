@@ -2,7 +2,7 @@
 -- The normalized name key enforces the same case-insensitive uniqueness in MySQL and H2.
 -- Properties are a JSON document read and written with the versioned database row.
 
-CREATE TABLE database_row (
+CREATE TABLE catalog_databases (
     database_uuid       VARCHAR (36)    NOT NULL,
     database_name       VARCHAR (128)   NOT NULL,
     database_name_key   VARCHAR (128)   NOT NULL,
