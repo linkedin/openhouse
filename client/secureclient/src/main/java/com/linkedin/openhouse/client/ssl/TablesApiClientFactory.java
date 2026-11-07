@@ -36,7 +36,8 @@ public final class TablesApiClientFactory extends WebClientFactory {
     DateFormat defaultDateFormat = ApiClient.createDefaultDateFormat();
     ObjectMapper defaultObjectMapper =
         ApiClient.createDefaultObjectMapper(defaultDateFormat)
-            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+            .registerModule(new NamespaceResponseModule());
     return ApiClient.buildWebClientBuilder(defaultObjectMapper);
   }
 
