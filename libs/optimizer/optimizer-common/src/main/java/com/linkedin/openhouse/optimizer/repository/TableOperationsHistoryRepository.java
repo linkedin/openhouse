@@ -42,4 +42,20 @@ public interface TableOperationsHistoryRepository
           + "  WHERE r2.tableUuid = r.tableUuid AND r2.operationType = r.operationType)")
   List<TableOperationsHistoryRow> findLatest(
       @Param("operationType") OperationType operationType, Pageable pageable);
+
+  /**
+   * Return the most-recent history rows for a single {@code (table_uuid, operation_type)}, newest
+   * first. Used by the analyzer's circuit breaker to count a table's consecutive-failure streak;
+   * {@code pageable} caps how many rows are inspected (the streak window). Backed by index {@code
+   * idx_toph_optype_uuid_completed (operation_type, table_uuid, completed_at)}, this is an
+   * index-ordered scan limited to the page size.
+   */
+  @Query(
+      "SELECT r FROM TableOperationsHistoryRow r "
+          + "WHERE r.tableUuid = :tableUuid AND r.operationType = :operationType "
+          + "ORDER BY r.completedAt DESC")
+  List<TableOperationsHistoryRow> findRecent(
+      @Param("tableUuid") String tableUuid,
+      @Param("operationType") OperationType operationType,
+      Pageable pageable);
 }

@@ -26,6 +26,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpStatus;
 
 /**
  * Coverage of {@link ViewsApiValidator}: the requests it must accept, and every structural rule it
@@ -653,22 +654,26 @@ public class ViewsValidatorTest {
   /**
    * The reserved {@code openhouse.view.sourceDialect} is required: it pins which representation is
    * authoritative. Its absence is reported as a generic definition failure, not a dialect failure,
-   * because no dialect value was supplied to judge. A {@code null} properties map and a map that
-   * merely omits the key are the same absence.
+   * because no dialect value was supplied to judge. A {@code null} properties map, a map that
+   * merely omits the key and a blank value are the same absence. A replace must supply it too: an
+   * omitted value is never inherited from the current view.
    */
   @Test
   public void validateRejectsAMissingSourceDialectProperty() {
     Map<String, String> withoutDialect = new LinkedHashMap<>();
     withoutDialect.put("owner", "openhouse");
-    assertRejected(
-        createOf(validCreateRequest().toBuilder().viewProperties(withoutDialect).build()),
-        ViewErrorCode.INVALID_VIEW_DEFINITION,
-        ReservedViewProperties.SOURCE_DIALECT + " : cannot be empty");
-
-    assertRejected(
-        createOf(validCreateRequest().toBuilder().viewProperties(null).build()),
-        ViewErrorCode.INVALID_VIEW_DEFINITION,
-        ReservedViewProperties.SOURCE_DIALECT + " : cannot be empty");
+    Map<String, String> blankDialect = new LinkedHashMap<>(withoutDialect);
+    blankDialect.put(ReservedViewProperties.SOURCE_DIALECT, "   ");
+    for (Map<String, String> properties : Arrays.asList(withoutDialect, null, blankDialect)) {
+      assertRejected(
+          createOf(validCreateRequest().toBuilder().viewProperties(properties).build()),
+          ViewErrorCode.INVALID_VIEW_DEFINITION,
+          ReservedViewProperties.SOURCE_DIALECT + " : cannot be empty");
+      assertRejected(
+          updateOf(validUpdateRequest().toBuilder().viewProperties(properties).build()),
+          ViewErrorCode.INVALID_VIEW_DEFINITION,
+          ReservedViewProperties.SOURCE_DIALECT + " : cannot be empty");
+    }
   }
 
   /**
@@ -686,6 +691,68 @@ public class ViewsValidatorTest {
                 .build()),
         ViewErrorCode.UNSUPPORTED_VIEW_DIALECT,
         ReservedViewProperties.SOURCE_DIALECT + " : must be one of the supported dialects: spark");
+    assertRejected(
+        updateOf(
+            validUpdateRequest()
+                .toBuilder()
+                .viewProperties(ViewModelConstants.viewPropertiesWithSourceDialect("presto"))
+                .build()),
+        ViewErrorCode.UNSUPPORTED_VIEW_DIALECT,
+        ReservedViewProperties.SOURCE_DIALECT + " : must be one of the supported dialects: spark");
+  }
+
+  /**
+   * The server stamps {@code replace.drop-dialect.allowed} on every view, and the commit engine
+   * refuses a caller-supplied value. That exact key is therefore reserved at the API on create and
+   * replace, as a 400, so it is never accepted here only to fail later as a server fault. The
+   * reservation is the exact key: case variants and longer keys stay ordinary user properties.
+   */
+  @Test
+  public void validateRejectsTheServerOwnedDropDialectKeyExactlyOnCreateAndReplace() {
+    String sentinelValue = "drop-dialect-value-sentinel";
+    for (String value : new String[] {"false", "true", sentinelValue}) {
+      Map<String, String> serverOwned = new LinkedHashMap<>();
+      serverOwned.put("replace.drop-dialect.allowed", value);
+      Map<String, String> sent = new LinkedHashMap<>(serverOwned);
+      Executable[] validations = {
+        createOf(validCreateRequest().toBuilder().viewProperties(serverOwned).build()),
+        updateOf(validUpdateRequest().toBuilder().viewProperties(serverOwned).build())
+      };
+      for (Executable validation : validations) {
+        ViewRequestValidationFailureException rejected =
+            assertRejected(
+                validation,
+                ViewErrorCode.INVALID_VIEW_DEFINITION,
+                "viewProperties : reserved keys are not allowed: replace.drop-dialect.allowed");
+        Assertions.assertEquals(HttpStatus.BAD_REQUEST, rejected.getHttpStatus());
+        Assertions.assertFalse(
+            rejected.getMessage().contains(sentinelValue),
+            "The supplied value is not echoed: " + rejected.getMessage());
+        Assertions.assertEquals(sent, serverOwned, "The request map is rejected, not rewritten.");
+      }
+    }
+
+    Map<String, String> withOtherReservedKeys = new LinkedHashMap<>();
+    withOtherReservedKeys.put("replace.drop-dialect.allowed", "false");
+    withOtherReservedKeys.put("policies", "hijacked");
+    withOtherReservedKeys.put("openhouse.tableId", "hijacked");
+    assertRejected(
+        createOf(validCreateRequest().toBuilder().viewProperties(withOtherReservedKeys).build()),
+        ViewErrorCode.INVALID_VIEW_DEFINITION,
+        "viewProperties : reserved keys are not allowed:"
+            + " openhouse.tableId, policies, replace.drop-dialect.allowed");
+
+    Map<String, String> userOwned = new LinkedHashMap<>();
+    userOwned.put("Replace.Drop-Dialect.Allowed", "false");
+    userOwned.put("replace.drop-dialect.allowed.note", "user");
+    userOwned.put("replace.drop-dialect.allowed ", "user");
+    userOwned.put(ReservedViewProperties.SOURCE_DIALECT, ViewModelConstants.SOURCE_DIALECT);
+    assertDoesNotThrow(
+        createOf(validCreateRequest().toBuilder().viewProperties(userOwned).build()),
+        "Only the exact server-owned key is reserved.");
+    assertDoesNotThrow(
+        updateOf(validUpdateRequest().toBuilder().viewProperties(userOwned).build()),
+        "Only the exact server-owned key is reserved.");
   }
 
   @Test

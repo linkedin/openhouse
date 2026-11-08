@@ -143,6 +143,9 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
 
   public static final String ACTION_TYPE = "action-type";
 
+  /** Declared by a catalog whose engine applies column defaults; see {@link #capabilities}. */
+  public static final String COLUMN_DEFAULTS_CAPABILITY = "column-defaults";
+
   /** Catalog property that gates view support. Off by default. */
   private static final String VIEWS_ENABLED_PROPERTY = "iceberg-views-enabled";
 
@@ -165,7 +168,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     Preconditions.checkArgument(
         actionType == null || ACTION_TYPE_SYSTEM.equalsIgnoreCase(actionType),
         "action-type must be SYSTEM when supplied");
-    HttpHeaders headers = CatalogRequestHeaders.from(properties);
+    HttpHeaders headers = CatalogRequestHeaders.from(properties, capabilities());
     try {
       TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
       tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
@@ -200,6 +203,16 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
               + "Views service (not yet implemented -- expect 404); renameView is unsupported "
               + "(the service exposes no rename endpoint).");
     }
+  }
+
+  /**
+   * Capabilities this catalog declares in {@code X-OpenHouse-Client-Capabilities} on every request.
+   * None by default: this catalog loads column defaults into the table schema, but whether a read
+   * returns them depends on the engine's file readers, so only an engine's own catalog declares
+   * {@link #COLUMN_DEFAULTS_CAPABILITY}. Called once, from {@link #initialize}.
+   */
+  protected Set<String> capabilities() {
+    return Collections.emptySet();
   }
 
   protected FileIO loadFileIO(Map<String, String> properties) {
@@ -707,15 +720,95 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
           "OpenHouse views are not enabled; cannot create view: %s", identifier);
     }
     log.info("Calling buildView with identifier: {}", identifier);
-    // ViewMetadata requires a non-null location at build time (BaseViewBuilder builds it before
-    // ops.commit()); OpenHouse is server-owns-location so defaultWarehouseLocation() returns null.
-    // Unlike TableMetadata, Iceberg ViewMetadata Builder forbids null.
-    // So a placeholder is required here. The server always assigns the
-    // authoritative location at commit and the client reloads it on refresh,
-    // so only the value below is temporary. (Deferred) Alternative (overkill for now):
-    // override buildView / subclass ViewBuilder to handle the absent location instead.
-    return super.buildView(identifier)
-        .withLocation("mock://openhouse/views/" + identifier.toString().replace('.', '/'));
+    return new OpenHouseViewBuilder(super.buildView(identifier));
+  }
+
+  /**
+   * OpenHouse's {@link ViewBuilder}: wraps the Iceberg builder to apply OpenHouse-specific policy,
+   * delegating every other call unchanged. It currently enforces the server-owned view location --
+   * {@link #withLocation(String)} is a no-op over a transient, non-null placeholder that is never
+   * sent to the Views service; the server assigns the authoritative location, which the client
+   * reloads on refresh.
+   */
+  private static final class OpenHouseViewBuilder implements ViewBuilder {
+    private static final String PLACEHOLDER_LOCATION = "mock://openhouse/views/";
+    private final ViewBuilder delegate;
+
+    private OpenHouseViewBuilder(ViewBuilder delegate) {
+      this.delegate = delegate.withLocation(PLACEHOLDER_LOCATION);
+    }
+
+    @Override
+    public ViewBuilder withLocation(String newLocation) {
+      // OpenHouse server-owns-location, so defaultWarehouseLocation() returns null. Unlike
+      // TableMetadata, Iceberg's ViewMetadata.Builder forbids a null location, so this no-op keeps
+      // SparkCatalog's post-buildView withLocation(null) from reaching the builder; it drops every
+      // caller-supplied location and keeps the non-null placeholder.
+      return this;
+    }
+
+    @Override
+    public ViewBuilder withSchema(Schema newSchema) {
+      delegate.withSchema(newSchema);
+      return this;
+    }
+
+    @Override
+    public ViewBuilder withQuery(String dialect, String sql) {
+      delegate.withQuery(dialect, sql);
+      return this;
+    }
+
+    @Override
+    public ViewBuilder withDefaultCatalog(String catalog) {
+      // defaultCatalog mirrors the Iceberg view spec's resolution context (the "current"
+      // catalog used to resolve *unqualified* identifiers in the view SQL).
+      // OpenHouseViewOperations forwards whatever is set here to the Views service on create.
+      // Deferred: whether engines should populate it, or OpenHouse should override this builder
+      // to set a default, is undecided -- and moot while the persisted view SQL is fully
+      // qualified, since the default is then never consulted at resolution time.
+      delegate.withDefaultCatalog(catalog);
+      return this;
+    }
+
+    @Override
+    public ViewBuilder withDefaultNamespace(Namespace namespace) {
+      // defaultNamespace mirrors the Iceberg view spec's resolution context (the "current"
+      // namespace used to resolve *unqualified* identifiers in the view SQL).
+      // OpenHouseViewOperations forwards whatever is set here to the Views service on create.
+      // Deferred: whether engines should populate it, or OpenHouse should override this builder
+      // to set a default, is undecided -- and moot while the persisted view SQL is fully
+      // qualified, since the default is then never consulted at resolution time.
+      delegate.withDefaultNamespace(namespace);
+      return this;
+    }
+
+    @Override
+    public ViewBuilder withProperties(Map<String, String> newProperties) {
+      delegate.withProperties(newProperties);
+      return this;
+    }
+
+    @Override
+    public ViewBuilder withProperty(String key, String value) {
+      delegate.withProperty(key, value);
+      return this;
+    }
+
+    @Override
+    public View create() {
+      return delegate.create();
+    }
+
+    @Override
+    public View replace() {
+      return delegate.replace();
+    }
+
+    @Override
+    public View createOrReplace() {
+      return delegate.createOrReplace();
+    }
   }
 
   /**

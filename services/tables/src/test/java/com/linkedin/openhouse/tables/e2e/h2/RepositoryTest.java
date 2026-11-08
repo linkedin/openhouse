@@ -7,6 +7,8 @@ import static org.apache.iceberg.types.Types.NestedField.*;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
+import com.linkedin.openhouse.common.exception.CommitRejectedException;
+import com.linkedin.openhouse.common.exception.HistoricPartitionColumnRemovedException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
@@ -24,9 +26,11 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.Retention;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.RetentionColumnPattern;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.TimePartitionSpec;
 import com.linkedin.openhouse.tables.common.TableType;
+import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.model.TableModelConstants;
+import com.linkedin.openhouse.tables.readbridge.ReadBridgeConfigResolver;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import com.linkedin.openhouse.tables.repository.SchemaValidator;
@@ -42,6 +46,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
@@ -56,6 +61,10 @@ import org.apache.iceberg.relocated.com.google.common.collect.Streams;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -63,9 +72,12 @@ import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.util.AopTestUtils;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 @SpringBootTest
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
@@ -89,6 +101,315 @@ public class RepositoryTest {
   @SpyBean @Autowired StorageSelector storageSelector;
 
   @SpyBean @Autowired TablePolicyManager tablePolicyManager;
+
+  @ParameterizedTest
+  @ValueSource(strings = {"true", "false"})
+  void testColumnDefaultPropertyCanBeAssignedOnceOnExistingTable(String value) {
+    String property = ReadBridgeConfigResolver.COLUMN_DEFAULTS_CAPABILITY_PROP;
+    TableDto created =
+        openHouseInternalRepository.save(
+            TABLE_DTO
+                .toBuilder()
+                .tableId("columnDefaultFirstAssignment" + value)
+                .tableVersion(INITIAL_TABLE_VERSION)
+                .build());
+    TableDtoPrimaryKey key = getPrimaryKey(created);
+    try {
+      Assertions.assertFalse(created.getTableProperties().containsKey(property));
+      Map<String, String> properties = new HashMap<>(created.getTableProperties());
+      properties.put(property, value);
+      TableDto assigned =
+          openHouseInternalRepository.save(
+              created
+                  .toBuilder()
+                  .tableVersion(created.getTableLocation())
+                  .tableProperties(properties)
+                  .build());
+      Assertions.assertEquals(value, assigned.getTableProperties().get(property));
+
+      // An ordinary write can retain the committed value and change unrelated properties.
+      properties = new HashMap<>(assigned.getTableProperties());
+      properties.put("user.property", "updated");
+      TableDto unchanged =
+          openHouseInternalRepository.save(
+              assigned
+                  .toBuilder()
+                  .tableVersion(assigned.getTableLocation())
+                  .tableProperties(properties)
+                  .build());
+      Assertions.assertEquals(value, unchanged.getTableProperties().get(property));
+      Assertions.assertEquals("updated", unchanged.getTableProperties().get("user.property"));
+
+      Map<String, String> removed = new HashMap<>(unchanged.getTableProperties());
+      removed.remove(property);
+      if ("true".equals(value)) {
+        Assertions.assertThrows(
+            CommitRejectedException.class,
+            () ->
+                openHouseInternalRepository.save(
+                    unchanged
+                        .toBuilder()
+                        .tableVersion(unchanged.getTableLocation())
+                        .tableProperties(removed)
+                        .build()));
+        Assertions.assertEquals(
+            value,
+            openHouseInternalRepository.findById(key).get().getTableProperties().get(property));
+      } else {
+        TableDto afterRemove =
+            openHouseInternalRepository.save(
+                unchanged
+                    .toBuilder()
+                    .tableVersion(unchanged.getTableLocation())
+                    .tableProperties(removed)
+                    .build());
+        Assertions.assertFalse(afterRemove.getTableProperties().containsKey(property));
+      }
+    } finally {
+      openHouseInternalRepository.deleteById(key);
+    }
+  }
+
+  /** How a lock test commits its change. */
+  enum Write {
+    UPDATE,
+    REPLACE,
+    STAGE_REPLACE,
+    REPLICATION
+  }
+
+  @ParameterizedTest
+  @MethodSource("changesToCommittedTrue")
+  void testCommittedTrueColumnDefaultPropertyCannotBeChanged(Write write, String proposed) {
+    String property = ReadBridgeConfigResolver.COLUMN_DEFAULTS_CAPABILITY_PROP;
+    Map<String, String> properties = new HashMap<>();
+    properties.put(property, "true");
+    properties.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    properties.put(
+        CatalogConstants.OPENHOUSE_IS_TABLE_REPLICATED_KEY,
+        Boolean.toString(write == Write.REPLICATION));
+    TableDto created =
+        openHouseInternalRepository.save(
+            TABLE_DTO
+                .toBuilder()
+                .tableId("columnDefaultImmutable" + write + proposed)
+                .tableVersion(INITIAL_TABLE_VERSION)
+                .policies(null)
+                .tableProperties(properties)
+                .build());
+    TableDtoPrimaryKey key = getPrimaryKey(created);
+    try {
+      Assertions.assertEquals("true", created.getTableProperties().get(property));
+      Map<String, String> changed = new HashMap<>(created.getTableProperties());
+      if (proposed == null) {
+        changed.remove(property);
+      } else {
+        changed.put(property, proposed);
+      }
+      if (write == Write.REPLICATION) {
+        // This bypasses the repository's normal preserved-property eligibility checks.
+        changed.put(CatalogConstants.OPENHOUSE_CLUSTERID_KEY, "source-cluster");
+      }
+      TableDto update =
+          created
+              .toBuilder()
+              .tableVersion(created.getTableLocation())
+              .tableProperties(changed)
+              .replaceCommit(write == Write.REPLACE)
+              .stageReplace(write == Write.STAGE_REPLACE)
+              .build();
+      Assertions.assertThrows(
+          CommitRejectedException.class, () -> openHouseInternalRepository.save(update));
+      TableDto persisted = openHouseInternalRepository.findById(key).get();
+      Assertions.assertEquals("true", persisted.getTableProperties().get(property));
+      Assertions.assertEquals(created.getTableLocation(), persisted.getTableLocation());
+
+      // Rejection must not poison the unchanged version for a subsequent valid commit.
+      Map<String, String> validProperties = new HashMap<>(persisted.getTableProperties());
+      validProperties.put("user.property", "valid-after-rejection");
+      openHouseInternalRepository.save(
+          persisted
+              .toBuilder()
+              .tableVersion(persisted.getTableLocation())
+              .tableProperties(validProperties)
+              .build());
+      TableDto updated = openHouseInternalRepository.findById(key).get();
+      Assertions.assertEquals("true", updated.getTableProperties().get(property));
+      Assertions.assertEquals(
+          "valid-after-rejection", updated.getTableProperties().get("user.property"));
+    } finally {
+      openHouseInternalRepository.deleteById(key);
+    }
+  }
+
+  static Stream<Arguments> changesToCommittedTrue() {
+    return Stream.of(
+        Arguments.of(Write.UPDATE, "false"),
+        Arguments.of(Write.UPDATE, null),
+        Arguments.of(Write.REPLACE, "false"),
+        Arguments.of(Write.STAGE_REPLACE, "false"),
+        Arguments.of(Write.REPLICATION, "false"),
+        Arguments.of(Write.REPLICATION, null));
+  }
+
+  @ParameterizedTest
+  @MethodSource("changesToCommittedFalse")
+  void testCommittedFalseColumnDefaultPropertyCanBeChanged(Write write, String proposed) {
+    String property = ReadBridgeConfigResolver.COLUMN_DEFAULTS_CAPABILITY_PROP;
+    Map<String, String> properties = new HashMap<>();
+    properties.put(property, "false");
+    properties.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    properties.put(
+        CatalogConstants.OPENHOUSE_IS_TABLE_REPLICATED_KEY,
+        Boolean.toString(write == Write.REPLICATION));
+    TableDto created =
+        openHouseInternalRepository.save(
+            TABLE_DTO
+                .toBuilder()
+                .tableId("columnDefaultMutableFalse" + write + proposed)
+                .tableVersion(INITIAL_TABLE_VERSION)
+                .policies(null)
+                .tableProperties(properties)
+                .build());
+    TableDtoPrimaryKey key = getPrimaryKey(created);
+    try {
+      Map<String, String> changed = new HashMap<>(created.getTableProperties());
+      if (proposed == null) {
+        changed.remove(property);
+      } else {
+        changed.put(property, proposed);
+      }
+      if (write == Write.REPLICATION) {
+        changed.put(CatalogConstants.OPENHOUSE_CLUSTERID_KEY, "source-cluster");
+      }
+      TableDto updated =
+          openHouseInternalRepository.save(
+              created
+                  .toBuilder()
+                  .tableVersion(created.getTableLocation())
+                  .tableProperties(changed)
+                  .replaceCommit(write == Write.REPLACE)
+                  .stageReplace(write == Write.STAGE_REPLACE)
+                  .build());
+      Assertions.assertEquals(proposed, updated.getTableProperties().get(property));
+    } finally {
+      openHouseInternalRepository.deleteById(key);
+    }
+  }
+
+  static Stream<Arguments> changesToCommittedFalse() {
+    return Stream.of(
+        Arguments.of(Write.UPDATE, "true"),
+        Arguments.of(Write.UPDATE, null),
+        Arguments.of(Write.REPLACE, "true"),
+        Arguments.of(Write.STAGE_REPLACE, "true"),
+        Arguments.of(Write.REPLICATION, "true"),
+        Arguments.of(Write.REPLICATION, null));
+  }
+
+  @ParameterizedTest
+  @MethodSource("writesWithAndWithoutTheOverride")
+  void testOverrideHeaderBypassesColumnDefaultImmutability(Write write, boolean override) {
+    String property = ReadBridgeConfigResolver.COLUMN_DEFAULTS_CAPABILITY_PROP;
+    TableDto created =
+        openHouseInternalRepository.save(
+            TABLE_DTO
+                .toBuilder()
+                .tableId("columnDefaultBypass" + write + override)
+                .tableVersion(INITIAL_TABLE_VERSION)
+                .policies(null)
+                .tableProperties(
+                    Map.of(property, "true", CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true"))
+                .build());
+    TableDtoPrimaryKey key = getPrimaryKey(created);
+    try {
+      Map<String, String> changed = new HashMap<>(created.getTableProperties());
+      changed.put(property, "false");
+      TableDto request =
+          created
+              .toBuilder()
+              .tableVersion(created.getTableLocation())
+              .tableProperties(changed)
+              .replaceCommit(write == Write.REPLACE)
+              .stageReplace(write == Write.STAGE_REPLACE)
+              .build();
+      if (!override) {
+        Assertions.assertThrows(
+            CommitRejectedException.class, () -> openHouseInternalRepository.save(request));
+        Assertions.assertEquals(
+            "true",
+            openHouseInternalRepository.findById(key).get().getTableProperties().get(property));
+        return;
+      }
+      MockHttpServletRequest httpRequest = new MockHttpServletRequest();
+      httpRequest.addHeader(TablesMvcConstants.HTTP_HEADER_COLUMN_DEFAULT_POLICY_BYPASS, "true");
+      RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(httpRequest));
+      TableDto updated = openHouseInternalRepository.save(request);
+      Assertions.assertEquals("false", updated.getTableProperties().get(property));
+      if (write != Write.STAGE_REPLACE) {
+        Assertions.assertEquals(
+            "false",
+            openHouseInternalRepository.findById(key).get().getTableProperties().get(property));
+      }
+    } finally {
+      RequestContextHolder.resetRequestAttributes();
+      openHouseInternalRepository.deleteById(key);
+    }
+  }
+
+  static Stream<Arguments> writesWithAndWithoutTheOverride() {
+    return Stream.of(
+        Arguments.of(Write.UPDATE, true),
+        Arguments.of(Write.REPLACE, true),
+        Arguments.of(Write.STAGE_REPLACE, true),
+        Arguments.of(Write.UPDATE, false),
+        Arguments.of(Write.REPLACE, false));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"true", "false"})
+  void testReplacePreservesCommittedColumnDefaultProperty(String value) {
+    String property = ReadBridgeConfigResolver.COLUMN_DEFAULTS_CAPABILITY_PROP;
+    TableDto created =
+        openHouseInternalRepository.save(
+            TABLE_DTO
+                .toBuilder()
+                .tableId("columnDefaultReplace" + value)
+                .tableVersion(INITIAL_TABLE_VERSION)
+                .policies(null)
+                .tableProperties(
+                    Map.of(property, value, CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true"))
+                .build());
+    TableDtoPrimaryKey key = getPrimaryKey(created);
+    try {
+      TableDto unchanged =
+          openHouseInternalRepository.save(
+              created
+                  .toBuilder()
+                  .tableVersion(created.getTableLocation())
+                  .replaceCommit(true)
+                  .build());
+      Assertions.assertEquals(value, unchanged.getTableProperties().get(property));
+
+      // Iceberg replacement merges properties. Omitting the key must retain its value.
+      Map<String, String> omitted = new HashMap<>(unchanged.getTableProperties());
+      omitted.remove(property);
+      TableDto replaced =
+          openHouseInternalRepository.save(
+              unchanged
+                  .toBuilder()
+                  .tableVersion(unchanged.getTableLocation())
+                  .tableProperties(omitted)
+                  .replaceCommit(true)
+                  .build());
+      Assertions.assertEquals(value, replaced.getTableProperties().get(property));
+      Assertions.assertEquals(
+          value,
+          openHouseInternalRepository.findById(key).get().getTableProperties().get(property));
+    } finally {
+      openHouseInternalRepository.deleteById(key);
+    }
+  }
 
   @Test
   void extractReservedProps() {
@@ -705,6 +1026,72 @@ public class RepositoryTest {
             .build();
     openHouseInternalRepository.deleteById(pk);
     Assertions.assertFalse(openHouseInternalRepository.existsById(pk));
+  }
+
+  @Test
+  public void testReplacePartitionColumnDropEnabledAllowsReplacement() {
+    TableDtoPrimaryKey primaryKey =
+        getPrimaryKey(TABLE_DTO.toBuilder().tableId("tblPartitionColumnDropEnabled").build());
+    try {
+      TableDto existing = createTableWithFormerPartitionColumn(primaryKey, true);
+      TableDto replacement =
+          existing
+              .toBuilder()
+              .tableVersion(existing.getTableLocation())
+              .schema(SchemaParser.toJson(new Schema(optional(1, "data", Types.StringType.get()))))
+              .stageReplace(true)
+              .replaceCommit(false)
+              .build();
+      Schema expected = new Schema(optional(2, "data", Types.StringType.get()));
+
+      TableDto staged = openHouseInternalRepository.save(replacement);
+      Assertions.assertEquals(
+          expected.asStruct(), SchemaParser.fromJson(staged.getSchema()).asStruct());
+
+      openHouseInternalRepository.save(
+          replacement.toBuilder().stageReplace(false).replaceCommit(true).build());
+      TableDto after =
+          openHouseInternalRepository.findById(primaryKey).orElseThrow(NoSuchElementException::new);
+      Assertions.assertEquals(
+          expected.asStruct(), SchemaParser.fromJson(after.getSchema()).asStruct());
+    } finally {
+      openHouseInternalRepository.deleteById(primaryKey);
+    }
+  }
+
+  @Test
+  public void testReplacePartitionColumnDropDisabledIsRejected() {
+    TableDtoPrimaryKey primaryKey =
+        getPrimaryKey(TABLE_DTO.toBuilder().tableId("tblPartitionColumnDropDisabled").build());
+    try {
+      TableDto existing = createTableWithFormerPartitionColumn(primaryKey, false);
+      TableDto replacement =
+          existing
+              .toBuilder()
+              .tableVersion(existing.getTableLocation())
+              .schema(SchemaParser.toJson(new Schema(optional(1, "data", Types.StringType.get()))))
+              .stageReplace(true)
+              .replaceCommit(false)
+              .build();
+      HistoricPartitionColumnRemovedException exception =
+          Assertions.assertThrows(
+              HistoricPartitionColumnRemovedException.class,
+              () -> openHouseInternalRepository.save(replacement));
+      Assertions.assertEquals("id", exception.getColumnName());
+      Assertions.assertEquals(
+          "RTAS does not support dropping a partition column [id]. Only removing partitioning is allowed",
+          exception.getMessage());
+
+      HistoricPartitionColumnRemovedException commitException =
+          Assertions.assertThrows(
+              HistoricPartitionColumnRemovedException.class,
+              () ->
+                  openHouseInternalRepository.save(
+                      replacement.toBuilder().stageReplace(false).replaceCommit(true).build()));
+      Assertions.assertEquals(exception.getMessage(), commitException.getMessage());
+    } finally {
+      openHouseInternalRepository.deleteById(primaryKey);
+    }
   }
 
   @Test
@@ -1750,6 +2137,45 @@ public class RepositoryTest {
             .build();
     openHouseInternalRepository.deleteById(primaryKey);
     Assertions.assertFalse(openHouseInternalRepository.existsById(primaryKey));
+  }
+
+  private TableDto createTableWithFormerPartitionColumn(
+      TableDtoPrimaryKey primaryKey, boolean partitionColumnDropEnabled) {
+    Schema schema =
+        new Schema(
+            required(1, "id", Types.LongType.get()), optional(2, "data", Types.StringType.get()));
+    Map<String, String> properties = new HashMap<>();
+    properties.put(CatalogConstants.RTAS_ENABLED_TABLE_PROP, "true");
+    properties.put(
+        CatalogConstants.RTAS_PARTITION_COLUMN_DROP_ENABLED_TABLE_PROP,
+        Boolean.toString(partitionColumnDropEnabled));
+    TableDto creation =
+        TABLE_DTO
+            .toBuilder()
+            .databaseId(primaryKey.getDatabaseId())
+            .tableId(primaryKey.getTableId())
+            .tableVersion(INITIAL_TABLE_VERSION)
+            .schema(SchemaParser.toJson(schema))
+            .timePartitioning(null)
+            .clustering(
+                Collections.singletonList(ClusteringColumn.builder().columnName("id").build()))
+            .sortOrder(null)
+            .policies(null)
+            .tableProperties(properties)
+            .build();
+    TableDto existing = openHouseInternalRepository.save(creation);
+    TableIdentifier identifier =
+        TableIdentifier.of(primaryKey.getDatabaseId(), primaryKey.getTableId());
+    TableDto unpartitioned =
+        openHouseInternalRepository.save(
+            existing
+                .toBuilder()
+                .tableVersion(existing.getTableLocation())
+                .clustering(null)
+                .replaceCommit(true)
+                .build());
+    Assertions.assertTrue(catalog.loadTable(identifier).spec().isUnpartitioned());
+    return unpartitioned;
   }
 
   private TableDtoPrimaryKey getPrimaryKey(TableDto tableDto) {

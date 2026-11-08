@@ -15,6 +15,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.Policies;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.common.TableType;
+import com.linkedin.openhouse.tables.config.CatalogRequestContext;
 import com.linkedin.openhouse.tables.config.ReplicationProperties;
 import com.linkedin.openhouse.tables.config.TablesMvcConstants;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
@@ -22,6 +23,7 @@ import com.linkedin.openhouse.tables.dto.mapper.iceberg.PoliciesSpecMapper;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
+import com.linkedin.openhouse.tables.readbridge.ClientCapabilityGate;
 import com.linkedin.openhouse.tables.readbridge.ReadBridgeStripProtection;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
@@ -70,7 +72,9 @@ class LockEvaluationServiceTest {
     TablesMapper mapper = Mappers.getMapper(TablesMapper.class);
     ReflectionTestUtils.setField(mapper, "policiesSpecMapper", new PoliciesSpecMapper());
     ReadBridgeStripProtection protection = mock(ReadBridgeStripProtection.class);
-    when(protection.prepare(any(), any())).thenAnswer(invocation -> invocation.getArgument(1));
+    when(protection.prepare(any())).thenAnswer(invocation -> invocation.getArgument(0));
+    // No table here requires a capability, so the gate admits every request.
+    ClientCapabilityGate gate = new ClientCapabilityGate(new CatalogRequestContext() {});
     repository = mock(OpenHouseInternalRepository.class);
     current =
         TableDto.builder()
@@ -99,11 +103,13 @@ class LockEvaluationServiceTest {
     tables.readBridgeStripProtection = protection;
     tables.replicationProperties = new ReplicationProperties();
     tables.replicationCascadeProof = new ReplicationCascadeProof();
+    tables.clientCapabilityGate = gate;
     snapshots = new IcebergSnapshotsServiceImpl();
     snapshots.openHouseInternalRepository = repository;
     snapshots.authorizationUtils = authorization;
     snapshots.tablesMapper = mapper;
     snapshots.readBridgeStripProtection = protection;
+    snapshots.clientCapabilityGate = gate;
   }
 
   @AfterEach

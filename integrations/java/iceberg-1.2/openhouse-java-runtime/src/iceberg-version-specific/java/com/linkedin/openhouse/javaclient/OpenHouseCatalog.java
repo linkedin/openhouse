@@ -112,6 +112,9 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
   public static final String ACTION_TYPE = "action-type";
 
+  /** Declared by a catalog whose engine applies column defaults; see {@link #capabilities}. */
+  public static final String COLUMN_DEFAULTS_CAPABILITY = "column-defaults";
+
   @Override
   public void initialize(String name, Map<String, String> properties) {
     this.name = name;
@@ -128,7 +131,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     Preconditions.checkArgument(
         actionType == null || ACTION_TYPE_SYSTEM.equalsIgnoreCase(actionType),
         "action-type must be SYSTEM when supplied");
-    HttpHeaders headers = CatalogRequestHeaders.from(properties);
+    HttpHeaders headers = CatalogRequestHeaders.from(properties, capabilities());
     try {
       TablesApiClientFactory tablesApiClientFactory = TablesApiClientFactory.getInstance();
       tablesApiClientFactory.setStrategy(HttpConnectionStrategy.fromString(httpConnectionStrategy));
@@ -154,6 +157,16 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     this.fileIO = loadFileIO(properties);
 
     this.cluster = properties.getOrDefault(CLUSTER_PROPERTY, DEFAULT_CLUSTER);
+  }
+
+  /**
+   * Capabilities this catalog declares in {@code X-OpenHouse-Client-Capabilities} on every request.
+   * None by default: this catalog loads column defaults into the table schema, but whether a read
+   * returns them depends on the engine's file readers, so only an engine's own catalog declares
+   * {@link #COLUMN_DEFAULTS_CAPABILITY}. Called once, from {@link #initialize}.
+   */
+  protected Set<String> capabilities() {
+    return Collections.emptySet();
   }
 
   protected FileIO loadFileIO(Map<String, String> properties) {
