@@ -1,6 +1,8 @@
-# Atlas generates the Flyway migrations in src/main/resources/db/migration from the tables that the
-# JPA entities define. Gradle runs it from this directory in :services:optimizer:generateMigration,
-# part of check; see docs/development/optimizer-schema-migrations.md.
+# Atlas drafts Flyway migrations in src/main/resources/db/migration from the tables that the JPA
+# entities define. It runs only on request, from this directory:
+# ./gradlew :services:optimizer:generateMigration
+# The diff is of desired state and may propose drops: review and edit the SQL, then run
+# :services:optimizer:hashMigrations. See docs/development/optimizer-schema-migrations.md.
 env "local" {
   # The entities' DDL, which Hibernate writes when the export task runs; it needs neither Docker nor
   # migrations that match the entities:

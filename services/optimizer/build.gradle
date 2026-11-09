@@ -163,55 +163,32 @@ tasks.register('installAtlas', Sync) {
 }
 
 def migrationName = providers.gradleProperty('migrationName').getOrElse('sync_entities')
-def migrationsMatchEntities = layout.buildDirectory.file('migrations-match-entities')
 
-// Part of check, so every build compares the migrations with the entities. When the entities declare
-// a change that no migration makes, Atlas writes that migration into optimizer-common and the build
-// fails: no build passes on SQL it generated, and the jars it builds hold only the migrations that
-// were there when it started. CI builds the committed files, so it fails until the migration is
-// committed. Atlas also fails when the migrations don't match atlas.sum.
+// Explicit authoring only; no build, check or test runs it. Atlas diffs the entities' exported DDL
+// against the migrations and writes a candidate Flyway migration into optimizer-common. The diff is
+// of desired state, so it can propose drops and must be reviewed and edited by hand. Atlas's undo
+// scripts are removed because Flyway Community can't apply them.
 tasks.register('generateMigration', Exec) {
-  group = 'verification'
-  description = 'Writes the migration for entity changes that no migration makes, and then fails'
-  inputs.files(tasks.named('exportEntitySchema'))
-  inputs.files(tasks.named('installAtlas'))
-  inputs.dir(migrations)
-  inputs.file(optimizerCommon.file('atlas.hcl'))
-  inputs.property('migrationName', migrationName)
-  outputs.file(migrationsMatchEntities)
+  group = 'database'
+  description = 'Drafts migration SQL for entity changes; review the SQL, then commit it with the entity change'
+  dependsOn tasks.named('exportEntitySchema'), tasks.named('installAtlas')
   workingDir optimizerCommon.projectDir
   executable atlasExecutable
   args 'migrate', 'diff', '--env', 'local', migrationName
-  Map<String, String> before = [:]
+  Set<String> before = [] as Set
   doFirst {
-    before = fileTree(migrations).files.collectEntries { [(it.name): it.bytes.sha256()] }
+    before = fileTree(migrations).files.collect { it.name } as Set
   }
   doLast {
-    def written = fileTree(migrations).files.findAll { before[it.name] != it.bytes.sha256() }
-    if (written.isEmpty()) {
-      migrationsMatchEntities.get().asFile.text = 'The migrations make every change the entities declare.\n'
-      return
+    def undo = fileTree(migrations).files.findAll { it.name.startsWith('U') && !before.contains(it.name) }
+    if (!undo.isEmpty()) {
+      delete undo
+      providers.exec {
+        workingDir optimizerCommon.projectDir
+        commandLine atlasExecutable, 'migrate', 'hash', '--env', 'local'
+      }.result.get().assertNormalExitValue()
     }
-    // Flyway Community can't apply Atlas's undo scripts.
-    delete written.findAll { it.name.startsWith('U') }
-    providers.exec {
-      workingDir optimizerCommon.projectDir
-      commandLine atlasExecutable, 'migrate', 'hash', '--env', 'local'
-    }.result.get().assertNormalExitValue()
-    def kept = written.findAll { it.exists() }
-    throw new GradleException("""\
-Atlas wrote the migration for entity changes that no migration makes:
-${kept.collect { '  ' + rootProject.relativePath(it) }.join('\n')}
-Review the SQL (docs/development/optimizer-schema-migrations.md), then commit these files with the
-entity change. A build that writes a migration fails; CI fails until the migration is committed.
-
-${kept.findAll { it.name.endsWith('.sql') }.collect { it.text.trim() }.join('\n\n')}
-""")
   }
-}
-
-tasks.named('check') {
-  dependsOn tasks.named('generateMigration')
 }
 
 // Atlas fails until atlas.sum matches the migrations.
@@ -227,9 +204,6 @@ tasks.register('hashMigrations', Exec) {
 test {
   useJUnitPlatform()
   dependsOn tasks.named('exportEntitySchema')
-  // In a build, generation goes first: an entity change without its migration fails with the
-  // migration to commit, not with OptimizerSchemaMigrationsTest.
-  mustRunAfter tasks.named('generateMigration')
   inputs.file(houseTablesSchema).withPathSensitivity(PathSensitivity.RELATIVE)
   inputs.file(entitySchema).withPathSensitivity(PathSensitivity.NONE)
   doFirst {

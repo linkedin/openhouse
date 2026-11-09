@@ -44,6 +44,4 @@ components.java.withVariantsFromConfiguration(configurations.testFixturesRuntime
 
 test {
   useJUnitPlatform()
-  // In combined builds, generate missing migrations before database tests fail on entity drift.
-  mustRunAfter ':services:optimizer:generateMigration'
 }
