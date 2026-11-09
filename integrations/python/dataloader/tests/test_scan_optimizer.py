@@ -425,8 +425,9 @@ def test_table_spelling_leaves_qualifiers_and_aliases_untouched():
     plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])
 
     assert plan.source_columns == ["a", "b"]
-    assert plan.sql.count('"mytable"."a"') >= 1
-    assert plan.sql_table.table.lower() == "mytable"
+    assert plan.sql.count('"mytable"."a"') == 1
+    assert '"mydb"."mytable" AS "mytable"' in plan.sql
+    assert (plan.sql_table.database, plan.sql_table.table) == ("mydb", "mytable")
 
 
 def test_table_spelling_does_not_rename_outer_subquery_alias():
