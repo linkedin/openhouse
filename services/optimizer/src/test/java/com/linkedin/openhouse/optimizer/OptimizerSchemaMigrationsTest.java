@@ -25,10 +25,9 @@ import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.testcontainers.containers.MySQLContainer;
 
 /**
- * Starts the service on a database that already holds HouseTables' real schema and seeded rows, and
- * checks the migrations against the JPA entities. The database must end up with the optimizer
- * tables that Flyway creates in an empty one, without changing any HouseTables table definition or
- * row; the optimizer tables must be the ones the entities define.
+ * Starts the service on empty MySQL and beside HouseTables' real schema and seeded rows. Flyway and
+ * Hibernate must accept the committed migrations, and startup must preserve every HouseTables table
+ * definition and row. Atlas checks entity-schema drift separately in the Gradle verification task.
  */
 class OptimizerSchemaMigrationsTest {
 
@@ -109,27 +108,6 @@ class OptimizerSchemaMigrationsTest {
   }
 
   /**
-   * Fails when an entity changes without a migration that makes the same change. The service
-   * started on the empty database and validated the entities against the migrated tables; this runs
-   * the DDL that the exportEntitySchema task wrote from the entities on another empty database and
-   * compares the two, indexes included.
-   */
-  @Test
-  void migrationsCreateTheTablesTheEntitiesDefine() throws SQLException {
-    createDatabase("entities");
-    try (Connection connection = connect("entities")) {
-      ScriptUtils.executeSqlScript(connection, new FileSystemResource(entitySchema()));
-    }
-    Map<String, List<String>> migrated = new TreeMap<>(emptyDatabaseTables);
-    migrated.remove("optimizer_schema_history");
-    assertThat(migrated)
-        .as(
-            "Tables the migrations create. If an entity changed, generate its migration: see"
-                + " docs/development/optimizer-schema-migrations.md")
-        .isEqualTo(tables("entities"));
-  }
-
-  /**
    * Starts the service on the database, which migrates it and checks that the entities match the
    * result (ddl-auto=validate), and stops the service.
    */
@@ -144,13 +122,6 @@ class OptimizerSchemaMigrationsTest {
         .web(WebApplicationType.NONE)
         .run(serviceArgs.toArray(new String[0]))
         .close();
-  }
-
-  /** The DDL the entities define, which :services:optimizer:exportEntitySchema wrote. */
-  private static String entitySchema() {
-    return Objects.requireNonNull(
-        System.getProperty("optimizer.entity-schema"),
-        "Run through Gradle, which sets optimizer.entity-schema: ./gradlew :services:optimizer:test");
   }
 
   /**

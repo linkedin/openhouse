@@ -1,20 +1,21 @@
 # Optimizer Schema Migrations
 
-The Optimizer Service creates and changes its MySQL tables with
-[Flyway](https://documentation.red-gate.com/fd) migrations, which it applies when it starts. The JPA
-entities declare the tables, and [Atlas](https://atlasgo.io) writes the migration that gets a
-database there. The tables can share a database with HouseTables' tables. The migrations' only
-targets are the four optimizer tables (`table_operations`, `table_operations_history`, `table_stats`,
-`table_stats_history`) and `optimizer_schema_history`. HouseTables' production schema and data must
-stay untouched.
+The Optimizer Service creates and changes its MySQL tables with reviewed, committed
+[Flyway](https://documentation.red-gate.com/fd) migrations, which it applies when it starts. JPA
+entities declare the schema the application needs, not every object the database may retain during
+a staged rollout. [Atlas](https://atlasgo.io) can draft migration SQL explicitly; builds and CI only
+verify the committed migrations and never generate SQL into source. The tables can share a database
+with HouseTables' tables. Migrations may only target the four optimizer tables (`table_operations`,
+`table_operations_history`, `table_stats`, `table_stats_history`) and `optimizer_schema_history`;
+HouseTables' production schema and data must stay untouched.
 
 | Path | Role |
 |------|------|
-| `libs/optimizer/optimizer-common/src/main/java/com/linkedin/openhouse/optimizer/db/` | The entities, with their columns in `@Column` and their indexes in `@Table(indexes = ...)`. They declare the tables. |
+| `libs/optimizer/optimizer-common/src/main/java/com/linkedin/openhouse/optimizer/db/` | The application's mapped columns and required indexes, declared with `@Column` and `@Table(indexes = ...)`. |
 | `libs/optimizer/optimizer-common/src/main/resources/db/migration/` | The migrations, and Atlas's checksums of them in `atlas.sum`. They ship in the optimizer-common jar; only the service runs them. |
 | `libs/optimizer/optimizer-common/atlas.hcl` | Atlas's configuration: the entities' DDL, the migrations, and the MySQL image Atlas compares them on. |
-| `build/optimizer/entity-schema.sql` | The entities' DDL, written by `:services:optimizer:exportEntitySchema` without migrations or validation. Not committed. |
-| `OptimizerDatabaseConfiguration` (optimizer-common) | Maps the entities to the table and column names their annotations give, in the service and both apps, as in the entities' DDL. Hibernate doesn't turn camelCase into snake_case, so name each column in `@Column(name = ...)`. |
+| `build/optimizer/entity-schema.sql` | The entities' DDL, written by `:services:optimizer:exportEntitySchema` independently of tests and migrations. Not committed. |
+| `OptimizerDatabaseConfiguration` (optimizer-common) | Uses the same explicit table/column naming in the service, analyzer and scheduler. Name each column in `@Column(name = ...)`. |
 
 ## Tests
 
@@ -30,48 +31,58 @@ and Flyway migrates it as the service does at startup. Add it to a `@SpringBootT
 class MyRepositoryTest { ... }
 ```
 
-`exportEntitySchema` boots the service against an in-memory H2 database with the MySQL dialect and
-both Flyway and database schema actions disabled. Hibernate writes the entities' DDL without needing
-Docker or matching migrations. Generation and the service tests depend on this export.
+`exportEntitySchema` boots the service against H2 with the MySQL dialect and database actions and
+Flyway disabled. Hibernate writes the entities' DDL under `build/`, even when a migration is missing.
 
-`OptimizerSchemaMigrationsTest` starts the service on an empty MySQL database: Flyway applies every
-migration and Hibernate validates the entities against the tables. The test runs the exported DDL on
-another empty database and fails unless both hold the same tables, indexes included, so an entity
-change without its migration fails the required build. It also starts the service on a database
-holding the real HouseTables schema with seeded rows. Both must end up with the same optimizer
-tables, and HouseTables' table definitions and row contents must be identical before and after.
+`check`, and therefore `build`, runs `:services:optimizer:verifyMigrations`. Gradle downloads pinned
+Atlas Community 1.3.0 and verifies its SHA-256; no separate install, account or paid features are
+required. Atlas's native `schema diff` replays the committed Flyway migration directory on throwaway
+MySQL and compares it with Hibernate's exported DDL. Gradle fails if Atlas reports SQL to bring the
+migrations into agreement with the entities. A missing column or index therefore fails the required
+build. Verification never writes migration SQL or `atlas.sum` into source.
+
+The `verify` environment uses Atlas's built-in diff policy to skip drops of retained tables, columns
+and indexes. This permits staged objects the current entities don't map. Other mapped definitions
+must agree, including a `VARCHAR`'s width: even a wider migrated column is drift until the entity
+declares that width. The authoring environment does not skip drops; review its proposed SQL.
+
+This is schema-drift verification, not a general compatibility checker. Skipped extra objects can
+still break writes: for example, a mandatory column without a default or an extra unique index.
+It does not prove stored-data preservation, old/new application compatibility or production lock
+duration. Review and exercise those properties for each migration; there are no handwritten
+column/type/index comparison rules in this repository.
+
+`OptimizerSchemaMigrationsTest` separately starts the actual service on empty MySQL and beside
+HouseTables' real schema and seeded rows. Flyway applies the committed migrations and Hibernate
+validates the entity mappings. Both starts must create the same optimizer tables, and HouseTables'
+definitions and rows must be unchanged. Standalone tests do not invoke Atlas or generation.
+
+GitHub's PR workflow runs `./gradlew clean build` for PRs into `main` and the migration stack's
+base branch, `chbush/optimizer-flyway-atlas`. Remove the stack-only branch entry from
+`.github/workflows/pr-validations.yml` after the base merges and the remaining PR targets `main`.
 
 ## Changing the Schema
 
-`check`, and so `build`, runs `:services:optimizer:generateMigration`, which compares the
-migrations with the entities. It exports the entities' DDL and runs
-[Atlas Community](https://atlasgo.io/community-edition) (Apache 2.0) `migrate diff`, which replays
-the migrations and that DDL on a throwaway MySQL in Docker. When the entities declare a change that
-no migration makes, Atlas writes that migration and adds it to `atlas.sum`, and the build fails,
-showing the SQL. Atlas also fails when the migrations don't match `atlas.sum`. Gradle downloads the
-Atlas CLI and checks its SHA-256: you need Docker, but no Atlas install, account, or paid features.
-
-The build invocation that writes SQL fails. Generation needs the optimizer-common jar, so that
-invocation's jars hold only the migrations that were there when it started. The next local build
-validates the migrations on disk; CI only sees committed migrations. Gradle skips generation while
-the entities and the migrations stay the same.
-When generation is in the task graph, the service, optimizer-common, and scheduler database tests
-run afterward, including in parallel builds. Standalone library tests don't request generation.
-
-GitHub's PR workflow runs `./gradlew clean build` for PRs into `main` and the migration stack's
-base branch, `chbush/optimizer-flyway-atlas`, so generation is checked before the stack merges.
-Remove the stack-only branch entry from `.github/workflows/pr-validations.yml` when the base merges
-and the remaining PR targets `main`.
+You need Docker for Atlas's throwaway MySQL. Gradle installs the pinned, checksum-verified
+[Atlas Community](https://atlasgo.io/community-edition) CLI (Apache 2.0) automatically. Generation is
+an explicit authoring command; `build` and `check` only run the native read-only diff described above.
 
 1. Edit the entities in `com.linkedin.openhouse.optimizer.db`.
-2. Build:
+2. Draft a migration such as `add_job_attempts`:
    ```bash
-   ./gradlew :services:optimizer:build
+   ./gradlew :services:optimizer:generateMigration -PmigrationName=add_job_attempts
    ```
-   It fails, and Atlas has written the migration to `V<UTC timestamp>__sync_entities.sql`. To name
-   it, such as `add_job_attempts`, add `-PmigrationName=add_job_attempts`. Gradle deletes the undo
-   script Atlas writes too: undo needs Flyway Teams, and the service never runs it.
+   No failing test is needed. Hibernate exports the entities independently; Atlas replays the
+   migrations and DDL on throwaway MySQL and writes a candidate
+   `V<UTC timestamp>__add_job_attempts.sql` plus `atlas.sum`. The command succeeds after generation or
+   when there are no changes. Gradle removes only newly generated undo scripts and rehashes: the
+   service never runs undo, and Flyway Community cannot apply it. Omitting `migrationName` uses
+   `sync_entities`.
+
 3. Review the SQL:
+   - A desired-state diff is a draft, not a rollout plan. Remove proposed drops for columns or
+     indexes still needed by older releases; SQL migrations may intentionally retain schema that
+     the current entities no longer map. Write backfills and rename transitions deliberately.
    - Prefer one DDL statement per migration. MySQL commits each DDL statement on its own, so a
      migration that fails partway keeps its earlier statements, and the service won't start until
      someone sorts them out by hand ([Recovering from a Failed Migration](#recovering-from-a-failed-migration)).
@@ -80,18 +91,21 @@ and the remaining PR targets `main`.
      give a new `NOT NULL` column a default.
    - Startup waits for the migration, so a long `ALTER TABLE` on a large table delays readiness and
      has to fit the deployment's startup probe ([What Happens at Startup](#what-happens-at-startup)).
-4. Build again. Atlas finds nothing left to write, and the tests run on the new migration.
+4. Run verification and the tests:
+   ```bash
+   ./gradlew :services:optimizer:check :libs:optimizer:optimizer-common:test
+   ```
 5. Commit the entity change, the migration, and `atlas.sum` together.
 
 Atlas writes DDL only. Write a migration that it can't, such as one that copies data, by hand: add
-the file, then run `./gradlew :services:optimizer:hashMigrations` to update `atlas.sum`. The build
-still checks that the tables end up as the entities declare them.
+the file, then run `./gradlew :services:optimizer:hashMigrations` to update `atlas.sum`. The read-only
+CI check accepts handwritten or generated SQL equally; it checks the result, not command history.
 
 The timestamp columns declare `columnDefinition = "TIMESTAMP(6)"`, the type their migration created;
 for an `Instant`, Hibernate's DDL would say `DATETIME(6)`.
 
 If another change merged a migration first, `atlas.sum` conflicts when you rebase. Delete your
-migration, take `atlas.sum` from the base branch, and build again so that yours gets a later
+migration, take `atlas.sum` from the base branch, and run generation again so that yours gets a later
 version. Don't keep a migration that sorts before the base branch's newest: Flyway won't apply it to
 a database that already has the newer one, and the service stops starting there. The tests can't
 catch it, because they migrate databases that have none of the migrations.

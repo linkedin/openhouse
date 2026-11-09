@@ -54,14 +54,14 @@ dependencies {
 // Reuse HouseTables' schema without adding its service to the optimizer's test classpath.
 def houseTablesSchema = rootProject.file('services/housetables/src/main/resources/schema.sql')
 
-// The DDL of the tables the entities define, where libs/optimizer/optimizer-common/atlas.hcl reads it.
+// Hibernate exports the desired schema for native Atlas verification and explicit generation.
 def entitySchema = layout.buildDirectory.file('entity-schema.sql')
 
-// Has Hibernate write the entities' DDL from an in-memory H2 database: no migrations, Docker, passing
-// tests or production credentials needed, so it works while the committed migrations are behind.
+// Export independently of migrations and validation, so a missing migration cannot prevent drafting
+// its SQL. This writes only build output, not the database or the committed migration directory.
 tasks.register('exportEntitySchema', JavaExec) {
   group = 'verification'
-  description = 'Writes the DDL of the tables the JPA entities define to build/entity-schema.sql'
+  description = 'Writes the JPA entities\' MySQL DDL to build/optimizer/entity-schema.sql'
   classpath = sourceSets.main.runtimeClasspath + configurations.developmentOnly
   mainClass = 'com.linkedin.openhouse.optimizer.OptimizerServiceApplication'
   outputs.file(entitySchema)
@@ -95,10 +95,8 @@ tasks.register('exportEntitySchema', JavaExec) {
 def optimizerCommon = project(':libs:optimizer:optimizer-common')
 def migrations = optimizerCommon.file('src/main/resources/db/migration')
 
-// Atlas Community (Apache 2.0) writes the migrations. Gradle downloads the CLI built for this
-// machine and checks it against the SHA-256 that Ariga publishes beside it, at
-// https://atlasbinaries.com/atlas/atlas-community-<platform>-v<version>.sha256, so neither CI nor
-// developers install Atlas.
+// Atlas Community (Apache 2.0) provides schema diffing; no account or paid features are required.
+// Pin each platform's binary to the SHA-256 published beside it at atlasbinaries.com/atlas.
 def atlasVersion = '1.3.0'
 def atlasSha256 = [
   'darwin-amd64': '650981a024301775ec964e5134e2d5712b7ef1b25fec4b2ec54bad762b4bdf6f',
@@ -162,15 +160,44 @@ tasks.register('installAtlas', Sync) {
   }
 }
 
+// Native schema diff only: replay committed migrations on throwaway MySQL, compare them with the
+// Hibernate export, and fail if Atlas reports a change. Never write into the migration directory.
+// No up-to-date shortcut: each check replays and validates the committed directory's checksums.
+tasks.register('verifyMigrations', Exec) {
+  group = 'verification'
+  description = 'Checks committed migrations against the entity schema with Atlas Community'
+  dependsOn tasks.named('exportEntitySchema'), tasks.named('installAtlas')
+  workingDir optimizerCommon.projectDir
+  executable atlasExecutable
+  environment 'ATLAS_NO_UPDATE_NOTIFIER', '1'
+  environment 'ATLAS_NO_UPGRADE_SUGGESTIONS', '1'
+  args 'schema', 'diff', '--env', 'verify',
+      '--from', 'file://src/main/resources/db/migration?format=flyway',
+      '--to', 'file://../../../build/optimizer/entity-schema.sql', '--format', '{{ sql . }}'
+  def diff = new ByteArrayOutputStream()
+  standardOutput = diff
+  doLast {
+    def sql = diff.toString('UTF-8').trim()
+    if (!sql.isEmpty()) {
+      throw new GradleException(
+          "Committed optimizer migrations differ from the entities:\n${sql}\n"
+          + 'Generate or write the migration, review it, and commit it; see '
+          + 'docs/development/optimizer-schema-migrations.md')
+    }
+  }
+}
+
+tasks.named('check') {
+  dependsOn tasks.named('verifyMigrations')
+}
+
 def migrationName = providers.gradleProperty('migrationName').getOrElse('sync_entities')
 
-// Explicit authoring only; no build, check or test runs it. Atlas diffs the entities' exported DDL
-// against the migrations and writes a candidate Flyway migration into optimizer-common. The diff is
-// of desired state, so it can propose drops and must be reviewed and edited by hand. Atlas's undo
-// scripts are removed because Flyway Community can't apply them.
+// Explicit authoring only; build, check and test never run this task. Atlas may propose drops, so
+// review and edit its candidate SQL. Remove only undo scripts written by this invocation.
 tasks.register('generateMigration', Exec) {
   group = 'database'
-  description = 'Drafts migration SQL for entity changes; review the SQL, then commit it with the entity change'
+  description = 'Drafts migration SQL for entity changes; review and commit it with the entity change'
   dependsOn tasks.named('exportEntitySchema'), tasks.named('installAtlas')
   workingDir optimizerCommon.projectDir
   executable atlasExecutable
@@ -191,7 +218,6 @@ tasks.register('generateMigration', Exec) {
   }
 }
 
-// Atlas fails until atlas.sum matches the migrations.
 tasks.register('hashMigrations', Exec) {
   group = 'database'
   description = 'Updates atlas.sum after a migration is added or edited by hand'
@@ -203,13 +229,10 @@ tasks.register('hashMigrations', Exec) {
 
 test {
   useJUnitPlatform()
-  dependsOn tasks.named('exportEntitySchema')
   inputs.file(houseTablesSchema).withPathSensitivity(PathSensitivity.RELATIVE)
-  inputs.file(entitySchema).withPathSensitivity(PathSensitivity.NONE)
   doFirst {
     // Set here, not as inputs: the absolute paths differ between checkouts that share the build
     // cache.
     systemProperty 'optimizer.house-tables-schema', houseTablesSchema.absolutePath
-    systemProperty 'optimizer.entity-schema', entitySchema.get().asFile.absolutePath
   }
 }
