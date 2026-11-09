@@ -56,7 +56,7 @@ class DatabasesServiceFailureTest {
   void testRepositoryFailureBecomesCheckedStorageFailure() {
     when(clusterProperties.getClusterHouseTablesDatabaseType()).thenReturn("IN_MEMORY");
     when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
-    when(repository.findByDatabaseNameKey("foo"))
+    when(repository.findByDatabaseName("foo"))
         .thenThrow(new DataAccessResourceFailureException("storage unavailable"));
     assertThatThrownBy(() -> databasesService.getDatabase("foo"))
         .isInstanceOf(DatabaseMetadataException.class)

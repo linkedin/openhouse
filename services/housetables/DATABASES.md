@@ -1,7 +1,7 @@
 # Independent database metadata
 
 Database properties live as one JSON document in `catalog_databases`, alongside the database's
-immutable UUID, logical name, normalized name, and version. Every metadata read needs the
+immutable UUID, canonical lowercase name, and version. Every metadata read needs the
 whole map, so a single row matches the access pattern. A sparse update rewrites the document;
 its storage cost grows with the map size.
 
@@ -9,7 +9,8 @@ its storage cost grows with the map size.
 
 The document uses a JPA converter and a `LONGTEXT` column, with the same representation in
 MySQL and H2. JSON preserves property spelling independently of database collation.
-The normalized name has a unique index; the UUID is the primary key.
+The lowercase name has a unique index; the UUID is the primary key. Requests accept mixed
+case, and metadata responses return the lowercase name. Original capitalization is not stored.
 
 Sparse updates read the row, preserve unspecified keys, assign a replacement map, and commit
 within a transaction. Optimistic version checks reject competing updates and stale deletes,

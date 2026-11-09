@@ -46,7 +46,7 @@ class DatabasesControllerTest {
                     .content(
                         "{\"databaseName\":\"Database_Foo\",\"properties\":{\"foo\":\"one\"}}"))
             .andExpect(status().isCreated())
-            .andExpect(jsonPath("$.databaseName").value("Database_Foo"))
+            .andExpect(jsonPath("$.databaseName").value("database_foo"))
             .andExpect(jsonPath("$.properties.foo").value("one"))
             .andReturn()
             .getResponse()
@@ -56,6 +56,7 @@ class DatabasesControllerTest {
     mockMvc
         .perform(get("/hts/databases/DATABASE_FOO"))
         .andExpect(status().isOk())
+        .andExpect(jsonPath("$.databaseName").value("database_foo"))
         .andExpect(jsonPath("$.databaseUuid").value(databaseUuid));
     mockMvc
         .perform(

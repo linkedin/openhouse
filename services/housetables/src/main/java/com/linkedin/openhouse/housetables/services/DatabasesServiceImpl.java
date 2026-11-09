@@ -73,7 +73,7 @@ public class DatabasesServiceImpl implements DatabasesService {
     return inTransaction(
             () ->
                 repository
-                    .findByDatabaseNameKey(databaseName.toLowerCase(Locale.ROOT))
+                    .findByDatabaseName(databaseName.toLowerCase(Locale.ROOT))
                     .map(
                         database ->
                             DatabaseMetadata.builder()
@@ -94,7 +94,7 @@ public class DatabasesServiceImpl implements DatabasesService {
         inTransaction(
             () ->
                 repository
-                    .findByDatabaseNameKey(databaseName.toLowerCase(Locale.ROOT))
+                    .findByDatabaseName(databaseName.toLowerCase(Locale.ROOT))
                     .map(
                         database -> {
                           repository.delete(database);
@@ -119,7 +119,7 @@ public class DatabasesServiceImpl implements DatabasesService {
     return inTransaction(
             () ->
                 repository
-                    .findByDatabaseNameKey(databaseName.toLowerCase(Locale.ROOT))
+                    .findByDatabaseName(databaseName.toLowerCase(Locale.ROOT))
                     .map(
                         database -> {
                           // Empty updates also participate in optimistic concurrency checks.

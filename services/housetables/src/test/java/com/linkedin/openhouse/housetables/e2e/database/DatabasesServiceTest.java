@@ -73,18 +73,18 @@ class DatabasesServiceTest {
     DatabaseMetadata created = databasesService.createDatabase("Database_Foo", properties);
     assertThat(UUID.fromString(created.getDatabaseUuid()).toString())
         .isEqualTo(created.getDatabaseUuid());
-    assertThat(created.getDatabaseName()).isEqualTo("Database_Foo");
+    assertThat(created.getDatabaseName()).isEqualTo("database_foo");
     assertThat(databasesService.getDatabase("DATABASE_FOO")).isEqualTo(created);
     assertThat(databasesService.getDatabase("database_foo").getProperties())
         .containsExactlyInAnyOrderEntriesOf(properties);
     assertThat(repository.findById(created.getDatabaseUuid()))
         .get()
         .extracting(DatabaseRow::getDatabaseName)
-        .isEqualTo("Database_Foo");
+        .isEqualTo("database_foo");
     assertThat(
             new JdbcTemplate(dataSource)
                 .queryForObject(
-                    "SELECT COUNT(*) FROM user_table_row WHERE database_id = 'Database_Foo'",
+                    "SELECT COUNT(*) FROM user_table_row WHERE UPPER(database_id) = 'DATABASE_FOO'",
                     Long.class))
         .isZero();
     assertThatThrownBy(() -> databasesService.createDatabase("dAtAbAsE_fOo", Map.of()))
@@ -225,7 +225,7 @@ class DatabasesServiceTest {
               return database;
             })
         .when(repository)
-        .findByDatabaseNameKey("database_metadata_foo");
+        .findByDatabaseName("database_metadata_foo");
     ExecutorService executor = Executors.newSingleThreadExecutor();
     try {
       Future<?> deletion =
@@ -288,7 +288,7 @@ class DatabasesServiceTest {
               return database;
             })
         .when(repository)
-        .findByDatabaseNameKey("database_foo");
+        .findByDatabaseName("database_foo");
     ExecutorService executor = Executors.newFixedThreadPool(2);
     try {
       List<Callable<Optional<DatabaseMetadataException.Reason>>> mutations =

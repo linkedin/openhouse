@@ -23,16 +23,8 @@ public class DatabaseRow {
   @Column(name = "database_uuid", length = 36, updatable = false)
   private String databaseUuid;
 
-  @Column(name = "database_name", length = 128, nullable = false, updatable = false)
+  @Column(name = "database_name", length = 128, nullable = false, unique = true, updatable = false)
   private String databaseName;
-
-  @Column(
-      name = "database_name_key",
-      length = 128,
-      nullable = false,
-      unique = true,
-      updatable = false)
-  private String databaseNameKey;
 
   @Convert(converter = DatabasePropertiesConverter.class)
   @Column(name = "properties", nullable = false, columnDefinition = "LONGTEXT")
@@ -42,8 +34,7 @@ public class DatabaseRow {
 
   public DatabaseRow(String databaseName, Map<String, String> properties) {
     this.databaseUuid = UUID.randomUUID().toString();
-    this.databaseName = databaseName;
-    this.databaseNameKey = databaseName.toLowerCase(Locale.ROOT);
+    this.databaseName = databaseName.toLowerCase(Locale.ROOT);
     this.properties.putAll(properties);
   }
 

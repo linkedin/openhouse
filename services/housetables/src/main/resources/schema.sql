@@ -2,11 +2,10 @@
 CREATE TABLE IF NOT EXISTS catalog_databases (
     database_uuid       VARCHAR (36)    NOT NULL,
     database_name       VARCHAR (128)   NOT NULL,
-    database_name_key   VARCHAR (128)   NOT NULL,
     properties          LONGTEXT        NOT NULL,
     version             BIGINT          NOT NULL,
     PRIMARY KEY (database_uuid),
-    CONSTRAINT uq_database_name UNIQUE (database_name_key)
+    CONSTRAINT uq_database_name UNIQUE (database_name)
 );
 
 CREATE TABLE IF NOT EXISTS user_table_row (
