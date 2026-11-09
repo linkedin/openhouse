@@ -32,6 +32,7 @@ from openhouse.dataloader.filters import (
     Or,
     always_true,
 )
+from openhouse.dataloader.table_identifier import TableIdentifier
 
 
 @dataclass
@@ -42,11 +43,15 @@ class ScanPlan:
         sql: Optimized SQL for DataFusion execution.
         source_columns: Columns for Iceberg scan, or None for all.
         row_filter: Extracted predicates for Iceberg row_filter.
+        sql_table: Database and table exactly as spelled in ``sql``. Matches the requested table case-insensitively
+            and is the name the batch must be bound to for the SQL to resolve; it does not replace the catalog
+            identifier.
     """
 
     sql: str
     source_columns: list[str]
     row_filter: Filter
+    sql_table: TableIdentifier
 
 
 def optimize_scan(sql: str, dialect: str, *, database: str, table: str, column_names: Sequence[str]) -> ScanPlan:
@@ -73,17 +78,19 @@ def optimize_scan(sql: str, dialect: str, *, database: str, table: str, column_n
     """
     if not column_names:
         raise ValueError("column_names must not be empty")
-    # Type is arbitrary — qualify only uses column names to expand SELECT *, not types.
-    schema = {database: {table: {c: "VARCHAR" for c in column_names}}}
     ast = sqlglot.parse_one(sql, dialect=dialect)
-    _match_table_case(ast, database, table)
+    # View SQL can spell the table differently from the requested identifier (Hive Metastore lower-cases view text),
+    # so match case-insensitively and key the schema by the spelling the SQL uses.
+    source_table = _find_single_table(ast, sql)
+    _check_table_matches(source_table, database, table)
+    # Type is arbitrary — qualify only uses column names to expand SELECT *, not types.
+    schema = {source_table.db: {source_table.name: {c: "VARCHAR" for c in column_names}}}
     ast = qualify.qualify(ast, dialect=dialect, schema=schema)
     ast = pushdown_predicates.pushdown_predicates(ast, dialect=dialect)
     ast = pushdown_projections.pushdown_projections(ast, dialect=dialect)
 
     table_node = _find_single_table(ast, sql)
-    if table_node.db != database or table_node.name != table:
-        raise ValueError(f"Table in SQL ({table_node.db}.{table_node.name}) does not match expected {database}.{table}")
+    _check_table_matches(table_node, database, table)
     table_select = table_node.find_ancestor(exp.Select)
     if table_select is None:
         raise ValueError(f"Table has no enclosing SELECT in: {sql}")
@@ -96,64 +103,13 @@ def optimize_scan(sql: str, dialect: str, *, database: str, table: str, column_n
         sql=ast.sql(dialect=dialect),
         source_columns=sorted(source_columns),
         row_filter=row_filter,
+        sql_table=TableIdentifier(table_node.db, table_node.name),
     )
 
 
-def _match_table_case(ast: exp.Expression, database: str, table: str) -> None:
-    """Rewrite references to the scanned table so they use the casing of the requested identifier.
-
-    View SQL can reference the table with different casing than the identifier it was requested under (for example
-    Hive Metastore stores view text with lower-cased names). The qualify schema and the table registered for query
-    execution are keyed by the requested identifier, so a differently-cased reference would leave ``SELECT *``
-    unexpanded and make projected columns unresolvable.
-    """
-    for table_node in list(ast.find_all(exp.Table)):
-        if table_node.db.lower() != database.lower() or table_node.name.lower() != table.lower():
-            continue
-        # Without an explicit alias the table name is the implicit alias, so qualifiers that point at it
-        # (``t.col``, ``db.t.col``, ``t.*``) must be rebound together with the table itself.
-        rebind = not table_node.alias
-        table_node.this.set("this", table)
-        table_node.args["db"].set("this", database)
-        if rebind:
-            _rebind_qualifiers(table_node, database, table)
-
-
-def _rebind_qualifiers(table_node: exp.Table, database: str, table: str) -> None:
-    """Rebind qualifiers that refer to ``table_node`` through its implicit alias.
-
-    Columns in the table's own SELECT and in subqueries nested inside it (correlated references) are considered.
-    A nested SELECT that declares its own source with the same name shadows the table, and the outer query is out of
-    scope, so an explicit subquery alias spelled like the table (``SELECT t.a FROM (SELECT a FROM db.t) AS t``) is
-    left untouched.
-    """
-    scope = table_node.find_ancestor(exp.Select)
-    if scope is None:
-        return
-    for column in scope.find_all(exp.Column):
-        qualifier = column.args.get("table")
-        if qualifier is None or qualifier.name.lower() != table.lower():
-            continue
-        db_qualifier = column.args.get("db")
-        if db_qualifier is not None and db_qualifier.name.lower() != database.lower():
-            continue
-        if _is_shadowed(column, scope, table):
-            continue
-        qualifier.set("this", table)
-        if db_qualifier is not None:
-            db_qualifier.set("this", database)
-
-
-def _is_shadowed(column: exp.Column, scope: exp.Select, table: str) -> bool:
-    """Whether a SELECT between ``column`` and ``scope`` declares its own source named ``table``."""
-    select = column.find_ancestor(exp.Select)
-    while select is not None and select is not scope:
-        sources = [select.args["from_"]] if select.args.get("from_") else []
-        sources += select.args.get("joins") or []
-        if any(source.this.alias_or_name.lower() == table.lower() for source in sources):
-            return True
-        select = select.find_ancestor(exp.Select)
-    return False
+def _check_table_matches(table_node: exp.Table, database: str, table: str) -> None:
+    if table_node.db.lower() != database.lower() or table_node.name.lower() != table.lower():
+        raise ValueError(f"Table in SQL ({table_node.db}.{table_node.name}) does not match expected {database}.{table}")
 
 
 def _find_single_table(ast: exp.Expression, original_sql: str) -> exp.Table:

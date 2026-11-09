@@ -398,105 +398,56 @@ def test_udf_in_projection_with_select_star_projects_needed_columns():
 
 
 @pytest.mark.parametrize("sql_table", ["myTable", "mytable", "MYTABLE"])
-def test_table_reference_case_differing_from_requested_identifier(sql_table):
-    """View SQL may reference the table with different casing than the requested identifier."""
+def test_table_spelling_in_sql_is_preserved_and_reported(sql_table):
+    """View SQL may spell the table differently from the requested identifier; the SQL's spelling is kept."""
     sql = f'SELECT "a", "b" FROM (SELECT * FROM "myDb"."{sql_table}") AS _t'
 
     plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b", "c"])
 
     assert plan.source_columns == ["a", "b"]
-    assert '"myDb"."myTable"' in plan.sql
+    assert f'"myDb"."{sql_table}"' in plan.sql
+    assert (plan.sql_table.database, plan.sql_table.table) == ("myDb", sql_table)
 
 
-def test_table_reference_case_unquoted_view_sql():
+def test_table_spelling_unquoted_view_sql_reports_emitted_spelling():
     sql = 'SELECT "a" FROM (SELECT * FROM mydb.mytable) AS _t'
 
     plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])
 
     assert plan.source_columns == ["a"]
-    assert '"myDb"."myTable"' in plan.sql
+    assert f'"{plan.sql_table.database}"."{plan.sql_table.table}"' in plan.sql
+    assert (plan.sql_table.database.lower(), plan.sql_table.table.lower()) == ("mydb", "mytable")
+
+
+def test_table_spelling_leaves_qualifiers_and_aliases_untouched():
+    sql = 'SELECT t."a" FROM (SELECT mytable.a FROM mydb.mytable WHERE mytable.b > 1) AS t'
+
+    plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])
+
+    assert plan.source_columns == ["a", "b"]
+    assert plan.sql.count('"mytable"."a"') >= 1
+    assert plan.sql_table.table.lower() == "mytable"
+
+
+def test_table_spelling_does_not_rename_outer_subquery_alias():
+    sql = 'SELECT mytable.a FROM (SELECT a FROM "mydb"."mytable") AS mytable'
+
+    plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a"])
+
+    assert plan.source_columns == ["a"]
+    assert (plan.sql_table.database, plan.sql_table.table) == ("mydb", "mytable")
+
+
+def test_matching_requested_spelling_reports_same_identifier():
+    sql = 'SELECT "a" FROM (SELECT * FROM "myDb"."myTable") AS _t'
+
+    plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a"])
+
+    assert (plan.sql_table.database, plan.sql_table.table) == ("myDb", "myTable")
 
 
 def test_different_table_with_similar_name_is_still_rejected():
     sql = 'SELECT "a" FROM (SELECT * FROM "myDb"."myTable_other") AS _t'
 
-    with pytest.raises(sqlglot.errors.OptimizeError):
+    with pytest.raises(ValueError, match="does not match expected"):
         _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])
-
-
-@pytest.mark.parametrize(
-    "inner",
-    [
-        "SELECT mytable.a, mytable.b FROM mydb.mytable",
-        "SELECT mydb.mytable.a, mydb.mytable.b FROM mydb.mytable",
-        "SELECT mytable.* FROM mydb.mytable",
-        'SELECT "mytable"."a", "mytable"."b" FROM "mydb"."mytable"',
-    ],
-)
-def test_table_reference_case_rebinds_qualifiers(inner):
-    sql = f'SELECT "a", "b" FROM ({inner}) AS _t'
-
-    plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b", "c"])
-
-    assert plan.source_columns == ["a", "b"]
-    assert '"myDb"."myTable"' in plan.sql
-    assert "mytable" not in plan.sql
-
-
-def test_table_reference_case_preserves_explicit_alias():
-    sql = 'SELECT "a" FROM (SELECT x.a FROM mydb.mytable AS x) AS _t'
-
-    plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])
-
-    assert plan.source_columns == ["a"]
-    assert '"myDb"."myTable" AS "x"' in plan.sql
-
-
-def test_table_reference_case_does_not_rebind_other_database_qualifier():
-    sql = 'SELECT "b" FROM (SELECT otherdb.mytable.a AS b FROM mydb.mytable) AS _t'
-
-    with pytest.raises(sqlglot.errors.OptimizeError):
-        _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])
-
-
-def test_table_reference_case_preserves_outer_subquery_alias_spelled_like_table():
-    sql = 'SELECT mytable.a FROM (SELECT a FROM "myDb"."myTable") AS mytable'
-
-    plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])
-
-    assert plan.source_columns == ["a"]
-    assert 'AS "mytable"' in plan.sql
-    assert '"mytable"."a"' in plan.sql
-
-
-def test_table_reference_case_rebinds_correlated_subquery_qualifier():
-    sql = 'SELECT "a" FROM (SELECT a FROM mydb.mytable WHERE a > (SELECT MAX(mytable.b))) AS _t'
-
-    plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])
-
-    assert plan.source_columns == ["a", "b"]
-    assert '"mytable"' not in plan.sql
-
-
-def test_table_reference_case_nested_subquery_alias_shadows_table():
-    sql = (
-        'SELECT "a" FROM (SELECT a FROM mydb.mytable '
-        "WHERE a > (SELECT MAX(mytable.b) FROM (SELECT 1 AS b) AS mytable)) AS _t"
-    )
-
-    plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])
-
-    assert 'AS "mytable"' in plan.sql
-    assert 'max("mytable"."b")' in plan.sql
-
-
-def test_table_reference_case_nested_join_alias_shadows_table():
-    sql = (
-        'SELECT "a" FROM (SELECT a FROM mydb.mytable WHERE a > ('
-        "SELECT MAX(mytable.b) FROM (SELECT 1 AS c) AS z JOIN (SELECT 1 AS b) AS mytable ON 1 = 1)) AS _t"
-    )
-
-    plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])
-
-    assert 'AS "mytable"' in plan.sql
-    assert 'max("mytable"."b")' in plan.sql
