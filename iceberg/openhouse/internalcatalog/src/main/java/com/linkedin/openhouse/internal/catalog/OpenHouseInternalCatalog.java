@@ -190,6 +190,9 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
             .build();
     String tableLocation = getTableBaseLocation(houseTable, identifier);
     FileIO fileIO = resolveFileIO(identifier);
+    // Prepared while the House Table row still exists, so a failure here leaves the table intact.
+    Runnable storagePurge =
+        purge ? prepareStoragePurge(identifier, houseTable, tableLocation, fileIO) : null;
     log.debug("Dropping table {}, purge:{}", tableLocation, purge);
     try {
       houseTableRepository.deleteById(primaryKey, purge);
@@ -199,6 +202,27 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
           houseTableRepositoryException);
     }
     if (purge) {
+      runStoragePurge(identifier, houseTable, tableLocation, storagePurge);
+    }
+    return true;
+  }
+
+  /**
+   * Returns the action that deletes the table's files when a table is dropped with purge. This
+   * method runs before the House Table row is deleted, so an exception thrown here aborts the drop
+   * and leaves the table intact. The returned action runs after the row is deleted. Subclasses can
+   * override this method to read what their storage needs, such as table properties, while the
+   * table still exists.
+   *
+   * @param identifier the table being dropped
+   * @param houseTable the House Table row of the table
+   * @param tableLocation the table base directory
+   * @param fileIO the file IO of the table
+   * @return the action that deletes the table's files
+   */
+  protected Runnable prepareStoragePurge(
+      TableIdentifier identifier, HouseTable houseTable, String tableLocation, FileIO fileIO) {
+    return () -> {
       if (fileIO instanceof SupportsPrefixOperations) {
         log.debug("Deleting files for table {}", tableLocation);
         ((SupportsPrefixOperations) fileIO).deletePrefix(tableLocation);
@@ -209,8 +233,34 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
         throw new UnsupportedOperationException(
             "Drop table is supported only with a fileIO instance that SupportsPrefixOperations");
       }
+    };
+  }
+
+  /**
+   * Runs the storage purge and records its outcome. The House Table row is already deleted at this
+   * point, so a failure can leave the table's files without a catalog entry.
+   */
+  private void runStoragePurge(
+      TableIdentifier identifier,
+      HouseTable houseTable,
+      String tableLocation,
+      Runnable storagePurge) {
+    MetricsReporter metricsReporter =
+        new MetricsReporter(this.meterRegistry, METRICS_PREFIX, Lists.newArrayList());
+    try {
+      storagePurge.run();
+    } catch (RuntimeException e) {
+      metricsReporter.count(InternalCatalogMetricsConstant.TABLE_PURGE_FAILED_CTR);
+      log.error(
+          "Table purge failed after the House Table row was deleted, files may be orphaned: "
+              + "table={}, tableUUID={}, location={}",
+          identifier,
+          houseTable.getTableUUID(),
+          tableLocation,
+          e);
+      throw e;
     }
-    return true;
+    metricsReporter.count(InternalCatalogMetricsConstant.TABLE_PURGE_SUCCEEDED_CTR);
   }
 
   /**

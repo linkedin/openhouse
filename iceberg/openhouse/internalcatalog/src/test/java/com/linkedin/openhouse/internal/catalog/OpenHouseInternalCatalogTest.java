@@ -3,6 +3,8 @@ package com.linkedin.openhouse.internal.catalog;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -18,6 +20,9 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableNotFoundException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -38,6 +43,8 @@ public class OpenHouseInternalCatalogTest {
   private static final String METADATA_LOCATION =
       "/data/openhouse/test_db/test_table-uuid/00001-aaa.metadata.json";
   private static final String EXPECTED_BASE = "/data/openhouse/test_db/test_table-uuid";
+  private static final String PURGE_SUCCEEDED_METRIC = "catalog_table_purge_succeeded";
+  private static final String PURGE_FAILED_METRIC = "catalog_table_purge_failed";
 
   @Test
   void testIsValidIdentifierRequiresDatabaseTableShape() {
@@ -104,11 +111,96 @@ public class OpenHouseInternalCatalogTest {
         mock(FileIO.class, withSettings().extraInterfaces(SupportsPrefixOperations.class));
     OpenHouseInternalCatalog catalog = new FixedFileIOCatalog(fileIO);
     catalog.houseTableRepository = repo;
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    catalog.meterRegistry = meterRegistry;
 
     Assertions.assertTrue(catalog.dropTable(IDENTIFIER, true));
 
     verify(repo).deleteById(any(HouseTablePrimaryKey.class), eq(true));
     verify((SupportsPrefixOperations) fileIO).deletePrefix(EXPECTED_BASE);
+    Assertions.assertEquals(1.0, meterRegistry.counter(PURGE_SUCCEEDED_METRIC).count());
+    Assertions.assertEquals(0.0, meterRegistry.counter(PURGE_FAILED_METRIC).count());
+  }
+
+  @Test
+  void dropTableCountsPurgeFailureAndRethrowsAfterHtsRowIsDeleted() {
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    when(repo.findById(any(HouseTablePrimaryKey.class))).thenReturn(Optional.of(purgeableRow()));
+    FileIO fileIO = recordingFileIO();
+    RuntimeException deleteFailure = new RuntimeException("delete failed");
+    doThrow(deleteFailure).when((SupportsPrefixOperations) fileIO).deletePrefix(EXPECTED_BASE);
+    OpenHouseInternalCatalog catalog = new FixedFileIOCatalog(fileIO);
+    catalog.houseTableRepository = repo;
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    catalog.meterRegistry = meterRegistry;
+
+    RuntimeException thrown =
+        Assertions.assertThrows(RuntimeException.class, () -> catalog.dropTable(IDENTIFIER, true));
+
+    Assertions.assertSame(deleteFailure, thrown);
+    verify(repo).deleteById(any(HouseTablePrimaryKey.class), eq(true));
+    Assertions.assertEquals(1.0, meterRegistry.counter(PURGE_FAILED_METRIC).count());
+    Assertions.assertEquals(0.0, meterRegistry.counter(PURGE_SUCCEEDED_METRIC).count());
+  }
+
+  @Test
+  void dropTablePreparesStoragePurgeBeforeDeletingHtsRowAndRunsItAfter() {
+    List<String> events = new ArrayList<>();
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    when(repo.findById(any(HouseTablePrimaryKey.class))).thenReturn(Optional.of(purgeableRow()));
+    doAnswer(invocation -> events.add("deleteHtsRow")).when(repo).deleteById(any(), anyBoolean());
+    OpenHouseInternalCatalog catalog =
+        new FixedFileIOCatalog(recordingFileIO()) {
+          @Override
+          protected Runnable prepareStoragePurge(
+              TableIdentifier identifier,
+              HouseTable houseTable,
+              String tableLocation,
+              FileIO fileIO) {
+            events.add("prepare:" + tableLocation);
+            return () -> events.add("purge");
+          }
+        };
+    catalog.houseTableRepository = repo;
+    catalog.meterRegistry = new SimpleMeterRegistry();
+
+    Assertions.assertTrue(catalog.dropTable(IDENTIFIER, true));
+
+    Assertions.assertEquals(
+        Arrays.asList("prepare:" + EXPECTED_BASE, "deleteHtsRow", "purge"), events);
+  }
+
+  @Test
+  void dropTableKeepsHtsRowWhenStoragePurgePreparationFails() {
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    when(repo.findById(any(HouseTablePrimaryKey.class))).thenReturn(Optional.of(purgeableRow()));
+    OpenHouseInternalCatalog catalog = new FailingPurgePreparationCatalog(recordingFileIO());
+    catalog.houseTableRepository = repo;
+
+    Assertions.assertThrows(IllegalStateException.class, () -> catalog.dropTable(IDENTIFIER, true));
+
+    verify(repo, never()).deleteById(any(), anyBoolean());
+  }
+
+  @Test
+  void dropTableWithoutPurgeDoesNotPrepareStoragePurge() {
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    when(repo.findById(any(HouseTablePrimaryKey.class))).thenReturn(Optional.of(purgeableRow()));
+    OpenHouseInternalCatalog catalog = new FailingPurgePreparationCatalog(recordingFileIO());
+    catalog.houseTableRepository = repo;
+
+    Assertions.assertTrue(catalog.dropTable(IDENTIFIER, false));
+
+    verify(repo).deleteById(any(HouseTablePrimaryKey.class), eq(false));
+  }
+
+  private static HouseTable purgeableRow() {
+    return HouseTable.builder()
+        .databaseId(DB)
+        .tableId(TABLE)
+        .tableUUID("uuid")
+        .tableLocation(METADATA_LOCATION)
+        .build();
   }
 
   @Test
@@ -269,6 +361,21 @@ public class OpenHouseInternalCatalogTest {
   private static class TestOpenHouseInternalCatalog extends OpenHouseInternalCatalog {
     boolean isValidBaseIdentifier(TableIdentifier identifier) {
       return isValidIdentifier(identifier);
+    }
+  }
+
+  /**
+   * Test subclass whose storage purge cannot be prepared, as when table properties are unreadable.
+   */
+  private static class FailingPurgePreparationCatalog extends FixedFileIOCatalog {
+    FailingPurgePreparationCatalog(FileIO fileIO) {
+      super(fileIO);
+    }
+
+    @Override
+    protected Runnable prepareStoragePurge(
+        TableIdentifier identifier, HouseTable houseTable, String tableLocation, FileIO fileIO) {
+      throw new IllegalStateException("cannot prepare storage purge");
     }
   }
 }

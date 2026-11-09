@@ -11,6 +11,9 @@ public final class InternalCatalogMetricsConstant {
 
   static final String MISSING_COMMIT_KEY = "commit_key_missing";
 
+  static final String TABLE_PURGE_SUCCEEDED_CTR = "table_purge_succeeded";
+  static final String TABLE_PURGE_FAILED_CTR = "table_purge_failed";
+
   static final String SNAPSHOTS_ADDED_CTR = "snapshots_added";
   static final String SNAPSHOTS_STAGED_CTR = "snapshots_staged";
   static final String SNAPSHOTS_CHERRY_PICKED_CTR = "snapshots_cherry_picked";
