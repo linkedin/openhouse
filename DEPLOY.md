@@ -189,6 +189,14 @@ Optional certificate authentication uses `database.cert-based-auth.enabled=true`
 mount the referenced files and supply their passwords. SSL mode defaults to `VERIFY_IDENTITY`.
 Pool settings use `spring.datasource.hikari.*`.
 
+The REST service creates and updates the tables with Flyway when it starts, and records the
+migrations in `optimizer_schema_history`; the database can be the one HouseTables uses, where the
+migrations may only touch the optimizer tables and HouseTables' tables must stay untouched. On the
+first rollout the optimizer tables must not already exist. Roll it out
+before the Analyzer and Scheduler, and give it a startup probe that allows for the slowest migration.
+[Optimizer Schema Migrations](docs/development/optimizer-schema-migrations.md#database-privileges)
+lists the privileges its MySQL user needs; they are not a safety boundary.
+
 #### Hadoop Compatible File System for Tables Service
 
 To use remote Hadoop compatible filesystem, update the `storage.uri` in [cluster.yaml](infra/recipes/k8s/config/tables/minikube/tables.yaml)
