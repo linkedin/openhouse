@@ -58,6 +58,11 @@ the entities and the migrations stay the same.
 When generation is in the task graph, the service, optimizer-common, and scheduler database tests
 run afterward, including in parallel builds. Standalone library tests don't request generation.
 
+GitHub's PR workflow runs `./gradlew clean build` for PRs into `main` and the migration stack's
+base branch, `chbush/optimizer-flyway-atlas`, so generation is checked before the stack merges.
+Remove the stack-only branch entry from `.github/workflows/pr-validations.yml` when the base merges
+and the remaining PR targets `main`.
+
 1. Edit the entities in `com.linkedin.openhouse.optimizer.db`.
 2. Build:
    ```bash

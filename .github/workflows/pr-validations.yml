@@ -5,6 +5,8 @@ on:
     types: [opened, synchronize, reopened]
     branches:
       - main
+      # Validate the optimizer migration stack before its base PR reaches main.
+      - chbush/optimizer-flyway-atlas
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
