@@ -119,7 +119,7 @@ public class OpenHouseInternalCatalogTest {
     verify(repo).deleteById(any(HouseTablePrimaryKey.class), eq(true));
     verify((SupportsPrefixOperations) fileIO).deletePrefix(EXPECTED_BASE);
     Assertions.assertEquals(1.0, meterRegistry.counter(PURGE_SUCCEEDED_METRIC).count());
-    Assertions.assertEquals(0.0, meterRegistry.counter(PURGE_FAILED_METRIC).count());
+    Assertions.assertNull(meterRegistry.find(PURGE_FAILED_METRIC).counter());
   }
 
   @Test
@@ -127,7 +127,7 @@ public class OpenHouseInternalCatalogTest {
     HouseTableRepository repo = mock(HouseTableRepository.class);
     when(repo.findById(any(HouseTablePrimaryKey.class))).thenReturn(Optional.of(purgeableRow()));
     FileIO fileIO = recordingFileIO();
-    RuntimeException deleteFailure = new RuntimeException("delete failed");
+    RuntimeException deleteFailure = new IllegalStateException("delete failed");
     doThrow(deleteFailure).when((SupportsPrefixOperations) fileIO).deletePrefix(EXPECTED_BASE);
     OpenHouseInternalCatalog catalog = new FixedFileIOCatalog(fileIO);
     catalog.houseTableRepository = repo;
@@ -139,7 +139,13 @@ public class OpenHouseInternalCatalogTest {
 
     Assertions.assertSame(deleteFailure, thrown);
     verify(repo).deleteById(any(HouseTablePrimaryKey.class), eq(true));
-    Assertions.assertEquals(1.0, meterRegistry.counter(PURGE_FAILED_METRIC).count());
+    Assertions.assertEquals(
+        1.0,
+        meterRegistry
+            .get(PURGE_FAILED_METRIC)
+            .tag("exception", "IllegalStateException")
+            .counter()
+            .count());
     Assertions.assertEquals(0.0, meterRegistry.counter(PURGE_SUCCEEDED_METRIC).count());
   }
 

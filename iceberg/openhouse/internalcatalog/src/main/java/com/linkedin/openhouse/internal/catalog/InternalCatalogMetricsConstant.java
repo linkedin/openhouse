@@ -32,4 +32,5 @@ public final class InternalCatalogMetricsConstant {
   static final String DATABASE_TAG = "database";
   static final String TABLE_TAG = "table";
   public static final String CACHE_REMOVAL_CAUSE_TAG = "cause";
+  static final String EXCEPTION_TAG = "exception";
 }

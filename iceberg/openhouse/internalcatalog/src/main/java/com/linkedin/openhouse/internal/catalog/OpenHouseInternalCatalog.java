@@ -250,7 +250,10 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
     try {
       storagePurge.run();
     } catch (RuntimeException e) {
-      metricsReporter.count(InternalCatalogMetricsConstant.TABLE_PURGE_FAILED_CTR);
+      metricsReporter.count(
+          InternalCatalogMetricsConstant.TABLE_PURGE_FAILED_CTR,
+          InternalCatalogMetricsConstant.EXCEPTION_TAG,
+          e.getClass().getSimpleName());
       log.error(
           "Table purge failed after the House Table row was deleted, files may be orphaned: "
               + "table={}, tableUUID={}, location={}",
