@@ -32,7 +32,7 @@ public class IcebergNamespacesService {
       throw new NamespaceException(
           HttpStatus.BAD_REQUEST, "BadRequestException", "Exactly one namespace level is required");
     }
-    authorize(namespace.get(0), principal, Privileges.CREATE_TABLE);
+    authorize(namespace.get(0), principal, Privileges.SYSTEM_ADMIN);
     return databaseRepository.create(namespace.get(0), properties);
   }
 
@@ -47,7 +47,7 @@ public class IcebergNamespacesService {
   public DatabasePropertyUpdate update(
       String namespace, Map<String, String> updates, Set<String> removals, String principal)
       throws NamespaceException, HouseDatabaseException {
-    authorize(namespace, principal, Privileges.UPDATE_TABLE_METADATA);
+    authorize(namespace, principal, Privileges.SYSTEM_ADMIN);
     if (!Collections.disjoint(updates.keySet(), removals)) {
       throw new NamespaceException(
           HttpStatus.UNPROCESSABLE_ENTITY,

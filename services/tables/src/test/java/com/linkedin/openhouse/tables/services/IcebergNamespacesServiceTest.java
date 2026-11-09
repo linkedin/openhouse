@@ -53,12 +53,12 @@ class IcebergNamespacesServiceTest {
   }
 
   @Test
-  void createAndUpdateUseDatabasePrivilegesAndForwardSparseChanges() throws Exception {
+  void createAndUpdateRequireSystemAdminAndForwardSparseChanges() throws Exception {
     when(repository.create(eq("foo"), any()))
         .thenReturn(new DatabaseMetadata("identifier", "foo", Collections.singletonMap("a", "1")));
     service.create(Collections.singletonList("foo"), Collections.singletonMap("a", "1"), "bar");
     verify(authorizationHandler)
-        .checkAccessDecision(eq("bar"), any(DatabaseDto.class), eq(Privileges.CREATE_TABLE));
+        .checkAccessDecision(eq("bar"), any(DatabaseDto.class), eq(Privileges.SYSTEM_ADMIN));
     when(repository.updateProperties(eq("foo"), any(), any()))
         .thenReturn(
             new DatabasePropertyUpdate(
@@ -72,9 +72,8 @@ class IcebergNamespacesServiceTest {
             .getMissing());
     verify(repository)
         .updateProperties("foo", Collections.singletonMap("b", "2"), Collections.singleton("a"));
-    verify(authorizationHandler)
-        .checkAccessDecision(
-            eq("bar"), any(DatabaseDto.class), eq(Privileges.UPDATE_TABLE_METADATA));
+    verify(authorizationHandler, times(2))
+        .checkAccessDecision(eq("bar"), any(DatabaseDto.class), eq(Privileges.SYSTEM_ADMIN));
   }
 
   @Test

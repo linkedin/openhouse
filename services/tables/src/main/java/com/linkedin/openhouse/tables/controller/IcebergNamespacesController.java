@@ -75,7 +75,7 @@ public class IcebergNamespacesController {
   @Operation(tags = "Namespace", summary = "Create a namespace")
   @ApiResponse(responseCode = "200", description = "Namespace created")
   @PostMapping
-  @Secured(Privileges.Privilege.CREATE_TABLE)
+  @Secured(Privileges.Privilege.SYSTEM_ADMIN)
   public NamespaceResponse createNamespace(
       @PathVariable String prefix, @Valid @RequestBody CreateNamespaceRequest request)
       throws NamespaceException, HouseDatabaseException {
@@ -102,7 +102,7 @@ public class IcebergNamespacesController {
   @Operation(tags = "Namespace", summary = "Update namespace properties")
   @ApiResponse(responseCode = "200", description = "Properties updated")
   @PostMapping("/{namespace}/properties")
-  @Secured(Privileges.Privilege.UPDATE_TABLE_METADATA)
+  @Secured(Privileges.Privilege.SYSTEM_ADMIN)
   public UpdateNamespacePropertiesResponse updateNamespaceProperties(
       @PathVariable String prefix,
       @PathVariable String namespace,

@@ -27,8 +27,14 @@ Unpaired UTF-16 surrogates and overlength keys return 400.
 ## Authorization and errors
 
 The existing token interceptor and secured-method guard protect these routes. The service checks
-database privileges before reading or mutating metadata: `CREATE_TABLE` for creation,
-`GET_TABLE_METADATA` for load, `UPDATE_TABLE_METADATA` for updates, and `DELETE_TABLE` for drop.
+database privileges before reading or mutating metadata: `SYSTEM_ADMIN` for creation and
+property updates (including removals), `GET_TABLE_METADATA` for load, and `DELETE_TABLE` for drop.
+Property mutations require the same administrative authority as database creation because
+database defaults can affect every table whose consumer adopts effective-property resolution.
+Permission to write individual tables does not grant permission to change these defaults.
+The LinkedIn authorization handler resolves database-scoped `SYSTEM_ADMIN` against its configured
+`systemAdmins` identities, independently of table permissions. Deploy that handler support with
+these routes. Other authorization implementations must define their own `SYSTEM_ADMIN` policy.
 The namespace authorization resource identifier is normalized with `Locale.ROOT` to lowercase,
 matching HouseTables identity. The stored display name may retain its original case.
 Database access denial returns 403 before looking up metadata, so reads cannot disclose properties

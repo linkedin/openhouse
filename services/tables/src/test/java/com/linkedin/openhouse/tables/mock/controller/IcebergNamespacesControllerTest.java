@@ -15,6 +15,7 @@ import com.linkedin.openhouse.internal.catalog.repository.HouseDatabaseRepositor
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException.Reason;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
+import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.config.NamespaceErrorFilter;
 import com.linkedin.openhouse.tables.controller.IcebergNamespacesController;
 import com.linkedin.openhouse.tables.exception.NamespaceExceptionHandler;
@@ -97,6 +98,47 @@ class IcebergNamespacesControllerTest {
     mvc.perform(delete("/v1/catalog_name/namespaces/foo"))
         .andExpect(status().isNoContent())
         .andExpect(content().string(""));
+    verify(repository).delete("foo");
+  }
+
+  @Test
+  void databaseWritersWithoutSystemAdminCannotCreateOrChangeProperties() throws Exception {
+    when(authorizationHandler.checkAccessDecision(
+            anyString(), any(DatabaseDto.class), eq(Privileges.SYSTEM_ADMIN)))
+        .thenReturn(false);
+    mvc.perform(
+            post("/v1/catalog_name/namespaces")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"namespace\":[\"foo\"]}"))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.error.type").value("ForbiddenException"));
+    mvc.perform(
+            post("/v1/catalog_name/namespaces/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"updates\":{\"a\":\"1\"}}"))
+        .andExpect(status().isForbidden());
+    mvc.perform(
+            post("/v1/catalog_name/namespaces/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"removals\":[\"a\"]}"))
+        .andExpect(status().isForbidden());
+    verifyNoInteractions(repository);
+  }
+
+  @Test
+  void readsAndDropKeepDatabasePrivilegesWithoutSystemAdmin() throws Exception {
+    when(authorizationHandler.checkAccessDecision(
+            anyString(), any(DatabaseDto.class), eq(Privileges.SYSTEM_ADMIN)))
+        .thenReturn(false);
+    when(repository.findByName("foo"))
+        .thenReturn(Optional.of(new DatabaseMetadata("identifier", "foo", Collections.emptyMap())));
+    mvc.perform(get("/v1/catalog_name/namespaces/foo")).andExpect(status().isOk());
+    mvc.perform(delete("/v1/catalog_name/namespaces/foo")).andExpect(status().isNoContent());
+    verify(authorizationHandler)
+        .checkAccessDecision(
+            anyString(), any(DatabaseDto.class), eq(Privileges.GET_TABLE_METADATA));
+    verify(authorizationHandler)
+        .checkAccessDecision(anyString(), any(DatabaseDto.class), eq(Privileges.DELETE_TABLE));
     verify(repository).delete("foo");
   }
 
