@@ -416,7 +416,7 @@ def test_table_spelling_unquoted_view_sql_reports_emitted_spelling():
 
     assert plan.source_columns == ["a"]
     assert f'"{plan.sql_table.database}"."{plan.sql_table.table}"' in plan.sql
-    assert (plan.sql_table.database.lower(), plan.sql_table.table.lower()) == ("mydb", "mytable")
+    assert (plan.sql_table.database, plan.sql_table.table) == ("mydb", "mytable")
 
 
 def test_table_spelling_leaves_qualifiers_and_aliases_untouched():
