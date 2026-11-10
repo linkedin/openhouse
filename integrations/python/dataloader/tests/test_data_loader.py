@@ -1093,3 +1093,64 @@ def test_projection_udf_with_mixed_case_materializes(tmp_path):
     assert result.column("policyField").to_pylist() == ["policy_a", "policy_b", "policy_c"]
     # foo returns True; NOT True = False; bar(False, val, ...) returns val (not replaced)
     assert result.column("otherField").to_pylist() == ["x", "y", "z"]
+
+
+# --- Transform SQL spells the table differently from the requested identifier ---
+
+
+class _SpelledTableTransformer(TableTransformer):
+    """Emits SQL whose db/table spelling is fixed, like lower-cased view SQL from the Hive Metastore."""
+
+    def __init__(self, db: str, tbl: str):
+        super().__init__(dialect=SqlTarget.DATA_FUSION)
+        self._db = db
+        self._tbl = tbl
+
+    def transform(self, table, context):
+        return f"SELECT id, 'MASKED' AS name, value FROM {self._db}.\"{self._tbl}\" WHERE value > 1.5"
+
+
+@pytest.mark.parametrize("sql_db,sql_tbl", [("mydb", "mytable"), ("MYDB", "MYTABLE"), ("myDb", "myTable")])
+def test_transformer_sql_spelling_differs_from_requested_identifier(tmp_path, sql_db, sql_tbl):
+    """Requested myDb.myTable, SQL spelled differently: same rows, output names and pushdown as a matching spelling."""
+    import pickle
+
+    from pyiceberg.expressions import AlwaysTrue as IceAlwaysTrue
+
+    catalog = _make_real_catalog(tmp_path)
+    mock_table = catalog.load_table.return_value
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="myDb",
+        table="myTable",
+        columns=[COL_ID, COL_NAME],
+        context=DataLoaderContext(table_transformer=_SpelledTableTransformer(sql_db, sql_tbl)),
+    )
+    splits = list(loader)
+    result = pa.Table.from_batches([b for s in splits for b in s])
+
+    assert result.column_names == [COL_ID, COL_NAME]
+    assert sorted(result.column(COL_ID).to_pylist()) == [2, 3]
+    assert result.column(COL_NAME).to_pylist() == ["MASKED", "MASKED"]
+
+    scan_kwargs = mock_table.scan.call_args.kwargs
+    assert scan_kwargs["selected_fields"] == (COL_ID, COL_VALUE)
+    assert not isinstance(scan_kwargs["row_filter"], IceAlwaysTrue)
+
+    restored = pa.Table.from_batches([b for s in splits for b in pickle.loads(pickle.dumps(s))])
+    assert restored.equals(result)
+
+
+def test_transformer_sql_for_different_table_is_rejected(tmp_path):
+    catalog = _make_real_catalog(tmp_path)
+
+    loader = OpenHouseDataLoader(
+        catalog=catalog,
+        database="myDb",
+        table="myTable",
+        context=DataLoaderContext(table_transformer=_SpelledTableTransformer("mydb", "othertable")),
+    )
+
+    with pytest.raises(ValueError, match=r"references mydb\.othertable, expected myDb\.myTable"):
+        list(loader)
