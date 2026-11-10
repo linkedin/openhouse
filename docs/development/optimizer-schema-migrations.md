@@ -14,6 +14,7 @@ HouseTables' production schema and data must stay untouched.
 | `libs/optimizer/optimizer-common/src/main/java/com/linkedin/openhouse/optimizer/db/` | The application's mapped columns and required indexes, declared with `@Column` and `@Table(indexes = ...)`. |
 | `libs/optimizer/optimizer-common/src/main/resources/db/migration/` | The migrations, and Atlas's checksums of them in `atlas.sum`. They ship in the optimizer-common jar; only the service runs them. |
 | `libs/optimizer/optimizer-common/atlas.hcl` | Atlas's configuration: the entities' DDL, the migrations, and the MySQL image Atlas compares them on. |
+| `services/optimizer/schema-migrations.gradle` | Schema export, checksummed Atlas installation, and migration tasks, separate from the service build configuration. |
 | `build/optimizer/entity-schema.sql` | The entities' DDL, written by `:services:optimizer:exportEntitySchema` independently of tests and migrations. Not committed. |
 | `OptimizerDatabaseConfiguration` (optimizer-common) | Uses the same explicit table/column naming in the service, analyzer and scheduler. Name each column in `@Column(name = ...)`. |
 
@@ -101,8 +102,10 @@ Atlas writes DDL only. Write a migration that it can't, such as one that copies 
 the file, then run `./gradlew :services:optimizer:hashMigrations` to update `atlas.sum`. The read-only
 CI check accepts handwritten or generated SQL equally; it checks the result, not command history.
 
-The timestamp columns declare `columnDefinition = "TIMESTAMP(6)"`, the type their migration created;
-for an `Instant`, Hibernate's DDL would say `DATETIME(6)`.
+The five `Instant` fields declare `columnDefinition = "TIMESTAMP(6)"` to match the existing MySQL
+schema at microsecond precision. With Hibernate 5.6's MySQL dialect, omitting it exports
+`DATETIME(6)`, so Atlas would propose changing the existing timestamp columns. The annotation aligns
+DDL export; Hibernate startup validation accepts the existing timestamp columns even without it.
 
 If another change merged a migration first, `atlas.sum` conflicts when you rebase. Delete your
 migration, take `atlas.sum` from the base branch, and run generation again so that yours gets a later

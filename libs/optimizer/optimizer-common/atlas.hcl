@@ -1,19 +1,24 @@
-# Atlas drafts Flyway SQL explicitly; builds only verify committed migrations. A desired-state diff
-# can propose drops, so review staged changes before committing; see the schema migration guide.
+# Run Atlas from this directory; file:// paths are relative to it.
+# Commands and rollout rules: docs/development/optimizer-schema-migrations.md.
+
+# Explicit authoring: compare committed migrations with entity DDL, then write a candidate
+# Flyway migration and atlas.sum. This can propose DROP statements; review the SQL before committing.
 env "local" {
-  # Export independently of tests, migrations and validation:
-  # ./gradlew :services:optimizer:exportEntitySchema
+  # First run ./gradlew :services:optimizer:exportEntitySchema from the repository root.
+  # Hibernate exports the mapped tables here without running migrations or requiring an existing DB.
   src = "file://../../../build/optimizer/entity-schema.sql"
-  # Throwaway MySQL in Docker that Atlas replays the migrations and the entities' DDL on to diff
-  # them. Keep it on the image the tests run on, MySqlContainerInitializer.MYSQL_IMAGE.
+  # Atlas uses disposable MySQL in Docker to compare the two schemas, never the application DB.
+  # Keep the image aligned with MySqlContainerInitializer.MYSQL_IMAGE in the test fixtures.
   dev = "docker+mysql://_/mysql:8.0.46/dev"
   migration {
     dir = "file://src/main/resources/db/migration?format=flyway"
   }
 }
 
-# Native verification is strict about mapped definitions, but retained rollout objects need not be
-# removed just because the current entities no longer map them. This is not a write-safety check.
+# Build/CI verification (:services:optimizer:verifyMigrations): compare committed migrations with
+# entity DDL without writing migration files or changing the application DB. Any reported diff fails.
+# Ignore drops so tables, columns and indexes kept for older releases need not be mapped here.
+# This does not prove write compatibility: extra NOT NULL columns or unique indexes can break writes.
 env "verify" {
   dev = "docker+mysql://_/mysql:8.0.46/dev"
   diff {
