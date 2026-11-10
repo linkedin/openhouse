@@ -23,6 +23,9 @@ import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewPointer;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ViewRepresentation;
+import com.linkedin.openhouse.tables.audit.ViewOperationAuditEmitter;
+import com.linkedin.openhouse.tables.audit.model.OperationStatus;
+import com.linkedin.openhouse.tables.audit.model.ViewAuditEvent;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.exception.ViewApiException;
 import com.linkedin.openhouse.tables.exception.ViewErrorCode;
@@ -64,10 +67,10 @@ import org.springframework.stereotype.Component;
  *
  * POST / PUT: gate -> route database existence -> prepared capture -> authorization
  *             (replace: the captured view; otherwise the database) -> resource type / base-version -> allocate (create only)
- *             -> commit
+ *             -> commit -> audit
  *
  * DELETE:     gate -> prepared capture -> authorization
- *             -> delete
+ *             -> delete -> audit
  * </pre>
  *
  * Captures, reads, lists and deletes use the typed {@link HouseTableRepository}; a create selects
@@ -102,6 +105,8 @@ public class ViewsServiceImpl implements ViewsService {
   @Autowired private AuthorizationUtils authorizationUtils;
 
   @Autowired private ViewWritePrivilegeMapper privilegeMapper;
+
+  @Autowired private ViewOperationAuditEmitter viewOperationAuditEmitter;
 
   @Autowired private ClusterProperties clusterProperties;
 
@@ -152,6 +157,22 @@ public class ViewsServiceImpl implements ViewsService {
       CreateUpdateViewRequestBody requestBody, String actingPrincipal, boolean failOnExist) {
     String databaseId = requestBody.getDatabaseId();
     String viewId = requestBody.getViewId();
+    // #839 relocated the source dialect from a top-level field to a reserved view property.
+    Map<String, String> requestProperties = requestBody.getViewProperties();
+    String sourceDialect =
+        requestProperties == null
+            ? null
+            : requestProperties.get(ReservedViewProperties.SOURCE_DIALECT);
+    // Requested naming until the capture supplies the stored row's.
+    ViewAuditEvent auditContext =
+        ViewAuditEvent.builder()
+            .databaseName(databaseId)
+            .viewName(viewId)
+            .user(actingPrincipal)
+            .sourceDialect(sourceDialect)
+            .build();
+    ViewCommitResult result;
+    ViewDto dto;
     try {
       requireEnabled(databaseId);
       requireDatabaseExists(databaseId);
@@ -166,6 +187,7 @@ public class ViewsServiceImpl implements ViewsService {
                           ? PreparedViewOperation.view(row)
                           : PreparedViewOperation.tableOccupant(row))
               .orElseGet(PreparedViewOperation::observedAbsence);
+      auditContext = captureAuditContext(auditContext, prepared);
       boolean viewAlreadyExists = prepared.getViewBaseRow().isPresent();
       Privileges privilege =
           failOnExist ? privilegeMapper.forCreate() : privilegeMapper.forPut(viewAlreadyExists);
@@ -191,17 +213,34 @@ public class ViewsServiceImpl implements ViewsService {
             databaseId, viewId, requestBody.getBaseMetadataLocation(), prepared, viewAlreadyExists);
       }
 
-      ViewCommitResult result =
-          commitView(requestBody, prepared, actingPrincipal, !viewAlreadyExists);
-      ViewDto dto = toCommittedDto(databaseId, viewId, result);
-      return Pair.of(withClusterId(dto), result.isCreated());
+      result = commitView(requestBody, prepared, actingPrincipal, !viewAlreadyExists);
+      dto = toCommittedDto(databaseId, viewId, result);
     } catch (RuntimeException e) {
-      throw ViewFailureTranslator.translateWriteFailureTo(e);
+      throw handleWriteFailure(e, auditContext);
     }
+    // Outside the try: once commit/deleteById returns, SUCCESS is terminal and a subsequent audit-
+    // delivery failure must never re-enter the FAILED branch above or retry the already-
+    // acknowledged mutation.
+    viewOperationAuditEmitter.emit(
+        auditContext
+            .toBuilder()
+            .databaseName(dto.getDatabaseId())
+            .viewName(dto.getViewId())
+            .viewUUID(result.getViewUuid())
+            .newMetadataLocation(dto.getMetadataLocation())
+            .build(),
+        OperationStatus.SUCCESS);
+    return Pair.of(withClusterId(dto), result.isCreated());
   }
 
   @Override
   public void deleteView(String databaseId, String viewId, String actingPrincipal) {
+    ViewAuditEvent auditContext =
+        ViewAuditEvent.builder()
+            .databaseName(databaseId)
+            .viewName(viewId)
+            .user(actingPrincipal)
+            .build();
     try {
       requireEnabled(databaseId);
 
@@ -210,6 +249,7 @@ public class ViewsServiceImpl implements ViewsService {
               .findViewById(primaryKey(databaseId, viewId))
               .map(PreparedViewOperation::view)
               .orElseGet(PreparedViewOperation::observedAbsence);
+      auditContext = captureAuditContext(auditContext, prepared);
       if (!prepared.getViewBaseRow().isPresent()) {
         throw noSuchView(databaseId, viewId);
       }
@@ -219,8 +259,9 @@ public class ViewsServiceImpl implements ViewsService {
           privilegeMapper.forDelete());
       deleteCapturedView(databaseId, viewId);
     } catch (RuntimeException e) {
-      throw ViewFailureTranslator.translateWriteFailureTo(e);
+      throw handleWriteFailure(e, auditContext);
     }
+    viewOperationAuditEmitter.emit(auditContext, OperationStatus.SUCCESS);
   }
 
   /**
@@ -328,6 +369,45 @@ public class ViewsServiceImpl implements ViewsService {
           ViewErrorCode.CONCURRENT_VIEW_MODIFICATION,
           "Concurrent view modification: " + databaseId + "." + viewId);
     }
+  }
+
+  /**
+   * Copies the captured occupant's scalars into the audit context before authorization or mutation
+   * can proceed: the managed row can be updated in place by the commit, so it is never read again.
+   * Only a VIEW occupant supplies the UUID and the pointer in effect; a TABLE occupant supplies
+   * naming alone.
+   */
+  private static ViewAuditEvent captureAuditContext(
+      ViewAuditEvent auditContext, PreparedViewOperation prepared) {
+    return prepared
+        .getOccupantRow()
+        .map(
+            row -> {
+              ViewAuditEvent.ViewAuditEventBuilder captured =
+                  auditContext
+                      .toBuilder()
+                      .databaseName(row.getDatabaseId())
+                      .viewName(row.getTableId());
+              if (ENTITY_TYPE_VIEW.equals(row.getEntityType())) {
+                captured.viewUUID(row.getTableUUID()).oldMetadataLocation(row.getTableLocation());
+              }
+              return captured.build();
+            })
+        .orElse(auditContext);
+  }
+
+  /**
+   * Write-failure dispatch: an ambiguous commit emits one UNKNOWN audit event; any other failure
+   * emits one FAILED audit event. Translation of the failure into the API exception stays with
+   * {@link ViewFailureTranslator}, so audit emission never changes the error contract.
+   */
+  private RuntimeException handleWriteFailure(RuntimeException e, ViewAuditEvent auditContext) {
+    viewOperationAuditEmitter.emit(
+        auditContext,
+        e instanceof CommitStateUnknownException
+            ? OperationStatus.UNKNOWN
+            : OperationStatus.FAILED);
+    return ViewFailureTranslator.translateWriteFailureTo(e);
   }
 
   private void requireEnabled(String databaseId) {

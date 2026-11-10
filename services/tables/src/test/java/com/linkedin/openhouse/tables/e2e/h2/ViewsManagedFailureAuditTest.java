@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.e2e.h2;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -13,9 +14,13 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
 import com.linkedin.openhouse.common.audit.AuditHandler;
+import com.linkedin.openhouse.common.audit.ServiceAuditPayloadRedactor;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
+import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -23,23 +28,33 @@ import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableRe
 import com.linkedin.openhouse.internal.catalog.view.ViewCommitEngine;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
+import com.linkedin.openhouse.tables.audit.model.OperationStatus;
+import com.linkedin.openhouse.tables.audit.model.ViewAuditEvent;
 import com.linkedin.openhouse.tables.authorization.OpaHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
+import com.linkedin.openhouse.tables.controller.ViewsController;
 import com.linkedin.openhouse.tables.exception.ViewApiException;
 import com.linkedin.openhouse.tables.exception.ViewExceptionHandler;
+import com.linkedin.openhouse.tables.mock.logging.Log4j2LogCapture;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
+import com.linkedin.openhouse.tables.model.ReservedViewProperties;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
 import com.linkedin.openhouse.tables.services.ViewPageCursor;
 import com.linkedin.openhouse.tables.services.ViewPageTokenCodec;
 import com.linkedin.openhouse.tables.services.ViewPaginationAdapter;
 import com.linkedin.openhouse.tables.services.ViewsFeatureGate;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Metrics;
 import java.lang.reflect.Method;
+import java.net.URI;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -70,14 +85,16 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.method.annotation.ExceptionHandlerMethodResolver;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.util.NestedServletException;
 
 /**
- * Managed view failure handling through real MVC, view advice and service. Request-audit content,
- * request-audit delivery and diagnostic logs are out of scope here: the request-audit aspect still
- * runs (into the mocked request handler below) but is not asserted on.
+ * Managed view failure handling, the operation-audit contract, and the request audit and rendered
+ * diagnostic logs of the same requests, through real MVC, view advice, the request-audit aspect and
+ * service. The request audit keeps the supplied definition (only the CAS value is replaced);
+ * responses and ordinary logs, thrown causes included, never carry it.
  */
 @SpringBootTest(classes = {SpringH2Application.class, ViewsManagedFailureAuditTest.Config.class})
 @AutoConfigureMockMvc
@@ -94,23 +111,35 @@ public class ViewsManagedFailureAuditTest {
   private static final String VIEWS_PATH =
       "/v1/databases/" + ViewModelConstants.DATABASE_ID + "/views";
   private static final String VIEW_PATH = VIEWS_PATH + "/" + ViewModelConstants.VIEW_ID;
+  private static final String DATABASE_ROUTE = "/v1/databases/" + ViewModelConstants.DATABASE_ID;
   private static final String SECRET_SQL = "select very_secret_sql";
   private static final String SECRET_SCHEMA = "very_secret_schema";
   private static final String SECRET_BASE = "file:/very-secret-base.metadata.json";
   private static final String SECRET_PAGE_TOKEN = "very-secret-page-token";
-  /** Forbidden in every HTTP response. */
+  /**
+   * Forbidden in every HTTP response, in rendered logs, and in the identity-only operation audit
+   * event. The request audit legitimately keeps the supplied SQL and schema.
+   */
   private static final String[] SECRETS = {
     SECRET_SQL, SECRET_SCHEMA, SECRET_BASE, SECRET_PAGE_TOKEN
   };
 
   private static final Pageable SINGLE_ROW = PageRequest.of(0, 1);
   private static final String DROP_DIALECT_SENTINEL = "drop-dialect-value-sentinel";
+  private static final String CAPTURED_UUID = "view-uuid";
+  private static final String SESSION_ID_HEADER = "session-id";
+  private static final String SINK_FAILURE = "operation-audit-sink-failure-marker";
+  private static final String REQUEST_SINK_FAILURE = "request-audit-sink-failure-marker";
+  private static final String[] PARSER_DETAILS = {
+    "com.google.gson", "MalformedJsonException", "JsonSyntaxException", "End of input"
+  };
   private static final String SIZE_BINDING_MESSAGE = "size : must be an integer";
   private static final String[] BINDING_PARSER_DETAILS = {
     "NumberFormatException", "For input string", "Failed to convert", "java.lang"
   };
 
   @Autowired private MockMvc mvc;
+  @Autowired private MeterRegistry meterRegistry;
 
   @MockBean private ViewsFeatureGate viewsFeatureGate;
   // No real House Table path is needed: database probe, capture, read, list and delete failures
@@ -131,12 +160,19 @@ public class ViewsManagedFailureAuditTest {
   @MockBean(name = "serviceAuditHandler")
   private AuditHandler<ServiceAuditEvent> serviceAuditHandler;
 
+  @MockBean private AuditHandler<ViewAuditEvent> viewAuditHandler;
+
   private String jwtAccessToken;
 
   @BeforeEach
   public void setup() throws Exception {
     Mockito.reset(
-        viewsFeatureGate, houseTableRepository, viewCommitEngine, opaHandler, serviceAuditHandler);
+        viewsFeatureGate,
+        houseTableRepository,
+        viewCommitEngine,
+        opaHandler,
+        serviceAuditHandler,
+        viewAuditHandler);
     jwtAccessToken = new DummyTokenInterceptor.DummySecurityJWT(PRINCIPAL).buildNoopJWT();
     when(viewsFeatureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(true);
     when(houseTableRepository.findAllByDatabaseId(ViewModelConstants.DATABASE_ID, SINGLE_ROW))
@@ -150,9 +186,14 @@ public class ViewsManagedFailureAuditTest {
         .thenReturn(Optional.empty());
   }
 
-  /** A syntactically malformed body is a safe 400 before the service. */
+  /**
+   * A syntactically malformed body is a safe 400 before the service and the operation audit. Gson,
+   * the request-audit parser, also rejects it, so the audit's parse-failure path runs: the payload
+   * is dropped rather than retained raw, the parsing-failure metric is counted, and neither the
+   * body nor parser details reach the logs.
+   */
   @Test
-  public void malformedJsonIsASafe400WithoutService() throws Exception {
+  public void malformedJsonIsASafe400WithoutServiceOrOperationAudit() throws Exception {
     String malformed =
         "{\"viewId\":\""
             + ViewModelConstants.VIEW_ID
@@ -161,44 +202,78 @@ public class ViewsManagedFailureAuditTest {
             + "\",\"representations\":[{\"sql\":\""
             + SECRET_SQL
             + "\"}],";
+    double parseFailuresBefore = serviceAuditCount(MetricsConstant.FAILED_PARSING_REQUEST_PAYLOAD);
 
-    MvcResult result =
-        expectNoCauseOrStacktrace(
-                mvc.perform(
-                    MockMvcRequestBuilders.post(VIEWS_PATH)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(malformed)
-                        .accept(MediaType.APPLICATION_JSON)
-                        .header("Authorization", "Bearer " + jwtAccessToken)))
-            .andExpect(status().isBadRequest())
-            .andReturn();
+    MvcResult result;
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      result =
+          expectNoCauseOrStacktrace(
+                  mvc.perform(
+                      MockMvcRequestBuilders.post(VIEWS_PATH)
+                          .contentType(MediaType.APPLICATION_JSON)
+                          .content(malformed)
+                          .accept(MediaType.APPLICATION_JSON)
+                          .header("Authorization", "Bearer " + jwtAccessToken)))
+              .andExpect(status().isBadRequest())
+              .andReturn();
+      assertNoSensitiveLogs(logs, PARSER_DETAILS);
+    }
 
     assertNoSensitive(result.getResponse().getContentAsString());
+    assertNull(captureServiceAudit().getRequestPayload(), "An unparseable body is never kept raw.");
+    assertEquals(
+        parseFailuresBefore + 1,
+        serviceAuditCount(MetricsConstant.FAILED_PARSING_REQUEST_PAYLOAD),
+        "The audit's parse-failure path ran and was counted.");
+    verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
     Mockito.verifyNoInteractions(houseTableRepository, viewCommitEngine, opaHandler);
   }
 
   @Test
-  public void successfulCreateIsAdmittedAllocatedAndCommittedOnce() throws Exception {
+  public void successfulCreateEmitsOneSuccessOperationAuditWithCommittedPointer() throws Exception {
     ViewCommitResult committed = ViewsManagedAuthMatrixBase.createdResult();
     when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
     when(viewCommitEngine.commit(any(ViewCommitIntent.class))).thenReturn(committed);
+    String sessionId = "view-session-success";
 
     mvc.perform(
             MockMvcRequestBuilders.post(VIEWS_PATH)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(requestWithSensitiveMarkers())
                 .accept(MediaType.APPLICATION_JSON)
-                .header("Authorization", "Bearer " + jwtAccessToken))
+                .header("Authorization", "Bearer " + jwtAccessToken)
+                .header(SESSION_ID_HEADER, sessionId))
         .andExpect(status().isCreated());
 
     // Positive anchor for the observed storage seam used by negative cases.
     verify(storageSelector, times(1))
         .selectStorage(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID);
-    verify(viewCommitEngine, times(1)).commit(any(ViewCommitIntent.class));
+    ViewAuditEvent viewEvent = captureViewAudit();
+    assertEquals(OperationStatus.SUCCESS, viewEvent.getOperationStatus());
+    assertEquals(
+        ViewsManagedAuthMatrixBase.CREATED_VIEW_UUID,
+        viewEvent.getViewUUID(),
+        "Create audit UUID is the engine-acknowledged UUID.");
+    ArgumentCaptor<ViewCommitIntent> intent = ArgumentCaptor.forClass(ViewCommitIntent.class);
+    verify(viewCommitEngine, times(1)).commit(intent.capture());
+    assertNotEquals(
+        intent.getValue().getViewUuid(),
+        viewEvent.getViewUUID(),
+        "The tentative allocation UUID never stands in for the acknowledged one.");
+    assertNull(viewEvent.getOldMetadataLocation(), "A create has no prior pointer.");
+    assertEquals(committed.getPointer().getMetadataLocation(), viewEvent.getNewMetadataLocation());
+    assertEquals(ViewModelConstants.DATABASE_ID, viewEvent.getDatabaseName());
+    assertEquals(ViewModelConstants.VIEW_ID, viewEvent.getViewName());
+    assertEquals(PRINCIPAL, viewEvent.getUser());
+    assertEquals(ViewModelConstants.SOURCE_DIALECT, viewEvent.getSourceDialect());
+    assertNoSensitive(viewEvent.toJson());
+    assertRequestAuditKeepsSuppliedDefinition(captureServiceAudit(), requestWithSensitiveMarkers());
+    assertCorrelated(sessionId, OperationStatus.SUCCESS);
   }
 
   @Test
-  public void successfulReplaceReturnsOkAfterOneCommit() throws Exception {
+  public void successfulReplaceAuditsCapturedIdentityAndOldPointerWithCommittedNewPointer()
+      throws Exception {
     ViewCommitResult committed = ViewsManagedAuthMatrixBase.replacedResult();
     when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
     when(opaHandler.checkAccessDecision(any(), any(TableDto.class), any())).thenReturn(true);
@@ -214,11 +289,20 @@ public class ViewsManagedFailureAuditTest {
                 .header("Authorization", "Bearer " + jwtAccessToken))
         .andExpect(status().isOk());
 
-    verify(viewCommitEngine, times(1)).commit(any(ViewCommitIntent.class));
+    ViewAuditEvent viewEvent = captureViewAudit();
+    assertEquals(OperationStatus.SUCCESS, viewEvent.getOperationStatus());
+    assertEquals(CAPTURED_UUID, viewEvent.getViewUUID());
+    assertEquals(ViewModelConstants.METADATA_LOCATION, viewEvent.getOldMetadataLocation());
+    assertEquals(committed.getPointer().getMetadataLocation(), viewEvent.getNewMetadataLocation());
+    assertEquals(PRINCIPAL, viewEvent.getUser());
+    assertNoSensitive(viewEvent.toJson());
+    assertRequestAuditKeepsSuppliedDefinition(
+        captureServiceAudit(), ViewModelConstants.fullyPopulatedRequest().toJson());
   }
 
   @Test
-  public void successfulDropDeletesTheCapturedViewOnce() throws Exception {
+  public void successfulDropAuditsCapturedIdentityAndOldPointerWithoutNewPointer()
+      throws Exception {
     when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
     when(opaHandler.checkAccessDecision(any(), any(TableDto.class), any())).thenReturn(true);
     stubDeletableView();
@@ -230,25 +314,44 @@ public class ViewsManagedFailureAuditTest {
         .andExpect(status().isNoContent());
 
     verify(houseTableRepository).deleteViewById(ViewsManagedAuthMatrixBase.viewKey());
+    ViewAuditEvent viewEvent = captureViewAudit();
+    assertEquals(OperationStatus.SUCCESS, viewEvent.getOperationStatus());
+    assertEquals(CAPTURED_UUID, viewEvent.getViewUUID());
+    assertEquals(ViewModelConstants.METADATA_LOCATION, viewEvent.getOldMetadataLocation());
+    assertNull(viewEvent.getNewMetadataLocation(), "A drop publishes no new pointer.");
+    assertEquals(PRINCIPAL, viewEvent.getUser());
+    assertNoSensitive(viewEvent.toJson());
   }
 
   @Test
-  public void accessDeniedMapsToForbiddenThroughViewAdvice() throws Exception {
+  public void accessDeniedMapsToForbiddenThroughViewAdviceWithOneFailedOperationAudit()
+      throws Exception {
     when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(false);
 
-    MvcResult result =
-        expectNoCauseOrStacktrace(
-                mvc.perform(
-                    MockMvcRequestBuilders.post(VIEWS_PATH)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(requestWithSensitiveMarkers())
-                        .accept(MediaType.APPLICATION_JSON)
-                        .header("Authorization", "Bearer " + jwtAccessToken)))
-            .andExpect(status().isForbidden())
-            .andReturn();
+    MvcResult result;
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      result =
+          expectNoCauseOrStacktrace(
+                  mvc.perform(
+                      MockMvcRequestBuilders.post(VIEWS_PATH)
+                          .contentType(MediaType.APPLICATION_JSON)
+                          .content(requestWithSensitiveMarkers())
+                          .accept(MediaType.APPLICATION_JSON)
+                          .header("Authorization", "Bearer " + jwtAccessToken)))
+              .andExpect(status().isForbidden())
+              .andReturn();
+      assertNoSensitiveLogs(logs);
+    }
 
     assertNoSensitive(result.getResponse().getContentAsString());
     verify(viewCommitEngine, never()).commit(any());
+    ViewAuditEvent viewEvent = captureViewAudit();
+    assertEquals(OperationStatus.FAILED, viewEvent.getOperationStatus());
+    assertNull(viewEvent.getNewMetadataLocation());
+    assertNoSensitive(viewEvent.toJson());
+    ServiceAuditEvent requestEvent = captureServiceAudit();
+    assertEquals(403, requestEvent.getStatusCode());
+    assertRequestAuditKeepsSuppliedDefinition(requestEvent, requestWithSensitiveMarkers());
   }
 
   @Test
@@ -262,6 +365,8 @@ public class ViewsManagedFailureAuditTest {
                     .header("Authorization", "Bearer " + jwtAccessToken)))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.message").value(expected));
+
+    verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
   }
 
   /**
@@ -277,22 +382,28 @@ public class ViewsManagedFailureAuditTest {
   }
 
   private void assertPreServiceSizeBindingFailure(String rawSize) throws Exception {
-    MvcResult result =
-        expectNoCauseOrStacktrace(
-                mvc.perform(
-                    MockMvcRequestBuilders.get(VIEWS_PATH)
-                        .param("size", rawSize)
-                        .accept(MediaType.APPLICATION_JSON)
-                        .header("Authorization", "Bearer " + jwtAccessToken)))
-            .andExpect(status().isBadRequest())
-            .andExpect(jsonPath("$.message").value(SIZE_BINDING_MESSAGE))
-            .andReturn();
+    MvcResult result;
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      result =
+          expectNoCauseOrStacktrace(
+                  mvc.perform(
+                      MockMvcRequestBuilders.get(VIEWS_PATH)
+                          .param("size", rawSize)
+                          .accept(MediaType.APPLICATION_JSON)
+                          .header("Authorization", "Bearer " + jwtAccessToken)))
+              .andExpect(status().isBadRequest())
+              .andExpect(jsonPath("$.message").value(SIZE_BINDING_MESSAGE))
+              .andReturn();
+      assertNoSensitiveLogs(logs, rawSize);
+      assertNoSensitiveLogs(logs, BINDING_PARSER_DETAILS);
+    }
 
     String wire = result.getResponse().getContentAsString();
     assertFalse(wire.contains(rawSize), wire);
     for (String parserDetail : BINDING_PARSER_DETAILS) {
       assertFalse(wire.contains(parserDetail), wire);
     }
+    verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
     Mockito.verifyNoInteractions(
         viewsFeatureGate, houseTableRepository, viewCommitEngine, opaHandler);
   }
@@ -302,16 +413,21 @@ public class ViewsManagedFailureAuditTest {
     when(houseTableRepository.findViewById(ViewsManagedAuthMatrixBase.viewKey()))
         .thenThrow(new RuntimeException(SECRET_SQL));
 
-    MvcResult result =
-        expectNoCauseOrStacktrace(
-                mvc.perform(
-                    MockMvcRequestBuilders.get(VIEW_PATH)
-                        .accept(MediaType.APPLICATION_JSON)
-                        .header("Authorization", "Bearer " + jwtAccessToken)))
-            .andExpect(status().isInternalServerError())
-            .andReturn();
+    MvcResult result;
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      result =
+          expectNoCauseOrStacktrace(
+                  mvc.perform(
+                      MockMvcRequestBuilders.get(VIEW_PATH)
+                          .accept(MediaType.APPLICATION_JSON)
+                          .header("Authorization", "Bearer " + jwtAccessToken)))
+              .andExpect(status().isInternalServerError())
+              .andReturn();
+      assertNoSensitiveLogs(logs);
+    }
 
     assertNoSensitive(result.getResponse().getContentAsString());
+    verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
   }
 
   /**
@@ -366,53 +482,80 @@ public class ViewsManagedFailureAuditTest {
   }
 
   @Test
-  public void opaUnavailableWriteIsASafe503() throws Exception {
+  public void opaUnavailableWriteIsASafe503WithOneFailedOperationAudit() throws Exception {
     when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any()))
         .thenThrow(new RuntimeException(SECRET_SQL + " " + SECRET_SCHEMA + " " + SECRET_BASE));
 
-    MvcResult result =
-        expectNoCauseOrStacktrace(
-                mvc.perform(
-                    MockMvcRequestBuilders.post(VIEWS_PATH)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(requestWithSensitiveMarkers())
-                        .accept(MediaType.APPLICATION_JSON)
-                        .header("Authorization", "Bearer " + jwtAccessToken)))
-            .andExpect(status().isServiceUnavailable())
-            .andReturn();
+    MvcResult result;
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      result =
+          expectNoCauseOrStacktrace(
+                  mvc.perform(
+                      MockMvcRequestBuilders.post(VIEWS_PATH)
+                          .contentType(MediaType.APPLICATION_JSON)
+                          .content(requestWithSensitiveMarkers())
+                          .accept(MediaType.APPLICATION_JSON)
+                          .header("Authorization", "Bearer " + jwtAccessToken)))
+              .andExpect(status().isServiceUnavailable())
+              .andReturn();
+      assertNoSensitiveLogs(logs);
+    }
 
     assertNoSensitive(result.getResponse().getContentAsString());
     verify(viewCommitEngine, never()).commit(any());
+    ViewAuditEvent viewEvent = captureViewAudit();
+    assertEquals(OperationStatus.FAILED, viewEvent.getOperationStatus());
+    assertNull(viewEvent.getNewMetadataLocation());
+    assertNoSensitive(viewEvent.toJson());
   }
 
   @Test
-  public void unknownCommitIsASafe503AfterOneCreateAttemptWithoutCleanup() throws Exception {
+  public void unknownCommitHasOneUnknownOperationAuditWithOnlyReachedContext() throws Exception {
     RuntimeException raw =
         new RuntimeException(SECRET_SQL + " " + SECRET_SCHEMA + " " + SECRET_BASE);
     when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
     when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
         .thenThrow(new CommitStateUnknownException(raw));
+    String sessionId = "view-session-unknown";
 
-    MvcResult result =
-        expectNoCauseOrStacktrace(
-                mvc.perform(
-                    MockMvcRequestBuilders.post(VIEWS_PATH)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(requestWithSensitiveMarkers())
-                        .accept(MediaType.APPLICATION_JSON)
-                        .header("Authorization", "Bearer " + jwtAccessToken)))
-            .andExpect(status().isServiceUnavailable())
-            .andReturn();
+    MvcResult result;
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      result =
+          expectNoCauseOrStacktrace(
+                  mvc.perform(
+                      MockMvcRequestBuilders.post(VIEWS_PATH)
+                          .contentType(MediaType.APPLICATION_JSON)
+                          .content(requestWithSensitiveMarkers())
+                          .accept(MediaType.APPLICATION_JSON)
+                          .header("Authorization", "Bearer " + jwtAccessToken)
+                          .header(SESSION_ID_HEADER, sessionId)))
+              .andExpect(status().isServiceUnavailable())
+              .andReturn();
+      assertNoSensitiveLogs(logs);
+    }
 
     assertNoSensitive(result.getResponse().getContentAsString());
     ArgumentCaptor<ViewCommitIntent> intent = ArgumentCaptor.forClass(ViewCommitIntent.class);
     verify(viewCommitEngine, times(1)).commit(intent.capture());
     assertEquals(Boolean.TRUE, intent.getValue().getIsCreate());
     verify(houseTableRepository, never()).deleteViewById(any());
+    ViewAuditEvent viewEvent = captureViewAudit();
+    assertEquals(OperationStatus.UNKNOWN, viewEvent.getOperationStatus());
+    // Observed absence supplies no identity or prior pointer, and an unacknowledged commit
+    // returns no result; nothing may be fabricated for these fields.
+    assertNull(viewEvent.getViewUUID());
+    assertNull(viewEvent.getOldMetadataLocation());
+    assertNull(viewEvent.getNewMetadataLocation());
+    assertEquals(ViewModelConstants.DATABASE_ID, viewEvent.getDatabaseName());
+    assertEquals(ViewModelConstants.VIEW_ID, viewEvent.getViewName());
+    assertEquals(PRINCIPAL, viewEvent.getUser());
+    assertNoSensitive(viewEvent.toJson());
+    assertCorrelated(sessionId, OperationStatus.UNKNOWN);
   }
 
   @Test
-  public void listBackendFailureWithAContinuationIsASafe500() throws Exception {
+  public void listBackendFailureWithAContinuationIsASafe500WithoutOperationAudit()
+      throws Exception {
     String token =
         new ViewPageTokenCodec()
             .encode(
@@ -425,41 +568,52 @@ public class ViewsManagedFailureAuditTest {
     when(houseTableRepository.findAllViewsByDatabaseId(any(), any()))
         .thenThrow(new RuntimeException(SECRET_PAGE_TOKEN));
 
-    MvcResult result =
-        expectNoCauseOrStacktrace(
-                mvc.perform(
-                    MockMvcRequestBuilders.get(
-                            VIEWS_PATH + "?pageToken=" + token + "&sortBy=viewId&size=1")
-                        .accept(MediaType.APPLICATION_JSON)
-                        .header("Authorization", "Bearer " + jwtAccessToken)))
-            .andExpect(status().isInternalServerError())
-            .andReturn();
+    MvcResult result;
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      result =
+          expectNoCauseOrStacktrace(
+                  mvc.perform(
+                      MockMvcRequestBuilders.get(
+                              VIEWS_PATH + "?pageToken=" + token + "&sortBy=viewId&size=1")
+                          .accept(MediaType.APPLICATION_JSON)
+                          .header("Authorization", "Bearer " + jwtAccessToken)))
+              .andExpect(status().isInternalServerError())
+              .andReturn();
+      // The token may stay in the request audit URI, but never in ordinary logs.
+      assertNoSensitiveLogs(logs, token);
+    }
 
     String wire = result.getResponse().getContentAsString();
     assertNoSensitive(wire);
     assertFalse(wire.contains(token), wire);
+    verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
   }
 
   @Test
   public void malformedPageTokenIsASafe400AndDoesNotReachBackend() throws Exception {
-    MvcResult result =
-        expectNoCauseOrStacktrace(
-                mvc.perform(
-                    MockMvcRequestBuilders.get(
-                            VIEWS_PATH + "?pageToken=" + SECRET_PAGE_TOKEN + "&sortBy=viewId")
-                        .accept(MediaType.APPLICATION_JSON)
-                        .header("Authorization", "Bearer " + jwtAccessToken)))
-            .andExpect(status().isBadRequest())
-            .andReturn();
+    MvcResult result;
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      result =
+          expectNoCauseOrStacktrace(
+                  mvc.perform(
+                      MockMvcRequestBuilders.get(
+                              VIEWS_PATH + "?pageToken=" + SECRET_PAGE_TOKEN + "&sortBy=viewId")
+                          .accept(MediaType.APPLICATION_JSON)
+                          .header("Authorization", "Bearer " + jwtAccessToken)))
+              .andExpect(status().isBadRequest())
+              .andReturn();
+      assertNoSensitiveLogs(logs);
+    }
 
     assertNoSensitive(result.getResponse().getContentAsString());
     verify(houseTableRepository, never()).findAllViewsByDatabaseId(any(), any());
+    verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
   }
 
   /**
    * The server-owned {@code replace.drop-dialect.allowed} view property is rejected by the API
    * validator as a sanitized 400 on create and replace, before the service is entered: no House
-   * Table capture, authorization, storage allocation, or engine commit.
+   * Table capture, authorization, storage allocation, engine commit, or operation audit.
    */
   @ParameterizedTest
   @ValueSource(strings = {"POST", "PUT"})
@@ -492,22 +646,26 @@ public class ViewsManagedFailureAuditTest {
                 "Property %s is owned by OpenHouse and cannot be set by a caller",
                 "replace.drop-dialect.allowed"));
 
-    MvcResult result =
-        expectNoCauseOrStacktrace(
-                mvc.perform(
-                    withToken(
-                        request
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(body)
-                            .accept(MediaType.APPLICATION_JSON))))
-            .andExpect(status().isBadRequest())
-            .andExpect(
-                jsonPath("$.message")
-                    .value(
-                        org.hamcrest.Matchers.containsString(
-                            "viewProperties : reserved keys are not allowed:"
-                                + " replace.drop-dialect.allowed")))
-            .andReturn();
+    MvcResult result;
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      result =
+          expectNoCauseOrStacktrace(
+                  mvc.perform(
+                      withToken(
+                          request
+                              .contentType(MediaType.APPLICATION_JSON)
+                              .content(body)
+                              .accept(MediaType.APPLICATION_JSON))))
+              .andExpect(status().isBadRequest())
+              .andExpect(
+                  jsonPath("$.message")
+                      .value(
+                          org.hamcrest.Matchers.containsString(
+                              "viewProperties : reserved keys are not allowed:"
+                                  + " replace.drop-dialect.allowed")))
+              .andReturn();
+      assertNoSensitiveLogs(logs, DROP_DIALECT_SENTINEL, "owned by OpenHouse");
+    }
 
     String wire = result.getResponse().getContentAsString();
     assertNoSensitive(wire);
@@ -515,11 +673,13 @@ public class ViewsManagedFailureAuditTest {
     verify(opaHandler, never()).checkAccessDecision(any(), any(DatabaseDto.class), any());
     Mockito.verifyNoInteractions(houseTableRepository, viewCommitEngine);
     verify(storageSelector, never()).selectStorage(any(), any());
+    verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
   }
 
   /**
    * A syntactically valid body whose representations is an object fails Jackson binding: a safe 400
-   * before the service.
+   * before the service, with no operation audit. The request audit still keeps the body exactly as
+   * supplied; its SQL never reaches the logs.
    */
   @Test
   public void objectShapedRepresentationsAreASafe400BeforeTheService() throws Exception {
@@ -534,27 +694,36 @@ public class ViewsManagedFailureAuditTest {
             + SECRET_SQL
             + "\"}}";
 
-    MvcResult result =
-        expectNoCauseOrStacktrace(
-                mvc.perform(
-                    MockMvcRequestBuilders.post(VIEWS_PATH)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body)
-                        .accept(MediaType.APPLICATION_JSON)
-                        .header("Authorization", "Bearer " + jwtAccessToken)))
-            .andExpect(status().isBadRequest())
-            .andReturn();
+    MvcResult result;
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      result =
+          expectNoCauseOrStacktrace(
+                  mvc.perform(
+                      MockMvcRequestBuilders.post(VIEWS_PATH)
+                          .contentType(MediaType.APPLICATION_JSON)
+                          .content(body)
+                          .accept(MediaType.APPLICATION_JSON)
+                          .header("Authorization", "Bearer " + jwtAccessToken)))
+              .andExpect(status().isBadRequest())
+              .andReturn();
+      assertNoSensitiveLogs(logs);
+    }
 
     assertNoSensitive(result.getResponse().getContentAsString());
+    assertRequestAuditKeepsSuppliedDefinition(captureServiceAudit(), body);
+    verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
     Mockito.verifyNoInteractions(houseTableRepository, viewCommitEngine, opaHandler);
   }
 
+  // --- F4: every service-entered write failure emits exactly one FAILED operation event ---
+
   @Test
-  public void disabledWriteIsNotFoundBeforeCaptureOrAuthorization() throws Exception {
+  public void disabledWriteEmitsOneFailedOperationAuditWithRequestIdentityOnly() throws Exception {
     when(viewsFeatureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(false);
 
     mvc.perform(withToken(postView())).andExpect(status().isNotFound());
 
+    assertEarlyFailedOperationAudit();
     verify(houseTableRepository, never()).findEntityById(any());
     Mockito.verifyNoInteractions(opaHandler);
   }
@@ -568,17 +737,24 @@ public class ViewsManagedFailureAuditTest {
 
     mvc.perform(withToken(postView())).andExpect(status().isNotFound());
 
+    assertEarlyFailedOperationAudit();
     verify(houseTableRepository, never()).findEntityById(any());
     Mockito.verifyNoInteractions(opaHandler);
   }
 
+  /**
+   * The drop is authorized on the captured view, so a denial follows one capture: its FAILED audit
+   * carries the captured identity and pre-write pointer, and shares the request's correlation id.
+   */
   @Test
   public void deniedDropIsForbiddenAfterOneCaptureWithoutDelete() throws Exception {
     stubDeletableView();
     when(opaHandler.checkAccessDecision(any(), any(TableDto.class), eq(Privileges.DELETE_TABLE)))
         .thenReturn(false);
+    String sessionId = "view-session-denied-drop";
 
-    mvc.perform(withToken(deleteView())).andExpect(status().isForbidden());
+    mvc.perform(withToken(deleteView()).header(SESSION_ID_HEADER, sessionId))
+        .andExpect(status().isForbidden());
 
     InOrder order = Mockito.inOrder(houseTableRepository, opaHandler);
     order.verify(houseTableRepository).findViewById(ViewsManagedAuthMatrixBase.viewKey());
@@ -586,11 +762,21 @@ public class ViewsManagedFailureAuditTest {
         .verify(opaHandler)
         .checkAccessDecision(any(), any(TableDto.class), eq(Privileges.DELETE_TABLE));
     verify(houseTableRepository, times(1)).findViewById(ViewsManagedAuthMatrixBase.viewKey());
+    ViewAuditEvent event = captureViewAudit();
+    assertEquals(OperationStatus.FAILED, event.getOperationStatus());
+    assertEquals(ViewModelConstants.DATABASE_ID, event.getDatabaseName());
+    assertEquals(ViewModelConstants.VIEW_ID, event.getViewName());
+    assertEquals(PRINCIPAL, event.getUser());
+    assertEquals(CAPTURED_UUID, event.getViewUUID());
+    assertEquals(ViewModelConstants.METADATA_LOCATION, event.getOldMetadataLocation());
+    assertNull(event.getNewMetadataLocation());
+    assertNoSensitive(event.toJson());
+    assertCorrelated(sessionId, OperationStatus.FAILED);
     verify(houseTableRepository, never()).deleteViewById(any());
   }
 
   @Test
-  public void prepareWriteOutageIsTypedUnavailable() throws Exception {
+  public void prepareWriteOutageIsTypedUnavailableWithOneFailedOperationAudit() throws Exception {
     when(houseTableRepository.findEntityById(ViewsManagedAuthMatrixBase.viewKey()))
         .thenThrow(
             new HouseTableRepositoryStateUnknownException(
@@ -602,7 +788,7 @@ public class ViewsManagedFailureAuditTest {
   }
 
   @Test
-  public void prepareDeleteOutageIsTypedUnavailable() throws Exception {
+  public void prepareDeleteOutageIsTypedUnavailableWithOneFailedOperationAudit() throws Exception {
     when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
     when(houseTableRepository.findViewById(ViewsManagedAuthMatrixBase.viewKey()))
         .thenThrow(
@@ -629,7 +815,7 @@ public class ViewsManagedFailureAuditTest {
   }
 
   @Test
-  public void gateProbeOutageOnReadsIsTypedUnavailable() throws Exception {
+  public void gateProbeOutageOnReadsIsTypedUnavailableWithoutOperationAudit() throws Exception {
     when(viewsFeatureGate.isEnabled(ViewModelConstants.DATABASE_ID))
         .thenThrow(
             new HouseTableRepositoryStateUnknownException(
@@ -643,16 +829,20 @@ public class ViewsManagedFailureAuditTest {
   }
 
   private void assertReadProbeFailure(int expectedStatus) throws Exception {
-    for (String path : new String[] {VIEW_PATH, VIEWS_PATH}) {
-      MvcResult result =
-          expectNoCauseOrStacktrace(
-                  mvc.perform(
-                      withToken(
-                          MockMvcRequestBuilders.get(path).accept(MediaType.APPLICATION_JSON))))
-              .andReturn();
-      assertEquals(expectedStatus, result.getResponse().getStatus(), path);
-      assertNoSensitive(result.getResponse().getContentAsString());
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      for (String path : new String[] {VIEW_PATH, VIEWS_PATH}) {
+        MvcResult result =
+            expectNoCauseOrStacktrace(
+                    mvc.perform(
+                        withToken(
+                            MockMvcRequestBuilders.get(path).accept(MediaType.APPLICATION_JSON))))
+                .andReturn();
+        assertEquals(expectedStatus, result.getResponse().getStatus(), path);
+        assertNoSensitive(result.getResponse().getContentAsString());
+      }
+      assertNoSensitiveLogs(logs);
     }
+    verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
     verify(houseTableRepository, never()).findViewById(any());
     verify(houseTableRepository, never()).findAllViewsByDatabaseId(any(), any());
   }
@@ -660,7 +850,8 @@ public class ViewsManagedFailureAuditTest {
   // Only the typed state-unknown failure is transient (503); any other failure is a 500 fault.
 
   @Test
-  public void genericPrepareWriteFailureIsInternal500() throws Exception {
+  public void genericPrepareWriteFailureIsInternal500WithOneFailedOperationAudit()
+      throws Exception {
     when(houseTableRepository.findEntityById(ViewsManagedAuthMatrixBase.viewKey()))
         .thenThrow(new IllegalStateException(SECRET_SQL, new RuntimeException(SECRET_BASE)));
 
@@ -669,7 +860,8 @@ public class ViewsManagedFailureAuditTest {
   }
 
   @Test
-  public void genericPrepareDeleteFailureIsInternal500() throws Exception {
+  public void genericPrepareDeleteFailureIsInternal500WithOneFailedOperationAudit()
+      throws Exception {
     when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
     when(houseTableRepository.findViewById(ViewsManagedAuthMatrixBase.viewKey()))
         .thenThrow(new IllegalStateException(SECRET_SQL, new RuntimeException(SECRET_BASE)));
@@ -689,7 +881,7 @@ public class ViewsManagedFailureAuditTest {
   }
 
   @Test
-  public void genericGateProbeFailureOnReadsIsInternal500() throws Exception {
+  public void genericGateProbeFailureOnReadsIsInternal500WithoutOperationAudit() throws Exception {
     when(viewsFeatureGate.isEnabled(ViewModelConstants.DATABASE_ID))
         .thenThrow(new IllegalStateException(SECRET_SQL, new RuntimeException(SECRET_BASE)));
 
@@ -697,7 +889,7 @@ public class ViewsManagedFailureAuditTest {
   }
 
   @Test
-  public void disabledReadsAreNotFound() throws Exception {
+  public void disabledReadsStayWithoutOperationAudit() throws Exception {
     when(viewsFeatureGate.isEnabled(ViewModelConstants.DATABASE_ID)).thenReturn(false);
 
     mvc.perform(withToken(MockMvcRequestBuilders.get(VIEW_PATH).accept(MediaType.APPLICATION_JSON)))
@@ -705,6 +897,8 @@ public class ViewsManagedFailureAuditTest {
     mvc.perform(
             withToken(MockMvcRequestBuilders.get(VIEWS_PATH).accept(MediaType.APPLICATION_JSON)))
         .andExpect(status().isNotFound());
+
+    verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
   }
 
   private void assertPrecommitOutage(
@@ -717,9 +911,335 @@ public class ViewsManagedFailureAuditTest {
       org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request,
       int expectedStatus)
       throws Exception {
-    MvcResult result = expectNoCauseOrStacktrace(mvc.perform(request)).andReturn();
+    MvcResult result;
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      result = expectNoCauseOrStacktrace(mvc.perform(request)).andReturn();
+      assertNoSensitiveLogs(logs);
+    }
     assertEquals(expectedStatus, result.getResponse().getStatus());
     assertNoSensitive(result.getResponse().getContentAsString());
+
+    ViewAuditEvent event = assertEarlyFailedOperationAudit();
+    assertNotEquals(
+        OperationStatus.UNKNOWN,
+        event.getOperationStatus(),
+        "A failure before any publication is known, not ambiguous.");
+  }
+
+  private ViewAuditEvent assertEarlyFailedOperationAudit() {
+    ViewAuditEvent event = captureViewAudit();
+    assertEquals(OperationStatus.FAILED, event.getOperationStatus());
+    assertEquals(ViewModelConstants.DATABASE_ID, event.getDatabaseName());
+    assertEquals(ViewModelConstants.VIEW_ID, event.getViewName());
+    assertEquals(PRINCIPAL, event.getUser());
+    assertNull(event.getViewUUID(), "No capture was reached, so no identity exists.");
+    assertNull(event.getOldMetadataLocation());
+    assertNull(event.getNewMetadataLocation());
+    assertNoSensitive(event.toJson());
+    return event;
+  }
+
+  // --- F5: operation-audit delivery failure after an acknowledged commit stays a success ---
+
+  @Test
+  public void auditSinkFailureAfterAcknowledgedCreateStillReturnsCreated() throws Exception {
+    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
+    when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
+        .thenReturn(ViewsManagedAuthMatrixBase.createdResult());
+
+    assertSinkFailureKeepsSuccess(withToken(postView()), 201);
+    verify(viewCommitEngine, times(1)).commit(any(ViewCommitIntent.class));
+  }
+
+  @Test
+  public void auditSinkFailureAfterAcknowledgedReplaceStillReturnsOk() throws Exception {
+    when(opaHandler.checkAccessDecision(
+            any(), any(TableDto.class), eq(Privileges.UPDATE_TABLE_METADATA)))
+        .thenReturn(true);
+    when(houseTableRepository.findEntityById(ViewsManagedAuthMatrixBase.viewKey()))
+        .thenReturn(Optional.of(ViewsManagedAuthMatrixBase.viewRow()));
+    when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
+        .thenReturn(ViewsManagedAuthMatrixBase.replacedResult());
+
+    assertSinkFailureKeepsSuccess(
+        withToken(
+            MockMvcRequestBuilders.put(VIEW_PATH)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(ViewModelConstants.fullyPopulatedRequest().toJson())
+                .accept(MediaType.APPLICATION_JSON)),
+        200);
+    verify(viewCommitEngine, times(1)).commit(any(ViewCommitIntent.class));
+  }
+
+  @Test
+  public void auditSinkFailureAfterAcknowledgedDropStillReturnsNoContent() throws Exception {
+    when(opaHandler.checkAccessDecision(any(), any(TableDto.class), eq(Privileges.DELETE_TABLE)))
+        .thenReturn(true);
+    stubDeletableView();
+
+    assertSinkFailureKeepsSuccess(withToken(deleteView()), 204);
+    verify(houseTableRepository, times(1)).deleteViewById(ViewsManagedAuthMatrixBase.viewKey());
+  }
+
+  private void assertSinkFailureKeepsSuccess(
+      org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request,
+      int expectedStatus)
+      throws Exception {
+    assertTrue(
+        Metrics.globalRegistry.getRegistries().contains(meterRegistry),
+        "Precondition: this context's active meter registry backs the global registry.");
+    Mockito.doThrow(
+            new IllegalStateException(
+                SINK_FAILURE + " " + SECRET_SQL,
+                new RuntimeException(SECRET_SCHEMA + " " + SECRET_BASE + " " + SECRET_PAGE_TOKEN)))
+        .when(viewAuditHandler)
+        .audit(any(ViewAuditEvent.class));
+    double failedAuditsBefore = serviceAuditCount(MetricsConstant.FAILED_SERVICE_AUDIT);
+
+    MvcResult result;
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      result = mvc.perform(request).andReturn();
+      String rendered = logs.renderedEvents();
+      assertTrue(rendered.contains("View operation audit emission failed"), rendered);
+      assertNoSensitiveLogs(logs, SINK_FAILURE, IllegalStateException.class.getName());
+    }
+
+    assertEquals(expectedStatus, result.getResponse().getStatus());
+    assertNoSensitive(result.getResponse().getContentAsString());
+    assertFalse(result.getResponse().getContentAsString().contains(SINK_FAILURE));
+    ViewAuditEvent attempted = captureViewAudit();
+    assertEquals(
+        OperationStatus.SUCCESS,
+        attempted.getOperationStatus(),
+        "Exactly one operation event is attempted, and it is the acknowledged SUCCESS.");
+    assertEquals(
+        failedAuditsBefore + 1,
+        serviceAuditCount(MetricsConstant.FAILED_SERVICE_AUDIT),
+        "The delivery failure is reported through the existing failed-audit metric.");
+  }
+
+  private double serviceAuditCount(String metric) {
+    Counter counter = meterRegistry.find(MetricsConstant.SERVICE_AUDIT + "_" + metric).counter();
+    return counter == null ? 0.0 : counter.count();
+  }
+
+  // --- Request-audit delivery failure: the event it received may echo the definition ---
+
+  @Test
+  public void requestAuditSinkFailureAfterAcknowledgedCreateKeepsCreatedAndLogsNoDetails()
+      throws Exception {
+    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
+    when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
+        .thenReturn(ViewsManagedAuthMatrixBase.createdResult());
+
+    assertRequestAuditSinkFailureKeepsOutcome(201);
+
+    verify(viewCommitEngine, times(1)).commit(any(ViewCommitIntent.class));
+    assertEquals(OperationStatus.SUCCESS, captureViewAudit().getOperationStatus());
+  }
+
+  @Test
+  public void requestAuditSinkFailureAfterAFailedResponseKeepsForbiddenAndLogsNoDetails()
+      throws Exception {
+    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(false);
+
+    assertRequestAuditSinkFailureKeepsOutcome(403);
+
+    verify(viewCommitEngine, never()).commit(any());
+    assertEquals(OperationStatus.FAILED, captureViewAudit().getOperationStatus());
+  }
+
+  /**
+   * The request-audit sink receives the full event once and throws an exception whose message,
+   * cause and suppressed exception echo that event's JSON. The HTTP outcome and correlation stay as
+   * they were, the existing failed-audit metric is counted, and no diagnostic carries the
+   * definition, the sink's message, or the raw throwable.
+   */
+  private void assertRequestAuditSinkFailureKeepsOutcome(int expectedStatus) throws Exception {
+    String sessionId = "view-session-request-sink-failure";
+    String body = requestWithSensitiveMarkers();
+    AtomicReference<ServiceAuditEvent> delivered = new AtomicReference<>();
+    Mockito.doAnswer(
+            invocation -> {
+              ServiceAuditEvent event = invocation.getArgument(0);
+              delivered.set(event);
+              IllegalStateException failure =
+                  new IllegalStateException(
+                      REQUEST_SINK_FAILURE + " " + event.toJson() + " " + SECRET_SQL,
+                      new RuntimeException(event.toJson() + " " + SECRET_SCHEMA));
+              failure.addSuppressed(new RuntimeException(event.toJson() + " " + SECRET_BASE));
+              throw failure;
+            })
+        .when(serviceAuditHandler)
+        .audit(any(ServiceAuditEvent.class));
+    double failedAuditsBefore = serviceAuditCount(MetricsConstant.FAILED_SERVICE_AUDIT);
+
+    MvcResult result;
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      result =
+          mvc.perform(
+                  withToken(
+                      MockMvcRequestBuilders.post(VIEWS_PATH)
+                          .contentType(MediaType.APPLICATION_JSON)
+                          .content(body)
+                          .accept(MediaType.APPLICATION_JSON)
+                          .header(SESSION_ID_HEADER, sessionId)))
+              .andReturn();
+      String rendered = logs.renderedEvents();
+      assertTrue(rendered.contains("(details omitted)"), rendered);
+      assertNoSensitiveLogs(
+          logs,
+          REQUEST_SINK_FAILURE,
+          IllegalStateException.class.getName(),
+          RuntimeException.class.getName());
+    }
+
+    assertEquals(expectedStatus, result.getResponse().getStatus());
+    String wire = result.getResponse().getContentAsString();
+    assertNoSensitive(wire);
+    assertFalse(wire.contains(REQUEST_SINK_FAILURE), wire);
+    verify(serviceAuditHandler, times(1)).audit(any(ServiceAuditEvent.class));
+    assertEquals(
+        failedAuditsBefore + 1,
+        serviceAuditCount(MetricsConstant.FAILED_SERVICE_AUDIT),
+        "The request-audit delivery failure is reported through the existing metric.");
+    ServiceAuditEvent event = delivered.get();
+    assertEquals(expectedStatus, event.getStatusCode());
+    assertEquals(sessionId, event.getSessionId());
+    assertEquals(sessionId, captureViewAudit().getSessionId());
+    assertRequestAuditKeepsSuppliedDefinition(event, body);
+  }
+
+  // --- MVC-accepted alias routes reach the controller and both request-audit advice paths ---
+
+  /**
+   * A structurally invalid definition at an encoded collection alias with a trailing separator is
+   * rejected before the service by the failure advice, whose request audit keeps the supplied
+   * definition with only the CAS value replaced.
+   */
+  @Test
+  public void invalidDefinitionOnAnEncodedTrailingCollectionAliasKeepsItInFailureRequestAudit()
+      throws Exception {
+    String invalid =
+        com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody.builder()
+            .databaseId(ViewModelConstants.DATABASE_ID)
+            .viewId(ViewModelConstants.VIEW_ID)
+            .schema(validSensitiveSchema())
+            .representations(
+                Collections.singletonList(
+                    com.linkedin.openhouse.tables.api.spec.v0.request.components.ViewRepresentation
+                        .builder()
+                        .type("sql")
+                        .dialect("spark")
+                        .sql(SECRET_SQL)
+                        .build()))
+            .viewProperties(
+                Collections.singletonMap(ReservedViewProperties.SOURCE_DIALECT, "trino"))
+            .defaultCatalog(ViewModelConstants.DEFAULT_CATALOG)
+            .defaultNamespace(ViewModelConstants.DEFAULT_NAMESPACE)
+            .baseMetadataLocation(SECRET_BASE)
+            .build()
+            .toJson();
+
+    assertWriteAliasRequestAudit(
+        MockMvcRequestBuilders.post(URI.create(DATABASE_ROUTE + "/%76iews/")),
+        DATABASE_ROUTE + "/%76iews/",
+        invalid,
+        400);
+
+    Mockito.verifyNoInteractions(houseTableRepository, viewCommitEngine, opaHandler);
+    verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
+  }
+
+  /**
+   * A replace at an encoded item alias succeeds through the success advice, whose request audit
+   * keeps the supplied definition while the CAS value is replaced.
+   */
+  @Test
+  public void replaceOnAnEncodedItemAliasKeepsTheDefinitionAndReplacesTheCasValue()
+      throws Exception {
+    when(opaHandler.checkAccessDecision(
+            any(), any(TableDto.class), eq(Privileges.UPDATE_TABLE_METADATA)))
+        .thenReturn(true);
+    when(houseTableRepository.findEntityById(ViewsManagedAuthMatrixBase.viewKey()))
+        .thenReturn(
+            Optional.of(
+                ViewsManagedAuthMatrixBase.viewRow()
+                    .toBuilder()
+                    .tableLocation(SECRET_BASE)
+                    .build()));
+    when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
+        .thenReturn(ViewsManagedAuthMatrixBase.replacedResult());
+    String rawPath = DATABASE_ROUTE + "/%76iews/" + ViewModelConstants.VIEW_ID;
+
+    assertWriteAliasRequestAudit(
+        MockMvcRequestBuilders.put(URI.create(rawPath)),
+        rawPath,
+        sensitiveRequest(SECRET_BASE),
+        200);
+
+    verify(viewCommitEngine, times(1)).commit(any(ViewCommitIntent.class));
+    assertEquals(OperationStatus.SUCCESS, captureViewAudit().getOperationStatus());
+  }
+
+  private void assertWriteAliasRequestAudit(
+      org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request,
+      String rawPath,
+      String body,
+      int expectedStatus)
+      throws Exception {
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      MvcResult result =
+          expectNoCauseOrStacktrace(
+                  mvc.perform(
+                      withToken(
+                          request
+                              .contentType(MediaType.APPLICATION_JSON)
+                              .content(body)
+                              .accept(MediaType.APPLICATION_JSON))))
+              .andReturn();
+
+      assertEquals(
+          expectedStatus,
+          result.getResponse().getStatus(),
+          "The alias must reach the view write handler: "
+              + result.getResponse().getContentAsString());
+      assertEquals(rawPath, result.getRequest().getRequestURI(), "The raw path is preserved.");
+      assertTrue(result.getHandler() instanceof HandlerMethod, String.valueOf(result.getHandler()));
+      assertEquals(ViewsController.class, ((HandlerMethod) result.getHandler()).getBeanType());
+      assertNoSensitive(result.getResponse().getContentAsString());
+      assertNoSensitiveLogs(logs);
+    }
+    ServiceAuditEvent event = captureServiceAudit();
+    assertEquals(expectedStatus, event.getStatusCode());
+    assertEquals(rawPath, event.getUri());
+    assertRequestAuditKeepsSuppliedDefinition(event, body);
+  }
+
+  // --- F10: SUCCESS, FAILED and UNKNOWN correlation is asserted in their primary audit cases ---
+
+  /** A correlation id from one request must not carry over to the next request on the thread. */
+  @Test
+  public void sessionIdDoesNotLeakIntoALaterRequestWithoutTheHeader() throws Exception {
+    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
+    when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
+        .thenReturn(ViewsManagedAuthMatrixBase.createdResult());
+
+    mvc.perform(withToken(postView()).header(SESSION_ID_HEADER, "view-session-first"))
+        .andExpect(status().isCreated());
+    Mockito.clearInvocations(serviceAuditHandler, viewAuditHandler);
+    mvc.perform(withToken(postView())).andExpect(status().isCreated());
+
+    assertNull(captureViewAudit().getSessionId());
+    assertNull(captureServiceAudit().getSessionId());
+  }
+
+  /** The request and operation events carry the request's inbound {@code session-id} verbatim. */
+  private void assertCorrelated(String sessionId, OperationStatus expectedStatus) {
+    ViewAuditEvent viewEvent = captureViewAudit();
+    assertEquals(expectedStatus, viewEvent.getOperationStatus());
+    assertEquals(sessionId, viewEvent.getSessionId());
+    assertEquals(sessionId, captureServiceAudit().getSessionId());
   }
 
   private void stubDeletableView() {
@@ -749,7 +1269,7 @@ public class ViewsManagedFailureAuditTest {
 
   /**
    * A representations array whose elements are bare or nested SQL strings fails binding: a safe 400
-   * before the service.
+   * before the service, with no operation audit, and its SQL never reaches the logs.
    */
   @Test
   public void primitiveAndNestedArrayRepresentationsAreASafe400BeforeTheService() throws Exception {
@@ -758,31 +1278,35 @@ public class ViewsManagedFailureAuditTest {
       "[[\"" + SECRET_SQL + "\"]]",
       "[{\"type\":\"sql\",\"dialect\":\"spark\",\"sql\":\"ok\"},\"" + SECRET_SQL + "\"]"
     };
-    for (String representations : malformedRepresentations) {
-      String body =
-          "{\"databaseId\":\""
-              + ViewModelConstants.DATABASE_ID
-              + "\",\"viewId\":\""
-              + ViewModelConstants.VIEW_ID
-              + "\",\"schema\":\""
-              + SECRET_SCHEMA
-              + "\",\"representations\":"
-              + representations
-              + "}";
+    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
+      for (String representations : malformedRepresentations) {
+        String body =
+            "{\"databaseId\":\""
+                + ViewModelConstants.DATABASE_ID
+                + "\",\"viewId\":\""
+                + ViewModelConstants.VIEW_ID
+                + "\",\"schema\":\""
+                + SECRET_SCHEMA
+                + "\",\"representations\":"
+                + representations
+                + "}";
 
-      MvcResult result =
-          expectNoCauseOrStacktrace(
-                  mvc.perform(
-                      MockMvcRequestBuilders.post(VIEWS_PATH)
-                          .contentType(MediaType.APPLICATION_JSON)
-                          .content(body)
-                          .accept(MediaType.APPLICATION_JSON)
-                          .header("Authorization", "Bearer " + jwtAccessToken)))
-              .andExpect(status().isBadRequest())
-              .andReturn();
+        MvcResult result =
+            expectNoCauseOrStacktrace(
+                    mvc.perform(
+                        MockMvcRequestBuilders.post(VIEWS_PATH)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body)
+                            .accept(MediaType.APPLICATION_JSON)
+                            .header("Authorization", "Bearer " + jwtAccessToken)))
+                .andExpect(status().isBadRequest())
+                .andReturn();
 
-      assertNoSensitive(result.getResponse().getContentAsString());
+        assertNoSensitive(result.getResponse().getContentAsString());
+      }
+      assertNoSensitiveLogs(logs);
     }
+    verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
     Mockito.verifyNoInteractions(houseTableRepository, viewCommitEngine, opaHandler);
   }
 
@@ -793,6 +1317,10 @@ public class ViewsManagedFailureAuditTest {
   }
 
   private static String requestWithSensitiveMarkers() {
+    return sensitiveRequest(null);
+  }
+
+  private static String sensitiveRequest(String baseMetadataLocation) {
     return ViewModelConstants.fullyPopulatedRequest()
         .toBuilder()
         .schema(validSensitiveSchema())
@@ -804,7 +1332,7 @@ public class ViewsManagedFailureAuditTest {
                     .dialect("spark")
                     .sql(SECRET_SQL)
                     .build()))
-        .baseMetadataLocation(null)
+        .baseMetadataLocation(baseMetadataLocation)
         .build()
         .toJson();
   }
@@ -816,10 +1344,44 @@ public class ViewsManagedFailureAuditTest {
         + "\",\"type\":\"string\"}]}";
   }
 
+  private ViewAuditEvent captureViewAudit() {
+    ArgumentCaptor<ViewAuditEvent> event = ArgumentCaptor.forClass(ViewAuditEvent.class);
+    verify(viewAuditHandler, times(1)).audit(event.capture());
+    return event.getValue();
+  }
+
+  private ServiceAuditEvent captureServiceAudit() {
+    ArgumentCaptor<ServiceAuditEvent> event = ArgumentCaptor.forClass(ServiceAuditEvent.class);
+    verify(serviceAuditHandler, times(1)).audit(event.capture());
+    return event.getValue();
+  }
+
+  /**
+   * The request audit keeps the supplied body exactly as parsed, with only a supplied top-level CAS
+   * value replaced (its key kept).
+   */
+  private static void assertRequestAuditKeepsSuppliedDefinition(
+      ServiceAuditEvent event, String sentBody) {
+    JsonObject expected = JsonParser.parseString(sentBody).getAsJsonObject();
+    if (expected.has("baseMetadataLocation")) {
+      expected.addProperty("baseMetadataLocation", ServiceAuditPayloadRedactor.REDACTED_VALUE);
+    }
+    assertEquals(expected, event.getRequestPayload());
+  }
+
   /** The HTTP response never echoes a definition, CAS token or continuation. */
   private static void assertNoSensitive(String wire) {
     for (String secret : SECRETS) {
       assertFalse(wire.contains(secret), wire);
+    }
+  }
+
+  /** Rendered logs, thrown causes included, carry no secret and none of the extra fragments. */
+  private static void assertNoSensitiveLogs(Log4j2LogCapture logs, String... extra) {
+    String rendered = logs.renderedEvents();
+    assertNoSensitive(rendered);
+    for (String forbidden : extra) {
+      assertFalse(rendered.contains(forbidden), rendered);
     }
   }
 

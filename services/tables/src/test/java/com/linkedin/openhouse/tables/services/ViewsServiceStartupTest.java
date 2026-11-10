@@ -18,6 +18,7 @@ import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.view.ViewCommitEngine;
 import com.linkedin.openhouse.internal.catalog.view.ViewMetadataCodec;
+import com.linkedin.openhouse.tables.audit.ViewOperationAuditEmitter;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.BeanCreationException;
@@ -43,6 +44,8 @@ public class ViewsServiceStartupTest {
   private final StorageType storageType = mock(StorageType.class);
   private final AuthorizationUtils authorizationUtils = mock(AuthorizationUtils.class);
   private final ViewWritePrivilegeMapper privilegeMapper = mock(ViewWritePrivilegeMapper.class);
+  private final ViewOperationAuditEmitter viewOperationAuditEmitter =
+      mock(ViewOperationAuditEmitter.class);
   private final ClusterProperties clusterProperties = mock(ClusterProperties.class);
 
   @Test
@@ -96,6 +99,7 @@ public class ViewsServiceStartupTest {
     beanFactory.registerSingleton("storageType", storageType);
     beanFactory.registerSingleton("authorizationUtils", authorizationUtils);
     beanFactory.registerSingleton("viewWritePrivilegeMapper", privilegeMapper);
+    beanFactory.registerSingleton("viewOperationAuditEmitter", viewOperationAuditEmitter);
     beanFactory.registerSingleton("clusterProperties", clusterProperties);
     context.register(ViewsServiceImpl.class);
     return context;

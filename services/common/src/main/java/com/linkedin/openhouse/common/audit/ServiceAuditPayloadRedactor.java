@@ -34,4 +34,18 @@ public interface ServiceAuditPayloadRedactor {
    * @return a redacted copy, or the argument unchanged when there is nothing to redact.
    */
   JsonElement redact(JsonElement requestPayload);
+
+  /**
+   * Whether diagnostic output (the built-in {@link DummyServiceAuditHandler} log and the audit
+   * aspect's own failure logs) must omit request details for the requests selected by {@link
+   * #appliesTo(HttpServletRequest)}. This concerns diagnostics only: it neither drops fields from
+   * the audit event nor stops the event from being delivered in full to the configured {@link
+   * AuditHandler}. The built-in handler only logs, so it does not retain such an event; a service
+   * that must keep these events needs a custom handler that honors this rule itself.
+   *
+   * @return false by default, which keeps existing diagnostic behavior.
+   */
+  default boolean suppressDiagnosticDetails() {
+    return false;
+  }
 }
