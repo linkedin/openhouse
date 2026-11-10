@@ -52,11 +52,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class OpenHouseViewsApiValidator implements ViewsApiValidator {
 
-  /**
-   * Exact server-owned property key. {@code InternalRepositoryUtils.POLICIES_KEY} carries the same
-   * literal but is {@code protected} in another package, so it cannot be referenced from here; the
-   * {@code openhouse.} prefix check does reuse its canonical predicate.
-   */
+  /** Reserved table-policy state, not supported as a user property on views. */
   private static final String POLICIES_PROPERTY_KEY = "policies";
 
   /** Iceberg-required view property exclusively set by the server to prevent dropping dialects. */
@@ -132,7 +128,7 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
   @Override
   public void validateCreateView(CreateUpdateViewRequestBody requestBody) {
     ViewValidationFailures failures = new ViewValidationFailures();
-    validateBody(requestBody, failures);
+    validateBody(requestBody, failures, true);
     // POST distinguishes only "supplied" from "omitted": a supplied-but-blank token is a value the
     // rule below has to reject, not an absence.
     validateCreateBaseMetadataLocation(
@@ -143,7 +139,10 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
   @Override
   public void validateUpdateView(CreateUpdateViewRequestBody requestBody) {
     ViewValidationFailures failures = new ViewValidationFailures();
-    validateBody(requestBody, failures);
+    validateBody(
+        requestBody,
+        failures,
+        requestBody != null && INITIAL_TABLE_VERSION.equals(requestBody.getBaseMetadataLocation()));
     validateUpdateBaseMetadataLocation(
         nonBlankField(requestBody.getBaseMetadataLocation()), failures);
     failures.throwIfPresent();
@@ -170,7 +169,7 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
    * </ul>
    */
   private void validateBody(
-      CreateUpdateViewRequestBody requestBody, ViewValidationFailures failures) {
+      CreateUpdateViewRequestBody requestBody, ViewValidationFailures failures, boolean isCreate) {
     // Bean violations stay in the generic category, so they are collected into a plain list first
     // and then forwarded, rather than influencing the error-code precedence.
     List<String> beanViolations = new ArrayList<>();
@@ -189,7 +188,7 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
     validateUniqueDialects(representations, failures);
     validateDefaultCatalog(defaultCatalog, failures);
     validateDefaultNamespace(defaultNamespace, failures);
-    validateViewProperties(viewProperties, failures);
+    validateViewProperties(viewProperties, failures, isCreate);
     validateReservedSourceDialectProperty(viewProperties, representations, failures);
   }
 
@@ -379,25 +378,12 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
     }
   }
 
-  /**
-   * View properties are user-owned, with exceptions carved out for the server: the {@code
-   * openhouse.} namespace, whose canonical case-sensitive predicate is reused from the internal
-   * catalog, and the exact keys {@code policies} and {@code replace.drop-dialect.allowed}. Case
-   * sensitivity is deliberate and inherited: a user property such as {@code OpenHouse.myTeam} stays
-   * legal.
-   *
-   * <p>The single writable key inside the reserved namespace is {@link
-   * ReservedViewProperties#SOURCE_DIALECT}: a client may set it once at create so the authoring
-   * dialect is recorded as a server-managed property rather than a top-level request field. Only
-   * its presence is allow-listed here; its value is validated by {@link
-   * #validateReservedSourceDialectProperty}. Making it immutable on later replaces belongs to the
-   * persistence layer, not this surface check.
-   *
-   * <p>Property keys are user-authored identifiers rather than payload text, so listing the
-   * offending keys is intentional and does not breach the SQL/schema/token redaction invariant.
-   */
+  // Updates echo all properties; the engine checks system fields against stored metadata.
+  // Keeping ownership server-side avoids client rollouts when reserved keys change.
   private void validateViewProperties(
-      Optional<Map<String, String>> maybeViewProperties, ViewValidationFailures failures) {
+      Optional<Map<String, String>> maybeViewProperties,
+      ViewValidationFailures failures,
+      boolean isCreate) {
     if (!maybeViewProperties.isPresent()) {
       return;
     }
@@ -405,6 +391,7 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
     boolean blankKey = false;
     Set<String> nullValueKeys = new TreeSet<>();
     Set<String> reservedKeys = new TreeSet<>();
+    Set<String> systemKeys = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
     for (Map.Entry<String, String> property : viewProperties.entrySet()) {
       String key = property.getKey();
       if (StringUtils.isBlank(key)) {
@@ -414,10 +401,17 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
       if (property.getValue() == null) {
         nullValueKeys.add(key);
       }
-      if ((HouseTableSerdeUtils.IS_OH_PREFIXED.test(key)
-              && !ReservedViewProperties.isWritableAtCreate(key))
-          || POLICIES_PROPERTY_KEY.equals(key)
-          || REPLACE_DROP_DIALECT_ALLOWED_PROPERTY_KEY.equals(key)) {
+      if ((HouseTableSerdeUtils.IS_OH_PREFIXED.test(key.toLowerCase(Locale.ROOT))
+              || POLICIES_PROPERTY_KEY.equalsIgnoreCase(key)
+              || REPLACE_DROP_DIALECT_ALLOWED_PROPERTY_KEY.equalsIgnoreCase(key))
+          && !systemKeys.add(key)) {
+        failures.addGeneric("viewProperties : duplicate system property names");
+      }
+      if (isCreate
+          && ((HouseTableSerdeUtils.IS_OH_PREFIXED.test(key.toLowerCase(Locale.ROOT))
+                  && !ReservedViewProperties.isWritableAtCreate(key))
+              || POLICIES_PROPERTY_KEY.equalsIgnoreCase(key)
+              || REPLACE_DROP_DIALECT_ALLOWED_PROPERTY_KEY.equalsIgnoreCase(key))) {
         reservedKeys.add(key);
       }
     }
@@ -460,9 +454,7 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
       Optional<List<ViewRepresentation>> maybeRepresentations,
       ViewValidationFailures failures) {
     String sourceDialect =
-        maybeViewProperties
-            .map(viewProperties -> viewProperties.get(ReservedViewProperties.SOURCE_DIALECT))
-            .orElse(null);
+        maybeViewProperties.map(ReservedViewProperties::sourceDialect).orElse(null);
     if (StringUtils.isBlank(sourceDialect)) {
       failures.addGeneric(
           String.format("%s : cannot be empty", ReservedViewProperties.SOURCE_DIALECT));

@@ -2,6 +2,7 @@ package com.linkedin.openhouse.internal.catalog.view;
 
 import static com.linkedin.openhouse.internal.catalog.CatalogConstants.ENTITY_TYPE_TABLE;
 import static com.linkedin.openhouse.internal.catalog.CatalogConstants.ENTITY_TYPE_VIEW;
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
@@ -20,6 +21,7 @@ import java.util.Map;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.view.ViewMetadataParser;
 
 /**
  * Shared constants and builders for the view commit engine tests. Every intent carries the three
@@ -104,7 +106,7 @@ public final class ViewTestFixtures {
   /**
    * A materially changed REPLACE builder (schema V2, single SQL_V2 representation) on an
    * already-captured row. Returns a builder so callers can override fields; it captures nothing,
-   * commits nothing, and performs no I/O.
+   * commits nothing.
    */
   public static ViewCommitIntent.ViewCommitIntentBuilder changedReplaceIntent(
       Path root, HouseTable baseRow) {
@@ -115,7 +117,35 @@ public final class ViewTestFixtures {
 
   public static ViewCommitIntent.ViewCommitIntentBuilder baseIntent(
       Path root, Boolean isCreate, HouseTable baseRow) {
-    return intentBuilderWithoutCreateFlag(root).isCreate(isCreate).baseRow(baseRow);
+    ViewCommitIntent.ViewCommitIntentBuilder builder =
+        intentBuilderWithoutCreateFlag(root).isCreate(isCreate).baseRow(baseRow);
+    if (Boolean.FALSE.equals(isCreate)
+        && baseRow != null
+        && baseRow.getTableLocation() != null
+        && Files.isRegularFile(Paths.get(baseRow.getTableLocation()))) {
+      builder.viewProperties(replacementProperties(baseRow, userProperties("a", "1")));
+    }
+    return builder;
+  }
+
+  public static Map<String, String> replacementProperties(
+      HouseTable base, Map<String, String> userProperties) {
+    try {
+      String json = new String(Files.readAllBytes(Paths.get(base.getTableLocation())), UTF_8);
+      Map<String, String> properties = new LinkedHashMap<>();
+      ViewMetadataParser.fromJson(base.getTableLocation(), json)
+          .properties()
+          .forEach(
+              (key, value) -> {
+                if (key.startsWith("openhouse.") || key.equals("replace.drop-dialect.allowed")) {
+                  properties.put(key, value);
+                }
+              });
+      properties.putAll(userProperties);
+      return properties;
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 
   /**

@@ -619,36 +619,54 @@ public class ViewsValidatorTest {
         "viewProperties : property values cannot be null, keys: owner, team");
   }
 
-  /**
-   * Reserved-key detection reuses the internal catalog's case-sensitive {@code openhouse.}
-   * predicate verbatim. The final assertion is the point of the test: because that predicate is
-   * case-sensitive and {@code policies} is matched exactly, a user property such as {@code
-   * OpenHouse.myTeam} is <b>not</b> reserved and must keep working.
-   */
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "openhouse.tableId", "OpenHouse.myTeam", "OPENHOUSE.tableUUID",
+        "policies", "PoLiCiEs", "Replace.Drop-Dialect.Allowed"
+      })
+  public void validateRejectsReservedPropertyKeysIgnoringCase(String key) {
+    Map<String, String> properties = new LinkedHashMap<>(ViewModelConstants.VIEW_PROPERTIES);
+    properties.put(key, "hijacked");
+    assertRejected(
+        createOf(validCreateRequest().toBuilder().viewProperties(properties).build()),
+        ViewErrorCode.INVALID_VIEW_DEFINITION,
+        "viewProperties : reserved keys are not allowed: " + key);
+    assertRejected(
+        updateOf(
+            validUpdateRequest()
+                .toBuilder()
+                .baseMetadataLocation(INITIAL_TABLE_VERSION)
+                .viewProperties(properties)
+                .build()),
+        ViewErrorCode.INVALID_VIEW_DEFINITION,
+        "viewProperties : reserved keys are not allowed: " + key);
+  }
+
   @Test
-  public void validateRejectsReservedPropertyKeysCaseSensitively() {
-    Map<String, String> openhousePrefixed = new LinkedHashMap<>();
-    openhousePrefixed.put("openhouse.tableId", "hijacked");
+  public void validateAcceptsSourceDialectKeyIgnoringCaseAndRejectsDuplicateAliases() {
+    Map<String, String> properties = new LinkedHashMap<>();
+    properties.put("OpenHouse.View.SourceDialect", ViewModelConstants.SOURCE_DIALECT);
+    assertDoesNotThrow(
+        createOf(validCreateRequest().toBuilder().viewProperties(properties).build()));
+    assertDoesNotThrow(
+        updateOf(validUpdateRequest().toBuilder().viewProperties(properties).build()));
+    properties.put(ReservedViewProperties.SOURCE_DIALECT, ViewModelConstants.SOURCE_DIALECT);
     assertRejected(
-        createOf(validCreateRequest().toBuilder().viewProperties(openhousePrefixed).build()),
+        updateOf(validUpdateRequest().toBuilder().viewProperties(properties).build()),
         ViewErrorCode.INVALID_VIEW_DEFINITION,
-        "viewProperties : reserved keys are not allowed: openhouse.tableId");
+        "viewProperties : duplicate system property names");
+  }
 
-    Map<String, String> policies = new LinkedHashMap<>();
-    policies.put("policies", "hijacked");
-    assertRejected(
-        createOf(validCreateRequest().toBuilder().viewProperties(policies).build()),
-        ViewErrorCode.INVALID_VIEW_DEFINITION,
-        "viewProperties : reserved keys are not allowed: policies");
-
+  @Test
+  public void validateAcceptsNonReservedPropertyNames() {
     Map<String, String> userOwned = new LinkedHashMap<>();
-    userOwned.put("OpenHouse.myTeam", "grid");
+    userOwned.put("openhouse_team", "grid");
     userOwned.put("policies_owner", "grid");
     userOwned.put(ReservedViewProperties.SOURCE_DIALECT, ViewModelConstants.SOURCE_DIALECT);
     assertDoesNotThrow(
         createOf(validCreateRequest().toBuilder().viewProperties(userOwned).build()),
-        "Neither of these user-owned keys is reserved: the openhouse. predicate is case-sensitive"
-            + " and policies is matched exactly.");
+        "Similar names outside the reserved space remain user-owned.");
   }
 
   /**
@@ -701,14 +719,8 @@ public class ViewsValidatorTest {
         ReservedViewProperties.SOURCE_DIALECT + " : must be one of the supported dialects: spark");
   }
 
-  /**
-   * The server stamps {@code replace.drop-dialect.allowed} on every view, and the commit engine
-   * refuses a caller-supplied value. That exact key is therefore reserved at the API on create and
-   * replace, as a 400, so it is never accepted here only to fail later as a server fault. The
-   * reservation is the exact key: case variants and longer keys stay ordinary user properties.
-   */
   @Test
-  public void validateRejectsTheServerOwnedDropDialectKeyExactlyOnCreateAndReplace() {
+  public void validateRejectsTheServerOwnedDropDialectKeyOnCreate() {
     String sentinelValue = "drop-dialect-value-sentinel";
     for (String value : new String[] {"false", "true", sentinelValue}) {
       Map<String, String> serverOwned = new LinkedHashMap<>();
@@ -716,7 +728,12 @@ public class ViewsValidatorTest {
       Map<String, String> sent = new LinkedHashMap<>(serverOwned);
       Executable[] validations = {
         createOf(validCreateRequest().toBuilder().viewProperties(serverOwned).build()),
-        updateOf(validUpdateRequest().toBuilder().viewProperties(serverOwned).build())
+        updateOf(
+            validUpdateRequest()
+                .toBuilder()
+                .baseMetadataLocation(INITIAL_TABLE_VERSION)
+                .viewProperties(serverOwned)
+                .build())
       };
       for (Executable validation : validations) {
         ViewRequestValidationFailureException rejected =
@@ -743,7 +760,6 @@ public class ViewsValidatorTest {
             + " openhouse.tableId, policies, replace.drop-dialect.allowed");
 
     Map<String, String> userOwned = new LinkedHashMap<>();
-    userOwned.put("Replace.Drop-Dialect.Allowed", "false");
     userOwned.put("replace.drop-dialect.allowed.note", "user");
     userOwned.put("replace.drop-dialect.allowed ", "user");
     userOwned.put(ReservedViewProperties.SOURCE_DIALECT, ViewModelConstants.SOURCE_DIALECT);
@@ -753,6 +769,15 @@ public class ViewsValidatorTest {
     assertDoesNotThrow(
         updateOf(validUpdateRequest().toBuilder().viewProperties(userOwned).build()),
         "Only the exact server-owned key is reserved.");
+  }
+
+  @Test
+  public void validateReplaceDefersSystemPropertyComparisonToTheEngine() {
+    Map<String, String> properties = new LinkedHashMap<>(ViewModelConstants.VIEW_PROPERTIES);
+    properties.put("openhouse.tableUUID", "existing-uuid");
+    properties.put("replace.drop-dialect.allowed", "false");
+    assertDoesNotThrow(
+        updateOf(validUpdateRequest().toBuilder().viewProperties(properties).build()));
   }
 
   @Test

@@ -255,18 +255,14 @@ public class ViewsServiceImpl implements ViewsService {
       String actingPrincipal,
       boolean isCreate) {
     Map<String, String> requestProperties = requestBody.getViewProperties();
-    String sourceDialect =
-        requestProperties == null
-            ? null
-            : requestProperties.get(ReservedViewProperties.SOURCE_DIALECT);
-    // The engine rejects every openhouse.* key in user properties, so the transport-only source
-    // dialect key is stripped from a copy; the request's own map is never mutated.
-    Map<String, String> userProperties = new LinkedHashMap<>();
+    String sourceDialect = ReservedViewProperties.sourceDialect(requestProperties);
+    // Source dialect is validated separately by the engine.
+    Map<String, String> properties = new LinkedHashMap<>();
     if (requestProperties != null) {
       requestProperties.forEach(
           (key, value) -> {
-            if (!ReservedViewProperties.SOURCE_DIALECT.equals(key)) {
-              userProperties.put(key, value);
+            if (!ReservedViewProperties.SOURCE_DIALECT.equalsIgnoreCase(key)) {
+              properties.put(key, value);
             }
           });
     }
@@ -286,7 +282,7 @@ public class ViewsServiceImpl implements ViewsService {
               requestBody.getViewId(),
               viewUuid,
               actingPrincipal,
-              userProperties);
+              properties);
     }
     Schema schema = IcebergSchemaHelper.getSchemaFromSchemaJson(requestBody.getSchema());
     return viewCommitEngine.commit(
@@ -298,7 +294,7 @@ public class ViewsServiceImpl implements ViewsService {
             .sourceDialect(sourceDialect)
             .defaultCatalog(requestBody.getDefaultCatalog())
             .defaultNamespace(toNamespace(requestBody.getDefaultNamespace()))
-            .viewProperties(userProperties)
+            .viewProperties(properties)
             .creator(actingPrincipal)
             .isCreate(isCreate)
             .baseRow(prepared.getViewBaseRow().orElse(null))

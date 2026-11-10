@@ -29,6 +29,8 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.view.ViewMetadata;
 import org.apache.iceberg.view.ViewMetadataParser;
@@ -213,6 +215,9 @@ public class ViewsServiceH2IntegrationTest {
                         ViewModelConstants.fullyPopulatedRequest()
                             .toBuilder()
                             .baseMetadataLocation(baseMetadataLocation)
+                            .viewProperties(
+                                replacementProperties(
+                                    baseMetadataLocation, ViewModelConstants.VIEW_PROPERTIES))
                             .representations(
                                 java.util.Collections.singletonList(
                                     com.linkedin.openhouse.tables.api.spec.v0.request.components
@@ -315,7 +320,8 @@ public class ViewsServiceH2IntegrationTest {
                   .content(
                       changed
                           .toBuilder()
-                          .viewProperties(ViewModelConstants.VIEW_PROPERTIES)
+                          .viewProperties(
+                              replacementProperties(pointer, ViewModelConstants.VIEW_PROPERTIES))
                           .representations(
                               java.util.Collections.singletonList(
                                   ViewRepresentation.builder()
@@ -330,6 +336,55 @@ public class ViewsServiceH2IntegrationTest {
           .andExpect(status().isOk());
       org.junit.jupiter.api.Assertions.assertNotEquals(
           pointer, findViewRow(viewId).getTableLocation());
+    } finally {
+      deleteViewIfPresent(viewId);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"add", "change", "remove"})
+  public void replaceRejectsSystemPropertyEditsWithoutChangingThePointer(String edit)
+      throws Exception {
+    String viewId = "system_property_view";
+    createView(viewId);
+    try {
+      String pointer = findViewRow(viewId).getTableLocation();
+      Map<String, String> properties =
+          replacementProperties(pointer, ViewModelConstants.VIEW_PROPERTIES);
+      if ("remove".equals(edit)) {
+        properties.remove("openhouse.tableUUID");
+      } else {
+        properties.put(
+            "add".equals(edit) ? "openhouse.extra" : "openhouse.tableUUID", "private-system-value");
+      }
+      CreateUpdateViewRequestBody request =
+          ViewModelConstants.fullyPopulatedRequest()
+              .toBuilder()
+              .viewId(viewId)
+              .baseMetadataLocation(pointer)
+              .viewProperties(properties)
+              .build();
+      mvc.perform(
+              MockMvcRequestBuilders.put(VIEWS_PATH + "/" + viewId)
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(request.toJson())
+                  .header("Authorization", "Bearer " + jwtAccessToken))
+          .andExpect(status().isBadRequest())
+          .andExpect(
+              jsonPath("$.message")
+                  .value("System view properties cannot be added, changed or removed"))
+          .andExpect(jsonPath("$.cause").doesNotExist())
+          .andExpect(jsonPath("$.stacktrace").doesNotExist());
+      org.junit.jupiter.api.Assertions.assertEquals(
+          pointer, findViewRow(viewId).getTableLocation());
+
+      mvc.perform(
+              MockMvcRequestBuilders.put(VIEWS_PATH + "/" + viewId)
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(
+                      request.toBuilder().baseMetadataLocation("stale-pointer").build().toJson())
+                  .header("Authorization", "Bearer " + jwtAccessToken))
+          .andExpect(status().isConflict());
     } finally {
       deleteViewIfPresent(viewId);
     }
@@ -467,7 +522,14 @@ public class ViewsServiceH2IntegrationTest {
           mvc.perform(
                   MockMvcRequestBuilders.put(viewPath)
                       .contentType(MediaType.APPLICATION_JSON)
-                      .content(changed.toBuilder().baseMetadataLocation(base).build().toJson())
+                      .content(
+                          changed
+                              .toBuilder()
+                              .baseMetadataLocation(base)
+                              .viewProperties(
+                                  replacementProperties(base, changed.getViewProperties()))
+                              .build()
+                              .toJson())
                       .accept(MediaType.APPLICATION_JSON)
                       .header("Authorization", "Bearer " + replacerToken))
               .andExpect(status().isOk())
@@ -483,7 +545,14 @@ public class ViewsServiceH2IntegrationTest {
           mvc.perform(
                   MockMvcRequestBuilders.put(viewPath)
                       .contentType(MediaType.APPLICATION_JSON)
-                      .content(changed.toBuilder().baseMetadataLocation(replaced).build().toJson())
+                      .content(
+                          changed
+                              .toBuilder()
+                              .baseMetadataLocation(replaced)
+                              .viewProperties(
+                                  replacementProperties(replaced, changed.getViewProperties()))
+                              .build()
+                              .toJson())
                       .accept(MediaType.APPLICATION_JSON)
                       .header("Authorization", "Bearer " + replacerToken))
               .andExpect(status().isOk())
@@ -512,6 +581,18 @@ public class ViewsServiceH2IntegrationTest {
 
   private static String responseBody(MvcResult result) throws Exception {
     return result.getResponse().getContentAsString();
+  }
+
+  private static Map<String, String> replacementProperties(
+      String pointer, Map<String, String> requested) throws Exception {
+    Map<String, String> properties =
+        new LinkedHashMap<>(
+            ViewMetadataParser.fromJson(
+                    pointer,
+                    new String(Files.readAllBytes(Paths.get(URI.create(pointer).getPath())), UTF_8))
+                .properties());
+    properties.putAll(requested);
+    return properties;
   }
 
   private static long readLong(MvcResult result, String path) throws Exception {

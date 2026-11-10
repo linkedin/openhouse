@@ -37,6 +37,7 @@ public class ViewCommitIntent {
   /** Null is normalized to {@link Namespace#empty()}. */
   private final Namespace defaultNamespace;
 
+  /** REPLACE includes unchanged system properties from the captured metadata. */
   private final Map<String, String> viewProperties;
 
   /** Required: true for CREATE, false for REPLACE; null is rejected at commit. */
