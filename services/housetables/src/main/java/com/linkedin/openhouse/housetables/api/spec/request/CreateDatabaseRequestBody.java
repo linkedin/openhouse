@@ -29,6 +29,9 @@ public class CreateDatabaseRequestBody {
   @Schema(description = "Initial properties. Omitted properties default to an empty map.")
   @NotNull
   @Builder.Default
-  private Map<@NotNull @Size(max = 512) String, @NotNull String> properties =
-      Collections.emptyMap();
+  private Map<
+          @NotNull @Size(max = 512)
+          @Pattern(regexp = "\\P{Cs}*", message = "must contain well-formed Unicode") String,
+          @NotNull String>
+      properties = Collections.emptyMap();
 }
