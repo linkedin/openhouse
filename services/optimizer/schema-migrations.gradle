@@ -173,4 +173,3 @@ tasks.register('hashMigrations', Exec) {
   executable atlasExecutable
   args 'migrate', 'hash', '--env', 'local'
 }
-
