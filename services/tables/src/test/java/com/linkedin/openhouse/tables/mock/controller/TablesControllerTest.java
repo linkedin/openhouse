@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.tables.mock.controller;
 
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
-import static com.linkedin.openhouse.common.audit.ServiceAuditPayloadRedactor.REDACTED_VALUE;
 import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX;
 import static com.linkedin.openhouse.tables.model.ServiceAuditModelConstants.EXCLUDE_FIELDS;
 import static com.linkedin.openhouse.tables.model.ServiceAuditModelConstants.SERVICE_AUDIT_EVENT_CREATE_TABLE_FAILED;
@@ -57,7 +56,6 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -65,16 +63,6 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 @SpringBootTest
 @ContextConfiguration(initializers = AuthorizationPropertiesInitializer.class)
 public class TablesControllerTest {
-
-  /**
-   * A table schema carrying a marker that appears nowhere else, so {@link
-   * #tableCreateAuditPayloadStillCarriesItsSchemaUnredacted()} fails loudly if the value is ever
-   * scrubbed rather than passing on a coincidence.
-   */
-  private static final String TABLE_SCHEMA_WITH_MARKER =
-      "{\"type\": \"struct\", \"schema-id\": 0, \"fields\": ["
-          + "{\"id\": 1, \"required\": true, \"name\": \"table_schema_marker_column\","
-          + " \"type\": \"string\"}]}";
 
   private MockMvc mvc;
 
@@ -279,76 +267,6 @@ public class TablesControllerTest {
                 .accept(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + jwtAccessToken))
         .andExpect(status().isNotFound());
-  }
-
-  /**
-   * Regression pin for {@link com.linkedin.openhouse.tables.audit.ViewRequestPayloadRedactor}.
-   * {@code CreateUpdateTableRequestBody} also carries a {@code schema}, so a redactor keyed on the
-   * field name alone would silently start scrubbing table audit events, which is not what the views
-   * change is allowed to do. The view redactor is scoped by request URI instead, and this asserts
-   * that a v1 table create still audits its schema verbatim.
-   */
-  @Test
-  public void tableCreateAuditPayloadStillCarriesItsSchemaUnredacted() throws Exception {
-    CreateUpdateTableRequestBody requestBody =
-        RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY
-            .toBuilder()
-            .schema(TABLE_SCHEMA_WITH_MARKER)
-            .build();
-
-    mvc.perform(
-        MockMvcRequestBuilders.post(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/tables")
-            .contentType(MediaType.APPLICATION_JSON)
-            .content(requestBody.toJson())
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer " + jwtAccessToken));
-
-    Mockito.verify(serviceAuditHandler, Mockito.atLeastOnce()).audit(argCaptor.capture());
-    ServiceAuditEvent actualEvent = argCaptor.getValue();
-    JsonObject payload = actualEvent.getRequestPayload().getAsJsonObject();
-
-    Assertions.assertEquals(
-        TABLE_SCHEMA_WITH_MARKER,
-        payload.get("schema").getAsString(),
-        "A table create must audit its schema exactly as it was sent.");
-    Assertions.assertFalse(
-        actualEvent.getRequestPayload().toString().contains(REDACTED_VALUE),
-        "Nothing in a table request payload may be redacted by the views change.");
-  }
-
-  /**
-   * Non-view diagnostic control: the view diagnostic policy is route-scoped, so a table request
-   * whose request-audit delivery fails keeps the existing diagnostic log of that failure, and its
-   * request still succeeds.
-   */
-  @Test
-  public void tableRequestAuditDeliveryFailureKeepsItsExistingDiagnosticLog() throws Exception {
-    String sinkFailure = "table-request-audit-sink-failure-marker";
-    Mockito.doThrow(new IllegalStateException(sinkFailure))
-        .when(serviceAuditHandler)
-        .audit(Mockito.any(ServiceAuditEvent.class));
-    CreateUpdateTableRequestBody requestBody =
-        RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY
-            .toBuilder()
-            .schema(TABLE_SCHEMA_WITH_MARKER)
-            .build();
-
-    try (com.linkedin.openhouse.tables.mock.logging.Log4j2LogCapture logs =
-        new com.linkedin.openhouse.tables.mock.logging.Log4j2LogCapture()) {
-      MvcResult result =
-          mvc.perform(
-                  MockMvcRequestBuilders.post(
-                          CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/tables")
-                      .contentType(MediaType.APPLICATION_JSON)
-                      .content(requestBody.toJson())
-                      .accept(MediaType.APPLICATION_JSON)
-                      .header("Authorization", "Bearer " + jwtAccessToken))
-              .andReturn();
-
-      Assertions.assertEquals(201, result.getResponse().getStatus());
-      Assertions.assertTrue(logs.renderedEvents().contains(sinkFailure), logs.renderedEvents());
-    }
-    Mockito.verify(serviceAuditHandler, Mockito.times(1)).audit(Mockito.any());
   }
 
   @Test

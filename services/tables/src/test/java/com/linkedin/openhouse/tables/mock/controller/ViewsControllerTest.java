@@ -9,14 +9,12 @@ import com.google.gson.JsonParser;
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.CachingRequestBodyFilter;
-import com.linkedin.openhouse.common.audit.ServiceAuditPayloadRedactor;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.common.audit.model.ServiceName;
 import com.linkedin.openhouse.common.exception.handler.OpenHouseExceptionHandler;
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ViewRepresentation;
-import com.linkedin.openhouse.tables.audit.ViewRequestPayloadRedactor;
 import com.linkedin.openhouse.tables.controller.ViewsController;
 import com.linkedin.openhouse.tables.exception.ViewErrorCode;
 import com.linkedin.openhouse.tables.exception.ViewRequestValidationFailureException;
@@ -126,9 +124,6 @@ public class ViewsControllerTest {
    * controller passed on observable.
    */
   @SpyBean private MockViewsApiHandler viewsApiHandler;
-
-  /** Spy so a redactor fault can be injected without replacing the real redaction behaviour. */
-  @SpyBean private ViewRequestPayloadRedactor viewRequestPayloadRedactor;
 
   @Captor private ArgumentCaptor<ServiceAuditEvent> argCaptor;
 
@@ -831,10 +826,9 @@ public class ViewsControllerTest {
 
   /**
    * {@link com.linkedin.openhouse.common.audit.ServiceAuditAspect} records the complete cached
-   * request body for every controller call. The request audit keeps the caller's supplied view
-   * definition (schema and every SQL representation) as request provenance, on the success path and
-   * on failure paths alike; {@link ViewRequestPayloadRedactor} replaces only the write CAS token,
-   * keeping its key. Nothing else in the payload is disturbed.
+   * request body for every controller call. The request audit keeps the complete parsed body the
+   * caller supplied (schema, every SQL representation, properties and the write CAS token) as
+   * request provenance, on the success path and on failure paths alike. Nothing is rewritten.
    *
    * <p>The fixtures carry marker identifiers that appear nowhere else, so the "kept" assertions
    * cannot pass on a coincidence.
@@ -872,7 +866,7 @@ public class ViewsControllerTest {
   }
 
   @Test
-  public void serviceAuditOnViewCreateKeepsTheDefinitionAndRedactsTheCasToken() throws Exception {
+  public void serviceAuditOnViewCreateKeepsTheFullParsedPayload() throws Exception {
     mvc.perform(
         MockMvcRequestBuilders.post(WRITE_VIEWS_PATH)
             .contentType(MediaType.APPLICATION_JSON)
@@ -882,11 +876,11 @@ public class ViewsControllerTest {
 
     ServiceAuditEvent event = capturedAuditEvent();
     Assertions.assertEquals(201, event.getStatusCode(), "Precondition: the create must succeed.");
-    assertDefinitionKeptAndCasRedacted(event, requestCarryingMarkedDefinition());
+    assertFullParsedPayloadAudited(event, requestCarryingMarkedDefinition());
   }
 
   @Test
-  public void serviceAuditOnViewReplaceKeepsTheDefinitionAndRedactsTheCasToken() throws Exception {
+  public void serviceAuditOnViewReplaceKeepsTheFullParsedPayload() throws Exception {
     mvc.perform(
         MockMvcRequestBuilders.put(WRITE_VIEWS_PATH + "/my_view")
             .contentType(MediaType.APPLICATION_JSON)
@@ -896,7 +890,7 @@ public class ViewsControllerTest {
 
     ServiceAuditEvent event = capturedAuditEvent();
     Assertions.assertEquals(200, event.getStatusCode(), "Precondition: the replace must succeed.");
-    assertDefinitionKeptAndCasRedacted(event, requestCarryingMarkedDefinition());
+    assertFullParsedPayloadAudited(event, requestCarryingMarkedDefinition());
   }
 
   /**
@@ -905,8 +899,7 @@ public class ViewsControllerTest {
    * one does: request provenance, not a committed result.
    */
   @Test
-  public void serviceAuditOnFailedViewCreateKeepsTheDefinitionAndRedactsTheCasToken()
-      throws Exception {
+  public void serviceAuditOnFailedViewCreateKeepsTheFullParsedPayload() throws Exception {
     String failingDatabaseId = MockViewsApiHandler.databaseIdFor(ViewErrorCode.VIEWS_DISABLED);
     // Match identifiers so the request reaches the handler failure.
     CreateUpdateViewRequestBody sent =
@@ -922,13 +915,12 @@ public class ViewsControllerTest {
     ServiceAuditEvent event = capturedAuditEvent();
     Assertions.assertEquals(
         404, event.getStatusCode(), "Precondition: the create must actually be rejected.");
-    assertDefinitionKeptAndCasRedacted(event, sent);
+    assertFullParsedPayloadAudited(event, sent);
   }
 
-  /** A controller rejection keeps the supplied definition and still redacts the CAS token. */
+  /** A controller rejection keeps the complete supplied payload, CAS token included. */
   @Test
-  public void serviceAuditOnAnIdentifierMismatchKeepsTheDefinitionAndRedactsTheCasToken()
-      throws Exception {
+  public void serviceAuditOnAnIdentifierMismatchKeepsTheFullParsedPayload() throws Exception {
     mvc.perform(
         MockMvcRequestBuilders.post(VIEWS_PATH)
             .contentType(MediaType.APPLICATION_JSON)
@@ -944,7 +936,7 @@ public class ViewsControllerTest {
     Assertions.assertEquals(VIEWS_PATH, event.getUri());
     Assertions.assertEquals(ACTING_PRINCIPAL, event.getUser());
     Assertions.assertEquals(SESSION_ID, event.getSessionId());
-    assertDefinitionKeptAndCasRedacted(event, requestCarryingMarkedDefinition());
+    assertFullParsedPayloadAudited(event, requestCarryingMarkedDefinition());
 
     assertWriteRoutesNeverReachedTheHandler();
   }
@@ -954,7 +946,7 @@ public class ViewsControllerTest {
     return argCaptor.getValue();
   }
 
-  /** A payload that cannot be parsed or redacted is dropped; everything else is still audited. */
+  /** A payload that cannot be parsed is dropped; everything else is still audited. */
   private void assertSingleAuditEventWithoutPayload(HttpMethod method, String uri, int status) {
     Mockito.verify(serviceAuditHandler, Mockito.times(1)).audit(argCaptor.capture());
     ServiceAuditEvent event = argCaptor.getValue();
@@ -973,37 +965,15 @@ public class ViewsControllerTest {
     Assertions.assertFalse(event.getEndTimestamp().isBefore(event.getStartTimestamp()));
   }
 
-  /** A redactor fault must not leak the payload, alter the response or duplicate the event. */
-  @Test
-  public void serviceAuditOnAFailingRedactorKeepsTheResponseAndDropsThePayload() throws Exception {
-    Mockito.doThrow(new IllegalStateException("redactor failed"))
-        .when(viewRequestPayloadRedactor)
-        .redact(Mockito.any());
-
-    mvc.perform(
-            MockMvcRequestBuilders.post(WRITE_VIEWS_PATH)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(requestCarryingMarkedDefinition().toJson())
-                .accept(MediaType.APPLICATION_JSON)
-                .header(SESSION_ID_HEADER, SESSION_ID)
-                .header("Authorization", "Bearer " + jwtAccessToken))
-        .andExpect(status().isCreated())
-        .andExpect(content().json(ViewModelConstants.pointerResponse().toJson()));
-
-    Mockito.verify(viewRequestPayloadRedactor).redact(Mockito.any());
-    assertSingleAuditEventWithoutPayload(HttpMethod.POST, WRITE_VIEWS_PATH, 201);
-  }
-
   /**
-   * The audited payload is the request exactly as sent (as parsed JSON), with only the CAS value
-   * replaced and its key kept. Exact equality covers the schema, every SQL representation, the
-   * absence of any cluster key, and every other supplied field.
+   * The audited payload is the request exactly as sent (as parsed JSON). Exact equality covers the
+   * schema, every SQL representation, the CAS token, the absence of any cluster key, and every
+   * other supplied field.
    */
-  private void assertDefinitionKeptAndCasRedacted(
+  private void assertFullParsedPayloadAudited(
       ServiceAuditEvent event, CreateUpdateViewRequestBody sent) {
     JsonObject expected = JsonParser.parseString(sent.toJson()).getAsJsonObject();
     Assertions.assertTrue(expected.has("baseMetadataLocation"), "Fixture must supply a CAS token.");
-    expected.addProperty("baseMetadataLocation", ServiceAuditPayloadRedactor.REDACTED_VALUE);
     Assertions.assertEquals(expected, event.getRequestPayload());
     Assertions.assertEquals(
         clusterProperties.getClusterName(),

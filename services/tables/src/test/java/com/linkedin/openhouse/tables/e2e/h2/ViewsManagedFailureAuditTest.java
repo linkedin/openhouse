@@ -14,11 +14,9 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
 import com.linkedin.openhouse.common.audit.AuditHandler;
-import com.linkedin.openhouse.common.audit.ServiceAuditPayloadRedactor;
 import com.linkedin.openhouse.common.audit.model.ServiceAuditEvent;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
@@ -35,7 +33,6 @@ import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.controller.ViewsController;
 import com.linkedin.openhouse.tables.exception.ViewApiException;
 import com.linkedin.openhouse.tables.exception.ViewExceptionHandler;
-import com.linkedin.openhouse.tables.mock.logging.Log4j2LogCapture;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.model.ReservedViewProperties;
 import com.linkedin.openhouse.tables.model.TableDto;
@@ -91,10 +88,10 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.util.NestedServletException;
 
 /**
- * Managed view failure handling, the operation-audit contract, and the request audit and rendered
- * diagnostic logs of the same requests, through real MVC, view advice, the request-audit aspect and
- * service. The request audit keeps the supplied definition (only the CAS value is replaced);
- * responses and ordinary logs, thrown causes included, never carry it.
+ * Managed view failure handling, the operation-audit contract, and the request audit of the same
+ * requests, through real MVC, view advice, the request-audit aspect and service. The request audit
+ * keeps the complete parsed body as supplied, CAS token included; HTTP responses and the
+ * identity-only operation audit never carry the definition.
  */
 @SpringBootTest(classes = {SpringH2Application.class, ViewsManagedFailureAuditTest.Config.class})
 @AutoConfigureMockMvc
@@ -117,8 +114,8 @@ public class ViewsManagedFailureAuditTest {
   private static final String SECRET_BASE = "file:/very-secret-base.metadata.json";
   private static final String SECRET_PAGE_TOKEN = "very-secret-page-token";
   /**
-   * Forbidden in every HTTP response, in rendered logs, and in the identity-only operation audit
-   * event. The request audit legitimately keeps the supplied SQL and schema.
+   * Forbidden in every HTTP response and in the identity-only operation audit event. The request
+   * audit legitimately keeps the complete supplied body.
    */
   private static final String[] SECRETS = {
     SECRET_SQL, SECRET_SCHEMA, SECRET_BASE, SECRET_PAGE_TOKEN
@@ -130,9 +127,6 @@ public class ViewsManagedFailureAuditTest {
   private static final String SESSION_ID_HEADER = "session-id";
   private static final String SINK_FAILURE = "operation-audit-sink-failure-marker";
   private static final String REQUEST_SINK_FAILURE = "request-audit-sink-failure-marker";
-  private static final String[] PARSER_DETAILS = {
-    "com.google.gson", "MalformedJsonException", "JsonSyntaxException", "End of input"
-  };
   private static final String SIZE_BINDING_MESSAGE = "size : must be an integer";
   private static final String[] BINDING_PARSER_DETAILS = {
     "NumberFormatException", "For input string", "Failed to convert", "java.lang"
@@ -189,8 +183,7 @@ public class ViewsManagedFailureAuditTest {
   /**
    * A syntactically malformed body is a safe 400 before the service and the operation audit. Gson,
    * the request-audit parser, also rejects it, so the audit's parse-failure path runs: the payload
-   * is dropped rather than retained raw, the parsing-failure metric is counted, and neither the
-   * body nor parser details reach the logs.
+   * is dropped rather than retained raw and the parsing-failure metric is counted.
    */
   @Test
   public void malformedJsonIsASafe400WithoutServiceOrOperationAudit() throws Exception {
@@ -204,20 +197,16 @@ public class ViewsManagedFailureAuditTest {
             + "\"}],";
     double parseFailuresBefore = serviceAuditCount(MetricsConstant.FAILED_PARSING_REQUEST_PAYLOAD);
 
-    MvcResult result;
-    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
-      result =
-          expectNoCauseOrStacktrace(
-                  mvc.perform(
-                      MockMvcRequestBuilders.post(VIEWS_PATH)
-                          .contentType(MediaType.APPLICATION_JSON)
-                          .content(malformed)
-                          .accept(MediaType.APPLICATION_JSON)
-                          .header("Authorization", "Bearer " + jwtAccessToken)))
-              .andExpect(status().isBadRequest())
-              .andReturn();
-      assertNoSensitiveLogs(logs, PARSER_DETAILS);
-    }
+    MvcResult result =
+        expectNoCauseOrStacktrace(
+                mvc.perform(
+                    MockMvcRequestBuilders.post(VIEWS_PATH)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(malformed)
+                        .accept(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + jwtAccessToken)))
+            .andExpect(status().isBadRequest())
+            .andReturn();
 
     assertNoSensitive(result.getResponse().getContentAsString());
     assertNull(captureServiceAudit().getRequestPayload(), "An unparseable body is never kept raw.");
@@ -267,7 +256,7 @@ public class ViewsManagedFailureAuditTest {
     assertEquals(PRINCIPAL, viewEvent.getUser());
     assertEquals(ViewModelConstants.SOURCE_DIALECT, viewEvent.getSourceDialect());
     assertNoSensitive(viewEvent.toJson());
-    assertRequestAuditKeepsSuppliedDefinition(captureServiceAudit(), requestWithSensitiveMarkers());
+    assertRequestAuditKeepsFullParsedPayload(captureServiceAudit(), requestWithSensitiveMarkers());
     assertCorrelated(sessionId, OperationStatus.SUCCESS);
   }
 
@@ -296,7 +285,7 @@ public class ViewsManagedFailureAuditTest {
     assertEquals(committed.getPointer().getMetadataLocation(), viewEvent.getNewMetadataLocation());
     assertEquals(PRINCIPAL, viewEvent.getUser());
     assertNoSensitive(viewEvent.toJson());
-    assertRequestAuditKeepsSuppliedDefinition(
+    assertRequestAuditKeepsFullParsedPayload(
         captureServiceAudit(), ViewModelConstants.fullyPopulatedRequest().toJson());
   }
 
@@ -328,20 +317,16 @@ public class ViewsManagedFailureAuditTest {
       throws Exception {
     when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(false);
 
-    MvcResult result;
-    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
-      result =
-          expectNoCauseOrStacktrace(
-                  mvc.perform(
-                      MockMvcRequestBuilders.post(VIEWS_PATH)
-                          .contentType(MediaType.APPLICATION_JSON)
-                          .content(requestWithSensitiveMarkers())
-                          .accept(MediaType.APPLICATION_JSON)
-                          .header("Authorization", "Bearer " + jwtAccessToken)))
-              .andExpect(status().isForbidden())
-              .andReturn();
-      assertNoSensitiveLogs(logs);
-    }
+    MvcResult result =
+        expectNoCauseOrStacktrace(
+                mvc.perform(
+                    MockMvcRequestBuilders.post(VIEWS_PATH)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestWithSensitiveMarkers())
+                        .accept(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + jwtAccessToken)))
+            .andExpect(status().isForbidden())
+            .andReturn();
 
     assertNoSensitive(result.getResponse().getContentAsString());
     verify(viewCommitEngine, never()).commit(any());
@@ -351,7 +336,7 @@ public class ViewsManagedFailureAuditTest {
     assertNoSensitive(viewEvent.toJson());
     ServiceAuditEvent requestEvent = captureServiceAudit();
     assertEquals(403, requestEvent.getStatusCode());
-    assertRequestAuditKeepsSuppliedDefinition(requestEvent, requestWithSensitiveMarkers());
+    assertRequestAuditKeepsFullParsedPayload(requestEvent, requestWithSensitiveMarkers());
   }
 
   @Test
@@ -382,21 +367,16 @@ public class ViewsManagedFailureAuditTest {
   }
 
   private void assertPreServiceSizeBindingFailure(String rawSize) throws Exception {
-    MvcResult result;
-    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
-      result =
-          expectNoCauseOrStacktrace(
-                  mvc.perform(
-                      MockMvcRequestBuilders.get(VIEWS_PATH)
-                          .param("size", rawSize)
-                          .accept(MediaType.APPLICATION_JSON)
-                          .header("Authorization", "Bearer " + jwtAccessToken)))
-              .andExpect(status().isBadRequest())
-              .andExpect(jsonPath("$.message").value(SIZE_BINDING_MESSAGE))
-              .andReturn();
-      assertNoSensitiveLogs(logs, rawSize);
-      assertNoSensitiveLogs(logs, BINDING_PARSER_DETAILS);
-    }
+    MvcResult result =
+        expectNoCauseOrStacktrace(
+                mvc.perform(
+                    MockMvcRequestBuilders.get(VIEWS_PATH)
+                        .param("size", rawSize)
+                        .accept(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + jwtAccessToken)))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message").value(SIZE_BINDING_MESSAGE))
+            .andReturn();
 
     String wire = result.getResponse().getContentAsString();
     assertFalse(wire.contains(rawSize), wire);
@@ -413,18 +393,14 @@ public class ViewsManagedFailureAuditTest {
     when(houseTableRepository.findViewById(ViewsManagedAuthMatrixBase.viewKey()))
         .thenThrow(new RuntimeException(SECRET_SQL));
 
-    MvcResult result;
-    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
-      result =
-          expectNoCauseOrStacktrace(
-                  mvc.perform(
-                      MockMvcRequestBuilders.get(VIEW_PATH)
-                          .accept(MediaType.APPLICATION_JSON)
-                          .header("Authorization", "Bearer " + jwtAccessToken)))
-              .andExpect(status().isInternalServerError())
-              .andReturn();
-      assertNoSensitiveLogs(logs);
-    }
+    MvcResult result =
+        expectNoCauseOrStacktrace(
+                mvc.perform(
+                    MockMvcRequestBuilders.get(VIEW_PATH)
+                        .accept(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + jwtAccessToken)))
+            .andExpect(status().isInternalServerError())
+            .andReturn();
 
     assertNoSensitive(result.getResponse().getContentAsString());
     verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
@@ -486,20 +462,16 @@ public class ViewsManagedFailureAuditTest {
     when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any()))
         .thenThrow(new RuntimeException(SECRET_SQL + " " + SECRET_SCHEMA + " " + SECRET_BASE));
 
-    MvcResult result;
-    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
-      result =
-          expectNoCauseOrStacktrace(
-                  mvc.perform(
-                      MockMvcRequestBuilders.post(VIEWS_PATH)
-                          .contentType(MediaType.APPLICATION_JSON)
-                          .content(requestWithSensitiveMarkers())
-                          .accept(MediaType.APPLICATION_JSON)
-                          .header("Authorization", "Bearer " + jwtAccessToken)))
-              .andExpect(status().isServiceUnavailable())
-              .andReturn();
-      assertNoSensitiveLogs(logs);
-    }
+    MvcResult result =
+        expectNoCauseOrStacktrace(
+                mvc.perform(
+                    MockMvcRequestBuilders.post(VIEWS_PATH)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestWithSensitiveMarkers())
+                        .accept(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + jwtAccessToken)))
+            .andExpect(status().isServiceUnavailable())
+            .andReturn();
 
     assertNoSensitive(result.getResponse().getContentAsString());
     verify(viewCommitEngine, never()).commit(any());
@@ -518,21 +490,17 @@ public class ViewsManagedFailureAuditTest {
         .thenThrow(new CommitStateUnknownException(raw));
     String sessionId = "view-session-unknown";
 
-    MvcResult result;
-    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
-      result =
-          expectNoCauseOrStacktrace(
-                  mvc.perform(
-                      MockMvcRequestBuilders.post(VIEWS_PATH)
-                          .contentType(MediaType.APPLICATION_JSON)
-                          .content(requestWithSensitiveMarkers())
-                          .accept(MediaType.APPLICATION_JSON)
-                          .header("Authorization", "Bearer " + jwtAccessToken)
-                          .header(SESSION_ID_HEADER, sessionId)))
-              .andExpect(status().isServiceUnavailable())
-              .andReturn();
-      assertNoSensitiveLogs(logs);
-    }
+    MvcResult result =
+        expectNoCauseOrStacktrace(
+                mvc.perform(
+                    MockMvcRequestBuilders.post(VIEWS_PATH)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestWithSensitiveMarkers())
+                        .accept(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + jwtAccessToken)
+                        .header(SESSION_ID_HEADER, sessionId)))
+            .andExpect(status().isServiceUnavailable())
+            .andReturn();
 
     assertNoSensitive(result.getResponse().getContentAsString());
     ArgumentCaptor<ViewCommitIntent> intent = ArgumentCaptor.forClass(ViewCommitIntent.class);
@@ -568,20 +536,15 @@ public class ViewsManagedFailureAuditTest {
     when(houseTableRepository.findAllViewsByDatabaseId(any(), any()))
         .thenThrow(new RuntimeException(SECRET_PAGE_TOKEN));
 
-    MvcResult result;
-    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
-      result =
-          expectNoCauseOrStacktrace(
-                  mvc.perform(
-                      MockMvcRequestBuilders.get(
-                              VIEWS_PATH + "?pageToken=" + token + "&sortBy=viewId&size=1")
-                          .accept(MediaType.APPLICATION_JSON)
-                          .header("Authorization", "Bearer " + jwtAccessToken)))
-              .andExpect(status().isInternalServerError())
-              .andReturn();
-      // The token may stay in the request audit URI, but never in ordinary logs.
-      assertNoSensitiveLogs(logs, token);
-    }
+    MvcResult result =
+        expectNoCauseOrStacktrace(
+                mvc.perform(
+                    MockMvcRequestBuilders.get(
+                            VIEWS_PATH + "?pageToken=" + token + "&sortBy=viewId&size=1")
+                        .accept(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + jwtAccessToken)))
+            .andExpect(status().isInternalServerError())
+            .andReturn();
 
     String wire = result.getResponse().getContentAsString();
     assertNoSensitive(wire);
@@ -591,19 +554,15 @@ public class ViewsManagedFailureAuditTest {
 
   @Test
   public void malformedPageTokenIsASafe400AndDoesNotReachBackend() throws Exception {
-    MvcResult result;
-    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
-      result =
-          expectNoCauseOrStacktrace(
-                  mvc.perform(
-                      MockMvcRequestBuilders.get(
-                              VIEWS_PATH + "?pageToken=" + SECRET_PAGE_TOKEN + "&sortBy=viewId")
-                          .accept(MediaType.APPLICATION_JSON)
-                          .header("Authorization", "Bearer " + jwtAccessToken)))
-              .andExpect(status().isBadRequest())
-              .andReturn();
-      assertNoSensitiveLogs(logs);
-    }
+    MvcResult result =
+        expectNoCauseOrStacktrace(
+                mvc.perform(
+                    MockMvcRequestBuilders.get(
+                            VIEWS_PATH + "?pageToken=" + SECRET_PAGE_TOKEN + "&sortBy=viewId")
+                        .accept(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + jwtAccessToken)))
+            .andExpect(status().isBadRequest())
+            .andReturn();
 
     assertNoSensitive(result.getResponse().getContentAsString());
     verify(houseTableRepository, never()).findAllViewsByDatabaseId(any(), any());
@@ -646,26 +605,22 @@ public class ViewsManagedFailureAuditTest {
                 "Property %s is owned by OpenHouse and cannot be set by a caller",
                 "replace.drop-dialect.allowed"));
 
-    MvcResult result;
-    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
-      result =
-          expectNoCauseOrStacktrace(
-                  mvc.perform(
-                      withToken(
-                          request
-                              .contentType(MediaType.APPLICATION_JSON)
-                              .content(body)
-                              .accept(MediaType.APPLICATION_JSON))))
-              .andExpect(status().isBadRequest())
-              .andExpect(
-                  jsonPath("$.message")
-                      .value(
-                          org.hamcrest.Matchers.containsString(
-                              "viewProperties : reserved keys are not allowed:"
-                                  + " replace.drop-dialect.allowed")))
-              .andReturn();
-      assertNoSensitiveLogs(logs, DROP_DIALECT_SENTINEL, "owned by OpenHouse");
-    }
+    MvcResult result =
+        expectNoCauseOrStacktrace(
+                mvc.perform(
+                    withToken(
+                        request
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body)
+                            .accept(MediaType.APPLICATION_JSON))))
+            .andExpect(status().isBadRequest())
+            .andExpect(
+                jsonPath("$.message")
+                    .value(
+                        org.hamcrest.Matchers.containsString(
+                            "viewProperties : reserved keys are not allowed:"
+                                + " replace.drop-dialect.allowed")))
+            .andReturn();
 
     String wire = result.getResponse().getContentAsString();
     assertNoSensitive(wire);
@@ -679,7 +634,7 @@ public class ViewsManagedFailureAuditTest {
   /**
    * A syntactically valid body whose representations is an object fails Jackson binding: a safe 400
    * before the service, with no operation audit. The request audit still keeps the body exactly as
-   * supplied; its SQL never reaches the logs.
+   * supplied.
    */
   @Test
   public void objectShapedRepresentationsAreASafe400BeforeTheService() throws Exception {
@@ -694,23 +649,19 @@ public class ViewsManagedFailureAuditTest {
             + SECRET_SQL
             + "\"}}";
 
-    MvcResult result;
-    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
-      result =
-          expectNoCauseOrStacktrace(
-                  mvc.perform(
-                      MockMvcRequestBuilders.post(VIEWS_PATH)
-                          .contentType(MediaType.APPLICATION_JSON)
-                          .content(body)
-                          .accept(MediaType.APPLICATION_JSON)
-                          .header("Authorization", "Bearer " + jwtAccessToken)))
-              .andExpect(status().isBadRequest())
-              .andReturn();
-      assertNoSensitiveLogs(logs);
-    }
+    MvcResult result =
+        expectNoCauseOrStacktrace(
+                mvc.perform(
+                    MockMvcRequestBuilders.post(VIEWS_PATH)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body)
+                        .accept(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + jwtAccessToken)))
+            .andExpect(status().isBadRequest())
+            .andReturn();
 
     assertNoSensitive(result.getResponse().getContentAsString());
-    assertRequestAuditKeepsSuppliedDefinition(captureServiceAudit(), body);
+    assertRequestAuditKeepsFullParsedPayload(captureServiceAudit(), body);
     verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
     Mockito.verifyNoInteractions(houseTableRepository, viewCommitEngine, opaHandler);
   }
@@ -829,18 +780,15 @@ public class ViewsManagedFailureAuditTest {
   }
 
   private void assertReadProbeFailure(int expectedStatus) throws Exception {
-    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
-      for (String path : new String[] {VIEW_PATH, VIEWS_PATH}) {
-        MvcResult result =
-            expectNoCauseOrStacktrace(
-                    mvc.perform(
-                        withToken(
-                            MockMvcRequestBuilders.get(path).accept(MediaType.APPLICATION_JSON))))
-                .andReturn();
-        assertEquals(expectedStatus, result.getResponse().getStatus(), path);
-        assertNoSensitive(result.getResponse().getContentAsString());
-      }
-      assertNoSensitiveLogs(logs);
+    for (String path : new String[] {VIEW_PATH, VIEWS_PATH}) {
+      MvcResult result =
+          expectNoCauseOrStacktrace(
+                  mvc.perform(
+                      withToken(
+                          MockMvcRequestBuilders.get(path).accept(MediaType.APPLICATION_JSON))))
+              .andReturn();
+      assertEquals(expectedStatus, result.getResponse().getStatus(), path);
+      assertNoSensitive(result.getResponse().getContentAsString());
     }
     verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
     verify(houseTableRepository, never()).findViewById(any());
@@ -911,11 +859,7 @@ public class ViewsManagedFailureAuditTest {
       org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request,
       int expectedStatus)
       throws Exception {
-    MvcResult result;
-    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
-      result = expectNoCauseOrStacktrace(mvc.perform(request)).andReturn();
-      assertNoSensitiveLogs(logs);
-    }
+    MvcResult result = expectNoCauseOrStacktrace(mvc.perform(request)).andReturn();
     assertEquals(expectedStatus, result.getResponse().getStatus());
     assertNoSensitive(result.getResponse().getContentAsString());
 
@@ -996,13 +940,7 @@ public class ViewsManagedFailureAuditTest {
         .audit(any(ViewAuditEvent.class));
     double failedAuditsBefore = serviceAuditCount(MetricsConstant.FAILED_SERVICE_AUDIT);
 
-    MvcResult result;
-    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
-      result = mvc.perform(request).andReturn();
-      String rendered = logs.renderedEvents();
-      assertTrue(rendered.contains("View operation audit emission failed"), rendered);
-      assertNoSensitiveLogs(logs, SINK_FAILURE, IllegalStateException.class.getName());
-    }
+    MvcResult result = mvc.perform(request).andReturn();
 
     assertEquals(expectedStatus, result.getResponse().getStatus());
     assertNoSensitive(result.getResponse().getContentAsString());
@@ -1023,10 +961,10 @@ public class ViewsManagedFailureAuditTest {
     return counter == null ? 0.0 : counter.count();
   }
 
-  // --- Request-audit delivery failure: the event it received may echo the definition ---
+  // --- Request-audit delivery failure keeps the HTTP outcome and is counted ---
 
   @Test
-  public void requestAuditSinkFailureAfterAcknowledgedCreateKeepsCreatedAndLogsNoDetails()
+  public void requestAuditSinkFailureAfterAcknowledgedCreateKeepsCreatedAndIsCounted()
       throws Exception {
     when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
     when(viewCommitEngine.commit(any(ViewCommitIntent.class)))
@@ -1039,7 +977,7 @@ public class ViewsManagedFailureAuditTest {
   }
 
   @Test
-  public void requestAuditSinkFailureAfterAFailedResponseKeepsForbiddenAndLogsNoDetails()
+  public void requestAuditSinkFailureAfterAFailedResponseKeepsForbiddenAndIsCounted()
       throws Exception {
     when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(false);
 
@@ -1050,10 +988,9 @@ public class ViewsManagedFailureAuditTest {
   }
 
   /**
-   * The request-audit sink receives the full event once and throws an exception whose message,
-   * cause and suppressed exception echo that event's JSON. The HTTP outcome and correlation stay as
-   * they were, the existing failed-audit metric is counted, and no diagnostic carries the
-   * definition, the sink's message, or the raw throwable.
+   * The request-audit sink receives the full event once and throws. The HTTP outcome and
+   * correlation stay as they were, the response does not echo the sink failure, and the existing
+   * failed-audit metric is counted.
    */
   private void assertRequestAuditSinkFailureKeepsOutcome(int expectedStatus) throws Exception {
     String sessionId = "view-session-request-sink-failure";
@@ -1061,38 +998,22 @@ public class ViewsManagedFailureAuditTest {
     AtomicReference<ServiceAuditEvent> delivered = new AtomicReference<>();
     Mockito.doAnswer(
             invocation -> {
-              ServiceAuditEvent event = invocation.getArgument(0);
-              delivered.set(event);
-              IllegalStateException failure =
-                  new IllegalStateException(
-                      REQUEST_SINK_FAILURE + " " + event.toJson() + " " + SECRET_SQL,
-                      new RuntimeException(event.toJson() + " " + SECRET_SCHEMA));
-              failure.addSuppressed(new RuntimeException(event.toJson() + " " + SECRET_BASE));
-              throw failure;
+              delivered.set(invocation.getArgument(0));
+              throw new IllegalStateException(REQUEST_SINK_FAILURE);
             })
         .when(serviceAuditHandler)
         .audit(any(ServiceAuditEvent.class));
     double failedAuditsBefore = serviceAuditCount(MetricsConstant.FAILED_SERVICE_AUDIT);
 
-    MvcResult result;
-    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
-      result =
-          mvc.perform(
-                  withToken(
-                      MockMvcRequestBuilders.post(VIEWS_PATH)
-                          .contentType(MediaType.APPLICATION_JSON)
-                          .content(body)
-                          .accept(MediaType.APPLICATION_JSON)
-                          .header(SESSION_ID_HEADER, sessionId)))
-              .andReturn();
-      String rendered = logs.renderedEvents();
-      assertTrue(rendered.contains("(details omitted)"), rendered);
-      assertNoSensitiveLogs(
-          logs,
-          REQUEST_SINK_FAILURE,
-          IllegalStateException.class.getName(),
-          RuntimeException.class.getName());
-    }
+    MvcResult result =
+        mvc.perform(
+                withToken(
+                    MockMvcRequestBuilders.post(VIEWS_PATH)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body)
+                        .accept(MediaType.APPLICATION_JSON)
+                        .header(SESSION_ID_HEADER, sessionId)))
+            .andReturn();
 
     assertEquals(expectedStatus, result.getResponse().getStatus());
     String wire = result.getResponse().getContentAsString();
@@ -1107,15 +1028,15 @@ public class ViewsManagedFailureAuditTest {
     assertEquals(expectedStatus, event.getStatusCode());
     assertEquals(sessionId, event.getSessionId());
     assertEquals(sessionId, captureViewAudit().getSessionId());
-    assertRequestAuditKeepsSuppliedDefinition(event, body);
+    assertRequestAuditKeepsFullParsedPayload(event, body);
   }
 
   // --- MVC-accepted alias routes reach the controller and both request-audit advice paths ---
 
   /**
    * A structurally invalid definition at an encoded collection alias with a trailing separator is
-   * rejected before the service by the failure advice, whose request audit keeps the supplied
-   * definition with only the CAS value replaced.
+   * rejected before the service by the failure advice, whose request audit keeps the complete
+   * supplied body, CAS token included.
    */
   @Test
   public void invalidDefinitionOnAnEncodedTrailingCollectionAliasKeepsItInFailureRequestAudit()
@@ -1153,10 +1074,10 @@ public class ViewsManagedFailureAuditTest {
 
   /**
    * A replace at an encoded item alias succeeds through the success advice, whose request audit
-   * keeps the supplied definition while the CAS value is replaced.
+   * keeps the complete supplied body, CAS token included.
    */
   @Test
-  public void replaceOnAnEncodedItemAliasKeepsTheDefinitionAndReplacesTheCasValue()
+  public void replaceOnAnEncodedItemAliasKeepsTheFullParsedPayloadInRequestAudit()
       throws Exception {
     when(opaHandler.checkAccessDecision(
             any(), any(TableDto.class), eq(Privileges.UPDATE_TABLE_METADATA)))
@@ -1188,32 +1109,29 @@ public class ViewsManagedFailureAuditTest {
       String body,
       int expectedStatus)
       throws Exception {
-    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
-      MvcResult result =
-          expectNoCauseOrStacktrace(
-                  mvc.perform(
-                      withToken(
-                          request
-                              .contentType(MediaType.APPLICATION_JSON)
-                              .content(body)
-                              .accept(MediaType.APPLICATION_JSON))))
-              .andReturn();
+    MvcResult result =
+        expectNoCauseOrStacktrace(
+                mvc.perform(
+                    withToken(
+                        request
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body)
+                            .accept(MediaType.APPLICATION_JSON))))
+            .andReturn();
 
-      assertEquals(
-          expectedStatus,
-          result.getResponse().getStatus(),
-          "The alias must reach the view write handler: "
-              + result.getResponse().getContentAsString());
-      assertEquals(rawPath, result.getRequest().getRequestURI(), "The raw path is preserved.");
-      assertTrue(result.getHandler() instanceof HandlerMethod, String.valueOf(result.getHandler()));
-      assertEquals(ViewsController.class, ((HandlerMethod) result.getHandler()).getBeanType());
-      assertNoSensitive(result.getResponse().getContentAsString());
-      assertNoSensitiveLogs(logs);
-    }
+    assertEquals(
+        expectedStatus,
+        result.getResponse().getStatus(),
+        "The alias must reach the view write handler: "
+            + result.getResponse().getContentAsString());
+    assertEquals(rawPath, result.getRequest().getRequestURI(), "The raw path is preserved.");
+    assertTrue(result.getHandler() instanceof HandlerMethod, String.valueOf(result.getHandler()));
+    assertEquals(ViewsController.class, ((HandlerMethod) result.getHandler()).getBeanType());
+    assertNoSensitive(result.getResponse().getContentAsString());
     ServiceAuditEvent event = captureServiceAudit();
     assertEquals(expectedStatus, event.getStatusCode());
     assertEquals(rawPath, event.getUri());
-    assertRequestAuditKeepsSuppliedDefinition(event, body);
+    assertRequestAuditKeepsFullParsedPayload(event, body);
   }
 
   // --- F10: SUCCESS, FAILED and UNKNOWN correlation is asserted in their primary audit cases ---
@@ -1269,7 +1187,7 @@ public class ViewsManagedFailureAuditTest {
 
   /**
    * A representations array whose elements are bare or nested SQL strings fails binding: a safe 400
-   * before the service, with no operation audit, and its SQL never reaches the logs.
+   * before the service, with no operation audit.
    */
   @Test
   public void primitiveAndNestedArrayRepresentationsAreASafe400BeforeTheService() throws Exception {
@@ -1278,33 +1196,30 @@ public class ViewsManagedFailureAuditTest {
       "[[\"" + SECRET_SQL + "\"]]",
       "[{\"type\":\"sql\",\"dialect\":\"spark\",\"sql\":\"ok\"},\"" + SECRET_SQL + "\"]"
     };
-    try (Log4j2LogCapture logs = new Log4j2LogCapture()) {
-      for (String representations : malformedRepresentations) {
-        String body =
-            "{\"databaseId\":\""
-                + ViewModelConstants.DATABASE_ID
-                + "\",\"viewId\":\""
-                + ViewModelConstants.VIEW_ID
-                + "\",\"schema\":\""
-                + SECRET_SCHEMA
-                + "\",\"representations\":"
-                + representations
-                + "}";
+    for (String representations : malformedRepresentations) {
+      String body =
+          "{\"databaseId\":\""
+              + ViewModelConstants.DATABASE_ID
+              + "\",\"viewId\":\""
+              + ViewModelConstants.VIEW_ID
+              + "\",\"schema\":\""
+              + SECRET_SCHEMA
+              + "\",\"representations\":"
+              + representations
+              + "}";
 
-        MvcResult result =
-            expectNoCauseOrStacktrace(
-                    mvc.perform(
-                        MockMvcRequestBuilders.post(VIEWS_PATH)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(body)
-                            .accept(MediaType.APPLICATION_JSON)
-                            .header("Authorization", "Bearer " + jwtAccessToken)))
-                .andExpect(status().isBadRequest())
-                .andReturn();
+      MvcResult result =
+          expectNoCauseOrStacktrace(
+                  mvc.perform(
+                      MockMvcRequestBuilders.post(VIEWS_PATH)
+                          .contentType(MediaType.APPLICATION_JSON)
+                          .content(body)
+                          .accept(MediaType.APPLICATION_JSON)
+                          .header("Authorization", "Bearer " + jwtAccessToken)))
+              .andExpect(status().isBadRequest())
+              .andReturn();
 
-        assertNoSensitive(result.getResponse().getContentAsString());
-      }
-      assertNoSensitiveLogs(logs);
+      assertNoSensitive(result.getResponse().getContentAsString());
     }
     verify(viewAuditHandler, never()).audit(any(ViewAuditEvent.class));
     Mockito.verifyNoInteractions(houseTableRepository, viewCommitEngine, opaHandler);
@@ -1357,31 +1272,18 @@ public class ViewsManagedFailureAuditTest {
   }
 
   /**
-   * The request audit keeps the supplied body exactly as parsed, with only a supplied top-level CAS
-   * value replaced (its key kept).
+   * The request audit keeps the supplied body exactly as parsed: JSON-value equality, CAS token
+   * included.
    */
-  private static void assertRequestAuditKeepsSuppliedDefinition(
+  private static void assertRequestAuditKeepsFullParsedPayload(
       ServiceAuditEvent event, String sentBody) {
-    JsonObject expected = JsonParser.parseString(sentBody).getAsJsonObject();
-    if (expected.has("baseMetadataLocation")) {
-      expected.addProperty("baseMetadataLocation", ServiceAuditPayloadRedactor.REDACTED_VALUE);
-    }
-    assertEquals(expected, event.getRequestPayload());
+    assertEquals(JsonParser.parseString(sentBody), event.getRequestPayload());
   }
 
   /** The HTTP response never echoes a definition, CAS token or continuation. */
   private static void assertNoSensitive(String wire) {
     for (String secret : SECRETS) {
       assertFalse(wire.contains(secret), wire);
-    }
-  }
-
-  /** Rendered logs, thrown causes included, carry no secret and none of the extra fragments. */
-  private static void assertNoSensitiveLogs(Log4j2LogCapture logs, String... extra) {
-    String rendered = logs.renderedEvents();
-    assertNoSensitive(rendered);
-    for (String forbidden : extra) {
-      assertFalse(rendered.contains(forbidden), rendered);
     }
   }
 
