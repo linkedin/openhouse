@@ -27,8 +27,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeoutException;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
-import org.apache.directory.api.util.Strings;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -103,7 +103,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
   @Override
   public List<HouseTable> findAllByDatabaseId(String databaseId) {
     Map<String, String> params = new HashMap<>();
-    if (Strings.isNotEmpty(databaseId)) {
+    if (StringUtils.isNotEmpty(databaseId)) {
       params.put("databaseId", databaseId);
     }
 
@@ -124,7 +124,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
   @Override
   public Page<HouseTable> findAllByDatabaseId(String databaseId, Pageable pageable) {
     Map<String, String> params = new HashMap<>();
-    if (Strings.isNotEmpty(databaseId)) {
+    if (StringUtils.isNotEmpty(databaseId)) {
       params.put("databaseId", databaseId);
     }
 
@@ -451,7 +451,7 @@ public class HouseTableRepositoryImpl implements HouseTableRepository {
   public Page<HouseTable> findAllViewsByDatabaseId(String databaseId, Pageable pageable)
       throws IllegalStateException {
     Map<String, String> params = new HashMap<>();
-    if (Strings.isNotEmpty(databaseId)) {
+    if (StringUtils.isNotEmpty(databaseId)) {
       params.put("databaseId", databaseId);
     }
 
