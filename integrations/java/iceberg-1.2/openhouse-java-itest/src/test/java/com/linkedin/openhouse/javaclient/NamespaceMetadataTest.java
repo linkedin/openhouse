@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.javaclient;
 
+import static org.apache.iceberg.Files.localInput;
+import static org.apache.iceberg.Files.localOutput;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -582,11 +584,10 @@ class NamespaceMetadataTest {
             PartitionSpec.unpartitioned(),
             metadataDirectory.toAbsolutePath().toString(),
             Collections.singletonMap("table-only", "value"));
-    TableMetadataParser.write(
-        metadata, org.apache.iceberg.Files.localOutput(metadataPath.toFile()));
+    TableMetadataParser.write(metadata, localOutput(metadataPath.toFile()));
     FileIO fileOperations = mock(FileIO.class);
     when(fileOperations.newInputFile(metadataPath.toString()))
-        .thenReturn(org.apache.iceberg.Files.localInput(metadataPath.toFile()));
+        .thenReturn(localInput(metadataPath.toFile()));
     OpenHouseCatalog loadingCatalog =
         new OpenHouseCatalog() {
           @Override
