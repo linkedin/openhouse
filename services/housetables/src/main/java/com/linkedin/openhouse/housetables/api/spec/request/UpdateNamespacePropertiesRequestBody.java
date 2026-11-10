@@ -17,7 +17,7 @@ import lombok.NoArgsConstructor;
 @Getter
 @AllArgsConstructor(access = AccessLevel.PROTECTED)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class UpdateDatabasePropertiesRequestBody {
+public class UpdateNamespacePropertiesRequestBody {
   @Schema(description = "Keys to add or replace. Omitted keys retain their values.")
   @NotNull
   @Builder.Default

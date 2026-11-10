@@ -1,12 +1,12 @@
 package com.linkedin.openhouse.housetables.controller;
 
 import com.linkedin.openhouse.common.api.spec.ErrorResponseBody;
-import com.linkedin.openhouse.housetables.api.handler.DatabasesApiHandler;
-import com.linkedin.openhouse.housetables.api.spec.model.DatabaseMetadata;
-import com.linkedin.openhouse.housetables.api.spec.request.CreateDatabaseRequestBody;
-import com.linkedin.openhouse.housetables.api.spec.request.UpdateDatabasePropertiesRequestBody;
-import com.linkedin.openhouse.housetables.api.spec.response.UpdateDatabasePropertiesResponseBody;
-import com.linkedin.openhouse.housetables.services.DatabaseMetadataException;
+import com.linkedin.openhouse.housetables.api.handler.NamespacesApiHandler;
+import com.linkedin.openhouse.housetables.api.spec.request.CreateNamespaceRequestBody;
+import com.linkedin.openhouse.housetables.api.spec.request.UpdateNamespacePropertiesRequestBody;
+import com.linkedin.openhouse.housetables.api.spec.response.NamespaceMetadataResponse;
+import com.linkedin.openhouse.housetables.api.spec.response.UpdateNamespacePropertiesResponseBody;
+import com.linkedin.openhouse.housetables.services.NamespaceMetadataException;
 import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -25,126 +25,126 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping(value = "/hts/databases", produces = "application/json")
+@RequestMapping(value = "/hts/namespaces", produces = "application/json")
 @ApiResponses({
   @ApiResponse(
       responseCode = "400",
-      description = "Invalid database request.",
+      description = "Invalid namespace request.",
       content = @Content(schema = @Schema(implementation = ErrorResponseBody.class))),
   @ApiResponse(
       responseCode = "503",
-      description = "Database metadata is unavailable for this backend.",
+      description = "Namespace metadata is unavailable for this backend.",
       content = @Content(schema = @Schema(implementation = ErrorResponseBody.class))),
   @ApiResponse(
       responseCode = "500",
-      description = "Database metadata storage failed.",
+      description = "Namespace metadata storage failed.",
       content = @Content(schema = @Schema(implementation = ErrorResponseBody.class)))
 })
-public class DatabasesController {
-  private final DatabasesApiHandler databasesApiHandler;
+public class NamespacesController {
+  private final NamespacesApiHandler namespacesApiHandler;
 
-  public DatabasesController(DatabasesApiHandler databasesApiHandler) {
-    this.databasesApiHandler = databasesApiHandler;
+  public NamespacesController(NamespacesApiHandler namespacesApiHandler) {
+    this.namespacesApiHandler = namespacesApiHandler;
   }
 
   @Operation(
-      operationId = "createDatabase",
-      tags = "Database",
-      summary = "Create database metadata.")
+      operationId = "createNamespace",
+      tags = "Namespace",
+      summary = "Create namespace metadata.")
   @ApiResponses({
-    @ApiResponse(responseCode = "201", description = "Database metadata created."),
+    @ApiResponse(responseCode = "201", description = "Namespace metadata created."),
     @ApiResponse(
         responseCode = "409",
-        description = "Database name already exists.",
+        description = "Namespace name already exists.",
         content = @Content(schema = @Schema(implementation = ErrorResponseBody.class)))
   })
   @PostMapping(consumes = "application/json")
-  public ResponseEntity<DatabaseMetadata> createDatabase(
-      @RequestBody CreateDatabaseRequestBody request) throws DatabaseMetadataException {
-    com.linkedin.openhouse.common.api.spec.ApiResponse<DatabaseMetadata> response =
-        databasesApiHandler.createDatabase(request);
+  public ResponseEntity<NamespaceMetadataResponse> createNamespace(
+      @RequestBody CreateNamespaceRequestBody request) throws NamespaceMetadataException {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<NamespaceMetadataResponse> response =
+        namespacesApiHandler.createNamespace(request);
     return new ResponseEntity<>(
         response.getResponseBody(), response.getHttpHeaders(), response.getHttpStatus());
   }
 
-  @Operation(operationId = "getDatabase", tags = "Database", summary = "Get database metadata.")
+  @Operation(operationId = "getNamespace", tags = "Namespace", summary = "Get namespace metadata.")
   @ApiResponses({
-    @ApiResponse(responseCode = "200", description = "Database metadata loaded."),
+    @ApiResponse(responseCode = "200", description = "Namespace metadata loaded."),
     @ApiResponse(
         responseCode = "404",
-        description = "Database metadata was not found.",
+        description = "Namespace metadata was not found.",
         content = @Content(schema = @Schema(implementation = ErrorResponseBody.class)))
   })
-  @GetMapping("/{databaseName}")
-  public ResponseEntity<DatabaseMetadata> getDatabase(
-      @PathVariable("databaseName") String databaseName) throws DatabaseMetadataException {
-    com.linkedin.openhouse.common.api.spec.ApiResponse<DatabaseMetadata> response =
-        databasesApiHandler.getDatabase(databaseName);
+  @GetMapping("/{namespaceName}")
+  public ResponseEntity<NamespaceMetadataResponse> getNamespace(
+      @PathVariable("namespaceName") String namespaceName) throws NamespaceMetadataException {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<NamespaceMetadataResponse> response =
+        namespacesApiHandler.getNamespace(namespaceName);
     return new ResponseEntity<>(
         response.getResponseBody(), response.getHttpHeaders(), response.getHttpStatus());
   }
 
   @Operation(
-      operationId = "deleteDatabase",
-      tags = "Database",
-      summary = "Delete database metadata and its properties. Table rows remain unchanged.")
+      operationId = "deleteNamespace",
+      tags = "Namespace",
+      summary = "Delete namespace metadata and its properties. Table rows remain unchanged.")
   @ApiResponses({
     @ApiResponse(
         responseCode = "204",
-        description = "Database metadata deleted.",
+        description = "Namespace metadata deleted.",
         content = @Content),
     @ApiResponse(
         responseCode = "404",
-        description = "Database metadata was not found.",
+        description = "Namespace metadata was not found.",
         content = @Content(schema = @Schema(implementation = ErrorResponseBody.class))),
     @ApiResponse(
         responseCode = "409",
-        description = "Database metadata changed concurrently.",
+        description = "Namespace metadata changed concurrently.",
         content = @Content(schema = @Schema(implementation = ErrorResponseBody.class)))
   })
-  @DeleteMapping("/{databaseName}")
-  public ResponseEntity<Void> deleteDatabase(@PathVariable("databaseName") String databaseName)
-      throws DatabaseMetadataException {
+  @DeleteMapping("/{namespaceName}")
+  public ResponseEntity<Void> deleteNamespace(@PathVariable("namespaceName") String namespaceName)
+      throws NamespaceMetadataException {
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> response =
-        databasesApiHandler.deleteDatabase(databaseName);
+        namespacesApiHandler.deleteNamespace(namespaceName);
     return new ResponseEntity<>(
         response.getResponseBody(), response.getHttpHeaders(), response.getHttpStatus());
   }
 
   @Operation(
-      operationId = "updateDatabaseProperties",
-      tags = "Database",
+      operationId = "updateNamespaceProperties",
+      tags = "Namespace",
       summary = "Atomically apply sparse property updates and removals.")
   @ApiResponses({
-    @ApiResponse(responseCode = "200", description = "Database properties updated."),
+    @ApiResponse(responseCode = "200", description = "Namespace properties updated."),
     @ApiResponse(
         responseCode = "404",
-        description = "Database metadata was not found.",
+        description = "Namespace metadata was not found.",
         content = @Content(schema = @Schema(implementation = ErrorResponseBody.class))),
     @ApiResponse(
         responseCode = "409",
-        description = "Database metadata changed concurrently.",
+        description = "Namespace metadata changed concurrently.",
         content = @Content(schema = @Schema(implementation = ErrorResponseBody.class))),
     @ApiResponse(
         responseCode = "422",
         description = "Property updates and removals overlap.",
         content = @Content(schema = @Schema(implementation = ErrorResponseBody.class)))
   })
-  @PostMapping(value = "/{databaseName}/properties", consumes = "application/json")
-  public ResponseEntity<UpdateDatabasePropertiesResponseBody> updateDatabaseProperties(
-      @PathVariable("databaseName") String databaseName,
-      @RequestBody UpdateDatabasePropertiesRequestBody request)
-      throws DatabaseMetadataException {
-    com.linkedin.openhouse.common.api.spec.ApiResponse<UpdateDatabasePropertiesResponseBody>
-        response = databasesApiHandler.updateDatabaseProperties(databaseName, request);
+  @PostMapping(value = "/{namespaceName}/properties", consumes = "application/json")
+  public ResponseEntity<UpdateNamespacePropertiesResponseBody> updateNamespaceProperties(
+      @PathVariable("namespaceName") String namespaceName,
+      @RequestBody UpdateNamespacePropertiesRequestBody request)
+      throws NamespaceMetadataException {
+    com.linkedin.openhouse.common.api.spec.ApiResponse<UpdateNamespacePropertiesResponseBody>
+        response = namespacesApiHandler.updateNamespaceProperties(namespaceName, request);
     return new ResponseEntity<>(
         response.getResponseBody(), response.getHttpHeaders(), response.getHttpStatus());
   }
 
   @Hidden
-  @ExceptionHandler(DatabaseMetadataException.class)
-  public ResponseEntity<ErrorResponseBody> handleDatabaseMetadataException(
-      DatabaseMetadataException exception) {
+  @ExceptionHandler(NamespaceMetadataException.class)
+  public ResponseEntity<ErrorResponseBody> handleNamespaceMetadataException(
+      NamespaceMetadataException exception) {
     HttpStatus status;
     switch (exception.getReason()) {
       case NOT_FOUND:

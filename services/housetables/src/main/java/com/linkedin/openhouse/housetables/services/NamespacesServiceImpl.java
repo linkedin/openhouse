@@ -1,13 +1,13 @@
 package com.linkedin.openhouse.housetables.services;
 
-import static com.linkedin.openhouse.housetables.services.DatabaseMetadataException.Reason.*;
+import static com.linkedin.openhouse.housetables.services.NamespaceMetadataException.Reason.*;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.housetables.config.db.DatabaseConfiguration.SupportedDbTypes;
-import com.linkedin.openhouse.housetables.model.DatabaseMetadata;
-import com.linkedin.openhouse.housetables.model.DatabasePropertyUpdate;
-import com.linkedin.openhouse.housetables.model.DatabaseRow;
-import com.linkedin.openhouse.housetables.repository.impl.jdbc.DatabaseHtsJdbcRepository;
+import com.linkedin.openhouse.housetables.model.NamespaceMetadata;
+import com.linkedin.openhouse.housetables.model.NamespacePropertyUpdate;
+import com.linkedin.openhouse.housetables.model.NamespaceRow;
+import com.linkedin.openhouse.housetables.repository.impl.jdbc.NamespaceHtsJdbcRepository;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -32,14 +32,14 @@ import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
-public class DatabasesServiceImpl implements DatabasesService {
-  private final DatabaseHtsJdbcRepository repository;
+public class NamespacesServiceImpl implements NamespacesService {
+  private final NamespaceHtsJdbcRepository repository;
   private final ClusterProperties clusterProperties;
   private final EntityManager entityManager;
   private final TransactionTemplate transactions;
 
-  public DatabasesServiceImpl(
-      DatabaseHtsJdbcRepository repository,
+  public NamespacesServiceImpl(
+      NamespaceHtsJdbcRepository repository,
       ClusterProperties clusterProperties,
       EntityManager entityManager,
       PlatformTransactionManager transactionManager) {
@@ -52,94 +52,95 @@ public class DatabasesServiceImpl implements DatabasesService {
   }
 
   @Override
-  public DatabaseMetadata createDatabase(String databaseName, Map<String, String> properties)
-      throws DatabaseMetadataException {
+  public NamespaceMetadata createNamespace(String namespaceName, Map<String, String> properties)
+      throws NamespaceMetadataException {
     return inTransaction(
         () -> {
-          DatabaseRow database = new DatabaseRow(databaseName, properties);
-          entityManager.persist(database);
+          NamespaceRow namespace = new NamespaceRow(namespaceName, properties);
+          entityManager.persist(namespace);
           repository.flush();
-          return DatabaseMetadata.builder()
-              .databaseUuid(database.getDatabaseUuid())
-              .databaseName(database.getDatabaseName())
-              .properties(Collections.unmodifiableMap(new HashMap<>(database.getProperties())))
+          return NamespaceMetadata.builder()
+              .namespaceUuid(namespace.getNamespaceUuid())
+              .namespaceName(namespace.getNamespaceName())
+              .properties(Collections.unmodifiableMap(new HashMap<>(namespace.getProperties())))
               .build();
         },
         true);
   }
 
   @Override
-  public DatabaseMetadata getDatabase(String databaseName) throws DatabaseMetadataException {
+  public NamespaceMetadata getNamespace(String namespaceName) throws NamespaceMetadataException {
     return inTransaction(
             () ->
                 repository
-                    .findByDatabaseName(databaseName.toLowerCase(Locale.ROOT))
+                    .findByNamespaceName(namespaceName.toLowerCase(Locale.ROOT))
                     .map(
-                        database ->
-                            DatabaseMetadata.builder()
-                                .databaseUuid(database.getDatabaseUuid())
-                                .databaseName(database.getDatabaseName())
+                        namespace ->
+                            NamespaceMetadata.builder()
+                                .namespaceUuid(namespace.getNamespaceUuid())
+                                .namespaceName(namespace.getNamespaceName())
                                 .properties(
                                     Collections.unmodifiableMap(
-                                        new HashMap<>(database.getProperties())))
+                                        new HashMap<>(namespace.getProperties())))
                                 .build()),
             false)
         .orElseThrow(
-            () -> new DatabaseMetadataException(NOT_FOUND, "Database not found: " + databaseName));
+            () ->
+                new NamespaceMetadataException(NOT_FOUND, "Namespace not found: " + namespaceName));
   }
 
   @Override
-  public void deleteDatabase(String databaseName) throws DatabaseMetadataException {
+  public void deleteNamespace(String namespaceName) throws NamespaceMetadataException {
     boolean deleted =
         inTransaction(
             () ->
                 repository
-                    .findByDatabaseName(databaseName.toLowerCase(Locale.ROOT))
+                    .findByNamespaceName(namespaceName.toLowerCase(Locale.ROOT))
                     .map(
-                        database -> {
-                          repository.delete(database);
+                        namespace -> {
+                          repository.delete(namespace);
                           repository.flush();
                           return true;
                         })
                     .orElse(false),
             false);
     if (!deleted) {
-      throw new DatabaseMetadataException(NOT_FOUND, "Database not found: " + databaseName);
+      throw new NamespaceMetadataException(NOT_FOUND, "Namespace not found: " + namespaceName);
     }
   }
 
   @Override
-  public DatabasePropertyUpdate updateDatabaseProperties(
-      String databaseName, Map<String, String> updates, Set<String> removals)
-      throws DatabaseMetadataException {
+  public NamespacePropertyUpdate updateNamespaceProperties(
+      String namespaceName, Map<String, String> updates, Set<String> removals)
+      throws NamespaceMetadataException {
     if (!Collections.disjoint(updates.keySet(), removals)) {
-      throw new DatabaseMetadataException(
+      throw new NamespaceMetadataException(
           INVALID_UPDATE, "Property updates and removals must have disjoint keys.");
     }
     return inTransaction(
             () ->
                 repository
-                    .findByDatabaseName(databaseName.toLowerCase(Locale.ROOT))
+                    .findByNamespaceName(namespaceName.toLowerCase(Locale.ROOT))
                     .map(
-                        database -> {
+                        namespace -> {
                           // Empty updates also participate in optimistic concurrency checks.
-                          entityManager.lock(database, LockModeType.OPTIMISTIC_FORCE_INCREMENT);
+                          entityManager.lock(namespace, LockModeType.OPTIMISTIC_FORCE_INCREMENT);
                           List<String> removed =
                               removals.stream()
-                                  .filter(database.getProperties()::containsKey)
+                                  .filter(namespace.getProperties()::containsKey)
                                   .sorted()
                                   .collect(Collectors.toList());
                           List<String> missing =
                               removals.stream()
-                                  .filter(key -> !database.getProperties().containsKey(key))
+                                  .filter(key -> !namespace.getProperties().containsKey(key))
                                   .sorted()
                                   .collect(Collectors.toList());
-                          Map<String, String> properties = new HashMap<>(database.getProperties());
+                          Map<String, String> properties = new HashMap<>(namespace.getProperties());
                           properties.keySet().removeAll(removals);
                           properties.putAll(updates);
-                          database.replaceProperties(properties);
+                          namespace.replaceProperties(properties);
                           repository.flush();
-                          return DatabasePropertyUpdate.builder()
+                          return NamespacePropertyUpdate.builder()
                               .updated(
                                   updates.keySet().stream().sorted().collect(Collectors.toList()))
                               .removed(removed)
@@ -148,23 +149,24 @@ public class DatabasesServiceImpl implements DatabasesService {
                         }),
             false)
         .orElseThrow(
-            () -> new DatabaseMetadataException(NOT_FOUND, "Database not found: " + databaseName));
+            () ->
+                new NamespaceMetadataException(NOT_FOUND, "Namespace not found: " + namespaceName));
   }
 
   private <T> T inTransaction(Supplier<T> operation, boolean creating)
-      throws DatabaseMetadataException {
+      throws NamespaceMetadataException {
     if (SupportedDbTypes.ICEBERG
         .name()
         .equals(clusterProperties.getClusterHouseTablesDatabaseType())) {
-      throw new DatabaseMetadataException(
-          UNAVAILABLE, "Database metadata requires a JDBC HouseTables backend.");
+      throw new NamespaceMetadataException(
+          UNAVAILABLE, "Namespace metadata requires a JDBC HouseTables backend.");
     }
     try {
       return transactions.execute(status -> operation.get());
     } catch (OptimisticLockingFailureException | OptimisticLockException exception) {
-      throw new DatabaseMetadataException(
+      throw new NamespaceMetadataException(
           CONCURRENT_MODIFICATION,
-          "Database metadata changed concurrently. Retry the request.",
+          "Namespace metadata changed concurrently. Retry the request.",
           exception);
     } catch (DataIntegrityViolationException exception) {
       boolean duplicateName =
@@ -173,17 +175,17 @@ public class DatabasesServiceImpl implements DatabasesService {
                   .filter(ConstraintViolationException.class::isInstance)
                   .map(ConstraintViolationException.class::cast)
                   .map(ConstraintViolationException::getConstraintName)
-                  .map(name -> name.toLowerCase(Locale.ROOT).contains("uq_database_name"))
+                  .map(name -> name.toLowerCase(Locale.ROOT).contains("uq_namespace_name"))
                   .orElse(false);
-      throw new DatabaseMetadataException(
+      throw new NamespaceMetadataException(
           duplicateName ? ALREADY_EXISTS : STORAGE_FAILURE,
           duplicateName
-              ? "Database name already exists."
-              : "Database metadata could not be persisted.",
+              ? "Namespace name already exists."
+              : "Namespace metadata could not be persisted.",
           exception);
     } catch (DataAccessException | TransactionException | PersistenceException exception) {
-      throw new DatabaseMetadataException(
-          STORAGE_FAILURE, "Database metadata storage failed.", exception);
+      throw new NamespaceMetadataException(
+          STORAGE_FAILURE, "Namespace metadata storage failed.", exception);
     }
   }
 }

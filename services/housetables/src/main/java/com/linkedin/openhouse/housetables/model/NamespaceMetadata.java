@@ -6,8 +6,8 @@ import lombok.Value;
 
 @Value
 @Builder
-public class DatabaseMetadata {
-  String databaseUuid;
-  String databaseName;
+public class NamespaceMetadata {
+  String namespaceUuid;
+  String namespaceName;
   Map<String, String> properties;
 }

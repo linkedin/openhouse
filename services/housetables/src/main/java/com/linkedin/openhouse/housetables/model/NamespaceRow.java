@@ -15,26 +15,26 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 @Entity
-@Table(name = "catalog_databases")
+@Table(name = "catalog_namespaces")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class DatabaseRow {
+public class NamespaceRow {
   @Id
-  @Column(name = "database_uuid", length = 36, updatable = false)
-  private String databaseUuid;
+  @Column(name = "namespace_uuid", length = 36, updatable = false)
+  private String namespaceUuid;
 
-  @Column(name = "database_name", length = 128, nullable = false, unique = true, updatable = false)
-  private String databaseName;
+  @Column(name = "namespace_name", length = 128, nullable = false, unique = true, updatable = false)
+  private String namespaceName;
 
-  @Convert(converter = DatabasePropertiesConverter.class)
+  @Convert(converter = NamespacePropertiesConverter.class)
   @Column(name = "properties", nullable = false, columnDefinition = "LONGTEXT")
   private Map<String, String> properties = new HashMap<>();
 
   @Version private long version;
 
-  public DatabaseRow(String databaseName, Map<String, String> properties) {
-    this.databaseUuid = UUID.randomUUID().toString();
-    this.databaseName = databaseName.toLowerCase(Locale.ROOT);
+  public NamespaceRow(String namespaceName, Map<String, String> properties) {
+    this.namespaceUuid = UUID.randomUUID().toString();
+    this.namespaceName = namespaceName.toLowerCase(Locale.ROOT);
     this.properties.putAll(properties);
   }
 
