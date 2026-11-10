@@ -3,10 +3,10 @@ package com.linkedin.openhouse.internal.catalog.repository;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-import com.linkedin.openhouse.housetables.client.api.DatabaseApi;
+import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException.Reason;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException.Reason;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -21,7 +21,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import reactor.core.publisher.Mono;
 import reactor.test.scheduler.VirtualTimeScheduler;
 
-class HouseDatabaseDeadlineTest {
+class HouseNamespaceDeadlineTest {
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void pendingRequestsExpireAtTheirInstalledDeadline(boolean mutation) throws Exception {
@@ -31,7 +31,7 @@ class HouseDatabaseDeadlineTest {
     AtomicInteger subscriptions = new AtomicInteger();
     AtomicInteger cancellations = new AtomicInteger();
     AtomicReference<Thread> worker = new AtomicReference<>();
-    DatabaseApi databaseApi = mock(DatabaseApi.class);
+    NamespaceApi namespaceApi = mock(NamespaceApi.class);
     Mono<Void> pending =
         Mono.<Void>never()
             .doOnSubscribe(
@@ -40,16 +40,16 @@ class HouseDatabaseDeadlineTest {
                   subscribed.countDown();
                 })
             .doOnCancel(cancellations::incrementAndGet);
-    when(databaseApi.deleteDatabaseWithHttpInfo("foo")).thenReturn(pending.then(Mono.empty()));
-    when(databaseApi.getDatabase("foo")).thenReturn(pending.then(Mono.empty()));
-    HouseDatabaseRepository repository =
-        new HouseDatabaseRepositoryImpl(databaseApi, mock(UserTableApi.class));
+    when(namespaceApi.deleteNamespaceWithHttpInfo("foo")).thenReturn(pending.then(Mono.empty()));
+    when(namespaceApi.getNamespace("foo")).thenReturn(pending.then(Mono.empty()));
+    HouseNamespaceRepository repository =
+        new HouseNamespaceRepositoryImpl(namespaceApi, mock(UserTableApi.class));
     try {
-      Future<HouseDatabaseException> failure =
+      Future<HouseNamespaceException> failure =
           executor.submit(
               () ->
                   assertThrows(
-                      HouseDatabaseException.class,
+                      HouseNamespaceException.class,
                       () -> {
                         worker.set(Thread.currentThread());
                         if (mutation) {

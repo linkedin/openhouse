@@ -8,13 +8,13 @@ import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.common.config.BaseApplicationConfig;
 import com.linkedin.openhouse.common.provider.HttpConnectionPoolProviderConfig;
-import com.linkedin.openhouse.housetables.client.api.DatabaseApi;
+import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.api.ToggleStatusApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
-import com.linkedin.openhouse.internal.catalog.repository.DatabaseResponseModule;
-import com.linkedin.openhouse.internal.catalog.repository.HouseDatabaseRepository;
-import com.linkedin.openhouse.internal.catalog.repository.HouseDatabaseRepositoryImpl;
+import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepository;
+import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepositoryImpl;
+import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceResponseModule;
 import com.linkedin.openhouse.tables.controller.TablesController;
 import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
 import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;
@@ -66,14 +66,14 @@ public class MainApplicationConfig extends BaseApplicationConfig {
   }
 
   @Bean
-  public DatabaseApi provideDatabaseApiInstance() {
-    return new DatabaseApi(getHtsConfiguredApiClient(true));
+  public NamespaceApi provideNamespaceApiInstance() {
+    return new NamespaceApi(getHtsConfiguredApiClient(true));
   }
 
   @Bean
-  public HouseDatabaseRepository provideDatabaseRepository(
-      DatabaseApi databaseApi, UserTableApi userTableApi) {
-    return new HouseDatabaseRepositoryImpl(databaseApi, userTableApi);
+  public HouseNamespaceRepository provideNamespaceRepository(
+      NamespaceApi namespaceApi, UserTableApi userTableApi) {
+    return new HouseNamespaceRepositoryImpl(namespaceApi, userTableApi);
   }
 
   /**
@@ -106,7 +106,7 @@ public class MainApplicationConfig extends BaseApplicationConfig {
     WebClient webClient =
         ApiClient.buildWebClientBuilder(
                 ApiClient.createDefaultObjectMapper(null)
-                    .registerModule(new DatabaseResponseModule()))
+                    .registerModule(new HouseNamespaceResponseModule()))
             .baseUrl(htsBasePath)
             .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(IN_MEMORY_BUFFER_SIZE))
             .clientConnector(new ReactorClientHttpConnector(httpClient))

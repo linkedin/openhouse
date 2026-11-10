@@ -4,7 +4,7 @@ import lombok.Getter;
 
 /** Checked failures of the independent database metadata resource. */
 @Getter
-public class HouseDatabaseException extends Exception {
+public class HouseNamespaceException extends Exception {
   public enum Reason {
     BAD_REQUEST,
     NOT_FOUND,
@@ -18,12 +18,12 @@ public class HouseDatabaseException extends Exception {
 
   private final Reason reason;
 
-  public HouseDatabaseException(Reason reason) {
+  public HouseNamespaceException(Reason reason) {
     super("Database metadata operation failed");
     this.reason = reason;
   }
 
-  public HouseDatabaseException(Reason reason, Throwable cause) {
+  public HouseNamespaceException(Reason reason, Throwable cause) {
     super("Database metadata operation failed", cause);
     this.reason = reason;
   }

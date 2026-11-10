@@ -7,7 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
-import com.linkedin.openhouse.internal.catalog.repository.HouseDatabaseRepository;
+import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -24,10 +24,10 @@ import org.springframework.test.web.servlet.MockMvc;
 class NamespaceTableIsolationTest {
   @Autowired private MockMvc mvc;
   @Autowired private StorageManager storageManager;
-  @MockBean private HouseDatabaseRepository databaseRepository;
+  @MockBean private HouseNamespaceRepository namespaceRepository;
 
   @Test
-  void legacyTableLifecycleAndListingNeverReadDatabaseMetadata() throws Exception {
+  void legacyTableLifecycleAndListingNeverReadNamespaceMetadata() throws Exception {
     RequestAndValidateHelper.createTableAndValidateResponse(
         GET_TABLE_RESPONSE_BODY, mvc, storageManager);
     mvc.perform(
@@ -38,6 +38,6 @@ class NamespaceTableIsolationTest {
         .andExpect(status().isOk());
     mvc.perform(get("/v1/databases")).andExpect(status().isOk());
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
-    verifyNoInteractions(databaseRepository);
+    verifyNoInteractions(namespaceRepository);
   }
 }

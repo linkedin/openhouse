@@ -9,11 +9,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.linkedin.openhouse.internal.catalog.model.DatabaseMetadata;
-import com.linkedin.openhouse.internal.catalog.model.DatabasePropertyUpdate;
-import com.linkedin.openhouse.internal.catalog.repository.HouseDatabaseRepository;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException.Reason;
+import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
+import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
+import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepository;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException.Reason;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.config.NamespaceErrorFilter;
@@ -53,7 +53,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 class IcebergNamespacesControllerTest {
   @Autowired private MockMvc mvc;
   @Autowired private IcebergNamespacesController controller;
-  @MockBean private HouseDatabaseRepository repository;
+  @MockBean private HouseNamespaceRepository repository;
   @MockBean private AuthorizationHandler authorizationHandler;
 
   @BeforeEach
@@ -69,8 +69,8 @@ class IcebergNamespacesControllerTest {
 
   @Test
   void fourRoutesMatchIcebergBodiesAndSuccessStatuses() throws Exception {
-    DatabaseMetadata metadata =
-        new DatabaseMetadata("private", "foo", Collections.singletonMap("a", "1"));
+    NamespaceMetadata metadata =
+        new NamespaceMetadata("private", "foo", Collections.singletonMap("a", "1"));
     when(repository.create(eq("foo"), any())).thenReturn(metadata);
     mvc.perform(
             post("/v1/catalog_name/namespaces")
@@ -82,10 +82,10 @@ class IcebergNamespacesControllerTest {
     mvc.perform(get("/v1/catalog_name/namespaces/foo"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.namespace[0]").value("foo"))
-        .andExpect(jsonPath("$.databaseUuid").doesNotExist());
+        .andExpect(jsonPath("$.namespaceUuid").doesNotExist());
     when(repository.updateProperties(eq("foo"), any(), any()))
         .thenReturn(
-            new DatabasePropertyUpdate(
+            new NamespacePropertyUpdate(
                 Collections.singletonList("b"),
                 Collections.singletonList("a"),
                 Collections.singletonList("c")));
@@ -144,7 +144,8 @@ class IcebergNamespacesControllerTest {
             anyString(), any(DatabaseDto.class), eq(Privileges.SYSTEM_ADMIN)))
         .thenReturn(false);
     when(repository.findByName("foo"))
-        .thenReturn(Optional.of(new DatabaseMetadata("identifier", "foo", Collections.emptyMap())));
+        .thenReturn(
+            Optional.of(new NamespaceMetadata("identifier", "foo", Collections.emptyMap())));
     mvc.perform(get("/v1/catalog_name/namespaces/foo")).andExpect(status().isOk());
     mvc.perform(delete("/v1/catalog_name/namespaces/foo")).andExpect(status().isNoContent());
     verify(authorizationHandler)
@@ -204,7 +205,7 @@ class IcebergNamespacesControllerTest {
   void supplementaryPropertyKeysPassPublicValidation() throws Exception {
     when(repository.create("foo", Collections.singletonMap("😀", "value")))
         .thenReturn(
-            new DatabaseMetadata("identifier", "foo", Collections.singletonMap("😀", "value")));
+            new NamespaceMetadata("identifier", "foo", Collections.singletonMap("😀", "value")));
     mvc.perform(
             post("/v1/foo/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -212,7 +213,7 @@ class IcebergNamespacesControllerTest {
         .andExpect(status().isOk());
     when(repository.updateProperties(eq("foo"), any(), any()))
         .thenReturn(
-            new DatabasePropertyUpdate(
+            new NamespacePropertyUpdate(
                 Collections.emptyList(), Collections.singletonList("😀"), Collections.emptyList()));
     mvc.perform(
             post("/v1/foo/namespaces/foo/properties")
@@ -224,7 +225,7 @@ class IcebergNamespacesControllerTest {
   @Test
   void omittedCollectionsAreEmptyAndOverlapIsUnprocessable() throws Exception {
     when(repository.create("foo", Collections.emptyMap()))
-        .thenReturn(new DatabaseMetadata("private", "foo", Collections.emptyMap()));
+        .thenReturn(new NamespaceMetadata("private", "foo", Collections.emptyMap()));
     mvc.perform(
             post("/v1/foo/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -262,7 +263,7 @@ class IcebergNamespacesControllerTest {
             : "removals".equals(supplied) ? Map.of("removals", removals) : Map.of();
     when(repository.updateProperties("foo", updates, removals))
         .thenReturn(
-            new DatabasePropertyUpdate(
+            new NamespacePropertyUpdate(
                 List.copyOf(updates.keySet()), List.copyOf(removals), List.of()));
     mvc.perform(
             post("/v1/foo/namespaces/foo/properties")
@@ -288,7 +289,7 @@ class IcebergNamespacesControllerTest {
   @Test
   void conflictsUseOperationReasonsForEveryAcceptedRoute() throws Exception {
     when(repository.create("foo", Map.of()))
-        .thenThrow(new HouseDatabaseException(Reason.ALREADY_EXISTS));
+        .thenThrow(new HouseNamespaceException(Reason.ALREADY_EXISTS));
     mvc.perform(
             post("/v1/foo/namespaces/")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -296,7 +297,7 @@ class IcebergNamespacesControllerTest {
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.error.type").value("AlreadyExistsException"));
     when(repository.updateProperties("namespaces", Map.of(), Set.of()))
-        .thenThrow(new HouseDatabaseException(Reason.CONCURRENT_MODIFICATION));
+        .thenThrow(new HouseNamespaceException(Reason.CONCURRENT_MODIFICATION));
     mvc.perform(
             post("/v1/foo/namespaces/namespaces/properties")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -304,8 +305,8 @@ class IcebergNamespacesControllerTest {
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.error.type").value("CommitFailedException"));
     when(repository.findByName("namespaces"))
-        .thenReturn(Optional.of(new DatabaseMetadata("identifier", "namespaces", Map.of())));
-    doThrow(new HouseDatabaseException(Reason.CONCURRENT_MODIFICATION))
+        .thenReturn(Optional.of(new NamespaceMetadata("identifier", "namespaces", Map.of())));
+    doThrow(new HouseNamespaceException(Reason.CONCURRENT_MODIFICATION))
         .when(repository)
         .delete("namespaces");
     mvc.perform(delete("/v1/foo/namespaces/namespaces"))
@@ -316,7 +317,7 @@ class IcebergNamespacesControllerTest {
   @Test
   void uncertainMutationUsesReconciliationErrorRatherThanUnavailable() throws Exception {
     when(repository.create(eq("foo"), any()))
-        .thenThrow(new HouseDatabaseException(Reason.UNKNOWN_OUTCOME));
+        .thenThrow(new HouseNamespaceException(Reason.UNKNOWN_OUTCOME));
     mvc.perform(
             post("/v1/foo/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -353,13 +354,13 @@ class IcebergNamespacesControllerTest {
         .andExpect(jsonPath("$.error.type").value("NoSuchNamespaceException"));
     when(repository.findByName("foo"))
         .thenThrow(
-            new HouseDatabaseException(Reason.UNAVAILABLE, new IllegalStateException("secret")));
+            new HouseNamespaceException(Reason.UNAVAILABLE, new IllegalStateException("secret")));
     mvc.perform(get("/v1/foo/namespaces/foo"))
         .andExpect(status().isServiceUnavailable())
         .andExpect(jsonPath("$.error.code").value(503))
         .andExpect(content().string(not(containsString("secret"))));
     when(repository.create(anyString(), any()))
-        .thenThrow(new HouseDatabaseException(Reason.ALREADY_EXISTS));
+        .thenThrow(new HouseNamespaceException(Reason.ALREADY_EXISTS));
     mvc.perform(
             post("/v1/foo/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)

@@ -1,16 +1,17 @@
 package com.linkedin.openhouse.internal.catalog.repository;
 
-import com.linkedin.openhouse.housetables.client.api.DatabaseApi;
+import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
-import com.linkedin.openhouse.housetables.client.model.CreateDatabaseRequestBody;
+import com.linkedin.openhouse.housetables.client.model.CreateNamespaceRequestBody;
 import com.linkedin.openhouse.housetables.client.model.GetAllEntityResponseBodyUserTable;
+import com.linkedin.openhouse.housetables.client.model.NamespaceMetadataResponse;
 import com.linkedin.openhouse.housetables.client.model.PageUserTable;
-import com.linkedin.openhouse.housetables.client.model.UpdateDatabasePropertiesRequestBody;
-import com.linkedin.openhouse.housetables.client.model.UpdateDatabasePropertiesResponseBody;
-import com.linkedin.openhouse.internal.catalog.model.DatabaseMetadata;
-import com.linkedin.openhouse.internal.catalog.model.DatabasePropertyUpdate;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException.Reason;
+import com.linkedin.openhouse.housetables.client.model.UpdateNamespacePropertiesRequestBody;
+import com.linkedin.openhouse.housetables.client.model.UpdateNamespacePropertiesResponseBody;
+import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
+import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException.Reason;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
@@ -27,61 +28,62 @@ import org.springframework.web.reactive.function.client.WebClientRequestExceptio
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
-/** Uses bounded HouseTables requests with automatic DatabaseApi transport retries disabled. */
+/** Uses bounded HouseTables requests with automatic NamespaceApi transport retries disabled. */
 @RequiredArgsConstructor
-public class HouseDatabaseRepositoryImpl implements HouseDatabaseRepository {
+public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
   private static final Duration READ_TIMEOUT = Duration.ofSeconds(30);
   private static final Duration WRITE_TIMEOUT = Duration.ofSeconds(60);
 
-  private final DatabaseApi databaseApi;
+  private final NamespaceApi namespaceApi;
   private final UserTableApi userTableApi;
 
   @Override
-  public DatabaseMetadata create(String databaseName, Map<String, String> properties)
-      throws HouseDatabaseException {
-    com.linkedin.openhouse.housetables.client.model.DatabaseMetadata result =
+  public NamespaceMetadata create(String namespaceName, Map<String, String> properties)
+      throws HouseNamespaceException {
+    NamespaceMetadataResponse result =
         execute(
                 () ->
-                    databaseApi.createDatabase(
-                        new CreateDatabaseRequestBody()
-                            .databaseName(databaseName)
+                    namespaceApi.createNamespace(
+                        new CreateNamespaceRequestBody()
+                            .namespaceName(namespaceName)
                             .properties(properties)),
                 WRITE_TIMEOUT,
                 Reason.ALREADY_EXISTS)
-            .orElseThrow(() -> new HouseDatabaseException(Reason.UNKNOWN_OUTCOME));
-    return new DatabaseMetadata(
-        Optional.ofNullable(result.getDatabaseUuid())
-            .orElseThrow(() -> new HouseDatabaseException(Reason.UNKNOWN_OUTCOME)),
-        Optional.ofNullable(result.getDatabaseName())
-            .orElseThrow(() -> new HouseDatabaseException(Reason.UNKNOWN_OUTCOME)),
+            .orElseThrow(() -> new HouseNamespaceException(Reason.UNKNOWN_OUTCOME));
+    return new NamespaceMetadata(
+        Optional.ofNullable(result.getNamespaceUuid())
+            .orElseThrow(() -> new HouseNamespaceException(Reason.UNKNOWN_OUTCOME)),
+        Optional.ofNullable(result.getNamespaceName())
+            .orElseThrow(() -> new HouseNamespaceException(Reason.UNKNOWN_OUTCOME)),
         Map.copyOf(
             Optional.ofNullable(result.getProperties())
                 .filter(propertiesMap -> propertiesMap.values().stream().noneMatch(Objects::isNull))
-                .orElseThrow(() -> new HouseDatabaseException(Reason.UNKNOWN_OUTCOME))));
+                .orElseThrow(() -> new HouseNamespaceException(Reason.UNKNOWN_OUTCOME))));
   }
 
   @Override
-  public Optional<DatabaseMetadata> findByName(String databaseName) throws HouseDatabaseException {
+  public Optional<NamespaceMetadata> findByName(String namespaceName)
+      throws HouseNamespaceException {
     try {
-      com.linkedin.openhouse.housetables.client.model.DatabaseMetadata result =
+      NamespaceMetadataResponse result =
           execute(
-                  () -> databaseApi.getDatabase(databaseName),
+                  () -> namespaceApi.getNamespace(namespaceName),
                   READ_TIMEOUT,
                   Reason.CONCURRENT_MODIFICATION)
-              .orElseThrow(() -> new HouseDatabaseException(Reason.FAILURE));
+              .orElseThrow(() -> new HouseNamespaceException(Reason.FAILURE));
       return Optional.of(
-          new DatabaseMetadata(
-              Optional.ofNullable(result.getDatabaseUuid())
-                  .orElseThrow(() -> new HouseDatabaseException(Reason.FAILURE)),
-              Optional.ofNullable(result.getDatabaseName())
-                  .orElseThrow(() -> new HouseDatabaseException(Reason.FAILURE)),
+          new NamespaceMetadata(
+              Optional.ofNullable(result.getNamespaceUuid())
+                  .orElseThrow(() -> new HouseNamespaceException(Reason.FAILURE)),
+              Optional.ofNullable(result.getNamespaceName())
+                  .orElseThrow(() -> new HouseNamespaceException(Reason.FAILURE)),
               Map.copyOf(
                   Optional.ofNullable(result.getProperties())
                       .filter(
                           propertiesMap ->
                               propertiesMap.values().stream().noneMatch(Objects::isNull))
-                      .orElseThrow(() -> new HouseDatabaseException(Reason.FAILURE)))));
-    } catch (HouseDatabaseException exception) {
+                      .orElseThrow(() -> new HouseNamespaceException(Reason.FAILURE)))));
+    } catch (HouseNamespaceException exception) {
       if (exception.getReason() == Reason.NOT_FOUND) {
         return Optional.empty();
       }
@@ -90,48 +92,48 @@ public class HouseDatabaseRepositoryImpl implements HouseDatabaseRepository {
   }
 
   @Override
-  public void delete(String databaseName) throws HouseDatabaseException {
+  public void delete(String namespaceName) throws HouseNamespaceException {
     execute(
-            () -> databaseApi.deleteDatabaseWithHttpInfo(databaseName),
+            () -> namespaceApi.deleteNamespaceWithHttpInfo(namespaceName),
             WRITE_TIMEOUT,
             Reason.CONCURRENT_MODIFICATION)
         .filter(response -> response.getStatusCodeValue() == 204)
-        .orElseThrow(() -> new HouseDatabaseException(Reason.UNKNOWN_OUTCOME));
+        .orElseThrow(() -> new HouseNamespaceException(Reason.UNKNOWN_OUTCOME));
   }
 
   @Override
-  public DatabasePropertyUpdate updateProperties(
-      String databaseName, Map<String, String> updates, Set<String> removals)
-      throws HouseDatabaseException {
-    UpdateDatabasePropertiesResponseBody result =
+  public NamespacePropertyUpdate updateProperties(
+      String namespaceName, Map<String, String> updates, Set<String> removals)
+      throws HouseNamespaceException {
+    UpdateNamespacePropertiesResponseBody result =
         execute(
                 () ->
-                    databaseApi.updateDatabaseProperties(
-                        databaseName,
-                        new UpdateDatabasePropertiesRequestBody()
+                    namespaceApi.updateNamespaceProperties(
+                        namespaceName,
+                        new UpdateNamespacePropertiesRequestBody()
                             .updates(updates)
                             .removals(removals)),
                 WRITE_TIMEOUT,
                 Reason.CONCURRENT_MODIFICATION)
-            .orElseThrow(() -> new HouseDatabaseException(Reason.UNKNOWN_OUTCOME));
-    return new DatabasePropertyUpdate(
+            .orElseThrow(() -> new HouseNamespaceException(Reason.UNKNOWN_OUTCOME));
+    return new NamespacePropertyUpdate(
         List.copyOf(
             Optional.ofNullable(result.getUpdated())
                 .filter(keys -> keys.stream().noneMatch(Objects::isNull))
-                .orElseThrow(() -> new HouseDatabaseException(Reason.UNKNOWN_OUTCOME))),
+                .orElseThrow(() -> new HouseNamespaceException(Reason.UNKNOWN_OUTCOME))),
         List.copyOf(
             Optional.ofNullable(result.getRemoved())
                 .filter(keys -> keys.stream().noneMatch(Objects::isNull))
-                .orElseThrow(() -> new HouseDatabaseException(Reason.UNKNOWN_OUTCOME))),
+                .orElseThrow(() -> new HouseNamespaceException(Reason.UNKNOWN_OUTCOME))),
         List.copyOf(
             Optional.ofNullable(result.getMissing())
                 .filter(keys -> keys.stream().noneMatch(Objects::isNull))
-                .orElseThrow(() -> new HouseDatabaseException(Reason.UNKNOWN_OUTCOME))));
+                .orElseThrow(() -> new HouseNamespaceException(Reason.UNKNOWN_OUTCOME))));
   }
 
   @Override
-  public boolean containsEntities(String databaseName) throws HouseDatabaseException {
-    Map<String, String> filters = Collections.singletonMap("databaseId", databaseName);
+  public boolean containsEntities(String namespaceName) throws HouseNamespaceException {
+    Map<String, String> filters = Collections.singletonMap("databaseId", namespaceName);
     // Each query returns at most one HouseTables row, without loading Iceberg metadata files.
     try {
       Optional<GetAllEntityResponseBodyUserTable> tables =
@@ -142,7 +144,7 @@ public class HouseDatabaseRepositoryImpl implements HouseDatabaseRepository {
       if (!tables
           .map(GetAllEntityResponseBodyUserTable::getPageResults)
           .map(PageUserTable::getContent)
-          .orElseThrow(() -> new HouseDatabaseException(Reason.FAILURE))
+          .orElseThrow(() -> new HouseNamespaceException(Reason.FAILURE))
           .isEmpty()) {
         return true;
       }
@@ -152,12 +154,12 @@ public class HouseDatabaseRepositoryImpl implements HouseDatabaseRepository {
               Reason.CONCURRENT_MODIFICATION)
           .map(GetAllEntityResponseBodyUserTable::getPageResults)
           .map(PageUserTable::getContent)
-          .orElseThrow(() -> new HouseDatabaseException(Reason.FAILURE))
+          .orElseThrow(() -> new HouseNamespaceException(Reason.FAILURE))
           .isEmpty();
-    } catch (HouseDatabaseException exception) {
+    } catch (HouseNamespaceException exception) {
       // Listing availability is required to establish that the namespace is empty.
       if (exception.getReason() == Reason.NOT_FOUND) {
-        throw new HouseDatabaseException(Reason.UNAVAILABLE, exception);
+        throw new HouseNamespaceException(Reason.UNAVAILABLE, exception);
       }
       throw exception;
     }
@@ -165,7 +167,7 @@ public class HouseDatabaseRepositoryImpl implements HouseDatabaseRepository {
 
   private <T> Optional<T> execute(
       Supplier<Mono<T>> request, Duration timeout, Reason conflictReason)
-      throws HouseDatabaseException {
+      throws HouseNamespaceException {
     Reason uncertainFailure =
         timeout.equals(WRITE_TIMEOUT) ? Reason.UNKNOWN_OUTCOME : Reason.UNAVAILABLE;
     CompletableFuture<T> pending = Mono.defer(request).timeout(timeout).toFuture();
@@ -174,7 +176,7 @@ public class HouseDatabaseRepositoryImpl implements HouseDatabaseRepository {
     } catch (InterruptedException exception) {
       pending.cancel(true);
       Thread.currentThread().interrupt();
-      throw new HouseDatabaseException(uncertainFailure, exception);
+      throw new HouseNamespaceException(uncertainFailure, exception);
     } catch (ExecutionException
         | WebClientResponseException
         | WebClientRequestException exception) {
@@ -182,29 +184,29 @@ public class HouseDatabaseRepositoryImpl implements HouseDatabaseRepository {
       if (cause instanceof WebClientResponseException) {
         switch (((WebClientResponseException) cause).getRawStatusCode()) {
           case 400:
-            throw new HouseDatabaseException(Reason.BAD_REQUEST, cause);
+            throw new HouseNamespaceException(Reason.BAD_REQUEST, cause);
           case 404:
-            throw new HouseDatabaseException(Reason.NOT_FOUND, cause);
+            throw new HouseNamespaceException(Reason.NOT_FOUND, cause);
           case 409:
-            throw new HouseDatabaseException(conflictReason, cause);
+            throw new HouseNamespaceException(conflictReason, cause);
           case 422:
-            throw new HouseDatabaseException(Reason.INVALID_PROPERTIES, cause);
+            throw new HouseNamespaceException(Reason.INVALID_PROPERTIES, cause);
           case 401:
           case 403:
           case 503:
-            throw new HouseDatabaseException(Reason.UNAVAILABLE, cause);
+            throw new HouseNamespaceException(Reason.UNAVAILABLE, cause);
           case 502:
           case 504:
-            throw new HouseDatabaseException(uncertainFailure, cause);
+            throw new HouseNamespaceException(uncertainFailure, cause);
           default:
-            throw new HouseDatabaseException(
+            throw new HouseNamespaceException(
                 timeout.equals(WRITE_TIMEOUT) ? Reason.UNKNOWN_OUTCOME : Reason.FAILURE, cause);
         }
       }
       if (cause instanceof WebClientRequestException || cause instanceof TimeoutException) {
-        throw new HouseDatabaseException(uncertainFailure, cause);
+        throw new HouseNamespaceException(uncertainFailure, cause);
       }
-      throw new HouseDatabaseException(
+      throw new HouseNamespaceException(
           timeout.equals(WRITE_TIMEOUT) ? Reason.UNKNOWN_OUTCOME : Reason.FAILURE, cause);
     }
   }

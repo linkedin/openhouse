@@ -18,7 +18,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class CreateNamespaceRequest {
-  @Schema(required = true, description = "Exactly one logical database name.")
+  @Schema(required = true, description = "Exactly one namespace name.")
   @NotNull
   @Size(min = 1, max = 1)
   @JsonDeserialize(contentUsing = NamespaceStringDeserializer.class)

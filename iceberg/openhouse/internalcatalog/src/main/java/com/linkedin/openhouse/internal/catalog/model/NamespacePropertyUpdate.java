@@ -4,7 +4,7 @@ import java.util.List;
 import lombok.Value;
 
 @Value
-public class DatabasePropertyUpdate {
+public class NamespacePropertyUpdate {
   List<String> updated;
   List<String> removed;
   List<String> missing;

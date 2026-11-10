@@ -7,10 +7,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.linkedin.openhouse.HouseTablesSpringApplication;
-import com.linkedin.openhouse.housetables.client.api.DatabaseApi;
+import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
-import com.linkedin.openhouse.internal.catalog.repository.HouseDatabaseRepositoryImpl;
+import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepositoryImpl;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.controller.IcebergNamespacesController;
 import com.linkedin.openhouse.tables.exception.NamespaceExceptionHandler;
@@ -67,8 +67,8 @@ class IcebergNamespacesH2Test {
         MockMvcBuilders.standaloneSetup(
                 new IcebergNamespacesController(
                     new IcebergNamespacesService(
-                        new HouseDatabaseRepositoryImpl(
-                            new DatabaseApi(client), new UserTableApi(client)),
+                        new HouseNamespaceRepositoryImpl(
+                            new NamespaceApi(client), new UserTableApi(client)),
                         authorizationUtils)))
             .setControllerAdvice(new NamespaceExceptionHandler())
             .setMessageConverters(new MappingJackson2HttpMessageConverter())

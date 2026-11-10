@@ -4,8 +4,8 @@ import java.util.Map;
 import lombok.Value;
 
 @Value
-public class DatabaseMetadata {
-  String databaseUuid;
-  String databaseName;
+public class NamespaceMetadata {
+  String namespaceUuid;
+  String namespaceName;
   Map<String, String> properties;
 }

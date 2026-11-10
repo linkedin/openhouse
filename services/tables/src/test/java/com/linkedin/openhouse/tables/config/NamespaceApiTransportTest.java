@@ -4,12 +4,12 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
-import com.linkedin.openhouse.housetables.client.api.DatabaseApi;
+import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
-import com.linkedin.openhouse.housetables.client.model.CreateDatabaseRequestBody;
-import com.linkedin.openhouse.internal.catalog.repository.HouseDatabaseRepository;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException.Reason;
+import com.linkedin.openhouse.housetables.client.model.CreateNamespaceRequestBody;
+import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepository;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException.Reason;
 import com.sun.net.httpserver.HttpServer;
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -35,20 +35,20 @@ import org.springframework.test.util.ReflectionTestUtils;
 import reactor.netty.http.client.HttpClient;
 import reactor.netty.resources.ConnectionProvider;
 
-class DatabaseApiTransportTest {
+class NamespaceApiTransportTest {
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void configuredClientDistinguishesOmittedAndEmptyCollections(boolean includeCollections)
       throws Exception {
     AtomicReference<String> response =
         new AtomicReference<>(
-            "{\"databaseUuid\":\"foo\",\"databaseName\":\"foo\""
+            "{\"namespaceUuid\":\"foo\",\"namespaceName\":\"foo\""
                 + (includeCollections ? ",\"properties\":{}" : "")
                 + "}");
     HttpServer server =
         HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
     server.createContext(
-        "/hts/databases",
+        "/hts/namespaces",
         exchange -> {
           byte[] body = response.get().getBytes(StandardCharsets.UTF_8);
           exchange.getResponseHeaders().set("Content-Type", "application/json");
@@ -66,9 +66,9 @@ class DatabaseApiTransportTest {
           .thenReturn("http://localhost:" + server.getAddress().getPort());
       MainApplicationConfig configuration = new MainApplicationConfig();
       ReflectionTestUtils.setField(configuration, "clusterProperties", properties);
-      HouseDatabaseRepository repository =
-          configuration.provideDatabaseRepository(
-              configuration.provideDatabaseApiInstance(), mock(UserTableApi.class));
+      HouseNamespaceRepository repository =
+          configuration.provideNamespaceRepository(
+              configuration.provideNamespaceApiInstance(), mock(UserTableApi.class));
       if (includeCollections) {
         assertEquals(
             Collections.emptyMap(),
@@ -76,7 +76,7 @@ class DatabaseApiTransportTest {
       } else {
         assertEquals(
             Reason.FAILURE,
-            assertThrows(HouseDatabaseException.class, () -> repository.findByName("foo"))
+            assertThrows(HouseNamespaceException.class, () -> repository.findByName("foo"))
                 .getReason());
       }
       response.set(
@@ -91,7 +91,7 @@ class DatabaseApiTransportTest {
         assertEquals(
             Reason.UNKNOWN_OUTCOME,
             assertThrows(
-                    HouseDatabaseException.class,
+                    HouseNamespaceException.class,
                     () ->
                         repository.updateProperties(
                             "foo", Collections.emptyMap(), Collections.emptySet()))
@@ -117,7 +117,7 @@ class DatabaseApiTransportTest {
                       new BufferedReader(
                           new InputStreamReader(
                               connection.getInputStream(), StandardCharsets.US_ASCII));
-                  assertTrue(reader.readLine().startsWith("POST /hts/databases "));
+                  assertTrue(reader.readLine().startsWith("POST /hts/namespaces "));
                   // Read the headers before resetting an established request
                   // connection.
                   reader.lines().takeWhile(line -> !line.isEmpty()).count();
@@ -131,12 +131,12 @@ class DatabaseApiTransportTest {
           .thenReturn("http://127.0.0.1:" + server.getLocalPort());
       MainApplicationConfig configuration = new MainApplicationConfig();
       ReflectionTestUtils.setField(configuration, "clusterProperties", properties);
-      DatabaseApi databaseApi = configuration.provideDatabaseApiInstance();
+      NamespaceApi namespaceApi = configuration.provideNamespaceApiInstance();
       assertThrows(
           ExecutionException.class,
           () ->
-              databaseApi
-                  .createDatabase(new CreateDatabaseRequestBody().databaseName("foo"))
+              namespaceApi
+                  .createNamespace(new CreateNamespaceRequestBody().namespaceName("foo"))
                   .toFuture()
                   .get(10, TimeUnit.SECONDS));
       resetter.get(10, TimeUnit.SECONDS);
@@ -170,15 +170,15 @@ class DatabaseApiTransportTest {
           .thenReturn("http://127.0.0.1:" + server.getLocalPort());
       MainApplicationConfig configuration = new MainApplicationConfig();
       ReflectionTestUtils.setField(configuration, "clusterProperties", properties);
-      DatabaseApi databaseApi =
+      NamespaceApi namespaceApi =
           retryControl
-              ? new DatabaseApi(configuration.provideApiInstance().getApiClient())
-              : configuration.provideDatabaseApiInstance();
+              ? new NamespaceApi(configuration.provideApiInstance().getApiClient())
+              : configuration.provideNamespaceApiInstance();
       assertThrows(
           ExecutionException.class,
           () ->
-              databaseApi
-                  .createDatabase(new CreateDatabaseRequestBody().databaseName("foo"))
+              namespaceApi
+                  .createNamespace(new CreateNamespaceRequestBody().namespaceName("foo"))
                   .toFuture()
                   .get(10, TimeUnit.SECONDS));
       assertEquals(retryControl ? 2 : 1, attempts.get());
