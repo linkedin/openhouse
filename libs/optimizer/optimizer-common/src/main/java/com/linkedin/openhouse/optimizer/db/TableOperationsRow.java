@@ -83,12 +83,12 @@ public class TableOperationsRow {
   private String jobId;
 
   /**
-   * Attempt number since the last success for this {@code (table_uuid, operation_type)}: 1 for the
-   * first attempt after a success, incremented per retry. Carried forward across attempts and reset
-   * on success; drives the retry backoff independently of the history windows.
+   * Number of attempts in the current retry sequence for this {@code (table_uuid, operation_type)}:
+   * 1 for the first attempt (including the first after a success), incremented per retry, and reset
+   * to 1 once a run succeeds. Drives the retry backoff independently of the history windows.
    */
-  @Column(name = "attempts_since_success", nullable = false)
-  private int attemptsSinceSuccess;
+  @Column(name = "attempts", nullable = false)
+  private int attempts;
 
   /**
    * Earliest time this operation's {@code (table_uuid, operation_type)} may be (re)scheduled, set

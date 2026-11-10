@@ -96,14 +96,14 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
                               .failureReason(succeeded ? null : boundFailureReason(failureReason))
                               .build()
                               .toRow()));
-              // Stamp the next retry time on the operation row from this outcome, so a reported
+              // Write the next retry time on the operation row from this outcome, so a reported
               // failure retries after its backoff instead of waiting out the stale-timeout.
               analyzerRunner
                   .nextAvailableAt(
                       OperationTypeDto.fromDb(row.getOperationType()),
                       Instant.now(),
                       succeeded,
-                      row.getAttemptsSinceSuccess())
+                      row.getAttempts())
                   .ifPresent(
                       availableAt ->
                           operationsRepository.save(

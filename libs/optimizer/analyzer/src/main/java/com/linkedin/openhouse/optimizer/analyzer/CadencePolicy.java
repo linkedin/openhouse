@@ -157,11 +157,11 @@ public class CadencePolicy {
 
   /**
    * Earliest time to retry after an outcome observed at {@code from}: the success cadence on
-   * success, otherwise the failure backoff for {@code attemptsSinceSuccess}. This is what callers
-   * persist to {@code available_at} on completion or expiry.
+   * success, otherwise the failure backoff for {@code attempts}. This is what callers persist to
+   * {@code available_at} on completion or expiry.
    */
-  public Instant nextAvailableAt(Instant from, boolean succeeded, int attemptsSinceSuccess) {
-    return from.plus(succeeded ? successRetryInterval : failureInterval(attemptsSinceSuccess));
+  public Instant nextAvailableAt(Instant from, boolean succeeded, int attempts) {
+    return from.plus(succeeded ? successRetryInterval : failureInterval(attempts));
   }
 
   /**

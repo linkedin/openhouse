@@ -166,7 +166,7 @@ class OptimizerDataServiceImplTest {
   }
 
   @Test
-  void completeOperation_success_stampsAvailableAtFromAnalyzerSuccessCadence() {
+  void completeOperation_success_writesAvailableAtFromAnalyzerSuccessCadence() {
     String operationId = UUID.randomUUID().toString();
     operationsRepository.save(
         TableOperationsRow.builder()
@@ -178,11 +178,11 @@ class OptimizerDataServiceImplTest {
             .status(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)
             .createdAt(Instant.now())
             .scheduledAt(Instant.now())
-            .attemptsSinceSuccess(4)
+            .attempts(4)
             .build());
     Instant nextAvailable = Instant.now().plus(24, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
     // succeeded=true and the op's attempt count are forwarded so the analyzer applies the success
-    // cadence; the resulting instant is stamped on the operation row.
+    // cadence; the resulting instant is written on the operation row.
     when(analyzerRunner.nextAvailableAt(
             eq(OperationTypeDto.ORPHAN_FILES_DELETION), any(Instant.class), eq(true), eq(4)))
         .thenReturn(Optional.of(nextAvailable));
@@ -194,7 +194,7 @@ class OptimizerDataServiceImplTest {
   }
 
   @Test
-  void completeOperation_failed_stampsAvailableAtFromAnalyzerFailureBackoff() {
+  void completeOperation_failed_writesAvailableAtFromAnalyzerFailureBackoff() {
     String operationId = UUID.randomUUID().toString();
     operationsRepository.save(
         TableOperationsRow.builder()
@@ -206,11 +206,11 @@ class OptimizerDataServiceImplTest {
             .status(com.linkedin.openhouse.optimizer.db.OperationStatus.SCHEDULED)
             .createdAt(Instant.now())
             .scheduledAt(Instant.now())
-            .attemptsSinceSuccess(3)
+            .attempts(3)
             .build());
     Instant nextAvailable = Instant.now().plus(2, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
     // succeeded=false routes through the failure backoff; the reported failure now retries at the
-    // stamped time rather than waiting out the stale-timeout.
+    // written time rather than waiting out the stale-timeout.
     when(analyzerRunner.nextAvailableAt(
             eq(OperationTypeDto.TABLE_STATS_COLLECTION), any(Instant.class), eq(false), eq(3)))
         .thenReturn(Optional.of(nextAvailable));
@@ -235,7 +235,7 @@ class OptimizerDataServiceImplTest {
             .createdAt(Instant.now())
             .scheduledAt(Instant.now())
             .build());
-    // No analyzer handles the type (empty) → nothing is stamped; the row's available_at stays null.
+    // No analyzer handles the type (empty) → nothing is written; the row's available_at stays null.
     when(analyzerRunner.nextAvailableAt(any(), any(Instant.class), eq(true), eq(0)))
         .thenReturn(Optional.empty());
 
