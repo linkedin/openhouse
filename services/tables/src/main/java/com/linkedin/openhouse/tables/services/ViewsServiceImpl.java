@@ -157,7 +157,7 @@ public class ViewsServiceImpl implements ViewsService {
       CreateUpdateViewRequestBody requestBody, String actingPrincipal, boolean failOnExist) {
     String databaseId = requestBody.getDatabaseId();
     String viewId = requestBody.getViewId();
-    // #839 relocated the source dialect from a top-level field to a reserved view property.
+    // Source dialect is read from the reserved view property.
     Map<String, String> requestProperties = requestBody.getViewProperties();
     String sourceDialect =
         requestProperties == null
