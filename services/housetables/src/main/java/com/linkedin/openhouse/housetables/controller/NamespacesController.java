@@ -6,7 +6,14 @@ import com.linkedin.openhouse.housetables.api.spec.request.CreateNamespaceReques
 import com.linkedin.openhouse.housetables.api.spec.request.UpdateNamespacePropertiesRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.response.NamespaceMetadataResponse;
 import com.linkedin.openhouse.housetables.api.spec.response.UpdateNamespacePropertiesResponseBody;
+import com.linkedin.openhouse.housetables.services.InvalidNamespacePropertyUpdateException;
+import com.linkedin.openhouse.housetables.services.InvalidNamespaceRequestException;
+import com.linkedin.openhouse.housetables.services.NamespaceAlreadyExistsException;
+import com.linkedin.openhouse.housetables.services.NamespaceConcurrentModificationException;
 import com.linkedin.openhouse.housetables.services.NamespaceMetadataException;
+import com.linkedin.openhouse.housetables.services.NamespaceMetadataStorageException;
+import com.linkedin.openhouse.housetables.services.NamespaceMetadataUnavailableException;
+import com.linkedin.openhouse.housetables.services.NamespaceNotFoundException;
 import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -61,10 +68,7 @@ public class NamespacesController {
   @PostMapping(consumes = "application/json")
   public ResponseEntity<NamespaceMetadataResponse> createNamespace(
       @RequestBody CreateNamespaceRequestBody request) throws NamespaceMetadataException {
-    com.linkedin.openhouse.common.api.spec.ApiResponse<NamespaceMetadataResponse> response =
-        namespacesApiHandler.createNamespace(request);
-    return new ResponseEntity<>(
-        response.getResponseBody(), response.getHttpHeaders(), response.getHttpStatus());
+    return namespacesApiHandler.createNamespace(request).toResponseEntity();
   }
 
   @Operation(operationId = "getNamespace", tags = "Namespace", summary = "Get namespace metadata.")
@@ -78,10 +82,7 @@ public class NamespacesController {
   @GetMapping("/{namespaceName}")
   public ResponseEntity<NamespaceMetadataResponse> getNamespace(
       @PathVariable("namespaceName") String namespaceName) throws NamespaceMetadataException {
-    com.linkedin.openhouse.common.api.spec.ApiResponse<NamespaceMetadataResponse> response =
-        namespacesApiHandler.getNamespace(namespaceName);
-    return new ResponseEntity<>(
-        response.getResponseBody(), response.getHttpHeaders(), response.getHttpStatus());
+    return namespacesApiHandler.getNamespace(namespaceName).toResponseEntity();
   }
 
   @Operation(
@@ -105,10 +106,7 @@ public class NamespacesController {
   @DeleteMapping("/{namespaceName}")
   public ResponseEntity<Void> deleteNamespace(@PathVariable("namespaceName") String namespaceName)
       throws NamespaceMetadataException {
-    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> response =
-        namespacesApiHandler.deleteNamespace(namespaceName);
-    return new ResponseEntity<>(
-        response.getResponseBody(), response.getHttpHeaders(), response.getHttpStatus());
+    return namespacesApiHandler.deleteNamespace(namespaceName).toResponseEntity();
   }
 
   @Operation(
@@ -135,38 +133,58 @@ public class NamespacesController {
       @PathVariable("namespaceName") String namespaceName,
       @RequestBody UpdateNamespacePropertiesRequestBody request)
       throws NamespaceMetadataException {
-    com.linkedin.openhouse.common.api.spec.ApiResponse<UpdateNamespacePropertiesResponseBody>
-        response = namespacesApiHandler.updateNamespaceProperties(namespaceName, request);
-    return new ResponseEntity<>(
-        response.getResponseBody(), response.getHttpHeaders(), response.getHttpStatus());
+    return namespacesApiHandler
+        .updateNamespaceProperties(namespaceName, request)
+        .toResponseEntity();
   }
 
   @Hidden
-  @ExceptionHandler(NamespaceMetadataException.class)
-  public ResponseEntity<ErrorResponseBody> handleNamespaceMetadataException(
+  @ExceptionHandler(NamespaceNotFoundException.class)
+  public ResponseEntity<ErrorResponseBody> handleNamespaceNotFound(
+      NamespaceNotFoundException exception) {
+    return renderFailure(exception, HttpStatus.NOT_FOUND);
+  }
+
+  @Hidden
+  @ExceptionHandler({
+    NamespaceAlreadyExistsException.class,
+    NamespaceConcurrentModificationException.class
+  })
+  public ResponseEntity<ErrorResponseBody> handleNamespaceConflict(
       NamespaceMetadataException exception) {
-    HttpStatus status;
-    switch (exception.getReason()) {
-      case NOT_FOUND:
-        status = HttpStatus.NOT_FOUND;
-        break;
-      case ALREADY_EXISTS:
-      case CONCURRENT_MODIFICATION:
-        status = HttpStatus.CONFLICT;
-        break;
-      case INVALID_REQUEST:
-        status = HttpStatus.BAD_REQUEST;
-        break;
-      case INVALID_UPDATE:
-        status = HttpStatus.UNPROCESSABLE_ENTITY;
-        break;
-      case UNAVAILABLE:
-        status = HttpStatus.SERVICE_UNAVAILABLE;
-        break;
-      default:
-        status = HttpStatus.INTERNAL_SERVER_ERROR;
-        break;
-    }
+    return renderFailure(exception, HttpStatus.CONFLICT);
+  }
+
+  @Hidden
+  @ExceptionHandler(InvalidNamespaceRequestException.class)
+  public ResponseEntity<ErrorResponseBody> handleInvalidNamespaceRequest(
+      InvalidNamespaceRequestException exception) {
+    return renderFailure(exception, HttpStatus.BAD_REQUEST);
+  }
+
+  @Hidden
+  @ExceptionHandler(InvalidNamespacePropertyUpdateException.class)
+  public ResponseEntity<ErrorResponseBody> handleInvalidNamespacePropertyUpdate(
+      InvalidNamespacePropertyUpdateException exception) {
+    return renderFailure(exception, HttpStatus.UNPROCESSABLE_ENTITY);
+  }
+
+  @Hidden
+  @ExceptionHandler(NamespaceMetadataUnavailableException.class)
+  public ResponseEntity<ErrorResponseBody> handleNamespaceMetadataUnavailable(
+      NamespaceMetadataUnavailableException exception) {
+    return renderFailure(exception, HttpStatus.SERVICE_UNAVAILABLE);
+  }
+
+  @Hidden
+  @ExceptionHandler(NamespaceMetadataStorageException.class)
+  public ResponseEntity<ErrorResponseBody> handleNamespaceMetadataStorage(
+      NamespaceMetadataStorageException exception) {
+    return renderFailure(exception, HttpStatus.INTERNAL_SERVER_ERROR);
+  }
+
+  private ResponseEntity<ErrorResponseBody> renderFailure(
+      NamespaceMetadataException exception, HttpStatus status) {
     return ResponseEntity.status(status)
         .body(
             ErrorResponseBody.builder()
