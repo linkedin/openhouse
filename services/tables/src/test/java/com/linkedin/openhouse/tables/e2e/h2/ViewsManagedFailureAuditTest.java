@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -23,9 +24,11 @@ import com.linkedin.openhouse.internal.catalog.view.ViewCommitEngine;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
 import com.linkedin.openhouse.tables.authorization.OpaHandler;
+import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.exception.ViewApiException;
 import com.linkedin.openhouse.tables.exception.ViewExceptionHandler;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
+import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
 import com.linkedin.openhouse.tables.services.ViewPageCursor;
 import com.linkedin.openhouse.tables.services.ViewPageTokenCodec;
@@ -43,6 +46,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -197,6 +201,7 @@ public class ViewsManagedFailureAuditTest {
   public void successfulReplaceReturnsOkAfterOneCommit() throws Exception {
     ViewCommitResult committed = ViewsManagedAuthMatrixBase.replacedResult();
     when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
+    when(opaHandler.checkAccessDecision(any(), any(TableDto.class), any())).thenReturn(true);
     when(houseTableRepository.findEntityById(ViewsManagedAuthMatrixBase.viewKey()))
         .thenReturn(Optional.of(ViewsManagedAuthMatrixBase.viewRow()));
     when(viewCommitEngine.commit(any(ViewCommitIntent.class))).thenReturn(committed);
@@ -215,6 +220,7 @@ public class ViewsManagedFailureAuditTest {
   @Test
   public void successfulDropDeletesTheCapturedViewOnce() throws Exception {
     when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
+    when(opaHandler.checkAccessDecision(any(), any(TableDto.class), any())).thenReturn(true);
     stubDeletableView();
 
     mvc.perform(
@@ -567,12 +573,19 @@ public class ViewsManagedFailureAuditTest {
   }
 
   @Test
-  public void deniedDropIsForbiddenBeforeAnyCapture() throws Exception {
-    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(false);
+  public void deniedDropIsForbiddenAfterOneCaptureWithoutDelete() throws Exception {
+    stubDeletableView();
+    when(opaHandler.checkAccessDecision(any(), any(TableDto.class), eq(Privileges.DELETE_TABLE)))
+        .thenReturn(false);
 
     mvc.perform(withToken(deleteView())).andExpect(status().isForbidden());
 
-    verify(houseTableRepository, never()).findViewById(any());
+    InOrder order = Mockito.inOrder(houseTableRepository, opaHandler);
+    order.verify(houseTableRepository).findViewById(ViewsManagedAuthMatrixBase.viewKey());
+    order
+        .verify(opaHandler)
+        .checkAccessDecision(any(), any(TableDto.class), eq(Privileges.DELETE_TABLE));
+    verify(houseTableRepository, times(1)).findViewById(ViewsManagedAuthMatrixBase.viewKey());
     verify(houseTableRepository, never()).deleteViewById(any());
   }
 
