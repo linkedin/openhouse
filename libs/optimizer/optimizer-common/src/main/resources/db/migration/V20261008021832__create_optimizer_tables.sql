@@ -8,12 +8,6 @@ CREATE TABLE table_operations (
   created_at     TIMESTAMP(6)  NOT NULL,
   scheduled_at   TIMESTAMP(6),
   job_id         VARCHAR(255),
-  -- Attempts in the current retry sequence: 1 for the first attempt and after each success,
-  -- incremented per retry. Drives the retry backoff independently of the history windows.
-  attempts       INT           NOT NULL DEFAULT 1,
-  -- Earliest time this (table_uuid, operation_type) may be (re)scheduled, set on a terminal outcome
-  -- (reported success/failure, or expiry); NULL means available now.
-  available_at   TIMESTAMP(6),
   PRIMARY KEY (id),
   -- Localizes the commit-driven active-op lookup (AnalyzerRunner.loadCurrentOpsForTable) to one
   -- table's handful of rows, and answers "latest active op by type" for that table, instead of
