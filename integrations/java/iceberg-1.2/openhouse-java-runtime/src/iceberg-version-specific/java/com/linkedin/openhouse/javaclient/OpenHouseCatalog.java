@@ -471,12 +471,12 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
   }
 
   /**
-   * Resolves database properties with actual table properties taking precedence.
+   * Resolves namespace properties with actual table properties taking precedence.
    *
    * <p>Each call performs one uncached remote namespace lookup. A namespace 404 supplies empty
-   * database properties. The returned map is an immutable defensive copy; {@link
+   * namespace properties. The returned map is an immutable defensive copy; {@link
    * Table#properties()} retains the actual table properties. The table name must be qualified by
-   * this catalog's exact name, followed by one database and one table.
+   * this catalog's exact name, followed by one namespace and one table.
    *
    * @throws NamespaceMetadataException for invalid names, authorization, transport, service, or
    *     malformed-response failures. This opt-in API declares checked failures so callers

@@ -150,7 +150,7 @@ final class NamespaceMetadataClient {
     if (identifier.length != 2
         || !identifier[0].matches("[a-zA-Z0-9_]{1,128}")
         || !identifier[1].matches("[a-zA-Z0-9_]{1,128}")) {
-      throw new NamespaceMetadataException(400, "Expected a catalog-qualified database and table");
+      throw new NamespaceMetadataException(400, "Expected a catalog-qualified namespace and table");
     }
     Map<String, String> effective = new HashMap<>();
     try {
@@ -232,7 +232,8 @@ final class NamespaceMetadataClient {
             .orElseThrow(() -> new NamespaceMetadataException(0, "Missing response namespace"));
     if (responseNamespace.size() != 1
         || !namespace.level(0).equalsIgnoreCase(responseNamespace.get(0))) {
-      throw new NamespaceMetadataException(0, "Namespace response identifies a different database");
+      throw new NamespaceMetadataException(
+          0, "Namespace response identifies a different namespace");
     }
     Map<String, String> responseProperties =
         Optional.ofNullable(requiredResponse.getProperties())

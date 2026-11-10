@@ -1,6 +1,6 @@
 # Java namespace metadata and effective table properties
 
-Both packaged Java catalogs, for Iceberg 1.2 and 1.5, resolve database defaults only when callers
+Both packaged Java catalogs, for Iceberg 1.2 and 1.5, resolve namespace defaults only when callers
 request effective properties. Actual table properties keep precedence:
 
 ```java
@@ -8,22 +8,22 @@ Map<String, String> effective = catalog.getEffectiveTableProperties(table);
 ```
 
 The method is public on `OpenHouseCatalog` and declares `NamespaceMetadataException`.
-It performs one explicit, uncached namespace metadata request. Database properties supply
+It performs one explicit, uncached namespace metadata request. Namespace properties supply
 defaults; actual table properties override matching keys. The returned map is an immutable
 defensive copy. Calling `table.properties()` still returns the actual table properties.
 Existing table operations, including `loadTable`, retain their existing request counts.
 
 The checked exception makes remote I/O and its expected failures explicit to callers.
 HTTP 404 is the only error response that falls back to table-only properties. Successful responses
-with empty, omitted, or null properties also contribute no database properties.
+with empty, omitted, or null properties also contribute no namespace properties.
 Authorization failures, connection failures, timeouts, malformed responses, and other service
 errors fail the call. Reads have a 30-second budget; mutations have a 60-second budget.
 Interruption cancels the request and preserves the thread's interrupted status.
 Requests use the existing generated client and its authentication, configured headers,
 connection strategy, and TLS configuration.
 
-The supplied table name must have the form `<catalog>.<database>.<table>`, with an exact
-catalog-name prefix. Catalog names can contain dots. The remaining database and table
+The supplied table name must have the form `<catalog>.<namespace>.<table>`, with an exact
+catalog-name prefix. Catalog names can contain dots. The remaining namespace and table
 identifiers each contain 1 to 128 letters, digits, or underscores. Foreign catalog names,
 extra namespace levels, metadata-table suffixes, and malformed names fail before any request.
 The method is intended for tables loaded or created by this catalog. Name validation
@@ -50,7 +50,8 @@ conceal malformed responses. Omitted or null namespace properties mean an empty 
 The optional `missing` array may be omitted or null; servers may leave already-absent removal
 keys unreported. Acknowledgements must identify requested keys and contain unique, disjoint
 removal results.
-Namespace names are one level. A response may preserve the database's original letter case.
+Namespace names are one level. The service returns canonical lowercase names; the client
+compares response names case-insensitively.
 
 The Iceberg overrides translate checked failures to Iceberg exceptions because their interface
 signatures cannot declare this checked exception.
