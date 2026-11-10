@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.housetables.e2e.database;
+package com.linkedin.openhouse.housetables.e2e.namespace;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.equalTo;
@@ -9,7 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
-import com.linkedin.openhouse.housetables.repository.impl.jdbc.DatabaseHtsJdbcRepository;
+import com.linkedin.openhouse.housetables.repository.impl.jdbc.NamespaceHtsJdbcRepository;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -26,10 +26,10 @@ import org.springframework.test.web.servlet.MockMvc;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
-class DatabasesControllerTest {
+class NamespacesControllerTest {
   @Autowired private MockMvc mockMvc;
   @Autowired private ObjectMapper objectMapper;
-  @Autowired private DatabaseHtsJdbcRepository repository;
+  @Autowired private NamespaceHtsJdbcRepository repository;
 
   @AfterEach
   void cleanUp() {
@@ -37,43 +37,45 @@ class DatabasesControllerTest {
   }
 
   @Test
-  void testDatabaseLifecycleAndErrorContract() throws Exception {
+  void testNamespaceLifecycleAndErrorContract() throws Exception {
     String created =
         mockMvc
             .perform(
-                post("/hts/databases")
+                post("/hts/namespaces")
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(
-                        "{\"databaseName\":\"Database_Foo\",\"properties\":{\"foo\":\"one\"}}"))
+                        "{\"namespaceName\":\"Namespace_Foo\",\"properties\":{\"foo\":\"one\"}}"))
             .andExpect(status().isCreated())
-            .andExpect(jsonPath("$.databaseName").value("database_foo"))
+            .andExpect(jsonPath("$.namespaceName").value("namespace_foo"))
+            .andExpect(jsonPath("$.databaseName").doesNotExist())
+            .andExpect(jsonPath("$.databaseUuid").doesNotExist())
             .andExpect(jsonPath("$.properties.foo").value("one"))
             .andReturn()
             .getResponse()
             .getContentAsString();
-    String databaseUuid = objectMapper.readTree(created).get("databaseUuid").asText();
-    assertThat(UUID.fromString(databaseUuid).toString()).isEqualTo(databaseUuid);
+    String namespaceUuid = objectMapper.readTree(created).get("namespaceUuid").asText();
+    assertThat(UUID.fromString(namespaceUuid).toString()).isEqualTo(namespaceUuid);
     mockMvc
-        .perform(get("/hts/databases/DATABASE_FOO"))
+        .perform(get("/hts/namespaces/NAMESPACE_FOO"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.databaseName").value("database_foo"))
-        .andExpect(jsonPath("$.databaseUuid").value(databaseUuid));
+        .andExpect(jsonPath("$.namespaceName").value("namespace_foo"))
+        .andExpect(jsonPath("$.namespaceUuid").value(namespaceUuid));
     mockMvc
         .perform(
-            post("/hts/databases")
+            post("/hts/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"databaseName\":\"database_foo\"}"))
+                .content("{\"namespaceName\":\"namespace_foo\"}"))
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.status").value("CONFLICT"));
     mockMvc
         .perform(
-            post("/hts/databases/database_foo/properties")
+            post("/hts/namespaces/namespace_foo/properties")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"updates\":{\"foo\":\"two\"},\"removals\":[\"foo\"]}"))
         .andExpect(status().isUnprocessableEntity());
     mockMvc
         .perform(
-            post("/hts/databases/database_foo/properties")
+            post("/hts/namespaces/namespace_foo/properties")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"updates\":{\"bar\":\"three\"},\"removals\":[\"foo\",\"baz\"]}"))
         .andExpect(status().isOk())
@@ -81,19 +83,19 @@ class DatabasesControllerTest {
         .andExpect(jsonPath("$.removed[0]").value("foo"))
         .andExpect(jsonPath("$.missing[0]").value("baz"));
     mockMvc
-        .perform(get("/hts/databases/database_foo"))
+        .perform(get("/hts/namespaces/namespace_foo"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.databaseUuid").value(databaseUuid))
+        .andExpect(jsonPath("$.namespaceUuid").value(namespaceUuid))
         .andExpect(jsonPath("$.properties").value(equalTo(Map.of("bar", "three"))));
-    mockMvc.perform(delete("/hts/databases/DATABASE_FOO")).andExpect(status().isNoContent());
+    mockMvc.perform(delete("/hts/namespaces/NAMESPACE_FOO")).andExpect(status().isNoContent());
     mockMvc
-        .perform(get("/hts/databases/database_foo"))
+        .perform(get("/hts/namespaces/namespace_foo"))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.status").value("NOT_FOUND"));
-    mockMvc.perform(delete("/hts/databases/database_foo")).andExpect(status().isNotFound());
+    mockMvc.perform(delete("/hts/namespaces/namespace_foo")).andExpect(status().isNotFound());
     mockMvc
         .perform(
-            post("/hts/databases/database_foo/properties")
+            post("/hts/namespaces/namespace_foo/properties")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{}"))
         .andExpect(status().isNotFound());
@@ -103,15 +105,15 @@ class DatabasesControllerTest {
   void testOmittedMapsAndServerOwnedIdentity() throws Exception {
     mockMvc
         .perform(
-            post("/hts/databases")
+            post("/hts/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"databaseName\":\"foo\",\"databaseUuid\":\"bar\",\"version\":99}"))
+                .content("{\"namespaceName\":\"foo\",\"namespaceUuid\":\"bar\",\"version\":99}"))
         .andExpect(status().isCreated())
-        .andExpect(jsonPath("$.databaseUuid").value(not("bar")))
+        .andExpect(jsonPath("$.namespaceUuid").value(not("bar")))
         .andExpect(jsonPath("$.properties").isEmpty());
     mockMvc
         .perform(
-            post("/hts/databases/foo/properties")
+            post("/hts/namespaces/foo/properties")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{}"))
         .andExpect(status().isOk())
@@ -124,14 +126,14 @@ class DatabasesControllerTest {
   @ValueSource(
       strings = {
         "{}",
-        "{\"databaseName\":\"\"}",
-        "{\"databaseName\":\"foo.bar\"}",
-        "{\"databaseName\":\"foo\",\"properties\":null}",
-        "{\"databaseName\":\"foo\",\"properties\":{\"bar\":null}}"
+        "{\"namespaceName\":\"\"}",
+        "{\"namespaceName\":\"foo.bar\"}",
+        "{\"namespaceName\":\"foo\",\"properties\":null}",
+        "{\"namespaceName\":\"foo\",\"properties\":{\"bar\":null}}"
       })
   void testInvalidCreateRequestIsRejected(String request) throws Exception {
     mockMvc
-        .perform(post("/hts/databases").contentType(MediaType.APPLICATION_JSON).content(request))
+        .perform(post("/hts/namespaces").contentType(MediaType.APPLICATION_JSON).content(request))
         .andExpect(status().isBadRequest());
     assertThat(repository.count()).isZero();
   }
@@ -147,14 +149,14 @@ class DatabasesControllerTest {
   void testInvalidUpdateRequestIsRejected(String request) throws Exception {
     mockMvc
         .perform(
-            post("/hts/databases/foo/properties")
+            post("/hts/namespaces/foo/properties")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(request))
         .andExpect(status().isBadRequest());
   }
 
   @Test
-  void testGeneratedOpenApiHasStableDatabaseContract() throws Exception {
+  void testGeneratedOpenApiHasStableNamespaceContract() throws Exception {
     JsonNode document =
         objectMapper.readTree(
             mockMvc
@@ -164,28 +166,31 @@ class DatabasesControllerTest {
                 .getResponse()
                 .getContentAsString());
     JsonNode paths = document.get("paths");
-    assertThat(paths.at("/~1hts~1databases/post/operationId").asText()).isEqualTo("createDatabase");
-    assertThat(paths.at("/~1hts~1databases/post/tags/0").asText()).isEqualTo("Database");
-    assertThat(paths.at("/~1hts~1databases~1{databaseName}/get/operationId").asText())
-        .isEqualTo("getDatabase");
-    assertThat(paths.at("/~1hts~1databases~1{databaseName}/delete/operationId").asText())
-        .isEqualTo("deleteDatabase");
-    assertThat(paths.at("/~1hts~1databases~1{databaseName}~1properties/post/operationId").asText())
-        .isEqualTo("updateDatabaseProperties");
+    assertThat(paths.has("/hts/databases")).isFalse();
+    assertThat(paths.at("/~1hts~1namespaces/post/operationId").asText())
+        .isEqualTo("createNamespace");
+    assertThat(paths.at("/~1hts~1namespaces/post/tags/0").asText()).isEqualTo("Namespace");
+    assertThat(paths.at("/~1hts~1namespaces~1{namespaceName}/get/operationId").asText())
+        .isEqualTo("getNamespace");
+    assertThat(paths.at("/~1hts~1namespaces~1{namespaceName}/delete/operationId").asText())
+        .isEqualTo("deleteNamespace");
+    assertThat(
+            paths.at("/~1hts~1namespaces~1{namespaceName}~1properties/post/operationId").asText())
+        .isEqualTo("updateNamespaceProperties");
     assertThat(
             paths
-                .at("/~1hts~1databases/post/responses/201/content/application~1json/schema/$ref")
+                .at("/~1hts~1namespaces/post/responses/201/content/application~1json/schema/$ref")
                 .asText())
-        .isEqualTo("#/components/schemas/DatabaseMetadata");
+        .isEqualTo("#/components/schemas/NamespaceMetadataResponse");
     assertThat(
             paths
                 .at(
-                    "/~1hts~1databases~1{databaseName}~1properties/post/responses/200/content/application~1json/schema/$ref")
+                    "/~1hts~1namespaces~1{namespaceName}~1properties/post/responses/200/content/application~1json/schema/$ref")
                 .asText())
-        .isEqualTo("#/components/schemas/UpdateDatabasePropertiesResponseBody");
+        .isEqualTo("#/components/schemas/UpdateNamespacePropertiesResponseBody");
     assertThat(
             paths
-                .at("/~1hts~1databases/post/responses/409/content/application~1json/schema/$ref")
+                .at("/~1hts~1namespaces/post/responses/409/content/application~1json/schema/$ref")
                 .asText())
         .isEqualTo("#/components/schemas/ErrorResponseBody");
   }
@@ -195,32 +200,32 @@ class DatabasesControllerTest {
   void testMalformedUnicodeKeysAreRejectedEverywhere(String escapedKey) throws Exception {
     mockMvc
         .perform(
-            post("/hts/databases")
+            post("/hts/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
-                    "{\"databaseName\":\"foo\",\"properties\":{\"" + escapedKey + "\":\"one\"}}"))
+                    "{\"namespaceName\":\"foo\",\"properties\":{\"" + escapedKey + "\":\"one\"}}"))
         .andExpect(status().isBadRequest());
     assertThat(repository.count()).isZero();
     mockMvc
         .perform(
-            post("/hts/databases")
+            post("/hts/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"databaseName\":\"foo\",\"properties\":{\"bar\":\"one\"}}"))
+                .content("{\"namespaceName\":\"foo\",\"properties\":{\"bar\":\"one\"}}"))
         .andExpect(status().isCreated());
     mockMvc
         .perform(
-            post("/hts/databases/foo/properties")
+            post("/hts/namespaces/foo/properties")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"updates\":{\"" + escapedKey + "\":\"two\"}}"))
         .andExpect(status().isBadRequest());
     mockMvc
         .perform(
-            post("/hts/databases/foo/properties")
+            post("/hts/namespaces/foo/properties")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"removals\":[\"" + escapedKey + "\"]}"))
         .andExpect(status().isBadRequest());
     mockMvc
-        .perform(get("/hts/databases/foo"))
+        .perform(get("/hts/namespaces/foo"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.properties.bar").value("one"));
   }
@@ -229,13 +234,13 @@ class DatabasesControllerTest {
   void testSupplementaryUnicodeKeysRoundTripThroughValidation() throws Exception {
     mockMvc
         .perform(
-            post("/hts/databases")
+            post("/hts/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"databaseName\":\"foo\",\"properties\":{\"\\ud83d\\ude00\":\"one\"}}"))
+                .content("{\"namespaceName\":\"foo\",\"properties\":{\"\\ud83d\\ude00\":\"one\"}}"))
         .andExpect(status().isCreated());
     String loaded =
         mockMvc
-            .perform(get("/hts/databases/foo"))
+            .perform(get("/hts/namespaces/foo"))
             .andExpect(status().isOk())
             .andReturn()
             .getResponse()
@@ -243,13 +248,13 @@ class DatabasesControllerTest {
     assertThat(objectMapper.readTree(loaded).get("properties").get("😀").asText()).isEqualTo("one");
     mockMvc
         .perform(
-            post("/hts/databases/foo/properties")
+            post("/hts/namespaces/foo/properties")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"updates\":{\"\\ud83d\\ude00\":\"two\"}}"))
         .andExpect(status().isOk());
     mockMvc
         .perform(
-            post("/hts/databases/foo/properties")
+            post("/hts/namespaces/foo/properties")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"removals\":[\"\\ud83d\\ude00\"]}"))
         .andExpect(status().isOk());

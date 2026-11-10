@@ -1,11 +1,11 @@
-package com.linkedin.openhouse.housetables.e2e.database;
+package com.linkedin.openhouse.housetables.e2e.namespace;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
-import com.linkedin.openhouse.housetables.services.DatabaseMetadataException;
-import com.linkedin.openhouse.housetables.services.DatabasesService;
+import com.linkedin.openhouse.housetables.services.NamespaceMetadataException;
+import com.linkedin.openhouse.housetables.services.NamespacesService;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -38,13 +38,13 @@ import org.springframework.test.context.ContextConfiguration;
     properties = {
       "spring.jpa.properties.hibernate.generate_statistics=true",
       "spring.jpa.properties.hibernate.session_factory.statement_inspector="
-          + "com.linkedin.openhouse.housetables.e2e.database.DatabaseMysqlWorkloadTest$SqlCapture",
+          + "com.linkedin.openhouse.housetables.e2e.namespace.NamespaceMysqlWorkloadTest$SqlCapture",
       "logging.level.org.hibernate.engine.internal.StatisticalLoggingSessionEventListener=OFF"
     })
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
-@EnabledIfSystemProperty(named = "database.workload", matches = "true")
-class DatabaseMysqlWorkloadTest {
-  @Autowired private DatabasesService databases;
+@EnabledIfSystemProperty(named = "namespace.workload", matches = "true")
+class NamespaceMysqlWorkloadTest {
+  @Autowired private NamespacesService namespaces;
   @Autowired private UserTableHtsJdbcRepository tables;
   @Autowired private EntityManagerFactory entityManagerFactory;
   @Autowired private DataSource dataSource;
@@ -78,7 +78,7 @@ class DatabaseMysqlWorkloadTest {
     Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
     // Configurations mutate persistent fixtures and share transaction statistics sequentially.
     for (int propertyCount : new int[] {10, 100, 1000}) {
-      databases.createDatabase(
+      namespaces.createNamespace(
           "workload_" + propertyCount,
           IntStream.range(0, propertyCount)
               .boxed()
@@ -90,13 +90,13 @@ class DatabaseMysqlWorkloadTest {
             writers,
             statistics,
             () -> {
-              databases.updateDatabaseProperties(
+              namespaces.updateNamespaceProperties(
                   "workload_" + propertyCount,
                   Map.of("key_0", "value_" + sequence.incrementAndGet()),
                   Set.of());
               return true;
             });
-        assertThat(databases.getDatabase("workload_" + propertyCount).getProperties())
+        assertThat(namespaces.getNamespace("workload_" + propertyCount).getProperties())
             .hasSize(propertyCount)
             .containsEntry("key_1", "value");
       }
@@ -135,11 +135,11 @@ class DatabaseMysqlWorkloadTest {
                 return true;
               });
       System.out.printf("OCCUPANCY_P95,%d,%.3f%n", readers, measuredP95Millis);
-      if (Boolean.getBoolean("database.workload.regression")) {
+      if (Boolean.getBoolean("namespace.workload.regression")) {
         double baselineP95Millis =
-            Double.parseDouble(System.getProperty("database.occupancy.baseline." + readers));
+            Double.parseDouble(System.getProperty("namespace.occupancy.baseline." + readers));
         double maximumRegressionPercent =
-            Double.parseDouble(System.getProperty("database.occupancy.maxRegressionPercent"));
+            Double.parseDouble(System.getProperty("namespace.occupancy.maxRegressionPercent"));
         double maximumP95Millis = baselineP95Millis * (1 + maximumRegressionPercent / 100);
         System.out.printf(
             "OCCUPANCY_COMPARISON,%d,%.3f,%.3f,%.3f%n",
@@ -175,10 +175,10 @@ class DatabaseMysqlWorkloadTest {
                               try {
                                 operation.call();
                                 successes.incrementAndGet();
-                              } catch (DatabaseMetadataException exception) {
+                              } catch (NamespaceMetadataException exception) {
                                 assertThat(exception.getReason())
                                     .isEqualTo(
-                                        DatabaseMetadataException.Reason.CONCURRENT_MODIFICATION);
+                                        NamespaceMetadataException.Reason.CONCURRENT_MODIFICATION);
                                 conflicts.incrementAndGet();
                               } finally {
                                 durations.add(System.nanoTime() - started);

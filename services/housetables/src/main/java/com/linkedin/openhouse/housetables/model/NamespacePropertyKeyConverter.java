@@ -6,7 +6,7 @@ import javax.persistence.Converter;
 
 /** UTF-8 bytes preserve exact property keys across database collations. */
 @Converter
-public class DatabasePropertyKeyConverter implements AttributeConverter<String, byte[]> {
+public class NamespacePropertyKeyConverter implements AttributeConverter<String, byte[]> {
   @Override
   public byte[] convertToDatabaseColumn(String propertyKey) {
     return propertyKey.getBytes(StandardCharsets.UTF_8);

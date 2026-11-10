@@ -7,7 +7,7 @@ import lombok.Value;
 
 @Value
 @Builder
-public class UpdateDatabasePropertiesResponseBody {
+public class UpdateNamespacePropertiesResponseBody {
   @Schema(required = true, description = "Keys supplied in updates, including unchanged values.")
   List<String> updated;
 

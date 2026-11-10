@@ -10,7 +10,7 @@ import javax.persistence.Converter;
 import javax.persistence.PersistenceException;
 
 @Converter
-public class DatabasePropertiesConverter
+public class NamespacePropertiesConverter
     implements AttributeConverter<Map<String, String>, String> {
   // ASCII JSON escapes preserve every accepted Java string through database character encoding.
   private static final ObjectMapper MAPPER =
@@ -23,7 +23,7 @@ public class DatabasePropertiesConverter
     try {
       return MAPPER.writeValueAsString(properties);
     } catch (JsonProcessingException exception) {
-      throw new PersistenceException("Could not encode database properties", exception);
+      throw new PersistenceException("Could not encode namespace properties", exception);
     }
   }
 
@@ -32,7 +32,7 @@ public class DatabasePropertiesConverter
     try {
       return MAPPER.readValue(document, PROPERTIES_TYPE);
     } catch (JsonProcessingException exception) {
-      throw new PersistenceException("Could not decode database properties", exception);
+      throw new PersistenceException("Could not decode namespace properties", exception);
     }
   }
 }

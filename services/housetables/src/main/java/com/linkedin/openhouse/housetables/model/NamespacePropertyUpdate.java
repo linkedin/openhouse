@@ -6,7 +6,7 @@ import lombok.Value;
 
 @Value
 @Builder
-public class DatabasePropertyUpdate {
+public class NamespacePropertyUpdate {
   List<String> updated;
   List<String> removed;
   List<String> missing;

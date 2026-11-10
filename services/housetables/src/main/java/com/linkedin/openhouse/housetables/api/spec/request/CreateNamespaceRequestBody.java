@@ -19,12 +19,12 @@ import lombok.NoArgsConstructor;
 @Getter
 @AllArgsConstructor(access = AccessLevel.PROTECTED)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class CreateDatabaseRequestBody {
-  @Schema(required = true, description = "Logical database name.")
+public class CreateNamespaceRequestBody {
+  @Schema(required = true, description = "Logical namespace name.")
   @NotEmpty
   @Size(max = 128)
   @Pattern(regexp = ALPHA_NUM_UNDERSCORE_REGEX)
-  private String databaseName;
+  private String namespaceName;
 
   @Schema(description = "Initial properties. Omitted properties default to an empty map.")
   @NotNull
