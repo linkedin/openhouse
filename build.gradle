@@ -255,7 +255,8 @@ tasks.register('dockerBuild', Exec) {
   def recipeDir = "${rootDir}/infra/recipes/docker-compose/${recipe}"
 
   workingDir recipeDir
-  commandLine 'docker', 'compose', 'build'
+  commandLine 'docker', 'compose', '--project-directory', recipeDir,
+      '-f', "${recipeDir}/docker-compose.yml", 'build'
 
   doFirst {
     if (!file(recipeDir).exists()) {
@@ -283,11 +284,13 @@ tasks.register('dockerUp', Exec) {
   def recipeDir = "${rootDir}/infra/recipes/docker-compose/${recipe}"
 
   workingDir recipeDir
-  commandLine 'docker', 'compose', 'up', '-d'
+  commandLine 'docker', 'compose', '--project-directory', recipeDir,
+      '-f', "${recipeDir}/docker-compose.yml", 'up', '-d'
 
   doFirst {
     println ''
     println "Starting containers for recipe: ${recipe}"
+    println "Compose file: ${recipeDir}/docker-compose.yml"
     println ''
   }
 
@@ -296,15 +299,20 @@ tasks.register('dockerUp', Exec) {
     println '============================================================'
     println 'OpenHouse containers started successfully!'
     println ''
-    println 'Services available at:'
-    println '  Tables Service:      http://localhost:8000'
-    println '  HouseTables Service: http://localhost:8001'
-    println '  Jobs Service:        http://localhost:8002'
-    if (recipe == 'oh-hadoop-spark') {
-      println '  Optimizer Service:   http://localhost:8003'
+    if (recipe == 'oh-multicluster') {
+      println 'Host ports are dynamically assigned. From the recipe directory,'
+      println 'run `docker compose port <service> <container-port>` to discover them.'
+    } else {
+      println 'Services available at:'
+      println '  Tables Service:      http://localhost:8000'
+      println '  HouseTables Service: http://localhost:8001'
+      println '  Jobs Service:        http://localhost:8002'
+      if (recipe == 'oh-hadoop-spark') {
+        println '  Optimizer Service:   http://localhost:8003'
+      }
+      println '  Prometheus:          http://localhost:9090'
+      println '  Jaeger UI (traces):  http://localhost:16686'
     }
-    println '  Prometheus:          http://localhost:9090'
-    println '  Jaeger UI (traces):  http://localhost:16686'
     println ''
     println 'To stop: ./gradlew dockerDown -Precipe=' + recipe
     println '============================================================'
@@ -319,7 +327,8 @@ tasks.register('dockerDown', Exec) {
   def recipeDir = "${rootDir}/infra/recipes/docker-compose/${recipe}"
 
   workingDir recipeDir
-  commandLine 'docker', 'compose', 'down'
+  commandLine 'docker', 'compose', '--project-directory', recipeDir,
+      '-f', "${recipeDir}/docker-compose.yml", 'down'
 
   doFirst {
     if (!file(recipeDir).exists()) {

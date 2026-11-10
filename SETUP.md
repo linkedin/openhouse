@@ -48,8 +48,42 @@ Recipes for setting up OpenHouse in local docker are available [here](infra/reci
 | Config | Recipe | Notes |
 |--------|--------|-------|
 | Run OpenHouse Services Only | `oh-only` | Stores data on local filesystem within the application container, with in-memory database. Least resource consuming. |
+| Run Two OpenHouse Clusters | `oh-multicluster` | Two isolated HDFS/MySQL clusters for server-side replication cascade testing. |
 | Run OpenHouse Services on HDFS | `oh-hadoop` | Stores data on locally running Hadoop HDFS containers, with iceberg-backed database. |
 | Run OpenHouse Services on HDFS with Spark | `oh-hadoop-spark` | Stores data on locally running Hadoop HDFS containers, with MySQL database. Spark available for end to end testing. Most resource consuming. Starts Livy server. |
+
+### Two Clusters for Local Replication Cascade Testing
+
+Run the end-to-end cascade smoke test with:
+
+```bash
+./infra/recipes/docker-compose/oh-multicluster/run-cascade-smoke-test.sh
+```
+
+The smoke test builds and starts two isolated OpenHouse clusters, exercises the Tables APIs, and tears the recipe down when finished. Service-side cascade is disabled by default and explicitly enabled by this recipe. The source table's existing replication policy in its table metadata drives `RENAME` and `DROP` fan-out; no Spark DDL forwarding or separate replication worker is involved.
+
+To leave the two clusters running for manual testing:
+
+```bash
+./gradlew dockerUp -Precipe=oh-multicluster
+```
+
+The Compose network exposes Tables APIs at `http://tables-a:8080` and
+`http://tables-b:8080`; HouseTables APIs are at `http://housetables-a:8080` and
+`http://housetables-b:8080`. Each cluster has its own HDFS NameNode/DataNode,
+MySQL-backed metadata store, and Tables/HouseTables services. Host ports are
+dynamically assigned; use `docker compose port <service> <container-port>` from
+the recipe directory to discover them. Stop the recipe with:
+
+```bash
+./gradlew dockerDown -Precipe=oh-multicluster
+```
+
+`docker compose down` leaves the cluster-specific named HDFS and MySQL volumes
+in place; remove them with `docker compose down -v` from the recipe directory
+when you want a clean test environment. The recipe does not copy table data or
+provision replicas; the smoke test creates replica metadata on cluster B and
+focuses on server-side DDL cascade.
 
 ## Manual Docker Compose (Advanced)
 
@@ -105,6 +139,8 @@ docker compose down
 ## Container Exposed Ports
 
 Following ports can be useful while interacting from host machine with applications running in docker-compose environment.
+These common fixed host ports apply to other recipes; `oh-multicluster` uses
+dynamically assigned host ports for every service instead, as listed below.
 
 container|Exposed ports
 ---|---
@@ -121,6 +157,26 @@ minio-s3-server|9870
 mysql|3306
 spark-livy|8998
 opa|8181
+
+In the `oh-multicluster` recipe, every host-published port is dynamically assigned to avoid collisions. These are the container ports to query from the recipe directory:
+
+| Service | Container ports |
+|---------|-----------------|
+| `tables-a`, `housetables-a` | `8080` |
+| `tables-b`, `housetables-b` | `8080` |
+| `namenode-a`, `namenode-b` | `9870`, `9000` |
+| `datanode-a`, `datanode-b` | `9864`, `9866` |
+| `mysql-a`, `mysql-b` | `3306` |
+| `prometheus` | `9090` |
+| `jaeger` | `16686`, `4317`, `4318` |
+| `opa` | `8181` |
+
+For example, `docker compose port tables-a 8080` and
+`docker compose port jaeger 16686` print the host address and dynamically
+assigned port. Use the same command with any service and container port listed
+above. Container-to-container traffic should continue using the stable internal
+addresses, such as `tables-a:8080`, `mysql-a:3306`, and
+`jaeger:4318`.
 
 ## Test Services
 
