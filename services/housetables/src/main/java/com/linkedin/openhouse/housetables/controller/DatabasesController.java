@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.housetables.controller;
 
-import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.common.api.spec.ErrorResponseBody;
 import com.linkedin.openhouse.housetables.api.handler.DatabasesApiHandler;
 import com.linkedin.openhouse.housetables.api.spec.model.DatabaseMetadata;
@@ -12,6 +11,7 @@ import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -27,15 +27,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping(value = "/hts/databases", produces = "application/json")
 @ApiResponses({
-  @io.swagger.v3.oas.annotations.responses.ApiResponse(
+  @ApiResponse(
       responseCode = "400",
       description = "Invalid database request.",
       content = @Content(schema = @Schema(implementation = ErrorResponseBody.class))),
-  @io.swagger.v3.oas.annotations.responses.ApiResponse(
+  @ApiResponse(
       responseCode = "503",
       description = "Database metadata is unavailable for this backend.",
       content = @Content(schema = @Schema(implementation = ErrorResponseBody.class))),
-  @io.swagger.v3.oas.annotations.responses.ApiResponse(
+  @ApiResponse(
       responseCode = "500",
       description = "Database metadata storage failed.",
       content = @Content(schema = @Schema(implementation = ErrorResponseBody.class)))
@@ -52,10 +52,8 @@ public class DatabasesController {
       tags = "Database",
       summary = "Create database metadata.")
   @ApiResponses({
-    @io.swagger.v3.oas.annotations.responses.ApiResponse(
-        responseCode = "201",
-        description = "Database metadata created."),
-    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+    @ApiResponse(responseCode = "201", description = "Database metadata created."),
+    @ApiResponse(
         responseCode = "409",
         description = "Database name already exists.",
         content = @Content(schema = @Schema(implementation = ErrorResponseBody.class)))
@@ -63,17 +61,16 @@ public class DatabasesController {
   @PostMapping(consumes = "application/json")
   public ResponseEntity<DatabaseMetadata> createDatabase(
       @RequestBody CreateDatabaseRequestBody request) throws DatabaseMetadataException {
-    ApiResponse<DatabaseMetadata> response = databasesApiHandler.createDatabase(request);
+    com.linkedin.openhouse.common.api.spec.ApiResponse<DatabaseMetadata> response =
+        databasesApiHandler.createDatabase(request);
     return new ResponseEntity<>(
         response.getResponseBody(), response.getHttpHeaders(), response.getHttpStatus());
   }
 
   @Operation(operationId = "getDatabase", tags = "Database", summary = "Get database metadata.")
   @ApiResponses({
-    @io.swagger.v3.oas.annotations.responses.ApiResponse(
-        responseCode = "200",
-        description = "Database metadata loaded."),
-    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+    @ApiResponse(responseCode = "200", description = "Database metadata loaded."),
+    @ApiResponse(
         responseCode = "404",
         description = "Database metadata was not found.",
         content = @Content(schema = @Schema(implementation = ErrorResponseBody.class)))
@@ -81,7 +78,8 @@ public class DatabasesController {
   @GetMapping("/{databaseName}")
   public ResponseEntity<DatabaseMetadata> getDatabase(
       @PathVariable("databaseName") String databaseName) throws DatabaseMetadataException {
-    ApiResponse<DatabaseMetadata> response = databasesApiHandler.getDatabase(databaseName);
+    com.linkedin.openhouse.common.api.spec.ApiResponse<DatabaseMetadata> response =
+        databasesApiHandler.getDatabase(databaseName);
     return new ResponseEntity<>(
         response.getResponseBody(), response.getHttpHeaders(), response.getHttpStatus());
   }
@@ -91,15 +89,15 @@ public class DatabasesController {
       tags = "Database",
       summary = "Delete database metadata and its properties. Table rows remain unchanged.")
   @ApiResponses({
-    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+    @ApiResponse(
         responseCode = "204",
         description = "Database metadata deleted.",
         content = @Content),
-    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+    @ApiResponse(
         responseCode = "404",
         description = "Database metadata was not found.",
         content = @Content(schema = @Schema(implementation = ErrorResponseBody.class))),
-    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+    @ApiResponse(
         responseCode = "409",
         description = "Database metadata changed concurrently.",
         content = @Content(schema = @Schema(implementation = ErrorResponseBody.class)))
@@ -107,7 +105,8 @@ public class DatabasesController {
   @DeleteMapping("/{databaseName}")
   public ResponseEntity<Void> deleteDatabase(@PathVariable("databaseName") String databaseName)
       throws DatabaseMetadataException {
-    ApiResponse<Void> response = databasesApiHandler.deleteDatabase(databaseName);
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> response =
+        databasesApiHandler.deleteDatabase(databaseName);
     return new ResponseEntity<>(
         response.getResponseBody(), response.getHttpHeaders(), response.getHttpStatus());
   }
@@ -117,18 +116,16 @@ public class DatabasesController {
       tags = "Database",
       summary = "Atomically apply sparse property updates and removals.")
   @ApiResponses({
-    @io.swagger.v3.oas.annotations.responses.ApiResponse(
-        responseCode = "200",
-        description = "Database properties updated."),
-    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+    @ApiResponse(responseCode = "200", description = "Database properties updated."),
+    @ApiResponse(
         responseCode = "404",
         description = "Database metadata was not found.",
         content = @Content(schema = @Schema(implementation = ErrorResponseBody.class))),
-    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+    @ApiResponse(
         responseCode = "409",
         description = "Database metadata changed concurrently.",
         content = @Content(schema = @Schema(implementation = ErrorResponseBody.class))),
-    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+    @ApiResponse(
         responseCode = "422",
         description = "Property updates and removals overlap.",
         content = @Content(schema = @Schema(implementation = ErrorResponseBody.class)))
@@ -138,8 +135,8 @@ public class DatabasesController {
       @PathVariable("databaseName") String databaseName,
       @RequestBody UpdateDatabasePropertiesRequestBody request)
       throws DatabaseMetadataException {
-    ApiResponse<UpdateDatabasePropertiesResponseBody> response =
-        databasesApiHandler.updateDatabaseProperties(databaseName, request);
+    com.linkedin.openhouse.common.api.spec.ApiResponse<UpdateDatabasePropertiesResponseBody>
+        response = databasesApiHandler.updateDatabaseProperties(databaseName, request);
     return new ResponseEntity<>(
         response.getResponseBody(), response.getHttpHeaders(), response.getHttpStatus());
   }

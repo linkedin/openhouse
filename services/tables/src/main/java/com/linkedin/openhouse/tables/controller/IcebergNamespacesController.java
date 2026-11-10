@@ -2,6 +2,8 @@ package com.linkedin.openhouse.tables.controller;
 
 import static com.linkedin.openhouse.common.security.AuthenticationUtils.extractAuthenticatedUserPrincipal;
 
+import com.linkedin.openhouse.internal.catalog.model.DatabaseMetadata;
+import com.linkedin.openhouse.internal.catalog.model.DatabasePropertyUpdate;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException;
 import com.linkedin.openhouse.tables.api.spec.namespace.CreateNamespaceRequest;
 import com.linkedin.openhouse.tables.api.spec.namespace.NamespaceErrorResponse;
@@ -16,6 +18,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import java.util.Collections;
 import javax.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -72,11 +75,15 @@ public class IcebergNamespacesController {
   @Operation(tags = "Namespace", summary = "Create a namespace")
   @ApiResponse(responseCode = "200", description = "Namespace created")
   @PostMapping
-  @Secured(Privileges.Privilege.CREATE_TABLE)
+  @Secured(Privileges.Privilege.SYSTEM_ADMIN)
   public NamespaceResponse createNamespace(
       @PathVariable String prefix, @Valid @RequestBody CreateNamespaceRequest request)
       throws NamespaceException, HouseDatabaseException {
-    return namespacesService.create(request, extractAuthenticatedUserPrincipal());
+    DatabaseMetadata result =
+        namespacesService.create(
+            request.getNamespace(), request.getProperties(), extractAuthenticatedUserPrincipal());
+    return new NamespaceResponse(
+        Collections.singletonList(result.getDatabaseName()), result.getProperties());
   }
 
   @Operation(tags = "Namespace", summary = "Load namespace metadata")
@@ -86,19 +93,29 @@ public class IcebergNamespacesController {
   public NamespaceResponse loadNamespaceMetadata(
       @PathVariable String prefix, @PathVariable String namespace)
       throws NamespaceException, HouseDatabaseException {
-    return namespacesService.load(namespace, extractAuthenticatedUserPrincipal());
+    DatabaseMetadata result =
+        namespacesService.load(namespace, extractAuthenticatedUserPrincipal());
+    return new NamespaceResponse(
+        Collections.singletonList(result.getDatabaseName()), result.getProperties());
   }
 
   @Operation(tags = "Namespace", summary = "Update namespace properties")
   @ApiResponse(responseCode = "200", description = "Properties updated")
   @PostMapping("/{namespace}/properties")
-  @Secured(Privileges.Privilege.UPDATE_TABLE_METADATA)
+  @Secured(Privileges.Privilege.SYSTEM_ADMIN)
   public UpdateNamespacePropertiesResponse updateNamespaceProperties(
       @PathVariable String prefix,
       @PathVariable String namespace,
       @Valid @RequestBody UpdateNamespacePropertiesRequest request)
       throws NamespaceException, HouseDatabaseException {
-    return namespacesService.update(namespace, request, extractAuthenticatedUserPrincipal());
+    DatabasePropertyUpdate result =
+        namespacesService.update(
+            namespace,
+            request.getUpdates(),
+            request.getRemovals(),
+            extractAuthenticatedUserPrincipal());
+    return new UpdateNamespacePropertiesResponse(
+        result.getUpdated(), result.getRemoved(), result.getMissing());
   }
 
   @Operation(tags = "Namespace", summary = "Drop an empty namespace")

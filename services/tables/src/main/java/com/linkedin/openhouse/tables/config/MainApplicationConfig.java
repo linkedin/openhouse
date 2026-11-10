@@ -12,8 +12,11 @@ import com.linkedin.openhouse.housetables.client.api.DatabaseApi;
 import com.linkedin.openhouse.housetables.client.api.ToggleStatusApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
+import com.linkedin.openhouse.internal.catalog.repository.DatabaseResponseModule;
 import com.linkedin.openhouse.internal.catalog.repository.HouseDatabaseRepository;
 import com.linkedin.openhouse.internal.catalog.repository.HouseDatabaseRepositoryImpl;
+import com.linkedin.openhouse.tables.controller.TablesController;
+import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
 import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tag;
@@ -75,7 +78,7 @@ public class MainApplicationConfig extends BaseApplicationConfig {
 
   /**
    * This bean is injected within {@link ToggleStatusesRepository} When HTS is used as the storage
-   * implementation for {@link com.linkedin.openhouse.tables.toggle.TableFeatureToggle}
+   * implementation for {@link TableFeatureToggle}
    */
   @Bean
   public ToggleStatusApi provideToggleApiInstance() {
@@ -101,7 +104,9 @@ public class MainApplicationConfig extends BaseApplicationConfig {
             .resolver(spec -> spec.queryTimeout(Duration.ofSeconds(DNS_QUERY_TIMEOUT_SECONDS)))
             .disableRetry(disableRetries);
     WebClient webClient =
-        ApiClient.buildWebClientBuilder()
+        ApiClient.buildWebClientBuilder(
+                ApiClient.createDefaultObjectMapper(null)
+                    .registerModule(new DatabaseResponseModule()))
             .baseUrl(htsBasePath)
             .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(IN_MEMORY_BUFFER_SIZE))
             .clientConnector(new ReactorClientHttpConnector(httpClient))
@@ -238,9 +243,8 @@ public class MainApplicationConfig extends BaseApplicationConfig {
    *
    * <p>Note that we assume only single "_" appear in the default operationId. We also don't allow
    * operationId starting with underscore. If that assumption doesn't hold, an {@link
-   * IllegalStateException} is thrown and naming in {@link
-   * com.linkedin.openhouse.tables.controller.TablesController} or other controllers will have to be
-   * fixed.
+   * IllegalStateException} is thrown and naming in {@link TablesController} or other controllers
+   * will have to be fixed.
    */
   @VisibleForTesting
   static String sanitizeOpId(String operationId) {

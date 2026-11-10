@@ -9,6 +9,7 @@ import com.linkedin.openhouse.housetables.controller.DatabasesController;
 import com.linkedin.openhouse.housetables.services.DatabaseMetadataException;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 class DatabasesControllerFailureTest {
@@ -19,8 +20,7 @@ class DatabasesControllerFailureTest {
     DatabasesApiHandler handler = mock(DatabasesApiHandler.class);
     when(handler.getDatabase("foo")).thenThrow(new DatabaseMetadataException(reason, "message"));
     MockMvcBuilders.standaloneSetup(new DatabasesController(handler))
-        .setMessageConverters(
-            new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter())
+        .setMessageConverters(new MappingJackson2HttpMessageConverter())
         .build()
         .perform(get("/hts/databases/foo"))
         .andExpect(status().is(expectedStatus))

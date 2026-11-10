@@ -102,6 +102,7 @@ tasks.matching { it.name == 'generateOpenApiDocs' }.configureEach {
 }
 
 dependencies {
+  testImplementation "org.mockito:mockito-inline:4.11.0"
   implementation "io.opentelemetry.instrumentation:opentelemetry-instrumentation-annotations:${otel_annotations_version}"
   api project(':services:common')
   api project(':iceberg:openhouse:internalcatalog')

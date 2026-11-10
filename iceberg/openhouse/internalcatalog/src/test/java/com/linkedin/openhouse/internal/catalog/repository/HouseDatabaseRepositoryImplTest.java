@@ -7,10 +7,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.housetables.client.api.DatabaseApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
+import com.linkedin.openhouse.internal.catalog.model.DatabasePropertyUpdate;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException.Reason;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeoutException;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -20,6 +23,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import reactor.core.publisher.Mono;
 
 class HouseDatabaseRepositoryImplTest {
@@ -30,7 +34,10 @@ class HouseDatabaseRepositoryImplTest {
   void setUp() throws IOException {
     server = new MockWebServer();
     server.start();
-    ApiClient client = new ApiClient();
+    ApiClient client =
+        new ApiClient(
+            ApiClient.createDefaultObjectMapper(null).registerModule(new DatabaseResponseModule()),
+            null);
     client.setBasePath(server.url("/").toString());
     repository = new HouseDatabaseRepositoryImpl(new DatabaseApi(client), new UserTableApi(client));
   }
@@ -100,9 +107,9 @@ class HouseDatabaseRepositoryImplTest {
   @CsvSource({
     "400,BAD_REQUEST",
     "404,NOT_FOUND",
-    "409,CONFLICT",
+    "409,CONCURRENT_MODIFICATION",
     "422,INVALID_PROPERTIES",
-    "500,FAILURE",
+    "500,UNKNOWN_OUTCOME",
     "503,UNAVAILABLE",
     "403,UNAVAILABLE"
   })
@@ -178,14 +185,139 @@ class HouseDatabaseRepositoryImplTest {
   @Test
   void ambiguousWriteTimeoutIsCheckedAndSentOnce() {
     DatabaseApi databaseApi = mock(DatabaseApi.class);
-    when(databaseApi.deleteDatabase("foo")).thenReturn(Mono.error(new TimeoutException("secret")));
+    when(databaseApi.deleteDatabaseWithHttpInfo("foo"))
+        .thenReturn(Mono.error(new TimeoutException("secret")));
     HouseDatabaseRepository timedRepository =
         new HouseDatabaseRepositoryImpl(databaseApi, mock(UserTableApi.class));
     assertEquals(
-        Reason.UNAVAILABLE,
+        Reason.UNKNOWN_OUTCOME,
         assertThrows(HouseDatabaseException.class, () -> timedRepository.delete("foo"))
             .getReason());
-    verify(databaseApi).deleteDatabase("foo");
+    verify(databaseApi).deleteDatabaseWithHttpInfo("foo");
     verifyNoMoreInteractions(databaseApi);
+  }
+
+  @Test
+  void malformedDomainValuesRemainCheckedFailures() {
+    server.enqueue(
+        new MockResponse()
+            .addHeader("Content-Type", "application/json")
+            .setBody(
+                "{\"databaseUuid\":\"foo\",\"databaseName\":\"bar\",\"properties\":{\"key\":null}}"));
+    assertEquals(
+        Reason.FAILURE,
+        assertThrows(HouseDatabaseException.class, () -> repository.findByName("bar")).getReason());
+    server.enqueue(
+        new MockResponse()
+            .addHeader("Content-Type", "application/json")
+            .setBody("{\"updated\":[null],\"removed\":[],\"missing\":[]}"));
+    assertEquals(
+        Reason.UNKNOWN_OUTCOME,
+        assertThrows(
+                HouseDatabaseException.class,
+                () ->
+                    repository.updateProperties(
+                        "bar", Collections.emptyMap(), Collections.emptySet()))
+            .getReason());
+  }
+
+  @Test
+  void failedViewListingCannotEstablishEmptyNamespace() {
+    server.enqueue(
+        new MockResponse()
+            .addHeader("Content-Type", "application/json")
+            .setBody("{\"pageResults\":{\"content\":[]}}"));
+    server.enqueue(new MockResponse().setResponseCode(503));
+    assertEquals(
+        Reason.UNAVAILABLE,
+        assertThrows(HouseDatabaseException.class, () -> repository.containsEntities("foo"))
+            .getReason());
+    assertEquals(2, server.getRequestCount());
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "{}",
+        "{\"updated\":[],\"removed\":[]}",
+        "{\"updated\":[],\"missing\":[]}",
+        "{\"removed\":[],\"missing\":[]}"
+      })
+  void omittedUpdateFieldsAreUnknownOutcomes(String response) {
+    server.enqueue(
+        new MockResponse().addHeader("Content-Type", "application/json").setBody(response));
+    assertEquals(
+        Reason.UNKNOWN_OUTCOME,
+        assertThrows(
+                HouseDatabaseException.class,
+                () -> repository.updateProperties("foo", Map.of("a", "1"), Set.of("b")))
+            .getReason());
+    assertEquals(1, server.getRequestCount());
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "{\"databaseUuid\":\"foo\",\"databaseName\":\"bar\"}",
+        "{\"databaseUuid\":\"foo\",\"properties\":{}}",
+        "{\"databaseName\":\"bar\",\"properties\":{}}"
+      })
+  void omittedMetadataFieldsFailReadsAndCreates(String response) {
+    server.enqueue(
+        new MockResponse().addHeader("Content-Type", "application/json").setBody(response));
+    assertEquals(
+        Reason.FAILURE,
+        assertThrows(HouseDatabaseException.class, () -> repository.findByName("bar")).getReason());
+    server.enqueue(
+        new MockResponse()
+            .setResponseCode(201)
+            .addHeader("Content-Type", "application/json")
+            .setBody(response));
+    assertEquals(
+        Reason.UNKNOWN_OUTCOME,
+        assertThrows(HouseDatabaseException.class, () -> repository.create("bar", Map.of()))
+            .getReason());
+    assertEquals(2, server.getRequestCount());
+  }
+
+  @Test
+  void completeEmptyCollectionsRemainValid() throws HouseDatabaseException {
+    server.enqueue(
+        new MockResponse()
+            .addHeader("Content-Type", "application/json")
+            .setBody("{\"databaseUuid\":\"foo\",\"databaseName\":\"bar\",\"properties\":{}}"));
+    assertTrue(repository.findByName("bar").orElseThrow().getProperties().isEmpty());
+    server.enqueue(
+        new MockResponse()
+            .addHeader("Content-Type", "application/json")
+            .setBody("{\"updated\":[],\"removed\":[],\"missing\":[]}"));
+    DatabasePropertyUpdate update = repository.updateProperties("bar", Map.of(), Set.of());
+    assertTrue(update.getUpdated().isEmpty());
+    assertTrue(update.getRemoved().isEmpty());
+    assertTrue(update.getMissing().isEmpty());
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {200, 202, 302})
+  void deletionRequiresNoContentStatus(int status) {
+    server.enqueue(new MockResponse().setResponseCode(status));
+    assertEquals(
+        Reason.UNKNOWN_OUTCOME,
+        assertThrows(HouseDatabaseException.class, () -> repository.delete("foo")).getReason());
+    assertEquals(1, server.getRequestCount());
+  }
+
+  @Test
+  void conflictReasonsComeFromTheOperation() {
+    server.enqueue(new MockResponse().setResponseCode(409));
+    assertEquals(
+        Reason.ALREADY_EXISTS,
+        assertThrows(HouseDatabaseException.class, () -> repository.create("foo", Map.of()))
+            .getReason());
+    server.enqueue(new MockResponse().setResponseCode(409));
+    assertEquals(
+        Reason.CONCURRENT_MODIFICATION,
+        assertThrows(HouseDatabaseException.class, () -> repository.delete("namespaces"))
+            .getReason());
   }
 }

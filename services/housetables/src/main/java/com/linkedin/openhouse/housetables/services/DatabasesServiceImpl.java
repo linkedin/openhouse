@@ -3,9 +3,9 @@ package com.linkedin.openhouse.housetables.services;
 import static com.linkedin.openhouse.housetables.services.DatabaseMetadataException.Reason.*;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
-import com.linkedin.openhouse.housetables.api.spec.model.DatabaseMetadata;
-import com.linkedin.openhouse.housetables.api.spec.response.UpdateDatabasePropertiesResponseBody;
 import com.linkedin.openhouse.housetables.config.db.DatabaseConfiguration.SupportedDbTypes;
+import com.linkedin.openhouse.housetables.model.DatabaseMetadata;
+import com.linkedin.openhouse.housetables.model.DatabasePropertyUpdate;
 import com.linkedin.openhouse.housetables.model.DatabaseRow;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.DatabaseHtsJdbcRepository;
 import java.util.Collections;
@@ -21,6 +21,7 @@ import javax.persistence.EntityManager;
 import javax.persistence.LockModeType;
 import javax.persistence.OptimisticLockException;
 import javax.persistence.PersistenceException;
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -72,7 +73,7 @@ public class DatabasesServiceImpl implements DatabasesService {
     return inTransaction(
             () ->
                 repository
-                    .findByDatabaseNameKey(databaseName.toLowerCase(Locale.ROOT))
+                    .findByDatabaseName(databaseName.toLowerCase(Locale.ROOT))
                     .map(
                         database ->
                             DatabaseMetadata.builder()
@@ -93,7 +94,7 @@ public class DatabasesServiceImpl implements DatabasesService {
         inTransaction(
             () ->
                 repository
-                    .findByDatabaseNameKey(databaseName.toLowerCase(Locale.ROOT))
+                    .findByDatabaseName(databaseName.toLowerCase(Locale.ROOT))
                     .map(
                         database -> {
                           repository.delete(database);
@@ -108,7 +109,7 @@ public class DatabasesServiceImpl implements DatabasesService {
   }
 
   @Override
-  public UpdateDatabasePropertiesResponseBody updateDatabaseProperties(
+  public DatabasePropertyUpdate updateDatabaseProperties(
       String databaseName, Map<String, String> updates, Set<String> removals)
       throws DatabaseMetadataException {
     if (!Collections.disjoint(updates.keySet(), removals)) {
@@ -118,10 +119,10 @@ public class DatabasesServiceImpl implements DatabasesService {
     return inTransaction(
             () ->
                 repository
-                    .findByDatabaseNameKey(databaseName.toLowerCase(Locale.ROOT))
+                    .findByDatabaseName(databaseName.toLowerCase(Locale.ROOT))
                     .map(
                         database -> {
-                          // The owner version serializes collection-only changes and empty updates.
+                          // Empty updates also participate in optimistic concurrency checks.
                           entityManager.lock(database, LockModeType.OPTIMISTIC_FORCE_INCREMENT);
                           List<String> removed =
                               removals.stream()
@@ -133,10 +134,12 @@ public class DatabasesServiceImpl implements DatabasesService {
                                   .filter(key -> !database.getProperties().containsKey(key))
                                   .sorted()
                                   .collect(Collectors.toList());
-                          removals.forEach(database.getProperties()::remove);
-                          database.getProperties().putAll(updates);
+                          Map<String, String> properties = new HashMap<>(database.getProperties());
+                          properties.keySet().removeAll(removals);
+                          properties.putAll(updates);
+                          database.replaceProperties(properties);
                           repository.flush();
-                          return UpdateDatabasePropertiesResponseBody.builder()
+                          return DatabasePropertyUpdate.builder()
                               .updated(
                                   updates.keySet().stream().sorted().collect(Collectors.toList()))
                               .removed(removed)
@@ -167,9 +170,9 @@ public class DatabasesServiceImpl implements DatabasesService {
       boolean duplicateName =
           creating
               && Optional.ofNullable(exception.getCause())
-                  .filter(org.hibernate.exception.ConstraintViolationException.class::isInstance)
-                  .map(org.hibernate.exception.ConstraintViolationException.class::cast)
-                  .map(org.hibernate.exception.ConstraintViolationException::getConstraintName)
+                  .filter(ConstraintViolationException.class::isInstance)
+                  .map(ConstraintViolationException.class::cast)
+                  .map(ConstraintViolationException::getConstraintName)
                   .map(name -> name.toLowerCase(Locale.ROOT).contains("uq_database_name"))
                   .orElse(false);
       throw new DatabaseMetadataException(

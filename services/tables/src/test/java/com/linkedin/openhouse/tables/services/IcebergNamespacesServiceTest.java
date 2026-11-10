@@ -1,16 +1,15 @@
 package com.linkedin.openhouse.tables.services;
 
+import static com.linkedin.openhouse.tables.exception.NamespaceException.Reason.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-import com.linkedin.openhouse.housetables.client.model.DatabaseMetadata;
-import com.linkedin.openhouse.housetables.client.model.UpdateDatabasePropertiesResponseBody;
+import com.linkedin.openhouse.internal.catalog.model.DatabaseMetadata;
+import com.linkedin.openhouse.internal.catalog.model.DatabasePropertyUpdate;
 import com.linkedin.openhouse.internal.catalog.repository.HouseDatabaseRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException.Reason;
-import com.linkedin.openhouse.tables.api.spec.namespace.CreateNamespaceRequest;
-import com.linkedin.openhouse.tables.api.spec.namespace.UpdateNamespacePropertiesRequest;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.exception.NamespaceException;
@@ -20,7 +19,7 @@ import java.util.Collections;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.AuthorizationServiceException;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -43,8 +42,8 @@ class IcebergNamespacesServiceTest {
     when(authorizationHandler.checkAccessDecision(anyString(), any(DatabaseDto.class), any()))
         .thenReturn(false);
     assertEquals(
-        HttpStatus.FORBIDDEN,
-        assertThrows(NamespaceException.class, () -> service.load("foo", "bar")).getStatus());
+        ACCESS_DENIED,
+        assertThrows(NamespaceException.class, () -> service.load("foo", "bar")).getReason());
     verify(authorizationHandler)
         .checkAccessDecision(
             eq("bar"),
@@ -54,63 +53,46 @@ class IcebergNamespacesServiceTest {
   }
 
   @Test
-  void createAndUpdateUseDatabasePrivilegesAndForwardSparseChanges() throws Exception {
+  void createAndUpdateRequireSystemAdminAndForwardSparseChanges() throws Exception {
     when(repository.create(eq("foo"), any()))
-        .thenReturn(
-            new DatabaseMetadata()
-                .databaseName("foo")
-                .properties(Collections.singletonMap("a", "1")));
-    service.create(
-        CreateNamespaceRequest.builder()
-            .namespace(Collections.singletonList("foo"))
-            .properties(Collections.singletonMap("a", "1"))
-            .build(),
-        "bar");
+        .thenReturn(new DatabaseMetadata("identifier", "foo", Collections.singletonMap("a", "1")));
+    service.create(Collections.singletonList("foo"), Collections.singletonMap("a", "1"), "bar");
     verify(authorizationHandler)
-        .checkAccessDecision(eq("bar"), any(DatabaseDto.class), eq(Privileges.CREATE_TABLE));
+        .checkAccessDecision(eq("bar"), any(DatabaseDto.class), eq(Privileges.SYSTEM_ADMIN));
     when(repository.updateProperties(eq("foo"), any(), any()))
         .thenReturn(
-            new UpdateDatabasePropertiesResponseBody()
-                .updated(Collections.singletonList("b"))
-                .removed(Collections.singletonList("a"))
-                .missing(Collections.singletonList("c")));
+            new DatabasePropertyUpdate(
+                Collections.singletonList("b"),
+                Collections.singletonList("a"),
+                Collections.singletonList("c")));
     assertEquals(
         Collections.singletonList("c"),
         service
-            .update(
-                "foo",
-                UpdateNamespacePropertiesRequest.builder()
-                    .updates(Collections.singletonMap("b", "2"))
-                    .removals(Collections.singleton("a"))
-                    .build(),
-                "bar")
+            .update("foo", Collections.singletonMap("b", "2"), Collections.singleton("a"), "bar")
             .getMissing());
     verify(repository)
         .updateProperties("foo", Collections.singletonMap("b", "2"), Collections.singleton("a"));
-    verify(authorizationHandler)
-        .checkAccessDecision(
-            eq("bar"), any(DatabaseDto.class), eq(Privileges.UPDATE_TABLE_METADATA));
+    verify(authorizationHandler, times(2))
+        .checkAccessDecision(eq("bar"), any(DatabaseDto.class), eq(Privileges.SYSTEM_ADMIN));
   }
 
   @Test
   void overlapAndHierarchyAreRejectedBeforeMutation() {
     assertEquals(
-        HttpStatus.UNPROCESSABLE_ENTITY,
+        INVALID_PROPERTIES,
         assertThrows(
                 NamespaceException.class,
                 () ->
                     service.update(
                         "foo",
-                        UpdateNamespacePropertiesRequest.builder()
-                            .updates(Collections.singletonMap("a", "1"))
-                            .removals(Collections.singleton("a"))
-                            .build(),
+                        Collections.singletonMap("a", "1"),
+                        Collections.singleton("a"),
                         "bar"))
-            .getStatus());
+            .getReason());
     assertEquals(
-        HttpStatus.BAD_REQUEST,
+        INVALID_NAMESPACE,
         assertThrows(NamespaceException.class, () -> service.load("foo\u001fbar", "bar"))
-            .getStatus());
+            .getReason());
     verifyNoInteractions(repository);
   }
 
@@ -121,11 +103,12 @@ class IcebergNamespacesServiceTest {
         Reason.NOT_FOUND,
         assertThrows(HouseDatabaseException.class, () -> service.drop("foo", "bar")).getReason());
     verify(repository, never()).containsEntities(anyString());
-    when(repository.findByName("foo")).thenReturn(Optional.of(new DatabaseMetadata()));
+    when(repository.findByName("foo"))
+        .thenReturn(Optional.of(new DatabaseMetadata("identifier", "foo", Collections.emptyMap())));
     when(repository.containsEntities("foo")).thenReturn(true);
     assertEquals(
-        "NamespaceNotEmptyException",
-        assertThrows(NamespaceException.class, () -> service.drop("foo", "bar")).getType());
+        NOT_EMPTY,
+        assertThrows(NamespaceException.class, () -> service.drop("foo", "bar")).getReason());
     verify(repository, never()).delete(anyString());
     when(repository.containsEntities("foo")).thenReturn(false);
     service.drop("foo", "bar");
@@ -146,7 +129,40 @@ class IcebergNamespacesServiceTest {
         .thenThrow(new AuthorizationServiceException("secret"));
     NamespaceException exception =
         assertThrows(NamespaceException.class, () -> service.load("foo", "bar"));
-    assertEquals(HttpStatus.SERVICE_UNAVAILABLE, exception.getStatus());
+    assertEquals(AUTHORIZATION_UNAVAILABLE, exception.getReason());
     assertFalse(exception.getMessage().contains("secret"));
+    assertInstanceOf(AuthorizationServiceException.class, exception.getCause());
+  }
+
+  @Test
+  void failedOccupancyPreventsDeletion() throws Exception {
+    when(repository.findByName("foo"))
+        .thenReturn(Optional.of(new DatabaseMetadata("identifier", "foo", Collections.emptyMap())));
+    when(repository.containsEntities("foo"))
+        .thenThrow(new HouseDatabaseException(Reason.UNAVAILABLE));
+    assertEquals(
+        Reason.UNAVAILABLE,
+        assertThrows(HouseDatabaseException.class, () -> service.drop("foo", "bar")).getReason());
+    verify(repository, never()).delete(anyString());
+  }
+
+  @Test
+  void mixedCaseAuthorizationUsesNormalizedIdentity() throws Exception {
+    when(repository.findByName("FOO"))
+        .thenReturn(Optional.of(new DatabaseMetadata("identifier", "foo", Collections.emptyMap())));
+    service.load("FOO", "bar");
+    verify(authorizationHandler)
+        .checkAccessDecision(
+            eq("bar"),
+            argThat((DatabaseDto database) -> database.getDatabaseId().equals("foo")),
+            eq(Privileges.GET_TABLE_METADATA));
+    reset(repository);
+    when(authorizationHandler.checkAccessDecision(anyString(), any(DatabaseDto.class), any()))
+        .thenReturn(false);
+    NamespaceException denied =
+        assertThrows(NamespaceException.class, () -> service.load("FoO", "bar"));
+    assertEquals(ACCESS_DENIED, denied.getReason());
+    assertInstanceOf(AccessDeniedException.class, denied.getCause());
+    verifyNoInteractions(repository);
   }
 }

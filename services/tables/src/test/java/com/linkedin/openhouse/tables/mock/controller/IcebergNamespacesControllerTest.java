@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.tables.mock.controller;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -7,19 +9,23 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.linkedin.openhouse.housetables.client.model.DatabaseMetadata;
-import com.linkedin.openhouse.housetables.client.model.UpdateDatabasePropertiesResponseBody;
+import com.linkedin.openhouse.internal.catalog.model.DatabaseMetadata;
+import com.linkedin.openhouse.internal.catalog.model.DatabasePropertyUpdate;
 import com.linkedin.openhouse.internal.catalog.repository.HouseDatabaseRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException.Reason;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
+import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.config.NamespaceErrorFilter;
 import com.linkedin.openhouse.tables.controller.IcebergNamespacesController;
 import com.linkedin.openhouse.tables.exception.NamespaceExceptionHandler;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import javax.servlet.Filter;
 import javax.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.AfterEach;
@@ -34,6 +40,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.access.AuthorizationServiceException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
@@ -63,10 +70,7 @@ class IcebergNamespacesControllerTest {
   @Test
   void fourRoutesMatchIcebergBodiesAndSuccessStatuses() throws Exception {
     DatabaseMetadata metadata =
-        new DatabaseMetadata()
-            .databaseUuid("private")
-            .databaseName("foo")
-            .properties(Collections.singletonMap("a", "1"));
+        new DatabaseMetadata("private", "foo", Collections.singletonMap("a", "1"));
     when(repository.create(eq("foo"), any())).thenReturn(metadata);
     mvc.perform(
             post("/v1/catalog_name/namespaces")
@@ -81,10 +85,10 @@ class IcebergNamespacesControllerTest {
         .andExpect(jsonPath("$.databaseUuid").doesNotExist());
     when(repository.updateProperties(eq("foo"), any(), any()))
         .thenReturn(
-            new UpdateDatabasePropertiesResponseBody()
-                .updated(Collections.singletonList("b"))
-                .removed(Collections.singletonList("a"))
-                .missing(Collections.singletonList("c")));
+            new DatabasePropertyUpdate(
+                Collections.singletonList("b"),
+                Collections.singletonList("a"),
+                Collections.singletonList("c")));
     mvc.perform(
             post("/v1/catalog_name/namespaces/foo/properties")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -95,6 +99,59 @@ class IcebergNamespacesControllerTest {
     mvc.perform(delete("/v1/catalog_name/namespaces/foo"))
         .andExpect(status().isNoContent())
         .andExpect(content().string(""));
+    verify(repository).delete("foo");
+  }
+
+  @Test
+  void databaseWritersWithoutSystemAdminCannotCreateOrChangeProperties() throws Exception {
+    when(authorizationHandler.checkAccessDecision(
+            anyString(), any(DatabaseDto.class), eq(Privileges.SYSTEM_ADMIN)))
+        .thenReturn(false);
+    mvc.perform(
+            post("/v1/catalog_name/namespaces")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"namespace\":[\"foo\"]}"))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.error.type").value("ForbiddenException"));
+    mvc.perform(
+            post("/v1/catalog_name/namespaces/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"updates\":{\"a\":\"1\"}}"))
+        .andExpect(status().isForbidden());
+    mvc.perform(
+            post("/v1/catalog_name/namespaces/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"removals\":[\"a\"]}"))
+        .andExpect(status().isForbidden());
+    verifyNoInteractions(repository);
+  }
+
+  @Test
+  void authorizationOutageUsesServiceUnavailableResponse() throws Exception {
+    when(authorizationHandler.checkAccessDecision(anyString(), any(DatabaseDto.class), any()))
+        .thenThrow(new AuthorizationServiceException("private upstream failure"));
+    mvc.perform(get("/v1/catalog_name/namespaces/foo"))
+        .andExpect(status().isServiceUnavailable())
+        .andExpect(jsonPath("$.error.code").value(503))
+        .andExpect(jsonPath("$.error.type").value("ServiceUnavailableException"))
+        .andExpect(jsonPath("$.error.message").value("Authorization service unavailable"));
+    verifyNoInteractions(repository);
+  }
+
+  @Test
+  void readsAndDropKeepDatabasePrivilegesWithoutSystemAdmin() throws Exception {
+    when(authorizationHandler.checkAccessDecision(
+            anyString(), any(DatabaseDto.class), eq(Privileges.SYSTEM_ADMIN)))
+        .thenReturn(false);
+    when(repository.findByName("foo"))
+        .thenReturn(Optional.of(new DatabaseMetadata("identifier", "foo", Collections.emptyMap())));
+    mvc.perform(get("/v1/catalog_name/namespaces/foo")).andExpect(status().isOk());
+    mvc.perform(delete("/v1/catalog_name/namespaces/foo")).andExpect(status().isNoContent());
+    verify(authorizationHandler)
+        .checkAccessDecision(
+            anyString(), any(DatabaseDto.class), eq(Privileges.GET_TABLE_METADATA));
+    verify(authorizationHandler)
+        .checkAccessDecision(anyString(), any(DatabaseDto.class), eq(Privileges.DELETE_TABLE));
     verify(repository).delete("foo");
   }
 
@@ -122,10 +179,52 @@ class IcebergNamespacesControllerTest {
     verifyNoInteractions(repository);
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = {"\\ud800", "\\udc00", "foo\\ud800bar"})
+  void malformedPropertyKeysFailBeforeMetadataAccess(String key) throws Exception {
+    mvc.perform(
+            post("/v1/foo/namespaces")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"namespace\":[\"foo\"],\"properties\":{\"" + key + "\":\"value\"}}"))
+        .andExpect(status().isBadRequest());
+    mvc.perform(
+            post("/v1/foo/namespaces/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"updates\":{\"" + key + "\":\"value\"}}"))
+        .andExpect(status().isBadRequest());
+    mvc.perform(
+            post("/v1/foo/namespaces/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"removals\":[\"" + key + "\"]}"))
+        .andExpect(status().isBadRequest());
+    verifyNoInteractions(repository);
+  }
+
+  @Test
+  void supplementaryPropertyKeysPassPublicValidation() throws Exception {
+    when(repository.create("foo", Collections.singletonMap("😀", "value")))
+        .thenReturn(
+            new DatabaseMetadata("identifier", "foo", Collections.singletonMap("😀", "value")));
+    mvc.perform(
+            post("/v1/foo/namespaces")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"namespace\":[\"foo\"],\"properties\":{\"\\ud83d\\ude00\":\"value\"}}"))
+        .andExpect(status().isOk());
+    when(repository.updateProperties(eq("foo"), any(), any()))
+        .thenReturn(
+            new DatabasePropertyUpdate(
+                Collections.emptyList(), Collections.singletonList("😀"), Collections.emptyList()));
+    mvc.perform(
+            post("/v1/foo/namespaces/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"removals\":[\"\\ud83d\\ude00\"]}"))
+        .andExpect(status().isOk());
+  }
+
   @Test
   void omittedCollectionsAreEmptyAndOverlapIsUnprocessable() throws Exception {
     when(repository.create("foo", Collections.emptyMap()))
-        .thenReturn(new DatabaseMetadata().databaseName("foo").properties(Collections.emptyMap()));
+        .thenReturn(new DatabaseMetadata("private", "foo", Collections.emptyMap()));
     mvc.perform(
             post("/v1/foo/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -150,6 +249,84 @@ class IcebergNamespacesControllerTest {
             get("/v1/foo/namespaces/{namespace}", String.join("", Collections.nCopies(129, "a"))))
         .andExpect(status().isBadRequest());
     verifyNoInteractions(repository);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"updates", "removals", "neither"})
+  void omittedUpdateCollectionsPreserveSuppliedChanges(String supplied) throws Exception {
+    Map<String, String> updates = "updates".equals(supplied) ? Map.of("a", "1") : Map.of();
+    Set<String> removals = "removals".equals(supplied) ? Set.of("b") : Set.of();
+    Map<String, Object> request =
+        "updates".equals(supplied)
+            ? Map.of("updates", updates)
+            : "removals".equals(supplied) ? Map.of("removals", removals) : Map.of();
+    when(repository.updateProperties("foo", updates, removals))
+        .thenReturn(
+            new DatabasePropertyUpdate(
+                List.copyOf(updates.keySet()), List.copyOf(removals), List.of()));
+    mvc.perform(
+            post("/v1/foo/namespaces/foo/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(new ObjectMapper().writeValueAsString(request)))
+        .andExpect(status().isOk())
+        .andExpect(
+            content()
+                .json(
+                    new ObjectMapper()
+                        .writeValueAsString(
+                            Map.of(
+                                "updated",
+                                updates.keySet(),
+                                "removed",
+                                removals,
+                                "missing",
+                                List.of())),
+                    true));
+    verify(repository).updateProperties("foo", updates, removals);
+  }
+
+  @Test
+  void conflictsUseOperationReasonsForEveryAcceptedRoute() throws Exception {
+    when(repository.create("foo", Map.of()))
+        .thenThrow(new HouseDatabaseException(Reason.ALREADY_EXISTS));
+    mvc.perform(
+            post("/v1/foo/namespaces/")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"namespace\":[\"foo\"]}"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.error.type").value("AlreadyExistsException"));
+    when(repository.updateProperties("namespaces", Map.of(), Set.of()))
+        .thenThrow(new HouseDatabaseException(Reason.CONCURRENT_MODIFICATION));
+    mvc.perform(
+            post("/v1/foo/namespaces/namespaces/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.error.type").value("CommitFailedException"));
+    when(repository.findByName("namespaces"))
+        .thenReturn(Optional.of(new DatabaseMetadata("identifier", "namespaces", Map.of())));
+    doThrow(new HouseDatabaseException(Reason.CONCURRENT_MODIFICATION))
+        .when(repository)
+        .delete("namespaces");
+    mvc.perform(delete("/v1/foo/namespaces/namespaces"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.error.type").value("CommitFailedException"));
+  }
+
+  @Test
+  void uncertainMutationUsesReconciliationErrorRatherThanUnavailable() throws Exception {
+    when(repository.create(eq("foo"), any()))
+        .thenThrow(new HouseDatabaseException(Reason.UNKNOWN_OUTCOME));
+    mvc.perform(
+            post("/v1/foo/namespaces")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"namespace\":[\"foo\"]}"))
+        .andExpect(status().isInternalServerError())
+        .andExpect(jsonPath("$.error.type").value("CommitStateUnknownException"))
+        .andExpect(
+            jsonPath("$.error.message")
+                .value(
+                    "The mutation outcome is unknown. Reload namespace metadata and reconcile before retrying."));
   }
 
   @ParameterizedTest
@@ -180,11 +357,9 @@ class IcebergNamespacesControllerTest {
     mvc.perform(get("/v1/foo/namespaces/foo"))
         .andExpect(status().isServiceUnavailable())
         .andExpect(jsonPath("$.error.code").value(503))
-        .andExpect(
-            content()
-                .string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("secret"))));
+        .andExpect(content().string(not(containsString("secret"))));
     when(repository.create(anyString(), any()))
-        .thenThrow(new HouseDatabaseException(Reason.CONFLICT));
+        .thenThrow(new HouseDatabaseException(Reason.ALREADY_EXISTS));
     mvc.perform(
             post("/v1/foo/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)

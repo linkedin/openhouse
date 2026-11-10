@@ -26,7 +26,34 @@ public class NamespaceExceptionHandler {
   @ExceptionHandler(NamespaceException.class)
   public ResponseEntity<NamespaceErrorResponse> handleNamespace(
       NamespaceException exception, HttpServletRequest request) {
-    return respond(exception.getStatus(), exception.getType(), exception.getMessage(), request);
+    switch (exception.getReason()) {
+      case INVALID_NAMESPACE:
+        return respond(
+            HttpStatus.BAD_REQUEST, "BadRequestException", exception.getMessage(), request);
+      case INVALID_PROPERTIES:
+        return respond(
+            HttpStatus.UNPROCESSABLE_ENTITY,
+            "UnprocessableEntityException",
+            exception.getMessage(),
+            request);
+      case NOT_EMPTY:
+        return respond(
+            HttpStatus.CONFLICT, "NamespaceNotEmptyException", exception.getMessage(), request);
+      case ACCESS_DENIED:
+        return respond(HttpStatus.FORBIDDEN, "ForbiddenException", exception.getMessage(), request);
+      case AUTHORIZATION_UNAVAILABLE:
+        return respond(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "ServiceUnavailableException",
+            exception.getMessage(),
+            request);
+      default:
+        return respond(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "ServiceFailureException",
+            "Namespace operation failed",
+            request);
+    }
   }
 
   @ExceptionHandler(HouseDatabaseException.class)
@@ -36,13 +63,14 @@ public class NamespaceExceptionHandler {
       case NOT_FOUND:
         return respond(
             HttpStatus.NOT_FOUND, "NoSuchNamespaceException", "Namespace does not exist", request);
-      case CONFLICT:
+      case ALREADY_EXISTS:
+        return respond(
+            HttpStatus.CONFLICT, "AlreadyExistsException", "Namespace already exists", request);
+      case CONCURRENT_MODIFICATION:
         return respond(
             HttpStatus.CONFLICT,
-            request.getRequestURI().endsWith("/namespaces")
-                ? "AlreadyExistsException"
-                : "CommitFailedException",
-            "Namespace already exists or was modified concurrently",
+            "CommitFailedException",
+            "Namespace was modified concurrently",
             request);
       case BAD_REQUEST:
         return respond(
@@ -52,6 +80,12 @@ public class NamespaceExceptionHandler {
             HttpStatus.UNPROCESSABLE_ENTITY,
             "UnprocessableEntityException",
             "Invalid property update",
+            request);
+      case UNKNOWN_OUTCOME:
+        return respond(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "CommitStateUnknownException",
+            "The mutation outcome is unknown. Reload namespace metadata and reconcile before retrying.",
             request);
       case UNAVAILABLE:
         return respond(

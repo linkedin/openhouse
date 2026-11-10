@@ -5,5 +5,5 @@ import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface DatabaseHtsJdbcRepository extends JpaRepository<DatabaseRow, String> {
-  Optional<DatabaseRow> findByDatabaseNameKey(String databaseNameKey);
+  Optional<DatabaseRow> findByDatabaseName(String databaseName);
 }

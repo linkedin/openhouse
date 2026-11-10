@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.housetables.mock;
 
 import static com.linkedin.openhouse.housetables.services.DatabaseMetadataException.Reason.*;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -32,22 +33,22 @@ class DatabasesServiceFailureTest {
   void testIcebergRejectsEveryOperationBeforeAccessingJdbc() {
     when(clusterProperties.getClusterHouseTablesDatabaseType()).thenReturn("ICEBERG");
     assertThatThrownBy(() -> databasesService.createDatabase("foo", Map.of()))
-        .isInstanceOf(DatabaseMetadataException.class)
-        .extracting("reason")
-        .isEqualTo(UNAVAILABLE);
+        .isInstanceOfSatisfying(
+            DatabaseMetadataException.class,
+            exception -> assertThat(exception.getReason()).isEqualTo(UNAVAILABLE));
     assertThatThrownBy(() -> databasesService.getDatabase("foo"))
-        .isInstanceOf(DatabaseMetadataException.class)
-        .extracting("reason")
-        .isEqualTo(UNAVAILABLE);
+        .isInstanceOfSatisfying(
+            DatabaseMetadataException.class,
+            exception -> assertThat(exception.getReason()).isEqualTo(UNAVAILABLE));
     assertThatThrownBy(() -> databasesService.deleteDatabase("foo"))
-        .isInstanceOf(DatabaseMetadataException.class)
-        .extracting("reason")
-        .isEqualTo(UNAVAILABLE);
+        .isInstanceOfSatisfying(
+            DatabaseMetadataException.class,
+            exception -> assertThat(exception.getReason()).isEqualTo(UNAVAILABLE));
     assertThatThrownBy(
             () -> databasesService.updateDatabaseProperties("foo", Map.of("bar", "one"), Set.of()))
-        .isInstanceOf(DatabaseMetadataException.class)
-        .extracting("reason")
-        .isEqualTo(UNAVAILABLE);
+        .isInstanceOfSatisfying(
+            DatabaseMetadataException.class,
+            exception -> assertThat(exception.getReason()).isEqualTo(UNAVAILABLE));
     verifyNoInteractions(repository, entityManager, transactionManager);
   }
 
@@ -55,14 +56,15 @@ class DatabasesServiceFailureTest {
   void testRepositoryFailureBecomesCheckedStorageFailure() {
     when(clusterProperties.getClusterHouseTablesDatabaseType()).thenReturn("IN_MEMORY");
     when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
-    when(repository.findByDatabaseNameKey("foo"))
+    when(repository.findByDatabaseName("foo"))
         .thenThrow(new DataAccessResourceFailureException("storage unavailable"));
     assertThatThrownBy(() -> databasesService.getDatabase("foo"))
         .isInstanceOf(DatabaseMetadataException.class)
         .hasMessage("Database metadata storage failed.")
         .hasCauseInstanceOf(DataAccessResourceFailureException.class)
-        .extracting("reason")
-        .isEqualTo(STORAGE_FAILURE);
+        .isInstanceOfSatisfying(
+            DatabaseMetadataException.class,
+            exception -> assertThat(exception.getReason()).isEqualTo(STORAGE_FAILURE));
     verify(transactionManager).rollback(any());
   }
 
@@ -74,7 +76,8 @@ class DatabasesServiceFailureTest {
     assertThatThrownBy(() -> databasesService.createDatabase("foo", Map.of()))
         .isInstanceOf(DatabaseMetadataException.class)
         .hasCauseInstanceOf(TransactionSystemException.class)
-        .extracting("reason")
-        .isEqualTo(STORAGE_FAILURE);
+        .isInstanceOfSatisfying(
+            DatabaseMetadataException.class,
+            exception -> assertThat(exception.getReason()).isEqualTo(STORAGE_FAILURE));
   }
 }

@@ -8,9 +8,11 @@ public class HouseDatabaseException extends Exception {
   public enum Reason {
     BAD_REQUEST,
     NOT_FOUND,
-    CONFLICT,
+    ALREADY_EXISTS,
+    CONCURRENT_MODIFICATION,
     INVALID_PROPERTIES,
     UNAVAILABLE,
+    UNKNOWN_OUTCOME,
     FAILURE
   }
 

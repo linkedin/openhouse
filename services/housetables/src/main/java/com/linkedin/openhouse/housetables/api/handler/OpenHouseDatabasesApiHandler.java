@@ -8,6 +8,7 @@ import com.linkedin.openhouse.housetables.api.spec.model.DatabaseMetadata;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateDatabaseRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.request.UpdateDatabasePropertiesRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.response.UpdateDatabasePropertiesResponseBody;
+import com.linkedin.openhouse.housetables.model.DatabasePropertyUpdate;
 import com.linkedin.openhouse.housetables.services.DatabaseMetadataException;
 import com.linkedin.openhouse.housetables.services.DatabasesService;
 import java.util.Set;
@@ -31,10 +32,16 @@ public class OpenHouseDatabasesApiHandler implements DatabasesApiHandler {
   public ApiResponse<DatabaseMetadata> createDatabase(CreateDatabaseRequestBody request)
       throws DatabaseMetadataException {
     validateRequest(request);
+    com.linkedin.openhouse.housetables.model.DatabaseMetadata metadata =
+        databasesService.createDatabase(request.getDatabaseName(), request.getProperties());
     return ApiResponse.<DatabaseMetadata>builder()
         .httpStatus(HttpStatus.CREATED)
         .responseBody(
-            databasesService.createDatabase(request.getDatabaseName(), request.getProperties()))
+            DatabaseMetadata.builder()
+                .databaseUuid(metadata.getDatabaseUuid())
+                .databaseName(metadata.getDatabaseName())
+                .properties(metadata.getProperties())
+                .build())
         .build();
   }
 
@@ -42,9 +49,16 @@ public class OpenHouseDatabasesApiHandler implements DatabasesApiHandler {
   public ApiResponse<DatabaseMetadata> getDatabase(String databaseName)
       throws DatabaseMetadataException {
     validateDatabaseName(databaseName);
+    com.linkedin.openhouse.housetables.model.DatabaseMetadata metadata =
+        databasesService.getDatabase(databaseName);
     return ApiResponse.<DatabaseMetadata>builder()
         .httpStatus(HttpStatus.OK)
-        .responseBody(databasesService.getDatabase(databaseName))
+        .responseBody(
+            DatabaseMetadata.builder()
+                .databaseUuid(metadata.getDatabaseUuid())
+                .databaseName(metadata.getDatabaseName())
+                .properties(metadata.getProperties())
+                .build())
         .build();
   }
 
@@ -61,11 +75,17 @@ public class OpenHouseDatabasesApiHandler implements DatabasesApiHandler {
       throws DatabaseMetadataException {
     validateDatabaseName(databaseName);
     validateRequest(request);
+    DatabasePropertyUpdate result =
+        databasesService.updateDatabaseProperties(
+            databaseName, request.getUpdates(), request.getRemovals());
     return ApiResponse.<UpdateDatabasePropertiesResponseBody>builder()
         .httpStatus(HttpStatus.OK)
         .responseBody(
-            databasesService.updateDatabaseProperties(
-                databaseName, request.getUpdates(), request.getRemovals()))
+            UpdateDatabasePropertiesResponseBody.builder()
+                .updated(result.getUpdated())
+                .removed(result.getRemoved())
+                .missing(result.getMissing())
+                .build())
         .build();
   }
 
