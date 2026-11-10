@@ -1,5 +1,6 @@
 package com.linkedin.openhouse.tables.services;
 
+import static com.linkedin.openhouse.tables.exception.NamespaceException.Reason.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -18,7 +19,6 @@ import java.util.Collections;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.AuthorizationServiceException;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -42,8 +42,8 @@ class IcebergNamespacesServiceTest {
     when(authorizationHandler.checkAccessDecision(anyString(), any(DatabaseDto.class), any()))
         .thenReturn(false);
     assertEquals(
-        HttpStatus.FORBIDDEN,
-        assertThrows(NamespaceException.class, () -> service.load("foo", "bar")).getStatus());
+        ACCESS_DENIED,
+        assertThrows(NamespaceException.class, () -> service.load("foo", "bar")).getReason());
     verify(authorizationHandler)
         .checkAccessDecision(
             eq("bar"),
@@ -79,7 +79,7 @@ class IcebergNamespacesServiceTest {
   @Test
   void overlapAndHierarchyAreRejectedBeforeMutation() {
     assertEquals(
-        HttpStatus.UNPROCESSABLE_ENTITY,
+        INVALID_PROPERTIES,
         assertThrows(
                 NamespaceException.class,
                 () ->
@@ -88,11 +88,11 @@ class IcebergNamespacesServiceTest {
                         Collections.singletonMap("a", "1"),
                         Collections.singleton("a"),
                         "bar"))
-            .getStatus());
+            .getReason());
     assertEquals(
-        HttpStatus.BAD_REQUEST,
+        INVALID_NAMESPACE,
         assertThrows(NamespaceException.class, () -> service.load("foo\u001fbar", "bar"))
-            .getStatus());
+            .getReason());
     verifyNoInteractions(repository);
   }
 
@@ -107,8 +107,8 @@ class IcebergNamespacesServiceTest {
         .thenReturn(Optional.of(new DatabaseMetadata("identifier", "foo", Collections.emptyMap())));
     when(repository.containsEntities("foo")).thenReturn(true);
     assertEquals(
-        "NamespaceNotEmptyException",
-        assertThrows(NamespaceException.class, () -> service.drop("foo", "bar")).getType());
+        NOT_EMPTY,
+        assertThrows(NamespaceException.class, () -> service.drop("foo", "bar")).getReason());
     verify(repository, never()).delete(anyString());
     when(repository.containsEntities("foo")).thenReturn(false);
     service.drop("foo", "bar");
@@ -129,7 +129,7 @@ class IcebergNamespacesServiceTest {
         .thenThrow(new AuthorizationServiceException("secret"));
     NamespaceException exception =
         assertThrows(NamespaceException.class, () -> service.load("foo", "bar"));
-    assertEquals(HttpStatus.SERVICE_UNAVAILABLE, exception.getStatus());
+    assertEquals(AUTHORIZATION_UNAVAILABLE, exception.getReason());
     assertFalse(exception.getMessage().contains("secret"));
     assertInstanceOf(AuthorizationServiceException.class, exception.getCause());
   }
@@ -161,7 +161,7 @@ class IcebergNamespacesServiceTest {
         .thenReturn(false);
     NamespaceException denied =
         assertThrows(NamespaceException.class, () -> service.load("FoO", "bar"));
-    assertEquals(HttpStatus.FORBIDDEN, denied.getStatus());
+    assertEquals(ACCESS_DENIED, denied.getReason());
     assertInstanceOf(AccessDeniedException.class, denied.getCause());
     verifyNoInteractions(repository);
   }

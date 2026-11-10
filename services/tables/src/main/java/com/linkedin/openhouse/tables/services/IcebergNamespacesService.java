@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.tables.services;
 
+import static com.linkedin.openhouse.tables.exception.NamespaceException.Reason.*;
+
 import com.linkedin.openhouse.internal.catalog.model.DatabaseMetadata;
 import com.linkedin.openhouse.internal.catalog.model.DatabasePropertyUpdate;
 import com.linkedin.openhouse.internal.catalog.repository.HouseDatabaseRepository;
@@ -14,7 +16,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.AuthorizationServiceException;
 import org.springframework.stereotype.Service;
@@ -29,8 +30,7 @@ public class IcebergNamespacesService {
       List<String> namespace, Map<String, String> properties, String principal)
       throws NamespaceException, HouseDatabaseException {
     if (namespace.size() != 1) {
-      throw new NamespaceException(
-          HttpStatus.BAD_REQUEST, "BadRequestException", "Exactly one namespace level is required");
+      throw new NamespaceException(INVALID_NAMESPACE, "Exactly one namespace level is required");
     }
     authorize(namespace.get(0), principal, Privileges.SYSTEM_ADMIN);
     return databaseRepository.create(namespace.get(0), properties);
@@ -50,9 +50,7 @@ public class IcebergNamespacesService {
     authorize(namespace, principal, Privileges.SYSTEM_ADMIN);
     if (!Collections.disjoint(updates.keySet(), removals)) {
       throw new NamespaceException(
-          HttpStatus.UNPROCESSABLE_ENTITY,
-          "UnprocessableEntityException",
-          "Updates and removals must use disjoint keys");
+          INVALID_PROPERTIES, "Updates and removals must use disjoint keys");
     }
     return databaseRepository.updateProperties(namespace, updates, removals);
   }
@@ -64,8 +62,7 @@ public class IcebergNamespacesService {
         .findByName(namespace)
         .orElseThrow(() -> new HouseDatabaseException(Reason.NOT_FOUND));
     if (databaseRepository.containsEntities(namespace)) {
-      throw new NamespaceException(
-          HttpStatus.CONFLICT, "NamespaceNotEmptyException", "Namespace contains tables or views");
+      throw new NamespaceException(NOT_EMPTY, "Namespace contains tables or views");
     }
     databaseRepository.delete(namespace);
   }
@@ -74,8 +71,7 @@ public class IcebergNamespacesService {
       throws NamespaceException {
     if (!namespace.matches("[a-zA-Z0-9_]{1,128}")) {
       throw new NamespaceException(
-          HttpStatus.BAD_REQUEST,
-          "BadRequestException",
+          INVALID_NAMESPACE,
           "Namespace must be one database name of at most 128 letters, digits, or underscores");
     }
     try {
@@ -83,13 +79,9 @@ public class IcebergNamespacesService {
           namespace.toLowerCase(Locale.ROOT), principal, privilege);
     } catch (AuthorizationServiceException exception) {
       throw new NamespaceException(
-          HttpStatus.SERVICE_UNAVAILABLE,
-          "ServiceUnavailableException",
-          "Authorization service unavailable",
-          exception);
+          AUTHORIZATION_UNAVAILABLE, "Authorization service unavailable", exception);
     } catch (AccessDeniedException exception) {
-      throw new NamespaceException(
-          HttpStatus.FORBIDDEN, "ForbiddenException", "Access denied", exception);
+      throw new NamespaceException(ACCESS_DENIED, "Access denied", exception);
     }
   }
 }

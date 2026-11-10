@@ -26,7 +26,34 @@ public class NamespaceExceptionHandler {
   @ExceptionHandler(NamespaceException.class)
   public ResponseEntity<NamespaceErrorResponse> handleNamespace(
       NamespaceException exception, HttpServletRequest request) {
-    return respond(exception.getStatus(), exception.getType(), exception.getMessage(), request);
+    switch (exception.getReason()) {
+      case INVALID_NAMESPACE:
+        return respond(
+            HttpStatus.BAD_REQUEST, "BadRequestException", exception.getMessage(), request);
+      case INVALID_PROPERTIES:
+        return respond(
+            HttpStatus.UNPROCESSABLE_ENTITY,
+            "UnprocessableEntityException",
+            exception.getMessage(),
+            request);
+      case NOT_EMPTY:
+        return respond(
+            HttpStatus.CONFLICT, "NamespaceNotEmptyException", exception.getMessage(), request);
+      case ACCESS_DENIED:
+        return respond(HttpStatus.FORBIDDEN, "ForbiddenException", exception.getMessage(), request);
+      case AUTHORIZATION_UNAVAILABLE:
+        return respond(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "ServiceUnavailableException",
+            exception.getMessage(),
+            request);
+      default:
+        return respond(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "ServiceFailureException",
+            "Namespace operation failed",
+            request);
+    }
   }
 
   @ExceptionHandler(HouseDatabaseException.class)

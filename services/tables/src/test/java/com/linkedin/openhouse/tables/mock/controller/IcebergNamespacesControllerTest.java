@@ -40,6 +40,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.access.AuthorizationServiceException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
@@ -122,6 +123,18 @@ class IcebergNamespacesControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"removals\":[\"a\"]}"))
         .andExpect(status().isForbidden());
+    verifyNoInteractions(repository);
+  }
+
+  @Test
+  void authorizationOutageUsesServiceUnavailableResponse() throws Exception {
+    when(authorizationHandler.checkAccessDecision(anyString(), any(DatabaseDto.class), any()))
+        .thenThrow(new AuthorizationServiceException("private upstream failure"));
+    mvc.perform(get("/v1/catalog_name/namespaces/foo"))
+        .andExpect(status().isServiceUnavailable())
+        .andExpect(jsonPath("$.error.code").value(503))
+        .andExpect(jsonPath("$.error.type").value("ServiceUnavailableException"))
+        .andExpect(jsonPath("$.error.message").value("Authorization service unavailable"));
     verifyNoInteractions(repository);
   }
 

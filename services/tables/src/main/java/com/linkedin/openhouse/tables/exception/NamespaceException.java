@@ -1,22 +1,26 @@
 package com.linkedin.openhouse.tables.exception;
 
 import lombok.Getter;
-import org.springframework.http.HttpStatus;
 
 @Getter
 public class NamespaceException extends Exception {
-  private final HttpStatus status;
-  private final String type;
-
-  public NamespaceException(HttpStatus status, String type, String message) {
-    super(message);
-    this.status = status;
-    this.type = type;
+  public enum Reason {
+    INVALID_NAMESPACE,
+    INVALID_PROPERTIES,
+    NOT_EMPTY,
+    ACCESS_DENIED,
+    AUTHORIZATION_UNAVAILABLE
   }
 
-  public NamespaceException(HttpStatus status, String type, String message, Throwable cause) {
+  private final Reason reason;
+
+  public NamespaceException(Reason reason, String message) {
+    super(message);
+    this.reason = reason;
+  }
+
+  public NamespaceException(Reason reason, String message, Throwable cause) {
     super(message, cause);
-    this.status = status;
-    this.type = type;
+    this.reason = reason;
   }
 }
