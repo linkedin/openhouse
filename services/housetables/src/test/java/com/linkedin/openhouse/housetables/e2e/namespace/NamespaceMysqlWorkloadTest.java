@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
+import com.linkedin.openhouse.housetables.services.NamespaceConcurrentModificationException;
 import com.linkedin.openhouse.housetables.services.NamespaceMetadataException;
 import com.linkedin.openhouse.housetables.services.NamespacesService;
 import java.util.ArrayList;
@@ -176,9 +177,8 @@ class NamespaceMysqlWorkloadTest {
                                 operation.call();
                                 successes.incrementAndGet();
                               } catch (NamespaceMetadataException exception) {
-                                assertThat(exception.getReason())
-                                    .isEqualTo(
-                                        NamespaceMetadataException.Reason.CONCURRENT_MODIFICATION);
+                                assertThat(exception)
+                                    .isInstanceOf(NamespaceConcurrentModificationException.class);
                                 conflicts.incrementAndGet();
                               } finally {
                                 durations.add(System.nanoTime() - started);

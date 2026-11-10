@@ -1,7 +1,5 @@
 package com.linkedin.openhouse.housetables.services;
 
-import static com.linkedin.openhouse.housetables.services.NamespaceMetadataException.Reason.*;
-
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.housetables.config.db.DatabaseConfiguration.SupportedDbTypes;
 import com.linkedin.openhouse.housetables.model.NamespaceMetadata;
@@ -84,9 +82,7 @@ public class NamespacesServiceImpl implements NamespacesService {
                                         new HashMap<>(namespace.getProperties())))
                                 .build()),
             false)
-        .orElseThrow(
-            () ->
-                new NamespaceMetadataException(NOT_FOUND, "Namespace not found: " + namespaceName));
+        .orElseThrow(() -> new NamespaceNotFoundException("Namespace not found: " + namespaceName));
   }
 
   @Override
@@ -105,7 +101,7 @@ public class NamespacesServiceImpl implements NamespacesService {
                     .orElse(false),
             false);
     if (!deleted) {
-      throw new NamespaceMetadataException(NOT_FOUND, "Namespace not found: " + namespaceName);
+      throw new NamespaceNotFoundException("Namespace not found: " + namespaceName);
     }
   }
 
@@ -114,8 +110,8 @@ public class NamespacesServiceImpl implements NamespacesService {
       String namespaceName, Map<String, String> updates, Set<String> removals)
       throws NamespaceMetadataException {
     if (!Collections.disjoint(updates.keySet(), removals)) {
-      throw new NamespaceMetadataException(
-          INVALID_UPDATE, "Property updates and removals must have disjoint keys.");
+      throw new InvalidNamespacePropertyUpdateException(
+          "Property updates and removals must have disjoint keys.");
     }
     return inTransaction(
             () ->
@@ -148,9 +144,7 @@ public class NamespacesServiceImpl implements NamespacesService {
                               .build();
                         }),
             false)
-        .orElseThrow(
-            () ->
-                new NamespaceMetadataException(NOT_FOUND, "Namespace not found: " + namespaceName));
+        .orElseThrow(() -> new NamespaceNotFoundException("Namespace not found: " + namespaceName));
   }
 
   private <T> T inTransaction(Supplier<T> operation, boolean creating)
@@ -158,16 +152,14 @@ public class NamespacesServiceImpl implements NamespacesService {
     if (SupportedDbTypes.ICEBERG
         .name()
         .equals(clusterProperties.getClusterHouseTablesDatabaseType())) {
-      throw new NamespaceMetadataException(
-          UNAVAILABLE, "Namespace metadata requires a JDBC HouseTables backend.");
+      throw new NamespaceMetadataUnavailableException(
+          "Namespace metadata requires a JDBC HouseTables backend.");
     }
     try {
       return transactions.execute(status -> operation.get());
     } catch (OptimisticLockingFailureException | OptimisticLockException exception) {
-      throw new NamespaceMetadataException(
-          CONCURRENT_MODIFICATION,
-          "Namespace metadata changed concurrently. Retry the request.",
-          exception);
+      throw new NamespaceConcurrentModificationException(
+          "Namespace metadata changed concurrently. Retry the request.", exception);
     } catch (DataIntegrityViolationException exception) {
       boolean duplicateName =
           creating
@@ -177,15 +169,13 @@ public class NamespacesServiceImpl implements NamespacesService {
                   .map(ConstraintViolationException::getConstraintName)
                   .map(name -> name.toLowerCase(Locale.ROOT).contains("uq_namespace_name"))
                   .orElse(false);
-      throw new NamespaceMetadataException(
-          duplicateName ? ALREADY_EXISTS : STORAGE_FAILURE,
-          duplicateName
-              ? "Namespace name already exists."
-              : "Namespace metadata could not be persisted.",
-          exception);
+      if (duplicateName) {
+        throw new NamespaceAlreadyExistsException("Namespace name already exists.", exception);
+      }
+      throw new NamespaceMetadataStorageException(
+          "Namespace metadata could not be persisted.", exception);
     } catch (DataAccessException | TransactionException | PersistenceException exception) {
-      throw new NamespaceMetadataException(
-          STORAGE_FAILURE, "Namespace metadata storage failed.", exception);
+      throw new NamespaceMetadataStorageException("Namespace metadata storage failed.", exception);
     }
   }
 }

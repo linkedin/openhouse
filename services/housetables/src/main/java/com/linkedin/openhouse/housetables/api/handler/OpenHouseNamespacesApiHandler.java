@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.housetables.api.handler;
 
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.ALPHA_NUM_UNDERSCORE_REGEX;
-import static com.linkedin.openhouse.housetables.services.NamespaceMetadataException.Reason.INVALID_REQUEST;
 
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateNamespaceRequestBody;
@@ -10,6 +9,7 @@ import com.linkedin.openhouse.housetables.api.spec.response.NamespaceMetadataRes
 import com.linkedin.openhouse.housetables.api.spec.response.UpdateNamespacePropertiesResponseBody;
 import com.linkedin.openhouse.housetables.model.NamespaceMetadata;
 import com.linkedin.openhouse.housetables.model.NamespacePropertyUpdate;
+import com.linkedin.openhouse.housetables.services.InvalidNamespaceRequestException;
 import com.linkedin.openhouse.housetables.services.NamespaceMetadataException;
 import com.linkedin.openhouse.housetables.services.NamespacesService;
 import java.util.Set;
@@ -89,20 +89,19 @@ public class OpenHouseNamespacesApiHandler implements NamespacesApiHandler {
         .build();
   }
 
-  private void validateNamespaceName(String namespaceName) throws NamespaceMetadataException {
+  private void validateNamespaceName(String namespaceName) throws InvalidNamespaceRequestException {
     if (namespaceName.isEmpty()
         || namespaceName.length() > 128
         || !namespaceName.matches(ALPHA_NUM_UNDERSCORE_REGEX)) {
-      throw new NamespaceMetadataException(
-          INVALID_REQUEST, "Namespace name must contain 1 to 128 letters, digits, or underscores.");
+      throw new InvalidNamespaceRequestException(
+          "Namespace name must contain 1 to 128 letters, digits, or underscores.");
     }
   }
 
-  private <T> void validateRequest(T request) throws NamespaceMetadataException {
+  private <T> void validateRequest(T request) throws InvalidNamespaceRequestException {
     Set<ConstraintViolation<T>> violations = validator.validate(request);
     if (!violations.isEmpty()) {
-      throw new NamespaceMetadataException(
-          INVALID_REQUEST,
+      throw new InvalidNamespaceRequestException(
           violations.stream()
               .map(violation -> violation.getPropertyPath() + ": " + violation.getMessage())
               .sorted()

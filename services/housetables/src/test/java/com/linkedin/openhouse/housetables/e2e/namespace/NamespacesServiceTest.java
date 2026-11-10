@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.housetables.e2e.namespace;
 
-import static com.linkedin.openhouse.housetables.services.NamespaceMetadataException.Reason.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
@@ -11,7 +10,12 @@ import com.linkedin.openhouse.housetables.model.NamespaceMetadata;
 import com.linkedin.openhouse.housetables.model.NamespacePropertyUpdate;
 import com.linkedin.openhouse.housetables.model.NamespaceRow;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.NamespaceHtsJdbcRepository;
+import com.linkedin.openhouse.housetables.services.InvalidNamespacePropertyUpdateException;
+import com.linkedin.openhouse.housetables.services.NamespaceAlreadyExistsException;
+import com.linkedin.openhouse.housetables.services.NamespaceConcurrentModificationException;
 import com.linkedin.openhouse.housetables.services.NamespaceMetadataException;
+import com.linkedin.openhouse.housetables.services.NamespaceMetadataStorageException;
+import com.linkedin.openhouse.housetables.services.NamespaceNotFoundException;
 import com.linkedin.openhouse.housetables.services.NamespacesService;
 import java.util.Arrays;
 import java.util.Collections;
@@ -88,9 +92,7 @@ class NamespacesServiceTest {
                     Long.class))
         .isZero();
     assertThatThrownBy(() -> namespacesService.createNamespace("nAmEsPaCe_fOo", Map.of()))
-        .isInstanceOfSatisfying(
-            NamespaceMetadataException.class,
-            exception -> assertThat(exception.getReason()).isEqualTo(ALREADY_EXISTS));
+        .isInstanceOf(NamespaceAlreadyExistsException.class);
     assertThat(repository.count()).isEqualTo(1);
     assertThat(namespacesService.getNamespace("namespace_foo")).isEqualTo(created);
   }
@@ -130,9 +132,7 @@ class NamespacesServiceTest {
             () ->
                 namespacesService.updateNamespaceProperties(
                     "namespace_foo", Map.of("foo", "two"), Set.of("foo")))
-        .isInstanceOfSatisfying(
-            NamespaceMetadataException.class,
-            exception -> assertThat(exception.getReason()).isEqualTo(INVALID_UPDATE));
+        .isInstanceOf(InvalidNamespacePropertyUpdateException.class);
     assertThat(namespacesService.getNamespace("namespace_foo")).isEqualTo(created);
     NamespacePropertyUpdate response =
         namespacesService.updateNamespaceProperties("namespace_foo", Map.of(), Set.of());
@@ -178,20 +178,14 @@ class NamespacesServiceTest {
                 "SELECT * FROM user_table_row WHERE database_id = 'namespace_metadata_foo'"))
         .isEqualTo(tableBefore);
     assertThatThrownBy(() -> namespacesService.getNamespace("namespace_metadata_foo"))
-        .isInstanceOfSatisfying(
-            NamespaceMetadataException.class,
-            exception -> assertThat(exception.getReason()).isEqualTo(NOT_FOUND));
+        .isInstanceOf(NamespaceNotFoundException.class);
     assertThatThrownBy(() -> namespacesService.deleteNamespace("namespace_metadata_foo"))
-        .isInstanceOfSatisfying(
-            NamespaceMetadataException.class,
-            exception -> assertThat(exception.getReason()).isEqualTo(NOT_FOUND));
+        .isInstanceOf(NamespaceNotFoundException.class);
     assertThatThrownBy(
             () ->
                 namespacesService.updateNamespaceProperties(
                     "namespace_metadata_foo", Map.of("foo", "two"), Set.of()))
-        .isInstanceOfSatisfying(
-            NamespaceMetadataException.class,
-            exception -> assertThat(exception.getReason()).isEqualTo(NOT_FOUND));
+        .isInstanceOf(NamespaceNotFoundException.class);
     assertThat(
             namespacesService
                 .createNamespace("namespace_metadata_foo", Collections.emptyMap())
@@ -233,11 +227,7 @@ class NamespacesServiceTest {
               () ->
                   assertThatThrownBy(
                           () -> namespacesService.deleteNamespace("namespace_metadata_foo"))
-                      .isInstanceOfSatisfying(
-                          NamespaceMetadataException.class,
-                          exception ->
-                              assertThat(exception.getReason())
-                                  .isEqualTo(CONCURRENT_MODIFICATION)));
+                      .isInstanceOf(NamespaceConcurrentModificationException.class));
       assertThat(deleteLoaded.await(10, TimeUnit.SECONDS)).isTrue();
       namespacesService.updateNamespaceProperties(
           "namespace_metadata_foo", Map.of("foo", "two", "bar", "three"), Set.of());
@@ -268,9 +258,7 @@ class NamespacesServiceTest {
             () ->
                 namespacesService.updateNamespaceProperties(
                     "namespace_foo", Map.of("baz", "three"), Set.of("foo")))
-        .isInstanceOfSatisfying(
-            NamespaceMetadataException.class,
-            exception -> assertThat(exception.getReason()).isEqualTo(STORAGE_FAILURE));
+        .isInstanceOf(NamespaceMetadataStorageException.class);
     reset(repository);
     assertThat(namespacesService.getNamespace("namespace_foo")).isEqualTo(created);
   }
@@ -292,7 +280,7 @@ class NamespacesServiceTest {
         .findByNamespaceName("namespace_foo");
     ExecutorService executor = Executors.newFixedThreadPool(2);
     try {
-      List<Callable<Optional<NamespaceMetadataException.Reason>>> mutations =
+      List<Callable<Optional<Class<? extends NamespaceMetadataException>>>> mutations =
           Arrays.asList(
               () -> {
                 try {
@@ -300,7 +288,7 @@ class NamespacesServiceTest {
                       "namespace_foo", emptyUpdates ? Map.of() : Map.of("foo", "two"), Set.of());
                   return Optional.empty();
                 } catch (NamespaceMetadataException exception) {
-                  return Optional.of(exception.getReason());
+                  return Optional.of(exception.getClass());
                 }
               },
               () -> {
@@ -309,13 +297,14 @@ class NamespacesServiceTest {
                       "namespace_foo", emptyUpdates ? Map.of() : Map.of("bar", "three"), Set.of());
                   return Optional.empty();
                 } catch (NamespaceMetadataException exception) {
-                  return Optional.of(exception.getReason());
+                  return Optional.of(exception.getClass());
                 }
               });
-      List<Future<Optional<NamespaceMetadataException.Reason>>> results =
+      List<Future<Optional<Class<? extends NamespaceMetadataException>>>> results =
           executor.invokeAll(mutations, 20, TimeUnit.SECONDS);
       assertThat(Arrays.asList(results.get(0).get(), results.get(1).get()))
-          .containsExactlyInAnyOrder(Optional.empty(), Optional.of(CONCURRENT_MODIFICATION));
+          .containsExactlyInAnyOrder(
+              Optional.empty(), Optional.of(NamespaceConcurrentModificationException.class));
     } finally {
       executor.shutdownNow();
       assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
