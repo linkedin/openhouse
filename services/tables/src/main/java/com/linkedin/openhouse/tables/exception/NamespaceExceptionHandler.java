@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.tables.exception;
 
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException;
 import com.linkedin.openhouse.tables.api.spec.namespace.NamespaceErrorResponse;
 import com.linkedin.openhouse.tables.api.spec.namespace.NamespaceErrorResponse.NamespaceError;
 import com.linkedin.openhouse.tables.controller.IcebergNamespacesController;
@@ -56,9 +56,9 @@ public class NamespaceExceptionHandler {
     }
   }
 
-  @ExceptionHandler(HouseDatabaseException.class)
+  @ExceptionHandler(HouseNamespaceException.class)
   public ResponseEntity<NamespaceErrorResponse> handleRepository(
-      HouseDatabaseException exception, HttpServletRequest request) {
+      HouseNamespaceException exception, HttpServletRequest request) {
     switch (exception.getReason()) {
       case NOT_FOUND:
         return respond(
@@ -91,13 +91,13 @@ public class NamespaceExceptionHandler {
         return respond(
             HttpStatus.SERVICE_UNAVAILABLE,
             "ServiceUnavailableException",
-            "Database metadata service unavailable",
+            "Namespace metadata service unavailable",
             request);
       default:
         return respond(
             HttpStatus.INTERNAL_SERVER_ERROR,
             "ServiceFailureException",
-            "Database metadata operation failed",
+            "Namespace metadata operation failed",
             request);
     }
   }

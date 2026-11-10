@@ -85,55 +85,55 @@ dependencies {
   testImplementation(testFixtures(project(':services:common')))
 }
 
-tasks.register('databaseMysqlTest', Test) {
-  description = 'Runs database persistence contracts against an explicitly supplied local MySQL schema.'
+tasks.register('namespaceMysqlTest', Test) {
+  description = 'Runs namespace persistence contracts against an explicitly supplied local MySQL schema.'
   group = 'verification'
   testClassesDirs = sourceSets.test.output.classesDirs
   classpath = sourceSets.test.runtimeClasspath
-  filter { includeTestsMatching '*DatabasesServiceTest' }
+  filter { includeTestsMatching '*NamespacesServiceTest' }
   systemProperty 'spring.sql.init.mode', 'never'
   systemProperty 'spring.jpa.hibernate.ddl-auto', 'none'
   systemProperty 'cluster.housetables.database.type', 'MYSQL'
   systemProperty 'cluster.housetables.database.url',
-      providers.gradleProperty('databaseMysqlUrl').getOrElse('jdbc:mysql://127.0.0.1:33316/feedback?useSSL=false&allowPublicKeyRetrieval=true')
+      providers.gradleProperty('namespaceMysqlUrl').getOrElse('jdbc:mysql://127.0.0.1:33316/feedback?useSSL=false&allowPublicKeyRetrieval=true')
   systemProperty 'HTS_DB_USER', 'root'
   systemProperty 'HTS_DB_PASSWORD', ''
   doFirst {
-    if (!providers.gradleProperty('databaseMysqlUrl').isPresent()) {
-      throw new GradleException('Supply -PdatabaseMysqlUrl for a dedicated local schema initialized with ddl/0000 through ddl/0002.')
+    if (!providers.gradleProperty('namespaceMysqlUrl').isPresent()) {
+      throw new GradleException('Supply -PnamespaceMysqlUrl for a dedicated local schema initialized with ddl/0000 through ddl/0002.')
     }
 
   }
 }
 
-['databaseMysqlWorkload', 'databaseMysqlOccupancyRegression'].each { taskName ->
+['namespaceMysqlWorkload', 'namespaceMysqlOccupancyRegression'].each { taskName ->
   tasks.register(taskName, Test) {
     description = 'Measures sparse updates and generated occupancy SQL on an isolated local MySQL fixture.'
     group = 'verification'
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
-    filter { includeTestsMatching '*DatabaseMysqlWorkloadTest' }
-    systemProperty 'database.workload', 'true'
+    filter { includeTestsMatching '*NamespaceMysqlWorkloadTest' }
+    systemProperty 'namespace.workload', 'true'
     systemProperty 'spring.sql.init.mode', 'never'
     systemProperty 'spring.jpa.hibernate.ddl-auto', 'none'
     systemProperty 'cluster.housetables.database.type', 'MYSQL'
     systemProperty 'cluster.housetables.database.url',
-        providers.gradleProperty('databaseMysqlUrl').getOrElse('')
+        providers.gradleProperty('namespaceMysqlUrl').getOrElse('')
     systemProperty 'HTS_DB_USER', 'root'
     systemProperty 'HTS_DB_PASSWORD', ''
-    if (taskName == 'databaseMysqlOccupancyRegression') {
-      systemProperty 'database.workload.regression', 'true'
+    if (taskName == 'namespaceMysqlOccupancyRegression') {
+      systemProperty 'namespace.workload.regression', 'true'
       [
-          'databaseOccupancyBaselineSingleP95Millis': 'database.occupancy.baseline.1',
-          'databaseOccupancyBaselineConcurrentP95Millis': 'database.occupancy.baseline.4',
-          'databaseOccupancyMaxRegressionPercent': 'database.occupancy.maxRegressionPercent'
+          'namespaceOccupancyBaselineSingleP95Millis': 'namespace.occupancy.baseline.1',
+          'namespaceOccupancyBaselineConcurrentP95Millis': 'namespace.occupancy.baseline.4',
+          'namespaceOccupancyMaxRegressionPercent': 'namespace.occupancy.maxRegressionPercent'
       ].each { propertyName, systemPropertyName ->
         def value = providers.gradleProperty(propertyName)
         doFirst {
           if (!value.isPresent() || !(value.get() ==~ /\d+(\.\d+)?/)) {
             throw new GradleException("Supply -P${propertyName} as a nonnegative decimal for the occupancy comparison.")
           }
-          if (propertyName != 'databaseOccupancyMaxRegressionPercent' && value.get().toBigDecimal() <= 0) {
+          if (propertyName != 'namespaceOccupancyMaxRegressionPercent' && value.get().toBigDecimal() <= 0) {
             throw new GradleException("Supply a positive measured baseline for -P${propertyName}.")
           }
         }
@@ -142,8 +142,8 @@ tasks.register('databaseMysqlTest', Test) {
     }
     testLogging.showStandardStreams = true
     doFirst {
-      if (!providers.gradleProperty('databaseMysqlUrl').isPresent()) {
-        throw new GradleException('Supply -PdatabaseMysqlUrl for a new dedicated local schema initialized with ddl/0000 through ddl/0002.')
+      if (!providers.gradleProperty('namespaceMysqlUrl').isPresent()) {
+        throw new GradleException('Supply -PnamespaceMysqlUrl for a new dedicated local schema initialized with ddl/0000 through ddl/0002.')
       }
     }
   }

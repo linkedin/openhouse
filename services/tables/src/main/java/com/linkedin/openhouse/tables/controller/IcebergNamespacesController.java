@@ -2,9 +2,9 @@ package com.linkedin.openhouse.tables.controller;
 
 import static com.linkedin.openhouse.common.security.AuthenticationUtils.extractAuthenticatedUserPrincipal;
 
-import com.linkedin.openhouse.internal.catalog.model.DatabaseMetadata;
-import com.linkedin.openhouse.internal.catalog.model.DatabasePropertyUpdate;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseDatabaseException;
+import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
+import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException;
 import com.linkedin.openhouse.tables.api.spec.namespace.CreateNamespaceRequest;
 import com.linkedin.openhouse.tables.api.spec.namespace.NamespaceErrorResponse;
 import com.linkedin.openhouse.tables.api.spec.namespace.NamespaceResponse;
@@ -31,7 +31,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** The prefix identifies the client catalog; the namespace identifies one logical database. */
+/** The prefix identifies the client catalog; namespaces contain exactly one name. */
 @RestController
 @RequiredArgsConstructor
 @RequestMapping(value = "/v1/{prefix}/namespaces", produces = "application/json")
@@ -78,12 +78,12 @@ public class IcebergNamespacesController {
   @Secured(Privileges.Privilege.SYSTEM_ADMIN)
   public NamespaceResponse createNamespace(
       @PathVariable String prefix, @Valid @RequestBody CreateNamespaceRequest request)
-      throws NamespaceException, HouseDatabaseException {
-    DatabaseMetadata result =
+      throws NamespaceException, HouseNamespaceException {
+    NamespaceMetadata result =
         namespacesService.create(
             request.getNamespace(), request.getProperties(), extractAuthenticatedUserPrincipal());
     return new NamespaceResponse(
-        Collections.singletonList(result.getDatabaseName()), result.getProperties());
+        Collections.singletonList(result.getNamespaceName()), result.getProperties());
   }
 
   @Operation(tags = "Namespace", summary = "Load namespace metadata")
@@ -92,11 +92,11 @@ public class IcebergNamespacesController {
   @Secured(Privileges.Privilege.GET_TABLE_METADATA)
   public NamespaceResponse loadNamespaceMetadata(
       @PathVariable String prefix, @PathVariable String namespace)
-      throws NamespaceException, HouseDatabaseException {
-    DatabaseMetadata result =
+      throws NamespaceException, HouseNamespaceException {
+    NamespaceMetadata result =
         namespacesService.load(namespace, extractAuthenticatedUserPrincipal());
     return new NamespaceResponse(
-        Collections.singletonList(result.getDatabaseName()), result.getProperties());
+        Collections.singletonList(result.getNamespaceName()), result.getProperties());
   }
 
   @Operation(tags = "Namespace", summary = "Update namespace properties")
@@ -107,8 +107,8 @@ public class IcebergNamespacesController {
       @PathVariable String prefix,
       @PathVariable String namespace,
       @Valid @RequestBody UpdateNamespacePropertiesRequest request)
-      throws NamespaceException, HouseDatabaseException {
-    DatabasePropertyUpdate result =
+      throws NamespaceException, HouseNamespaceException {
+    NamespacePropertyUpdate result =
         namespacesService.update(
             namespace,
             request.getUpdates(),
@@ -124,7 +124,7 @@ public class IcebergNamespacesController {
   @Secured(Privileges.Privilege.DELETE_TABLE)
   public ResponseEntity<Void> dropNamespace(
       @PathVariable String prefix, @PathVariable String namespace)
-      throws NamespaceException, HouseDatabaseException {
+      throws NamespaceException, HouseNamespaceException {
     namespacesService.drop(namespace, extractAuthenticatedUserPrincipal());
     return ResponseEntity.noContent().build();
   }
