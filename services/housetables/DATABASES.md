@@ -63,6 +63,36 @@ statement counts, and timing samples. It exercises maps of 10, 100, and 1,000 pr
 table/view occupancy queries. A one-row occupancy response can still require filtering and
 counting every entity in that namespace.
 
+### Occupancy regression comparison
+
+The workload prints `OCCUPANCY_P95` for one and four readers. Each value is the
+median of three warmed runs' p95 latencies, in milliseconds; each run makes 100
+table-then-view occupancy checks. The fixture has 10,000 views in the requested
+namespace and 20,000 in another namespace. Capture a baseline with
+`databaseMysqlWorkload`, then compare a candidate with
+`databaseMysqlOccupancyRegression` on a fresh schema using the same DDL, fixture,
+MySQL version, hardware, and concurrency. Keep competing workloads off that host.
+
+The regression task requires both measured baseline values and an explicit
+maximum regression percentage. It fails if either reader configuration exceeds
+`baseline * (1 + percentage / 100)`, even when the SQL statement count is unchanged.
+The ordinary workload task only records measurements.
+
+A local MySQL 8.0 baseline measured 64.583 ms with one reader and 88.952 ms with
+four readers. For this local smoke check, a 50% allowance catches large slowdowns
+while allowing host scheduling variation. This is a local regression criterion,
+not a production latency target; recapture the baseline and choose the allowance
+for the environment being evaluated.
+
+```bash
+./gradlew :services:housetables:databaseMysqlOccupancyRegression \
+  -PdatabaseMysqlUrl='jdbc:mysql://127.0.0.1:33316/occupancy_candidate?useSSL=false&allowPublicKeyRetrieval=true' \
+  -PdatabaseOccupancyBaselineSingleP95Millis=64.583 \
+  -PdatabaseOccupancyBaselineConcurrentP95Millis=88.952 \
+  -PdatabaseOccupancyMaxRegressionPercent=50 \
+  -x CopyGitHooksTask
+```
+
 Historical measurements of the child-table implementation do not validate this document schema.
 Those sparse-update timing comparisons were inconclusive because the baseline varied.
 The current checks establish local correctness and query access paths, not a performance

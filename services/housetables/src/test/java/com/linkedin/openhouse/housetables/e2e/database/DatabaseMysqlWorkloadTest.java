@@ -102,47 +102,63 @@ class DatabaseMysqlWorkloadTest {
       }
     }
     for (int readers : new int[] {1, 4}) {
-      runWorkload(
-          "occupancy_views_10000",
-          readers,
-          statistics,
-          () -> {
-            assertThat(
-                    tables
-                        .findAllTablesByFilters(
-                            "workload_views",
-                            null,
-                            null,
-                            null,
-                            null,
-                            null,
-                            PageRequest.of(0, 1, Sort.by("tableId")))
-                        .getContent())
-                .isEmpty();
-            assertThat(
-                    tables
-                        .findAllViewsByFilters(
-                            "workload_views",
-                            null,
-                            null,
-                            null,
-                            null,
-                            null,
-                            PageRequest.of(0, 1, Sort.by("tableId")))
-                        .getContent())
-                .hasSize(1);
-            return true;
-          });
+      double measuredP95Millis =
+          runWorkload(
+              "occupancy_views_10000",
+              readers,
+              statistics,
+              () -> {
+                assertThat(
+                        tables
+                            .findAllTablesByFilters(
+                                "workload_views",
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                PageRequest.of(0, 1, Sort.by("tableId")))
+                            .getContent())
+                    .isEmpty();
+                assertThat(
+                        tables
+                            .findAllViewsByFilters(
+                                "workload_views",
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                PageRequest.of(0, 1, Sort.by("tableId")))
+                            .getContent())
+                    .hasSize(1);
+                return true;
+              });
+      System.out.printf("OCCUPANCY_P95,%d,%.3f%n", readers, measuredP95Millis);
+      if (Boolean.getBoolean("database.workload.regression")) {
+        double baselineP95Millis =
+            Double.parseDouble(System.getProperty("database.occupancy.baseline." + readers));
+        double maximumRegressionPercent =
+            Double.parseDouble(System.getProperty("database.occupancy.maxRegressionPercent"));
+        double maximumP95Millis = baselineP95Millis * (1 + maximumRegressionPercent / 100);
+        System.out.printf(
+            "OCCUPANCY_COMPARISON,%d,%.3f,%.3f,%.3f%n",
+            readers, baselineP95Millis, measuredP95Millis, maximumP95Millis);
+        assertThat(measuredP95Millis)
+            .as("Median warmed p95 latency in milliseconds with %s readers", readers)
+            .isLessThanOrEqualTo(maximumP95Millis);
+      }
     }
     SqlCapture.STATEMENTS.stream()
         .sorted()
         .forEach(sql -> System.out.println("SQL_CAPTURE " + sql));
   }
 
-  private void runWorkload(
+  private double runWorkload(
       String name, int concurrency, Statistics statistics, Callable<Boolean> operation)
       throws Exception {
     ExecutorService executor = Executors.newFixedThreadPool(concurrency);
+    List<Double> measuredP95Millis = new ArrayList<>();
     try {
       // Run zero warms the same transaction and query paths used by the measured runs.
       for (int run = 0; run <= 3; run++) {
@@ -202,7 +218,11 @@ class DatabaseMysqlWorkloadTest {
             sorted.get(94) / 1e6,
             100 / seconds,
             successes.get() / seconds);
+        if (run > 0) {
+          measuredP95Millis.add(sorted.get(94) / 1e6);
+        }
       }
+      return measuredP95Millis.stream().sorted().collect(Collectors.toList()).get(1);
     } finally {
       executor.shutdownNow();
       assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
