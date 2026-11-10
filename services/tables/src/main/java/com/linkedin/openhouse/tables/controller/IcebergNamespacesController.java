@@ -12,7 +12,7 @@ import com.linkedin.openhouse.tables.api.spec.namespace.UpdateNamespacePropertie
 import com.linkedin.openhouse.tables.api.spec.namespace.UpdateNamespacePropertiesResponse;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.exception.NamespaceException;
-import com.linkedin.openhouse.tables.services.IcebergNamespacesService;
+import com.linkedin.openhouse.tables.services.NamespacesService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -70,7 +70,7 @@ import org.springframework.web.bind.annotation.RestController;
       content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class)))
 })
 public class IcebergNamespacesController {
-  private final IcebergNamespacesService namespacesService;
+  private final NamespacesService namespacesService;
 
   @Operation(tags = "Namespace", summary = "Create a namespace")
   @ApiResponse(responseCode = "200", description = "Namespace created")
@@ -80,7 +80,7 @@ public class IcebergNamespacesController {
       @PathVariable String prefix, @Valid @RequestBody CreateNamespaceRequest request)
       throws NamespaceException, HouseNamespaceException {
     NamespaceMetadata result =
-        namespacesService.create(
+        namespacesService.createNamespace(
             request.getNamespace(), request.getProperties(), extractAuthenticatedUserPrincipal());
     return new NamespaceResponse(
         Collections.singletonList(result.getNamespaceName()), result.getProperties());
@@ -94,7 +94,7 @@ public class IcebergNamespacesController {
       @PathVariable String prefix, @PathVariable String namespace)
       throws NamespaceException, HouseNamespaceException {
     NamespaceMetadata result =
-        namespacesService.load(namespace, extractAuthenticatedUserPrincipal());
+        namespacesService.loadNamespaceMetadata(namespace, extractAuthenticatedUserPrincipal());
     return new NamespaceResponse(
         Collections.singletonList(result.getNamespaceName()), result.getProperties());
   }
@@ -109,7 +109,7 @@ public class IcebergNamespacesController {
       @Valid @RequestBody UpdateNamespacePropertiesRequest request)
       throws NamespaceException, HouseNamespaceException {
     NamespacePropertyUpdate result =
-        namespacesService.update(
+        namespacesService.updateNamespaceProperties(
             namespace,
             request.getUpdates(),
             request.getRemovals(),
@@ -125,7 +125,7 @@ public class IcebergNamespacesController {
   public ResponseEntity<Void> dropNamespace(
       @PathVariable String prefix, @PathVariable String namespace)
       throws NamespaceException, HouseNamespaceException {
-    namespacesService.drop(namespace, extractAuthenticatedUserPrincipal());
+    namespacesService.dropNamespace(namespace, extractAuthenticatedUserPrincipal());
     return ResponseEntity.noContent().build();
   }
 }

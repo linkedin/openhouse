@@ -15,7 +15,7 @@ import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.controller.IcebergNamespacesController;
 import com.linkedin.openhouse.tables.exception.NamespaceExceptionHandler;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
-import com.linkedin.openhouse.tables.services.IcebergNamespacesService;
+import com.linkedin.openhouse.tables.services.TablesServiceImpl;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
@@ -63,13 +63,14 @@ class IcebergNamespacesH2Test {
         .thenReturn(true);
     AuthorizationUtils authorizationUtils = new AuthorizationUtils();
     ReflectionTestUtils.setField(authorizationUtils, "authorizationHandler", authorizationHandler);
+    TablesServiceImpl service = new TablesServiceImpl();
+    ReflectionTestUtils.setField(service, "authorizationUtils", authorizationUtils);
+    ReflectionTestUtils.setField(
+        service,
+        "namespaceRepository",
+        new HouseNamespaceRepositoryImpl(new NamespaceApi(client), new UserTableApi(client)));
     mvc =
-        MockMvcBuilders.standaloneSetup(
-                new IcebergNamespacesController(
-                    new IcebergNamespacesService(
-                        new HouseNamespaceRepositoryImpl(
-                            new NamespaceApi(client), new UserTableApi(client)),
-                        authorizationUtils)))
+        MockMvcBuilders.standaloneSetup(new IcebergNamespacesController(service))
             .setControllerAdvice(new NamespaceExceptionHandler())
             .setMessageConverters(new MappingJackson2HttpMessageConverter())
             .build();

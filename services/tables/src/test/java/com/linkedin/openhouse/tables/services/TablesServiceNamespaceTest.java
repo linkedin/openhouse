@@ -14,27 +14,64 @@ import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.exception.NamespaceException;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
+import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import java.util.Collections;
 import java.util.Optional;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.AuthorizationServiceException;
 import org.springframework.test.util.ReflectionTestUtils;
 
-class IcebergNamespacesServiceTest {
+class TablesServiceNamespaceTest {
   private final HouseNamespaceRepository repository = mock(HouseNamespaceRepository.class);
   private final AuthorizationHandler authorizationHandler = mock(AuthorizationHandler.class);
-  private IcebergNamespacesService service;
+  private TablesServiceImpl service;
 
   @BeforeEach
   void setUp() {
     AuthorizationUtils authorizationUtils = new AuthorizationUtils();
     ReflectionTestUtils.setField(authorizationUtils, "authorizationHandler", authorizationHandler);
-    service = new IcebergNamespacesService(repository, authorizationUtils);
+    service = new TablesServiceImpl();
+    service.namespaceRepository = repository;
+    service.authorizationUtils = authorizationUtils;
+    service.openHouseInternalRepository = mock(OpenHouseInternalRepository.class);
     when(authorizationHandler.checkAccessDecision(anyString(), any(DatabaseDto.class), any()))
         .thenReturn(true);
+  }
+
+  @Test
+  void mutationDenialPrecedesMetadataAccess() {
+    when(authorizationHandler.checkAccessDecision(anyString(), any(DatabaseDto.class), any()))
+        .thenReturn(false);
+    assertEquals(
+        ACCESS_DENIED,
+        assertThrows(
+                NamespaceException.class,
+                () ->
+                    service.createNamespace(
+                        Collections.singletonList("foo"), Collections.emptyMap(), "bar"))
+            .getReason());
+    assertEquals(
+        ACCESS_DENIED,
+        assertThrows(
+                NamespaceException.class,
+                () ->
+                    service.updateNamespaceProperties(
+                        "foo", Collections.emptyMap(), Collections.emptySet(), "bar"))
+            .getReason());
+    assertEquals(
+        ACCESS_DENIED,
+        assertThrows(NamespaceException.class, () -> service.dropNamespace("foo", "bar"))
+            .getReason());
+    verifyNoInteractions(repository);
+  }
+
+  @AfterEach
+  void namespaceOperationsUseIndependentRepository() {
+    verifyNoInteractions(service.openHouseInternalRepository);
   }
 
   @Test
@@ -43,7 +80,8 @@ class IcebergNamespacesServiceTest {
         .thenReturn(false);
     assertEquals(
         ACCESS_DENIED,
-        assertThrows(NamespaceException.class, () -> service.load("foo", "bar")).getReason());
+        assertThrows(NamespaceException.class, () -> service.loadNamespaceMetadata("foo", "bar"))
+            .getReason());
     verify(authorizationHandler)
         .checkAccessDecision(
             eq("bar"),
@@ -56,7 +94,8 @@ class IcebergNamespacesServiceTest {
   void createAndUpdateRequireSystemAdminAndForwardSparseChanges() throws Exception {
     when(repository.create(eq("foo"), any()))
         .thenReturn(new NamespaceMetadata("identifier", "foo", Collections.singletonMap("a", "1")));
-    service.create(Collections.singletonList("foo"), Collections.singletonMap("a", "1"), "bar");
+    service.createNamespace(
+        Collections.singletonList("foo"), Collections.singletonMap("a", "1"), "bar");
     verify(authorizationHandler)
         .checkAccessDecision(eq("bar"), any(DatabaseDto.class), eq(Privileges.SYSTEM_ADMIN));
     when(repository.updateProperties(eq("foo"), any(), any()))
@@ -68,7 +107,8 @@ class IcebergNamespacesServiceTest {
     assertEquals(
         Collections.singletonList("c"),
         service
-            .update("foo", Collections.singletonMap("b", "2"), Collections.singleton("a"), "bar")
+            .updateNamespaceProperties(
+                "foo", Collections.singletonMap("b", "2"), Collections.singleton("a"), "bar")
             .getMissing());
     verify(repository)
         .updateProperties("foo", Collections.singletonMap("b", "2"), Collections.singleton("a"));
@@ -83,7 +123,7 @@ class IcebergNamespacesServiceTest {
         assertThrows(
                 NamespaceException.class,
                 () ->
-                    service.update(
+                    service.updateNamespaceProperties(
                         "foo",
                         Collections.singletonMap("a", "1"),
                         Collections.singleton("a"),
@@ -91,7 +131,9 @@ class IcebergNamespacesServiceTest {
             .getReason());
     assertEquals(
         INVALID_NAMESPACE,
-        assertThrows(NamespaceException.class, () -> service.load("foo\u001fbar", "bar"))
+        assertThrows(
+                NamespaceException.class,
+                () -> service.loadNamespaceMetadata("foo\u001fbar", "bar"))
             .getReason());
     verifyNoInteractions(repository);
   }
@@ -101,7 +143,8 @@ class IcebergNamespacesServiceTest {
     when(repository.findByName("foo")).thenReturn(Optional.empty());
     assertEquals(
         Reason.NOT_FOUND,
-        assertThrows(HouseNamespaceException.class, () -> service.drop("foo", "bar")).getReason());
+        assertThrows(HouseNamespaceException.class, () -> service.dropNamespace("foo", "bar"))
+            .getReason());
     verify(repository, never()).containsEntities(anyString());
     when(repository.findByName("foo"))
         .thenReturn(
@@ -109,10 +152,11 @@ class IcebergNamespacesServiceTest {
     when(repository.containsEntities("foo")).thenReturn(true);
     assertEquals(
         NOT_EMPTY,
-        assertThrows(NamespaceException.class, () -> service.drop("foo", "bar")).getReason());
+        assertThrows(NamespaceException.class, () -> service.dropNamespace("foo", "bar"))
+            .getReason());
     verify(repository, never()).delete(anyString());
     when(repository.containsEntities("foo")).thenReturn(false);
-    service.drop("foo", "bar");
+    service.dropNamespace("foo", "bar");
     verify(repository).delete("foo");
     verify(authorizationHandler, times(3))
         .checkAccessDecision(eq("bar"), any(DatabaseDto.class), eq(Privileges.DELETE_TABLE));
@@ -123,13 +167,14 @@ class IcebergNamespacesServiceTest {
     when(repository.findByName("foo")).thenThrow(new HouseNamespaceException(Reason.UNAVAILABLE));
     assertEquals(
         Reason.UNAVAILABLE,
-        assertThrows(HouseNamespaceException.class, () -> service.drop("foo", "bar")).getReason());
+        assertThrows(HouseNamespaceException.class, () -> service.dropNamespace("foo", "bar"))
+            .getReason());
     verify(repository, never()).containsEntities(anyString());
     verify(repository, never()).delete(anyString());
     when(authorizationHandler.checkAccessDecision(anyString(), any(DatabaseDto.class), any()))
         .thenThrow(new AuthorizationServiceException("secret"));
     NamespaceException exception =
-        assertThrows(NamespaceException.class, () -> service.load("foo", "bar"));
+        assertThrows(NamespaceException.class, () -> service.loadNamespaceMetadata("foo", "bar"));
     assertEquals(AUTHORIZATION_UNAVAILABLE, exception.getReason());
     assertFalse(exception.getMessage().contains("secret"));
     assertInstanceOf(AuthorizationServiceException.class, exception.getCause());
@@ -144,7 +189,8 @@ class IcebergNamespacesServiceTest {
         .thenThrow(new HouseNamespaceException(Reason.UNAVAILABLE));
     assertEquals(
         Reason.UNAVAILABLE,
-        assertThrows(HouseNamespaceException.class, () -> service.drop("foo", "bar")).getReason());
+        assertThrows(HouseNamespaceException.class, () -> service.dropNamespace("foo", "bar"))
+            .getReason());
     verify(repository, never()).delete(anyString());
   }
 
@@ -153,7 +199,7 @@ class IcebergNamespacesServiceTest {
     when(repository.findByName("FOO"))
         .thenReturn(
             Optional.of(new NamespaceMetadata("identifier", "foo", Collections.emptyMap())));
-    service.load("FOO", "bar");
+    service.loadNamespaceMetadata("FOO", "bar");
     verify(authorizationHandler)
         .checkAccessDecision(
             eq("bar"),
@@ -163,7 +209,7 @@ class IcebergNamespacesServiceTest {
     when(authorizationHandler.checkAccessDecision(anyString(), any(DatabaseDto.class), any()))
         .thenReturn(false);
     NamespaceException denied =
-        assertThrows(NamespaceException.class, () -> service.load("FoO", "bar"));
+        assertThrows(NamespaceException.class, () -> service.loadNamespaceMetadata("FoO", "bar"));
     assertEquals(ACCESS_DENIED, denied.getReason());
     assertInstanceOf(AccessDeniedException.class, denied.getCause());
     verifyNoInteractions(repository);

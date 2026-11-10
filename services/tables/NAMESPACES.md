@@ -53,6 +53,11 @@ retain their error format.
 
 ## Storage and compatibility
 
+`TablesServiceImpl` implements both `TablesService` and `NamespacesService` on the same Spring
+instance. Table handlers use `TablesService`, while the namespace controller uses `NamespacesService`.
+Namespace operations use the separate `HouseNamespaceRepository` and the shared authorization
+utility. Table persistence continues through `OpenHouseInternalRepository`.
+
 Namespace metadata is an independent HouseTables resource stored with its properties in `catalog_namespaces`.
 Apply the [HouseTables namespace DDL](https://github.com/linkedin/openhouse/blob/mkuchenbecker/database-properties-hts/services/housetables/ddl/0002__add_namespace_metadata.sql)
 before serving these requests. Existing table creation, loading, updates, deletion, and database listing
@@ -101,7 +106,8 @@ generated files are build outputs.
 ```bash
 ./gradlew :client:tableclient:compileJava -x CopyGitHooksTask
 ./gradlew :iceberg:openhouse:internalcatalog:test --tests '*HouseNamespace*Test' \
-  :services:tables:test --tests '*IcebergNamespaces*Test' --tests '*NamespaceTableIsolationTest' \
+  :services:tables:test --tests '*TablesServiceNamespaceTest' --tests '*IcebergNamespaces*Test' \
+  --tests '*NamespaceTableIsolationTest' --tests '*MainApplicationConfigTest' \
   :services:tables:namespaceIntegrationTest -x CopyGitHooksTask
 ```
 

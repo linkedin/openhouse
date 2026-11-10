@@ -25,7 +25,6 @@ import java.io.UncheckedIOException;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -193,9 +192,7 @@ public class MainApplicationConfig extends BaseApplicationConfig {
   @Bean
   OpenApiCustomiser springDocOperationIdCustomizer() {
     return openApi -> {
-      Map<String, String> pathToPostfix =
-          generatePostfix(
-              openApi.getPaths().keySet().stream().map(Paths::get).collect(Collectors.toSet()));
+      Map<String, String> pathToPostfix = generatePostfix(openApi.getPaths().keySet());
 
       openApi
           .getPaths()
@@ -219,16 +216,17 @@ public class MainApplicationConfig extends BaseApplicationConfig {
    * @return mapping between raw path to its postfix used in customized operationId.
    */
   @VisibleForTesting
-  static Map<String, String> generatePostfix(Set<java.nio.file.Path> pathKeys) {
-    Map<String, String> rawPathToMethodVer = new HashMap<>();
-    for (java.nio.file.Path path : pathKeys) {
-
-      java.nio.file.Path firstLevel = path.subpath(0, 1);
-      String version = isVersion(firstLevel.toString()) ? firstLevel.toString() : "";
-      rawPathToMethodVer.put(path.toString(), version.toUpperCase());
-    }
-
-    return rawPathToMethodVer;
+  static Map<String, String> generatePostfix(Set<String> pathKeys) {
+    return pathKeys.stream()
+        .map(Paths::get)
+        .distinct()
+        .collect(
+            Collectors.toMap(
+                path -> path.toString(),
+                path -> {
+                  String firstComponent = path.subpath(0, 1).toString();
+                  return isVersion(firstComponent) ? firstComponent.toUpperCase() : "";
+                }));
   }
 
   @VisibleForTesting
