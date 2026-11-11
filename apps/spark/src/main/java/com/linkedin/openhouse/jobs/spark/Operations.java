@@ -71,6 +71,13 @@ public final class Operations implements AutoCloseable {
 
   private static final String METRICS_SCOPE = Operations.class.getName();
 
+  /**
+   * File that {@link #deleteOrphanDirectory} writes under the trash subdirectory of an orphan table
+   * directory it stages. Its modification time is the staging time: staged files cannot carry it,
+   * as renames keep modification times and not all file systems support setting them.
+   */
+  public static final String STAGED_FOR_DELETION_MARKER = "_STAGED_FOR_DELETION";
+
   private final SparkSession spark;
 
   private final OtelEmitter otelEmitter;
@@ -216,67 +223,113 @@ public final class Operations implements AutoCloseable {
   }
 
   /**
-   * Run deleteOrphanDirectory operation on the given table directory path with time filter, moves
-   * files to the given trash subdirectory if the table is created older than the provided
-   * timestamp.
+   * Stages an orphan table directory for deletion by moving its files under its trash subdirectory,
+   * if none of them was modified since the given timestamp: a directory still used by a table keeps
+   * getting new files. Writes the {@link #STAGED_FOR_DELETION_MARKER} first, so that no file is
+   * staged without a staging time for {@link #deleteStagedOrphanDirectory} to wait on.
+   *
+   * @return true if files were staged
+   * @throws IOException if the directory cannot be listed or a file cannot be staged
    */
   public boolean deleteOrphanDirectory(
-      Path tableDirectoryPath, String trashDir, long olderThanTimestampMillis) {
-    List<Path> matchingFiles = Lists.newArrayList();
-    listFiles(
-        tableDirectoryPath,
-        file -> !file.getPath().toString().contains(trashDir),
-        true,
-        matchingFiles);
-
-    boolean anyMatched = false;
-    // if there is one file that satisfy predicate, all files should go into trash
-    try {
-      FileSystem fileSystem = fs();
-      for (Path matchingFile : matchingFiles) {
-        FileStatus filestatus = fileSystem.getFileStatus(matchingFile);
-        if (filestatus.getModificationTime() < olderThanTimestampMillis) {
-          anyMatched = true;
-          break;
-        }
-      }
-    } catch (IOException e) {
-      log.error("Error fetching the file system given path: {}", tableDirectoryPath);
-    }
-
-    if (!anyMatched) {
+      Path tableDirectoryPath, String trashDir, long olderThanTimestampMillis) throws IOException {
+    List<FileStatus> filesToStage =
+        listFilesRecursively(tableDirectoryPath).stream()
+            .filter(file -> !isInTrash(file, tableDirectoryPath, trashDir))
+            .collect(Collectors.toList());
+    if (filesToStage.isEmpty()) {
       return false;
     }
-
-    for (Path matchingFile : matchingFiles) {
-      Path trashPath =
-          getTrashPath(tableDirectoryPath.toString(), matchingFile.toString(), trashDir);
-      try {
-        rename(matchingFile, trashPath);
-      } catch (IOException e) {
-        log.error(String.format("Move operation failed for file path: %s", tableDirectoryPath), e);
+    for (FileStatus file : filesToStage) {
+      if (file.getModificationTime() >= olderThanTimestampMillis) {
+        log.info(
+            "Not staging orphan directory {}: file {} was modified at {}",
+            tableDirectoryPath,
+            file.getPath(),
+            file.getModificationTime());
+        return false;
       }
+    }
+
+    fs().create(getStagedForDeletionMarkerPath(tableDirectoryPath, trashDir), true).close();
+    int failedFiles = 0;
+    for (FileStatus file : filesToStage) {
+      Path trashPath =
+          getTrashPath(tableDirectoryPath.toString(), file.getPath().toString(), trashDir);
+      try {
+        rename(file.getPath(), trashPath);
+      } catch (IOException e) {
+        log.error(String.format("Failed to stage file %s", file.getPath()), e);
+        failedFiles++;
+      }
+    }
+    if (failedFiles > 0) {
+      throw new IOException(
+          String.format(
+              "Failed to stage %d of %d files of orphan directory %s",
+              failedFiles, filesToStage.size(), tableDirectoryPath));
     }
     return true;
   }
 
   /**
-   * Remove staged orphan files in the staged trash directory and eventually delete the table
-   * directory
+   * Deletes an orphan table directory staged by {@link #deleteOrphanDirectory} before the given
+   * timestamp. Keeps the directory if it was not staged, was staged since the timestamp, or has a
+   * file outside the trash subdirectory or modified since the timestamp.
+   *
+   * @return true if the directory was deleted
+   * @throws IOException if the directory cannot be listed or deleted
    */
-  public void deleteStagedOrphanDirectory(
-      Path tableDirectoryPath, String trashDir, long olderThanTimestampMillis) {
-    Path trashFolderPath = new Path(tableDirectoryPath, trashDir);
-    try {
-      deleteStagedFiles(trashFolderPath, olderThanTimestampMillis, true);
-      if (!fs().delete(tableDirectoryPath, true)) {
-        log.error(String.format("Failed to delete directory %s", tableDirectoryPath));
-      }
-    } catch (IOException e) {
-      log.error(
-          String.format("Delete staged files failed for orphan directory: %s", tableDirectoryPath),
-          e);
+  public boolean deleteStagedOrphanDirectory(
+      Path tableDirectoryPath, String trashDir, long olderThanTimestampMillis) throws IOException {
+    List<FileStatus> files = listFilesRecursively(tableDirectoryPath);
+    String markerPath =
+        getStagedForDeletionMarkerPath(tableDirectoryPath, trashDir).toUri().getPath();
+    if (files.stream().noneMatch(file -> file.getPath().toUri().getPath().equals(markerPath))) {
+      log.info("Keeping orphan directory {}: it is not staged for deletion", tableDirectoryPath);
+      return false;
     }
+    for (FileStatus file : files) {
+      if (!isInTrash(file, tableDirectoryPath, trashDir)) {
+        log.info(
+            "Keeping orphan directory {}: file {} is not staged",
+            tableDirectoryPath,
+            file.getPath());
+        return false;
+      }
+      if (file.getModificationTime() >= olderThanTimestampMillis) {
+        log.info(
+            "Keeping orphan directory {}: file {} was modified at {}",
+            tableDirectoryPath,
+            file.getPath(),
+            file.getModificationTime());
+        return false;
+      }
+    }
+    if (!fs().delete(tableDirectoryPath, true)) {
+      throw new IOException("Failed to delete orphan directory " + tableDirectoryPath);
+    }
+    log.info("Deleted orphan directory {} with {} staged files", tableDirectoryPath, files.size());
+    return true;
+  }
+
+  private List<FileStatus> listFilesRecursively(Path dir) throws IOException {
+    List<FileStatus> files = Lists.newArrayList();
+    RemoteIterator<LocatedFileStatus> it = fs().listFiles(dir, true);
+    while (it.hasNext()) {
+      files.add(it.next());
+    }
+    return files;
+  }
+
+  private static Path getStagedForDeletionMarkerPath(Path tableDirectoryPath, String trashDir) {
+    return new Path(new Path(tableDirectoryPath, trashDir), STAGED_FOR_DELETION_MARKER);
+  }
+
+  /** Compares paths without scheme and authority, which listings may add. */
+  private static boolean isInTrash(FileStatus file, Path tableDirectoryPath, String trashDir) {
+    String trashPath = new Path(tableDirectoryPath, trashDir).toUri().getPath();
+    return file.getPath().toUri().getPath().startsWith(trashPath + Path.SEPARATOR);
   }
 
   /** Expire snapshots on a given fully-qualified table name. */

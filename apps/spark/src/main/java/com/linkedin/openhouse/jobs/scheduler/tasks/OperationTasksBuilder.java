@@ -46,6 +46,7 @@ public class OperationTasksBuilder {
   public static final String MAX_COST_BUDGET_GB_HRS = "maxCostBudgetGbHrs";
   public static final String MAX_STRATEGIES_COUNT = "maxStrategiesCount";
   public static final String BATCH_MAX_ITEMS = "batchMaxItems";
+  public static final String MAX_ORPHAN_DIRECTORIES = "maxOrphanDirectories";
   private static final double COMPUTE_COST_WEIGHT_DEFAULT = 0.3;
   private static final double COMPACTION_GAIN_WEIGHT_DEFAULT = 0.7;
   private static final double MAX_COST_BUDGET_GB_HRS_DEFAULT = 1000.0;
@@ -146,10 +147,28 @@ public class OperationTasksBuilder {
         replicationSetupTableMetadataList, jobType, operationMode, otelEmitter);
   }
 
+  /**
+   * Builds one task per orphan table directory. Builds none and fails if more directories than
+   * {@value #MAX_ORPHAN_DIRECTORIES} are found: that many orphans more likely come from a bug or a
+   * misconfiguration than from dropped tables. Fails before each directory is checked again against
+   * the Tables Service, so that a large number of directories does not also flood it.
+   */
   private List<OperationTask<?>> prepareTableDirectoryOperationTaskList(
-      JobConf.JobTypeEnum jobType, OperationMode operationMode, OtelEmitter otelEmitter) {
+      JobConf.JobTypeEnum jobType,
+      Properties properties,
+      OperationMode operationMode,
+      OtelEmitter otelEmitter) {
     List<DirectoryMetadata> directoryMetadataList = tablesClient.getOrphanTableDirectories();
     log.info("Fetched metadata for {} directories", directoryMetadataList.size());
+    String maxOrphanDirectories =
+        properties == null ? null : properties.getProperty(MAX_ORPHAN_DIRECTORIES);
+    if (maxOrphanDirectories != null
+        && directoryMetadataList.size() > Integer.parseInt(maxOrphanDirectories)) {
+      throw new IllegalStateException(
+          String.format(
+              "Found %d orphan table directories, more than --%s=%s; not processing any of them",
+              directoryMetadataList.size(), MAX_ORPHAN_DIRECTORIES, maxOrphanDirectories));
+    }
     return processMetadataList(directoryMetadataList, jobType, operationMode, otelEmitter);
   }
 
@@ -346,7 +365,8 @@ public class OperationTasksBuilder {
       case DATA_LAYOUT_STRATEGY_EXECUTION:
         return prepareDataLayoutOperationTaskList(jobType, properties, operationMode, otelEmitter);
       case ORPHAN_DIRECTORY_DELETION:
-        return prepareTableDirectoryOperationTaskList(jobType, operationMode, otelEmitter);
+        return prepareTableDirectoryOperationTaskList(
+            jobType, properties, operationMode, otelEmitter);
       case TABLE_DIRECTORY_DELETION:
         // Apply operation at a database level to capture bulk directories
         return prepareDatabaseOperationTaskList(jobType, operationMode, otelEmitter);
