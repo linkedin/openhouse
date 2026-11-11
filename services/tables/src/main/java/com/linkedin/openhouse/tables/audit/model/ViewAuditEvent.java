@@ -39,6 +39,8 @@ public class ViewAuditEvent extends BaseAuditEvent {
    */
   private String sessionId;
 
+  private ViewOperationType operationType;
+
   private OperationStatus operationStatus;
 
   /** The view's identity, from the captured occupant or the committed outcome. */

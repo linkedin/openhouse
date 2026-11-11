@@ -16,6 +16,7 @@ import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.tables.audit.ViewOperationAuditEmitter;
 import com.linkedin.openhouse.tables.audit.model.OperationStatus;
 import com.linkedin.openhouse.tables.audit.model.ViewAuditEvent;
+import com.linkedin.openhouse.tables.audit.model.ViewOperationType;
 import com.linkedin.openhouse.tables.mock.logging.Log4j2LogCapture;
 import com.linkedin.openhouse.tables.model.ViewModelConstants;
 import java.util.Set;
@@ -86,6 +87,7 @@ public class ViewOperationAuditContractTest {
             "user",
             "sourceDialect",
             "sessionId",
+            "operationType",
             "operationStatus",
             "viewUUID",
             "oldMetadataLocation",
@@ -119,6 +121,7 @@ public class ViewOperationAuditContractTest {
         .viewName(ViewModelConstants.VIEW_ID)
         .user("alice")
         .sourceDialect(ViewModelConstants.SOURCE_DIALECT)
+        .operationType(ViewOperationType.REPLACE)
         .viewUUID("view-uuid")
         .oldMetadataLocation(ViewModelConstants.METADATA_LOCATION)
         .newMetadataLocation(

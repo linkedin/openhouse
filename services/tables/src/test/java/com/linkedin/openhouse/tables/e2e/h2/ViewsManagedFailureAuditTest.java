@@ -28,6 +28,7 @@ import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitIntent;
 import com.linkedin.openhouse.internal.catalog.view.model.ViewCommitResult;
 import com.linkedin.openhouse.tables.audit.model.OperationStatus;
 import com.linkedin.openhouse.tables.audit.model.ViewAuditEvent;
+import com.linkedin.openhouse.tables.audit.model.ViewOperationType;
 import com.linkedin.openhouse.tables.authorization.OpaHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.controller.ViewsController;
@@ -239,6 +240,7 @@ public class ViewsManagedFailureAuditTest {
         .selectStorage(ViewModelConstants.DATABASE_ID, ViewModelConstants.VIEW_ID);
     ViewAuditEvent viewEvent = captureViewAudit();
     assertEquals(OperationStatus.SUCCESS, viewEvent.getOperationStatus());
+    assertEquals(ViewOperationType.CREATE, viewEvent.getOperationType());
     assertEquals(
         ViewsManagedAuthMatrixBase.CREATED_VIEW_UUID,
         viewEvent.getViewUUID(),
@@ -280,6 +282,7 @@ public class ViewsManagedFailureAuditTest {
 
     ViewAuditEvent viewEvent = captureViewAudit();
     assertEquals(OperationStatus.SUCCESS, viewEvent.getOperationStatus());
+    assertEquals(ViewOperationType.REPLACE, viewEvent.getOperationType());
     assertEquals(CAPTURED_UUID, viewEvent.getViewUUID());
     assertEquals(ViewModelConstants.METADATA_LOCATION, viewEvent.getOldMetadataLocation());
     assertEquals(committed.getPointer().getMetadataLocation(), viewEvent.getNewMetadataLocation());
@@ -305,6 +308,7 @@ public class ViewsManagedFailureAuditTest {
     verify(houseTableRepository).deleteViewById(ViewsManagedAuthMatrixBase.viewKey());
     ViewAuditEvent viewEvent = captureViewAudit();
     assertEquals(OperationStatus.SUCCESS, viewEvent.getOperationStatus());
+    assertEquals(ViewOperationType.DROP, viewEvent.getOperationType());
     assertEquals(CAPTURED_UUID, viewEvent.getViewUUID());
     assertEquals(ViewModelConstants.METADATA_LOCATION, viewEvent.getOldMetadataLocation());
     assertNull(viewEvent.getNewMetadataLocation(), "A drop publishes no new pointer.");
@@ -332,6 +336,7 @@ public class ViewsManagedFailureAuditTest {
     verify(viewCommitEngine, never()).commit(any());
     ViewAuditEvent viewEvent = captureViewAudit();
     assertEquals(OperationStatus.FAILED, viewEvent.getOperationStatus());
+    assertEquals(ViewOperationType.CREATE, viewEvent.getOperationType());
     assertNull(viewEvent.getNewMetadataLocation());
     assertNoSensitive(viewEvent.toJson());
     ServiceAuditEvent requestEvent = captureServiceAudit();
@@ -509,6 +514,7 @@ public class ViewsManagedFailureAuditTest {
     verify(houseTableRepository, never()).deleteViewById(any());
     ViewAuditEvent viewEvent = captureViewAudit();
     assertEquals(OperationStatus.UNKNOWN, viewEvent.getOperationStatus());
+    assertEquals(ViewOperationType.CREATE, viewEvent.getOperationType());
     // Observed absence supplies no identity or prior pointer, and an unacknowledged commit
     // returns no result; nothing may be fabricated for these fields.
     assertNull(viewEvent.getViewUUID());

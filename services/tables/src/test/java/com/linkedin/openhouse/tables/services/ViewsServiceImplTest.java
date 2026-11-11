@@ -46,6 +46,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequest
 import com.linkedin.openhouse.tables.audit.ViewOperationAuditEmitter;
 import com.linkedin.openhouse.tables.audit.model.OperationStatus;
 import com.linkedin.openhouse.tables.audit.model.ViewAuditEvent;
+import com.linkedin.openhouse.tables.audit.model.ViewOperationType;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.exception.ViewApiException;
@@ -1127,6 +1128,14 @@ public class ViewsServiceImplTest {
     verify(houseTableRepository, never()).findAllViewsByDatabaseId(any(), any());
     verify(houseTableRepository, never()).findEntityById(any());
     assertEquals(Collections.nCopies(2, requestNamedWriteFailure()), emissions(2));
+    ArgumentCaptor<ViewAuditEvent> events = ArgumentCaptor.forClass(ViewAuditEvent.class);
+    ArgumentCaptor<OperationStatus> statuses = ArgumentCaptor.forClass(OperationStatus.class);
+    verify(viewOperationAuditEmitter, times(2)).emit(events.capture(), statuses.capture());
+    assertEquals(
+        Arrays.asList(ViewOperationType.CREATE, ViewOperationType.CREATE_OR_REPLACE),
+        events.getAllValues().stream()
+            .map(ViewAuditEvent::getOperationType)
+            .collect(Collectors.toList()));
   }
 
   @Test
@@ -1991,7 +2000,9 @@ public class ViewsServiceImplTest {
     ArgumentCaptor<ViewAuditEvent> event = ArgumentCaptor.forClass(ViewAuditEvent.class);
     verify(viewOperationAuditEmitter, times(1)).emit(event.capture(), eq(status));
     verifyNoMoreInteractions(viewOperationAuditEmitter);
-    assertEquals(expected.toJson(), event.getValue().toJson());
+    assertEquals(
+        expected.toBuilder().operationType(null).build().toJson(),
+        event.getValue().toBuilder().operationType(null).build().toJson());
   }
 
   /** Every emission in call order, as status plus the exact serialized context. */
@@ -2005,7 +2016,7 @@ public class ViewsServiceImplTest {
   }
 
   private static String emission(OperationStatus status, ViewAuditEvent event) {
-    return status + " " + event.toJson();
+    return status + " " + event.toBuilder().operationType(null).build().toJson();
   }
 
   /** A create/replace write failing before any capture: requested naming, actor and dialect. */

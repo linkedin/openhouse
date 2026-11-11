@@ -26,6 +26,7 @@ import com.linkedin.openhouse.tables.api.spec.v0.request.components.ViewRepresen
 import com.linkedin.openhouse.tables.audit.ViewOperationAuditEmitter;
 import com.linkedin.openhouse.tables.audit.model.OperationStatus;
 import com.linkedin.openhouse.tables.audit.model.ViewAuditEvent;
+import com.linkedin.openhouse.tables.audit.model.ViewOperationType;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.exception.ViewApiException;
 import com.linkedin.openhouse.tables.exception.ViewErrorCode;
@@ -170,6 +171,8 @@ public class ViewsServiceImpl implements ViewsService {
             .viewName(viewId)
             .user(actingPrincipal)
             .sourceDialect(sourceDialect)
+            .operationType(
+                failOnExist ? ViewOperationType.CREATE : ViewOperationType.CREATE_OR_REPLACE)
             .build();
     ViewCommitResult result;
     ViewDto dto;
@@ -189,6 +192,14 @@ public class ViewsServiceImpl implements ViewsService {
               .orElseGet(PreparedViewOperation::observedAbsence);
       auditContext = captureAuditContext(auditContext, prepared);
       boolean viewAlreadyExists = prepared.getViewBaseRow().isPresent();
+      auditContext =
+          auditContext
+              .toBuilder()
+              .operationType(
+                  viewAlreadyExists && !failOnExist
+                      ? ViewOperationType.REPLACE
+                      : ViewOperationType.CREATE)
+              .build();
       Privileges privilege =
           failOnExist ? privilegeMapper.forCreate() : privilegeMapper.forPut(viewAlreadyExists);
       if (!failOnExist && viewAlreadyExists) {
@@ -240,6 +251,7 @@ public class ViewsServiceImpl implements ViewsService {
             .databaseName(databaseId)
             .viewName(viewId)
             .user(actingPrincipal)
+            .operationType(ViewOperationType.DROP)
             .build();
     try {
       requireEnabled(databaseId);
