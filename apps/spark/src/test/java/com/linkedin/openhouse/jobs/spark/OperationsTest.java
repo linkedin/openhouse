@@ -28,12 +28,15 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Triple;
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -1635,7 +1638,17 @@ public class OperationsTest extends OpenHouseSparkITest {
       // test orphan delete
       Path tbLoc = prepareOrphanTableDirectory(ops, "db1.test_odd_orphan");
 
-      long timeThreshold = System.currentTimeMillis();
+      // A commit can leave more than one root metadata file of the same version.
+      Map<Path, byte[]> rootMetadataFiles = new HashMap<>();
+      for (FileStatus file : ops.fs().globStatus(new Path(tbLoc, "*.metadata.json"))) {
+        byte[] content = new byte[(int) file.getLen()];
+        try (FSDataInputStream in = ops.fs().open(file.getPath())) {
+          in.readFully(content);
+        }
+        rootMetadataFiles.put(file.getPath(), content);
+      }
+
+      long timeThreshold = System.currentTimeMillis() + 1;
       List<Path> matchingFilesBefore = new ArrayList<>();
       ops.listFiles(tbLoc, file -> true, true, matchingFilesBefore);
       boolean orphaned = ops.deleteOrphanDirectory(tbLoc, ".trash", timeThreshold);
@@ -1646,12 +1659,22 @@ public class OperationsTest extends OpenHouseSparkITest {
       Assertions.assertFalse(orphaned);
       List<Path> matchingFilesAfter = new ArrayList<>();
       ops.listFiles(tbLoc, file -> true, true, matchingFilesAfter);
-      Assertions.assertEquals(matchingFilesBefore.size(), matchingFilesAfter.size());
+      // Plus the staging marker
+      Assertions.assertEquals(matchingFilesBefore.size() + 1, matchingFilesAfter.size());
 
-      // test stage delete
-      ops.deleteStagedOrphanDirectory(tbLoc, ".trash", timeThreshold);
+      // test stage delete, once files were staged before the threshold
+      Assertions.assertTrue(
+          ops.deleteStagedOrphanDirectory(tbLoc, ".trash", System.currentTimeMillis() + 1));
       // test table dir no longer exists
       Assertions.assertFalse(ops.fs().exists(tbLoc));
+
+      // Restore the root metadata files, so that the table can be dropped.
+      for (Map.Entry<Path, byte[]> file : rootMetadataFiles.entrySet()) {
+        try (FSDataOutputStream out = ops.fs().create(file.getKey())) {
+          out.write(file.getValue());
+        }
+      }
+      ops.spark().sql("DROP TABLE db1.test_odd_orphan");
     }
   }
 
@@ -1659,6 +1682,8 @@ public class OperationsTest extends OpenHouseSparkITest {
       throws Exception {
     Schema schema = getTableSchema();
     Transaction xact = ops.createTransaction(tableName, schema);
+    // Committing writes the root metadata file that orphan directory deletion checks.
+    xact.commitTransaction();
     Path tbLoc = new Path(xact.table().location());
 
     // populate more files
