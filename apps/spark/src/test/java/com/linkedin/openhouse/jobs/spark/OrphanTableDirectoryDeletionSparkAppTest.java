@@ -8,8 +8,10 @@ import com.linkedin.openhouse.tablestest.OpenHouseSparkITest;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -26,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
@@ -326,6 +329,64 @@ public class OrphanTableDirectoryDeletionSparkAppTest extends OpenHouseSparkITes
   /** The table directory as OpenHouse records table locations, without a scheme. */
   private String location() {
     return tableDirectory.toUri().getPath();
+  }
+
+  @Test
+  public void testCreateAppAppliesOptions() throws Exception {
+    try (Operations ops = Operations.withCatalog(getSparkSession(), opsOtelEmitter)) {
+      FileSystem fs = ops.fs();
+      createFile(fs, ROOT_METADATA, tableMetadata(TABLE_UUID, location()), daysAgo(10));
+      createFile(fs, "data/a.orc", daysAgo(10));
+
+      // Unmodified for longer than the default 7 days, but not 30.
+      createApp("--orphanDaysOld", "30").runInner(ops);
+      Assertions.assertEquals(files(ROOT_METADATA, "data/a.orc"), listFiles(fs));
+
+      createApp("--orphanDaysOld", "5", "--trashDir", ".staged").runInner(ops);
+      Assertions.assertEquals(
+          files(
+              ".staged/" + Operations.STAGED_FOR_DELETION_MARKER,
+              ".staged/" + ROOT_METADATA,
+              ".staged/data/a.orc"),
+          listFiles(fs));
+
+      // Staged for longer than the default 7 + 3 days, but not 5 + 30.
+      setModificationTime(fs, daysAgo(15));
+      createApp("--orphanDaysOld", "5", "--stagedDeleteDaysOld", "30", "--trashDir", ".staged")
+          .runInner(ops);
+      Assertions.assertEquals(3, listFiles(fs).size());
+
+      createApp("-o", "5", "-s", "9", "-b", ".staged").runInner(ops);
+      Assertions.assertFalse(fs.exists(tableDirectory));
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "--orphanDaysOld, 0",
+    "--stagedDeleteDaysOld, -1",
+    "--stagedDeleteDaysOld, three",
+    "--trashDir, ''",
+    "--trashDir, ..",
+    "--trashDir, ../.trash",
+    "--trashDir, /tmp/.trash"
+  })
+  public void testCreateAppRejectsInvalidOptions(String option, String value) {
+    Assertions.assertThrows(IllegalArgumentException.class, () -> createApp(option, value));
+  }
+
+  private OrphanTableDirectoryDeletionSparkApp createApp(String... options) {
+    List<String> args =
+        new ArrayList<>(
+            Arrays.asList(
+                "--jobId",
+                "test-odd-job",
+                "--storageURL",
+                "http://localhost:8080",
+                "--tableDirectoryPath",
+                tableDirectory.toString()));
+    args.addAll(Arrays.asList(options));
+    return OrphanTableDirectoryDeletionSparkApp.createApp(args.toArray(new String[0]), otelEmitter);
   }
 
   private OrphanTableDirectoryDeletionSparkApp newApp() {

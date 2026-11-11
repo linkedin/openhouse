@@ -33,6 +33,7 @@ import com.linkedin.openhouse.tables.client.model.RetentionColumnPattern;
 import com.linkedin.openhouse.tables.client.model.TimePartitionSpec;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -589,7 +590,16 @@ public class TablesClientTest {
         throw new IllegalArgumentException(failure);
     }
 
-    Assertions.assertEquals(Collections.emptyList(), client.getOrphanTableDirectories(testDbName));
+    IllegalStateException e =
+        Assertions.assertThrows(
+            IllegalStateException.class, () -> client.getOrphanTableDirectories(testDbName));
+    Assertions.assertTrue(
+        e.getMessage()
+            .startsWith(
+                failure.equals("noListedDirectoryInUse")
+                    ? "None of the 2 directories under /data/openhouse/test_db_name is used by a table"
+                    : "Cannot determine which table directories are in use: "),
+        e.getMessage());
   }
 
   @ParameterizedTest
@@ -610,7 +620,89 @@ public class TablesClientTest {
     mockTableDirectories(
         tableDirectoryName(testTableName), tableDirectoryName(testOrphanDirectoryName));
 
-    Assertions.assertEquals(Collections.emptyList(), client.getOrphanTableDirectories(testDbName));
+    IllegalStateException e =
+        Assertions.assertThrows(
+            IllegalStateException.class, () -> client.getOrphanTableDirectories(testDbName));
+    Assertions.assertTrue(
+        e.getMessage().startsWith("Cannot determine which table directories are in use: "),
+        e.getMessage());
+  }
+
+  @Test
+  void testGetOrphanTableDirectoriesSkipsDatabaseThatFails() {
+    Mockito.when(storageClient.isDirectory(new Path(testRootPath))).thenReturn(true);
+    Mockito.doReturn(Arrays.asList("db1", "db2")).when(client).getDatabases();
+    List<DirectoryMetadata> db1Orphans =
+        Collections.singletonList(directoryMetadata(tableDirectoryName(testOrphanDirectoryName)));
+    Mockito.doReturn(db1Orphans).when(client).getOrphanTableDirectories("db1");
+    Mockito.doThrow(new IllegalStateException("lookup failed"))
+        .when(client)
+        .getOrphanTableDirectories("db2");
+
+    Assertions.assertEquals(db1Orphans, client.getOrphanTableDirectories());
+  }
+
+  @Test
+  void testGetOrphanTableDirectoriesFailsWhenEveryDatabaseIsSkipped() {
+    Mockito.when(storageClient.isDirectory(new Path(testRootPath))).thenReturn(true);
+    Mockito.doReturn(Arrays.asList("db1", "db2")).when(client).getDatabases();
+    Mockito.doThrow(new IllegalStateException("lookup failed"))
+        .when(client)
+        .getOrphanTableDirectories("db1");
+    Mockito.doThrow(new UncheckedIOException("Cannot list db2", new IOException()))
+        .when(client)
+        .getOrphanTableDirectories("db2");
+
+    IllegalStateException e =
+        Assertions.assertThrows(IllegalStateException.class, client::getOrphanTableDirectories);
+    Assertions.assertEquals(
+        "Every database checked was skipped: {db1=lookup failed, db2=Cannot list db2}",
+        e.getMessage());
+  }
+
+  @Test
+  void testGetOrphanTableDirectoriesDoesNotCountFilteredOutDatabases() {
+    TablesClient filteredClient =
+        Mockito.spy(
+            new TablesClientFactory(
+                    "base_path",
+                    DatabaseTableFilter.of("db2", ".*", 0),
+                    null,
+                    ParameterizedHdfsStorageProvider.of(
+                        "hadoop", "hdfs://localhost/", "/jobs/openhouse/"))
+                .create(
+                    RetryTemplate.builder().customPolicy(new NeverRetryPolicy()).build(),
+                    apiMock,
+                    dbApiMock,
+                    viewApiMock,
+                    storageClient));
+    Mockito.when(storageClient.isDirectory(new Path(testRootPath))).thenReturn(true);
+    Mockito.doReturn(Arrays.asList("db1", "db2")).when(filteredClient).getDatabases();
+    Mockito.doThrow(new IllegalStateException("lookup failed"))
+        .when(filteredClient)
+        .getOrphanTableDirectories("db2");
+
+    Assertions.assertThrows(IllegalStateException.class, filteredClient::getOrphanTableDirectories);
+  }
+
+  @Test
+  void testGetOrphanTableDirectoriesFailsWhenStorageRootIsNotADirectory() {
+    Mockito.when(storageClient.isDirectory(new Path(testRootPath))).thenReturn(false);
+
+    IllegalStateException e =
+        Assertions.assertThrows(IllegalStateException.class, client::getOrphanTableDirectories);
+    Assertions.assertEquals("Storage root /data/openhouse is not a directory", e.getMessage());
+    Mockito.verify(client, Mockito.never()).getDatabases();
+  }
+
+  @Test
+  void testGetOrphanTableDirectoriesFailsWhenNoDatabasesFound() {
+    Mockito.when(storageClient.isDirectory(new Path(testRootPath))).thenReturn(true);
+    Mockito.doReturn(Collections.emptyList()).when(client).getDatabases();
+
+    IllegalStateException e =
+        Assertions.assertThrows(IllegalStateException.class, client::getOrphanTableDirectories);
+    Assertions.assertEquals("No databases found", e.getMessage());
   }
 
   @ParameterizedTest
