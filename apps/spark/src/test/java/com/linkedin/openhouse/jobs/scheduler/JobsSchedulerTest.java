@@ -13,12 +13,14 @@ import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTaskFactory;
 import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTaskManager;
 import com.linkedin.openhouse.jobs.scheduler.tasks.OperationTasksBuilder;
+import com.linkedin.openhouse.jobs.scheduler.tasks.OrphanTableDirectoryDeletionTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableDataLayoutStrategyGenerationTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableOrphanFilesDeletionTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableRetentionTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableSnapshotsExpirationTask;
 import com.linkedin.openhouse.jobs.scheduler.tasks.TableStatsCollectionTask;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
+import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
 import com.linkedin.openhouse.jobs.util.TableMetadata;
 import com.sun.net.httpserver.HttpServer;
@@ -42,11 +44,15 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.apache.commons.cli.CommandLine;
+import org.apache.hadoop.fs.Path;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
@@ -74,6 +80,9 @@ public class JobsSchedulerTest {
           put(
               JobConf.JobTypeEnum.DATA_LAYOUT_STRATEGY_EXECUTION,
               TableDataLayoutStrategyGenerationTask.class);
+          put(
+              JobConf.JobTypeEnum.ORPHAN_DIRECTORY_DELETION,
+              OrphanTableDirectoryDeletionTask.class);
         }
       };
 
@@ -108,6 +117,11 @@ public class JobsSchedulerTest {
   }
 
   private JobsScheduler createJobsScheduler(JobConf.JobTypeEnum jobType) {
+    return createJobsScheduler(jobType, tablesClient, jobsClient);
+  }
+
+  private JobsScheduler createJobsScheduler(
+      JobConf.JobTypeEnum jobType, TablesClient tablesClient, JobsClient jobsClient) {
     OperationTaskFactory<? extends OperationTask<?>> taskFactory =
         new OperationTaskFactory<>(
             jobTypeToClassMap.get(jobType), jobsClient, tablesClient, 1000L, 2000L, 3000L);
@@ -768,6 +782,79 @@ public class JobsSchedulerTest {
     Assertions.assertTrue(launchCount.get() < 16, "Shutdown should have stopped further launches");
 
     shutDownJobScheduler(scheduler);
+  }
+
+  @ParameterizedTest
+  @CsvSource({"true, true", "true, false"})
+  void testOrphanDirectoryDeletionDryRunFetchesSequentially(
+      boolean parallelMetadataFetchMode, boolean isMultiOperationMode) {
+    JobConf.JobTypeEnum jobType = JobConf.JobTypeEnum.ORPHAN_DIRECTORY_DELETION;
+    TablesClient orphanTablesClient = Mockito.mock(TablesClient.class);
+    JobsClient orphanJobsClient = Mockito.mock(JobsClient.class);
+    Mockito.when(orphanTablesClient.getOrphanTableDirectories())
+        .thenReturn(
+            Collections.singletonList(
+                DirectoryMetadata.builder().path(new Path("/data/db/tb-1")).build()));
+    Mockito.when(orphanTablesClient.isOrphanTableDirectory(Mockito.any())).thenReturn(true);
+    JobsScheduler scheduler = createJobsScheduler(jobType, orphanTablesClient, orphanJobsClient);
+    // Fails right away instead of waiting on jobs that the parallel paths would schedule.
+    Mockito.doThrow(new AssertionError("Fetched orphan table directories in parallel"))
+        .when(scheduler.getTasksBuilder())
+        .buildOperationTaskListInParallel(
+            Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+
+    try {
+      scheduler.run(
+          jobType,
+          jobTypeToClassMap.get(jobType).toString(),
+          null,
+          true,
+          1,
+          parallelMetadataFetchMode,
+          isMultiOperationMode,
+          16,
+          4,
+          1000,
+          30,
+          15);
+    } finally {
+      shutDownJobScheduler(scheduler);
+    }
+
+    Mockito.verify(orphanTablesClient).isOrphanTableDirectory(new Path("/data/db/tb-1"));
+    Mockito.verifyNoInteractions(orphanJobsClient);
+  }
+
+  @Test
+  void testMaxOrphanDirectoriesMustBeNonNegativeInteger() {
+    Assertions.assertEquals(
+        "0",
+        JobsScheduler.getAdditionalProperties(parseArgsWith("--maxOrphanDirectories", "0"))
+            .getProperty(OperationTasksBuilder.MAX_ORPHAN_DIRECTORIES));
+    for (String invalid : Arrays.asList("-1", "ten")) {
+      Assertions.assertThrows(
+          IllegalArgumentException.class,
+          () ->
+              JobsScheduler.getAdditionalProperties(
+                  parseArgsWith("--maxOrphanDirectories", invalid)),
+          invalid);
+    }
+  }
+
+  private static CommandLine parseArgsWith(String... args) {
+    List<String> allArgs =
+        new ArrayList<>(
+            Arrays.asList(
+                "--type",
+                JobConf.JobTypeEnum.ORPHAN_DIRECTORY_DELETION.getValue(),
+                "--tablesURL",
+                "http://localhost",
+                "--jobsURL",
+                "http://localhost",
+                "--cluster",
+                "local"));
+    allArgs.addAll(Arrays.asList(args));
+    return JobsScheduler.parseArgs(allArgs.toArray(new String[0]));
   }
 
   @Test

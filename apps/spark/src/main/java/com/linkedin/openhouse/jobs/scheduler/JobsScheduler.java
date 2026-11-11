@@ -324,10 +324,17 @@ public class JobsScheduler {
     List<Future<Optional<JobState>>> statusTaskFutures = new ArrayList<>();
     // Sets the default operation mode as existing SINGLE
     OperationMode operationMode = OperationMode.SINGLE;
+    // The parallel paths fetch tables instead of orphan directories and ignore dry run.
+    boolean parallelFetch =
+        parallelMetadataFetchMode && !JobConf.JobTypeEnum.ORPHAN_DIRECTORY_DELETION.equals(jobType);
+    if (parallelMetadataFetchMode && !parallelFetch) {
+      log.warn(
+          "Ignoring parallel metadata fetch mode, which job type {} does not support", jobType);
+    }
     // If Parallel metadata fetch mode and multi operation mode both are enable table metadata is
     // fetched in parallel
     // and jobs submission works in SUBMIT and POLL mode.
-    if (parallelMetadataFetchMode && isMultiOperationMode) {
+    if (parallelFetch && isMultiOperationMode) {
       operationMode = OperationMode.SUBMIT;
       // table metadata is fetched in parallel and add to a queue. On the other, hand
       // metadata is read from queue and jobs are submitted in parallel as they arrive.
@@ -359,7 +366,7 @@ public class JobsScheduler {
               statusTaskFutures);
       // Wait on the main thread for status check job completion
       completableFuture.join();
-    } else if (parallelMetadataFetchMode) {
+    } else if (parallelFetch) {
       // Table metadata is fetched in parallel and job submission works in SINGLE mode
       tasksBuilder.buildOperationTaskListInParallel(
           jobType, properties, otelEmitter, operationMode);
@@ -613,6 +620,15 @@ public class JobsScheduler {
         Option.builder(null)
             .required(false)
             .hasArg()
+            .longOpt(OperationTasksBuilder.MAX_ORPHAN_DIRECTORIES)
+            .desc(
+                "Fail without processing any orphan table directory if more than this many are"
+                    + " found (ORPHAN_DIRECTORY_DELETION only)")
+            .build());
+    options.addOption(
+        Option.builder(null)
+            .required(false)
+            .hasArg()
             .longOpt("parallelMetadataFetchMode")
             .desc("Turn on/off parallel metadata fetch mode")
             .build());
@@ -785,6 +801,15 @@ public class JobsScheduler {
                 OperationTasksBuilder.BATCH_MAX_ITEMS, parsed, AppConstants.OFD_MAX_BATCH_SIZE));
       }
       result.setProperty(OperationTasksBuilder.BATCH_MAX_ITEMS, raw);
+    }
+    if (cmdLine.hasOption(OperationTasksBuilder.MAX_ORPHAN_DIRECTORIES)) {
+      String raw = cmdLine.getOptionValue(OperationTasksBuilder.MAX_ORPHAN_DIRECTORIES);
+      if (Integer.parseInt(raw) < 0) {
+        throw new IllegalArgumentException(
+            String.format(
+                "--%s=%s must not be negative", OperationTasksBuilder.MAX_ORPHAN_DIRECTORIES, raw));
+      }
+      result.setProperty(OperationTasksBuilder.MAX_ORPHAN_DIRECTORIES, raw);
     }
     return result;
   }
