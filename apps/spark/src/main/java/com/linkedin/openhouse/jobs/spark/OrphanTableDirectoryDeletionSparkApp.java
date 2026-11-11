@@ -66,18 +66,19 @@ public class OrphanTableDirectoryDeletionSparkApp extends BaseTableDirectorySpar
       log.info("Staged directories deletion by table directory path {}", tableDirectoryPath);
       long deleteThresholdMillis =
           orphanThresholdMillis - TimeUnit.DAYS.toMillis(stagedDeleteOrderThanDays);
-      ops.deleteStagedOrphanDirectory(tableDirectoryPath, trashDir, deleteThresholdMillis);
-      log.info(
-          "Deleted table directory path {}; timeForSelection {}",
-          tableDirectoryPath,
-          stagedDeleteOrderThanDays);
-      otelEmitter.count(
-          METRICS_SCOPE,
-          AppConstants.STAGED_DIRECTORY_COUNT,
-          1,
-          Attributes.of(
-              AttributeKey.stringKey(AppConstants.TABLE_DIRECTORY_PATH),
-              tableDirectoryPath.toString()));
+      if (ops.deleteStagedOrphanDirectory(tableDirectoryPath, trashDir, deleteThresholdMillis)) {
+        log.info(
+            "Deleted table directory path {}; timeForSelection {}",
+            tableDirectoryPath,
+            stagedDeleteOrderThanDays);
+        otelEmitter.count(
+            METRICS_SCOPE,
+            AppConstants.STAGED_DIRECTORY_COUNT,
+            1,
+            Attributes.of(
+                AttributeKey.stringKey(AppConstants.TABLE_DIRECTORY_PATH),
+                tableDirectoryPath.toString()));
+      }
     }
   }
 

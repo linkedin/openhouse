@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -44,6 +45,7 @@ import org.apache.arrow.util.VisibleForTesting;
 import org.apache.hadoop.fs.Path;
 import org.springframework.retry.RetryCallback;
 import org.springframework.retry.support.RetryTemplate;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -62,7 +64,7 @@ public class TablesClient {
   /** OpenHouse names table directories {@code <tableId>-<tableUUID>}. */
   private static final Pattern TABLE_DIRECTORY_NAME_PATTERN =
       Pattern.compile(
-          "^[A-Za-z0-9_]+-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
+          "^([A-Za-z0-9_]+)-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
 
   private final RetryTemplate retryTemplate;
   private final TableApi tableApi;
@@ -380,6 +382,50 @@ public class TablesClient {
     return orphanTableDirectories;
   }
 
+  /**
+   * Re-checks that a directory returned by {@link #getOrphanTableDirectories()} is still orphaned,
+   * right before acting on it. Looks up the live and soft-deleted tables named like the directory,
+   * so it does not find tables renamed since they were created; {@link
+   * #getOrphanTableDirectories(Path)} protects those.
+   *
+   * <p>Fails closed: returns false if the directory is not named like a table directory or if a
+   * lookup fails.
+   *
+   * @param tableDirectoryPath table directory path, {@code <database path>/<tableId>-<tableUUID>}
+   * @return true if no live or soft-deleted table named like the directory uses it
+   */
+  public boolean isOrphanTableDirectory(Path tableDirectoryPath) {
+    String directoryName = tableDirectoryPath.getName();
+    Matcher matcher = TABLE_DIRECTORY_NAME_PATTERN.matcher(directoryName);
+    if (!matcher.matches() || tableDirectoryPath.getParent() == null) {
+      log.error("Not a table directory: {}", tableDirectoryPath);
+      return false;
+    }
+    String dbName = tableDirectoryPath.getParent().getName();
+    String tableId = matcher.group(1);
+    try {
+      Optional<GetTableResponseBody> table = findTable(dbName, tableId);
+      if (table.isPresent()
+          && directoryName.equals(
+              toTableDirectoryName(table.get().getTableLocation(), dbName, tableId))) {
+        log.info("Directory {} is used by table {}.{}", tableDirectoryPath, dbName, tableId);
+        return false;
+      }
+      if (getSoftDeletedTableDirectoryNames(dbName, tableId).contains(directoryName)) {
+        log.info(
+            "Directory {} is used by soft-deleted table {}.{}",
+            tableDirectoryPath,
+            dbName,
+            tableId);
+        return false;
+      }
+      return true;
+    } catch (RuntimeException e) {
+      log.error("Cannot verify that directory {} is orphaned", tableDirectoryPath, e);
+      return false;
+    }
+  }
+
   public List<String> getDatabases() {
     return RetryUtil.executeWithRetry(
         retryTemplate,
@@ -505,7 +551,7 @@ public class TablesClient {
       // Databases are listed from live tables, so an empty result means the lookup is not reliable.
       throw new IllegalStateException("No live tables found for database " + dbName);
     }
-    directoryNames.addAll(getSoftDeletedTableDirectoryNames(dbName));
+    directoryNames.addAll(getSoftDeletedTableDirectoryNames(dbName, null));
     // Read live tables again: a table restored while soft-deleted tables were being read is in
     // neither earlier result.
     addLiveTableDirectoryNames(dbName, resolvedTableIds, directoryNames);
@@ -537,7 +583,34 @@ public class TablesClient {
     }
   }
 
-  private Set<String> getSoftDeletedTableDirectoryNames(String dbName) {
+  /**
+   * Returns the table, or empty if it does not exist. Throws if the lookup fails, so that a failure
+   * is not mistaken for a missing table.
+   */
+  private Optional<GetTableResponseBody> findTable(String dbName, String tableId) {
+    GetTableResponseBody table;
+    try {
+      table =
+          retryTemplate.execute(
+              (RetryCallback<GetTableResponseBody, RuntimeException>)
+                  context ->
+                      tableApi
+                          .getTableV1(dbName, tableId)
+                          .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)));
+    } catch (WebClientResponseException.NotFound e) {
+      return Optional.empty();
+    }
+    if (table == null) {
+      throw new IllegalStateException(String.format("Cannot load table %s.%s", dbName, tableId));
+    }
+    return Optional.of(table);
+  }
+
+  /**
+   * Returns the names of the directories used by soft-deleted tables of the given database,
+   * optionally only those with the given table ID.
+   */
+  private Set<String> getSoftDeletedTableDirectoryNames(String dbName, String tableId) {
     Set<String> directoryNames = new HashSet<>();
     Long expectedTotal = null;
     long rowsRead = 0;
@@ -551,7 +624,7 @@ public class TablesClient {
                   context ->
                       tableApi
                           .searchSoftDeletedTablesV1(
-                              dbName, null, currentPage, SOFT_DELETED_TABLES_PAGE_SIZE, null)
+                              dbName, tableId, currentPage, SOFT_DELETED_TABLES_PAGE_SIZE, null)
                           .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)));
       PageGetSoftDeletedTableResponseBody pageResults =
           response == null ? null : response.getPageResults();

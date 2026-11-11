@@ -37,8 +37,12 @@ public class OrphanTableDirectoryDeletionTask extends TableDirectoryOperationTas
     return Arrays.asList("--tableDirectoryPath", metadata.getPath().toString());
   }
 
+  /**
+   * Re-checks that the directory is still orphaned: it was classified when the task list was built,
+   * which can be hours before the job is launched.
+   */
   @Override
   protected boolean shouldRun() {
-    return true;
+    return tablesClient.isOrphanTableDirectory(metadata.getPath());
   }
 }
