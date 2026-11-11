@@ -14,10 +14,13 @@ import com.linkedin.openhouse.jobs.util.TableMetadata;
 import com.linkedin.openhouse.tables.client.api.DatabaseApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
 import com.linkedin.openhouse.tables.client.model.GetAllDatabasesResponseBody;
+import com.linkedin.openhouse.tables.client.model.GetAllSoftDeletedTablesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetDatabaseResponseBody;
+import com.linkedin.openhouse.tables.client.model.GetSoftDeletedTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.History;
+import com.linkedin.openhouse.tables.client.model.PageGetSoftDeletedTableResponseBody;
 import com.linkedin.openhouse.tables.client.model.Policies;
 import com.linkedin.openhouse.tables.client.model.Replication;
 import java.time.Duration;
@@ -31,6 +34,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.AllArgsConstructor;
@@ -53,6 +57,13 @@ import reactor.core.scheduler.Schedulers;
 public class TablesClient {
   private static final String MAINTENANCE_PROPERTY_PREFIX = "maintenance.";
   private static final int REQUEST_TIMEOUT_SECONDS = 180;
+  private static final String METADATA_FILE_SUFFIX = ".metadata.json";
+  private static final int SOFT_DELETED_TABLES_PAGE_SIZE = 1000;
+  /** OpenHouse names table directories {@code <tableId>-<tableUUID>}. */
+  private static final Pattern TABLE_DIRECTORY_NAME_PATTERN =
+      Pattern.compile(
+          "^[A-Za-z0-9_]+-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
+
   private final RetryTemplate retryTemplate;
   private final TableApi tableApi;
   private final DatabaseApi databaseApi;
@@ -283,39 +294,6 @@ public class TablesClient {
   }
 
   /**
-   * For the given database name, get all registered tables
-   *
-   * @param dbName database name
-   * @return a set of registered table names
-   */
-  public Set<String> getTableNamesForDbName(String dbName) {
-    Set<String> tableNames = new HashSet<>();
-    if (databaseTableFilter.applyDatabaseName(dbName)) {
-      tableNames.addAll(
-          RetryUtil.executeWithRetry(
-              retryTemplate,
-              (RetryCallback<Set<String>, Exception>)
-                  context -> {
-                    GetAllTablesResponseBody response =
-                        tableApi
-                            .searchTablesV1(dbName)
-                            .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS));
-                    if (response == null) {
-                      return Collections.emptySet();
-                    }
-                    return Optional.ofNullable(response.getResults())
-                        .map(Collection::stream)
-                        .orElseGet(Stream::empty)
-                        .map(this::mapTableResponseToTableDirectoryName)
-                        .filter(databaseTableFilter::applyTableDirectoryPath)
-                        .collect(Collectors.toSet());
-                  },
-              Collections.emptySet()));
-    }
-    return tableNames;
-  }
-
-  /**
    * Scans all databases in the Tables Service, converts to {@link DatabaseMetadata}, and applies
    * filters
    */
@@ -327,21 +305,61 @@ public class TablesClient {
   }
 
   /**
-   * Given a database path, get all orphan table directories under that path.
+   * Given a database path, get the table directories under that path that no live or soft-deleted
+   * table uses.
+   *
+   * <p>Fails closed: the database is skipped (an empty list is returned) if the directories in use
+   * cannot be determined completely, or if none of the listed directories is in use, which means
+   * the listing and the table locations disagree. Only directories named like OpenHouse table
+   * directories ({@code <tableId>-<tableUUID>}) are returned.
    *
    * @param dbPath database path to get table directories from
-   * @return a list of DirectoryMetadata that are not registered
+   * @return a list of DirectoryMetadata that are not used by any table
    */
   @VisibleForTesting
   public List<DirectoryMetadata> getOrphanTableDirectories(Path dbPath) {
-    // a set of directory names
-    Set<String> registeredTableDirectories = getTableNamesForDbName(dbPath.getName());
+    String dbName = dbPath.getName();
+    if (!databaseTableFilter.applyDatabaseName(dbName)) {
+      return Collections.emptyList();
+    }
+    // List before reading table metadata, so a table created in between cannot look orphaned.
     List<DirectoryMetadata> allTableDirectories = storageClient.getSubDirectoriesWithOwners(dbPath);
-    return allTableDirectories.stream()
-        .filter(
-            directoryMetadata ->
-                !registeredTableDirectories.contains(directoryMetadata.getBaseName()))
-        .collect(Collectors.toList());
+    if (allTableDirectories.isEmpty()) {
+      return Collections.emptyList();
+    }
+    Set<String> directoriesInUse;
+    try {
+      directoriesInUse = getTableDirectoryNamesInUse(dbName);
+    } catch (RuntimeException e) {
+      log.error(
+          "Skipping orphan directory detection for database {}: cannot determine which table directories are in use",
+          dbName,
+          e);
+      return Collections.emptyList();
+    }
+    if (allTableDirectories.stream()
+        .noneMatch(directory -> directoriesInUse.contains(directory.getBaseName()))) {
+      log.error(
+          "Skipping orphan directory detection for database {}: none of the {} directories under {} is used by a table",
+          dbName,
+          allTableDirectories.size(),
+          dbPath);
+      return Collections.emptyList();
+    }
+    List<DirectoryMetadata> orphanTableDirectories =
+        allTableDirectories.stream()
+            .filter(directory -> isTableDirectoryName(directory.getBaseName()))
+            .filter(
+                directory -> databaseTableFilter.applyTableDirectoryPath(directory.getBaseName()))
+            .filter(directory -> !directoriesInUse.contains(directory.getBaseName()))
+            .collect(Collectors.toList());
+    log.info(
+        "Database {}: {} directories, {} table directories in use, {} orphan table directories",
+        dbName,
+        allTableDirectories.size(),
+        directoriesInUse.size(),
+        orphanTableDirectories.size());
+    return orphanTableDirectories;
   }
 
   /**
@@ -475,14 +493,118 @@ public class TablesClient {
     return Objects.requireNonNull(responseBody.getTableCreator());
   }
 
-  private String mapTableResponseToTableDirectoryName(GetTableResponseBody responseBody) {
-    TableMetadata metadata =
-        TableMetadata.builder()
-            .dbName(Objects.requireNonNull(responseBody.getDatabaseId()))
-            .tableName(Objects.requireNonNull(responseBody.getTableId()))
-            .build();
-    String location = getTable(metadata).getTableLocation();
-    return new Path(Objects.requireNonNull(location)).getParent().getName();
+  /**
+   * Returns the names of the directories used by live and soft-deleted tables of the given
+   * database. Throws if any lookup fails or returns an incomplete answer.
+   */
+  private Set<String> getTableDirectoryNamesInUse(String dbName) {
+    Set<String> directoryNames = new HashSet<>();
+    Set<String> resolvedTableIds = new HashSet<>();
+    addLiveTableDirectoryNames(dbName, resolvedTableIds, directoryNames);
+    if (resolvedTableIds.isEmpty()) {
+      // Databases are listed from live tables, so an empty result means the lookup is not reliable.
+      throw new IllegalStateException("No live tables found for database " + dbName);
+    }
+    directoryNames.addAll(getSoftDeletedTableDirectoryNames(dbName));
+    // Read live tables again: a table restored while soft-deleted tables were being read is in
+    // neither earlier result.
+    addLiveTableDirectoryNames(dbName, resolvedTableIds, directoryNames);
+    return directoryNames;
+  }
+
+  private void addLiveTableDirectoryNames(
+      String dbName, Set<String> resolvedTableIds, Set<String> directoryNames) {
+    GetAllTablesResponseBody response =
+        retryTemplate.execute(
+            (RetryCallback<GetAllTablesResponseBody, RuntimeException>)
+                context ->
+                    tableApi
+                        .searchTablesV1(dbName)
+                        .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)));
+    if (response == null || response.getResults() == null) {
+      throw new IllegalStateException("Cannot list tables of database " + dbName);
+    }
+    for (GetTableResponseBody shallowTable : response.getResults()) {
+      String tableId = Objects.requireNonNull(shallowTable.getTableId());
+      if (resolvedTableIds.add(tableId)) {
+        GetTableResponseBody table = getTable(dbName, tableId);
+        if (table == null) {
+          throw new IllegalStateException(
+              String.format("Cannot load table %s.%s", dbName, tableId));
+        }
+        directoryNames.add(toTableDirectoryName(table.getTableLocation(), dbName, tableId));
+      }
+    }
+  }
+
+  private Set<String> getSoftDeletedTableDirectoryNames(String dbName) {
+    Set<String> directoryNames = new HashSet<>();
+    Long expectedTotal = null;
+    long rowsRead = 0;
+    int page = 0;
+    int totalPages;
+    do {
+      final int currentPage = page;
+      GetAllSoftDeletedTablesResponseBody response =
+          retryTemplate.execute(
+              (RetryCallback<GetAllSoftDeletedTablesResponseBody, RuntimeException>)
+                  context ->
+                      tableApi
+                          .searchSoftDeletedTablesV1(
+                              dbName, null, currentPage, SOFT_DELETED_TABLES_PAGE_SIZE, null)
+                          .block(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS)));
+      PageGetSoftDeletedTableResponseBody pageResults =
+          response == null ? null : response.getPageResults();
+      if (pageResults == null
+          || pageResults.getContent() == null
+          || pageResults.getTotalElements() == null
+          || pageResults.getTotalPages() == null) {
+        throw new IllegalStateException("Cannot list soft-deleted tables of database " + dbName);
+      }
+      // Rows added or removed between pages shift the remaining pages, so a row could be missed.
+      if (expectedTotal == null) {
+        expectedTotal = pageResults.getTotalElements();
+      } else if (!expectedTotal.equals(pageResults.getTotalElements())) {
+        throw new IllegalStateException(
+            "Soft-deleted tables changed while being read for database " + dbName);
+      }
+      for (GetSoftDeletedTableResponseBody table : pageResults.getContent()) {
+        directoryNames.add(
+            toTableDirectoryName(table.getTableLocation(), dbName, table.getTableId()));
+        rowsRead++;
+      }
+      totalPages = pageResults.getTotalPages();
+      page++;
+    } while (page < totalPages);
+    if (rowsRead != expectedTotal) {
+      throw new IllegalStateException(
+          String.format(
+              "Read %d of %d soft-deleted tables for database %s",
+              rowsRead, expectedTotal, dbName));
+    }
+    return directoryNames;
+  }
+
+  /**
+   * Returns the table directory name for a table metadata location. OpenHouse writes metadata.json
+   * directly under the table directory.
+   */
+  private static String toTableDirectoryName(
+      String metadataLocation, String dbName, String tableId) {
+    Path tableDirectory =
+        metadataLocation != null && metadataLocation.endsWith(METADATA_FILE_SUFFIX)
+            ? new Path(metadataLocation).getParent()
+            : null;
+    if (tableDirectory == null || tableDirectory.getName().isEmpty()) {
+      throw new IllegalStateException(
+          String.format(
+              "Unexpected location for table %s.%s: %s", dbName, tableId, metadataLocation));
+    }
+    return tableDirectory.getName();
+  }
+
+  private static boolean isTableDirectoryName(String directoryName) {
+    return TABLE_DIRECTORY_NAME_PATTERN.matcher(directoryName).matches();
   }
 
   // Below are asynchronous methods
