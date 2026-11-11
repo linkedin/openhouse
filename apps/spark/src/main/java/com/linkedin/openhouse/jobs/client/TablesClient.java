@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -327,13 +328,14 @@ public class TablesClient {
    * Get the table directories of the given database that no live or soft-deleted table and no view
    * uses.
    *
-   * <p>Fails closed: the database is skipped (an empty list is returned) if the directories in use
+   * <p>Fails closed: throws if the database directory cannot be listed, if the directories in use
    * cannot be determined completely, or if none of the listed directories is in use, which means
    * the listing and the table locations disagree. Only directories named like OpenHouse table
    * directories ({@code <tableId>-<tableUUID>}) are returned.
    *
    * @param dbName database to get table directories from
    * @return a list of DirectoryMetadata that are not used by any table
+   * @throws RuntimeException with the reason, if orphan directories cannot be found safely
    */
   @VisibleForTesting
   public List<DirectoryMetadata> getOrphanTableDirectories(String dbName) {
@@ -350,20 +352,15 @@ public class TablesClient {
     try {
       directoriesInUse = getTableDirectoryNamesInUse(dbName);
     } catch (RuntimeException e) {
-      log.error(
-          "Skipping orphan directory detection for database {}: cannot determine which table directories are in use",
-          dbName,
-          e);
-      return Collections.emptyList();
+      throw new IllegalStateException(
+          "Cannot determine which table directories are in use: " + e.getMessage(), e);
     }
     if (allTableDirectories.stream()
         .noneMatch(directory -> directoriesInUse.contains(directory.getBaseName()))) {
-      log.error(
-          "Skipping orphan directory detection for database {}: none of the {} directories under {} is used by a table",
-          dbName,
-          allTableDirectories.size(),
-          dbPath);
-      return Collections.emptyList();
+      throw new IllegalStateException(
+          String.format(
+              "None of the %d directories under %s is used by a table",
+              allTableDirectories.size(), dbPath));
     }
     List<DirectoryMetadata> orphanTableDirectories =
         allTableDirectories.stream()
@@ -384,14 +381,49 @@ public class TablesClient {
   /**
    * Get all orphan table directories in the corresponding file system.
    *
+   * <p>A database whose orphan directories cannot be found safely is skipped, and the reason is
+   * logged. Throws if the storage root is not a directory, if no databases are listed, or if every
+   * database checked is skipped, since then the run cannot be trusted at all.
+   *
    * @return a list of DirectoryMetadata that are not registered
+   * @throws IllegalStateException if the run cannot find orphan directories in any database
    */
   public List<DirectoryMetadata> getOrphanTableDirectories() {
-    List<DirectoryMetadata> orphanTableDirectories = new ArrayList<>();
+    Path rootPath = new Path(storageClient.getRootPath());
+    if (!storageClient.isDirectory(rootPath)) {
+      throw new IllegalStateException("Storage root " + rootPath + " is not a directory");
+    }
     // we use getDatabases interface to avoid accidentally deleting essential directories on the
     // database level
-    for (String dbName : getDatabases()) {
-      orphanTableDirectories.addAll(getOrphanTableDirectories(dbName));
+    List<String> databases = getDatabases();
+    if (databases.isEmpty()) {
+      // getDatabases returns an empty list when the lookup fails, so this cannot be trusted.
+      throw new IllegalStateException("No databases found");
+    }
+    List<DirectoryMetadata> orphanTableDirectories = new ArrayList<>();
+    Map<String, String> skippedDatabases = new LinkedHashMap<>();
+    int checkedDatabases = 0;
+    for (String dbName : databases) {
+      if (!databaseTableFilter.applyDatabaseName(dbName)) {
+        continue;
+      }
+      checkedDatabases++;
+      try {
+        orphanTableDirectories.addAll(getOrphanTableDirectories(dbName));
+      } catch (RuntimeException e) {
+        log.error(
+            "Skipping orphan directory detection for database {}: {}", dbName, e.getMessage(), e);
+        skippedDatabases.put(dbName, e.getMessage());
+      }
+    }
+    log.info(
+        "Orphan directory detection: checked {} databases, skipped {} {}, found {} orphan table directories",
+        checkedDatabases,
+        skippedDatabases.size(),
+        skippedDatabases.keySet(),
+        orphanTableDirectories.size());
+    if (checkedDatabases > 0 && skippedDatabases.size() == checkedDatabases) {
+      throw new IllegalStateException("Every database checked was skipped: " + skippedDatabases);
     }
     return orphanTableDirectories;
   }

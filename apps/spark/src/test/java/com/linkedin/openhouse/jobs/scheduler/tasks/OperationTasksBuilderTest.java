@@ -8,6 +8,7 @@ import com.linkedin.openhouse.jobs.client.TablesClient;
 import com.linkedin.openhouse.jobs.client.model.JobConf;
 import com.linkedin.openhouse.jobs.util.AppsOtelEmitter;
 import com.linkedin.openhouse.jobs.util.DatabaseMetadata;
+import com.linkedin.openhouse.jobs.util.DirectoryMetadata;
 import com.linkedin.openhouse.jobs.util.Metadata;
 import com.linkedin.openhouse.jobs.util.RetentionConfig;
 import com.linkedin.openhouse.jobs.util.TableDataLayoutMetadata;
@@ -22,6 +23,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.UUID;
+import org.apache.hadoop.fs.Path;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.MethodOrderer;
@@ -237,6 +239,62 @@ public class OperationTasksBuilderTest {
         }
       }
     }
+  }
+
+  @Test
+  public void testBuildOrphanDirectoryTaskListFailsAboveLimit() {
+    TablesClient client = mockOrphanTableDirectories("/data/db/tb-1", "/data/db/tb-2");
+    Properties limit = new Properties();
+    limit.setProperty(OperationTasksBuilder.MAX_ORPHAN_DIRECTORIES, "1");
+
+    IllegalStateException e =
+        Assertions.assertThrows(
+            IllegalStateException.class, () -> buildOrphanDirectoryTaskList(client, limit));
+    Assertions.assertTrue(e.getMessage().contains("Found 2 orphan table directories"));
+    Mockito.verify(client, Mockito.never()).isOrphanTableDirectory(Mockito.any());
+  }
+
+  @Test
+  public void testBuildOrphanDirectoryTaskListAtLimitOrWithoutLimit() {
+    Properties limit = new Properties();
+    limit.setProperty(OperationTasksBuilder.MAX_ORPHAN_DIRECTORIES, "2");
+    for (Properties props : Arrays.asList(limit, new Properties())) {
+      List<OperationTask<?>> tasks =
+          buildOrphanDirectoryTaskList(
+              mockOrphanTableDirectories("/data/db/tb-1", "/data/db/tb-2"), props);
+      Assertions.assertEquals(2, tasks.size());
+      Assertions.assertTrue(tasks.get(0) instanceof OrphanTableDirectoryDeletionTask);
+    }
+  }
+
+  private TablesClient mockOrphanTableDirectories(String... paths) {
+    TablesClient client = Mockito.mock(TablesClient.class);
+    List<DirectoryMetadata> directories = new ArrayList<>();
+    for (String path : paths) {
+      directories.add(DirectoryMetadata.builder().path(new Path(path)).build());
+    }
+    Mockito.when(client.getOrphanTableDirectories()).thenReturn(directories);
+    Mockito.when(client.isOrphanTableDirectory(Mockito.any())).thenReturn(true);
+    return client;
+  }
+
+  private List<OperationTask<?>> buildOrphanDirectoryTaskList(
+      TablesClient client, Properties props) {
+    JobConf.JobTypeEnum jobType = JobConf.JobTypeEnum.ORPHAN_DIRECTORY_DELETION;
+    OperationTasksBuilder builder =
+        new OperationTasksBuilder(
+            new OperationTaskFactory<>(
+                OrphanTableDirectoryDeletionTask.class,
+                jobsClient,
+                client,
+                60000L,
+                60000L,
+                120000L),
+            client,
+            2,
+            new OperationTaskManager(jobType),
+            new JobInfoManager(jobType));
+    return builder.buildOperationTaskList(jobType, props, otelEmitter, OperationMode.SINGLE);
   }
 
   private OperationTasksBuilder createOperationTasksBuilder(JobConf.JobTypeEnum jobType) {
