@@ -4,7 +4,6 @@ import lombok.Builder;
 import lombok.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 
 /**
  * POJO for ApiResponse containing HTTP status, responseBody JSON, and HTTP headers. This POJO is
@@ -24,8 +23,4 @@ public class ApiResponse<T> {
 
   /** HTTP Headers as sent *to* the client as part of headers. */
   HttpHeaders httpHeaders;
-
-  public ResponseEntity<T> toResponseEntity() {
-    return new ResponseEntity<>(responseBody, httpHeaders, httpStatus);
-  }
 }
