@@ -9,6 +9,11 @@ import javax.persistence.AttributeConverter;
 import javax.persistence.Converter;
 import javax.persistence.PersistenceException;
 
+/**
+ * Persists the property map as one JSON document so updates share the namespace row's
+ * optimistic-lock version. JSON object keys retain their exact spelling independently of database
+ * collation.
+ */
 @Converter
 public class NamespacePropertiesConverter
     implements AttributeConverter<Map<String, String>, String> {

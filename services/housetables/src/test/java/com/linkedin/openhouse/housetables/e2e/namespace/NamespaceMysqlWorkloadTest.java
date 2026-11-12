@@ -61,21 +61,9 @@ class NamespaceMysqlWorkloadTest {
   }
 
   @Test
-  void sparseUpdatesAndOccupancy() throws Exception {
+  void sparseUpdatesCommitProgress() throws Exception {
     assertThat(new JdbcTemplate(dataSource).queryForObject("SELECT VERSION()", String.class))
         .startsWith("8.0.");
-    JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
-    jdbcTemplate.batchUpdate(
-        "INSERT INTO user_table_row (database_id, table_id, version, storage_type, entity_type) "
-            + "VALUES (?, ?, 1, 'hdfs', 'VIEW')",
-        IntStream.range(0, 30000)
-            .mapToObj(
-                index ->
-                    new Object[] {
-                      index < 10000 ? "workload_views" : "workload_other", "table_" + index
-                    })
-            .collect(Collectors.toList()));
-    jdbcTemplate.execute("ANALYZE TABLE user_table_row");
     Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
     // Configurations mutate persistent fixtures and share transaction statistics sequentially.
     for (int propertyCount : new int[] {10, 100, 1000}) {
@@ -102,6 +90,28 @@ class NamespaceMysqlWorkloadTest {
             .containsEntry("key_1", "value");
       }
     }
+    SqlCapture.STATEMENTS.stream()
+        .sorted()
+        .forEach(sql -> System.out.println("SQL_CAPTURE " + sql));
+  }
+
+  @Test
+  void occupancyReads() throws Exception {
+    assertThat(new JdbcTemplate(dataSource).queryForObject("SELECT VERSION()", String.class))
+        .startsWith("8.0.");
+    JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
+    jdbcTemplate.batchUpdate(
+        "INSERT INTO user_table_row (database_id, table_id, version, storage_type, entity_type) "
+            + "VALUES (?, ?, 1, 'hdfs', 'VIEW')",
+        IntStream.range(0, 30000)
+            .mapToObj(
+                index ->
+                    new Object[] {
+                      index < 10000 ? "workload_views" : "workload_other", "table_" + index
+                    })
+            .collect(Collectors.toList()));
+    jdbcTemplate.execute("ANALYZE TABLE user_table_row");
+    Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
     for (int readers : new int[] {1, 4}) {
       double measuredP95Millis =
           runWorkload(
@@ -196,6 +206,9 @@ class NamespaceMysqlWorkloadTest {
         double seconds = (System.nanoTime() - started) / 1e9;
         List<Long> sorted = durations.stream().sorted().collect(Collectors.toList());
         assertThat(successes.get() + conflicts.get()).isEqualTo(100);
+        assertThat(successes.get())
+            .as("Successful operations for %s with concurrency %s, run %s", name, concurrency, run)
+            .isPositive();
         if (concurrency == 1) {
           assertThat(conflicts.get()).isZero();
           if (name.startsWith("sparse")) {

@@ -1,5 +1,7 @@
 package com.linkedin.openhouse.housetables.controller;
 
+import static com.linkedin.openhouse.housetables.controller.ApiResponseMapper.toResponseEntity;
+
 import com.linkedin.openhouse.common.api.spec.ErrorResponseBody;
 import com.linkedin.openhouse.housetables.api.handler.NamespacesApiHandler;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateNamespaceRequestBody;
@@ -68,7 +70,7 @@ public class NamespacesController {
   @PostMapping(consumes = "application/json")
   public ResponseEntity<NamespaceMetadataResponse> createNamespace(
       @RequestBody CreateNamespaceRequestBody request) throws NamespaceMetadataException {
-    return namespacesApiHandler.createNamespace(request).toResponseEntity();
+    return toResponseEntity(namespacesApiHandler.createNamespace(request));
   }
 
   @Operation(operationId = "getNamespace", tags = "Namespace", summary = "Get namespace metadata.")
@@ -82,7 +84,7 @@ public class NamespacesController {
   @GetMapping("/{namespaceName}")
   public ResponseEntity<NamespaceMetadataResponse> getNamespace(
       @PathVariable("namespaceName") String namespaceName) throws NamespaceMetadataException {
-    return namespacesApiHandler.getNamespace(namespaceName).toResponseEntity();
+    return toResponseEntity(namespacesApiHandler.getNamespace(namespaceName));
   }
 
   @Operation(
@@ -106,7 +108,7 @@ public class NamespacesController {
   @DeleteMapping("/{namespaceName}")
   public ResponseEntity<Void> deleteNamespace(@PathVariable("namespaceName") String namespaceName)
       throws NamespaceMetadataException {
-    return namespacesApiHandler.deleteNamespace(namespaceName).toResponseEntity();
+    return toResponseEntity(namespacesApiHandler.deleteNamespace(namespaceName));
   }
 
   @Operation(
@@ -133,9 +135,7 @@ public class NamespacesController {
       @PathVariable("namespaceName") String namespaceName,
       @RequestBody UpdateNamespacePropertiesRequestBody request)
       throws NamespaceMetadataException {
-    return namespacesApiHandler
-        .updateNamespaceProperties(namespaceName, request)
-        .toResponseEntity();
+    return toResponseEntity(namespacesApiHandler.updateNamespaceProperties(namespaceName, request));
   }
 
   @Hidden

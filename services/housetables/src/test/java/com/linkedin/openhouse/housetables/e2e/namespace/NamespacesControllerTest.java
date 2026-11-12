@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.housetables.e2e.namespace;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -15,10 +16,12 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
@@ -136,6 +139,36 @@ class NamespacesControllerTest {
         .perform(post("/hts/namespaces").contentType(MediaType.APPLICATION_JSON).content(request))
         .andExpect(status().isBadRequest());
     assertThat(repository.count()).isZero();
+  }
+
+  @Test
+  void testInvalidNamespaceInCreateRequestAppearsInErrorMessage() throws Exception {
+    mockMvc
+        .perform(
+            post("/hts/namespaces")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"namespaceName\":\"foo.bar\",\"properties\":{\"foo\":\"bar_secret\"}}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value(containsString("'foo.bar'")))
+        .andExpect(jsonPath("$.message").value(not(containsString("bar_secret"))));
+    assertThat(repository.count()).isZero();
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "GET, /hts/namespaces/foo.bar",
+    "DELETE, /hts/namespaces/foo.bar",
+    "POST, /hts/namespaces/foo.bar/properties"
+  })
+  void testInvalidNamespaceInPathAppearsInErrorMessage(String method, String path)
+      throws Exception {
+    mockMvc
+        .perform(
+            request(HttpMethod.valueOf(method), path)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value(containsString("'foo.bar'")));
   }
 
   @ParameterizedTest
