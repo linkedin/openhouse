@@ -887,7 +887,7 @@ public class ViewsManagedFailureAuditTest {
                 new RuntimeException(SECRET_SCHEMA + " " + SECRET_BASE + " " + SECRET_PAGE_TOKEN)))
         .when(viewAuditHandler)
         .audit(any(ViewAuditEvent.class));
-    double failedAuditsBefore = serviceAuditCount(MetricsConstant.FAILED_SERVICE_AUDIT);
+    double failedAuditsBefore = viewAuditCount(MetricsConstant.FAILED_SERVICE_AUDIT);
 
     MvcResult result = mvc.perform(request).andReturn();
 
@@ -901,8 +901,13 @@ public class ViewsManagedFailureAuditTest {
         "Exactly one operation event is attempted, and it is the acknowledged SUCCESS.");
     assertEquals(
         failedAuditsBefore + 1,
-        serviceAuditCount(MetricsConstant.FAILED_SERVICE_AUDIT),
-        "The delivery failure is reported through the existing failed-audit metric.");
+        viewAuditCount(MetricsConstant.FAILED_SERVICE_AUDIT),
+        "The delivery failure is reported through the view-audit metric.");
+  }
+
+  private double viewAuditCount(String metric) {
+    Counter counter = meterRegistry.find(MetricsConstant.VIEW_AUDIT + "_" + metric).counter();
+    return counter == null ? 0.0 : counter.count();
   }
 
   private double serviceAuditCount(String metric) {

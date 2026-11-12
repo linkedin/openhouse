@@ -51,7 +51,7 @@ import org.springframework.stereotype.Component;
 public class ViewAuditAspect {
 
   private static final MetricsReporter METRICS_REPORTER =
-      MetricsReporter.of(MetricsConstant.SERVICE_AUDIT);
+      MetricsReporter.of(MetricsConstant.VIEW_AUDIT);
 
   private final ClusterProperties clusterProperties;
 

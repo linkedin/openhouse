@@ -22,7 +22,6 @@ import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.audit.CachingRequestBodyFilter;
 import com.linkedin.openhouse.common.exception.handler.OpenHouseExceptionHandler;
-import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
 import com.linkedin.openhouse.tables.api.handler.ViewsApiHandler;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
@@ -347,7 +346,8 @@ public class ViewsApiHandlerAuditTest {
           }
           return original;
         };
-    double failedAuditsBefore = failedServiceAudits();
+    double failedViewAuditsBefore = failedAudits("view_audit_failed_service_audit");
+    double failedServiceAuditsBefore = failedAudits("service_audit_failed_service_audit");
 
     String logs;
     try (Log4j2LogCapture capture = new Log4j2LogCapture()) {
@@ -371,7 +371,8 @@ public class ViewsApiHandlerAuditTest {
         handlerFails ? OperationStatus.FAILED : OperationStatus.SUCCESS,
         singleEvent().getOperationStatus(),
         "Exactly one delivery attempt, never a second FAILED event for the sink's own failure.");
-    assertEquals(failedAuditsBefore + 1, failedServiceAudits());
+    assertEquals(failedViewAuditsBefore + 1, failedAudits("view_audit_failed_service_audit"));
+    assertEquals(failedServiceAuditsBefore, failedAudits("service_audit_failed_service_audit"));
     assertTrue(logs.contains(SINK_FAILURE_DIAGNOSTIC), logs);
     assertFalse(logs.contains("secret"), logs);
     assertFalse(logs.contains(IllegalStateException.class.getName()), logs);
@@ -498,11 +499,8 @@ public class ViewsApiHandlerAuditTest {
     return event.getValue();
   }
 
-  private double failedServiceAudits() {
-    Counter counter =
-        meterRegistry
-            .find(MetricsConstant.SERVICE_AUDIT + "_" + MetricsConstant.FAILED_SERVICE_AUDIT)
-            .counter();
+  private double failedAudits(String metricName) {
+    Counter counter = meterRegistry.find(metricName).counter();
     return counter == null ? 0.0 : counter.count();
   }
 

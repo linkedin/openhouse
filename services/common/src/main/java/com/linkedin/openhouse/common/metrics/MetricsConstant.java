@@ -19,6 +19,7 @@ public final class MetricsConstant {
   public static final String JOBS_SERVICE = "jobs";
   public static final String HOUSETABLES_SERVICE = "housetables";
   public static final String SERVICE_AUDIT = "service_audit";
+  public static final String VIEW_AUDIT = "view_audit";
 
   // Common metric constants section
   public static final String ACTION_TAG = "action";
