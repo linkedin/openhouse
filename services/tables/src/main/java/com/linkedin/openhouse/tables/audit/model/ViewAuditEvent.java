@@ -1,6 +1,7 @@
 package com.linkedin.openhouse.tables.audit.model;
 
 import com.linkedin.openhouse.common.audit.model.BaseAuditEvent;
+import java.time.Instant;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
@@ -8,12 +9,12 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * Data model for auditing each view create/replace/drop operation.
+ * Data model for auditing each view create/replace/drop operation, the view counterpart of {@link
+ * TableAuditEvent}.
  *
- * <p>Populated only from context the service actually reached: the captured occupant (identity, old
- * pointer) and the committed outcome (new pointer), never from a second read or a fabricated value.
- * An ambiguous commit is recorded with {@link OperationStatus#UNKNOWN} and no new pointer. Carries
- * only safe fields: never a {@code Throwable}, a cause, or a stacktrace.
+ * <p>Built at the API handler boundary from the request, the handler's response and the thrown
+ * failure only. It carries no view definition, SQL, schema or properties (the request-level audit
+ * records the submitted request), and never a {@code Throwable}, cause or stacktrace.
  */
 @Builder(toBuilder = true)
 @Getter
@@ -22,33 +23,38 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class ViewAuditEvent extends BaseAuditEvent {
 
+  /** When the handler was entered; audit time, not the view's creation or modification time. */
+  private Instant eventTimestamp;
+
+  /** The serving cluster's configured name, not the response's {@code clusterId}. */
+  private String clusterName;
+
+  /** As requested: the request body's identifier, or the method argument for a drop. */
   private String databaseName;
 
   private String viewName;
 
+  /** The authenticated principal. */
   private String user;
 
-  private String sourceDialect;
-
-  /**
-   * Correlation identifier joining this operation event to the request-level {@code
-   * ServiceAuditEvent} for the same call: the same inbound {@code session-id} header, read once per
-   * request. Included in the operation audit event, not in public view API responses; null when the
-   * header was absent or no request context was bound (e.g. a unit test constructing this
-   * directly).
-   */
-  private String sessionId;
-
+  /** The requested operation on failure; on success what the handler's response reports. */
   private ViewOperationType operationType;
 
   private OperationStatus operationStatus;
 
-  /** The view's identity, from the captured occupant or the committed outcome. */
-  private String viewUUID;
-
-  /** The pointer in effect before this operation; null on create. */
-  private String oldMetadataLocation;
-
-  /** The pointer published by this operation; null on drop and on an unacknowledged commit. */
+  /**
+   * The metadata pointer in the successful create/replace response, which may equal the request's
+   * base pointer for a no-op replace; null on failure and on drop.
+   */
   private String newMetadataLocation;
+
+  /**
+   * Null on success. On failure, the name of a {@code ViewErrorCode}, or {@code ACCESS_DENIED} for
+   * an authorization denial, which has no view error code. {@code COMMIT_STATE_UNKNOWN} means the
+   * commit outcome is uncertain: the operation was reported FAILED, not proven uncommitted.
+   */
+  private String failureCode;
+
+  /** Null on success. On failure, the reason phrase of the HTTP status the failure maps to. */
+  private String failureMessage;
 }
