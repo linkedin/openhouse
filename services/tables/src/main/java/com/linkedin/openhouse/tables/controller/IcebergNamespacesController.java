@@ -121,7 +121,7 @@ public class IcebergNamespacesController {
   @Operation(tags = "Namespace", summary = "Drop an empty namespace")
   @ApiResponse(responseCode = "204", description = "Namespace dropped")
   @DeleteMapping("/{namespace}")
-  @Secured(Privileges.Privilege.DELETE_TABLE)
+  @Secured(Privileges.Privilege.SYSTEM_ADMIN)
   public ResponseEntity<Void> dropNamespace(
       @PathVariable String prefix, @PathVariable String namespace)
       throws NamespaceException, HouseNamespaceException {

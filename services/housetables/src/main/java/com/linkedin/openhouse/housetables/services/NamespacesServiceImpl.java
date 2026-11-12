@@ -71,7 +71,7 @@ public class NamespacesServiceImpl implements NamespacesService {
     return inTransaction(
             () ->
                 repository
-                    .findByNamespaceName(namespaceName.toLowerCase(Locale.ROOT))
+                    .findByNamespaceName(namespaceName)
                     .map(
                         namespace ->
                             NamespaceMetadata.builder()
@@ -91,7 +91,7 @@ public class NamespacesServiceImpl implements NamespacesService {
         inTransaction(
             () ->
                 repository
-                    .findByNamespaceName(namespaceName.toLowerCase(Locale.ROOT))
+                    .findByNamespaceName(namespaceName)
                     .map(
                         namespace -> {
                           repository.delete(namespace);
@@ -116,7 +116,7 @@ public class NamespacesServiceImpl implements NamespacesService {
     return inTransaction(
             () ->
                 repository
-                    .findByNamespaceName(namespaceName.toLowerCase(Locale.ROOT))
+                    .findByNamespaceName(namespaceName)
                     .map(
                         namespace -> {
                           // Empty updates also participate in optimistic concurrency checks.

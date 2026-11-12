@@ -2,6 +2,7 @@ package com.linkedin.openhouse.tables.config;
 
 import static com.linkedin.openhouse.tables.config.TablesMvcConstants.*;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.cluster.metrics.TagUtils;
 import com.linkedin.openhouse.cluster.storage.FsStorageUtils;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
@@ -38,6 +39,7 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.springdoc.core.customizers.OpenApiCustomiser;
+import org.springframework.beans.factory.BeanCreationException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.autoconfigure.metrics.MeterRegistryCustomizer;
 import org.springframework.boot.actuate.metrics.web.servlet.WebMvcTagsContributor;
@@ -56,17 +58,26 @@ public class MainApplicationConfig extends BaseApplicationConfig {
   private static final int IN_MEMORY_BUFFER_SIZE = 40 * 1024 * 1024;
 
   private static final int DNS_QUERY_TIMEOUT_SECONDS = 10;
+  // Reactor Netty permits the initial send and one eligible connection-reset resend.
+  private static final int LEGACY_TOTAL_TRANSPORT_ATTEMPTS = 2;
+  private static final int NAMESPACE_TOTAL_TRANSPORT_ATTEMPTS = 1;
 
   @Autowired StorageManager storageManager;
 
   @Bean
   public UserTableApi provideApiInstance() {
-    return new UserTableApi(getHtsConfiguredApiClient(false));
+    return new UserTableApi(
+        getHtsConfiguredApiClient(
+            LEGACY_TOTAL_TRANSPORT_ATTEMPTS, ApiClient.createDefaultObjectMapper(null)));
   }
 
   @Bean
   public NamespaceApi provideNamespaceApiInstance() {
-    return new NamespaceApi(getHtsConfiguredApiClient(true));
+    return new NamespaceApi(
+        getHtsConfiguredApiClient(
+            NAMESPACE_TOTAL_TRANSPORT_ATTEMPTS,
+            ApiClient.createDefaultObjectMapper(null)
+                .registerModule(new HouseNamespaceResponseModule())));
   }
 
   @Bean
@@ -81,7 +92,9 @@ public class MainApplicationConfig extends BaseApplicationConfig {
    */
   @Bean
   public ToggleStatusApi provideToggleApiInstance() {
-    return new ToggleStatusApi(getHtsConfiguredApiClient(false));
+    return new ToggleStatusApi(
+        getHtsConfiguredApiClient(
+            LEGACY_TOTAL_TRANSPORT_ATTEMPTS, ApiClient.createDefaultObjectMapper(null)));
   }
 
   /**
@@ -90,7 +103,11 @@ public class MainApplicationConfig extends BaseApplicationConfig {
    *
    * @return API instance for HTS client.
    */
-  private ApiClient getHtsConfiguredApiClient(boolean disableRetries) {
+  private ApiClient getHtsConfiguredApiClient(
+      int totalTransportAttempts, ObjectMapper objectMapper) {
+    if (totalTransportAttempts != 1 && totalTransportAttempts != 2) {
+      throw new BeanCreationException("Total transport attempts must be 1 or 2 for Reactor Netty");
+    }
     String htsBasePath = clusterProperties.getClusterHouseTablesBaseUri();
     // Not able to leverage HousetablesApiClientFactory due to cyclic dependency
     // The default DNS query timeout is 5 sec for NameResolverProvider. Increasing this to 10 sec to
@@ -101,11 +118,9 @@ public class MainApplicationConfig extends BaseApplicationConfig {
                 HttpConnectionPoolProviderConfig.getCustomConnectionProvider(
                     "tables-hts-custom-connection-pool"))
             .resolver(spec -> spec.queryTimeout(Duration.ofSeconds(DNS_QUERY_TIMEOUT_SECONDS)))
-            .disableRetry(disableRetries);
+            .disableRetry(totalTransportAttempts == 1);
     WebClient webClient =
-        ApiClient.buildWebClientBuilder(
-                ApiClient.createDefaultObjectMapper(null)
-                    .registerModule(new HouseNamespaceResponseModule()))
+        ApiClient.buildWebClientBuilder(objectMapper)
             .baseUrl(htsBasePath)
             .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(IN_MEMORY_BUFFER_SIZE))
             .clientConnector(new ReactorClientHttpConnector(httpClient))

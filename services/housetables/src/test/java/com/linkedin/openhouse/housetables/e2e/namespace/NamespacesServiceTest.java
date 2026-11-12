@@ -32,6 +32,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -77,14 +78,14 @@ class NamespacesServiceTest {
     NamespaceMetadata created = namespacesService.createNamespace("Namespace_Foo", properties);
     assertThat(UUID.fromString(created.getNamespaceUuid()).toString())
         .isEqualTo(created.getNamespaceUuid());
-    assertThat(created.getNamespaceName()).isEqualTo("namespace_foo");
+    assertThat(created.getNamespaceName()).isEqualTo("Namespace_Foo");
     assertThat(namespacesService.getNamespace("NAMESPACE_FOO")).isEqualTo(created);
     assertThat(namespacesService.getNamespace("namespace_foo").getProperties())
         .containsExactlyInAnyOrderEntriesOf(properties);
     assertThat(repository.findById(created.getNamespaceUuid()))
         .get()
         .extracting(NamespaceRow::getNamespaceName)
-        .isEqualTo("namespace_foo");
+        .isEqualTo("Namespace_Foo");
     assertThat(
             new JdbcTemplate(dataSource)
                 .queryForObject(
@@ -101,7 +102,7 @@ class NamespacesServiceTest {
   void testSparseUpdatePreservesIdentityAndOmittedProperties() throws NamespaceMetadataException {
     NamespaceMetadata created =
         namespacesService.createNamespace(
-            "namespace_foo", Map.of("foo", "one", "bar", "two", "keep", "three", "FOO", "four"));
+            "Namespace_Foo", Map.of("foo", "one", "bar", "two", "keep", "three", "FOO", "four"));
     long version = repository.findById(created.getNamespaceUuid()).orElseThrow().getVersion();
     NamespacePropertyUpdate response =
         namespacesService.updateNamespaceProperties(
@@ -111,6 +112,8 @@ class NamespacesServiceTest {
     assertThat(response.getMissing()).containsExactly("missing");
     assertThat(namespacesService.getNamespace("namespace_foo").getNamespaceUuid())
         .isEqualTo(created.getNamespaceUuid());
+    assertThat(namespacesService.getNamespace("namespace_foo").getNamespaceName())
+        .isEqualTo("Namespace_Foo");
     assertThat(namespacesService.getNamespace("namespace_foo").getProperties())
         .containsExactlyInAnyOrderEntriesOf(
             Map.of("foo", "five", "baz", "six", "keep", "three", "FOO", "four"));
@@ -125,7 +128,7 @@ class NamespacesServiceTest {
   }
 
   @Test
-  void testOverlapFailsWithoutMutationAndEmptyUpdateSucceeds() throws NamespaceMetadataException {
+  void testOverlapFailsWithoutMutation() throws NamespaceMetadataException {
     NamespaceMetadata created =
         namespacesService.createNamespace("namespace_foo", Map.of("foo", "one"));
     assertThatThrownBy(
@@ -134,6 +137,12 @@ class NamespacesServiceTest {
                     "namespace_foo", Map.of("foo", "two"), Set.of("foo")))
         .isInstanceOf(InvalidNamespacePropertyUpdateException.class);
     assertThat(namespacesService.getNamespace("namespace_foo")).isEqualTo(created);
+  }
+
+  @Test
+  void testEmptyUpdatePreservesMetadata() throws NamespaceMetadataException {
+    NamespaceMetadata created =
+        namespacesService.createNamespace("namespace_foo", Map.of("foo", "one"));
     NamespacePropertyUpdate response =
         namespacesService.updateNamespaceProperties("namespace_foo", Map.of(), Set.of());
     assertThat(response.getUpdated()).isEmpty();
@@ -164,7 +173,7 @@ class NamespacesServiceTest {
         jdbcTemplate.queryForMap(
             "SELECT * FROM user_table_row WHERE database_id = 'namespace_metadata_foo'");
     NamespaceMetadata created =
-        namespacesService.createNamespace("namespace_metadata_foo", Map.of("foo", "one"));
+        namespacesService.createNamespace("Namespace_Metadata_Foo", Map.of("foo", "one"));
     namespacesService.deleteNamespace("NAMESPACE_METADATA_FOO");
     assertThat(repository.findById(created.getNamespaceUuid())).isEmpty();
     assertThat(
@@ -191,6 +200,41 @@ class NamespacesServiceTest {
                 .createNamespace("namespace_metadata_foo", Collections.emptyMap())
                 .getNamespaceUuid())
         .isNotEqualTo(created.getNamespaceUuid());
+  }
+
+  @Test
+  void testConcurrentCaseVariantsCreateOneIdentity() throws Exception {
+    CyclicBarrier start = new CyclicBarrier(2);
+    ExecutorService executor = Executors.newFixedThreadPool(2);
+    try {
+      List<Callable<Optional<NamespaceMetadata>>> creations =
+          Arrays.asList("Namespace_Foo", "NAMESPACE_FOO").stream()
+              .map(
+                  name ->
+                      (Callable<Optional<NamespaceMetadata>>)
+                          () -> {
+                            start.await(10, TimeUnit.SECONDS);
+                            try {
+                              return Optional.of(namespacesService.createNamespace(name, Map.of()));
+                            } catch (NamespaceAlreadyExistsException exception) {
+                              return Optional.empty();
+                            }
+                          })
+              .collect(Collectors.toList());
+      List<Future<Optional<NamespaceMetadata>>> results =
+          executor.invokeAll(creations, 20, TimeUnit.SECONDS);
+      Optional<NamespaceMetadata> first = results.get(0).get();
+      Optional<NamespaceMetadata> second = results.get(1).get();
+      assertThat(Arrays.asList(first.isPresent(), second.isPresent()))
+          .containsExactlyInAnyOrder(true, false);
+      NamespaceMetadata stored = namespacesService.getNamespace("namespace_foo");
+      assertThat(stored).isEqualTo(first.orElseGet(second::get));
+      assertThat(stored.getNamespaceName()).isIn("Namespace_Foo", "NAMESPACE_FOO");
+      assertThat(repository.count()).isEqualTo(1);
+    } finally {
+      executor.shutdownNow();
+      assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+    }
   }
 
   @Test

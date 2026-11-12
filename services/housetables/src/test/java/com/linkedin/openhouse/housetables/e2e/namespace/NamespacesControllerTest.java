@@ -46,7 +46,7 @@ class NamespacesControllerTest {
                     .content(
                         "{\"namespaceName\":\"Namespace_Foo\",\"properties\":{\"foo\":\"one\"}}"))
             .andExpect(status().isCreated())
-            .andExpect(jsonPath("$.namespaceName").value("namespace_foo"))
+            .andExpect(jsonPath("$.namespaceName").value("Namespace_Foo"))
             .andExpect(jsonPath("$.databaseName").doesNotExist())
             .andExpect(jsonPath("$.databaseUuid").doesNotExist())
             .andExpect(jsonPath("$.properties.foo").value("one"))
@@ -58,7 +58,7 @@ class NamespacesControllerTest {
     mockMvc
         .perform(get("/hts/namespaces/NAMESPACE_FOO"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.namespaceName").value("namespace_foo"))
+        .andExpect(jsonPath("$.namespaceName").value("Namespace_Foo"))
         .andExpect(jsonPath("$.namespaceUuid").value(namespaceUuid));
     mockMvc
         .perform(

@@ -11,7 +11,7 @@ public class NamespaceMetadataResponse {
   @Schema(description = "Immutable server-generated UUID.", required = true)
   String namespaceUuid;
 
-  @Schema(description = "Canonical lowercase namespace name.", required = true)
+  @Schema(description = "Namespace name with its original insertion spelling.", required = true)
   String namespaceName;
 
   @Schema(description = "Namespace properties with case-sensitive keys.", required = true)

@@ -12,11 +12,13 @@ import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
 import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepositoryImpl;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
+import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.controller.IcebergNamespacesController;
 import com.linkedin.openhouse.tables.exception.NamespaceExceptionHandler;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.services.TablesServiceImpl;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
+import java.util.Map;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,6 +33,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 /** Exercises Tables HTTP translation through the generated HTS client and a live H2 service. */
@@ -53,12 +56,13 @@ class IcebergNamespacesH2Test {
   @LocalServerPort private int port;
   @Autowired private DataSource dataSource;
   private MockMvc mvc;
+  private AuthorizationHandler authorizationHandler;
 
   @BeforeEach
   void setUp() {
     ApiClient client = new ApiClient();
     client.setBasePath("http://localhost:" + port);
-    AuthorizationHandler authorizationHandler = mock(AuthorizationHandler.class);
+    authorizationHandler = mock(AuthorizationHandler.class);
     when(authorizationHandler.checkAccessDecision(anyString(), any(DatabaseDto.class), any()))
         .thenReturn(true);
     AuthorizationUtils authorizationUtils = new AuthorizationUtils();
@@ -82,7 +86,7 @@ class IcebergNamespacesH2Test {
             post("/v1/foo/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
-                    "{\"namespace\":[\"roundtrip\"],\"properties\":{\"a\":\"1\",\"b\":\"2\"}}"))
+                    "{\"namespace\":[\"RoundTrip\"],\"properties\":{\"a\":\"1\",\"b\":\"2\"}}"))
         .andExpect(status().isOk());
     mvc.perform(
             post("/v1/foo/namespaces")
@@ -101,10 +105,49 @@ class IcebergNamespacesH2Test {
         .andExpect(
             content()
                 .json(
-                    "{\"namespace\":[\"roundtrip\"],\"properties\":{\"a\":\"1\",\"c\":\"3\"}}",
+                    "{\"namespace\":[\"RoundTrip\"],\"properties\":{\"a\":\"1\",\"c\":\"3\"}}",
                     true));
     mvc.perform(delete("/v1/foo/namespaces/roundtrip")).andExpect(status().isNoContent());
     mvc.perform(get("/v1/foo/namespaces/roundtrip")).andExpect(status().isNotFound());
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"create", "update", "drop"})
+  void deniedMutationsPreserveStoredMetadata(String operation) throws Exception {
+    mvc.perform(
+            post("/v1/foo/namespaces")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"namespace\":[\"denied_" + operation + "\"],\"properties\":{\"a\":\"1\"}}"))
+        .andExpect(status().isOk());
+    JdbcTemplate database = new JdbcTemplate(dataSource);
+    Map<String, Object> before =
+        database.queryForMap(
+            "SELECT * FROM catalog_namespaces WHERE namespace_name = ?", "denied_" + operation);
+    when(authorizationHandler.checkAccessDecision(
+            anyString(), any(DatabaseDto.class), eq(Privileges.SYSTEM_ADMIN)))
+        .thenReturn(false);
+    Map<String, MockHttpServletRequestBuilder> requests =
+        Map.of(
+            "create",
+                post("/v1/foo/namespaces")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"namespace\":[\"new_denied\"]}"),
+            "update",
+                post("/v1/foo/namespaces/denied_update/properties")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"updates\":{\"a\":\"2\"}}"),
+            "drop", delete("/v1/foo/namespaces/denied_drop"));
+    mvc.perform(requests.get(operation)).andExpect(status().isForbidden());
+    assertEquals(
+        before,
+        database.queryForMap(
+            "SELECT * FROM catalog_namespaces WHERE namespace_name = ?", "denied_" + operation));
+    assertEquals(
+        0,
+        database.queryForObject(
+            "SELECT COUNT(*) FROM catalog_namespaces WHERE namespace_name = 'new_denied'",
+            Integer.class));
   }
 
   @ParameterizedTest

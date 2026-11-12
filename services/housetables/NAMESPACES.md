@@ -1,26 +1,41 @@
-# Independent namespace metadata
+# Namespace metadata administration
 
-Namespace properties live as one JSON document in `catalog_namespaces`, alongside the namespace's
-immutable UUID, canonical lowercase name, and version. Every metadata read needs the
-whole map, so a single row matches the access pattern. A sparse update rewrites the document;
-its storage cost grows with the map size.
+Namespace metadata stores optional defaults for consumers that explicitly request effective
+table properties. Ordinary table operations remain independent of these records. Explicit
+table properties take precedence over defaults.
 
-## Storage
+Administrators manage defaults through the public namespace API. Creating, updating, and
+dropping metadata require SYSTEM_ADMIN; metadata reads use GET_TABLE_METADATA. The internal
+House Tables API persists the metadata and is intended for service callers.
 
-The document uses a JPA converter and a `LONGTEXT` column, with the same representation in
-MySQL and H2. JSON preserves property spelling independently of database collation.
-The lowercase name has a unique index; the UUID is the primary key. Requests accept mixed
-case, and metadata responses return the lowercase name. Original capitalization is not stored.
+## Names and property changes
 
-Sparse updates read the row, preserve unspecified keys, assign a replacement map, and commit
-within a transaction. Optimistic version checks reject competing updates and stale deletes,
-including empty updates. A failed transaction rolls back the whole document.
-The HTTP handler translates wire objects to service models and checked failures to HTTP errors.
-Deleting namespace metadata leaves table rows and files untouched.
+Names resolve case-insensitively and retain their insertion spelling. Creating `Finance`
+and then requesting `FINANCE` returns the same identity and the name `Finance`. A duplicate
+create with another spelling fails without replacing the existing record. Existing lowercase
+records retain their spelling.
+
+Updates set the supplied keys and remove the requested keys while retaining all other
+properties. Property names are case-sensitive. A namespace keeps its UUID across updates;
+dropping and recreating it creates a new UUID. Concurrent edits can conflict, including
+an empty update. After a conflict, read the current properties and decide whether the intended
+edit still applies before submitting it again.
 
 Create, update, and removal keys must contain well-formed Unicode and at most 512 UTF-16 code
 units. Empty keys, spaces, accents, case differences, and supplementary characters round-trip.
 Unpaired surrogates and overlength keys return HTTP 400 before persistence.
+
+## Deletion and recovery
+
+Deleting namespace metadata leaves table metadata and files intact. The public API rejects
+drop while a table or view occupies the namespace. Table creation and metadata deletion are
+independent, so a concurrent table create can succeed even when a namespace drop succeeds.
+A namespace record is not a mandatory parent of a table.
+
+A lost response does not establish whether a mutation committed. Read the metadata and
+reconcile its identity and properties with the intended change before retrying. In particular,
+a repeated create can encounter an existing record and a repeated delete can encounter an
+absent record after the original request succeeded.
 
 ## Local MySQL validation
 
@@ -28,7 +43,7 @@ The service tests exercise persistence through Spring and Hibernate on H2 and lo
 They cover exact strings, UUID stability, sparse updates, optimistic conflicts and rollback,
 empty maps, and table independence. HTTP tests cover request validation and error responses.
 
-Current-schema MySQL plans use `uq_namespace_name` for normalized-name reads and `PRIMARY`
+Current-schema MySQL plans use `uq_namespace_name` for case-insensitive name reads and `PRIMARY`
 for UUID reads and versioned updates/deletes. The read plans return one row.
 Write plans were checked with `EXPLAIN` only; those statements were not executed.
 

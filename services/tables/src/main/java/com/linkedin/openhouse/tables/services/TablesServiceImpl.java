@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.tables.services;
 
 import static com.linkedin.openhouse.common.utils.PageableUtil.createPageable;
-import static com.linkedin.openhouse.tables.exception.NamespaceException.Reason.*;
 
 import com.linkedin.openhouse.common.api.spec.TableUri;
 import com.linkedin.openhouse.common.exception.AlreadyExistsException;
@@ -17,7 +16,7 @@ import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException.Reason;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceNotFoundException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
@@ -29,7 +28,12 @@ import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
+import com.linkedin.openhouse.tables.exception.InvalidNamespaceException;
+import com.linkedin.openhouse.tables.exception.InvalidNamespacePropertiesException;
+import com.linkedin.openhouse.tables.exception.NamespaceAccessDeniedException;
+import com.linkedin.openhouse.tables.exception.NamespaceAuthorizationUnavailableException;
 import com.linkedin.openhouse.tables.exception.NamespaceException;
+import com.linkedin.openhouse.tables.exception.NamespaceNotEmptyException;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.readbridge.ClientCapabilityGate;
@@ -81,7 +85,7 @@ public class TablesServiceImpl implements TablesService, NamespacesService {
       List<String> namespace, Map<String, String> properties, String principal)
       throws NamespaceException, HouseNamespaceException {
     if (namespace.size() != 1) {
-      throw new NamespaceException(INVALID_NAMESPACE, "Exactly one namespace level is required");
+      throw new InvalidNamespaceException("Exactly one namespace level is required");
     }
     authorizeNamespace(namespace.get(0), principal, Privileges.SYSTEM_ADMIN);
     return namespaceRepository.create(namespace.get(0), properties);
@@ -93,7 +97,7 @@ public class TablesServiceImpl implements TablesService, NamespacesService {
     authorizeNamespace(namespace, principal, Privileges.GET_TABLE_METADATA);
     return namespaceRepository
         .findByName(namespace)
-        .orElseThrow(() -> new HouseNamespaceException(Reason.NOT_FOUND));
+        .orElseThrow(HouseNamespaceNotFoundException::new);
   }
 
   @Override
@@ -102,8 +106,7 @@ public class TablesServiceImpl implements TablesService, NamespacesService {
       throws NamespaceException, HouseNamespaceException {
     authorizeNamespace(namespace, principal, Privileges.SYSTEM_ADMIN);
     if (!Collections.disjoint(updates.keySet(), removals)) {
-      throw new NamespaceException(
-          INVALID_PROPERTIES, "Updates and removals must use disjoint keys");
+      throw new InvalidNamespacePropertiesException("Updates and removals must use disjoint keys");
     }
     return namespaceRepository.updateProperties(namespace, updates, removals);
   }
@@ -111,12 +114,10 @@ public class TablesServiceImpl implements TablesService, NamespacesService {
   @Override
   public void dropNamespace(String namespace, String principal)
       throws NamespaceException, HouseNamespaceException {
-    authorizeNamespace(namespace, principal, Privileges.DELETE_TABLE);
-    namespaceRepository
-        .findByName(namespace)
-        .orElseThrow(() -> new HouseNamespaceException(Reason.NOT_FOUND));
+    authorizeNamespace(namespace, principal, Privileges.SYSTEM_ADMIN);
+    namespaceRepository.findByName(namespace).orElseThrow(HouseNamespaceNotFoundException::new);
     if (namespaceRepository.containsEntities(namespace)) {
-      throw new NamespaceException(NOT_EMPTY, "Namespace contains tables or views");
+      throw new NamespaceNotEmptyException("Namespace contains tables or views");
     }
     namespaceRepository.delete(namespace);
   }
@@ -124,18 +125,17 @@ public class TablesServiceImpl implements TablesService, NamespacesService {
   private void authorizeNamespace(String namespace, String principal, Privileges privilege)
       throws NamespaceException {
     if (!namespace.matches("[a-zA-Z0-9_]{1,128}")) {
-      throw new NamespaceException(
-          INVALID_NAMESPACE,
+      throw new InvalidNamespaceException(
           "Namespace must be one namespace name of at most 128 letters, digits, or underscores");
     }
     try {
       authorizationUtils.checkDatabasePrivilege(
           namespace.toLowerCase(Locale.ROOT), principal, privilege);
     } catch (AuthorizationServiceException exception) {
-      throw new NamespaceException(
-          AUTHORIZATION_UNAVAILABLE, "Authorization service unavailable", exception);
+      throw new NamespaceAuthorizationUnavailableException(
+          "Authorization service unavailable", exception);
     } catch (AccessDeniedException exception) {
-      throw new NamespaceException(ACCESS_DENIED, "Access denied", exception);
+      throw new NamespaceAccessDeniedException("Access denied", exception);
     }
   }
 

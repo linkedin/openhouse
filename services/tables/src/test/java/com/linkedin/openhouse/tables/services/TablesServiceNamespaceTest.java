@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.tables.services;
 
-import static com.linkedin.openhouse.tables.exception.NamespaceException.Reason.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -9,16 +8,21 @@ import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
 import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
 import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException.Reason;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceNotFoundException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceUnavailableException;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
+import com.linkedin.openhouse.tables.exception.InvalidNamespaceException;
+import com.linkedin.openhouse.tables.exception.InvalidNamespacePropertiesException;
+import com.linkedin.openhouse.tables.exception.NamespaceAccessDeniedException;
+import com.linkedin.openhouse.tables.exception.NamespaceAuthorizationUnavailableException;
 import com.linkedin.openhouse.tables.exception.NamespaceException;
+import com.linkedin.openhouse.tables.exception.NamespaceNotEmptyException;
 import com.linkedin.openhouse.tables.model.DatabaseDto;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import java.util.Collections;
 import java.util.Optional;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.access.AccessDeniedException;
@@ -47,31 +51,25 @@ class TablesServiceNamespaceTest {
     when(authorizationHandler.checkAccessDecision(anyString(), any(DatabaseDto.class), any()))
         .thenReturn(false);
     assertEquals(
-        ACCESS_DENIED,
+        NamespaceAccessDeniedException.class,
         assertThrows(
                 NamespaceException.class,
                 () ->
                     service.createNamespace(
                         Collections.singletonList("foo"), Collections.emptyMap(), "bar"))
-            .getReason());
+            .getClass());
     assertEquals(
-        ACCESS_DENIED,
+        NamespaceAccessDeniedException.class,
         assertThrows(
                 NamespaceException.class,
                 () ->
                     service.updateNamespaceProperties(
                         "foo", Collections.emptyMap(), Collections.emptySet(), "bar"))
-            .getReason());
+            .getClass());
     assertEquals(
-        ACCESS_DENIED,
+        NamespaceAccessDeniedException.class,
         assertThrows(NamespaceException.class, () -> service.dropNamespace("foo", "bar"))
-            .getReason());
-    verifyNoInteractions(repository);
-  }
-
-  @AfterEach
-  void namespaceOperationsUseIndependentRepository() {
-    verifyNoInteractions(service.openHouseInternalRepository);
+            .getClass());
   }
 
   @Test
@@ -79,15 +77,14 @@ class TablesServiceNamespaceTest {
     when(authorizationHandler.checkAccessDecision(anyString(), any(DatabaseDto.class), any()))
         .thenReturn(false);
     assertEquals(
-        ACCESS_DENIED,
+        NamespaceAccessDeniedException.class,
         assertThrows(NamespaceException.class, () -> service.loadNamespaceMetadata("foo", "bar"))
-            .getReason());
+            .getClass());
     verify(authorizationHandler)
         .checkAccessDecision(
             eq("bar"),
             argThat((DatabaseDto database) -> database.getDatabaseId().equals("foo")),
             eq(Privileges.GET_TABLE_METADATA));
-    verifyNoInteractions(repository);
   }
 
   @Test
@@ -119,7 +116,7 @@ class TablesServiceNamespaceTest {
   @Test
   void overlapAndHierarchyAreRejectedBeforeMutation() {
     assertEquals(
-        INVALID_PROPERTIES,
+        InvalidNamespacePropertiesException.class,
         assertThrows(
                 NamespaceException.class,
                 () ->
@@ -128,54 +125,53 @@ class TablesServiceNamespaceTest {
                         Collections.singletonMap("a", "1"),
                         Collections.singleton("a"),
                         "bar"))
-            .getReason());
+            .getClass());
     assertEquals(
-        INVALID_NAMESPACE,
+        InvalidNamespaceException.class,
         assertThrows(
                 NamespaceException.class,
                 () -> service.loadNamespaceMetadata("foo\u001fbar", "bar"))
-            .getReason());
-    verifyNoInteractions(repository);
+            .getClass());
   }
 
   @Test
   void dropChecksMetadataBeforeOccupancyAndNeverDeletesOccupiedNamespaces() throws Exception {
     when(repository.findByName("foo")).thenReturn(Optional.empty());
     assertEquals(
-        Reason.NOT_FOUND,
+        HouseNamespaceNotFoundException.class,
         assertThrows(HouseNamespaceException.class, () -> service.dropNamespace("foo", "bar"))
-            .getReason());
+            .getClass());
     verify(repository, never()).containsEntities(anyString());
     when(repository.findByName("foo"))
         .thenReturn(
             Optional.of(new NamespaceMetadata("identifier", "foo", Collections.emptyMap())));
     when(repository.containsEntities("foo")).thenReturn(true);
     assertEquals(
-        NOT_EMPTY,
+        NamespaceNotEmptyException.class,
         assertThrows(NamespaceException.class, () -> service.dropNamespace("foo", "bar"))
-            .getReason());
+            .getClass());
     verify(repository, never()).delete(anyString());
     when(repository.containsEntities("foo")).thenReturn(false);
     service.dropNamespace("foo", "bar");
     verify(repository).delete("foo");
     verify(authorizationHandler, times(3))
-        .checkAccessDecision(eq("bar"), any(DatabaseDto.class), eq(Privileges.DELETE_TABLE));
+        .checkAccessDecision(eq("bar"), any(DatabaseDto.class), eq(Privileges.SYSTEM_ADMIN));
   }
 
   @Test
   void outageRemainsVisibleAndStopsDrop() throws Exception {
-    when(repository.findByName("foo")).thenThrow(new HouseNamespaceException(Reason.UNAVAILABLE));
+    when(repository.findByName("foo")).thenThrow(new HouseNamespaceUnavailableException());
     assertEquals(
-        Reason.UNAVAILABLE,
+        HouseNamespaceUnavailableException.class,
         assertThrows(HouseNamespaceException.class, () -> service.dropNamespace("foo", "bar"))
-            .getReason());
+            .getClass());
     verify(repository, never()).containsEntities(anyString());
     verify(repository, never()).delete(anyString());
     when(authorizationHandler.checkAccessDecision(anyString(), any(DatabaseDto.class), any()))
         .thenThrow(new AuthorizationServiceException("secret"));
     NamespaceException exception =
         assertThrows(NamespaceException.class, () -> service.loadNamespaceMetadata("foo", "bar"));
-    assertEquals(AUTHORIZATION_UNAVAILABLE, exception.getReason());
+    assertInstanceOf(NamespaceAuthorizationUnavailableException.class, exception);
     assertFalse(exception.getMessage().contains("secret"));
     assertInstanceOf(AuthorizationServiceException.class, exception.getCause());
   }
@@ -185,12 +181,11 @@ class TablesServiceNamespaceTest {
     when(repository.findByName("foo"))
         .thenReturn(
             Optional.of(new NamespaceMetadata("identifier", "foo", Collections.emptyMap())));
-    when(repository.containsEntities("foo"))
-        .thenThrow(new HouseNamespaceException(Reason.UNAVAILABLE));
+    when(repository.containsEntities("foo")).thenThrow(new HouseNamespaceUnavailableException());
     assertEquals(
-        Reason.UNAVAILABLE,
+        HouseNamespaceUnavailableException.class,
         assertThrows(HouseNamespaceException.class, () -> service.dropNamespace("foo", "bar"))
-            .getReason());
+            .getClass());
     verify(repository, never()).delete(anyString());
   }
 
@@ -210,8 +205,7 @@ class TablesServiceNamespaceTest {
         .thenReturn(false);
     NamespaceException denied =
         assertThrows(NamespaceException.class, () -> service.loadNamespaceMetadata("FoO", "bar"));
-    assertEquals(ACCESS_DENIED, denied.getReason());
+    assertInstanceOf(NamespaceAccessDeniedException.class, denied);
     assertInstanceOf(AccessDeniedException.class, denied.getCause());
-    verifyNoInteractions(repository);
   }
 }

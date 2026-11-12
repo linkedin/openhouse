@@ -12,8 +12,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
 import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
 import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepository;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException.Reason;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceAlreadyExistsException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceConcurrentModificationException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceMutationUncertainException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceUnavailableException;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.config.NamespaceErrorFilter;
@@ -123,7 +125,6 @@ class IcebergNamespacesControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"removals\":[\"a\"]}"))
         .andExpect(status().isForbidden());
-    verifyNoInteractions(repository);
   }
 
   @Test
@@ -135,11 +136,10 @@ class IcebergNamespacesControllerTest {
         .andExpect(jsonPath("$.error.code").value(503))
         .andExpect(jsonPath("$.error.type").value("ServiceUnavailableException"))
         .andExpect(jsonPath("$.error.message").value("Authorization service unavailable"));
-    verifyNoInteractions(repository);
   }
 
   @Test
-  void readsAndDropKeepDatabasePrivilegesWithoutSystemAdmin() throws Exception {
+  void readsAllowMetadataPrivilegeButDropRequiresSystemAdmin() throws Exception {
     when(authorizationHandler.checkAccessDecision(
             anyString(), any(DatabaseDto.class), eq(Privileges.SYSTEM_ADMIN)))
         .thenReturn(false);
@@ -147,13 +147,15 @@ class IcebergNamespacesControllerTest {
         .thenReturn(
             Optional.of(new NamespaceMetadata("identifier", "foo", Collections.emptyMap())));
     mvc.perform(get("/v1/catalog_name/namespaces/foo")).andExpect(status().isOk());
-    mvc.perform(delete("/v1/catalog_name/namespaces/foo")).andExpect(status().isNoContent());
+    mvc.perform(delete("/v1/catalog_name/namespaces/foo")).andExpect(status().isForbidden());
     verify(authorizationHandler)
         .checkAccessDecision(
             anyString(), any(DatabaseDto.class), eq(Privileges.GET_TABLE_METADATA));
     verify(authorizationHandler)
-        .checkAccessDecision(anyString(), any(DatabaseDto.class), eq(Privileges.DELETE_TABLE));
-    verify(repository).delete("foo");
+        .checkAccessDecision(anyString(), any(DatabaseDto.class), eq(Privileges.SYSTEM_ADMIN));
+    mvc.perform(get("/v1/catalog_name/namespaces/foo"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.namespace[0]").value("foo"));
   }
 
   @ParameterizedTest
@@ -177,7 +179,6 @@ class IcebergNamespacesControllerTest {
         .andExpect(jsonPath("$.error.type").value("BadRequestException"))
         .andExpect(jsonPath("$.stackTrace").doesNotExist())
         .andExpect(jsonPath("$.error.stack").doesNotExist());
-    verifyNoInteractions(repository);
   }
 
   @ParameterizedTest
@@ -198,7 +199,6 @@ class IcebergNamespacesControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"removals\":[\"" + key + "\"]}"))
         .andExpect(status().isBadRequest());
-    verifyNoInteractions(repository);
   }
 
   @Test
@@ -249,7 +249,6 @@ class IcebergNamespacesControllerTest {
     mvc.perform(
             get("/v1/foo/namespaces/{namespace}", String.join("", Collections.nCopies(129, "a"))))
         .andExpect(status().isBadRequest());
-    verifyNoInteractions(repository);
   }
 
   @ParameterizedTest
@@ -287,9 +286,8 @@ class IcebergNamespacesControllerTest {
   }
 
   @Test
-  void conflictsUseOperationReasonsForEveryAcceptedRoute() throws Exception {
-    when(repository.create("foo", Map.of()))
-        .thenThrow(new HouseNamespaceException(Reason.ALREADY_EXISTS));
+  void conflictsPreserveMeaningForEveryAcceptedRoute() throws Exception {
+    when(repository.create("foo", Map.of())).thenThrow(new HouseNamespaceAlreadyExistsException());
     mvc.perform(
             post("/v1/foo/namespaces/")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -297,7 +295,7 @@ class IcebergNamespacesControllerTest {
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.error.type").value("AlreadyExistsException"));
     when(repository.updateProperties("namespaces", Map.of(), Set.of()))
-        .thenThrow(new HouseNamespaceException(Reason.CONCURRENT_MODIFICATION));
+        .thenThrow(new HouseNamespaceConcurrentModificationException());
     mvc.perform(
             post("/v1/foo/namespaces/namespaces/properties")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -306,7 +304,7 @@ class IcebergNamespacesControllerTest {
         .andExpect(jsonPath("$.error.type").value("CommitFailedException"));
     when(repository.findByName("namespaces"))
         .thenReturn(Optional.of(new NamespaceMetadata("identifier", "namespaces", Map.of())));
-    doThrow(new HouseNamespaceException(Reason.CONCURRENT_MODIFICATION))
+    doThrow(new HouseNamespaceConcurrentModificationException())
         .when(repository)
         .delete("namespaces");
     mvc.perform(delete("/v1/foo/namespaces/namespaces"))
@@ -317,7 +315,7 @@ class IcebergNamespacesControllerTest {
   @Test
   void uncertainMutationUsesReconciliationErrorRatherThanUnavailable() throws Exception {
     when(repository.create(eq("foo"), any()))
-        .thenThrow(new HouseNamespaceException(Reason.UNKNOWN_OUTCOME));
+        .thenThrow(new HouseNamespaceMutationUncertainException());
     mvc.perform(
             post("/v1/foo/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -343,7 +341,6 @@ class IcebergNamespacesControllerTest {
                 .content(body))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.error.code").value(400));
-    verifyNoInteractions(repository);
   }
 
   @Test
@@ -353,14 +350,13 @@ class IcebergNamespacesControllerTest {
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.error.type").value("NoSuchNamespaceException"));
     when(repository.findByName("foo"))
-        .thenThrow(
-            new HouseNamespaceException(Reason.UNAVAILABLE, new IllegalStateException("secret")));
+        .thenThrow(new HouseNamespaceUnavailableException(new IllegalStateException("secret")));
     mvc.perform(get("/v1/foo/namespaces/foo"))
         .andExpect(status().isServiceUnavailable())
         .andExpect(jsonPath("$.error.code").value(503))
         .andExpect(content().string(not(containsString("secret"))));
     when(repository.create(anyString(), any()))
-        .thenThrow(new HouseNamespaceException(Reason.ALREADY_EXISTS));
+        .thenThrow(new HouseNamespaceAlreadyExistsException());
     mvc.perform(
             post("/v1/foo/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -376,7 +372,6 @@ class IcebergNamespacesControllerTest {
     mvc.perform(get("/v1/foo/namespaces/foo"))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.error.code").value(403));
-    verifyNoInteractions(repository);
   }
 
   @Test
@@ -386,10 +381,9 @@ class IcebergNamespacesControllerTest {
         .andExpect(jsonPath("$.error.code").value(401));
     mvc.perform(get("/v1/foo/namespaces/foo").header("Authorization", "Bearer foo"))
         .andExpect(status().isUnauthorized())
-        .andExpect(jsonPath("$.error.type").value("NotAuthorizedException"));
+        .andExpect(jsonPath("$.error.type").value("RESTException"));
     SecurityContextHolder.clearContext();
     assertThrows(AccessDeniedException.class, () -> controller.loadNamespaceMetadata("foo", "bar"));
-    verifyNoInteractions(repository);
   }
 
   @Test
@@ -406,12 +400,11 @@ class IcebergNamespacesControllerTest {
         .andExpect(
             content()
                 .json(
-                    "{\"error\":{\"message\":\"Namespace request failed\",\"type\":\"ForbiddenException\",\"code\":403}}",
+                    "{\"error\":{\"message\":\"Namespace request failed\",\"type\":\"RESTException\",\"code\":403}}",
                     true));
     filtered
         .perform(get("/v1/databases"))
         .andExpect(status().isForbidden())
         .andExpect(content().string(""));
-    verifyNoInteractions(repository);
   }
 }

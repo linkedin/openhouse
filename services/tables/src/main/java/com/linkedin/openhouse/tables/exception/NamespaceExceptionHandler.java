@@ -1,6 +1,13 @@
 package com.linkedin.openhouse.tables.exception;
 
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceAlreadyExistsException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceConcurrentModificationException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceInvalidPropertiesException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceInvalidRequestException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceMutationUncertainException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceNotFoundException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceUnavailableException;
 import com.linkedin.openhouse.tables.api.spec.namespace.NamespaceErrorResponse;
 import com.linkedin.openhouse.tables.api.spec.namespace.NamespaceErrorResponse.NamespaceError;
 import com.linkedin.openhouse.tables.controller.IcebergNamespacesController;
@@ -23,83 +30,81 @@ public class NamespaceExceptionHandler {
   public static final String RENDERED_ERROR_ATTRIBUTE =
       NamespaceExceptionHandler.class.getName() + ".rendered";
 
-  @ExceptionHandler(NamespaceException.class)
-  public ResponseEntity<NamespaceErrorResponse> handleNamespace(
-      NamespaceException exception, HttpServletRequest request) {
-    switch (exception.getReason()) {
-      case INVALID_NAMESPACE:
-        return respond(
-            HttpStatus.BAD_REQUEST, "BadRequestException", exception.getMessage(), request);
-      case INVALID_PROPERTIES:
-        return respond(
-            HttpStatus.UNPROCESSABLE_ENTITY,
-            "UnprocessableEntityException",
-            exception.getMessage(),
-            request);
-      case NOT_EMPTY:
-        return respond(
-            HttpStatus.CONFLICT, "NamespaceNotEmptyException", exception.getMessage(), request);
-      case ACCESS_DENIED:
-        return respond(HttpStatus.FORBIDDEN, "ForbiddenException", exception.getMessage(), request);
-      case AUTHORIZATION_UNAVAILABLE:
-        return respond(
-            HttpStatus.SERVICE_UNAVAILABLE,
-            "ServiceUnavailableException",
-            exception.getMessage(),
-            request);
-      default:
-        return respond(
-            HttpStatus.INTERNAL_SERVER_ERROR,
-            "ServiceFailureException",
-            "Namespace operation failed",
-            request);
-    }
+  @ExceptionHandler({InvalidNamespaceException.class, HouseNamespaceInvalidRequestException.class})
+  public ResponseEntity<NamespaceErrorResponse> handleInvalidNamespace(HttpServletRequest request) {
+    return respond(
+        HttpStatus.BAD_REQUEST, "BadRequestException", "Invalid namespace request", request);
   }
 
-  @ExceptionHandler(HouseNamespaceException.class)
-  public ResponseEntity<NamespaceErrorResponse> handleRepository(
-      HouseNamespaceException exception, HttpServletRequest request) {
-    switch (exception.getReason()) {
-      case NOT_FOUND:
-        return respond(
-            HttpStatus.NOT_FOUND, "NoSuchNamespaceException", "Namespace does not exist", request);
-      case ALREADY_EXISTS:
-        return respond(
-            HttpStatus.CONFLICT, "AlreadyExistsException", "Namespace already exists", request);
-      case CONCURRENT_MODIFICATION:
-        return respond(
-            HttpStatus.CONFLICT,
-            "CommitFailedException",
-            "Namespace was modified concurrently",
-            request);
-      case BAD_REQUEST:
-        return respond(
-            HttpStatus.BAD_REQUEST, "BadRequestException", "Invalid namespace request", request);
-      case INVALID_PROPERTIES:
-        return respond(
-            HttpStatus.UNPROCESSABLE_ENTITY,
-            "UnprocessableEntityException",
-            "Invalid property update",
-            request);
-      case UNKNOWN_OUTCOME:
-        return respond(
-            HttpStatus.INTERNAL_SERVER_ERROR,
-            "CommitStateUnknownException",
-            "The mutation outcome is unknown. Reload namespace metadata and reconcile before retrying.",
-            request);
-      case UNAVAILABLE:
-        return respond(
-            HttpStatus.SERVICE_UNAVAILABLE,
-            "ServiceUnavailableException",
-            "Namespace metadata service unavailable",
-            request);
-      default:
-        return respond(
-            HttpStatus.INTERNAL_SERVER_ERROR,
-            "ServiceFailureException",
-            "Namespace metadata operation failed",
-            request);
-    }
+  @ExceptionHandler({
+    InvalidNamespacePropertiesException.class,
+    HouseNamespaceInvalidPropertiesException.class
+  })
+  public ResponseEntity<NamespaceErrorResponse> handleInvalidProperties(
+      HttpServletRequest request) {
+    return respond(
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        "UnprocessableEntityException",
+        "Invalid property update",
+        request);
+  }
+
+  @ExceptionHandler(NamespaceNotEmptyException.class)
+  public ResponseEntity<NamespaceErrorResponse> handleNotEmpty(HttpServletRequest request) {
+    return respond(
+        HttpStatus.CONFLICT,
+        "NamespaceNotEmptyException",
+        "Namespace contains tables or views",
+        request);
+  }
+
+  @ExceptionHandler(HouseNamespaceNotFoundException.class)
+  public ResponseEntity<NamespaceErrorResponse> handleMissing(HttpServletRequest request) {
+    return respond(
+        HttpStatus.NOT_FOUND, "NoSuchNamespaceException", "Namespace does not exist", request);
+  }
+
+  @ExceptionHandler(HouseNamespaceAlreadyExistsException.class)
+  public ResponseEntity<NamespaceErrorResponse> handleDuplicate(HttpServletRequest request) {
+    return respond(
+        HttpStatus.CONFLICT, "AlreadyExistsException", "Namespace already exists", request);
+  }
+
+  @ExceptionHandler(HouseNamespaceConcurrentModificationException.class)
+  public ResponseEntity<NamespaceErrorResponse> handleConcurrentChange(HttpServletRequest request) {
+    return respond(
+        HttpStatus.CONFLICT,
+        "CommitFailedException",
+        "Namespace was modified concurrently",
+        request);
+  }
+
+  @ExceptionHandler(HouseNamespaceMutationUncertainException.class)
+  public ResponseEntity<NamespaceErrorResponse> handleUncertainMutation(
+      HttpServletRequest request) {
+    return respond(
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        "CommitStateUnknownException",
+        "The mutation outcome is unknown. Reload namespace metadata and reconcile before retrying.",
+        request);
+  }
+
+  @ExceptionHandler(HouseNamespaceUnavailableException.class)
+  public ResponseEntity<NamespaceErrorResponse> handleUnavailable(HttpServletRequest request) {
+    return respond(
+        HttpStatus.SERVICE_UNAVAILABLE,
+        "ServiceUnavailableException",
+        "Namespace metadata service unavailable",
+        request);
+  }
+
+  @ExceptionHandler({HouseNamespaceException.class, NamespaceException.class})
+  public ResponseEntity<NamespaceErrorResponse> handleDomainFailure(HttpServletRequest request) {
+    return respond(
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        "ServiceFailureException",
+        "Namespace metadata operation failed",
+        request);
   }
 
   @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentNotValidException.class})
@@ -108,7 +113,10 @@ public class NamespaceExceptionHandler {
         HttpStatus.BAD_REQUEST, "BadRequestException", "Invalid namespace request", request);
   }
 
-  @ExceptionHandler(AuthorizationServiceException.class)
+  @ExceptionHandler({
+    AuthorizationServiceException.class,
+    NamespaceAuthorizationUnavailableException.class
+  })
   public ResponseEntity<NamespaceErrorResponse> handleAuthorizationService(
       HttpServletRequest request) {
     return respond(
@@ -118,7 +126,7 @@ public class NamespaceExceptionHandler {
         request);
   }
 
-  @ExceptionHandler(AccessDeniedException.class)
+  @ExceptionHandler({AccessDeniedException.class, NamespaceAccessDeniedException.class})
   public ResponseEntity<NamespaceErrorResponse> handleForbidden(HttpServletRequest request) {
     return respond(HttpStatus.FORBIDDEN, "ForbiddenException", "Access denied", request);
   }

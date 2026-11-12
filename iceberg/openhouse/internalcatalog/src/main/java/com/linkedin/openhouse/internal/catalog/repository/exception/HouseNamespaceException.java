@@ -1,30 +1,12 @@
 package com.linkedin.openhouse.internal.catalog.repository.exception;
 
-import lombok.Getter;
-
-/** Checked failures of the independent database metadata resource. */
-@Getter
-public class HouseNamespaceException extends Exception {
-  public enum Reason {
-    BAD_REQUEST,
-    NOT_FOUND,
-    ALREADY_EXISTS,
-    CONCURRENT_MODIFICATION,
-    INVALID_PROPERTIES,
-    UNAVAILABLE,
-    UNKNOWN_OUTCOME,
-    FAILURE
+/** Checked failures of the independent namespace metadata resource. */
+public abstract class HouseNamespaceException extends Exception {
+  protected HouseNamespaceException(String message) {
+    super(message);
   }
 
-  private final Reason reason;
-
-  public HouseNamespaceException(Reason reason) {
-    super("Database metadata operation failed");
-    this.reason = reason;
-  }
-
-  public HouseNamespaceException(Reason reason, Throwable cause) {
-    super("Database metadata operation failed", cause);
-    this.reason = reason;
+  protected HouseNamespaceException(String message, Throwable cause) {
+    super(message, cause);
   }
 }

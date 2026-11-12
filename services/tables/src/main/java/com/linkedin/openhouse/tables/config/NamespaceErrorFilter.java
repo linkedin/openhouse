@@ -52,33 +52,13 @@ public class NamespaceErrorFilter extends OncePerRequestFilter {
     if (wrapped.getStatus() >= 400
         && !Boolean.TRUE.equals(
             request.getAttribute(NamespaceExceptionHandler.RENDERED_ERROR_ATTRIBUTE))) {
-      String type;
-      switch (wrapped.getStatus()) {
-        case 400:
-          type = "BadRequestException";
-          break;
-        case 401:
-          type = "NotAuthorizedException";
-          break;
-        case 403:
-          type = "ForbiddenException";
-          break;
-        case 404:
-          type = "NoSuchNamespaceException";
-          break;
-        case 503:
-          type = "ServiceUnavailableException";
-          break;
-        default:
-          type = "RESTException";
-          break;
-      }
       wrapped.resetBuffer();
       wrapped.setContentType(MediaType.APPLICATION_JSON_VALUE);
       objectMapper.writeValue(
           wrapped.getOutputStream(),
           new NamespaceErrorResponse(
-              new NamespaceError("Namespace request failed", type, wrapped.getStatus())));
+              new NamespaceError(
+                  "Namespace request failed", "RESTException", wrapped.getStatus())));
     }
     wrapped.copyBodyToResponse();
   }
