@@ -59,8 +59,6 @@ import org.apache.iceberg.view.ViewVersion;
 @Slf4j
 public class ViewCommitEngineImpl implements ViewCommitEngine {
 
-  private static final String SOURCE_DIALECT_SUMMARY_KEY = "sourceDialect";
-
   private static final String OPERATION_SUMMARY_KEY = "operation";
   private static final String CREATE_OPERATION = "create";
   private static final String REPLACE_OPERATION = "replace";
@@ -136,6 +134,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     String now = String.valueOf(nowMillis());
 
     Map<String, String> properties = new LinkedHashMap<>(getPropertiesOrEmpty(intent));
+    properties.put(ViewSystemProperties.SOURCE_DIALECT, intent.getSourceDialect());
     properties.put(ViewProperties.REPLACE_DROP_DIALECT_ALLOWED, "false");
     properties.put(getCanonicalFieldName("tableUUID"), viewUuid);
     properties.put(getCanonicalFieldName("tableId"), intent.getViewId());
@@ -217,8 +216,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
   }
 
   private static void requireSourceDialectMatches(ViewCommitIntent intent, ViewMetadata current) {
-    String currentSourceDialect =
-        current.currentVersion().summary().get(SOURCE_DIALECT_SUMMARY_KEY);
+    String currentSourceDialect = current.properties().get(ViewSystemProperties.SOURCE_DIALECT);
     if (isBlank(currentSourceDialect)) {
       throw new IllegalStateException(
           String.format(
@@ -289,14 +287,15 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         current.properties().getOrDefault(getCanonicalFieldName("creationTime"), now));
     properties.put(getCanonicalFieldName("lastModifiedTime"), now);
 
-    ViewMetadata.Builder builder = ViewMetadata.buildFrom(current);
-    if (!isDefinitionUnchanged(intent, current)) {
-      builder.setCurrentVersion(
-          buildCandidateVersion(
-              intent, current.currentVersionId() + 1, REPLACE_OPERATION, Long.parseLong(now)),
-          intent.getSchema());
-    }
-    ViewMetadata metadata = builder.setProperties(properties).build();
+    // buildFrom preserves identity and history; Iceberg assigns the version id.
+    ViewMetadata metadata =
+        ViewMetadata.buildFrom(current)
+            .setCurrentVersion(
+                buildCandidateVersion(
+                    intent, current.currentVersionId() + 1, REPLACE_OPERATION, Long.parseLong(now)),
+                intent.getSchema())
+            .setProperties(properties)
+            .build();
 
     return writeThenPublish(metadata, fileIO, row.getStorageType(), newMetadataLocation, false);
   }
@@ -306,22 +305,16 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
       ViewMetadata current,
       Map<String, String> mergedUserProperties,
       Map<String, String> currentUserProperties) {
-    return isDefinitionUnchanged(intent, current)
-        && mergedUserProperties.equals(currentUserProperties);
-  }
-
-  private boolean isDefinitionUnchanged(ViewCommitIntent intent, ViewMetadata current) {
     ViewVersion version = current.currentVersion();
     // sameSchema, not asStruct: the struct ignores identifier-field ids.
     return current.schema().sameSchema(intent.getSchema())
         && buildSortedRepresentationKeys(version)
             .equals(buildSortedRepresentationKeys(intent.getRepresentations()))
-        && Objects.equals(
-            version.summary().get(SOURCE_DIALECT_SUMMARY_KEY), intent.getSourceDialect())
         && Objects.equals(version.defaultCatalog(), intent.getDefaultCatalog())
         // Match the normalization used when building metadata.
         && Objects.equals(
-            version.defaultNamespace(), normalizeNamespace(intent.getDefaultNamespace()));
+            version.defaultNamespace(), normalizeNamespace(intent.getDefaultNamespace()))
+        && mergedUserProperties.equals(currentUserProperties);
   }
 
   private ViewCommitResult writeThenPublish(
@@ -407,9 +400,6 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
             .addAllRepresentations(representations);
     if (intent.getDefaultCatalog() != null) {
       builder.defaultCatalog(intent.getDefaultCatalog());
-    }
-    if (intent.getSourceDialect() != null) {
-      builder.putSummary(SOURCE_DIALECT_SUMMARY_KEY, intent.getSourceDialect());
     }
     return builder.build();
   }

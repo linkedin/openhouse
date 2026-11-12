@@ -44,7 +44,7 @@ public final class ViewTestFixtures {
   /** Unrecognized: a create colliding with one must fail closed. */
   public static final String ENTITY_TYPE_UNKNOWN = "MATERIALIZED_VIEW";
 
-  public static final String SOURCE_DIALECT_SUMMARY_KEY = "sourceDialect";
+  public static final String SOURCE_DIALECT_KEY = ViewSystemProperties.SOURCE_DIALECT;
 
   public static final String SQL_V1 = "SELECT id, name FROM viewdb.base_table";
   public static final String SQL_V2 = "SELECT id, name, region FROM viewdb.base_table WHERE id > 0";

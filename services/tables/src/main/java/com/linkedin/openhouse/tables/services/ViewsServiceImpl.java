@@ -256,12 +256,11 @@ public class ViewsServiceImpl implements ViewsService {
       boolean isCreate) {
     Map<String, String> requestProperties = requestBody.getViewProperties();
     String sourceDialect = ReservedViewProperties.sourceDialect(requestProperties);
-    // Source dialect is validated separately by the engine.
     Map<String, String> properties = new LinkedHashMap<>();
     if (requestProperties != null) {
       requestProperties.forEach(
           (key, value) -> {
-            if (!ReservedViewProperties.SOURCE_DIALECT.equalsIgnoreCase(key)) {
+            if (!isCreate || !ReservedViewProperties.SOURCE_DIALECT.equalsIgnoreCase(key)) {
               properties.put(key, value);
             }
           });

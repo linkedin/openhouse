@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.tables.model;
 
-import com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils;
+import com.linkedin.openhouse.internal.catalog.view.ViewSystemProperties;
 import java.util.Map;
 
 /** Create-time exceptions to the server-owned {@code openhouse.} namespace. */
@@ -9,8 +9,7 @@ public final class ReservedViewProperties {
   private ReservedViewProperties() {}
 
   /** Authoring dialect: supplied on writes, immutable after creation. */
-  public static final String SOURCE_DIALECT =
-      HouseTableSerdeUtils.OPENHOUSE_NAMESPACE + "view.sourceDialect";
+  public static final String SOURCE_DIALECT = ViewSystemProperties.SOURCE_DIALECT;
 
   /**
    * Whether a client may set this reserved key when creating a view. Every other key in the {@code

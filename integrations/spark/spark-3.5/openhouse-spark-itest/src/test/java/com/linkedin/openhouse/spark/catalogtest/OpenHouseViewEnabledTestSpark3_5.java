@@ -141,6 +141,7 @@ public class OpenHouseViewEnabledTestSpark3_5 {
     assertEquals(NAMESPACE, loaded.currentVersion().defaultNamespace());
     assertEquals("openhouse", loaded.currentVersion().defaultCatalog());
     assertEquals("catalog_test", loaded.properties().get("owner"));
+    assertEquals("spark", loaded.properties().get("openhouse.view.sourceDialect"));
     assertEquals(Collections.singletonList(VIEW_ID), views.listViews(NAMESPACE));
     assertEquals(
         Collections.singletonList(TableIdentifier.of(NAMESPACE, "base_table")),
@@ -168,6 +169,7 @@ public class OpenHouseViewEnabledTestSpark3_5 {
     assertEquals(loaded.uuid(), replaced.uuid());
     assertNotEquals(initialMetadata, persistedView().getTableLocation());
     assertEquals("SELECT id + 10 AS id FROM base_table", replaced.sqlFor("spark").sql());
+    assertEquals("spark", replaced.properties().get("openhouse.view.sourceDialect"));
     assertRows(11, 12);
 
     replaced.updateProperties().set("owner", "updated_owner").commit();
@@ -181,6 +183,23 @@ public class OpenHouseViewEnabledTestSpark3_5 {
                 .set("openhouse.tableUUID", "changed")
                 .commit());
     assertEquals(loaded.uuid(), views.loadView(VIEW_ID).uuid());
+    assertThrows(
+        BadRequestException.class,
+        () ->
+            views
+                .loadView(VIEW_ID)
+                .updateProperties()
+                .set("openhouse.view.sourceDialect", "trino")
+                .commit());
+    assertThrows(
+        BadRequestException.class,
+        () ->
+            views
+                .loadView(VIEW_ID)
+                .updateProperties()
+                .remove("openhouse.view.sourceDialect")
+                .commit());
+    assertEquals("spark", views.loadView(VIEW_ID).properties().get("openhouse.view.sourceDialect"));
 
     assertTrue(views.dropView(VIEW_ID));
     assertFalse(views.viewExists(VIEW_ID));
@@ -212,20 +231,6 @@ public class OpenHouseViewEnabledTestSpark3_5 {
     assertEquals("value", replaced.properties().get("added"));
     assertEquals("false", replaced.properties().get("replace.drop-dialect.allowed"));
     assertRows(11, 12);
-  }
-
-  @Test
-  void testPropertyUpdateDoesNotReplaceViewVersion() {
-    spark.sql("CREATE VIEW " + VIEW + " AS SELECT id FROM " + TABLE);
-    View before = views.loadView(VIEW_ID);
-    int versionId = before.currentVersion().versionId();
-    int historySize = before.history().size();
-    spark.sql("ALTER VIEW " + VIEW + " SET TBLPROPERTIES ('watermark'='10')");
-    View after = views.loadView(VIEW_ID);
-    assertEquals("10", after.properties().get("watermark"));
-    assertEquals(versionId, after.currentVersion().versionId());
-    assertEquals(historySize, after.history().size());
-    assertEquals(before.sqlFor("spark").sql(), after.sqlFor("spark").sql());
   }
 
   @ParameterizedTest

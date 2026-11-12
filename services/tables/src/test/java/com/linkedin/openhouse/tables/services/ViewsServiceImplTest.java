@@ -539,6 +539,9 @@ public class ViewsServiceImplTest {
     ArgumentCaptor<ViewCommitIntent> intent = ArgumentCaptor.forClass(ViewCommitIntent.class);
     verify(viewCommitEngine, times(1)).commit(intent.capture());
     assertEquals("trino", intent.getValue().getSourceDialect());
+    if (!Boolean.TRUE.equals(intent.getValue().getIsCreate())) {
+      expectedUserProperties.put("OpenHouse.View.SourceDialect", "trino");
+    }
     assertEquals(expectedUserProperties, intent.getValue().getViewProperties());
     assertEquals(requestedBefore, requested, "The caller's view properties must not be mutated.");
   }
@@ -1980,10 +1983,8 @@ public class ViewsServiceImplTest {
   }
 
   /**
-   * The caller's definition is forwarded to the engine. The reserved source-dialect property
-   * becomes the intent's source dialect and the engine receives only the remaining user properties;
-   * everything else is unchanged. Expected values are the request fixture's own constants, and the
-   * schema is parsed by Iceberg directly.
+   * The source dialect is extracted separately, and existing-view commits retain it among the
+   * properties checked by the engine.
    */
   private static void assertIntentCarriesRequestedDefinition(ViewCommitIntent intent) {
     assertEquals(ViewModelConstants.DATABASE_ID, intent.getDatabaseId());
@@ -2002,9 +2003,12 @@ public class ViewsServiceImplTest {
         "schema: " + intent.getSchema());
     assertEquals(ViewModelConstants.DEFAULT_CATALOG, intent.getDefaultCatalog());
     assertEquals(Namespace.of(ViewModelConstants.DATABASE_ID), intent.getDefaultNamespace());
-    Map<String, String> userProperties = new LinkedHashMap<>(ViewModelConstants.VIEW_PROPERTIES);
-    userProperties.remove(ReservedViewProperties.SOURCE_DIALECT);
-    assertEquals(userProperties, intent.getViewProperties());
+    Map<String, String> expectedProperties =
+        new LinkedHashMap<>(ViewModelConstants.VIEW_PROPERTIES);
+    if (Boolean.TRUE.equals(intent.getIsCreate())) {
+      expectedProperties.remove(ReservedViewProperties.SOURCE_DIALECT);
+    }
+    assertEquals(expectedProperties, intent.getViewProperties());
     assertEquals(ACTING_PRINCIPAL, intent.getCreator());
   }
 
