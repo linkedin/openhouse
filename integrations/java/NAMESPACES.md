@@ -13,27 +13,24 @@ defaults; actual table properties override matching keys. The returned map is an
 defensive copy. Calling `table.properties()` still returns the actual table properties.
 Existing table operations, including `loadTable`, retain their existing request counts.
 
-The checked exception makes remote I/O and its expected failures explicit to callers.
-HTTP 404 is the only error response that falls back to table-only properties. Successful responses
+Only a missing namespace error falls back to table-only properties. Successful responses
 with empty, omitted, or null properties also contribute no namespace properties.
 Authorization failures, connection failures, timeouts, malformed responses, and other service
-errors fail the call. Reads have a 30-second budget; mutations have a 60-second budget.
-Interruption cancels the request and preserves the thread's interrupted status.
-Requests use the existing generated client and its authentication, configured headers,
-connection strategy, and TLS configuration.
+errors fail the call because they do not establish that defaults are absent. Callers must handle
+the checked failure rather than silently using table-only values during an outage.
 
 The supplied table name must have the form `<catalog>.<namespace>.<table>`, with an exact
 catalog-name prefix. Catalog names can contain dots. The remaining namespace and table
 identifiers each contain 1 to 128 letters, digits, or underscores. Foreign catalog names,
 extra namespace levels, metadata-table suffixes, and malformed names fail before any request.
-The method is intended for tables loaded or created by this catalog. Name validation
-establishes the naming convention, rather than proving the provenance of an arbitrary
-implementation of Iceberg's `Table` interface.
+The method is intended for tables loaded or created by this catalog. Name validation checks the naming convention; callers supply the table from the intended catalog.
 
 ## Iceberg namespace operations
 
-The catalog implements these `SupportsNamespaces` methods through generated `NamespaceApi`
-operations. Every request sends the catalog name as the encoded REST prefix.
+Administrators can create and edit defaults with these `SupportsNamespaces` methods.
+Creation, property updates, removal, and drop require `SYSTEM_ADMIN`. Reads require
+`GET_TABLE_METADATA`. Permission to write a table does not grant permission to alter the defaults
+used by other consumers.
 
 | Catalog operation | Behavior |
 |---|---|
@@ -44,37 +41,39 @@ operations. Every request sends the catalog name as the encoded REST prefix.
 | `setProperties(namespace, updates)` | It sends sparse updates and returns whether the response acknowledges any updated keys. Unchanged values acknowledged by the service still return true. |
 | `removeProperties(namespace, removals)` | It returns true if any keys were removed and false if every requested key was already missing. |
 
-Creation, loading, and updates require HTTP 200. Deletion requires HTTP 204.
-Response decoding checks required fields and string types before generated DTO defaults can
-conceal malformed responses. Omitted or null namespace properties mean an empty property map.
+Omitted or null namespace properties mean an empty property map.
 The optional `missing` array may be omitted or null; servers may leave already-absent removal
 keys unreported. Acknowledgements must identify requested keys and contain unique, disjoint
 removal results.
-Namespace names are one level. The service returns canonical lowercase names; the client
-compares response names case-insensitively.
+Namespace names are one level. The service retains insertion spelling and resolves names
+case-insensitively. A create of `Finance` followed by a load of `FINANCE` addresses the same
+namespace.
 
-The Iceberg overrides translate checked failures to Iceberg exceptions because their interface
-signatures cannot declare this checked exception.
+## Recovering from errors
 
-| Failure | Iceberg exception |
-|---|---|
-| Invalid input or HTTP 400/422 | `ValidationException` |
-| HTTP 401 | `NotAuthorizedException` |
-| HTTP 403 | `ForbiddenException` |
-| HTTP 404 | `NoSuchNamespaceException`, except that drop returns false |
-| HTTP 409 during creation | `AlreadyExistsException` |
-| HTTP 409 during deletion with `NamespaceNotEmptyException` | `NamespaceNotEmptyException` |
-| HTTP 409 during deletion with `CommitFailedException` | `CommitFailedException` |
-| HTTP 409 during deletion with an absent or unknown type | `RESTException` |
-| HTTP 409 during property updates | `CommitFailedException` |
-| HTTP 500 with `CommitStateUnknownException` error type | `CommitStateUnknownException` |
-| Transport, malformed response, or other service failure | `RESTException` |
+The effective-property method declares concrete checked failures under
+`NamespaceMetadataException`. Iceberg namespace methods expose the corresponding Iceberg runtime
+exceptions. Both APIs preserve the cause while distinguishing missing metadata, access failures,
+concurrent edits, and uncertain mutations.
+
+Correct invalid identifiers or property values before trying again. Reauthenticate after an
+authentication rejection, and obtain the required privilege after an access rejection. An existing
+namespace cannot be replaced by create; load it and decide whether an explicit property update
+is appropriate. After a concurrent edit, reload properties before reapplying your intended change.
+
+`CommitStateUnknownException` means a mutation may have completed. It includes local write
+timeouts, interrupted writes, lost connections, and unusable success responses, as well as an
+uncertain outcome reported by the service. Read the metadata and reconcile the observed values
+with the intended operation before retrying. Replaying a write without reconciling can overwrite
+someone else's later update. A read timeout instead reports unavailable metadata and does not
+claim a commit occurred.
+
+Reads have a 30-second budget; mutations have a 60-second budget. Interruption cancels the pending
+request and restores the thread's interrupted status. The adapter does not replay uncertain
+mutations. Applications and external REST clients control their own retry policies.
 
 `namespaceExists` remains explicitly unsupported. `listNamespaces()` retains the legacy
 table-derived endpoint, so an empty newly created namespace can be absent from that listing.
-Namespace metadata does not change table lifecycle behavior.
-
-The checked exception retains the optional structured service error type and the original cause.
-An uncertain mutation outcome requires reloading metadata and reconciling it before retrying.
-External Iceberg REST clients may apply their own retry policies; disabling a HouseTables transport
-retry does not control those clients.
+Drop rejects a namespace occupied by a table or view. Successful drop removes only the optional
+defaults; table metadata and files remain intact. Concurrent table creation is not serialized
+with drop, so an existing table may have no namespace metadata.

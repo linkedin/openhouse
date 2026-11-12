@@ -9,6 +9,7 @@ import com.linkedin.openhouse.gen.client.ssl.WebClientFactory;
 import com.linkedin.openhouse.gen.tables.client.api.NamespaceApi;
 import com.linkedin.openhouse.gen.tables.client.invoker.ApiClient;
 import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataException;
+import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataMutationUncertainException;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.JsonNode;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -51,7 +52,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
-import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -129,48 +129,52 @@ class NamespaceMetadataTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"128,namespace", "129,namespace", "128,table", "129,table"})
-  void identifierLengthIsCheckedBeforeEffectivePropertyRequests(int length, String component)
-      throws Exception {
-    String identifier = String.join("", Collections.nCopies(length, "a"));
+  @ValueSource(strings = {"namespace", "table"})
+  void maximumLengthIdentifiersResolveEffectiveProperties(String component) throws Exception {
+    String identifier = String.join("", Collections.nCopies(128, "a"));
     String namespace = "namespace".equals(component) ? identifier : "namespace";
     String tableName = "table".equals(component) ? identifier : "table";
     when(table.name()).thenReturn("openhouse.local." + namespace + "." + tableName);
-    if (length == 128) {
-      respond(200, "{\"namespace\":[\"" + namespace + "\"],\"properties\":{}}");
-      assertEquals(tableProperties, catalog.getEffectiveTableProperties(table));
-      assertEquals(1, tableService.getRequestCount());
-      assertEquals(
-          "/v1/openhouse.local/namespaces/" + namespace,
-          tableService.takeRequest(5, TimeUnit.SECONDS).getPath());
-    } else {
-      assertThrows(
-          NamespaceMetadataException.class, () -> catalog.getEffectiveTableProperties(table));
-      assertEquals(0, tableService.getRequestCount());
-    }
+    respond(200, "{\"namespace\":[\"" + namespace + "\"],\"properties\":{}}");
+    assertEquals(tableProperties, catalog.getEffectiveTableProperties(table));
+    assertEquals(1, tableService.getRequestCount());
+    assertEquals(
+        "/v1/openhouse.local/namespaces/" + namespace,
+        tableService.takeRequest(5, TimeUnit.SECONDS).getPath());
   }
 
   @ParameterizedTest
-  @ValueSource(ints = {128, 129})
-  void namespaceIdentifierLengthIsCheckedBeforeRequests(int length) {
-    String identifier = String.join("", Collections.nCopies(length, "a"));
-    Namespace namespace = Namespace.of(identifier);
-    if (length == 128) {
-      respond(200, "{\"namespace\":[\"" + identifier + "\"],\"properties\":{}}");
-      assertTrue(catalog.loadNamespaceMetadata(namespace).isEmpty());
-      assertEquals(1, tableService.getRequestCount());
-    } else {
-      assertThrows(ValidationException.class, () -> catalog.createNamespace(namespace));
-      assertThrows(ValidationException.class, () -> catalog.loadNamespaceMetadata(namespace));
-      assertThrows(ValidationException.class, () -> catalog.dropNamespace(namespace));
-      assertThrows(
-          ValidationException.class,
-          () -> catalog.setProperties(namespace, Collections.emptyMap()));
-      assertThrows(
-          ValidationException.class,
-          () -> catalog.removeProperties(namespace, Collections.emptySet()));
-      assertEquals(0, tableService.getRequestCount());
-    }
+  @ValueSource(strings = {"namespace", "table"})
+  void overlengthIdentifiersFailBeforeEffectivePropertyRequests(String component) {
+    String identifier = String.join("", Collections.nCopies(129, "a"));
+    String namespace = "namespace".equals(component) ? identifier : "namespace";
+    String tableName = "table".equals(component) ? identifier : "table";
+    when(table.name()).thenReturn("openhouse.local." + namespace + "." + tableName);
+    assertThrows(
+        NamespaceMetadataException.class, () -> catalog.getEffectiveTableProperties(table));
+    assertEquals(0, tableService.getRequestCount());
+  }
+
+  @Test
+  void maximumLengthNamespaceLoadsMetadata() {
+    String identifier = String.join("", Collections.nCopies(128, "a"));
+    respond(200, "{\"namespace\":[\"" + identifier + "\"],\"properties\":{}}");
+    assertTrue(catalog.loadNamespaceMetadata(Namespace.of(identifier)).isEmpty());
+    assertEquals(1, tableService.getRequestCount());
+  }
+
+  @Test
+  void overlengthNamespaceFailsBeforeRequests() {
+    Namespace namespace = Namespace.of(String.join("", Collections.nCopies(129, "a")));
+    assertThrows(ValidationException.class, () -> catalog.createNamespace(namespace));
+    assertThrows(ValidationException.class, () -> catalog.loadNamespaceMetadata(namespace));
+    assertThrows(ValidationException.class, () -> catalog.dropNamespace(namespace));
+    assertThrows(
+        ValidationException.class, () -> catalog.setProperties(namespace, Collections.emptyMap()));
+    assertThrows(
+        ValidationException.class,
+        () -> catalog.removeProperties(namespace, Collections.emptySet()));
+    assertEquals(0, tableService.getRequestCount());
   }
 
   @ParameterizedTest
@@ -476,14 +480,14 @@ class NamespaceMetadataTest {
   @ValueSource(
       strings = {
         "",
-        "{}",
+        "{\"updated\":null,\"removed\":[]}",
         "{\"updated\":[],\"removed\":[],\"missing\":12}",
         "{\"updated\":[null],\"removed\":[],\"missing\":[]}"
       })
   void malformedUpdateFails(String body) {
     respond(200, body);
     assertThrows(
-        RESTException.class,
+        CommitStateUnknownException.class,
         () -> catalog.setProperties(Namespace.of("namespace"), Collections.emptyMap()));
     assertEquals(1, tableService.getRequestCount());
   }
@@ -499,7 +503,7 @@ class NamespaceMetadataTest {
   void inconsistentUpdateAcknowledgementFails(String body) {
     respond(200, body);
     assertThrows(
-        RESTException.class,
+        CommitStateUnknownException.class,
         () ->
             catalog.setProperties(
                 Namespace.of("namespace"), Collections.singletonMap("key", "value")));
@@ -516,7 +520,7 @@ class NamespaceMetadataTest {
   void inconsistentRemovalAcknowledgementFails(String body) {
     respond(200, body);
     assertThrows(
-        RESTException.class,
+        CommitStateUnknownException.class,
         () -> catalog.removeProperties(Namespace.of("namespace"), Collections.singleton("foo")));
     assertEquals(1, tableService.getRequestCount());
   }
@@ -540,7 +544,37 @@ class NamespaceMetadataTest {
   @Test
   void unexpectedSuccessStatusFails() {
     respond(201, "{\"namespace\":[\"namespace\"],\"properties\":{}}");
-    assertThrows(RESTException.class, () -> catalog.createNamespace(Namespace.of("namespace")));
+    assertThrows(
+        CommitStateUnknownException.class,
+        () -> catalog.createNamespace(Namespace.of("namespace")));
+    assertEquals(1, tableService.getRequestCount());
+  }
+
+  @Test
+  void lostMutationResponseRequiresReconciliationAndIsSentOnce() {
+    tableService.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST));
+    respond(503, "{}");
+    CommitStateUnknownException failure =
+        assertThrows(
+            CommitStateUnknownException.class,
+            () -> catalog.createNamespace(Namespace.of("namespace")));
+    assertInstanceOf(NamespaceMetadataMutationUncertainException.class, failure.getCause());
+    assertEquals(1, tableService.getRequestCount());
+  }
+
+  @Test
+  void mismatchedCreateResponseLeavesMutationUncertain() {
+    respond(200, "{\"namespace\":[\"other\"],\"properties\":{}}");
+    assertThrows(
+        CommitStateUnknownException.class,
+        () -> catalog.createNamespace(Namespace.of("namespace")));
+    assertEquals(1, tableService.getRequestCount());
+  }
+
+  @Test
+  void generatedEmptyAcknowledgementsCompleteEmptyUpdate() {
+    respond(200, "{}");
+    assertFalse(catalog.setProperties(Namespace.of("namespace"), Collections.emptyMap()));
     assertEquals(1, tableService.getRequestCount());
   }
 

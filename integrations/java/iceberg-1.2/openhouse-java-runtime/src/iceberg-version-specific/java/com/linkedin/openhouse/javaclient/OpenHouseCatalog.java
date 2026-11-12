@@ -390,12 +390,7 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
   @Override
   public void createNamespace(Namespace namespace, Map<String, String> properties) {
-    try {
-      namespaceMetadataClient.create(namespace, properties);
-    } catch (NamespaceMetadataException failure) {
-      throw NamespaceMetadataClient.icebergFailure(
-          failure, NamespaceMetadataClient.Operation.CREATE);
-    }
+    NamespaceCatalogAdapter.execute(() -> namespaceMetadataClient.create(namespace, properties));
   }
 
   /**
@@ -434,40 +429,24 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
   @Override
   public Map<String, String> loadNamespaceMetadata(Namespace namespace) {
-    try {
-      return namespaceMetadataClient.load(namespace);
-    } catch (NamespaceMetadataException failure) {
-      throw NamespaceMetadataClient.icebergFailure(failure, NamespaceMetadataClient.Operation.LOAD);
-    }
+    return NamespaceCatalogAdapter.execute(() -> namespaceMetadataClient.load(namespace));
   }
 
   @Override
   public boolean dropNamespace(Namespace namespace) {
-    try {
-      return namespaceMetadataClient.drop(namespace);
-    } catch (NamespaceMetadataException failure) {
-      throw NamespaceMetadataClient.icebergFailure(failure, NamespaceMetadataClient.Operation.DROP);
-    }
+    return NamespaceCatalogAdapter.execute(() -> namespaceMetadataClient.drop(namespace));
   }
 
   @Override
   public boolean setProperties(Namespace namespace, Map<String, String> properties) {
-    try {
-      return namespaceMetadataClient.update(namespace, properties, Collections.emptySet());
-    } catch (NamespaceMetadataException failure) {
-      throw NamespaceMetadataClient.icebergFailure(
-          failure, NamespaceMetadataClient.Operation.UPDATE);
-    }
+    return NamespaceCatalogAdapter.execute(
+        () -> namespaceMetadataClient.update(namespace, properties, Collections.emptySet()));
   }
 
   @Override
   public boolean removeProperties(Namespace namespace, Set<String> properties) {
-    try {
-      return namespaceMetadataClient.update(namespace, Collections.emptyMap(), properties);
-    } catch (NamespaceMetadataException failure) {
-      throw NamespaceMetadataClient.icebergFailure(
-          failure, NamespaceMetadataClient.Operation.UPDATE);
-    }
+    return NamespaceCatalogAdapter.execute(
+        () -> namespaceMetadataClient.update(namespace, Collections.emptyMap(), properties));
   }
 
   /**

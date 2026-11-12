@@ -3,23 +3,23 @@ package com.linkedin.openhouse.javaclient.exception;
 import java.util.Optional;
 
 /** Checked failure of an explicit namespace metadata request or its input validation. */
-public class NamespaceMetadataException extends Exception {
+public abstract class NamespaceMetadataException extends Exception {
   private final int statusCode;
   private final Optional<String> errorType;
 
-  public NamespaceMetadataException(int statusCode, String message) {
+  protected NamespaceMetadataException(int statusCode, String message) {
     super(message);
     this.statusCode = statusCode;
     this.errorType = Optional.empty();
   }
 
-  public NamespaceMetadataException(int statusCode, String message, Throwable cause) {
+  protected NamespaceMetadataException(int statusCode, String message, Throwable cause) {
     super(message, cause);
     this.statusCode = statusCode;
     this.errorType = Optional.empty();
   }
 
-  public NamespaceMetadataException(
+  protected NamespaceMetadataException(
       int statusCode, String message, Throwable cause, Optional<String> errorType) {
     super(message, cause);
     this.statusCode = statusCode;
