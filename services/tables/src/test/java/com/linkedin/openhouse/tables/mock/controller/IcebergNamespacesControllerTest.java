@@ -181,6 +181,24 @@ class IcebergNamespacesControllerTest {
         .andExpect(jsonPath("$.error.stack").doesNotExist());
   }
 
+  @Test
+  void invalidCreateReportsNamespaceWithoutPropertyValues() throws Exception {
+    mvc.perform(
+            post("/v1/foo/namespaces")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"namespace\":[\"foo.bar\"],\"properties\":{\"foo\":\"bar_secret\"}}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.error.message").value(containsString("foo.bar")))
+        .andExpect(jsonPath("$.error.message").value(not(containsString("bar_secret"))));
+  }
+
+  @Test
+  void invalidPathReportsNamespace() throws Exception {
+    mvc.perform(get("/v1/foo/namespaces/foo.bar"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.error.message").value(containsString("'foo.bar'")));
+  }
+
   @ParameterizedTest
   @ValueSource(strings = {"\\ud800", "\\udc00", "foo\\ud800bar"})
   void malformedPropertyKeysFailBeforeMetadataAccess(String key) throws Exception {

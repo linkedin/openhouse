@@ -30,8 +30,15 @@ public class NamespaceExceptionHandler {
   public static final String RENDERED_ERROR_ATTRIBUTE =
       NamespaceExceptionHandler.class.getName() + ".rendered";
 
-  @ExceptionHandler({InvalidNamespaceException.class, HouseNamespaceInvalidRequestException.class})
-  public ResponseEntity<NamespaceErrorResponse> handleInvalidNamespace(HttpServletRequest request) {
+  @ExceptionHandler(InvalidNamespaceException.class)
+  public ResponseEntity<NamespaceErrorResponse> handleInvalidNamespace(
+      InvalidNamespaceException exception, HttpServletRequest request) {
+    return respond(HttpStatus.BAD_REQUEST, "BadRequestException", exception.getMessage(), request);
+  }
+
+  @ExceptionHandler(HouseNamespaceInvalidRequestException.class)
+  public ResponseEntity<NamespaceErrorResponse> handleInvalidUpstreamRequest(
+      HttpServletRequest request) {
     return respond(
         HttpStatus.BAD_REQUEST, "BadRequestException", "Invalid namespace request", request);
   }
@@ -107,7 +114,27 @@ public class NamespaceExceptionHandler {
         request);
   }
 
-  @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentNotValidException.class})
+  @ExceptionHandler(MethodArgumentNotValidException.class)
+  public ResponseEntity<NamespaceErrorResponse> handleInvalidFields(
+      MethodArgumentNotValidException exception, HttpServletRequest request) {
+    if (exception.getBindingResult().getFieldErrors().stream()
+        .anyMatch(
+            error ->
+                error.getField().equals("namespace")
+                    || error.getField().startsWith("namespace["))) {
+      return respond(
+          HttpStatus.BAD_REQUEST,
+          "BadRequestException",
+          String.format(
+              "Namespace '%s' must contain exactly one name of 1 to 128 letters, digits, or underscores",
+              exception.getBindingResult().getRawFieldValue("namespace")),
+          request);
+    }
+    return respond(
+        HttpStatus.BAD_REQUEST, "BadRequestException", "Invalid namespace request", request);
+  }
+
+  @ExceptionHandler(HttpMessageNotReadableException.class)
   public ResponseEntity<NamespaceErrorResponse> handleInvalidRequest(HttpServletRequest request) {
     return respond(
         HttpStatus.BAD_REQUEST, "BadRequestException", "Invalid namespace request", request);
