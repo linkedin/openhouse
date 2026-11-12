@@ -4,6 +4,7 @@ import com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils;
 import java.util.Locale;
 import org.apache.iceberg.view.ViewProperties;
 
+/** Shared system-property checks used by views API validation and the view commit engine. */
 public final class ViewSystemProperties {
   private ViewSystemProperties() {}
 
