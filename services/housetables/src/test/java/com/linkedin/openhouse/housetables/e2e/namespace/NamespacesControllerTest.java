@@ -142,7 +142,7 @@ class NamespacesControllerTest {
   }
 
   @Test
-  void testInvalidCreateNamesReceivedNamespace() throws Exception {
+  void testInvalidNamespaceInCreateRequestAppearsInErrorMessage() throws Exception {
     mockMvc
         .perform(
             post("/hts/namespaces")
@@ -160,7 +160,8 @@ class NamespacesControllerTest {
     "DELETE, /hts/namespaces/foo.bar",
     "POST, /hts/namespaces/foo.bar/properties"
   })
-  void testInvalidPathNamesReceivedNamespace(String method, String path) throws Exception {
+  void testInvalidNamespaceInPathAppearsInErrorMessage(String method, String path)
+      throws Exception {
     mockMvc
         .perform(
             request(HttpMethod.valueOf(method), path)
