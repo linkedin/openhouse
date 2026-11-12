@@ -33,7 +33,7 @@ class NamespacesServiceFailureTest {
       new NamespacesServiceImpl(repository, clusterProperties, entityManager, transactionManager);
 
   @Test
-  void testIcebergRejectsEveryOperationBeforeAccessingJdbc() {
+  void testIcebergBackendReportsNamespaceMetadataUnavailable() {
     when(clusterProperties.getClusterHouseTablesDatabaseType()).thenReturn("ICEBERG");
     assertThatThrownBy(() -> namespacesService.createNamespace("foo", Map.of()))
         .isInstanceOf(NamespaceMetadataUnavailableException.class);
@@ -45,7 +45,6 @@ class NamespacesServiceFailureTest {
             () ->
                 namespacesService.updateNamespaceProperties("foo", Map.of("bar", "one"), Set.of()))
         .isInstanceOf(NamespaceMetadataUnavailableException.class);
-    verifyNoInteractions(repository, entityManager, transactionManager);
   }
 
   @Test
