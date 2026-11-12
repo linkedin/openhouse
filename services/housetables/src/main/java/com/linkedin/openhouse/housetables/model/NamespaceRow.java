@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.housetables.model;
 
 import java.util.HashMap;
-import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import javax.persistence.Column;
@@ -34,7 +33,7 @@ public class NamespaceRow {
 
   public NamespaceRow(String namespaceName, Map<String, String> properties) {
     this.namespaceUuid = UUID.randomUUID().toString();
-    this.namespaceName = namespaceName.toLowerCase(Locale.ROOT);
+    this.namespaceName = namespaceName;
     this.properties.putAll(properties);
   }
 

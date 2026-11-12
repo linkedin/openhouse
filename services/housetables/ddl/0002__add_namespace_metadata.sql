@@ -1,5 +1,5 @@
 -- Apply this feature schema before serving namespace metadata requests.
--- Names are stored in lowercase for the same case-insensitive uniqueness in MySQL and H2.
+-- Names retain insertion spelling; the column collation provides case-insensitive identity.
 -- Properties are a JSON document read and written with the versioned namespace row.
 
 CREATE TABLE catalog_namespaces (
