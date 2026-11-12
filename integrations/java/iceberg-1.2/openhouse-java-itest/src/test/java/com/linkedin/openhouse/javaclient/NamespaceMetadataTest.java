@@ -282,8 +282,22 @@ class NamespaceMetadataTest {
       })
   void invalidOrForeignTableNamesFailBeforeRequest(String name) {
     when(table.name()).thenReturn(name);
-    assertThrows(
-        NamespaceMetadataException.class, () -> catalog.getEffectiveTableProperties(table));
+    assertTrue(
+        assertThrows(
+                NamespaceMetadataException.class, () -> catalog.getEffectiveTableProperties(table))
+            .getMessage()
+            .contains(name));
+    assertEquals(0, tableService.getRequestCount());
+  }
+
+  @Test
+  void invalidNamespaceDiagnosticSurvivesCatalogTranslation() {
+    assertTrue(
+        assertThrows(
+                ValidationException.class,
+                () -> catalog.loadNamespaceMetadata(Namespace.of("foo.bar")))
+            .getMessage()
+            .contains("'foo.bar'"));
     assertEquals(0, tableService.getRequestCount());
   }
 

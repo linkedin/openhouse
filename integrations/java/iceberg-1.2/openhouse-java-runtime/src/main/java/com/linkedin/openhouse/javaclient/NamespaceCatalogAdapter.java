@@ -32,7 +32,7 @@ final class NamespaceCatalogAdapter {
     try {
       return call.execute();
     } catch (NamespaceMetadataInvalidRequestException failure) {
-      throw new ValidationException(failure, "Invalid namespace request");
+      throw new ValidationException(failure, "%s", failure.getMessage());
     } catch (NamespaceMetadataUnauthenticatedException failure) {
       throw new NotAuthorizedException(failure, "Namespace authentication required");
     } catch (NamespaceMetadataForbiddenException failure) {

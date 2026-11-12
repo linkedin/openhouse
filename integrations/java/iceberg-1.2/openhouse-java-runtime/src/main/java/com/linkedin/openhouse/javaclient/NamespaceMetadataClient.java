@@ -146,14 +146,16 @@ final class NamespaceMetadataClient {
             .orElseThrow(() -> new NamespaceMetadataInvalidRequestException("Missing table name"));
     String catalogPrefix = catalogName + ".";
     if (!tableName.startsWith(catalogPrefix)) {
-      throw new NamespaceMetadataInvalidRequestException("Table name must belong to this catalog");
+      throw new NamespaceMetadataInvalidRequestException(
+          String.format("Table name '%s' must belong to catalog '%s'", tableName, catalogName));
     }
     String[] identifier = tableName.substring(catalogPrefix.length()).split("\\.", -1);
     if (identifier.length != 2
         || !identifier[0].matches("[a-zA-Z0-9_]{1,128}")
         || !identifier[1].matches("[a-zA-Z0-9_]{1,128}")) {
       throw new NamespaceMetadataInvalidRequestException(
-          "Expected a catalog-qualified namespace and table");
+          String.format(
+              "Table name '%s' must identify a catalog-qualified namespace and table", tableName));
     }
     Map<String, String> effective = new HashMap<>();
     try {
@@ -172,7 +174,9 @@ final class NamespaceMetadataClient {
   private static void validateNamespace(Namespace namespace) throws NamespaceMetadataException {
     if (namespace.length() != 1 || !namespace.level(0).matches("[a-zA-Z0-9_]{1,128}")) {
       throw new NamespaceMetadataInvalidRequestException(
-          "Expected one namespace containing 1 to 128 letters, digits, or underscores");
+          String.format(
+              "Namespace '%s' must contain one name of 1 to 128 letters, digits, or underscores",
+              namespace));
     }
   }
 
