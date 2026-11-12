@@ -5,7 +5,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
+import com.linkedin.openhouse.housetables.model.NamespaceRow;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.NamespaceHtsJdbcRepository;
+import com.linkedin.openhouse.housetables.services.InvalidNamespacePropertyUpdateException;
 import com.linkedin.openhouse.housetables.services.NamespaceAlreadyExistsException;
 import com.linkedin.openhouse.housetables.services.NamespaceMetadataStorageException;
 import com.linkedin.openhouse.housetables.services.NamespaceMetadataUnavailableException;
@@ -13,6 +15,7 @@ import com.linkedin.openhouse.housetables.services.NamespacesService;
 import com.linkedin.openhouse.housetables.services.NamespacesServiceImpl;
 import java.sql.SQLException;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import javax.persistence.EntityManager;
 import org.hibernate.exception.ConstraintViolationException;
@@ -68,6 +71,70 @@ class NamespacesServiceFailureTest {
     assertThatThrownBy(() -> namespacesService.createNamespace("foo", Map.of()))
         .isInstanceOf(NamespaceMetadataStorageException.class)
         .hasCauseInstanceOf(TransactionSystemException.class);
+  }
+
+  @Test
+  void testReadCommitFailureBecomesCheckedStorageFailure() {
+    when(clusterProperties.getClusterHouseTablesDatabaseType()).thenReturn("IN_MEMORY");
+    when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+    when(repository.findByNamespaceName("foo"))
+        .thenReturn(Optional.of(new NamespaceRow("foo", Map.of())));
+    TransactionSystemException failure = new TransactionSystemException("commit failed");
+    doThrow(failure).when(transactionManager).commit(any());
+
+    assertThatThrownBy(() -> namespacesService.getNamespace("foo"))
+        .isInstanceOf(NamespaceMetadataStorageException.class)
+        .hasMessage("Namespace metadata storage failed.")
+        .hasCause(failure);
+  }
+
+  @Test
+  void testDeleteCommitFailureBecomesCheckedStorageFailure() {
+    when(clusterProperties.getClusterHouseTablesDatabaseType()).thenReturn("IN_MEMORY");
+    when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+    when(repository.findByNamespaceName("foo"))
+        .thenReturn(Optional.of(new NamespaceRow("foo", Map.of())));
+    TransactionSystemException failure = new TransactionSystemException("commit failed");
+    doThrow(failure).when(transactionManager).commit(any());
+
+    assertThatThrownBy(() -> namespacesService.deleteNamespace("foo"))
+        .isInstanceOf(NamespaceMetadataStorageException.class)
+        .hasMessage("Namespace metadata storage failed.")
+        .hasCause(failure);
+  }
+
+  @Test
+  void testNamespaceNameConstraintDuringUpdateBecomesStorageFailure() {
+    when(clusterProperties.getClusterHouseTablesDatabaseType()).thenReturn("IN_MEMORY");
+    when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+    when(repository.findByNamespaceName("foo"))
+        .thenReturn(Optional.of(new NamespaceRow("foo", Map.of())));
+    DataIntegrityViolationException failure =
+        new DataIntegrityViolationException(
+            "constraint failed",
+            new ConstraintViolationException(
+                "constraint failed", new SQLException(), "uq_namespace_name"));
+    doThrow(failure).when(repository).flush();
+
+    assertThatThrownBy(
+            () ->
+                namespacesService.updateNamespaceProperties("foo", Map.of("bar", "one"), Set.of()))
+        .isInstanceOf(NamespaceMetadataStorageException.class)
+        .hasMessage("Namespace metadata could not be persisted.")
+        .hasCause(failure);
+    verify(transactionManager).rollback(any());
+  }
+
+  @Test
+  void testOverlappingPropertyUpdatePrecedesUnsupportedBackendRejection() {
+    when(clusterProperties.getClusterHouseTablesDatabaseType()).thenReturn("ICEBERG");
+
+    assertThatThrownBy(
+            () ->
+                namespacesService.updateNamespaceProperties(
+                    "foo", Map.of("bar", "one"), Set.of("bar")))
+        .isInstanceOf(InvalidNamespacePropertyUpdateException.class)
+        .hasMessage("Property updates and removals must have disjoint keys.");
   }
 
   @Test
