@@ -94,18 +94,32 @@ public class OpenHouseNamespacesApiHandler implements NamespacesApiHandler {
         || namespaceName.length() > 128
         || !namespaceName.matches(ALPHA_NUM_UNDERSCORE_REGEX)) {
       throw new InvalidNamespaceRequestException(
-          "Namespace name must contain 1 to 128 letters, digits, or underscores.");
+          String.format(
+              "Namespace name '%s' must contain 1 to 128 letters, digits, or underscores.",
+              namespaceName));
     }
   }
 
   private <T> void validateRequest(T request) throws InvalidNamespaceRequestException {
     Set<ConstraintViolation<T>> violations = validator.validate(request);
     if (!violations.isEmpty()) {
-      throw new InvalidNamespaceRequestException(
+      /*
+       * Field paths identify invalid inputs, and sorting makes the combined message deterministic.
+       * Namespace values aid diagnosis; property values stay out of validation messages.
+       */
+      String validationMessage =
           violations.stream()
-              .map(violation -> violation.getPropertyPath() + ": " + violation.getMessage())
+              .map(
+                  violation ->
+                      violation.getPropertyPath()
+                          + ("namespaceName".equals(violation.getPropertyPath().toString())
+                              ? " '" + violation.getInvalidValue() + "'"
+                              : "")
+                          + ": "
+                          + violation.getMessage())
               .sorted()
-              .collect(Collectors.joining("; ")));
+              .collect(Collectors.joining("; "));
+      throw new InvalidNamespaceRequestException(validationMessage);
     }
   }
 }

@@ -13,7 +13,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import javax.persistence.EntityManager;
 import javax.persistence.LockModeType;
@@ -52,56 +51,113 @@ public class NamespacesServiceImpl implements NamespacesService {
   @Override
   public NamespaceMetadata createNamespace(String namespaceName, Map<String, String> properties)
       throws NamespaceMetadataException {
-    return inTransaction(
-        () -> {
-          NamespaceRow namespace = new NamespaceRow(namespaceName, properties);
-          entityManager.persist(namespace);
-          repository.flush();
-          return NamespaceMetadata.builder()
-              .namespaceUuid(namespace.getNamespaceUuid())
-              .namespaceName(namespace.getNamespaceName())
-              .properties(Collections.unmodifiableMap(new HashMap<>(namespace.getProperties())))
-              .build();
-        },
-        true);
+    if (SupportedDbTypes.ICEBERG
+        .name()
+        .equals(clusterProperties.getClusterHouseTablesDatabaseType())) {
+      throw new NamespaceMetadataUnavailableException(
+          "Namespace metadata requires a JDBC HouseTables backend.");
+    }
+    try {
+      return transactions.execute(
+          status -> {
+            NamespaceRow namespace = new NamespaceRow(namespaceName, properties);
+            entityManager.persist(namespace);
+            repository.flush();
+            return NamespaceMetadata.builder()
+                .namespaceUuid(namespace.getNamespaceUuid())
+                .namespaceName(namespace.getNamespaceName())
+                .properties(Collections.unmodifiableMap(new HashMap<>(namespace.getProperties())))
+                .build();
+          });
+    } catch (OptimisticLockingFailureException | OptimisticLockException exception) {
+      throw new NamespaceConcurrentModificationException(
+          "Namespace metadata changed concurrently. Retry the request.", exception);
+    } catch (DataIntegrityViolationException exception) {
+      boolean duplicateName =
+          Optional.ofNullable(exception.getCause())
+              .filter(ConstraintViolationException.class::isInstance)
+              .map(ConstraintViolationException.class::cast)
+              .map(ConstraintViolationException::getConstraintName)
+              .map(name -> name.toLowerCase(Locale.ROOT).contains("uq_namespace_name"))
+              .orElse(false);
+      if (duplicateName) {
+        throw new NamespaceAlreadyExistsException("Namespace name already exists.", exception);
+      }
+      throw new NamespaceMetadataStorageException(
+          "Namespace metadata could not be persisted.", exception);
+    } catch (DataAccessException | TransactionException | PersistenceException exception) {
+      throw new NamespaceMetadataStorageException("Namespace metadata storage failed.", exception);
+    }
   }
 
   @Override
   public NamespaceMetadata getNamespace(String namespaceName) throws NamespaceMetadataException {
-    return inTransaction(
-            () ->
-                repository
-                    .findByNamespaceName(namespaceName)
-                    .map(
-                        namespace ->
-                            NamespaceMetadata.builder()
-                                .namespaceUuid(namespace.getNamespaceUuid())
-                                .namespaceName(namespace.getNamespaceName())
-                                .properties(
-                                    Collections.unmodifiableMap(
-                                        new HashMap<>(namespace.getProperties())))
-                                .build()),
-            false)
-        .orElseThrow(() -> new NamespaceNotFoundException("Namespace not found: " + namespaceName));
+    if (SupportedDbTypes.ICEBERG
+        .name()
+        .equals(clusterProperties.getClusterHouseTablesDatabaseType())) {
+      throw new NamespaceMetadataUnavailableException(
+          "Namespace metadata requires a JDBC HouseTables backend.");
+    }
+    try {
+      return transactions
+          .execute(
+              status ->
+                  repository
+                      .findByNamespaceName(namespaceName)
+                      .map(
+                          namespace ->
+                              NamespaceMetadata.builder()
+                                  .namespaceUuid(namespace.getNamespaceUuid())
+                                  .namespaceName(namespace.getNamespaceName())
+                                  .properties(
+                                      Collections.unmodifiableMap(
+                                          new HashMap<>(namespace.getProperties())))
+                                  .build()))
+          .orElseThrow(
+              () -> new NamespaceNotFoundException("Namespace not found: " + namespaceName));
+    } catch (OptimisticLockingFailureException | OptimisticLockException exception) {
+      throw new NamespaceConcurrentModificationException(
+          "Namespace metadata changed concurrently. Retry the request.", exception);
+    } catch (DataIntegrityViolationException exception) {
+      throw new NamespaceMetadataStorageException(
+          "Namespace metadata could not be persisted.", exception);
+    } catch (DataAccessException | TransactionException | PersistenceException exception) {
+      throw new NamespaceMetadataStorageException("Namespace metadata storage failed.", exception);
+    }
   }
 
   @Override
   public void deleteNamespace(String namespaceName) throws NamespaceMetadataException {
-    boolean deleted =
-        inTransaction(
-            () ->
-                repository
-                    .findByNamespaceName(namespaceName)
-                    .map(
-                        namespace -> {
-                          repository.delete(namespace);
-                          repository.flush();
-                          return true;
-                        })
-                    .orElse(false),
-            false);
-    if (!deleted) {
-      throw new NamespaceNotFoundException("Namespace not found: " + namespaceName);
+    if (SupportedDbTypes.ICEBERG
+        .name()
+        .equals(clusterProperties.getClusterHouseTablesDatabaseType())) {
+      throw new NamespaceMetadataUnavailableException(
+          "Namespace metadata requires a JDBC HouseTables backend.");
+    }
+    try {
+      boolean deleted =
+          transactions.execute(
+              status ->
+                  repository
+                      .findByNamespaceName(namespaceName)
+                      .map(
+                          namespace -> {
+                            repository.delete(namespace);
+                            repository.flush();
+                            return true;
+                          })
+                      .orElse(false));
+      if (!deleted) {
+        throw new NamespaceNotFoundException("Namespace not found: " + namespaceName);
+      }
+    } catch (OptimisticLockingFailureException | OptimisticLockException exception) {
+      throw new NamespaceConcurrentModificationException(
+          "Namespace metadata changed concurrently. Retry the request.", exception);
+    } catch (DataIntegrityViolationException exception) {
+      throw new NamespaceMetadataStorageException(
+          "Namespace metadata could not be persisted.", exception);
+    } catch (DataAccessException | TransactionException | PersistenceException exception) {
+      throw new NamespaceMetadataStorageException("Namespace metadata storage failed.", exception);
     }
   }
 
@@ -113,42 +169,6 @@ public class NamespacesServiceImpl implements NamespacesService {
       throw new InvalidNamespacePropertyUpdateException(
           "Property updates and removals must have disjoint keys.");
     }
-    return inTransaction(
-            () ->
-                repository
-                    .findByNamespaceName(namespaceName)
-                    .map(
-                        namespace -> {
-                          // Empty updates also participate in optimistic concurrency checks.
-                          entityManager.lock(namespace, LockModeType.OPTIMISTIC_FORCE_INCREMENT);
-                          List<String> removed =
-                              removals.stream()
-                                  .filter(namespace.getProperties()::containsKey)
-                                  .sorted()
-                                  .collect(Collectors.toList());
-                          List<String> missing =
-                              removals.stream()
-                                  .filter(key -> !namespace.getProperties().containsKey(key))
-                                  .sorted()
-                                  .collect(Collectors.toList());
-                          Map<String, String> properties = new HashMap<>(namespace.getProperties());
-                          properties.keySet().removeAll(removals);
-                          properties.putAll(updates);
-                          namespace.replaceProperties(properties);
-                          repository.flush();
-                          return NamespacePropertyUpdate.builder()
-                              .updated(
-                                  updates.keySet().stream().sorted().collect(Collectors.toList()))
-                              .removed(removed)
-                              .missing(missing)
-                              .build();
-                        }),
-            false)
-        .orElseThrow(() -> new NamespaceNotFoundException("Namespace not found: " + namespaceName));
-  }
-
-  private <T> T inTransaction(Supplier<T> operation, boolean creating)
-      throws NamespaceMetadataException {
     if (SupportedDbTypes.ICEBERG
         .name()
         .equals(clusterProperties.getClusterHouseTablesDatabaseType())) {
@@ -156,22 +176,44 @@ public class NamespacesServiceImpl implements NamespacesService {
           "Namespace metadata requires a JDBC HouseTables backend.");
     }
     try {
-      return transactions.execute(status -> operation.get());
+      return transactions
+          .execute(
+              status ->
+                  repository
+                      .findByNamespaceName(namespaceName)
+                      .map(
+                          namespace -> {
+                            // Empty updates also participate in optimistic concurrency checks.
+                            entityManager.lock(namespace, LockModeType.OPTIMISTIC_FORCE_INCREMENT);
+                            List<String> removed =
+                                removals.stream()
+                                    .filter(namespace.getProperties()::containsKey)
+                                    .sorted()
+                                    .collect(Collectors.toList());
+                            List<String> missing =
+                                removals.stream()
+                                    .filter(key -> !namespace.getProperties().containsKey(key))
+                                    .sorted()
+                                    .collect(Collectors.toList());
+                            Map<String, String> properties =
+                                new HashMap<>(namespace.getProperties());
+                            properties.keySet().removeAll(removals);
+                            properties.putAll(updates);
+                            namespace.replaceProperties(properties);
+                            repository.flush();
+                            return NamespacePropertyUpdate.builder()
+                                .updated(
+                                    updates.keySet().stream().sorted().collect(Collectors.toList()))
+                                .removed(removed)
+                                .missing(missing)
+                                .build();
+                          }))
+          .orElseThrow(
+              () -> new NamespaceNotFoundException("Namespace not found: " + namespaceName));
     } catch (OptimisticLockingFailureException | OptimisticLockException exception) {
       throw new NamespaceConcurrentModificationException(
           "Namespace metadata changed concurrently. Retry the request.", exception);
     } catch (DataIntegrityViolationException exception) {
-      boolean duplicateName =
-          creating
-              && Optional.ofNullable(exception.getCause())
-                  .filter(ConstraintViolationException.class::isInstance)
-                  .map(ConstraintViolationException.class::cast)
-                  .map(ConstraintViolationException::getConstraintName)
-                  .map(name -> name.toLowerCase(Locale.ROOT).contains("uq_namespace_name"))
-                  .orElse(false);
-      if (duplicateName) {
-        throw new NamespaceAlreadyExistsException("Namespace name already exists.", exception);
-      }
       throw new NamespaceMetadataStorageException(
           "Namespace metadata could not be persisted.", exception);
     } catch (DataAccessException | TransactionException | PersistenceException exception) {

@@ -85,7 +85,8 @@ public class TablesServiceImpl implements TablesService, NamespacesService {
       List<String> namespace, Map<String, String> properties, String principal)
       throws NamespaceException, HouseNamespaceException {
     if (namespace.size() != 1) {
-      throw new InvalidNamespaceException("Exactly one namespace level is required");
+      throw new InvalidNamespaceException(
+          String.format("Namespace '%s' must contain exactly one level", namespace));
     }
     authorizeNamespace(namespace.get(0), principal, Privileges.SYSTEM_ADMIN);
     return namespaceRepository.create(namespace.get(0), properties);
@@ -126,7 +127,8 @@ public class TablesServiceImpl implements TablesService, NamespacesService {
       throws NamespaceException {
     if (!namespace.matches("[a-zA-Z0-9_]{1,128}")) {
       throw new InvalidNamespaceException(
-          "Namespace must be one namespace name of at most 128 letters, digits, or underscores");
+          String.format(
+              "Namespace '%s' must contain 1 to 128 letters, digits, or underscores", namespace));
     }
     try {
       authorizationUtils.checkDatabasePrivilege(

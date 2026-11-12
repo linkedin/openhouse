@@ -350,6 +350,8 @@ class NamespacesServiceTest {
         .when(repository)
         .findByNamespaceName("namespace_foo");
     ExecutorService executor = Executors.newFixedThreadPool(2);
+    Optional<Class<? extends NamespaceMetadataException>> firstOutcome;
+    Optional<Class<? extends NamespaceMetadataException>> secondOutcome;
     try {
       List<Callable<Optional<Class<? extends NamespaceMetadataException>>>> mutations =
           Arrays.asList(
@@ -373,7 +375,9 @@ class NamespacesServiceTest {
               });
       List<Future<Optional<Class<? extends NamespaceMetadataException>>>> results =
           executor.invokeAll(mutations, 20, TimeUnit.SECONDS);
-      assertThat(Arrays.asList(results.get(0).get(), results.get(1).get()))
+      firstOutcome = results.get(0).get();
+      secondOutcome = results.get(1).get();
+      assertThat(Arrays.asList(firstOutcome, secondOutcome))
           .containsExactlyInAnyOrder(
               Optional.empty(), Optional.of(NamespaceConcurrentModificationException.class));
     } finally {
@@ -386,7 +390,10 @@ class NamespacesServiceTest {
           .containsExactlyInAnyOrderEntriesOf(Map.of("keep", "one"));
     } else {
       assertThat(namespacesService.getNamespace("namespace_foo").getProperties())
-          .isIn(Map.of("keep", "one", "foo", "two"), Map.of("keep", "one", "bar", "three"));
+          .containsExactlyInAnyOrderEntriesOf(
+              firstOutcome.isEmpty()
+                  ? Map.of("keep", "one", "foo", "two")
+                  : Map.of("keep", "one", "bar", "three"));
     }
   }
 }
