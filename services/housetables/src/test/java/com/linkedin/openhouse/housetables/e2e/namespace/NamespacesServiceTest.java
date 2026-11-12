@@ -2,9 +2,11 @@ package com.linkedin.openhouse.housetables.e2e.namespace;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.reset;
 
+import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.model.NamespaceMetadata;
 import com.linkedin.openhouse.housetables.model.NamespacePropertyUpdate;
@@ -15,6 +17,7 @@ import com.linkedin.openhouse.housetables.services.NamespaceAlreadyExistsExcepti
 import com.linkedin.openhouse.housetables.services.NamespaceConcurrentModificationException;
 import com.linkedin.openhouse.housetables.services.NamespaceMetadataException;
 import com.linkedin.openhouse.housetables.services.NamespaceMetadataStorageException;
+import com.linkedin.openhouse.housetables.services.NamespaceMetadataUnavailableException;
 import com.linkedin.openhouse.housetables.services.NamespaceNotFoundException;
 import com.linkedin.openhouse.housetables.services.NamespacesService;
 import java.util.Arrays;
@@ -51,6 +54,7 @@ class NamespacesServiceTest {
   @Autowired private NamespacesService namespacesService;
   @Autowired private DataSource dataSource;
   @SpyBean private NamespaceHtsJdbcRepository repository;
+  @SpyBean private ClusterProperties clusterProperties;
 
   @AfterEach
   void cleanUp() {
@@ -291,6 +295,29 @@ class NamespacesServiceTest {
             jdbcTemplate.queryForMap(
                 "SELECT * FROM user_table_row WHERE database_id = 'namespace_metadata_foo'"))
         .isEqualTo(tableBefore);
+  }
+
+  @Test
+  void testUnsupportedBackendRejectionsPreserveStoredMetadata() throws NamespaceMetadataException {
+    NamespaceMetadata created =
+        namespacesService.createNamespace("Namespace_Foo", Map.of("foo", "one"));
+    doReturn("ICEBERG").when(clusterProperties).getClusterHouseTablesDatabaseType();
+    try {
+      assertThatThrownBy(() -> namespacesService.createNamespace("Namespace_Bar", Map.of()))
+          .isInstanceOf(NamespaceMetadataUnavailableException.class);
+      assertThatThrownBy(
+              () ->
+                  namespacesService.updateNamespaceProperties(
+                      "namespace_foo", Map.of("foo", "two"), Set.of()))
+          .isInstanceOf(NamespaceMetadataUnavailableException.class);
+      assertThatThrownBy(() -> namespacesService.deleteNamespace("namespace_foo"))
+          .isInstanceOf(NamespaceMetadataUnavailableException.class);
+    } finally {
+      reset(clusterProperties);
+    }
+    assertThat(namespacesService.getNamespace("namespace_foo")).isEqualTo(created);
+    assertThat(repository.findByNamespaceName("Namespace_Bar")).isEmpty();
+    assertThat(repository.count()).isEqualTo(1);
   }
 
   @Test
