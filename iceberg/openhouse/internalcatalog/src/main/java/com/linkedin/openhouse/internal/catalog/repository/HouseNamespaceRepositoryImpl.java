@@ -66,6 +66,9 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
                 Operation.MUTATION,
                 HouseNamespaceAlreadyExistsException::new)
             .orElseThrow(HouseNamespaceMutationUncertainException::new);
+    if (!namespaceName.equalsIgnoreCase(result.getNamespaceName())) {
+      throw new HouseNamespaceMutationUncertainException();
+    }
     return new NamespaceMetadata(
         result.getNamespaceUuid(), result.getNamespaceName(), Map.copyOf(result.getProperties()));
   }
@@ -81,6 +84,9 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
                   Operation.READ,
                   HouseNamespaceConcurrentModificationException::new)
               .orElseThrow(HouseNamespaceResponseException::new);
+      if (!namespaceName.equalsIgnoreCase(result.getNamespaceName())) {
+        throw new HouseNamespaceResponseException();
+      }
       return Optional.of(
           new NamespaceMetadata(
               result.getNamespaceUuid(),
