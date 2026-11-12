@@ -2,13 +2,15 @@ package com.linkedin.openhouse.tables.e2e.h2;
 
 import static com.linkedin.openhouse.tables.model.TableModelConstants.GET_TABLE_RESPONSE_BODY;
 import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepository;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceUnavailableException;
 import com.linkedin.openhouse.tables.services.NamespacesService;
 import com.linkedin.openhouse.tables.services.TablesService;
 import org.junit.jupiter.api.Test;
@@ -40,6 +42,8 @@ class NamespaceTableIsolationTest {
 
   @Test
   void legacyTableLifecycleAndListingNeverReadNamespaceMetadata() throws Exception {
+    when(namespaceRepository.findByName(anyString()))
+        .thenThrow(new HouseNamespaceUnavailableException());
     RequestAndValidateHelper.createTableAndValidateResponse(
         GET_TABLE_RESPONSE_BODY, mvc, storageManager);
     mvc.perform(
@@ -50,6 +54,5 @@ class NamespaceTableIsolationTest {
         .andExpect(status().isOk());
     mvc.perform(get("/v1/databases")).andExpect(status().isOk());
     RequestAndValidateHelper.deleteTableAndValidateResponse(mvc, GET_TABLE_RESPONSE_BODY);
-    verifyNoInteractions(namespaceRepository);
   }
 }

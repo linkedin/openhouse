@@ -1,9 +1,14 @@
-# Namespace metadata API
+# Managing namespace defaults
 
 Tables Service exposes independent namespace metadata through four operations from the
 [Apache Iceberg REST catalog specification](https://github.com/apache/iceberg/blob/main/open-api/rest-catalog-open-api.yaml).
+Use namespace properties for shared defaults that consumers explicitly opt into when resolving
+effective table properties. Explicit table values win. Creating or changing defaults does not
+rewrite tables, and ordinary table operations continue to work without namespace metadata.
+
 The `prefix` is the client catalog name. A namespace contains exactly one name,
-using 1 to 128 letters, digits, or underscores. Lookup is case-insensitive.
+using 1 to 128 letters, digits, or underscores. Lookup is case-insensitive and responses retain
+the name's insertion spelling. Creating `Finance` makes `FINANCE` refer to the same record.
 
 | Method | Route | Success |
 |---|---|---|
@@ -12,81 +17,60 @@ using 1 to 128 letters, digits, or underscores. Lookup is case-insensitive.
 | DELETE | `/v1/{prefix}/namespaces/{namespace}` | 204 |
 | POST | `/v1/{prefix}/namespaces/{namespace}/properties` | 200 |
 
-Creation accepts `{"namespace":["foo"],"properties":{"a":"1"}}`. Properties may be omitted.
-Creation and load return `{"namespace":["foo"],"properties":{"a":"1"}}`.
-The internal HouseTables UUID stays private.
+## Create and edit defaults
 
-Property updates accept `{"updates":{"b":"2"},"removals":["a","c"]}`.
-Either collection may be omitted. Explicit null collections, null elements, and non-string values
-are rejected. Updates preserve unspecified keys. Responses contain `updated`, `removed`, and
-`missing` arrays. A key appearing in both collections returns 422.
+An administrator supplies a one-element `namespace` list and an optional `properties` map to
+create a record. Loading returns the stored name and properties. A duplicate create fails
+without changing the original spelling or values.
+
+To edit defaults, send an `updates` map containing only the keys to set and a `removals` list
+containing only the keys to remove. Either collection may be omitted. Updates preserve
+unspecified keys. The response identifies updated keys, removed keys, and requested removal
+keys that were already absent. A key appearing in both collections returns 422; correct the
+overlap before resubmitting. Explicit null collections, null elements, and non-string values
+are rejected.
 Create, update, and removal keys must contain well-formed Unicode and at most 512 UTF-16 code
 units. Empty keys, spaces, accents, case differences, and supplementary characters are preserved.
 Unpaired UTF-16 surrogates and overlength keys return 400.
 
-## Authorization and errors
+## Access and recovery
 
-The existing token interceptor and secured-method guard protect these routes. The service checks
-database privileges before reading or mutating metadata: `SYSTEM_ADMIN` for creation and
-property updates (including removals), `GET_TABLE_METADATA` for load, and `DELETE_TABLE` for drop.
-Property mutations require the same administrative authority as namespace creation because
-namespace defaults can affect every table whose consumer adopts effective-property resolution.
-Permission to write individual tables does not grant permission to change these defaults.
-The LinkedIn authorization handler resolves database-scoped `SYSTEM_ADMIN` against its configured
-`systemAdmins` identities, independently of table permissions. Deploy that handler support with
-these routes. Other authorization implementations must define their own `SYSTEM_ADMIN` policy.
-The namespace authorization resource identifier is normalized with `Locale.ROOT` to lowercase,
-matching the canonical lowercase name stored by HouseTables.
-Namespace access denial returns 403 before looking up metadata, so reads cannot disclose properties
-or existence to an unauthorized principal. The configured authorization handler controls access;
-the reference OPA handler retains its existing permissive behavior when OPA is unconfigured.
+Creation, property updates, removals, and drop require `SYSTEM_ADMIN`. Loading metadata requires
+`GET_TABLE_METADATA`. Defaults can affect every table whose consumer opts into effective-property
+resolution, so table-writing permission alone cannot authorize changing or deleting defaults.
+Authorization resolves the same resource for every capitalization of its name.
 
-Errors use `{"error":{"message":"...","type":"...","code":400}}`. Stack traces and upstream error
-bodies are omitted. Validation and malformed JSON return 400, unauthenticated requests return 401,
-missing metadata returns 404, duplicate names and concurrent mutations return 409, and unavailable
-dependencies return 503. Unsupported ICEBERG HouseTables persistence also returns 503.
-An uncertain mutation outcome returns 500 with `CommitStateUnknownException`. A nonempty
-namespace uses `NamespaceNotEmptyException`, while a concurrent metadata conflict uses
-`CommitFailedException`, even though both conflicts have status 409.
-A namespace-scoped filter normalizes errors returned before controller execution. Existing APIs
-retain their error format.
+Invalid requests return 400 or 422; correct the request before retrying. Authentication failures
+return 401, and insufficient privileges return 403. A missing namespace returns 404. Consumers
+may treat that absence as having no defaults, but an unavailable dependency is an error, not
+evidence that defaults are absent.
 
-## Storage and compatibility
+Conflicts require different actions. An existing name means creation did not replace its
+metadata. A nonempty namespace must have its tables and views moved or removed before drop.
+A concurrent property change requires reloading the current metadata and deciding whether
+the intended update still applies.
 
-`TablesServiceImpl` implements both `TablesService` and `NamespacesService` on the same Spring
-instance. Table handlers use `TablesService`, while the namespace controller uses `NamespacesService`.
-Namespace operations use the separate `HouseNamespaceRepository` and the shared authorization
-utility. Table persistence continues through `OpenHouseInternalRepository`.
+An uncertain mutation returns `CommitStateUnknownException`. The operation may have committed
+even though the response was lost or unusable. Reload metadata and reconcile the observed
+identity and properties with the intended change before retrying. A missing response does not
+mean a failed write, and replaying a sparse update can overwrite a later administrator's edit.
+Namespace transport requests have one total attempt. Callers remain responsible for their own
+retry decisions.
 
-Namespace metadata is an independent HouseTables resource stored with its properties in `catalog_namespaces`.
-Apply the [HouseTables namespace DDL](https://github.com/linkedin/openhouse/blob/mkuchenbecker/database-properties-hts/services/housetables/ddl/0002__add_namespace_metadata.sql)
-before serving these requests. Existing table creation, loading, updates, deletion, and database listing
-retain their existing behavior and perform zero namespace-metadata lookups.
-An empty namespace need not appear in the legacy table-derived database listing.
+## Drop and table independence
 
-Drop first checks metadata existence, then requests at most one table row and one view row from
-HouseTables. These queries read identifiers and row metadata, without opening Iceberg metadata
-files. Either entity type makes the namespace nonempty and returns 409. A failed listing stops
-the operation. Successful drop deletes only independent namespace metadata.
+Drop succeeds only for existing namespace metadata whose table and view listings establish
+emptiness. An unavailable listing prevents deletion. Successful drop removes only the namespace
+metadata, leaving table rows and files intact.
 
-The emptiness check and metadata deletion are separate operations. Concurrent table or view
-creation can occur between them, leaving an entity whose namespace metadata has been removed.
-Existing table and view lifecycles are deliberately unchanged, and namespace drop never deletes
-their rows or files.
+Concurrent table or view creation is not serialized with metadata drop. A table can therefore
+exist after its namespace metadata is dropped. Namespace records are optional, not mandatory
+parents. An empty namespace need not appear in the legacy table-derived database listing.
 
-The generated HouseTables adapter uses a 30-second budget for each read and a 60-second budget
-for each write. Automatic transport retries are disabled for `NamespaceApi` requests.
-Occupancy reads through `UserTableApi` retain their configured transport retries.
-An uncertain mutation outcome returns HTTP 500 with `CommitStateUnknownException`; callers must
-reload metadata and reconcile before retrying. This transport setting does not control retries
-in external clients.
-
-Internal HouseTables metadata responses require `namespaceUuid`, `namespaceName`, and `properties`;
-update responses require `updated`, `removed`, and `missing`. The decoder checks presence before
-generated defaults can conceal omissions. Empty maps and lists are valid. Deletion succeeds only
-after HTTP 204 from HouseTables; other successful or redirect statuses leave its outcome uncertain.
-Conflict reasons come from the operation: duplicate creation uses `AlreadyExistsException`,
-while concurrent updates and deletes use `CommitFailedException`, regardless of the route spelling.
+Administrators deploying the service must apply the
+[HouseTables namespace DDL](https://github.com/linkedin/openhouse/blob/mkuchenbecker/database-properties-hts/services/housetables/ddl/0002__add_namespace_metadata.sql)
+before serving namespace requests. Existing table creation, loading, updates, deletion, and
+database listing perform zero namespace-metadata lookups.
 
 ## Generated client and validation
 
@@ -114,4 +98,3 @@ generated files are build outputs.
 The dedicated `namespaceIntegrationTest` task runs Tables HTTP handlers through the generated HTS
 client against a live H2-backed HouseTables server. It is included in `check`. Its separate source
 set keeps HouseTables bootstrap resources out of the existing Tables Service test classpath.
-Java catalog namespace support and effective-property resolution are subsequent client work.

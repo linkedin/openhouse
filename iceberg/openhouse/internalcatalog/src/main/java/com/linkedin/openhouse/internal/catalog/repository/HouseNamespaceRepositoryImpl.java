@@ -10,19 +10,29 @@ import com.linkedin.openhouse.housetables.client.model.UpdateNamespaceProperties
 import com.linkedin.openhouse.housetables.client.model.UpdateNamespacePropertiesResponseBody;
 import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
 import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceAlreadyExistsException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceConcurrentModificationException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException.Reason;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceInvalidPropertiesException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceInvalidRequestException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceMutationUncertainException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceNotFoundException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceResponseException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceUnavailableException;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -31,6 +41,11 @@ import reactor.core.publisher.Mono;
 /** Uses bounded HouseTables requests with automatic NamespaceApi transport retries disabled. */
 @RequiredArgsConstructor
 public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
+  private enum Operation {
+    READ,
+    MUTATION
+  }
+
   private static final Duration READ_TIMEOUT = Duration.ofSeconds(30);
   private static final Duration WRITE_TIMEOUT = Duration.ofSeconds(60);
 
@@ -48,17 +63,11 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
                             .namespaceName(namespaceName)
                             .properties(properties)),
                 WRITE_TIMEOUT,
-                Reason.ALREADY_EXISTS)
-            .orElseThrow(() -> new HouseNamespaceException(Reason.UNKNOWN_OUTCOME));
+                Operation.MUTATION,
+                HouseNamespaceAlreadyExistsException::new)
+            .orElseThrow(HouseNamespaceMutationUncertainException::new);
     return new NamespaceMetadata(
-        Optional.ofNullable(result.getNamespaceUuid())
-            .orElseThrow(() -> new HouseNamespaceException(Reason.UNKNOWN_OUTCOME)),
-        Optional.ofNullable(result.getNamespaceName())
-            .orElseThrow(() -> new HouseNamespaceException(Reason.UNKNOWN_OUTCOME)),
-        Map.copyOf(
-            Optional.ofNullable(result.getProperties())
-                .filter(propertiesMap -> propertiesMap.values().stream().noneMatch(Objects::isNull))
-                .orElseThrow(() -> new HouseNamespaceException(Reason.UNKNOWN_OUTCOME))));
+        result.getNamespaceUuid(), result.getNamespaceName(), Map.copyOf(result.getProperties()));
   }
 
   @Override
@@ -69,25 +78,16 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
           execute(
                   () -> namespaceApi.getNamespace(namespaceName),
                   READ_TIMEOUT,
-                  Reason.CONCURRENT_MODIFICATION)
-              .orElseThrow(() -> new HouseNamespaceException(Reason.FAILURE));
+                  Operation.READ,
+                  HouseNamespaceConcurrentModificationException::new)
+              .orElseThrow(HouseNamespaceResponseException::new);
       return Optional.of(
           new NamespaceMetadata(
-              Optional.ofNullable(result.getNamespaceUuid())
-                  .orElseThrow(() -> new HouseNamespaceException(Reason.FAILURE)),
-              Optional.ofNullable(result.getNamespaceName())
-                  .orElseThrow(() -> new HouseNamespaceException(Reason.FAILURE)),
-              Map.copyOf(
-                  Optional.ofNullable(result.getProperties())
-                      .filter(
-                          propertiesMap ->
-                              propertiesMap.values().stream().noneMatch(Objects::isNull))
-                      .orElseThrow(() -> new HouseNamespaceException(Reason.FAILURE)))));
-    } catch (HouseNamespaceException exception) {
-      if (exception.getReason() == Reason.NOT_FOUND) {
-        return Optional.empty();
-      }
-      throw exception;
+              result.getNamespaceUuid(),
+              result.getNamespaceName(),
+              Map.copyOf(result.getProperties())));
+    } catch (HouseNamespaceNotFoundException exception) {
+      return Optional.empty();
     }
   }
 
@@ -96,9 +96,10 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
     execute(
             () -> namespaceApi.deleteNamespaceWithHttpInfo(namespaceName),
             WRITE_TIMEOUT,
-            Reason.CONCURRENT_MODIFICATION)
+            Operation.MUTATION,
+            HouseNamespaceConcurrentModificationException::new)
         .filter(response -> response.getStatusCodeValue() == 204)
-        .orElseThrow(() -> new HouseNamespaceException(Reason.UNKNOWN_OUTCOME));
+        .orElseThrow(HouseNamespaceMutationUncertainException::new);
   }
 
   @Override
@@ -114,21 +115,22 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
                             .updates(updates)
                             .removals(removals)),
                 WRITE_TIMEOUT,
-                Reason.CONCURRENT_MODIFICATION)
-            .orElseThrow(() -> new HouseNamespaceException(Reason.UNKNOWN_OUTCOME));
+                Operation.MUTATION,
+                HouseNamespaceConcurrentModificationException::new)
+            .orElseThrow(HouseNamespaceMutationUncertainException::new);
+    Set<String> acknowledgedRemovals =
+        Stream.concat(result.getRemoved().stream(), result.getMissing().stream())
+            .collect(Collectors.toSet());
+    if (!new HashSet<>(result.getUpdated()).equals(updates.keySet())
+        || result.getUpdated().size() != updates.size()
+        || !acknowledgedRemovals.equals(removals)
+        || result.getRemoved().size() + result.getMissing().size() != acknowledgedRemovals.size()) {
+      throw new HouseNamespaceMutationUncertainException();
+    }
     return new NamespacePropertyUpdate(
-        List.copyOf(
-            Optional.ofNullable(result.getUpdated())
-                .filter(keys -> keys.stream().noneMatch(Objects::isNull))
-                .orElseThrow(() -> new HouseNamespaceException(Reason.UNKNOWN_OUTCOME))),
-        List.copyOf(
-            Optional.ofNullable(result.getRemoved())
-                .filter(keys -> keys.stream().noneMatch(Objects::isNull))
-                .orElseThrow(() -> new HouseNamespaceException(Reason.UNKNOWN_OUTCOME))),
-        List.copyOf(
-            Optional.ofNullable(result.getMissing())
-                .filter(keys -> keys.stream().noneMatch(Objects::isNull))
-                .orElseThrow(() -> new HouseNamespaceException(Reason.UNKNOWN_OUTCOME))));
+        List.copyOf(result.getUpdated()),
+        List.copyOf(result.getRemoved()),
+        List.copyOf(result.getMissing()));
   }
 
   @Override
@@ -140,43 +142,51 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
           execute(
               () -> userTableApi.getPaginatedUserTables(filters, 0, 1, "tableId"),
               READ_TIMEOUT,
-              Reason.CONCURRENT_MODIFICATION);
+              Operation.READ,
+              HouseNamespaceConcurrentModificationException::new);
       if (!tables
           .map(GetAllEntityResponseBodyUserTable::getPageResults)
           .map(PageUserTable::getContent)
-          .orElseThrow(() -> new HouseNamespaceException(Reason.FAILURE))
+          .orElseThrow(HouseNamespaceResponseException::new)
           .isEmpty()) {
         return true;
       }
       return !execute(
               () -> userTableApi.getPaginatedUserViews(filters, 0, 1, "tableId"),
               READ_TIMEOUT,
-              Reason.CONCURRENT_MODIFICATION)
+              Operation.READ,
+              HouseNamespaceConcurrentModificationException::new)
           .map(GetAllEntityResponseBodyUserTable::getPageResults)
           .map(PageUserTable::getContent)
-          .orElseThrow(() -> new HouseNamespaceException(Reason.FAILURE))
+          .orElseThrow(HouseNamespaceResponseException::new)
           .isEmpty();
-    } catch (HouseNamespaceException exception) {
+    } catch (HouseNamespaceNotFoundException exception) {
       // Listing availability is required to establish that the namespace is empty.
-      if (exception.getReason() == Reason.NOT_FOUND) {
-        throw new HouseNamespaceException(Reason.UNAVAILABLE, exception);
-      }
-      throw exception;
+      throw new HouseNamespaceUnavailableException(exception);
     }
   }
 
   private <T> Optional<T> execute(
-      Supplier<Mono<T>> request, Duration timeout, Reason conflictReason)
+      Supplier<Mono<T>> request,
+      Duration timeout,
+      Operation operation,
+      Function<Throwable, HouseNamespaceException> conflict)
       throws HouseNamespaceException {
-    Reason uncertainFailure =
-        timeout.equals(WRITE_TIMEOUT) ? Reason.UNKNOWN_OUTCOME : Reason.UNAVAILABLE;
+    Function<Throwable, HouseNamespaceException> unavailable =
+        operation == Operation.MUTATION
+            ? HouseNamespaceMutationUncertainException::new
+            : HouseNamespaceUnavailableException::new;
+    Function<Throwable, HouseNamespaceException> unusable =
+        operation == Operation.MUTATION
+            ? HouseNamespaceMutationUncertainException::new
+            : HouseNamespaceResponseException::new;
     CompletableFuture<T> pending = Mono.defer(request).timeout(timeout).toFuture();
     try {
       return Optional.ofNullable(pending.get());
     } catch (InterruptedException exception) {
       pending.cancel(true);
       Thread.currentThread().interrupt();
-      throw new HouseNamespaceException(uncertainFailure, exception);
+      throw unavailable.apply(exception);
     } catch (ExecutionException
         | WebClientResponseException
         | WebClientRequestException exception) {
@@ -184,30 +194,28 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
       if (cause instanceof WebClientResponseException) {
         switch (((WebClientResponseException) cause).getRawStatusCode()) {
           case 400:
-            throw new HouseNamespaceException(Reason.BAD_REQUEST, cause);
+            throw new HouseNamespaceInvalidRequestException(cause);
           case 404:
-            throw new HouseNamespaceException(Reason.NOT_FOUND, cause);
+            throw new HouseNamespaceNotFoundException(cause);
           case 409:
-            throw new HouseNamespaceException(conflictReason, cause);
+            throw conflict.apply(cause);
           case 422:
-            throw new HouseNamespaceException(Reason.INVALID_PROPERTIES, cause);
+            throw new HouseNamespaceInvalidPropertiesException(cause);
           case 401:
           case 403:
           case 503:
-            throw new HouseNamespaceException(Reason.UNAVAILABLE, cause);
+            throw new HouseNamespaceUnavailableException(cause);
           case 502:
           case 504:
-            throw new HouseNamespaceException(uncertainFailure, cause);
+            throw unavailable.apply(cause);
           default:
-            throw new HouseNamespaceException(
-                timeout.equals(WRITE_TIMEOUT) ? Reason.UNKNOWN_OUTCOME : Reason.FAILURE, cause);
+            throw unusable.apply(cause);
         }
       }
       if (cause instanceof WebClientRequestException || cause instanceof TimeoutException) {
-        throw new HouseNamespaceException(uncertainFailure, cause);
+        throw unavailable.apply(cause);
       }
-      throw new HouseNamespaceException(
-          timeout.equals(WRITE_TIMEOUT) ? Reason.UNKNOWN_OUTCOME : Reason.FAILURE, cause);
+      throw unusable.apply(cause);
     }
   }
 }

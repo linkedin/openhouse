@@ -8,8 +8,12 @@ import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
 import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceAlreadyExistsException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceConcurrentModificationException;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException.Reason;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceMutationUncertainException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceResponseException;
+import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceUnavailableException;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
@@ -100,30 +104,29 @@ class HouseNamespaceRepositoryImplTest {
     assertFalse(repository.findByName("foo").isPresent());
     server.enqueue(new MockResponse().setResponseCode(503).setBody("secret"));
     assertEquals(
-        Reason.UNAVAILABLE,
-        assertThrows(HouseNamespaceException.class, () -> repository.findByName("foo"))
-            .getReason());
+        HouseNamespaceUnavailableException.class,
+        assertThrows(HouseNamespaceException.class, () -> repository.findByName("foo")).getClass());
     assertEquals(2, server.getRequestCount());
   }
 
   @ParameterizedTest
   @CsvSource({
-    "400,BAD_REQUEST",
-    "404,NOT_FOUND",
-    "409,CONCURRENT_MODIFICATION",
-    "422,INVALID_PROPERTIES",
-    "500,UNKNOWN_OUTCOME",
-    "503,UNAVAILABLE",
-    "403,UNAVAILABLE"
+    "400,HouseNamespaceInvalidRequestException",
+    "404,HouseNamespaceNotFoundException",
+    "409,HouseNamespaceConcurrentModificationException",
+    "422,HouseNamespaceInvalidPropertiesException",
+    "500,HouseNamespaceMutationUncertainException",
+    "503,HouseNamespaceUnavailableException",
+    "403,HouseNamespaceUnavailableException"
   })
-  void mapsWriteFailuresWithoutRetry(int status, Reason reason) {
+  void mapsWriteFailuresWithoutRetry(int status, String failureType) {
     server.enqueue(new MockResponse().setResponseCode(status).setBody("secret"));
     HouseNamespaceException exception =
         assertThrows(
             HouseNamespaceException.class,
             () ->
                 repository.updateProperties("foo", Collections.emptyMap(), Collections.emptySet()));
-    assertEquals(reason, exception.getReason());
+    assertEquals(failureType, exception.getClass().getSimpleName());
     assertFalse(exception.getMessage().contains("secret"));
     assertEquals(1, server.getRequestCount());
   }
@@ -132,18 +135,16 @@ class HouseNamespaceRepositoryImplTest {
   void emptySuccessAndMalformedResponsesAreFailures() {
     server.enqueue(new MockResponse().setResponseCode(200));
     assertEquals(
-        Reason.FAILURE,
-        assertThrows(HouseNamespaceException.class, () -> repository.findByName("foo"))
-            .getReason());
+        HouseNamespaceResponseException.class,
+        assertThrows(HouseNamespaceException.class, () -> repository.findByName("foo")).getClass());
     server.enqueue(new MockResponse().addHeader("Content-Type", "application/json").setBody("{"));
     assertEquals(
-        Reason.FAILURE,
-        assertThrows(HouseNamespaceException.class, () -> repository.findByName("foo"))
-            .getReason());
+        HouseNamespaceResponseException.class,
+        assertThrows(HouseNamespaceException.class, () -> repository.findByName("foo")).getClass());
   }
 
   @Test
-  void checksBothEntityTypesWithSizeOneAndStopsAfterOccupiedTable() throws Exception {
+  void viewOccupancyUsesSizeOneListings() throws Exception {
     server.enqueue(
         new MockResponse()
             .addHeader("Content-Type", "application/json")
@@ -161,12 +162,17 @@ class HouseNamespaceRepositoryImplTest {
     assertEquals("bar", tables.getRequestUrl().queryParameter("databaseId"));
     assertTrue(views.getRequestUrl().encodedPath().contains("views"));
     assertEquals("1", views.getRequestUrl().queryParameter("size"));
+    assertEquals(2, server.getRequestCount());
+  }
+
+  @Test
+  void tableOccupancyNeedsOneRequest() throws Exception {
     server.enqueue(
         new MockResponse()
             .addHeader("Content-Type", "application/json")
             .setBody("{\"pageResults\":{\"content\":[{\"tableId\":\"foo\"}]}}"));
     assertTrue(repository.containsEntities("bar"));
-    assertEquals(3, server.getRequestCount());
+    assertEquals(1, server.getRequestCount());
   }
 
   @Test
@@ -180,11 +186,16 @@ class HouseNamespaceRepositoryImplTest {
             .addHeader("Content-Type", "application/json")
             .setBody("{\"pageResults\":{\"content\":[]}}"));
     assertFalse(repository.containsEntities("foo"));
+    assertEquals(2, server.getRequestCount());
+  }
+
+  @Test
+  void missingListingCannotEstablishEmptiness() {
     server.enqueue(new MockResponse().setResponseCode(404));
     assertEquals(
-        Reason.UNAVAILABLE,
+        HouseNamespaceUnavailableException.class,
         assertThrows(HouseNamespaceException.class, () -> repository.containsEntities("foo"))
-            .getReason());
+            .getClass());
   }
 
   @Test
@@ -195,9 +206,9 @@ class HouseNamespaceRepositoryImplTest {
     HouseNamespaceRepository timedRepository =
         new HouseNamespaceRepositoryImpl(namespaceApi, mock(UserTableApi.class));
     assertEquals(
-        Reason.UNKNOWN_OUTCOME,
+        HouseNamespaceMutationUncertainException.class,
         assertThrows(HouseNamespaceException.class, () -> timedRepository.delete("foo"))
-            .getReason());
+            .getClass());
     verify(namespaceApi).deleteNamespaceWithHttpInfo("foo");
     verifyNoMoreInteractions(namespaceApi);
   }
@@ -210,21 +221,20 @@ class HouseNamespaceRepositoryImplTest {
             .setBody(
                 "{\"namespaceUuid\":\"foo\",\"namespaceName\":\"bar\",\"properties\":{\"key\":null}}"));
     assertEquals(
-        Reason.FAILURE,
-        assertThrows(HouseNamespaceException.class, () -> repository.findByName("bar"))
-            .getReason());
+        HouseNamespaceResponseException.class,
+        assertThrows(HouseNamespaceException.class, () -> repository.findByName("bar")).getClass());
     server.enqueue(
         new MockResponse()
             .addHeader("Content-Type", "application/json")
             .setBody("{\"updated\":[null],\"removed\":[],\"missing\":[]}"));
     assertEquals(
-        Reason.UNKNOWN_OUTCOME,
+        HouseNamespaceMutationUncertainException.class,
         assertThrows(
                 HouseNamespaceException.class,
                 () ->
                     repository.updateProperties(
                         "bar", Collections.emptyMap(), Collections.emptySet()))
-            .getReason());
+            .getClass());
   }
 
   @Test
@@ -235,9 +245,9 @@ class HouseNamespaceRepositoryImplTest {
             .setBody("{\"pageResults\":{\"content\":[]}}"));
     server.enqueue(new MockResponse().setResponseCode(503));
     assertEquals(
-        Reason.UNAVAILABLE,
+        HouseNamespaceUnavailableException.class,
         assertThrows(HouseNamespaceException.class, () -> repository.containsEntities("foo"))
-            .getReason());
+            .getClass());
     assertEquals(2, server.getRequestCount());
   }
 
@@ -249,15 +259,13 @@ class HouseNamespaceRepositoryImplTest {
         "{\"updated\":[],\"missing\":[]}",
         "{\"removed\":[],\"missing\":[]}"
       })
-  void omittedUpdateFieldsAreUnknownOutcomes(String response) {
+  void omittedUpdateCollectionsUseGeneratedDefaults(String response) throws Exception {
     server.enqueue(
         new MockResponse().addHeader("Content-Type", "application/json").setBody(response));
-    assertEquals(
-        Reason.UNKNOWN_OUTCOME,
-        assertThrows(
-                HouseNamespaceException.class,
-                () -> repository.updateProperties("foo", Map.of("a", "1"), Set.of("b")))
-            .getReason());
+    NamespacePropertyUpdate update = repository.updateProperties("foo", Map.of(), Set.of());
+    assertTrue(update.getUpdated().isEmpty());
+    assertTrue(update.getRemoved().isEmpty());
+    assertTrue(update.getMissing().isEmpty());
     assertEquals(1, server.getRequestCount());
   }
 
@@ -265,25 +273,18 @@ class HouseNamespaceRepositoryImplTest {
   @ValueSource(
       strings = {
         "{\"namespaceUuid\":\"foo\",\"namespaceName\":\"bar\"}",
-        "{\"namespaceUuid\":\"foo\",\"properties\":{}}",
-        "{\"namespaceName\":\"bar\",\"properties\":{}}"
+        "{\"namespaceUuid\":\"foo\",\"namespaceName\":\"bar\",\"properties\":{}}"
       })
-  void omittedMetadataFieldsFailReadsAndCreates(String response) {
+  void generatedMetadataCollectionsAcceptOmittedProperties(String response) throws Exception {
     server.enqueue(
         new MockResponse().addHeader("Content-Type", "application/json").setBody(response));
-    assertEquals(
-        Reason.FAILURE,
-        assertThrows(HouseNamespaceException.class, () -> repository.findByName("bar"))
-            .getReason());
+    assertTrue(repository.findByName("bar").orElseThrow().getProperties().isEmpty());
     server.enqueue(
         new MockResponse()
             .setResponseCode(201)
             .addHeader("Content-Type", "application/json")
             .setBody(response));
-    assertEquals(
-        Reason.UNKNOWN_OUTCOME,
-        assertThrows(HouseNamespaceException.class, () -> repository.create("bar", Map.of()))
-            .getReason());
+    assertTrue(repository.create("bar", Map.of()).getProperties().isEmpty());
     assertEquals(2, server.getRequestCount());
   }
 
@@ -309,22 +310,22 @@ class HouseNamespaceRepositoryImplTest {
   void deletionRequiresNoContentStatus(int status) {
     server.enqueue(new MockResponse().setResponseCode(status));
     assertEquals(
-        Reason.UNKNOWN_OUTCOME,
-        assertThrows(HouseNamespaceException.class, () -> repository.delete("foo")).getReason());
+        HouseNamespaceMutationUncertainException.class,
+        assertThrows(HouseNamespaceException.class, () -> repository.delete("foo")).getClass());
     assertEquals(1, server.getRequestCount());
   }
 
   @Test
-  void conflictReasonsComeFromTheOperation() {
+  void conflictsRetainOperationMeaning() {
     server.enqueue(new MockResponse().setResponseCode(409));
     assertEquals(
-        Reason.ALREADY_EXISTS,
+        HouseNamespaceAlreadyExistsException.class,
         assertThrows(HouseNamespaceException.class, () -> repository.create("foo", Map.of()))
-            .getReason());
+            .getClass());
     server.enqueue(new MockResponse().setResponseCode(409));
     assertEquals(
-        Reason.CONCURRENT_MODIFICATION,
+        HouseNamespaceConcurrentModificationException.class,
         assertThrows(HouseNamespaceException.class, () -> repository.delete("namespaces"))
-            .getReason());
+            .getClass());
   }
 }
