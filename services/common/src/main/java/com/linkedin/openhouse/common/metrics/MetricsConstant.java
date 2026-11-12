@@ -63,4 +63,8 @@ public final class MetricsConstant {
   public static final String HTS_LIST_TABLES_REQUEST = "hts_list_tables_request";
   public static final String HTS_LIST_TABLES_TIME = "hts_list_tables_time";
   public static final String HTS_SEARCH_TABLES_TIME = "hts_search_tables_time";
+  public static final String HTS_LOOKUP_TABLE_REQUEST = "hts_lookup_table_request";
+  public static final String HTS_LOOKUP_TABLE_TIME = "hts_lookup_table_time";
+  public static final String HTS_PAGE_LOOKUP_TABLE_REQUEST = "hts_page_lookup_table_request";
+  public static final String HTS_PAGE_LOOKUP_TABLE_TIME = "hts_page_lookup_table_time";
 }
