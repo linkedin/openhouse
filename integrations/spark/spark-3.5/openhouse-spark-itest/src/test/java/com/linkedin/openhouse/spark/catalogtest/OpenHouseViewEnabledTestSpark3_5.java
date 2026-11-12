@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.UUID;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
@@ -187,6 +188,44 @@ public class OpenHouseViewEnabledTestSpark3_5 {
     assertThrows(NoSuchViewException.class, () -> views.loadView(VIEW_ID));
     assertFalse(views.dropView(VIEW_ID));
     assertFalse(repository.findViewById(viewKey()).isPresent());
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"CREATE VIEW", "CREATE OR REPLACE VIEW"})
+  void testSqlReplaceMergesUserProperties(String createCommand) {
+    spark.sql(
+        createCommand
+            + " "
+            + VIEW
+            + " TBLPROPERTIES ('keep'='yes', 'edit'='old') AS SELECT id FROM "
+            + TABLE);
+    UUID uuid = views.loadView(VIEW_ID).uuid();
+    spark.sql(
+        "CREATE OR REPLACE VIEW "
+            + VIEW
+            + " TBLPROPERTIES ('edit'='new', 'added'='value') AS SELECT id + 10 AS id FROM "
+            + TABLE);
+    View replaced = views.loadView(VIEW_ID);
+    assertEquals(uuid, replaced.uuid());
+    assertEquals("yes", replaced.properties().get("keep"));
+    assertEquals("new", replaced.properties().get("edit"));
+    assertEquals("value", replaced.properties().get("added"));
+    assertEquals("false", replaced.properties().get("replace.drop-dialect.allowed"));
+    assertRows(11, 12);
+  }
+
+  @Test
+  void testPropertyUpdateDoesNotReplaceViewVersion() {
+    spark.sql("CREATE VIEW " + VIEW + " AS SELECT id FROM " + TABLE);
+    View before = views.loadView(VIEW_ID);
+    int versionId = before.currentVersion().versionId();
+    int historySize = before.history().size();
+    spark.sql("ALTER VIEW " + VIEW + " SET TBLPROPERTIES ('watermark'='10')");
+    View after = views.loadView(VIEW_ID);
+    assertEquals("10", after.properties().get("watermark"));
+    assertEquals(versionId, after.currentVersion().versionId());
+    assertEquals(historySize, after.history().size());
+    assertEquals(before.sqlFor("spark").sql(), after.sqlFor("spark").sql());
   }
 
   @ParameterizedTest

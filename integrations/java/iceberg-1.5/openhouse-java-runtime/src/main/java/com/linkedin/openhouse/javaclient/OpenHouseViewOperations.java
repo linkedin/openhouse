@@ -110,7 +110,7 @@ public class OpenHouseViewOperations extends BaseViewOperations {
     String viewId = viewIdentifier.name();
     CreateUpdateViewRequestBody requestBody = constructRequestBody(base, metadata);
     try {
-      // base == null is a create (CREATE VIEW); base != null is a replace (CREATE OR REPLACE).
+      // Existing-view commits include both definition replacement and property updates.
       Mono<GetViewResponseBody> request =
           base == null
               ? viewApi.createViewV1(databaseId, requestBody)

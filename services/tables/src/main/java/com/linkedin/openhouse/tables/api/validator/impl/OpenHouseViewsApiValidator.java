@@ -52,6 +52,11 @@ import org.springframework.stereotype.Component;
 @Component
 public class OpenHouseViewsApiValidator implements ViewsApiValidator {
 
+  private enum ValidationMode {
+    CREATE,
+    UPDATE
+  }
+
   @Autowired private Validator validator;
 
   @Autowired private ClusterProperties clusterProperties;
@@ -121,7 +126,7 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
   @Override
   public void validateCreateView(CreateUpdateViewRequestBody requestBody) {
     ViewValidationFailures failures = new ViewValidationFailures();
-    validateBody(requestBody, failures, true);
+    validateBody(requestBody, failures, ValidationMode.CREATE);
     // POST distinguishes only "supplied" from "omitted": a supplied-but-blank token is a value the
     // rule below has to reject, not an absence.
     validateCreateBaseMetadataLocation(
@@ -132,10 +137,13 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
   @Override
   public void validateUpdateView(CreateUpdateViewRequestBody requestBody) {
     ViewValidationFailures failures = new ViewValidationFailures();
+    // The initial token uses create rules; otherwise PUT may be a replace or a property update.
     validateBody(
         requestBody,
         failures,
-        requestBody != null && INITIAL_TABLE_VERSION.equals(requestBody.getBaseMetadataLocation()));
+        requestBody != null && INITIAL_TABLE_VERSION.equals(requestBody.getBaseMetadataLocation())
+            ? ValidationMode.CREATE
+            : ValidationMode.UPDATE);
     validateUpdateBaseMetadataLocation(
         nonBlankField(requestBody.getBaseMetadataLocation()), failures);
     failures.throwIfPresent();
@@ -162,7 +170,9 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
    * </ul>
    */
   private void validateBody(
-      CreateUpdateViewRequestBody requestBody, ViewValidationFailures failures, boolean isCreate) {
+      CreateUpdateViewRequestBody requestBody,
+      ViewValidationFailures failures,
+      ValidationMode mode) {
     // Bean violations stay in the generic category, so they are collected into a plain list first
     // and then forwarded, rather than influencing the error-code precedence.
     List<String> beanViolations = new ArrayList<>();
@@ -181,7 +191,7 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
     validateUniqueDialects(representations, failures);
     validateDefaultCatalog(defaultCatalog, failures);
     validateDefaultNamespace(defaultNamespace, failures);
-    validateViewProperties(viewProperties, failures, isCreate);
+    validateViewProperties(viewProperties, failures, mode);
     validateReservedSourceDialectProperty(viewProperties, representations, failures);
   }
 
@@ -376,7 +386,7 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
   private void validateViewProperties(
       Optional<Map<String, String>> maybeViewProperties,
       ViewValidationFailures failures,
-      boolean isCreate) {
+      ValidationMode mode) {
     if (!maybeViewProperties.isPresent()) {
       return;
     }
@@ -398,7 +408,9 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
       if (systemProperty && !systemKeys.add(key)) {
         failures.addGeneric("viewProperties : duplicate system property names");
       }
-      if (isCreate && systemProperty && !ReservedViewProperties.isWritableAtCreate(key)) {
+      if (mode == ValidationMode.CREATE
+          && systemProperty
+          && !ReservedViewProperties.isWritableAtCreate(key)) {
         reservedKeys.add(key);
       }
     }

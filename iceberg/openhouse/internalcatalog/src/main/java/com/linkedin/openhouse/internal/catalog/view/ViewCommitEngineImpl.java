@@ -289,15 +289,14 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         current.properties().getOrDefault(getCanonicalFieldName("creationTime"), now));
     properties.put(getCanonicalFieldName("lastModifiedTime"), now);
 
-    // buildFrom preserves identity and history; Iceberg assigns the version id.
-    ViewMetadata metadata =
-        ViewMetadata.buildFrom(current)
-            .setCurrentVersion(
-                buildCandidateVersion(
-                    intent, current.currentVersionId() + 1, REPLACE_OPERATION, Long.parseLong(now)),
-                intent.getSchema())
-            .setProperties(properties)
-            .build();
+    ViewMetadata.Builder builder = ViewMetadata.buildFrom(current);
+    if (!isDefinitionUnchanged(intent, current)) {
+      builder.setCurrentVersion(
+          buildCandidateVersion(
+              intent, current.currentVersionId() + 1, REPLACE_OPERATION, Long.parseLong(now)),
+          intent.getSchema());
+    }
+    ViewMetadata metadata = builder.setProperties(properties).build();
 
     return writeThenPublish(metadata, fileIO, row.getStorageType(), newMetadataLocation, false);
   }
@@ -307,6 +306,11 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
       ViewMetadata current,
       Map<String, String> mergedUserProperties,
       Map<String, String> currentUserProperties) {
+    return isDefinitionUnchanged(intent, current)
+        && mergedUserProperties.equals(currentUserProperties);
+  }
+
+  private boolean isDefinitionUnchanged(ViewCommitIntent intent, ViewMetadata current) {
     ViewVersion version = current.currentVersion();
     // sameSchema, not asStruct: the struct ignores identifier-field ids.
     return current.schema().sameSchema(intent.getSchema())
@@ -317,8 +321,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         && Objects.equals(version.defaultCatalog(), intent.getDefaultCatalog())
         // Match the normalization used when building metadata.
         && Objects.equals(
-            version.defaultNamespace(), normalizeNamespace(intent.getDefaultNamespace()))
-        && mergedUserProperties.equals(currentUserProperties);
+            version.defaultNamespace(), normalizeNamespace(intent.getDefaultNamespace()));
   }
 
   private ViewCommitResult writeThenPublish(
