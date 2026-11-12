@@ -4,12 +4,12 @@ import static com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsCons
 import static com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsConstant.VIEW_METADATA_RETRIEVAL_LATENCY;
 import static com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsConstant.VIEW_METADATA_UPDATE_LATENCY;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.getCanonicalFieldName;
+import static com.linkedin.openhouse.internal.catalog.view.ViewSystemProperties.isSystemProperty;
 
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
-import com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
@@ -84,6 +84,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
 
   private ViewCommitResult commitInternal(ViewCommitIntent intent) {
     requireCreateFlag(intent);
+    // Create rejects supplied system fields; updates must echo them unchanged.
     if (intent.getIsCreate()) {
       rejectServerOwnedProperties(intent);
     }
@@ -249,6 +250,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     checkSystemPropertiesUnchanged(intent, current);
 
     Map<String, String> currentUserProperties = extractUserProperties(current.properties());
+    // Existing merge semantics retain omitted user keys; ALTER UNSET needs a follow-up.
     Map<String, String> userProperties = new LinkedHashMap<>(currentUserProperties);
     userProperties.putAll(extractUserProperties(getPropertiesOrEmpty(intent)));
 
@@ -427,13 +429,6 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
 
   private static Map<String, String> getPropertiesOrEmpty(ViewCommitIntent intent) {
     return intent.getViewProperties() == null ? Collections.emptyMap() : intent.getViewProperties();
-  }
-
-  private static boolean isSystemProperty(String key) {
-    String normalized = key.toLowerCase(Locale.ROOT);
-    return HouseTableSerdeUtils.IS_OH_PREFIXED.test(normalized)
-        || ViewProperties.REPLACE_DROP_DIALECT_ALLOWED.equals(normalized)
-        || "policies".equals(normalized);
   }
 
   private static void checkSystemPropertiesUnchanged(

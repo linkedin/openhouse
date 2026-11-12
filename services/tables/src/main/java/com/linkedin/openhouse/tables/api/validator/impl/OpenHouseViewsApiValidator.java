@@ -7,11 +7,11 @@ import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.MAX
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.MAX_VIEW_SCHEMA_BYTES;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.MAX_VIEW_SQL_BYTES;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.SQL_VIEW_REPRESENTATION_TYPE;
+import static com.linkedin.openhouse.internal.catalog.view.ViewSystemProperties.isSystemProperty;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.api.validator.ApiValidatorUtil;
 import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
-import com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ViewRepresentation;
 import com.linkedin.openhouse.tables.api.validator.ViewsApiValidator;
@@ -51,13 +51,6 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 public class OpenHouseViewsApiValidator implements ViewsApiValidator {
-
-  /** Reserved table-policy state, not supported as a user property on views. */
-  private static final String POLICIES_PROPERTY_KEY = "policies";
-
-  /** Iceberg-required view property exclusively set by the server to prevent dropping dialects. */
-  private static final String REPLACE_DROP_DIALECT_ALLOWED_PROPERTY_KEY =
-      "replace.drop-dialect.allowed";
 
   @Autowired private Validator validator;
 
@@ -401,17 +394,11 @@ public class OpenHouseViewsApiValidator implements ViewsApiValidator {
       if (property.getValue() == null) {
         nullValueKeys.add(key);
       }
-      if ((HouseTableSerdeUtils.IS_OH_PREFIXED.test(key.toLowerCase(Locale.ROOT))
-              || POLICIES_PROPERTY_KEY.equalsIgnoreCase(key)
-              || REPLACE_DROP_DIALECT_ALLOWED_PROPERTY_KEY.equalsIgnoreCase(key))
-          && !systemKeys.add(key)) {
+      boolean systemProperty = isSystemProperty(key);
+      if (systemProperty && !systemKeys.add(key)) {
         failures.addGeneric("viewProperties : duplicate system property names");
       }
-      if (isCreate
-          && ((HouseTableSerdeUtils.IS_OH_PREFIXED.test(key.toLowerCase(Locale.ROOT))
-                  && !ReservedViewProperties.isWritableAtCreate(key))
-              || POLICIES_PROPERTY_KEY.equalsIgnoreCase(key)
-              || REPLACE_DROP_DIALECT_ALLOWED_PROPERTY_KEY.equalsIgnoreCase(key))) {
+      if (isCreate && systemProperty && !ReservedViewProperties.isWritableAtCreate(key)) {
         reservedKeys.add(key);
       }
     }
