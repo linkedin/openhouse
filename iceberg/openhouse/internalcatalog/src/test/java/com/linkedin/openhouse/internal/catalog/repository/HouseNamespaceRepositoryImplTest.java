@@ -289,6 +289,38 @@ class HouseNamespaceRepositoryImplTest {
   }
 
   @Test
+  void mismatchedReadIdentityFails() {
+    server.enqueue(
+        new MockResponse()
+            .addHeader("Content-Type", "application/json")
+            .setBody("{\"namespaceUuid\":\"foo\",\"namespaceName\":\"other\",\"properties\":{}}"));
+    assertThrows(HouseNamespaceResponseException.class, () -> repository.findByName("bar"));
+  }
+
+  @Test
+  void mismatchedCreateIdentityLeavesMutationUncertain() {
+    server.enqueue(
+        new MockResponse()
+            .addHeader("Content-Type", "application/json")
+            .setBody("{\"namespaceUuid\":\"foo\",\"namespaceName\":\"other\",\"properties\":{}}"));
+    assertThrows(
+        HouseNamespaceMutationUncertainException.class, () -> repository.create("bar", Map.of()));
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "{\"updated\":null,\"removed\":[],\"missing\":[]}",
+        "{\"updated\":[],\"removed\":null,\"missing\":[]}"
+      })
+  void nullUpdateCollectionsLeaveMutationUncertain(String body) {
+    server.enqueue(new MockResponse().addHeader("Content-Type", "application/json").setBody(body));
+    assertThrows(
+        HouseNamespaceMutationUncertainException.class,
+        () -> repository.updateProperties("bar", Map.of(), Set.of()));
+  }
+
+  @Test
   void completeEmptyCollectionsRemainValid() throws HouseNamespaceException {
     server.enqueue(
         new MockResponse()
