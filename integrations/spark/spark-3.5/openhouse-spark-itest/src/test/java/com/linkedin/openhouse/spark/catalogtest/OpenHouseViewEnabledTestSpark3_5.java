@@ -170,10 +170,21 @@ public class OpenHouseViewEnabledTestSpark3_5 {
     assertNotEquals(initialMetadata, persistedView().getTableLocation());
     assertEquals("SELECT id + 10 AS id FROM base_table", replaced.sqlFor("spark").sql());
     assertEquals("spark", replaced.properties().get("openhouse.view.sourceDialect"));
+    assertEquals("catalog_test", replaced.properties().get("owner"));
     assertRows(11, 12);
 
     replaced.updateProperties().set("owner", "updated_owner").commit();
     assertEquals("updated_owner", views.loadView(VIEW_ID).properties().get("owner"));
+    views.loadView(VIEW_ID).updateProperties().set("keep", "yes").remove("owner").commit();
+    View afterRemoval = views.loadView(VIEW_ID);
+    assertFalse(afterRemoval.properties().containsKey("owner"));
+    assertEquals("yes", afterRemoval.properties().get("keep"));
+    assertEquals(replaced.uuid(), afterRemoval.uuid());
+    assertEquals(replaced.sqlFor("spark").sql(), afterRemoval.sqlFor("spark").sql());
+    assertEquals("false", afterRemoval.properties().get("replace.drop-dialect.allowed"));
+    assertEquals("spark", afterRemoval.properties().get("openhouse.view.sourceDialect"));
+    afterRemoval.updateProperties().remove("keep").commit();
+    assertFalse(views.loadView(VIEW_ID).properties().containsKey("keep"));
     assertThrows(
         BadRequestException.class,
         () ->
@@ -200,6 +211,9 @@ public class OpenHouseViewEnabledTestSpark3_5 {
                 .remove("openhouse.view.sourceDialect")
                 .commit());
     assertEquals("spark", views.loadView(VIEW_ID).properties().get("openhouse.view.sourceDialect"));
+    assertThrows(
+        BadRequestException.class,
+        () -> views.loadView(VIEW_ID).updateProperties().remove("openhouse.tableUUID").commit());
 
     assertTrue(views.dropView(VIEW_ID));
     assertFalse(views.viewExists(VIEW_ID));
@@ -253,6 +267,19 @@ public class OpenHouseViewEnabledTestSpark3_5 {
     assertFalse(repository.findViewById(viewKey()).isPresent());
     spark.sql("DROP VIEW IF EXISTS " + VIEW);
     assertEquals(2L, spark.sql("SELECT * FROM " + TABLE).count());
+  }
+
+  @Test
+  void testSqlViewPropertyUpdates() {
+    spark.sql("CREATE VIEW " + VIEW + " AS SELECT id FROM " + TABLE);
+    spark.sql("ALTER VIEW " + VIEW + " SET TBLPROPERTIES ('watermark'='10', 'keep'='yes')");
+    assertEquals("10", views.loadView(VIEW_ID).properties().get("watermark"));
+    spark.sql("ALTER VIEW " + VIEW + " UNSET TBLPROPERTIES ('watermark')");
+    View updated = views.loadView(VIEW_ID);
+    assertFalse(updated.properties().containsKey("watermark"));
+    assertEquals("yes", updated.properties().get("keep"));
+    assertEquals("spark", updated.properties().get("openhouse.view.sourceDialect"));
+    assertRows(1, 2);
   }
 
   private void assertRows(int first, int second) {

@@ -455,8 +455,14 @@ public class ViewCommitEngineCommitTest {
     harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
     HouseTable base = captureNeutral();
     Map<String, String> properties = new LinkedHashMap<>();
-    ViewTestFixtures.replacementProperties(base, Collections.emptyMap())
-        .forEach((key, value) -> properties.put(key.toUpperCase(java.util.Locale.ROOT), value));
+    ViewTestFixtures.replacementProperties(base, ViewTestFixtures.userProperties("a", "1"))
+        .forEach(
+            (key, value) ->
+                properties.put(
+                    ViewSystemProperties.isSystemProperty(key)
+                        ? key.toUpperCase(java.util.Locale.ROOT)
+                        : key,
+                    value));
     ViewCommitIntent intent =
         ViewTestFixtures.baseIntent(root, false, base).viewProperties(properties).build();
     Assertions.assertFalse(harness.getViewCommitEngine().commit(intent).isMetadataChanged());
@@ -734,23 +740,20 @@ public class ViewCommitEngineCommitTest {
   }
 
   @Test
-  void omittingUserPropertiesPreservesStoredOnes() {
+  void removingAllUserPropertiesPersistsAndReplayIsANoOp() {
     Map<String, String> initial = new LinkedHashMap<>();
     initial.put("a", "1");
     initial.put("keep", "yes");
-    ViewCommitResult created =
-        harness
-            .getViewCommitEngine()
-            .commit(
-                ViewTestFixtures.baseIntent(root, Boolean.TRUE, null)
-                    .viewProperties(initial)
-                    .build());
+    harness
+        .getViewCommitEngine()
+        .commit(
+            ViewTestFixtures.baseIntent(root, Boolean.TRUE, null).viewProperties(initial).build());
     HouseTable base = captureNeutral();
     int filesAfterCreate = harness.metadataFiles().size();
     int savesAfterCreate = harness.getHouseTableRepository().getSaveViewCalls();
     int writesAfterCreate = harness.codecWrites();
 
-    ViewCommitResult replayedWithNull =
+    ViewCommitResult updated =
         harness
             .getViewCommitEngine()
             .commit(
@@ -758,29 +761,31 @@ public class ViewCommitEngineCommitTest {
                     .viewProperties(
                         ViewTestFixtures.replacementProperties(base, Collections.emptyMap()))
                     .build());
-    Assertions.assertFalse(
-        replayedWithNull.isMetadataChanged(), "omitting user properties preserves them");
-
-    ViewCommitResult replayedWithEmpty =
-        harness
-            .getViewCommitEngine()
-            .commit(
-                ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
-                    .viewProperties(
-                        ViewTestFixtures.replacementProperties(base, Collections.emptyMap()))
-                    .build());
-    Assertions.assertFalse(
-        replayedWithEmpty.isMetadataChanged(), "an empty map means exactly what null meant");
-
-    Assertions.assertEquals(filesAfterCreate, harness.metadataFiles().size());
-    Assertions.assertEquals(savesAfterCreate, harness.getHouseTableRepository().getSaveViewCalls());
-    Assertions.assertEquals(writesAfterCreate, harness.codecWrites());
-
-    Map<String, String> stillStored =
-        harness.readMetadata(created.getPointer().getMetadataLocation()).properties();
-    Assertions.assertEquals("1", stillStored.get("a"));
+    Assertions.assertTrue(updated.isMetadataChanged());
+    Map<String, String> stored =
+        harness.readMetadata(updated.getPointer().getMetadataLocation()).properties();
+    Assertions.assertFalse(stored.containsKey("a"));
+    Assertions.assertFalse(stored.containsKey("keep"));
     Assertions.assertEquals(
-        "yes", stillStored.get("keep"), "omitted properties must survive an omitting replace");
+        ViewTestFixtures.VIEW_UUID, stored.get(getCanonicalFieldName("tableUUID")));
+    Assertions.assertEquals("false", stored.get(ViewProperties.REPLACE_DROP_DIALECT_ALLOWED));
+
+    HouseTable updatedBase = captureNeutral();
+    ViewCommitResult replayed =
+        harness
+            .getViewCommitEngine()
+            .commit(
+                ViewTestFixtures.baseIntent(root, Boolean.FALSE, updatedBase)
+                    .viewProperties(
+                        ViewTestFixtures.replacementProperties(updatedBase, Collections.emptyMap()))
+                    .build());
+    Assertions.assertFalse(
+        replayed.isMetadataChanged(), "replaying the complete property state is a no-op");
+
+    Assertions.assertEquals(filesAfterCreate + 1, harness.metadataFiles().size());
+    Assertions.assertEquals(
+        savesAfterCreate + 1, harness.getHouseTableRepository().getSaveViewCalls());
+    Assertions.assertEquals(writesAfterCreate + 1, harness.codecWrites());
   }
 
   @Test
@@ -844,7 +849,7 @@ public class ViewCommitEngineCommitTest {
   }
 
   @Test
-  void replacePreservesOmittedUserPropertiesAndMergesSuppliedOnes() {
+  void replaceUpdatesSuppliedUserPropertiesAndRemovesOmittedOnes() {
     Map<String, String> initial = new LinkedHashMap<>();
     initial.put("a", "1");
     initial.put("keep", "yes");
@@ -867,7 +872,7 @@ public class ViewCommitEngineCommitTest {
     Map<String, String> properties =
         harness.readMetadata(updated.getPointer().getMetadataLocation()).properties();
     Assertions.assertEquals("2", properties.get("a"));
-    Assertions.assertEquals("yes", properties.get("keep"));
+    Assertions.assertFalse(properties.containsKey("keep"));
   }
 
   /* One field changes per test, so an under-comparing implementation cannot hide behind another. */

@@ -37,7 +37,9 @@ public class ViewCommitIntent {
   /** Null is normalized to {@link Namespace#empty()}. */
   private final Namespace defaultNamespace;
 
-  /** Existing-view commits include unchanged system properties from the captured metadata. */
+  /**
+   * Complete desired properties; existing-view commits must echo stored system fields unchanged.
+   */
   private final Map<String, String> viewProperties;
 
   /** Required: true for CREATE, false for an existing-view commit; null is rejected. */

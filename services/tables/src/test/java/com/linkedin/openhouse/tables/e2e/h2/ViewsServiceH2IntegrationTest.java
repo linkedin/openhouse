@@ -404,6 +404,56 @@ public class ViewsServiceH2IntegrationTest {
     }
   }
 
+  @Test
+  public void existingViewPutUsesCompleteUserPropertySnapshot() throws Exception {
+    String viewId = "complete_property_view";
+    Map<String, String> initial = new LinkedHashMap<>(ViewModelConstants.VIEW_PROPERTIES);
+    initial.put("remove-me", "old");
+    initial.put("keep-me", "yes");
+    mvc.perform(
+            MockMvcRequestBuilders.post(VIEWS_PATH)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    ViewModelConstants.createRequestWithoutBaseVersion()
+                        .toBuilder()
+                        .viewId(viewId)
+                        .viewProperties(initial)
+                        .build()
+                        .toJson())
+                .header("Authorization", "Bearer " + jwtAccessToken))
+        .andExpect(status().isCreated());
+    try {
+      String pointer = findViewRow(viewId).getTableLocation();
+      Map<String, String> desired = replacementProperties(pointer, initial);
+      desired.remove("remove-me");
+      desired.put("keep-me", "updated");
+      mvc.perform(
+              MockMvcRequestBuilders.put(VIEWS_PATH + "/" + viewId)
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(
+                      ViewModelConstants.createRequestWithoutBaseVersion()
+                          .toBuilder()
+                          .viewId(viewId)
+                          .baseMetadataLocation(pointer)
+                          .viewProperties(desired)
+                          .build()
+                          .toJson())
+                  .header("Authorization", "Bearer " + jwtAccessToken))
+          .andExpect(status().isOk());
+      Map<String, String> persisted =
+          replacementProperties(
+              findViewRow(viewId).getTableLocation(), java.util.Collections.emptyMap());
+      org.junit.jupiter.api.Assertions.assertFalse(persisted.containsKey("remove-me"));
+      org.junit.jupiter.api.Assertions.assertEquals("updated", persisted.get("keep-me"));
+      org.junit.jupiter.api.Assertions.assertEquals(
+          "false", persisted.get("replace.drop-dialect.allowed"));
+      org.junit.jupiter.api.Assertions.assertEquals(
+          "spark", persisted.get("openhouse.view.sourceDialect"));
+    } finally {
+      deleteViewIfPresent(viewId);
+    }
+  }
+
   @ParameterizedTest
   @NullAndEmptySource
   @ValueSource(strings = {"   ", "unsupported", "SPARK"})
