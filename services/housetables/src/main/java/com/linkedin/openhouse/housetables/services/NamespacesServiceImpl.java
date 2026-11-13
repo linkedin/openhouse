@@ -71,7 +71,9 @@ public class NamespacesServiceImpl implements NamespacesService {
           });
     } catch (OptimisticLockingFailureException | OptimisticLockException exception) {
       throw new NamespaceConcurrentModificationException(
-          "Namespace metadata changed concurrently. Retry the request.", exception);
+          "Namespace metadata changed concurrently. Reload the metadata and confirm that the"
+              + " intended change still applies before retrying.",
+          exception);
     } catch (DataIntegrityViolationException exception) {
       boolean duplicateName =
           Optional.ofNullable(exception.getCause())
@@ -117,7 +119,7 @@ public class NamespacesServiceImpl implements NamespacesService {
               () -> new NamespaceNotFoundException("Namespace not found: " + namespaceName));
     } catch (OptimisticLockingFailureException | OptimisticLockException exception) {
       throw new NamespaceConcurrentModificationException(
-          "Namespace metadata changed concurrently. Retry the request.", exception);
+          "Namespace metadata changed concurrently. Retry the read.", exception);
     } catch (DataAccessException | TransactionException | PersistenceException exception) {
       throw new NamespaceMetadataStorageException("Namespace metadata storage failed.", exception);
     }
@@ -149,7 +151,9 @@ public class NamespacesServiceImpl implements NamespacesService {
       }
     } catch (OptimisticLockingFailureException | OptimisticLockException exception) {
       throw new NamespaceConcurrentModificationException(
-          "Namespace metadata changed concurrently. Retry the request.", exception);
+          "Namespace metadata changed concurrently. Reload the metadata and confirm that the"
+              + " intended change still applies before retrying.",
+          exception);
     } catch (DataAccessException | TransactionException | PersistenceException exception) {
       throw new NamespaceMetadataStorageException("Namespace metadata storage failed.", exception);
     }
@@ -206,7 +210,9 @@ public class NamespacesServiceImpl implements NamespacesService {
               () -> new NamespaceNotFoundException("Namespace not found: " + namespaceName));
     } catch (OptimisticLockingFailureException | OptimisticLockException exception) {
       throw new NamespaceConcurrentModificationException(
-          "Namespace metadata changed concurrently. Retry the request.", exception);
+          "Namespace metadata changed concurrently. Reload the metadata and confirm that the"
+              + " intended change still applies before retrying.",
+          exception);
     } catch (DataIntegrityViolationException exception) {
       throw new NamespaceMetadataStorageException(
           "Namespace metadata could not be persisted.", exception);
