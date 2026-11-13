@@ -979,8 +979,7 @@ public class ViewsDockerE2eTest {
   }
 
   private ObjectNode replacementPayload(JsonNode created) throws Exception {
-    ObjectNode body =
-        payload(created.path("databaseId").asText(), created.path("viewId").asText());
+    ObjectNode body = payload(created.path("databaseId").asText(), created.path("viewId").asText());
     body.put("baseMetadataLocation", pointer(created));
     body.set("viewProperties", mapper.valueToTree(metadata(created).properties()));
     return body;
