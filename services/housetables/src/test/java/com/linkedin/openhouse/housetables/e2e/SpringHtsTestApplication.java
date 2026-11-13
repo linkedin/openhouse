@@ -23,8 +23,8 @@ import org.springframework.context.annotation.ComponentScan;
       "com.linkedin.openhouse.internal.catalog.mapper"
     })
 @EntityScan(basePackages = {"com.linkedin.openhouse.housetables.model"})
-public class SpringH2HtsApplication {
+public class SpringHtsTestApplication {
   public static void main(String[] args) {
-    SpringApplication.run(SpringH2HtsApplication.class, args);
+    SpringApplication.run(SpringHtsTestApplication.class, args);
   }
 }

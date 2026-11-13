@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.linkedin.openhouse.housetables.e2e.SpringH2HtsApplication;
+import com.linkedin.openhouse.housetables.e2e.SpringHtsTestApplication;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -46,7 +46,7 @@ import org.testcontainers.containers.MySQLContainer;
 @Tag("mysql-index")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @SpringBootTest(
-    classes = SpringH2HtsApplication.class,
+    classes = SpringHtsTestApplication.class,
     properties = {
       "hts.index.capture-enabled=true",
       "spring.sql.init.mode=never",
@@ -119,7 +119,7 @@ class HtsMysqlIndexIntegrationTest {
         "f4b892447ba2941adf4be02bc336646d065cbb3cb7b437a97be095b5addbec6d");
     for (Map.Entry<String, String> ddl : ddlHashes.entrySet()) {
       org.springframework.core.io.ClassPathResource resource =
-          new org.springframework.core.io.ClassPathResource("mysql-production/" + ddl.getKey());
+          new org.springframework.core.io.ClassPathResource("hts-mysql/ddl/" + ddl.getKey());
       byte[] contents;
       try (java.io.InputStream input = resource.getInputStream()) {
         contents = input.readAllBytes();

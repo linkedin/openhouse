@@ -5,7 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.linkedin.openhouse.common.exception.CorruptEntityTypeException;
 import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
-import com.linkedin.openhouse.housetables.e2e.SpringH2HtsApplication;
+import com.linkedin.openhouse.housetables.e2e.HtsMysqlTestBase;
+import com.linkedin.openhouse.housetables.e2e.SpringHtsTestApplication;
 import com.linkedin.openhouse.housetables.model.TestHouseTableModelConstants;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.services.UserTablesService;
@@ -29,8 +30,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * call site would reveal it if that stopped being true: every corrupt read would quietly degrade to
  * a generic 500 with no diagnostic, and the suite would otherwise still pass.
  */
-@SpringBootTest(classes = SpringH2HtsApplication.class)
-public class RepositoryTranslationAspectTest {
+@SpringBootTest(classes = SpringHtsTestApplication.class)
+public class RepositoryTranslationAspectTest extends HtsMysqlTestBase {
 
   private static final String ASPECT_DB = "aspect_db";
 
@@ -108,8 +109,8 @@ public class RepositoryTranslationAspectTest {
         .hasMessageContaining("Column user_table_row.entity_type holds unrecognized value");
 
     // A second, unrelated unwrapped call site: the write path's occupancy read. Not a query
-    // family, because the table predicate excludes an unrecognized spelling before hydration, so
-    // only the type-neutral reads can meet a corrupt row at all under H2.
+    // family, because the table predicate excludes this planted UNKNOWN spelling before
+    // hydration, so only the type-neutral reads meet this particular corrupt row.
     assertThatThrownBy(
             () ->
                 userTablesService.putUserTable(

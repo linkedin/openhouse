@@ -86,10 +86,21 @@ dependencies {
   testImplementation 'org.testcontainers:mysql:1.19.8'
 }
 
+// Tests rebuild their MySQL schema from the canonical DDL; this copies it, it is not a second copy.
+tasks.named('processTestResources') {
+  from('ddl') {
+    include '*.sql'
+    into 'hts-mysql/ddl'
+  }
+}
+
 tasks.named('test') {
   useJUnitPlatform {
     excludeTags 'mysql-index'
   }
+  // One JVM owns one shared MySQL container whose fixture callbacks reset every table.
+  maxParallelForks = 1
+  systemProperty 'junit.jupiter.execution.parallel.enabled', 'false'
 }
 
 tasks.register('mysqlIndexTest', Test) {

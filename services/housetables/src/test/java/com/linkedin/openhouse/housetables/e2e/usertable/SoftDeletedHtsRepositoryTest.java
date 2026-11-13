@@ -4,6 +4,7 @@ import static com.linkedin.openhouse.housetables.model.TestHouseTableModelConsta
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
+import com.linkedin.openhouse.housetables.e2e.HtsMysqlTestBase;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRow;
 import com.linkedin.openhouse.housetables.model.SoftDeletedUserTableRowPrimaryKey;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.SoftDeletedUserTableHtsJdbcRepository;
@@ -19,7 +20,7 @@ import org.springframework.test.context.ContextConfiguration;
 
 @SpringBootTest
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
-public class SoftDeletedHtsRepositoryTest {
+public class SoftDeletedHtsRepositoryTest extends HtsMysqlTestBase {
 
   long deletedTimestamp = System.currentTimeMillis();
 

@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.*;
 import com.google.common.collect.Lists;
 import com.linkedin.openhouse.common.exception.EntityConcurrentModificationException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
+import com.linkedin.openhouse.housetables.e2e.HtsMysqlTestBase;
 import com.linkedin.openhouse.housetables.e2e.fixture.UserTableRawSeeder;
 import com.linkedin.openhouse.housetables.e2e.fixture.UserTableStoreCleaner;
 import com.linkedin.openhouse.housetables.model.EntityType;
@@ -40,7 +41,7 @@ import org.springframework.test.context.ContextConfiguration;
 
 @SpringBootTest
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
-public class HtsRepositoryTest {
+public class HtsRepositoryTest extends HtsMysqlTestBase {
 
   /**
    * Canonical interleaved fixture. Four visible tables (two legacy NULL, two explicit TABLE) are
@@ -679,11 +680,11 @@ public class HtsRepositoryTest {
    * be selected by the query and then explode while loading, which is worse than either matching or
    * skipping it consistently.
    *
-   * <p>H2 runs in {@code MODE=MySQL} which is case-SENSITIVE for string comparison, so a bare
-   * {@code = 'TABLE'} predicate would leave the planted row unmatched and the read would simply
-   * come back empty. It is matched, which is what proves the query normalizes rather than leaning
-   * on a provider collation. No writer can produce such a row: the enum boundary normalizes before
-   * the value reaches the column.
+   * <p>The MySQL column collation is case-insensitive, so this behaviour alone cannot tell an
+   * explicit {@code upper(...)} from collation folding; {@code
+   * HtsIndexUnitTest#typedQueriesRetainNormalizedEntityTypePredicates} proves the normalization is
+   * in the query. No writer can produce such a row: the enum boundary normalizes before the value
+   * reaches the column.
    */
   @Test
   public void testLegacyNonCanonicalSpellingIsMatchedAndHydrates() {
@@ -1016,7 +1017,12 @@ public class HtsRepositoryTest {
     assertThat(pageTableIds(page1)).containsExactly("match_t05_view");
   }
 
-  /** H2 compares case-sensitively, so returning these rows proves {@code upper(...)} is applied. */
+  /**
+   * Every spelling of VIEW is listed and counted; NULL and garbage are not. Matching here does not
+   * by itself prove {@code upper(...)} under the case-insensitive column collation; {@code
+   * HtsIndexUnitTest#typedQueriesRetainNormalizedEntityTypePredicates} guards both view queries and
+   * their counts.
+   */
   @Test
   public void testViewQueriesIncludeEverySpellingAndExcludeNullAndGarbage() {
     seedCaseNormalizationRows();
@@ -1120,8 +1126,11 @@ public class HtsRepositoryTest {
   }
 
   /**
-   * Pins H2 only: a folding production collation could still match a spelling Java rejects, which
-   * is why the read paths translate corruption loudly rather than relying on this.
+   * Pins this exact {@code UNKNOWN} value, which the pinned {@code utf8mb4_0900_ai_ci} column
+   * collation does not equate with either type. It is not a universal exclusion of corrupt
+   * spellings: that collation still matches an accented spelling Java rejects, which is why the
+   * read paths translate corruption loudly. The typed DELETEs and rename keep {@code upper(...)}
+   * per {@code HtsIndexUnitTest#typedQueriesRetainNormalizedEntityTypePredicates}.
    */
   @Test
   public void testTypedDeletesAndTableRenameSkipAnUnknownSpelling() {

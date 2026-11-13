@@ -15,6 +15,7 @@ import com.linkedin.openhouse.housetables.api.spec.model.UserTable;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateUpdateEntityRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.response.GetAllEntityResponseBody;
 import com.linkedin.openhouse.housetables.dto.mapper.SoftDeletedUserTablesMapper;
+import com.linkedin.openhouse.housetables.e2e.HtsMysqlTestBase;
 import com.linkedin.openhouse.housetables.e2e.fixture.UserTableRawSeeder;
 import com.linkedin.openhouse.housetables.e2e.fixture.UserTableStoreCleaner;
 import com.linkedin.openhouse.housetables.model.EntityType;
@@ -62,7 +63,7 @@ import org.springframework.util.MultiValueMapAdapter;
 @SpringBootTest
 @ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
 @AutoConfigureMockMvc
-public class HtsControllerTest {
+public class HtsControllerTest extends HtsMysqlTestBase {
 
   @Autowired HtsRepository<UserTableRow, UserTableRowPrimaryKey> htsRepository;
 
@@ -2001,8 +2002,10 @@ public class HtsControllerTest {
   }
 
   /**
-   * Regression: {@code TABLE_ROW_PREDICATE} excludes an unrecognized spelling before hydration, so
-   * a corrupt row is simply absent from the table point read under H2. Unchanged from base.
+   * Regression: {@code TABLE_ROW_PREDICATE} excludes this unrecognized {@code UNKNOWN} spelling
+   * before hydration, so the row is simply absent from the table point read. That holds for this
+   * value, not for every corrupt spelling: an accented one passes the predicate and fails
+   * conversion. Unchanged from base.
    */
   @Test
   public void testCorruptRowIsExcludedFromTheTablePointReadRatherThanFailing() throws Exception {
@@ -2021,8 +2024,10 @@ public class HtsControllerTest {
   /**
    * The table reads now cross the same boundary as the view reads, so corruption reaching one
    * produces the column-and-value diagnostic rather than the ORM {@code toString()}. This is the
-   * one intended behavioural change to the table path. Injected, because under a folding collation
-   * — not under H2 — the predicate would match a spelling Java rejects.
+   * one intended behavioural change to the table path. Injected to pin the handler boundary for any
+   * repository failure of this kind; the natural accent-insensitive match that Java rejects is
+   * exercised over real HTTP by {@code
+   * HtsHttpIntegrationTest#corruptEntityTypeValuesSplitIntoTwoFailureModes}.
    */
   @Test
   public void testCorruptDiscriminatorOnTheTablePointReadCarriesColumnDiagnostic()
@@ -2049,8 +2054,8 @@ public class HtsControllerTest {
   }
 
   /**
-   * Restore's occupancy read is neutral, so it is the one table path on which a genuinely corrupt
-   * row hydrates under H2. It must fail loudly rather than report the key as free and clobber it.
+   * Restore's occupancy read is neutral, carrying no type predicate, so a corrupt occupant hydrates
+   * there on any backend. It must fail loudly rather than report the key as free and clobber it.
    */
   @Test
   public void testCorruptOccupantMakesRestoreFailRatherThanOverwrite() throws Exception {
@@ -2155,8 +2160,8 @@ public class HtsControllerTest {
 
   /**
    * A handler that swallowed the failure into an empty result would answer 200 with no rows, so the
-   * absence of any payload is asserted alongside the status. The failure is injected because H2
-   * cannot select a corrupt row through the view predicate.
+   * absence of any payload is asserted alongside the status. The failure is injected deliberately
+   * at the repository boundary so both view route shapes are pinned against the same exception.
    */
   @ParameterizedTest
   @CsvSource({"/hts/views,          point", "/v1/hts/views/query, paged"})
