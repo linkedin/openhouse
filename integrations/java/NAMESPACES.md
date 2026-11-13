@@ -1,7 +1,8 @@
 # Java namespace metadata and effective table properties
 
-Both packaged Java catalogs, for Iceberg 1.2 and 1.5, resolve namespace defaults only when callers
-request effective properties. Actual table properties keep precedence:
+The packaged Java catalog for Iceberg 1.5 resolves namespace defaults only when callers request
+effective properties. The Iceberg 1.2 catalog retains its existing behavior and does not provide
+this API. Actual table properties keep precedence:
 
 ```java
 Map<String, String> effective = catalog.getEffectiveTableProperties(table);

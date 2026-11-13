@@ -11,7 +11,6 @@ import com.linkedin.openhouse.javaclient.api.SupportsUnlock;
 import com.linkedin.openhouse.javaclient.api.UnlockTableTarget;
 import com.linkedin.openhouse.javaclient.builder.ClusteringSpecBuilder;
 import com.linkedin.openhouse.javaclient.builder.TimePartitionSpecBuilder;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataException;
 import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageException;
 import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.javaclient.mapper.Privileges;
@@ -47,7 +46,6 @@ import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.SortOrderParser;
 import org.apache.iceberg.StaticTableOperations;
-import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.Transaction;
@@ -56,6 +54,7 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
+import org.apache.iceberg.exceptions.NamespaceNotEmptyException;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.exceptions.ValidationException;
@@ -86,8 +85,6 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
   private SnapshotApi snapshotApi;
 
   private DatabaseApi databaseApi;
-
-  private NamespaceMetadataClient namespaceMetadataClient;
 
   private FileIO fileIO;
 
@@ -156,7 +153,6 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     this.tableApi = new TableApi(apiClient);
     this.snapshotApi = new SnapshotApi(apiClient);
     this.databaseApi = new DatabaseApi(apiClient);
-    this.namespaceMetadataClient = new NamespaceMetadataClient(apiClient, name);
 
     this.fileIO = loadFileIO(properties);
 
@@ -355,8 +351,8 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
   /**
    * it's necessary to return null. This function only gets called from {@link
    * BaseMetastoreCatalog}, just before doCommit(). {@link
-   * OpenHouseTableOperations#doCommit(TableMetadata, TableMetadata)} currently ignores the return
-   * value of null.
+   * OpenHouseTableOperations#doCommit(org.apache.iceberg.TableMetadata,
+   * org.apache.iceberg.TableMetadata)} currently ignores the return value of null.
    *
    * <p>Without this return, an error will be thrown for a simple (CREATE TABLE) statement.
    *
@@ -370,8 +366,8 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
   /**
    * A {@link BaseMetastoreCatalog} needs to be set as {@link Configurable}.
    *
-   * <p>The {@code SparkCatalog} extensions will provide the right Hadoop configurations from the
-   * spark environment when building a custom catalog.
+   * <p>The {@link org.apache.iceberg.spark.SparkCatalog} extensions will provide the right Hadoop
+   * configurations from the spark environment when building a custom catalog.
    */
   @Override
   public void setConf(Configuration conf) {
@@ -385,12 +381,13 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
 
   @Override
   public void createNamespace(Namespace namespace) throws UnsupportedOperationException {
-    createNamespace(namespace, Collections.emptyMap());
+    createNamespace(namespace, null);
   }
 
   @Override
-  public void createNamespace(Namespace namespace, Map<String, String> properties) {
-    NamespaceCatalogAdapter.execute(() -> namespaceMetadataClient.create(namespace, properties));
+  public void createNamespace(Namespace namespace, Map<String, String> map)
+      throws UnsupportedOperationException {
+    throw new UnsupportedOperationException("Create Database is not supported");
   }
 
   /**
@@ -427,44 +424,33 @@ public class OpenHouseCatalog extends BaseMetastoreCatalog
     throw new UnsupportedOperationException("Openhouse supports 2-lvl namespace <schema>.<table>");
   }
 
-  @Override
-  public Map<String, String> loadNamespaceMetadata(Namespace namespace) {
-    return NamespaceCatalogAdapter.execute(() -> namespaceMetadataClient.load(namespace));
-  }
-
-  @Override
-  public boolean dropNamespace(Namespace namespace) {
-    return NamespaceCatalogAdapter.execute(() -> namespaceMetadataClient.drop(namespace));
-  }
-
-  @Override
-  public boolean setProperties(Namespace namespace, Map<String, String> properties) {
-    return NamespaceCatalogAdapter.execute(
-        () -> namespaceMetadataClient.update(namespace, properties, Collections.emptySet()));
-  }
-
-  @Override
-  public boolean removeProperties(Namespace namespace, Set<String> properties) {
-    return NamespaceCatalogAdapter.execute(
-        () -> namespaceMetadataClient.update(namespace, Collections.emptyMap(), properties));
-  }
-
   /**
-   * Resolves namespace properties with actual table properties taking precedence.
+   * Support for "describe database". Implement this if needed.
    *
-   * <p>Each call performs one uncached remote namespace lookup. A namespace 404 supplies empty
-   * namespace properties. The returned map is an immutable defensive copy; {@link
-   * Table#properties()} retains the actual table properties. The table name must be qualified by
-   * this catalog's exact name, followed by one namespace and one table.
-   *
-   * @throws NamespaceMetadataException for invalid names, authorization, transport, service, or
-   *     malformed-response failures. This opt-in API declares checked failures so callers
-   *     explicitly handle remote I/O; the Iceberg namespace overrides translate failures to Iceberg
-   *     exceptions.
+   * @return
    */
-  public Map<String, String> getEffectiveTableProperties(Table table)
-      throws NamespaceMetadataException {
-    return namespaceMetadataClient.effectiveProperties(table);
+  @Override
+  public Map<String, String> loadNamespaceMetadata(Namespace namespace)
+      throws NoSuchNamespaceException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("Describing database is not supported");
+  }
+
+  @Override
+  public boolean dropNamespace(Namespace namespace)
+      throws NamespaceNotEmptyException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("Drop database is not supported");
+  }
+
+  @Override
+  public boolean setProperties(Namespace namespace, Map<String, String> map)
+      throws NoSuchNamespaceException {
+    throw new UnsupportedOperationException("Set properties on a database is not supported");
+  }
+
+  @Override
+  public boolean removeProperties(Namespace namespace, Set<String> set)
+      throws NoSuchNamespaceException {
+    throw new UnsupportedOperationException("Remove properties of a database is not supported");
   }
 
   @Override
