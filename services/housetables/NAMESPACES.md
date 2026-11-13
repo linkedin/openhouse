@@ -22,7 +22,6 @@ edit still applies before submitting it again.
 
 Create, update, and removal keys must contain well-formed Unicode and at most 512 UTF-16 code
 units. Empty keys, spaces, accents, case differences, and supplementary characters round-trip.
-Unpaired surrogates and overlength keys return HTTP 400 before persistence.
 
 ## Deletion and recovery
 
