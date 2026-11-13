@@ -234,13 +234,18 @@ Optional certificate authentication uses `database.cert-based-auth.enabled=true`
 mount the referenced files and supply their passwords. SSL mode defaults to `VERIFY_IDENTITY`.
 Pool settings use `spring.datasource.hikari.*`.
 
-The REST service creates and updates the tables with Flyway when it starts, and records the
-migrations in `optimizer_schema_history`; the database can be the one HouseTables uses, where the
-migrations may only touch the optimizer tables and HouseTables' tables must stay untouched. On the
-first rollout the optimizer tables must not already exist. Roll it out
-before the Analyzer and Scheduler, and give it a startup probe that allows for the slowest migration.
+The REST service runs Flyway migrations at startup. These create and update the tables. Flyway
+records each migration in `optimizer_schema_history`.
+
+The service can share HouseTables' database. Migrations may only change the optimizer tables.
+They must not reference HouseTables' tables. The optimizer tables must not exist before the first
+rollout. Deploy the service before the Analyzer and Scheduler. Set a startup probe that allows
+enough time for the slowest migration.
+
 [Optimizer Schema Migrations](docs/development/optimizer-schema-migrations.md#database-privileges)
-lists the privileges its MySQL user needs; they are not a safety boundary.
+describes MySQL grants that limit a user to the optimizer tables. CI runs the migrations under those
+grants. Production still uses shared credentials. The CI test does not isolate production. Require
+the build. Review the SQL before you deploy.
 
 #### Hadoop Compatible File System for Tables Service
 
