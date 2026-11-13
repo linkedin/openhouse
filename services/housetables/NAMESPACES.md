@@ -12,8 +12,7 @@ House Tables API persists the metadata and is intended for service callers.
 
 Names resolve case-insensitively and retain their insertion spelling. Creating `Finance`
 and then requesting `FINANCE` returns the same identity and the name `Finance`. A duplicate
-create with another spelling fails without replacing the existing record. Existing lowercase
-records retain their spelling.
+create with another spelling fails without replacing the existing record.
 
 Updates set the supplied keys and remove the requested keys while retaining all other
 properties. Property names are case-sensitive. A namespace keeps its UUID across updates;
