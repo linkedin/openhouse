@@ -117,7 +117,7 @@ class OptimizerSchemaMigrationsTest {
     new SpringApplicationBuilder(OptimizerServiceApplication.class)
         .web(WebApplicationType.NONE)
         .run(
-            "--cluster.optimizer.database.url=" + jdbcUrl(database),
+            "--spring.datasource.url=" + jdbcUrl(database),
             "--spring.datasource.username=" + SERVICE_USER,
             "--spring.datasource.password=" + MYSQL.getPassword())
         .close();
