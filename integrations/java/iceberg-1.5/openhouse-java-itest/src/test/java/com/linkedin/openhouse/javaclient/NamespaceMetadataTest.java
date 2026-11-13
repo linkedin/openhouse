@@ -55,7 +55,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
-/** Runs against the packaged runtime in both Iceberg versions. */
+/** Runs against the packaged Iceberg 1.5 runtime. */
 class NamespaceMetadataTest {
   private MockWebServer tableService;
   private OpenHouseCatalog catalog;
