@@ -2,10 +2,10 @@ package com.linkedin.openhouse.housetables.controller;
 
 import com.linkedin.openhouse.common.exception.checked.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.checked.AuthenticationRequiredException;
-import com.linkedin.openhouse.common.exception.checked.DomainException;
 import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
 import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
 import com.linkedin.openhouse.common.exception.checked.MutationUncertainException;
+import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.common.exception.checked.PermissionDeniedException;
 import com.linkedin.openhouse.common.exception.checked.ServiceFailureException;
@@ -74,7 +74,7 @@ public class NamespacesController {
   })
   @PostMapping(consumes = "application/json")
   public ResponseEntity<NamespaceMetadataResponse> createNamespace(
-      @RequestBody CreateNamespaceRequestBody request) throws DomainException {
+      @RequestBody CreateNamespaceRequestBody request) throws NamespaceException {
     com.linkedin.openhouse.common.api.spec.ApiResponse<NamespaceMetadataResponse> response =
         namespacesApiHandler.createNamespace(request);
     return new ResponseEntity<>(
@@ -95,7 +95,7 @@ public class NamespacesController {
   })
   @GetMapping("/{namespaceName}")
   public ResponseEntity<NamespaceMetadataResponse> getNamespace(
-      @PathVariable("namespaceName") String namespaceName) throws DomainException {
+      @PathVariable("namespaceName") String namespaceName) throws NamespaceException {
     com.linkedin.openhouse.common.api.spec.ApiResponse<NamespaceMetadataResponse> response =
         namespacesApiHandler.getNamespace(namespaceName);
     return new ResponseEntity<>(
@@ -122,7 +122,7 @@ public class NamespacesController {
   })
   @DeleteMapping("/{namespaceName}")
   public ResponseEntity<Void> deleteNamespace(@PathVariable("namespaceName") String namespaceName)
-      throws DomainException {
+      throws NamespaceException {
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> response =
         namespacesApiHandler.deleteNamespace(namespaceName);
     return new ResponseEntity<>(
@@ -152,7 +152,7 @@ public class NamespacesController {
   public ResponseEntity<UpdateNamespacePropertiesResponseBody> updateNamespaceProperties(
       @PathVariable("namespaceName") String namespaceName,
       @RequestBody UpdateNamespacePropertiesRequestBody request)
-      throws DomainException {
+      throws NamespaceException {
     com.linkedin.openhouse.common.api.spec.ApiResponse<UpdateNamespacePropertiesResponseBody>
         response = namespacesApiHandler.updateNamespaceProperties(namespaceName, request);
     return new ResponseEntity<>(

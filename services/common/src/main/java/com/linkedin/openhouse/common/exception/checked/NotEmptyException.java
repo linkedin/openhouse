@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.common.exception.checked;
 
-public class NotEmptyException extends DomainException {
+public class NotEmptyException extends NamespaceException {
   public NotEmptyException(String message) {
     super(message);
   }

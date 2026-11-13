@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.common.exception.checked;
 
-public class UnavailableException extends DomainException {
+public class UnavailableException extends NamespaceException {
   public UnavailableException(String message) {
     super(message);
   }

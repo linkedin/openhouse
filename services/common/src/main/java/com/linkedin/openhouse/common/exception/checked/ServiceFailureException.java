@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.common.exception.checked;
 
-public class ServiceFailureException extends DomainException {
+public class ServiceFailureException extends NamespaceException {
   public ServiceFailureException(String message) {
     super(message);
   }
