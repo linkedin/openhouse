@@ -36,7 +36,10 @@ public class IcebergSnapshotsController {
         @ApiResponse(responseCode = "201", description = "Iceberg snapshot PUT: CREATED"),
         @ApiResponse(responseCode = "200", description = "Iceberg snapshot PUT: UPDATED"),
         @ApiResponse(responseCode = "400", description = "Iceberg snapshot PUT: BAD_REQUEST"),
-        @ApiResponse(responseCode = "409", description = "Iceberg snapshot PUT: CONFLICT")
+        @ApiResponse(responseCode = "409", description = "Iceberg snapshot PUT: CONFLICT"),
+        @ApiResponse(
+            responseCode = "422",
+            description = "Iceberg snapshot PUT: DATABASE_TABLE_LIMIT_REACHED")
       })
   @PutMapping(
       value = {

@@ -18,6 +18,7 @@ import com.linkedin.openhouse.common.exception.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.HistoricPartitionColumnRemovedException;
 import com.linkedin.openhouse.common.exception.InvalidSchemaEvolutionException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
+import com.linkedin.openhouse.common.exception.TableCountLimitExceededException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.common.schema.IcebergSchemaHelper;
@@ -40,6 +41,8 @@ import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import com.linkedin.openhouse.tables.repository.SchemaValidator;
+import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.util.ArrayList;
@@ -48,8 +51,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import javax.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
@@ -72,6 +77,7 @@ import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
@@ -87,6 +93,7 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   private static final String TABLE_TYPE_KEY = "tableType";
   private static final String CLUSTER_ID = "clusterId";
   private static final long DEFAULT_MAX_REFERENCE_AGE_MILLIS = TimeUnit.DAYS.toMillis(7);
+  private static final String BYPASS_TABLE_COUNT_LIMIT = "bypass_table_count_limit";
 
   @Autowired OpenHouseInternalCatalog catalog;
 
@@ -115,6 +122,11 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   @Autowired PreservedKeyChecker preservedKeyChecker;
 
   @Autowired RetentionPolicySpecValidator retentionPolicySpecValidator;
+
+  @Autowired TableFeatureToggle tableFeatureToggle;
+
+  /** Latest live-table count per database, read by that database's gauge. */
+  private final Map<String, Long> databaseTableCounts = new ConcurrentHashMap<>();
 
   @WithSpan("InternalRepository.save")
   @Timed(metricKey = MetricsConstant.REPO_TABLE_SAVE_TIME)
@@ -328,6 +340,59 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
    */
   protected void creationEligibilityCheck(TableDto tableDto) {
     versionCheck(null, tableDto);
+    checkTableCountLimit(tableDto.getDatabaseId(), tableDto.getTableId());
+  }
+
+  @PostConstruct
+  void registerTableCountLimitGauge() {
+    if (clusterProperties.getMaxTablesPerDatabase() > 0) {
+      meterRegistry.gauge(
+          MetricsConstant.REPO_TABLE_COUNT_LIMIT,
+          clusterProperties,
+          ClusterProperties::getMaxTablesPerDatabase);
+    }
+  }
+
+  /** Best-effort admission control: concurrent creates may exceed the ceiling. */
+  private void checkTableCountLimit(String databaseId, String tableId) {
+    long limit = clusterProperties.getMaxTablesPerDatabase();
+    if (limit <= 0) {
+      return;
+    }
+    // Reuse the paginated HTS total: one row plus a database-side count, not a table scan in Java.
+    // Only persisted live TABLE rows count; views, soft-deleted rows and uncommitted stages do not.
+    long tableCount =
+        catalog.listTables(Namespace.of(databaseId), PageRequest.of(0, 1)).getTotalElements();
+    databaseTableCounts.put(databaseId, tableCount);
+    // Registers this database's gauge once; later calls return the existing gauge.
+    Gauge.builder(
+            MetricsConstant.REPO_TABLE_COUNT_DB_TOTAL_COUNT,
+            () -> databaseTableCounts.get(databaseId))
+        .tag(MetricsConstant.DATABASE_TAG, databaseId)
+        .register(meterRegistry);
+    if (tableCount < limit) {
+      return;
+    }
+    if (tableFeatureToggle.isFeatureActivated(databaseId, tableId, BYPASS_TABLE_COUNT_LIMIT)) {
+      meterRegistry
+          .counter(
+              MetricsConstant.REPO_TABLE_COUNT_LIMIT_BYPASSED_CTR,
+              MetricsConstant.DATABASE_TAG,
+              databaseId)
+          .increment();
+      return;
+    }
+    meterRegistry
+        .counter(
+            MetricsConstant.REPO_TABLE_COUNT_LIMIT_REJECTED_CTR,
+            MetricsConstant.DATABASE_TAG,
+            databaseId)
+        .increment();
+    throw new TableCountLimitExceededException(
+        String.format(
+            "Database %s has %d live tables, reaching the configured limit of %d. "
+                + "Drop unused tables or contact the OpenHouse operators before creating or restoring another table.",
+            databaseId, tableCount, limit));
   }
 
   /**
@@ -1075,6 +1140,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
   @Timed(metricKey = MetricsConstant.REPO_RESTORE_TABLE_TIME)
   @Override
   public void restoreTable(SoftDeletedTablePrimaryKey softDeletedTablePrimaryKey) {
+    checkTableCountLimit(
+        softDeletedTablePrimaryKey.getDatabaseId(), softDeletedTablePrimaryKey.getTableId());
     if (catalog instanceof OpenHouseInternalCatalog) {
       ((OpenHouseInternalCatalog) catalog)
           .restoreTable(
