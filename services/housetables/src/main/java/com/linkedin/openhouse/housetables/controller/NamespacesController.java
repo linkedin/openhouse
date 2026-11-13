@@ -1,7 +1,5 @@
 package com.linkedin.openhouse.housetables.controller;
 
-import static com.linkedin.openhouse.housetables.controller.ApiResponseMapper.toResponseEntity;
-
 import com.linkedin.openhouse.common.api.spec.ErrorResponseBody;
 import com.linkedin.openhouse.housetables.api.handler.NamespacesApiHandler;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateNamespaceRequestBody;
@@ -70,7 +68,10 @@ public class NamespacesController {
   @PostMapping(consumes = "application/json")
   public ResponseEntity<NamespaceMetadataResponse> createNamespace(
       @RequestBody CreateNamespaceRequestBody request) throws NamespaceMetadataException {
-    return toResponseEntity(namespacesApiHandler.createNamespace(request));
+    com.linkedin.openhouse.common.api.spec.ApiResponse<NamespaceMetadataResponse> response =
+        namespacesApiHandler.createNamespace(request);
+    return new ResponseEntity<>(
+        response.getResponseBody(), response.getHttpHeaders(), response.getHttpStatus());
   }
 
   @Operation(operationId = "getNamespace", tags = "Namespace", summary = "Get namespace metadata.")
@@ -84,7 +85,10 @@ public class NamespacesController {
   @GetMapping("/{namespaceName}")
   public ResponseEntity<NamespaceMetadataResponse> getNamespace(
       @PathVariable("namespaceName") String namespaceName) throws NamespaceMetadataException {
-    return toResponseEntity(namespacesApiHandler.getNamespace(namespaceName));
+    com.linkedin.openhouse.common.api.spec.ApiResponse<NamespaceMetadataResponse> response =
+        namespacesApiHandler.getNamespace(namespaceName);
+    return new ResponseEntity<>(
+        response.getResponseBody(), response.getHttpHeaders(), response.getHttpStatus());
   }
 
   @Operation(
@@ -108,7 +112,10 @@ public class NamespacesController {
   @DeleteMapping("/{namespaceName}")
   public ResponseEntity<Void> deleteNamespace(@PathVariable("namespaceName") String namespaceName)
       throws NamespaceMetadataException {
-    return toResponseEntity(namespacesApiHandler.deleteNamespace(namespaceName));
+    com.linkedin.openhouse.common.api.spec.ApiResponse<Void> response =
+        namespacesApiHandler.deleteNamespace(namespaceName);
+    return new ResponseEntity<>(
+        response.getResponseBody(), response.getHttpHeaders(), response.getHttpStatus());
   }
 
   @Operation(
@@ -135,7 +142,10 @@ public class NamespacesController {
       @PathVariable("namespaceName") String namespaceName,
       @RequestBody UpdateNamespacePropertiesRequestBody request)
       throws NamespaceMetadataException {
-    return toResponseEntity(namespacesApiHandler.updateNamespaceProperties(namespaceName, request));
+    com.linkedin.openhouse.common.api.spec.ApiResponse<UpdateNamespacePropertiesResponseBody>
+        response = namespacesApiHandler.updateNamespaceProperties(namespaceName, request);
+    return new ResponseEntity<>(
+        response.getResponseBody(), response.getHttpHeaders(), response.getHttpStatus());
   }
 
   @Hidden
