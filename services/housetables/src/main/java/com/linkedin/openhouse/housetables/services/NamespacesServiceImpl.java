@@ -118,9 +118,6 @@ public class NamespacesServiceImpl implements NamespacesService {
     } catch (OptimisticLockingFailureException | OptimisticLockException exception) {
       throw new NamespaceConcurrentModificationException(
           "Namespace metadata changed concurrently. Retry the request.", exception);
-    } catch (DataIntegrityViolationException exception) {
-      throw new NamespaceMetadataStorageException(
-          "Namespace metadata could not be persisted.", exception);
     } catch (DataAccessException | TransactionException | PersistenceException exception) {
       throw new NamespaceMetadataStorageException("Namespace metadata storage failed.", exception);
     }
@@ -153,9 +150,6 @@ public class NamespacesServiceImpl implements NamespacesService {
     } catch (OptimisticLockingFailureException | OptimisticLockException exception) {
       throw new NamespaceConcurrentModificationException(
           "Namespace metadata changed concurrently. Retry the request.", exception);
-    } catch (DataIntegrityViolationException exception) {
-      throw new NamespaceMetadataStorageException(
-          "Namespace metadata could not be persisted.", exception);
     } catch (DataAccessException | TransactionException | PersistenceException exception) {
       throw new NamespaceMetadataStorageException("Namespace metadata storage failed.", exception);
     }
