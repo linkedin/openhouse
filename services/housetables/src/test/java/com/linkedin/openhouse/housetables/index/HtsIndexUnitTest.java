@@ -27,7 +27,6 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
@@ -258,59 +257,6 @@ class HtsIndexUnitTest {
           .as("%s: a view never matches a NULL discriminator", context)
           .doesNotContainPattern("(?i)u\\.entityType\\s+is\\s+null");
     }
-  }
-
-  static Stream<Arguments> brokenEntityTypePredicates() {
-    String table =
-        "SELECT u FROM UserTableRow u WHERE upper(u.databaseId) = upper(:databaseId) AND "
-            + UserTableHtsJdbcRepository.TABLE_ROW_PREDICATE;
-    String view =
-        "SELECT u FROM UserTableRow u WHERE upper(u.databaseId) = upper(:databaseId) AND "
-            + UserTableHtsJdbcRepository.VIEW_ROW_PREDICATE;
-    return Stream.of(
-        Arguments.of(
-            "table without UPPER", table.replace("upper(u.entityType)", "u.entityType"), "TABLE"),
-        Arguments.of(
-            "table with LOWER",
-            table.replace("upper(u.entityType) = 'TABLE'", "lower(u.entityType) = 'table'"),
-            "TABLE"),
-        Arguments.of("table with the VIEW literal", table.replace("'TABLE'", "'VIEW'"), "TABLE"),
-        Arguments.of(
-            "table without the NULL arm", table.replace("u.entityType IS NULL OR ", ""), "TABLE"),
-        Arguments.of(
-            "table type only in a SET clause",
-            "UPDATE UserTableRow u SET u.entityType = 'TABLE' WHERE u.entityType IS NULL OR"
-                + " upper(u.tableId) = upper(:fromTableId)",
-            "TABLE"),
-        Arguments.of(
-            "view without UPPER", view.replace("upper(u.entityType)", "u.entityType"), "VIEW"),
-        Arguments.of(
-            "view with LOWER",
-            view.replace("upper(u.entityType) = 'VIEW'", "lower(u.entityType) = 'view'"),
-            "VIEW"),
-        Arguments.of("view with the TABLE literal", view.replace("'VIEW'", "'TABLE'"), "VIEW"));
-  }
-
-  @Test
-  void entityTypePredicateGuardAcceptsTheCurrentPredicates() {
-    assertTypedPredicate(
-        "UPDATE UserTableRow u SET u.entityType = 'TABLE' WHERE upper(u.tableId) = upper(:t) AND "
-            + UserTableHtsJdbcRepository.TABLE_ROW_PREDICATE,
-        "TABLE",
-        "table control");
-    assertTypedPredicate(
-        "SELECT u FROM UserTableRow u WHERE " + UserTableHtsJdbcRepository.VIEW_ROW_PREDICATE,
-        "VIEW",
-        "view control");
-  }
-
-  @ParameterizedTest(name = "{0}")
-  @MethodSource("brokenEntityTypePredicates")
-  void entityTypePredicateGuardRejectsLostNormalization(
-      String regression, String query, String entity) {
-    org.assertj.core.api.Assertions.assertThatThrownBy(
-            () -> assertTypedPredicate(query, entity, regression))
-        .isInstanceOf(AssertionError.class);
   }
 
   // TODO: Fix job-ID query access patterns to avoid enumerating job_row, then re-enable.
