@@ -33,6 +33,10 @@ Create, update, and removal keys must contain well-formed Unicode and at most 51
 units. Empty keys, spaces, accents, case differences, and supplementary characters are preserved.
 Unpaired UTF-16 surrogates and overlength keys return 400.
 
+Tables Service validates these public inputs before requesting storage operations. HouseTables
+trusts the service-constructed requests and owns metadata persistence, uniqueness, and concurrent
+update checks.
+
 ## Access and recovery
 
 Creation, property updates, removals, and drop require `SYSTEM_ADMIN`. Loading metadata requires
