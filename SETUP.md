@@ -122,6 +122,54 @@ mysql|3306
 spark-livy|8998
 opa|8181
 
+## Spark Integration Tests
+
+In this repository, the existing `OpenHouseSparkITest` tests use real House Tables Service (HTS)
+HTTP calls backed by MySQL Testcontainers. Spark and the Tables service run in the test JVM;
+HTS runs from this checkout's `:services:housetables:bootJar` in a Java container. HTS initializes
+MySQL using its production `schema.sql` and `data.sql`. Table data and Iceberg metadata files
+remain on the local filesystem; MySQL stores the HTS records, not the Spark query's data rows.
+
+Use Java 17 and a running Docker daemon. Testcontainers pulls `mysql:8.0.46` and
+`eclipse-temurin:17-jre` when needed. No Docker Compose stack or fixed host ports are required.
+Each test JVM starts one isolated MySQL/HTS pair when its first embedded Tables context starts.
+The pair is shared by that JVM's contexts and removed on exit; tests must use distinct OpenHouse
+database/table names as before. A Docker or HTS startup failure fails the test rather than falling
+back to H2.
+
+HTTP resources also belong to the test JVM, not an individual embedded Tables context. The backend
+disables Spring Boot's context-owned client connector so stopping one context does not terminate
+HTS clients still used by sibling contexts.
+
+```bash
+# Existing Spark 3.5 catalog tests, now backed by MySQL through HTS
+./gradlew :integrations:spark:spark-3.5:openhouse-spark-3.5-itest:catalogTest
+
+# One existing test class
+./gradlew :integrations:spark:spark-3.5:openhouse-spark-3.5-itest:catalogTest \
+  --tests '*CTASNonNullTestSpark3_5'
+
+# Existing Spark 3.1 catalog tests
+./gradlew :integrations:spark:spark-3.1:openhouse-spark-itest:catalogTest
+```
+
+Add Spark SQL statements to the existing test classes under
+`integrations/spark/spark-3.1/openhouse-spark-itest/src/test/java` or its `spark-3.5` counterpart.
+Tests continue to extend `OpenHouseSparkITest` and call `getSparkSession()`; no separate MySQL
+suite or base class is needed. The same backend is enabled for embedded-server tests in
+`apps/spark`, `apps/spark-3.5`, and `libs/datalayout`.
+
+### Published Fixture Stays on H2
+
+The `openhouse.mysql-test-backend` build convention adds the unpublished `:test-infra:mysql-hts`
+module only to repository consumers' `testRuntimeOnly` dependencies. Its Spring environment
+post-processor points the embedded Tables service at HTS and disables the fixture's H2 datasource,
+so the production HTTP repositories are used. The module is not bundled into or published with
+`tables-test-fixtures`, and it is not included in the `all-modules` aggregate.
+
+Downstream users of the published fixture keep its existing in-process H2 default and do not need
+Docker. The fixture's own H2 tests and `services/tables`' H2 service tests remain unchanged.
+
 ## Test Services
 
 ### Tables REST Service
