@@ -1,9 +1,8 @@
 package com.linkedin.openhouse.housetables.services;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
-import com.linkedin.openhouse.common.exception.checked.AlreadyExistsException;
+import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
 import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
-import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.housetables.config.db.DatabaseConfiguration.SupportedDbTypes;
 import com.linkedin.openhouse.housetables.model.NamespaceMetadata;
@@ -20,14 +19,11 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import javax.persistence.EntityManager;
 import javax.persistence.LockModeType;
-import javax.persistence.PersistenceException;
 import org.hibernate.exception.ConstraintViolationException;
-import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
-import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.TransactionSystemException;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -50,19 +46,19 @@ public class NamespacesServiceImpl implements NamespacesService {
     this.entityManager = entityManager;
     this.transactionManager = transactionManager;
     this.transactions = new TransactionTemplate(transactionManager);
-    // Completing the transaction here includes commit failures in the checked failure contract.
+    // Each operation owns transaction completion and failure handling.
     this.transactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
   }
 
   @Override
   public NamespaceMetadata createNamespace(String namespaceName, Map<String, String> properties)
-      throws NamespaceException {
+      throws DuplicateCreationException {
     if (SupportedDbTypes.ICEBERG
         .name()
         .equals(clusterProperties.getClusterHouseTablesDatabaseType())) {
-      throw new NamespaceException("Namespace metadata requires a JDBC HouseTables backend.");
+      throw new IllegalStateException("Namespace metadata requires a JDBC HouseTables backend.");
     }
-    TransactionStatus transaction = beginMutation();
+    TransactionStatus transaction = transactionManager.getTransaction(transactions);
     NamespaceMetadata result;
     try {
       NamespaceRow namespace = new NamespaceRow(namespaceName, properties);
@@ -84,12 +80,12 @@ public class NamespacesServiceImpl implements NamespacesService {
               .map(name -> name.toLowerCase(Locale.ROOT).contains("uq_namespace_name"))
               .orElse(false);
       if (duplicateName) {
-        throw new AlreadyExistsException("Namespace name already exists.", exception);
+        throw new DuplicateCreationException("Namespace name already exists.", exception);
       }
-      throw new NamespaceException("Namespace metadata could not be persisted.", exception);
+      throw exception;
     } catch (RuntimeException exception) {
       rollback(transaction, exception);
-      throw new NamespaceException("Namespace metadata storage failed.", exception);
+      throw exception;
     } catch (Error failure) {
       rollback(transaction, failure);
       throw failure;
@@ -99,47 +95,43 @@ public class NamespacesServiceImpl implements NamespacesService {
   }
 
   @Override
-  public NamespaceMetadata getNamespace(String namespaceName) throws NamespaceException {
+  public NamespaceMetadata getNamespace(String namespaceName) throws NotFoundException {
     if (SupportedDbTypes.ICEBERG
         .name()
         .equals(clusterProperties.getClusterHouseTablesDatabaseType())) {
-      throw new NamespaceException("Namespace metadata requires a JDBC HouseTables backend.");
+      throw new IllegalStateException("Namespace metadata requires a JDBC HouseTables backend.");
     }
-    try {
-      return transactions
-          .execute(
-              status ->
-                  repository
-                      .findByNamespaceName(namespaceName)
-                      .map(
-                          namespace ->
-                              NamespaceMetadata.builder()
-                                  .namespaceUuid(namespace.getNamespaceUuid())
-                                  .namespaceName(namespace.getNamespaceName())
-                                  .properties(
-                                      Collections.unmodifiableMap(
-                                          new HashMap<>(namespace.getProperties())))
-                                  .build()))
-          .orElseThrow(() -> new NotFoundException("Namespace not found: " + namespaceName));
-    } catch (DataAccessException | TransactionException | PersistenceException exception) {
-      throw new NamespaceException("Namespace metadata storage failed.", exception);
-    }
+    return transactions
+        .execute(
+            status ->
+                repository
+                    .findByNamespaceName(namespaceName)
+                    .map(
+                        namespace ->
+                            NamespaceMetadata.builder()
+                                .namespaceUuid(namespace.getNamespaceUuid())
+                                .namespaceName(namespace.getNamespaceName())
+                                .properties(
+                                    Collections.unmodifiableMap(
+                                        new HashMap<>(namespace.getProperties())))
+                                .build()))
+        .orElseThrow(() -> new NotFoundException("Namespace not found: " + namespaceName));
   }
 
   @Override
-  public void deleteNamespace(String namespaceName) throws NamespaceException {
+  public void deleteNamespace(String namespaceName) throws NotFoundException {
     if (SupportedDbTypes.ICEBERG
         .name()
         .equals(clusterProperties.getClusterHouseTablesDatabaseType())) {
-      throw new NamespaceException("Namespace metadata requires a JDBC HouseTables backend.");
+      throw new IllegalStateException("Namespace metadata requires a JDBC HouseTables backend.");
     }
-    TransactionStatus transaction = beginMutation();
+    TransactionStatus transaction = transactionManager.getTransaction(transactions);
     Optional<NamespaceRow> namespace;
     try {
       namespace = repository.findByNamespaceName(namespaceName);
     } catch (RuntimeException exception) {
       rollback(transaction, exception);
-      throw new NamespaceException("Namespace metadata storage failed.", exception);
+      throw exception;
     } catch (Error failure) {
       rollback(transaction, failure);
       throw failure;
@@ -153,7 +145,7 @@ public class NamespacesServiceImpl implements NamespacesService {
       repository.flush();
     } catch (RuntimeException exception) {
       rollback(transaction, exception);
-      throw new NamespaceException("Namespace metadata storage failed.", exception);
+      throw exception;
     } catch (Error failure) {
       rollback(transaction, failure);
       throw failure;
@@ -164,7 +156,7 @@ public class NamespacesServiceImpl implements NamespacesService {
   @Override
   public NamespacePropertyUpdate updateNamespaceProperties(
       String namespaceName, Map<String, String> updates, Set<String> removals)
-      throws NamespaceException {
+      throws NotFoundException, InvalidPropertyUpdateException {
     if (!Collections.disjoint(updates.keySet(), removals)) {
       throw new InvalidPropertyUpdateException(
           "Property updates and removals must have disjoint keys.");
@@ -172,15 +164,15 @@ public class NamespacesServiceImpl implements NamespacesService {
     if (SupportedDbTypes.ICEBERG
         .name()
         .equals(clusterProperties.getClusterHouseTablesDatabaseType())) {
-      throw new NamespaceException("Namespace metadata requires a JDBC HouseTables backend.");
+      throw new IllegalStateException("Namespace metadata requires a JDBC HouseTables backend.");
     }
-    TransactionStatus transaction = beginMutation();
+    TransactionStatus transaction = transactionManager.getTransaction(transactions);
     Optional<NamespaceRow> target;
     try {
       target = repository.findByNamespaceName(namespaceName);
     } catch (RuntimeException exception) {
       rollback(transaction, exception);
-      throw new NamespaceException("Namespace metadata storage failed.", exception);
+      throw exception;
     } catch (Error failure) {
       rollback(transaction, failure);
       throw failure;
@@ -217,7 +209,7 @@ public class NamespacesServiceImpl implements NamespacesService {
               .build();
     } catch (RuntimeException exception) {
       rollback(transaction, exception);
-      throw new NamespaceException("Namespace metadata storage failed.", exception);
+      throw exception;
     } catch (Error failure) {
       rollback(transaction, failure);
       throw failure;
@@ -226,34 +218,23 @@ public class NamespacesServiceImpl implements NamespacesService {
     return result;
   }
 
-  private TransactionStatus beginMutation() throws NamespaceException {
-    try {
-      return transactionManager.getTransaction(transactions);
-    } catch (TransactionException exception) {
-      throw new NamespaceException("Namespace metadata storage failed.", exception);
-    }
-  }
-
-  private void commit(TransactionStatus transaction) throws NamespaceException {
+  private void commit(TransactionStatus transaction) {
     try {
       transactionManager.commit(transaction);
     } catch (TransactionSystemException exception) {
       Optional.ofNullable(exception.getApplicationException()).ifPresent(exception::addSuppressed);
-      throw new NamespaceException("Namespace metadata storage failed.", exception);
-    } catch (RuntimeException exception) {
-      throw new NamespaceException("Namespace metadata storage failed.", exception);
+      throw exception;
     }
   }
 
-  private void rollback(TransactionStatus transaction, Throwable originalFailure)
-      throws NamespaceException {
+  private void rollback(TransactionStatus transaction, Throwable originalFailure) {
     try {
       transactionManager.rollback(transaction);
     } catch (RuntimeException completionFailure) {
       if (completionFailure != originalFailure) {
         completionFailure.addSuppressed(originalFailure);
       }
-      throw new NamespaceException("Namespace metadata storage failed.", completionFailure);
+      throw completionFailure;
     }
   }
 }
