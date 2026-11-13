@@ -3,14 +3,14 @@ package com.linkedin.openhouse.housetables.api.handler;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.ALPHA_NUM_UNDERSCORE_REGEX;
 
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
+import com.linkedin.openhouse.common.exception.checked.DomainException;
+import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateNamespaceRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.request.UpdateNamespacePropertiesRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.response.NamespaceMetadataResponse;
 import com.linkedin.openhouse.housetables.api.spec.response.UpdateNamespacePropertiesResponseBody;
 import com.linkedin.openhouse.housetables.model.NamespaceMetadata;
 import com.linkedin.openhouse.housetables.model.NamespacePropertyUpdate;
-import com.linkedin.openhouse.housetables.services.InvalidNamespaceRequestException;
-import com.linkedin.openhouse.housetables.services.NamespaceMetadataException;
 import com.linkedin.openhouse.housetables.services.NamespacesService;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -31,7 +31,7 @@ public class OpenHouseNamespacesApiHandler implements NamespacesApiHandler {
 
   @Override
   public ApiResponse<NamespaceMetadataResponse> createNamespace(CreateNamespaceRequestBody request)
-      throws NamespaceMetadataException {
+      throws DomainException {
     validateRequest(request);
     NamespaceMetadata metadata =
         namespacesService.createNamespace(request.getNamespaceName(), request.getProperties());
@@ -48,7 +48,7 @@ public class OpenHouseNamespacesApiHandler implements NamespacesApiHandler {
 
   @Override
   public ApiResponse<NamespaceMetadataResponse> getNamespace(String namespaceName)
-      throws NamespaceMetadataException {
+      throws DomainException {
     validateNamespaceName(namespaceName);
     NamespaceMetadata metadata = namespacesService.getNamespace(namespaceName);
     return ApiResponse.<NamespaceMetadataResponse>builder()
@@ -63,7 +63,7 @@ public class OpenHouseNamespacesApiHandler implements NamespacesApiHandler {
   }
 
   @Override
-  public ApiResponse<Void> deleteNamespace(String namespaceName) throws NamespaceMetadataException {
+  public ApiResponse<Void> deleteNamespace(String namespaceName) throws DomainException {
     validateNamespaceName(namespaceName);
     namespacesService.deleteNamespace(namespaceName);
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
@@ -71,8 +71,7 @@ public class OpenHouseNamespacesApiHandler implements NamespacesApiHandler {
 
   @Override
   public ApiResponse<UpdateNamespacePropertiesResponseBody> updateNamespaceProperties(
-      String namespaceName, UpdateNamespacePropertiesRequestBody request)
-      throws NamespaceMetadataException {
+      String namespaceName, UpdateNamespacePropertiesRequestBody request) throws DomainException {
     validateNamespaceName(namespaceName);
     validateRequest(request);
     NamespacePropertyUpdate result =
@@ -89,18 +88,18 @@ public class OpenHouseNamespacesApiHandler implements NamespacesApiHandler {
         .build();
   }
 
-  private void validateNamespaceName(String namespaceName) throws InvalidNamespaceRequestException {
+  private void validateNamespaceName(String namespaceName) throws InvalidRequestException {
     if (namespaceName.isEmpty()
         || namespaceName.length() > 128
         || !namespaceName.matches(ALPHA_NUM_UNDERSCORE_REGEX)) {
-      throw new InvalidNamespaceRequestException(
+      throw new InvalidRequestException(
           String.format(
               "Namespace name '%s' must contain 1 to 128 letters, digits, or underscores.",
               namespaceName));
     }
   }
 
-  private <T> void validateRequest(T request) throws InvalidNamespaceRequestException {
+  private <T> void validateRequest(T request) throws InvalidRequestException {
     Set<ConstraintViolation<T>> violations = validator.validate(request);
     if (!violations.isEmpty()) {
       /*
@@ -119,7 +118,7 @@ public class OpenHouseNamespacesApiHandler implements NamespacesApiHandler {
                           + violation.getMessage())
               .sorted()
               .collect(Collectors.joining("; "));
-      throw new InvalidNamespaceRequestException(validationMessage);
+      throw new InvalidRequestException(validationMessage);
     }
   }
 }

@@ -225,7 +225,10 @@ class NamespacesControllerTest {
             paths
                 .at("/~1hts~1namespaces/post/responses/409/content/application~1json/schema/$ref")
                 .asText())
-        .isEqualTo("#/components/schemas/ErrorResponseBody");
+        .isEqualTo("#/components/schemas/NamespaceErrorResponse");
+    assertThat(
+            document.at("/components/schemas/NamespaceErrorResponse/properties/type/type").asText())
+        .isEqualTo("string");
   }
 
   @ParameterizedTest
