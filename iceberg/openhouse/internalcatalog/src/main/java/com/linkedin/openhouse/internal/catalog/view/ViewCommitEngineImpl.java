@@ -248,9 +248,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     checkSystemPropertiesUnchanged(intent, current);
 
     Map<String, String> currentUserProperties = extractUserProperties(current.properties());
-    // Existing merge semantics retain omitted user keys; ALTER UNSET needs a follow-up.
-    Map<String, String> userProperties = new LinkedHashMap<>(currentUserProperties);
-    userProperties.putAll(extractUserProperties(getPropertiesOrEmpty(intent)));
+    Map<String, String> userProperties = extractUserProperties(getPropertiesOrEmpty(intent));
 
     if (isUnchanged(intent, current, userProperties, currentUserProperties)) {
       return ViewCommitResult.builder()
@@ -287,13 +285,17 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         current.properties().getOrDefault(getCanonicalFieldName("creationTime"), now));
     properties.put(getCanonicalFieldName("lastModifiedTime"), now);
 
-    // buildFrom preserves identity and history; Iceberg assigns the version id.
+    Set<String> removedUserProperties = new HashSet<>(currentUserProperties.keySet());
+    removedUserProperties.removeAll(userProperties.keySet());
+
+    // setProperties merges; explicitly remove user keys absent from the complete request.
     ViewMetadata metadata =
         ViewMetadata.buildFrom(current)
             .setCurrentVersion(
                 buildCandidateVersion(
                     intent, current.currentVersionId() + 1, REPLACE_OPERATION, Long.parseLong(now)),
                 intent.getSchema())
+            .removeProperties(removedUserProperties)
             .setProperties(properties)
             .build();
 
@@ -303,7 +305,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
   private boolean isUnchanged(
       ViewCommitIntent intent,
       ViewMetadata current,
-      Map<String, String> mergedUserProperties,
+      Map<String, String> userProperties,
       Map<String, String> currentUserProperties) {
     ViewVersion version = current.currentVersion();
     // sameSchema, not asStruct: the struct ignores identifier-field ids.
@@ -314,7 +316,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         // Match the normalization used when building metadata.
         && Objects.equals(
             version.defaultNamespace(), normalizeNamespace(intent.getDefaultNamespace()))
-        && mergedUserProperties.equals(currentUserProperties);
+        && userProperties.equals(currentUserProperties);
   }
 
   private ViewCommitResult writeThenPublish(
