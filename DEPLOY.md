@@ -234,7 +234,8 @@ jdbc:mysql://mysql:3306/oh_db?sslMode=VERIFY_IDENTITY&clientCertificateKeyStoreU
 Pool settings use `spring.datasource.hikari.*`.
 
 The REST service runs Flyway migrations at startup. These create and update the tables. Flyway
-records each migration in `optimizer_schema_history`.
+records each migration in `optimizer_schema_history`. Hibernate then validates the tables against
+the entities in the service and in both apps.
 
 The service can share HouseTables' database. Migrations may only change the optimizer tables.
 They must not reference HouseTables' tables. The optimizer tables must not exist before the first
