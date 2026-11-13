@@ -216,22 +216,21 @@ during `helm install` is shown below.
 
 #### MySQL for Optimizer
 
-Point REST, Analyzer, and Scheduler at the same database. Set `OPTIMIZER_DB_USER` and
-`OPTIMIZER_DB_PASSWORD` in each process, and configure `OPENHOUSE_CLUSTER_CONFIG_PATH`
-(default `/var/config/cluster.yaml`):
+Point REST, Analyzer, and Scheduler at the same database with Spring Boot's `spring.datasource.url`,
+`spring.datasource.username`, and `spring.datasource.password`. Each process reads them from
+`OPTIMIZER_DB_URL`, `OPTIMIZER_DB_USER`, and `OPTIMIZER_DB_PASSWORD`; any other Spring Boot
+configuration source, such as `--spring.config.additional-location`, works too. Without a URL, the
+REST service tries `jdbc:mysql://localhost:3306/oh_db`, and the Analyzer and Scheduler use an
+in-memory H2 database.
 
-```yaml
-cluster:
-  optimizer:
-    database:
-      type: MYSQL
-      url: "jdbc:mysql://mysql:3306/oh_db"
+For certificate authentication, pass
+[Connector/J's SSL properties](https://dev.mysql.com/doc/connector-j/en/connector-j-reference-using-ssl.html)
+in the URL and mount the referenced files:
+
+```
+jdbc:mysql://mysql:3306/oh_db?sslMode=VERIFY_IDENTITY&clientCertificateKeyStoreUrl=file:/path/identity.p12&clientCertificateKeyStorePassword=...&trustCertificateKeyStoreUrl=file:/path/cacerts&trustCertificateKeyStorePassword=...
 ```
 
-The YAML URL overrides `spring.datasource.url` / `OPTIMIZER_DB_URL`.
-Optional certificate authentication uses `database.cert-based-auth.enabled=true` and
-[keystore/truststore settings](libs/optimizer/optimizer-common/src/main/java/com/linkedin/openhouse/optimizer/config/OptimizerDatabaseProperties.java);
-mount the referenced files and supply their passwords. SSL mode defaults to `VERIFY_IDENTITY`.
 Pool settings use `spring.datasource.hikari.*`.
 
 The REST service runs Flyway migrations at startup. These create and update the tables. Flyway
