@@ -25,6 +25,7 @@ public final class MetricsConstant {
   public static final String JOBS_SERVICE = "jobs";
   public static final String HOUSETABLES_SERVICE = "housetables";
   public static final String SERVICE_AUDIT = "service_audit";
+  public static final String VIEW_AUDIT = "view_audit";
 
   // Common metric constants section
   public static final String ACTION_TAG = "action";
@@ -39,6 +40,7 @@ public final class MetricsConstant {
 
   // Metrics for auditing
   public static final String FAILED_SERVICE_AUDIT = "failed_service_audit";
+  public static final String FAILED_VIEW_AUDIT = "failed_view_audit";
   public static final String FAILED_PARSING_REQUEST_PAYLOAD = "failed_parsing_request_payload";
 
   // Performance metrics

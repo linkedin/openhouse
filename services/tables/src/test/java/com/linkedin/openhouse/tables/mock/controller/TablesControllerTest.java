@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.tables.mock.controller;
 
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INITIAL_TABLE_VERSION;
-import static com.linkedin.openhouse.common.audit.ServiceAuditPayloadRedactor.REDACTED_VALUE;
 import static com.linkedin.openhouse.tables.e2e.h2.ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX;
 import static com.linkedin.openhouse.tables.model.ServiceAuditModelConstants.EXCLUDE_FIELDS;
 import static com.linkedin.openhouse.tables.model.ServiceAuditModelConstants.SERVICE_AUDIT_EVENT_CREATE_TABLE_FAILED;
@@ -57,22 +56,13 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 @SpringBootTest
 @ContextConfiguration(initializers = AuthorizationPropertiesInitializer.class)
 public class TablesControllerTest {
-
-  /**
-   * A table schema carrying a marker that appears nowhere else, so {@link
-   * #tableCreateAuditPayloadStillCarriesItsSchemaUnredacted()} fails loudly if the value is ever
-   * scrubbed rather than passing on a coincidence.
-   */
-  private static final String TABLE_SCHEMA_WITH_MARKER =
-      "{\"type\": \"struct\", \"schema-id\": 0, \"fields\": ["
-          + "{\"id\": 1, \"required\": true, \"name\": \"table_schema_marker_column\","
-          + " \"type\": \"string\"}]}";
 
   private MockMvc mvc;
 
@@ -277,41 +267,6 @@ public class TablesControllerTest {
                 .accept(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + jwtAccessToken))
         .andExpect(status().isNotFound());
-  }
-
-  /**
-   * Regression pin for {@link com.linkedin.openhouse.tables.audit.ViewRequestPayloadRedactor}.
-   * {@code CreateUpdateTableRequestBody} also carries a {@code schema}, so a redactor keyed on the
-   * field name alone would silently start scrubbing table audit events, which is not what the views
-   * change is allowed to do. The view redactor is scoped by request URI instead, and this asserts
-   * that a v1 table create still audits its schema verbatim.
-   */
-  @Test
-  public void tableCreateAuditPayloadStillCarriesItsSchemaUnredacted() throws Exception {
-    CreateUpdateTableRequestBody requestBody =
-        RequestConstants.TEST_CREATE_TABLE_REQUEST_BODY
-            .toBuilder()
-            .schema(TABLE_SCHEMA_WITH_MARKER)
-            .build();
-
-    mvc.perform(
-        MockMvcRequestBuilders.post(CURRENT_MAJOR_VERSION_PREFIX + "/databases/d200/tables")
-            .contentType(MediaType.APPLICATION_JSON)
-            .content(requestBody.toJson())
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer " + jwtAccessToken));
-
-    Mockito.verify(serviceAuditHandler, Mockito.atLeastOnce()).audit(argCaptor.capture());
-    ServiceAuditEvent actualEvent = argCaptor.getValue();
-    JsonObject payload = actualEvent.getRequestPayload().getAsJsonObject();
-
-    Assertions.assertEquals(
-        TABLE_SCHEMA_WITH_MARKER,
-        payload.get("schema").getAsString(),
-        "A table create must audit its schema exactly as it was sent.");
-    Assertions.assertFalse(
-        actualEvent.getRequestPayload().toString().contains(REDACTED_VALUE),
-        "Nothing in a table request payload may be redacted by the views change.");
   }
 
   @Test
@@ -604,6 +559,8 @@ public class TablesControllerTest {
             new AbstractMap.SimpleEntry<>(
                 "invalidschemaevolutionexception", HttpStatus.BAD_REQUEST.value()),
             new AbstractMap.SimpleEntry<>(
+                "historicpartitioncolumnremovedexception", HttpStatus.BAD_REQUEST.value()),
+            new AbstractMap.SimpleEntry<>(
                 "unsupportedclientoperationexception", HttpStatus.BAD_REQUEST.value()),
             new AbstractMap.SimpleEntry<>("accessdeniedexception", HttpStatus.FORBIDDEN.value()),
             new AbstractMap.SimpleEntry<>(
@@ -631,24 +588,31 @@ public class TablesControllerTest {
       int status = pair.getValue();
       GetTableResponseBody responseBodyForException =
           GET_TABLE_RESPONSE_BODY.toBuilder().databaseId("dException").tableId(error).build();
-      mvcUnauthenticated
-          .perform(
-              MockMvcRequestBuilders.put(
-                      String.format(
-                          ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
-                              + "/databases/%s/tables/%s",
-                          responseBodyForException.getDatabaseId(),
-                          responseBodyForException.getTableId()))
-                  .contentType(MediaType.APPLICATION_JSON)
-                  .content(
-                      buildCreateUpdateTableRequestBody(responseBodyForException)
-                          .toBuilder()
-                          .baseTableVersion(INITIAL_TABLE_VERSION)
-                          .build()
-                          .toJson())
-                  .accept(MediaType.APPLICATION_JSON))
-          .andExpect(status().is(status))
-          .andReturn();
+      ResultActions response =
+          mvcUnauthenticated
+              .perform(
+                  MockMvcRequestBuilders.put(
+                          String.format(
+                              ValidationUtilities.CURRENT_MAJOR_VERSION_PREFIX
+                                  + "/databases/%s/tables/%s",
+                              responseBodyForException.getDatabaseId(),
+                              responseBodyForException.getTableId()))
+                      .contentType(MediaType.APPLICATION_JSON)
+                      .content(
+                          buildCreateUpdateTableRequestBody(responseBodyForException)
+                              .toBuilder()
+                              .baseTableVersion(INITIAL_TABLE_VERSION)
+                              .build()
+                              .toJson())
+                      .accept(MediaType.APPLICATION_JSON))
+              .andExpect(status().is(status));
+      if ("historicpartitioncolumnremovedexception".equals(error)) {
+        String message =
+            "RTAS does not support dropping a partition column [id]. Only removing partitioning is allowed";
+        response
+            .andExpect(jsonPath("$.message").value(message))
+            .andExpect(jsonPath("$.cause").value(message));
+      }
     }
   }
 

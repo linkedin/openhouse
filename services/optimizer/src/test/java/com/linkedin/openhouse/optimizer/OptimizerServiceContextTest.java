@@ -21,8 +21,8 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.test.context.ContextConfiguration;
 
 /**
- * Validates the service's datasource defaults and Spring application context, including schema
- * initialization and repository wiring.
+ * Validates the service's datasource defaults and Spring application context, including the Flyway
+ * migrations and repository wiring.
  */
 @SpringBootTest
 @ContextConfiguration(initializers = MySqlContainerInitializer.class)

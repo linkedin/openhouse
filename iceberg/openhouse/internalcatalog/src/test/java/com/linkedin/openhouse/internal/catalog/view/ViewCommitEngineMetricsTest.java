@@ -140,8 +140,12 @@ class ViewCommitEngineMetricsTest {
     ViewCommitResult result =
         engine.commit(
             changed
-                ? ViewTestFixtures.changedReplaceIntent(root, captured).build()
-                : ViewTestFixtures.replaceIntent(root, captured));
+                ? ViewTestFixtures.changedReplaceIntent(root, captured)
+                    .viewProperties(storedMetadata.properties())
+                    .build()
+                : ViewTestFixtures.baseIntent(root, false, captured)
+                    .viewProperties(storedMetadata.properties())
+                    .build());
     assertEquals(changed, result.isMetadataChanged());
     assertTimer("commit_latency", 1, changed ? 28 : 7);
     assertTimer("metadata_retrieval_latency", 1, 7);
@@ -253,7 +257,9 @@ class ViewCommitEngineMetricsTest {
                 engine.commit(
                     create
                         ? ViewTestFixtures.createIntent(root, null)
-                        : ViewTestFixtures.changedReplaceIntent(root, storedRow).build()));
+                        : ViewTestFixtures.changedReplaceIntent(root, storedRow)
+                            .viewProperties(storedMetadata.properties())
+                            .build()));
     assertSame(failure, thrown.getCause());
     assertTimer("commit_latency", 1, create ? 21 : 28);
     if (create) {

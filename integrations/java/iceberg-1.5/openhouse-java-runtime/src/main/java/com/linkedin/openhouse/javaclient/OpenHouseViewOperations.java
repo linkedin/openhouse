@@ -110,7 +110,7 @@ public class OpenHouseViewOperations extends BaseViewOperations {
     String viewId = viewIdentifier.name();
     CreateUpdateViewRequestBody requestBody = constructRequestBody(base, metadata);
     try {
-      // base == null is a create (CREATE VIEW); base != null is a replace (CREATE OR REPLACE).
+      // Existing-view commits include both definition replacement and property updates.
       Mono<GetViewResponseBody> request =
           base == null
               ? viewApi.createViewV1(databaseId, requestBody)
@@ -235,15 +235,14 @@ public class OpenHouseViewOperations extends BaseViewOperations {
     if (defaultNamespace != null && !defaultNamespace.isEmpty()) {
       requestBody.defaultNamespace(Arrays.asList(defaultNamespace.levels()));
     }
-    // The authoring dialect travels as the reserved property openhouse.view.sourceDialect, carried
-    // in the view properties alongside any user-set keys. The server allow-lists this key only at
-    // create and freezes it thereafter. For now it is derived from the single SQL representation's
-    // dialect; TODO: generalize once a view may carry multiple representations. Copy into a mutable
-    // map so a caller's immutable or absent properties map is never mutated.
     Map<String, String> sourceProperties = metadata.properties();
     Map<String, String> viewProperties =
         sourceProperties == null ? new HashMap<>() : new HashMap<>(sourceProperties);
-    viewProperties.put(OPENHOUSE_VIEW_SOURCE_DIALECT_KEY, sqlRepresentations.get(0).dialect());
+    if (base == null
+        && viewProperties.keySet().stream()
+            .noneMatch(OPENHOUSE_VIEW_SOURCE_DIALECT_KEY::equalsIgnoreCase)) {
+      viewProperties.put(OPENHOUSE_VIEW_SOURCE_DIALECT_KEY, sqlRepresentations.get(0).dialect());
+    }
     requestBody.viewProperties(viewProperties);
     if (base != null) {
       requestBody.baseMetadataLocation(base.metadataFileLocation());

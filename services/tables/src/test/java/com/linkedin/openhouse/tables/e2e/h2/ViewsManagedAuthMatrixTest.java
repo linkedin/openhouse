@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
@@ -212,6 +213,14 @@ abstract class ViewsManagedAuthMatrixBase {
     return MockMvcRequestBuilders.delete(VIEW_PATH).accept(MediaType.APPLICATION_JSON);
   }
 
+  /** A replacement of the stubbed view, based on its current pointer. */
+  static MockHttpServletRequestBuilder replaceView() {
+    return MockMvcRequestBuilders.put(VIEW_PATH)
+        .contentType(MediaType.APPLICATION_JSON)
+        .content(ViewModelConstants.fullyPopulatedRequest().toJson())
+        .accept(MediaType.APPLICATION_JSON);
+  }
+
   /** Successful item read and terminal list read, served from the stubbed pointer source. */
   void assertReadsSucceed(MockHttpServletRequestBuilder get, MockHttpServletRequestBuilder list)
       throws Exception {
@@ -243,6 +252,40 @@ abstract class ViewsManagedAuthMatrixBase {
     assertEquals(PRINCIPAL, principal.getValue());
     assertEquals(ViewModelConstants.DATABASE_ID, database.getValue().getDatabaseId());
     assertEquals(expectedPrivilege, privilege.getValue());
+  }
+
+  /**
+   * One OPA decision on the captured view object (its database and persisted UUID) for the caller,
+   * and no database decision.
+   */
+  void assertViewObjectAuthorization(Privileges expectedPrivilege) {
+    ArgumentCaptor<String> principal = ArgumentCaptor.forClass(String.class);
+    ArgumentCaptor<TableDto> view = ArgumentCaptor.forClass(TableDto.class);
+    ArgumentCaptor<Privileges> privilege = ArgumentCaptor.forClass(Privileges.class);
+    verify(opaHandler)
+        .checkAccessDecision(principal.capture(), view.capture(), privilege.capture());
+    verify(opaHandler, never()).checkAccessDecision(any(), any(DatabaseDto.class), any());
+    HouseTable captured = viewRow();
+    assertEquals(PRINCIPAL, principal.getValue());
+    assertEquals(captured.getDatabaseId(), view.getValue().getDatabaseId());
+    assertEquals(captured.getTableId(), view.getValue().getTableId());
+    assertEquals(captured.getTableUUID(), view.getValue().getTableUUID());
+    assertEquals(captured.getTableLocation(), view.getValue().getTableLocation());
+    assertEquals(expectedPrivilege, privilege.getValue());
+  }
+
+  /** OPA grants the privilege only to the caller, on the captured view's persisted UUID. */
+  void allowViewObject(Privileges privilege) {
+    HouseTable captured = viewRow();
+    when(opaHandler.checkAccessDecision(
+            eq(PRINCIPAL),
+            argThat(
+                (TableDto view) ->
+                    view != null
+                        && captured.getDatabaseId().equals(view.getDatabaseId())
+                        && captured.getTableUUID().equals(view.getTableUUID())),
+            eq(privilege)))
+        .thenReturn(true);
   }
 
   /** Reads and rejected requests must not consult OPA through any overload. */
@@ -360,16 +403,38 @@ class ViewsManagedAuthMatrixTokenAndMethodSecurityTest extends ViewsManagedAuthM
     assertCreateTableDatabaseAuthorization();
     clearInvocations(opaHandler);
 
+    // A database allowance never authorizes replacing or dropping the view object.
+    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
+    doReturn(Optional.of(viewRow())).when(houseTableRepository).findEntityById(viewKey());
+    mvc.perform(withToken(replaceView())).andExpect(status().isForbidden());
+    assertViewObjectAuthorization(Privileges.UPDATE_TABLE_METADATA);
+    clearInvocations(opaHandler);
+
     mvc.perform(withToken(deleteView())).andExpect(status().isForbidden());
-    assertDatabaseAuthorization(Privileges.DELETE_TABLE);
-    verify(houseTableRepository, never()).findViewById(viewKey());
+    assertViewObjectAuthorization(Privileges.DELETE_TABLE);
     assertNoWriteEffects();
   }
 
   @Test
-  void authenticatedWritesUseMappedDatabasePrivilegesForPutCreateReplaceAndDelete()
-      throws Exception {
-    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), any())).thenReturn(true);
+  void viewObjectAuthorizationOutageIsASafe503WithoutMutation() throws Exception {
+    when(opaHandler.checkAccessDecision(any(), any(TableDto.class), any()))
+        .thenThrow(new RuntimeException("opa unavailable"));
+    doReturn(Optional.of(viewRow())).when(houseTableRepository).findEntityById(viewKey());
+
+    mvc.perform(withToken(replaceView())).andExpect(status().isServiceUnavailable());
+    mvc.perform(withToken(deleteView())).andExpect(status().isServiceUnavailable());
+
+    verify(opaHandler, times(2)).checkAccessDecision(any(), any(TableDto.class), any());
+    assertNoWriteEffects();
+  }
+
+  @Test
+  void authenticatedWritesCreateOnTheDatabaseAndReplaceAndDeleteOnTheViewObject() throws Exception {
+    // The database grants only creation; replace and drop are granted on the view object only.
+    when(opaHandler.checkAccessDecision(any(), any(DatabaseDto.class), eq(Privileges.CREATE_TABLE)))
+        .thenReturn(true);
+    allowViewObject(Privileges.UPDATE_TABLE_METADATA);
+    allowViewObject(Privileges.DELETE_TABLE);
 
     mvc.perform(
             withToken(
@@ -383,14 +448,8 @@ class ViewsManagedAuthMatrixTokenAndMethodSecurityTest extends ViewsManagedAuthM
 
     HouseTable captured = viewRow();
     doReturn(Optional.of(captured)).when(houseTableRepository).findEntityById(viewKey());
-    mvc.perform(
-            withToken(
-                MockMvcRequestBuilders.put(VIEW_PATH)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(ViewModelConstants.fullyPopulatedRequest().toJson())
-                    .accept(MediaType.APPLICATION_JSON)))
-        .andExpect(status().isOk());
-    assertDatabaseAuthorization(Privileges.UPDATE_TABLE_METADATA);
+    mvc.perform(withToken(replaceView())).andExpect(status().isOk());
+    assertViewObjectAuthorization(Privileges.UPDATE_TABLE_METADATA);
     ArgumentCaptor<ViewCommitIntent> committed = ArgumentCaptor.forClass(ViewCommitIntent.class);
     verify(viewCommitEngine, times(2)).commit(committed.capture());
     assertEquals(Boolean.TRUE, committed.getAllValues().get(0).getIsCreate());
@@ -400,7 +459,7 @@ class ViewsManagedAuthMatrixTokenAndMethodSecurityTest extends ViewsManagedAuthM
     clearInvocations(opaHandler);
 
     mvc.perform(withToken(deleteView())).andExpect(status().isNoContent());
-    assertDatabaseAuthorization(Privileges.DELETE_TABLE);
+    assertViewObjectAuthorization(Privileges.DELETE_TABLE);
     verify(houseTableRepository).deleteViewById(viewKey());
   }
 }
