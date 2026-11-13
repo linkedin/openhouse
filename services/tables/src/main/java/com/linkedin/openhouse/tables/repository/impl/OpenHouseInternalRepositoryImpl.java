@@ -41,8 +41,8 @@ import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.repository.PreservedKeyChecker;
 import com.linkedin.openhouse.tables.repository.SchemaValidator;
 import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Tags;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -52,7 +52,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import javax.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
@@ -125,8 +124,8 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
 
   @Autowired TableFeatureToggle tableFeatureToggle;
 
-  /** Last live-table count per database; Micrometer gauges reference their values only weakly. */
-  private final Map<String, AtomicLong> databaseTableCounts = new ConcurrentHashMap<>();
+  /** Latest live-table count per database, read by that database's gauge. */
+  private final Map<String, Long> databaseTableCounts = new ConcurrentHashMap<>();
 
   @WithSpan("InternalRepository.save")
   @Timed(metricKey = MetricsConstant.REPO_TABLE_SAVE_TIME)
@@ -363,15 +362,13 @@ public class OpenHouseInternalRepositoryImpl implements OpenHouseInternalReposit
     // Only persisted live TABLE rows count; views, soft-deleted rows and uncommitted stages do not.
     long tableCount =
         catalog.listTables(Namespace.of(databaseId), PageRequest.of(0, 1)).getTotalElements();
-    databaseTableCounts
-        .computeIfAbsent(
-            databaseId,
-            db ->
-                meterRegistry.gauge(
-                    MetricsConstant.REPO_TABLE_COUNT_DB_TOTAL_COUNT,
-                    Tags.of(MetricsConstant.DATABASE_TAG, db),
-                    new AtomicLong()))
-        .set(tableCount);
+    databaseTableCounts.put(databaseId, tableCount);
+    // Registers this database's gauge once; later calls return the existing gauge.
+    Gauge.builder(
+            MetricsConstant.REPO_TABLE_COUNT_DB_TOTAL_COUNT,
+            () -> databaseTableCounts.get(databaseId))
+        .tag(MetricsConstant.DATABASE_TAG, databaseId)
+        .register(meterRegistry);
     if (tableCount < limit) {
       return;
     }
