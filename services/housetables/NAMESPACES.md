@@ -34,34 +34,3 @@ A lost response does not establish whether a mutation committed. Read the metada
 reconcile its identity and properties with the intended change before retrying. In particular,
 a repeated create can encounter an existing record and a repeated delete can encounter an
 absent record after the original request succeeded.
-
-## Local MySQL validation
-
-Before deployment, use the local tests to verify exact property strings, retained name spelling,
-UUID stability, sparse updates, concurrent conflicts, rollback, and table independence.
-
-Current-schema MySQL plans use `uq_namespace_name` for case-insensitive name reads and `PRIMARY`
-for UUID reads and versioned updates/deletes. The read plans return one row.
-Write plans were checked with `EXPLAIN` only; those statements were not executed.
-
-Use an isolated MySQL 8.0 schema containing synthetic data only. Apply the
-[baseline DDL](https://github.com/linkedin/openhouse/blob/mkuchenbecker/database-properties-hts/services/housetables/ddl/0000__baseline.sql),
-[entity-type DDL](https://github.com/linkedin/openhouse/blob/mkuchenbecker/database-properties-hts/services/housetables/ddl/0001__add_entity_type_to_user_table_row.sql), and
-[namespace DDL](https://github.com/linkedin/openhouse/blob/mkuchenbecker/database-properties-hts/services/housetables/ddl/0002__add_namespace_metadata.sql)
-to a new schema before running the validation task. The task disables automatic schema creation and
-Spring SQL initialization. The namespace DDL describes this undeployed feature's initial schema,
-not a migration for an existing deployment.
-
-```bash
-./gradlew :services:housetables:namespaceMysqlTest \
-  -PnamespaceMysqlUrl='jdbc:mysql://127.0.0.1:33316/revision_document_service?useSSL=false&allowPublicKeyRetrieval=true' \
-  -x CopyGitHooksTask
-```
-
-The task uses a local root account with an empty password and cleans its test records.
-It is unsuitable for shared environments.
-
-These checks establish local correctness and query access paths. They do not measure production
-capacity. A sparse update rewrites the property document, so storage work grows with the map size.
-The separately available workload tasks are optional performance investigations, not prerequisites
-for using namespace defaults.
