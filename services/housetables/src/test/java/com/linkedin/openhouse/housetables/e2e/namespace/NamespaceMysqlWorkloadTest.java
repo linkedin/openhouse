@@ -2,7 +2,6 @@ package com.linkedin.openhouse.housetables.e2e.namespace;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.services.NamespacesService;
@@ -187,11 +186,8 @@ class NamespaceMysqlWorkloadTest {
                               try {
                                 operation.call();
                                 successes.incrementAndGet();
-                              } catch (NamespaceException exception) {
-                                assertThat(exception.getCause())
-                                    .isInstanceOfAny(
-                                        OptimisticLockException.class,
-                                        OptimisticLockingFailureException.class);
+                              } catch (OptimisticLockException
+                                  | OptimisticLockingFailureException exception) {
                                 conflicts.incrementAndGet();
                               } finally {
                                 durations.add(System.nanoTime() - started);

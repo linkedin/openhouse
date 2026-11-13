@@ -2,7 +2,10 @@ package com.linkedin.openhouse.tables.controller;
 
 import static com.linkedin.openhouse.common.security.AuthenticationUtils.extractAuthenticatedUserPrincipal;
 
-import com.linkedin.openhouse.common.exception.checked.NamespaceException;
+import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
+import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
+import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
+import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
 import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
 import com.linkedin.openhouse.tables.api.spec.namespace.CreateNamespaceRequest;
@@ -11,6 +14,8 @@ import com.linkedin.openhouse.tables.api.spec.namespace.NamespaceResponse;
 import com.linkedin.openhouse.tables.api.spec.namespace.UpdateNamespacePropertiesRequest;
 import com.linkedin.openhouse.tables.api.spec.namespace.UpdateNamespacePropertiesResponse;
 import com.linkedin.openhouse.tables.authorization.Privileges;
+import com.linkedin.openhouse.tables.exception.NotEmptyException;
+import com.linkedin.openhouse.tables.exception.PermissionDeniedException;
 import com.linkedin.openhouse.tables.services.NamespacesService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -75,7 +80,7 @@ public class IcebergNamespacesController {
   @Secured(Privileges.Privilege.SYSTEM_ADMIN)
   public NamespaceResponse createNamespace(
       @PathVariable String prefix, @Valid @RequestBody CreateNamespaceRequest request)
-      throws NamespaceException {
+      throws InvalidRequestException, PermissionDeniedException, DuplicateCreationException {
     NamespaceMetadata result =
         namespacesService.createNamespace(
             request.getNamespace(), request.getProperties(), extractAuthenticatedUserPrincipal());
@@ -88,7 +93,8 @@ public class IcebergNamespacesController {
   @GetMapping("/{namespace}")
   @Secured(Privileges.Privilege.GET_TABLE_METADATA)
   public NamespaceResponse loadNamespaceMetadata(
-      @PathVariable String prefix, @PathVariable String namespace) throws NamespaceException {
+      @PathVariable String prefix, @PathVariable String namespace)
+      throws InvalidRequestException, PermissionDeniedException, NotFoundException {
     NamespaceMetadata result =
         namespacesService.loadNamespaceMetadata(namespace, extractAuthenticatedUserPrincipal());
     return new NamespaceResponse(
@@ -103,7 +109,8 @@ public class IcebergNamespacesController {
       @PathVariable String prefix,
       @PathVariable String namespace,
       @Valid @RequestBody UpdateNamespacePropertiesRequest request)
-      throws NamespaceException {
+      throws InvalidRequestException, PermissionDeniedException, NotFoundException,
+          InvalidPropertyUpdateException {
     NamespacePropertyUpdate result =
         namespacesService.updateNamespaceProperties(
             namespace,
@@ -123,7 +130,9 @@ public class IcebergNamespacesController {
   @DeleteMapping("/{namespace}")
   @Secured(Privileges.Privilege.SYSTEM_ADMIN)
   public ResponseEntity<Void> dropNamespace(
-      @PathVariable String prefix, @PathVariable String namespace) throws NamespaceException {
+      @PathVariable String prefix, @PathVariable String namespace)
+      throws InvalidRequestException, PermissionDeniedException, NotFoundException,
+          NotEmptyException {
     namespacesService.dropNamespace(namespace, extractAuthenticatedUserPrincipal());
     return ResponseEntity.noContent().build();
   }

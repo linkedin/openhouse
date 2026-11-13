@@ -1,9 +1,8 @@
 package com.linkedin.openhouse.tables.exception;
 
-import com.linkedin.openhouse.common.exception.checked.AlreadyExistsException;
+import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
 import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
 import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
-import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.tables.api.spec.namespace.NamespaceErrorResponse;
 import com.linkedin.openhouse.tables.api.spec.namespace.NamespaceErrorResponse.NamespaceError;
@@ -58,7 +57,7 @@ public class NamespaceExceptionHandler {
         HttpStatus.NOT_FOUND, "NoSuchNamespaceException", "Namespace does not exist", request);
   }
 
-  @ExceptionHandler(AlreadyExistsException.class)
+  @ExceptionHandler(DuplicateCreationException.class)
   public ResponseEntity<NamespaceErrorResponse> handleDuplicate(HttpServletRequest request) {
     return respond(
         HttpStatus.CONFLICT, "AlreadyExistsException", "Namespace already exists", request);
@@ -101,11 +100,7 @@ public class NamespaceExceptionHandler {
         HttpStatus.UNAUTHORIZED, "NotAuthorizedException", "Authentication required", request);
   }
 
-  @ExceptionHandler({
-    NamespaceException.class,
-    AuthorizationServiceException.class,
-    RuntimeException.class
-  })
+  @ExceptionHandler({AuthorizationServiceException.class, RuntimeException.class})
   public ResponseEntity<NamespaceErrorResponse> handleNamespaceFailure(HttpServletRequest request) {
     return respond(
         HttpStatus.INTERNAL_SERVER_ERROR, "RESTException", "Namespace operation failed", request);

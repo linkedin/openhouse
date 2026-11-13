@@ -7,7 +7,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.linkedin.openhouse.HouseTablesSpringApplication;
-import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
@@ -200,7 +199,7 @@ class IcebergNamespacesH2Test {
 
   @Test
   void storageFailureIsSanitizedThroughBothHttpAdapters() throws Exception {
-    doThrow(new NamespaceException("internal foo", new IllegalStateException("internal bar")))
+    doThrow(new RuntimeException("internal foo", new IllegalStateException("internal bar")))
         .when(namespaceStorage)
         .createNamespace(eq("foo"), anyMap());
     mvc.perform(

@@ -7,10 +7,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
-import com.linkedin.openhouse.common.exception.checked.AlreadyExistsException;
+import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
 import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
 import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
-import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.housetables.api.handler.NamespacesApiHandler;
 import com.linkedin.openhouse.housetables.api.spec.response.NamespaceMetadataResponse;
@@ -22,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
@@ -37,11 +37,26 @@ class NamespacesControllerFailureTest {
       Exception exception, int expectedStatus, String expectedType, String expectedMessage)
       throws Exception {
     NamespacesApiHandler handler = mock(NamespacesApiHandler.class);
-    when(handler.getNamespace("foo")).thenThrow(exception);
+    if (expectedStatus == 409) {
+      when(handler.createNamespace(any())).thenThrow(exception);
+    } else if (expectedStatus == 422) {
+      when(handler.updateNamespaceProperties(eq("foo"), any())).thenThrow(exception);
+    } else {
+      when(handler.getNamespace("foo")).thenThrow(exception);
+    }
     MockMvcBuilders.standaloneSetup(new NamespacesController(handler))
         .setMessageConverters(new MappingJackson2HttpMessageConverter())
         .build()
-        .perform(get("/hts/namespaces/foo"))
+        .perform(
+            expectedStatus == 409
+                ? post("/hts/namespaces")
+                    .contentType("application/json")
+                    .content("{\"namespaceName\":\"foo\"}")
+                : expectedStatus == 422
+                    ? post("/hts/namespaces/foo/properties")
+                        .contentType("application/json")
+                        .content("{\"updates\":{},\"removals\":[]}")
+                    : get("/hts/namespaces/foo"))
         .andExpect(status().is(expectedStatus))
         .andExpect(jsonPath("$.message").value(expectedMessage))
         .andExpect(jsonPath("$.type").value(expectedType))
@@ -58,7 +73,7 @@ class NamespacesControllerFailureTest {
             "NotFoundException",
             "Namespace metadata does not exist."),
         Arguments.of(
-            new AlreadyExistsException("message", cause),
+            new DuplicateCreationException("message", cause),
             409,
             "AlreadyExistsException",
             "Namespace name already exists."),
@@ -73,7 +88,7 @@ class NamespacesControllerFailureTest {
             "InvalidPropertyUpdateException",
             "Property updates and removals must have disjoint keys."),
         Arguments.of(
-            new NamespaceException("message", cause),
+            new DataAccessResourceFailureException("message", cause),
             500,
             "NamespaceException",
             "Namespace metadata operation failed."),

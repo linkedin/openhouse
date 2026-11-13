@@ -6,7 +6,6 @@ import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
 import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
-import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
 import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
@@ -182,20 +181,22 @@ class TablesServiceNamespaceTest {
   @Test
   void metadataOutagePreventsDropAndOccupancyLookup() throws Exception {
     when(repository.getByName("foo"))
-        .thenThrow(new NamespaceException("Namespace metadata service unavailable"));
-    assertThrows(NamespaceException.class, () -> service.dropNamespace("foo", "bar"));
+        .thenThrow(new RuntimeException("Namespace metadata service unavailable"));
+    assertThrows(RuntimeException.class, () -> service.dropNamespace("foo", "bar"));
     verify(repository, never()).containsEntities(anyString());
     verify(repository, never()).delete(anyString());
   }
 
   @Test
   void authorizationOutagePreventsMetadataLoadAndPreservesCause() throws Exception {
+    AuthorizationServiceException failure = new AuthorizationServiceException("secret");
     when(authorizationHandler.checkAccessDecision(anyString(), any(DatabaseDto.class), any()))
-        .thenThrow(new AuthorizationServiceException("secret"));
-    NamespaceException exception =
-        assertThrows(NamespaceException.class, () -> service.loadNamespaceMetadata("foo", "bar"));
-    assertFalse(exception.getMessage().contains("secret"));
-    assertInstanceOf(AuthorizationServiceException.class, exception.getCause());
+        .thenThrow(failure);
+    assertSame(
+        failure,
+        assertThrows(
+            AuthorizationServiceException.class,
+            () -> service.loadNamespaceMetadata("foo", "bar")));
     verify(repository, never()).getByName(anyString());
   }
 
@@ -204,8 +205,8 @@ class TablesServiceNamespaceTest {
     when(repository.getByName("foo"))
         .thenReturn(new NamespaceMetadata("identifier", "foo", Collections.emptyMap()));
     when(repository.containsEntities("foo"))
-        .thenThrow(new NamespaceException("Namespace metadata service unavailable"));
-    assertThrows(NamespaceException.class, () -> service.dropNamespace("foo", "bar"));
+        .thenThrow(new RuntimeException("Namespace metadata service unavailable"));
+    assertThrows(RuntimeException.class, () -> service.dropNamespace("foo", "bar"));
     verify(repository, never()).delete(anyString());
   }
 
@@ -232,11 +233,11 @@ class TablesServiceNamespaceTest {
   void requiredListingFailurePreservesNamespaceAndCause() throws Exception {
     NamespaceMetadata metadata = new NamespaceMetadata("identifier", "foo", Collections.emptyMap());
     when(repository.getByName("foo")).thenReturn(metadata);
-    NamespaceException failure =
-        new NamespaceException("Required listing failed", new IllegalStateException("foo"));
+    RuntimeException failure =
+        new RuntimeException("Required listing failed", new IllegalStateException("foo"));
     when(repository.containsEntities("foo")).thenThrow(failure);
     assertSame(
-        failure, assertThrows(NamespaceException.class, () -> service.dropNamespace("foo", "bar")));
+        failure, assertThrows(RuntimeException.class, () -> service.dropNamespace("foo", "bar")));
     assertSame(metadata, repository.getByName("foo"));
     verify(repository, never()).delete(anyString());
   }

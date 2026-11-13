@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
-import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.model.CreateNamespaceRequestBody;
@@ -45,7 +44,7 @@ class NamespaceApiTransportTest {
   void configuredReadRejectsNumericPropertyValues() throws Exception {
     withResponse(
         "{\"namespaceUuid\":\"foo\",\"namespaceName\":\"foo\",\"properties\":{\"a\":1}}",
-        repository -> assertThrows(NamespaceException.class, () -> repository.getByName("foo")));
+        repository -> assertThrows(RuntimeException.class, () -> repository.getByName("foo")));
   }
 
   @Test
@@ -66,7 +65,7 @@ class NamespaceApiTransportTest {
         "{\"updated\":[1],\"removed\":[],\"missing\":[]}",
         repository ->
             assertThrows(
-                NamespaceException.class,
+                RuntimeException.class,
                 () ->
                     repository.updateProperties(
                         "foo", Collections.emptyMap(), Collections.emptySet())));
