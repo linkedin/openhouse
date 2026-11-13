@@ -3,8 +3,6 @@ package com.linkedin.openhouse.javaclient;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.linkedin.openhouse.javaclient.exception.CatalogOperationException;
-import com.linkedin.openhouse.javaclient.exception.MutationUncertainException;
-import com.linkedin.openhouse.javaclient.exception.UnavailableException;
 import com.linkedin.openhouse.relocated.org.springframework.http.ResponseEntity;
 import com.linkedin.openhouse.relocated.reactor.core.publisher.Mono;
 import java.util.concurrent.CancellationException;
@@ -14,16 +12,16 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import org.apache.iceberg.exceptions.CommitStateUnknownException;
+import org.apache.iceberg.exceptions.RESTException;
 import org.junit.jupiter.api.Test;
 
 class NamespaceCancellationTest {
   @Test
-  void cancelledMutationPreservesCheckedUncertaintyAndCause() {
+  void cancelledMutationPreservesCheckedFailureAndCause() {
     CancellationException cause = new CancellationException("foo");
-    MutationUncertainException failure =
+    CatalogOperationException failure =
         assertThrows(
-            MutationUncertainException.class,
+            CatalogOperationException.class,
             () ->
                 NamespaceMetadataClient.request(
                     Mono.error(cause), 200, 30, NamespaceMetadataClient.Operation.UPDATE));
@@ -44,26 +42,25 @@ class NamespaceCancellationTest {
             () ->
                 NamespaceMetadataClient.request(
                     pending, 200, 0, NamespaceMetadataClient.Operation.LOAD));
-    assertInstanceOf(UnavailableException.class, failure);
     assertInstanceOf(TimeoutException.class, failure.getCause());
     assertEquals(1, subscriptions.get());
     assertTrue(cancelled.get());
   }
 
   @Test
-  void mutationTimeoutCancelsWithUnknownCommitState() {
+  void mutationTimeoutCancelsRequestAndPreservesCause() {
     AtomicBoolean cancelled = new AtomicBoolean();
     Mono<ResponseEntity<Void>> pending =
         Mono.<ResponseEntity<Void>>never().doOnCancel(() -> cancelled.set(true));
-    CommitStateUnknownException failure =
+    RESTException failure =
         assertThrows(
-            CommitStateUnknownException.class,
+            RESTException.class,
             () ->
                 NamespaceCatalogAdapter.execute(
                     () ->
                         NamespaceMetadataClient.request(
                             pending, 200, 0, NamespaceMetadataClient.Operation.UPDATE)));
-    assertInstanceOf(MutationUncertainException.class, failure.getCause());
+    assertInstanceOf(CatalogOperationException.class, failure.getCause());
     assertInstanceOf(TimeoutException.class, failure.getCause().getCause());
     assertTrue(cancelled.get());
   }
@@ -101,7 +98,6 @@ class NamespaceCancellationTest {
       worker.join(10000);
       assertFalse(worker.isAlive());
       assertNotNull(failure.get());
-      assertInstanceOf(MutationUncertainException.class, failure.get());
       assertInstanceOf(InterruptedException.class, failure.get().getCause());
       assertTrue(interrupted.get());
       assertTrue(cancelled.get());

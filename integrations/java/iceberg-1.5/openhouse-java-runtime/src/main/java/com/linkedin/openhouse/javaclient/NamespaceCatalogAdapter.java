@@ -4,14 +4,10 @@ import com.linkedin.openhouse.javaclient.exception.AuthenticationRequiredExcepti
 import com.linkedin.openhouse.javaclient.exception.CatalogOperationException;
 import com.linkedin.openhouse.javaclient.exception.DuplicateCreationException;
 import com.linkedin.openhouse.javaclient.exception.InvalidRequestException;
-import com.linkedin.openhouse.javaclient.exception.MutationUncertainException;
 import com.linkedin.openhouse.javaclient.exception.NotEmptyException;
 import com.linkedin.openhouse.javaclient.exception.NotFoundException;
 import com.linkedin.openhouse.javaclient.exception.PermissionDeniedException;
-import com.linkedin.openhouse.javaclient.exception.VersionConflictException;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
-import org.apache.iceberg.exceptions.CommitFailedException;
-import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.ForbiddenException;
 import org.apache.iceberg.exceptions.NamespaceNotEmptyException;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
@@ -43,10 +39,6 @@ final class NamespaceCatalogAdapter {
       throw new AlreadyExistsException(failure, "Namespace already exists");
     } catch (NotEmptyException failure) {
       throw new NamespaceNotEmptyException(failure, "Namespace contains tables or views");
-    } catch (VersionConflictException failure) {
-      throw new CommitFailedException(failure, "Namespace metadata changed concurrently");
-    } catch (MutationUncertainException failure) {
-      throw new CommitStateUnknownException(failure);
     } catch (CatalogOperationException failure) {
       throw new RESTException(failure, "Namespace request failed");
     }

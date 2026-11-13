@@ -1,12 +1,12 @@
 package com.linkedin.openhouse.javaclient.exception;
 
-/** Checked semantic failure of a catalog operation, independent of its transport. */
-public abstract class CatalogOperationException extends Exception {
-  protected CatalogOperationException(String message) {
+/** Checked catalog failure. A failed write may have changed the stored metadata. */
+public class CatalogOperationException extends Exception {
+  public CatalogOperationException(String message) {
     super(message);
   }
 
-  protected CatalogOperationException(String message, Throwable cause) {
+  public CatalogOperationException(String message, Throwable cause) {
     super(message, cause);
   }
 }

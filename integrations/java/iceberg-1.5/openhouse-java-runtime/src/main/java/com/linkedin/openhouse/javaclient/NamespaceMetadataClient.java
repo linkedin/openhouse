@@ -6,13 +6,9 @@ import com.linkedin.openhouse.javaclient.exception.AuthenticationRequiredExcepti
 import com.linkedin.openhouse.javaclient.exception.CatalogOperationException;
 import com.linkedin.openhouse.javaclient.exception.DuplicateCreationException;
 import com.linkedin.openhouse.javaclient.exception.InvalidRequestException;
-import com.linkedin.openhouse.javaclient.exception.MutationUncertainException;
 import com.linkedin.openhouse.javaclient.exception.NotEmptyException;
 import com.linkedin.openhouse.javaclient.exception.NotFoundException;
-import com.linkedin.openhouse.javaclient.exception.OperationFailedException;
 import com.linkedin.openhouse.javaclient.exception.PermissionDeniedException;
-import com.linkedin.openhouse.javaclient.exception.UnavailableException;
-import com.linkedin.openhouse.javaclient.exception.VersionConflictException;
 import com.linkedin.openhouse.tables.client.api.NamespaceApi;
 import com.linkedin.openhouse.tables.client.invoker.ApiClient;
 import com.linkedin.openhouse.tables.client.model.CreateNamespaceRequest;
@@ -38,7 +34,6 @@ import java.util.stream.Stream;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
@@ -73,7 +68,7 @@ final class NamespaceMetadataClient {
             200,
             60,
             Operation.CREATE);
-    return metadata(response, namespace, Operation.CREATE);
+    return metadata(response, namespace);
   }
 
   Map<String, String> load(Namespace namespace) throws CatalogOperationException {
@@ -84,8 +79,7 @@ final class NamespaceMetadataClient {
             200,
             30,
             Operation.LOAD),
-        namespace,
-        Operation.LOAD);
+        namespace);
   }
 
   boolean drop(Namespace namespace) throws CatalogOperationException {
@@ -120,7 +114,7 @@ final class NamespaceMetadataClient {
             Operation.UPDATE);
     UpdateNamespacePropertiesResponse requiredResponse =
         Optional.ofNullable(response.getBody())
-            .orElseThrow(() -> new MutationUncertainException("Empty namespace update response"));
+            .orElseThrow(() -> new CatalogOperationException("Empty namespace update response"));
     List<String> updated = requiredResponse.getUpdated();
     List<String> removed = requiredResponse.getRemoved();
     List<String> missing =
@@ -131,7 +125,7 @@ final class NamespaceMetadataClient {
         || updated.size() != updates.size()
         || !removals.containsAll(accountedRemovals)
         || removed.size() + missing.size() != accountedRemovals.size()) {
-      throw new MutationUncertainException("Namespace update response disagrees with request");
+      throw new CatalogOperationException("Namespace update response disagrees with request");
     }
     return !updated.isEmpty() || !removed.isEmpty();
   }
@@ -161,7 +155,7 @@ final class NamespaceMetadataClient {
     }
     Map<String, String> tableProperties =
         Optional.ofNullable(table.properties())
-            .orElseThrow(() -> new OperationFailedException("Missing table properties"));
+            .orElseThrow(() -> new CatalogOperationException("Missing table properties"));
     validateProperties(tableProperties);
     effective.putAll(tableProperties);
     return Collections.unmodifiableMap(effective);
@@ -188,20 +182,14 @@ final class NamespaceMetadataClient {
   }
 
   private static Map<String, String> metadata(
-      ResponseEntity<NamespaceResponse> response, Namespace namespace, Operation operation)
+      ResponseEntity<NamespaceResponse> response, Namespace namespace)
       throws CatalogOperationException {
     NamespaceResponse requiredResponse =
         Optional.ofNullable(response.getBody())
-            .orElseThrow(
-                () ->
-                    operation == Operation.LOAD
-                        ? new OperationFailedException("Empty namespace response")
-                        : new MutationUncertainException("Empty namespace response"));
+            .orElseThrow(() -> new CatalogOperationException("Empty namespace response"));
     if (requiredResponse.getNamespace().size() != 1
         || !namespace.level(0).equalsIgnoreCase(requiredResponse.getNamespace().get(0))) {
-      throw operation == Operation.LOAD
-          ? new OperationFailedException("Namespace response identifies a different namespace")
-          : new MutationUncertainException("Namespace response identifies a different namespace");
+      throw new CatalogOperationException("Namespace response identifies a different namespace");
     }
     Map<String, String> responseProperties =
         Optional.ofNullable(requiredResponse.getProperties()).orElseGet(Collections::emptyMap);
@@ -218,28 +206,18 @@ final class NamespaceMetadataClient {
     try {
       ResponseEntity<T> response =
           Optional.ofNullable(pending.get(timeoutSeconds, TimeUnit.SECONDS))
-              .orElseThrow(
-                  () ->
-                      operation == Operation.LOAD
-                          ? new OperationFailedException("Empty namespace response")
-                          : new MutationUncertainException("Empty namespace response"));
+              .orElseThrow(() -> new CatalogOperationException("Empty namespace response"));
       if (response.getStatusCodeValue() != expectedStatus) {
-        throw operation == Operation.LOAD
-            ? new OperationFailedException("Unexpected namespace response status")
-            : new MutationUncertainException("Unexpected namespace response status");
+        throw new CatalogOperationException("Unexpected namespace response status");
       }
       return response;
     } catch (InterruptedException failure) {
       pending.cancel(true);
       Thread.currentThread().interrupt();
-      throw operation == Operation.LOAD
-          ? new UnavailableException(failure)
-          : new MutationUncertainException(failure);
+      throw new CatalogOperationException("Namespace operation failed", failure);
     } catch (TimeoutException | CancellationException failure) {
       pending.cancel(true);
-      throw operation == Operation.LOAD
-          ? new UnavailableException(failure)
-          : new MutationUncertainException(failure);
+      throw new CatalogOperationException("Namespace operation failed", failure);
     } catch (ExecutionException failure) {
       Throwable cause = failure.getCause();
       int statusCode =
@@ -248,7 +226,7 @@ final class NamespaceMetadataClient {
               ? ((WebClientResponseException) cause).getRawStatusCode()
               : 0;
       Optional<String> errorType = Optional.empty();
-      if (cause instanceof WebClientResponseException) {
+      if (cause instanceof WebClientResponseException && statusCode >= 400 && statusCode < 500) {
         try {
           errorType =
               Optional.ofNullable(
@@ -295,28 +273,7 @@ final class NamespaceMetadataClient {
           && errorType.filter("AlreadyExistsException"::equals).isPresent()) {
         throw new DuplicateCreationException(cause);
       }
-      if (statusCode == 409 && errorType.filter("CommitFailedException"::equals).isPresent()) {
-        throw new VersionConflictException(cause);
-      }
-      if (statusCode == 500 && errorType.filter("ServiceFailureException"::equals).isPresent()) {
-        throw new OperationFailedException(cause);
-      }
-      if (statusCode == 503
-          && errorType.filter("ServiceUnavailableException"::equals).isPresent()) {
-        throw new UnavailableException(cause);
-      }
-      if (operation != Operation.LOAD) {
-        throw new MutationUncertainException(cause);
-      }
-      if (cause instanceof WebClientRequestException
-          || cause instanceof TimeoutException
-          || cause instanceof CancellationException
-          || statusCode == 502
-          || statusCode == 503
-          || statusCode == 504) {
-        throw new UnavailableException(cause);
-      }
-      throw new OperationFailedException(cause);
+      throw new CatalogOperationException("Namespace operation failed", cause);
     }
   }
 }

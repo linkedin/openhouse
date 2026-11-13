@@ -52,10 +52,10 @@ namespace.
 
 ## Recovering from errors
 
-The effective-property method declares concrete checked failures under
-`CatalogOperationException`. Iceberg namespace methods expose the corresponding Iceberg runtime
-exceptions. Both APIs preserve the cause while distinguishing missing metadata, access failures,
-concurrent edits, and uncertain mutations.
+The effective-property method declares `CatalogOperationException`. Supported request rejections,
+such as missing metadata and access denial, have specialized checked types. Other failures use
+the checked base directly. Iceberg namespace methods adapt those rejections to the corresponding
+Iceberg exceptions and other failures to `RESTException`. Both APIs preserve their local cause.
 
 Use `loadNamespaceMetadata` to retrieve namespace properties independently of any table.
 A missing namespace fails that lookup. The effective-property helper supplies empty defaults
@@ -63,22 +63,15 @@ only for a verified missing namespace.
 
 A status alone does not establish absence or rejection. The client validates the Iceberg error
 envelope, its code, its type, and the requested operation. Empty, HTML, mismatched, and
-unrecognized 404 responses fail retrieval and leave deletion uncertain. A confirmed service
-failure is distinct from an uncertain mutation even though both use HTTP 500.
+unrecognized 404 responses fail retrieval and deletion.
 
 Correct invalid identifiers or property values before trying again. Reauthenticate after an
 authentication rejection, and obtain the required privilege after an access rejection. An existing
 namespace cannot be replaced by create; load it and decide whether an explicit property update
-is appropriate. After a concurrent edit, reload properties before reapplying your intended change.
-Automatic conflict retries are not performed.
+is appropriate.
 
 The service returns `400/NamespaceNotEmptyException` for a nonempty drop. This catalog also
 accepts the recognized legacy `409/NamespaceNotEmptyException` response, only for drop.
-Confirmed version conflicts use `409/CommitFailedException` as an OpenHouse extension, not a
-requirement of the [Iceberg 1.5.2 REST specification](https://github.com/apache/iceberg/blob/apache-iceberg-1.5.2/open-api/rest-catalog-open-api.yaml).
-The stock Iceberg 1.5 REST client does not preserve these distinctions: its namespace handler
-maps 400 to `BadRequestException` and 409 to `AlreadyExistsException`. Use the OpenHouse catalog
-to receive the operation-specific outcomes described here.
 
 Deploy the HouseTables namespace semantic-error contract before the Tables Service and this
 client. Older error bodies without a semantic type cannot establish reliable absence or
@@ -86,16 +79,16 @@ rejection. Required internal listing failures and service credential or generate
 rejections are service failures, rather than missing caller namespaces or caller authorization
 errors.
 
-`CommitStateUnknownException` means a mutation may have completed. It includes local write
-timeouts, interrupted writes, lost connections, and unusable success responses, as well as an
-uncertain outcome reported by the service. Read the metadata and reconcile the observed values
-with the intended operation before retrying. Replaying a write without reconciling can overwrite
-someone else's later update. A read timeout instead reports unavailable metadata and does not
-claim a commit occurred.
+Every generic write failure may have changed stored metadata. Read current metadata and
+reconcile its identity and properties with the intended operation before submitting another
+write. This applies to stale-write rejection, timeouts, interrupted writes, lost connections,
+and unusable success responses. Replaying a write without reconciling can overwrite someone
+else's later update.
 
 Reads have a 30-second budget; mutations have a 60-second budget. Interruption cancels the pending
-request and restores the thread's interrupted status. The adapter does not replay uncertain
-mutations. Applications and external REST clients control their own retry policies.
+request and restores the thread's interrupted status. Exception handling does not retry
+requests. The existing HTTP connector configuration remains unchanged; applications and
+external REST clients control their own retry policies.
 
 `namespaceExists` remains explicitly unsupported. `listNamespaces()` retains the legacy
 table-derived endpoint, so an empty newly created namespace can be absent from that listing.
