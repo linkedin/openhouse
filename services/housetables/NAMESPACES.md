@@ -16,9 +16,8 @@ create with another spelling fails without replacing the existing record.
 
 Updates set the supplied keys and remove the requested keys while retaining all other
 properties. Property names are case-sensitive. A namespace keeps its UUID across updates;
-dropping and recreating it creates a new UUID. Concurrent edits can conflict, including
-an empty update. After a conflict, read the current properties and decide whether the intended
-edit still applies before submitting it again.
+dropping and recreating it creates a new UUID. Version checks reject stale concurrent edits,
+including an empty update.
 
 Create, update, and removal keys must contain well-formed Unicode and at most 512 UTF-16 code
 units. Empty keys, spaces, accents, case differences, and supplementary characters round-trip.
@@ -30,7 +29,7 @@ drop while a table or view occupies the namespace. Table creation and metadata d
 independent, so a concurrent table create can succeed even when a namespace drop succeeds.
 A namespace record is not a mandatory parent of a table.
 
-A lost response does not establish whether a mutation committed. Read the metadata and
-reconcile its identity and properties with the intended change before retrying. In particular,
+A failed write does not establish whether a mutation committed. Read the metadata and
+reconcile its identity and properties with the intended change before submitting another write. In particular,
 a repeated create can encounter an existing record and a repeated delete can encounter an
 absent record after the original request succeeded.

@@ -1,16 +1,10 @@
 package com.linkedin.openhouse.tables.exception;
 
 import com.linkedin.openhouse.common.exception.checked.AlreadyExistsException;
-import com.linkedin.openhouse.common.exception.checked.AuthenticationRequiredException;
 import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
 import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
-import com.linkedin.openhouse.common.exception.checked.MutationUncertainException;
-import com.linkedin.openhouse.common.exception.checked.NotEmptyException;
+import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
-import com.linkedin.openhouse.common.exception.checked.PermissionDeniedException;
-import com.linkedin.openhouse.common.exception.checked.ServiceFailureException;
-import com.linkedin.openhouse.common.exception.checked.UnavailableException;
-import com.linkedin.openhouse.common.exception.checked.VersionConflictException;
 import com.linkedin.openhouse.tables.api.spec.namespace.NamespaceErrorResponse;
 import com.linkedin.openhouse.tables.api.spec.namespace.NamespaceErrorResponse.NamespaceError;
 import com.linkedin.openhouse.tables.controller.IcebergNamespacesController;
@@ -70,43 +64,6 @@ public class NamespaceExceptionHandler {
         HttpStatus.CONFLICT, "AlreadyExistsException", "Namespace already exists", request);
   }
 
-  @ExceptionHandler(VersionConflictException.class)
-  public ResponseEntity<NamespaceErrorResponse> handleConcurrentChange(HttpServletRequest request) {
-    return respond(
-        HttpStatus.CONFLICT,
-        "CommitFailedException",
-        "Namespace was modified concurrently",
-        request);
-  }
-
-  @ExceptionHandler(MutationUncertainException.class)
-  public ResponseEntity<NamespaceErrorResponse> handleUncertainMutation(
-      HttpServletRequest request) {
-    return respond(
-        HttpStatus.INTERNAL_SERVER_ERROR,
-        "CommitStateUnknownException",
-        "The mutation outcome is unknown. Reload namespace metadata and reconcile before retrying.",
-        request);
-  }
-
-  @ExceptionHandler(UnavailableException.class)
-  public ResponseEntity<NamespaceErrorResponse> handleUnavailable(HttpServletRequest request) {
-    return respond(
-        HttpStatus.SERVICE_UNAVAILABLE,
-        "ServiceUnavailableException",
-        "Namespace metadata service unavailable",
-        request);
-  }
-
-  @ExceptionHandler(ServiceFailureException.class)
-  public ResponseEntity<NamespaceErrorResponse> handleDomainFailure(HttpServletRequest request) {
-    return respond(
-        HttpStatus.INTERNAL_SERVER_ERROR,
-        "ServiceFailureException",
-        "Namespace metadata operation failed",
-        request);
-  }
-
   @ExceptionHandler(MethodArgumentNotValidException.class)
   public ResponseEntity<NamespaceErrorResponse> handleInvalidFields(
       MethodArgumentNotValidException exception, HttpServletRequest request) {
@@ -133,38 +90,25 @@ public class NamespaceExceptionHandler {
         HttpStatus.BAD_REQUEST, "BadRequestException", "Invalid namespace request", request);
   }
 
-  @ExceptionHandler(AuthorizationServiceException.class)
-  public ResponseEntity<NamespaceErrorResponse> handleAuthorizationService(
-      HttpServletRequest request) {
-    return respond(
-        HttpStatus.SERVICE_UNAVAILABLE,
-        "ServiceUnavailableException",
-        "Authorization service unavailable",
-        request);
-  }
-
   @ExceptionHandler({AccessDeniedException.class, PermissionDeniedException.class})
   public ResponseEntity<NamespaceErrorResponse> handleForbidden(HttpServletRequest request) {
     return respond(HttpStatus.FORBIDDEN, "ForbiddenException", "Access denied", request);
   }
 
-  @ExceptionHandler({AuthenticationException.class, AuthenticationRequiredException.class})
+  @ExceptionHandler(AuthenticationException.class)
   public ResponseEntity<NamespaceErrorResponse> handleUnauthenticated(HttpServletRequest request) {
     return respond(
         HttpStatus.UNAUTHORIZED, "NotAuthorizedException", "Authentication required", request);
   }
 
-  @ExceptionHandler(RuntimeException.class)
-  public ResponseEntity<NamespaceErrorResponse> handleUnexpectedFailure(
-      HttpServletRequest request) {
-    if (!"GET".equals(request.getMethod())) {
-      return handleUncertainMutation(request);
-    }
+  @ExceptionHandler({
+    NamespaceException.class,
+    AuthorizationServiceException.class,
+    RuntimeException.class
+  })
+  public ResponseEntity<NamespaceErrorResponse> handleNamespaceFailure(HttpServletRequest request) {
     return respond(
-        HttpStatus.INTERNAL_SERVER_ERROR,
-        "ServiceFailureException",
-        "Namespace operation failed",
-        request);
+        HttpStatus.INTERNAL_SERVER_ERROR, "RESTException", "Namespace operation failed", request);
   }
 
   private ResponseEntity<NamespaceErrorResponse> respond(

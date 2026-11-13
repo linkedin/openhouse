@@ -3,12 +3,8 @@ package com.linkedin.openhouse.housetables.services;
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.exception.checked.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
-import com.linkedin.openhouse.common.exception.checked.MutationUncertainException;
 import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
-import com.linkedin.openhouse.common.exception.checked.ServiceFailureException;
-import com.linkedin.openhouse.common.exception.checked.UnavailableException;
-import com.linkedin.openhouse.common.exception.checked.VersionConflictException;
 import com.linkedin.openhouse.housetables.config.db.DatabaseConfiguration.SupportedDbTypes;
 import com.linkedin.openhouse.housetables.model.NamespaceMetadata;
 import com.linkedin.openhouse.housetables.model.NamespacePropertyUpdate;
@@ -24,19 +20,16 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import javax.persistence.EntityManager;
 import javax.persistence.LockModeType;
-import javax.persistence.OptimisticLockException;
 import javax.persistence.PersistenceException;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.TransactionSystemException;
-import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
@@ -67,7 +60,7 @@ public class NamespacesServiceImpl implements NamespacesService {
     if (SupportedDbTypes.ICEBERG
         .name()
         .equals(clusterProperties.getClusterHouseTablesDatabaseType())) {
-      throw new UnavailableException("Namespace metadata requires a JDBC HouseTables backend.");
+      throw new NamespaceException("Namespace metadata requires a JDBC HouseTables backend.");
     }
     TransactionStatus transaction = beginMutation();
     NamespaceMetadata result;
@@ -81,11 +74,8 @@ public class NamespacesServiceImpl implements NamespacesService {
               .namespaceName(namespace.getNamespaceName())
               .properties(Collections.unmodifiableMap(new HashMap<>(namespace.getProperties())))
               .build();
-    } catch (OptimisticLockingFailureException | OptimisticLockException exception) {
-      rollbackMutation(transaction, exception);
-      throw new VersionConflictException("Namespace metadata changed concurrently.", exception);
     } catch (DataIntegrityViolationException exception) {
-      rollbackMutation(transaction, exception);
+      rollback(transaction, exception);
       boolean duplicateName =
           Optional.ofNullable(exception.getCause())
               .filter(ConstraintViolationException.class::isInstance)
@@ -96,15 +86,15 @@ public class NamespacesServiceImpl implements NamespacesService {
       if (duplicateName) {
         throw new AlreadyExistsException("Namespace name already exists.", exception);
       }
-      throw new ServiceFailureException("Namespace metadata could not be persisted.", exception);
+      throw new NamespaceException("Namespace metadata could not be persisted.", exception);
     } catch (RuntimeException exception) {
-      rollbackMutation(transaction, exception);
-      throw new ServiceFailureException("Namespace metadata storage failed.", exception);
+      rollback(transaction, exception);
+      throw new NamespaceException("Namespace metadata storage failed.", exception);
     } catch (Error failure) {
-      rollbackMutation(transaction, failure);
+      rollback(transaction, failure);
       throw failure;
     }
-    commitMutation(transaction);
+    commit(transaction);
     return result;
   }
 
@@ -113,7 +103,7 @@ public class NamespacesServiceImpl implements NamespacesService {
     if (SupportedDbTypes.ICEBERG
         .name()
         .equals(clusterProperties.getClusterHouseTablesDatabaseType())) {
-      throw new UnavailableException("Namespace metadata requires a JDBC HouseTables backend.");
+      throw new NamespaceException("Namespace metadata requires a JDBC HouseTables backend.");
     }
     try {
       return transactions
@@ -131,11 +121,8 @@ public class NamespacesServiceImpl implements NamespacesService {
                                           new HashMap<>(namespace.getProperties())))
                                   .build()))
           .orElseThrow(() -> new NotFoundException("Namespace not found: " + namespaceName));
-    } catch (OptimisticLockingFailureException | OptimisticLockException exception) {
-      throw new VersionConflictException(
-          "Namespace metadata changed concurrently. Retry the read.", exception);
     } catch (DataAccessException | TransactionException | PersistenceException exception) {
-      throw new ServiceFailureException("Namespace metadata storage failed.", exception);
+      throw new NamespaceException("Namespace metadata storage failed.", exception);
     }
   }
 
@@ -144,40 +131,34 @@ public class NamespacesServiceImpl implements NamespacesService {
     if (SupportedDbTypes.ICEBERG
         .name()
         .equals(clusterProperties.getClusterHouseTablesDatabaseType())) {
-      throw new UnavailableException("Namespace metadata requires a JDBC HouseTables backend.");
+      throw new NamespaceException("Namespace metadata requires a JDBC HouseTables backend.");
     }
     TransactionStatus transaction = beginMutation();
     Optional<NamespaceRow> namespace;
     try {
       namespace = repository.findByNamespaceName(namespaceName);
-    } catch (OptimisticLockingFailureException | OptimisticLockException exception) {
-      rollbackLookup(transaction, exception);
-      throw new VersionConflictException("Namespace metadata changed concurrently.", exception);
     } catch (RuntimeException exception) {
-      rollbackLookup(transaction, exception);
-      throw new ServiceFailureException("Namespace metadata storage failed.", exception);
+      rollback(transaction, exception);
+      throw new NamespaceException("Namespace metadata storage failed.", exception);
     } catch (Error failure) {
-      rollbackLookup(transaction, failure);
+      rollback(transaction, failure);
       throw failure;
     }
     if (!namespace.isPresent()) {
-      commitLookup(transaction);
+      commit(transaction);
       throw new NotFoundException("Namespace not found: " + namespaceName);
     }
     try {
       repository.delete(namespace.get());
       repository.flush();
-    } catch (OptimisticLockingFailureException | OptimisticLockException exception) {
-      rollbackMutation(transaction, exception);
-      throw new VersionConflictException("Namespace metadata changed concurrently.", exception);
     } catch (RuntimeException exception) {
-      rollbackMutation(transaction, exception);
-      throw new ServiceFailureException("Namespace metadata storage failed.", exception);
+      rollback(transaction, exception);
+      throw new NamespaceException("Namespace metadata storage failed.", exception);
     } catch (Error failure) {
-      rollbackMutation(transaction, failure);
+      rollback(transaction, failure);
       throw failure;
     }
-    commitMutation(transaction);
+    commit(transaction);
   }
 
   @Override
@@ -191,24 +172,21 @@ public class NamespacesServiceImpl implements NamespacesService {
     if (SupportedDbTypes.ICEBERG
         .name()
         .equals(clusterProperties.getClusterHouseTablesDatabaseType())) {
-      throw new UnavailableException("Namespace metadata requires a JDBC HouseTables backend.");
+      throw new NamespaceException("Namespace metadata requires a JDBC HouseTables backend.");
     }
     TransactionStatus transaction = beginMutation();
     Optional<NamespaceRow> target;
     try {
       target = repository.findByNamespaceName(namespaceName);
-    } catch (OptimisticLockingFailureException | OptimisticLockException exception) {
-      rollbackLookup(transaction, exception);
-      throw new VersionConflictException("Namespace metadata changed concurrently.", exception);
     } catch (RuntimeException exception) {
-      rollbackLookup(transaction, exception);
-      throw new ServiceFailureException("Namespace metadata storage failed.", exception);
+      rollback(transaction, exception);
+      throw new NamespaceException("Namespace metadata storage failed.", exception);
     } catch (Error failure) {
-      rollbackLookup(transaction, failure);
+      rollback(transaction, failure);
       throw failure;
     }
     if (!target.isPresent()) {
-      commitLookup(transaction);
+      commit(transaction);
       throw new NotFoundException("Namespace not found: " + namespaceName);
     }
     NamespaceRow namespace = target.get();
@@ -228,8 +206,7 @@ public class NamespacesServiceImpl implements NamespacesService {
       properties.keySet().removeAll(removals);
       properties.putAll(updates);
       namespace.replaceProperties(properties);
-      // Check the loaded version synchronously, including empty updates, so a stale writer
-      // can be reported as a conflict after successful rollback.
+      // Check the loaded version synchronously, including empty updates, to reject stale writers.
       entityManager.lock(namespace, LockModeType.PESSIMISTIC_FORCE_INCREMENT);
       repository.flush();
       result =
@@ -238,74 +215,45 @@ public class NamespacesServiceImpl implements NamespacesService {
               .removed(removed)
               .missing(missing)
               .build();
-    } catch (OptimisticLockingFailureException | OptimisticLockException exception) {
-      rollbackMutation(transaction, exception);
-      throw new VersionConflictException("Namespace metadata changed concurrently.", exception);
-    } catch (DataIntegrityViolationException exception) {
-      rollbackMutation(transaction, exception);
-      throw new ServiceFailureException("Namespace metadata could not be persisted.", exception);
     } catch (RuntimeException exception) {
-      rollbackMutation(transaction, exception);
-      throw new ServiceFailureException("Namespace metadata storage failed.", exception);
+      rollback(transaction, exception);
+      throw new NamespaceException("Namespace metadata storage failed.", exception);
     } catch (Error failure) {
-      rollbackMutation(transaction, failure);
+      rollback(transaction, failure);
       throw failure;
     }
-    commitMutation(transaction);
+    commit(transaction);
     return result;
   }
 
-  private TransactionStatus beginMutation() throws ServiceFailureException {
+  private TransactionStatus beginMutation() throws NamespaceException {
     try {
       return transactionManager.getTransaction(transactions);
     } catch (TransactionException exception) {
-      throw new ServiceFailureException("Namespace metadata storage failed.", exception);
+      throw new NamespaceException("Namespace metadata storage failed.", exception);
     }
   }
 
-  private void commitLookup(TransactionStatus transaction) throws ServiceFailureException {
+  private void commit(TransactionStatus transaction) throws NamespaceException {
     try {
       transactionManager.commit(transaction);
-    } catch (RuntimeException exception) {
-      throw new ServiceFailureException("Namespace metadata lookup failed.", exception);
-    }
-  }
-
-  private void rollbackLookup(TransactionStatus transaction, Throwable originalFailure)
-      throws ServiceFailureException {
-    try {
-      transactionManager.rollback(transaction);
-    } catch (RuntimeException completionFailure) {
-      if (completionFailure != originalFailure) {
-        completionFailure.addSuppressed(originalFailure);
-      }
-      throw new ServiceFailureException("Namespace metadata lookup failed.", completionFailure);
-    }
-  }
-
-  private void commitMutation(TransactionStatus transaction) throws NamespaceException {
-    try {
-      transactionManager.commit(transaction);
-    } catch (UnexpectedRollbackException exception) {
-      throw new ServiceFailureException("Namespace metadata storage failed.", exception);
     } catch (TransactionSystemException exception) {
       Optional.ofNullable(exception.getApplicationException()).ifPresent(exception::addSuppressed);
-      throw new MutationUncertainException("Namespace mutation outcome is unknown.", exception);
+      throw new NamespaceException("Namespace metadata storage failed.", exception);
     } catch (RuntimeException exception) {
-      throw new MutationUncertainException("Namespace mutation outcome is unknown.", exception);
+      throw new NamespaceException("Namespace metadata storage failed.", exception);
     }
   }
 
-  private void rollbackMutation(TransactionStatus transaction, Throwable originalFailure)
-      throws MutationUncertainException {
+  private void rollback(TransactionStatus transaction, Throwable originalFailure)
+      throws NamespaceException {
     try {
       transactionManager.rollback(transaction);
     } catch (RuntimeException completionFailure) {
       if (completionFailure != originalFailure) {
         completionFailure.addSuppressed(originalFailure);
       }
-      throw new MutationUncertainException(
-          "Namespace mutation outcome is unknown.", completionFailure);
+      throw new NamespaceException("Namespace metadata storage failed.", completionFailure);
     }
   }
 }

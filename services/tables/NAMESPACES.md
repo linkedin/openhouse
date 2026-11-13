@@ -50,22 +50,15 @@ listing, rejected service credentials, or rejection of a service-constructed req
 service failure. These failures require investigation of the service, not changes to the caller's
 namespace or credentials.
 
-Conflicts require different actions. An existing name means creation did not replace its
-metadata. A nonempty namespace must have its tables and views moved or removed before drop.
-A concurrent property change requires reloading the current metadata and deciding whether
-the intended update still applies.
+An existing name returns 409 and means creation did not replace its metadata. A nonempty
+namespace returns `400/NamespaceNotEmptyException`; move or remove its tables and views before
+drop.
 
-Nonempty drop returns `400/NamespaceNotEmptyException`. Confirmed version conflicts return
-`409/CommitFailedException` as an OpenHouse extension to the pinned REST specification.
-The OpenHouse Java 1.5 catalog preserves these distinct outcomes; the stock Iceberg namespace
-client treats 400 as a bad request and 409 as an existing namespace.
-
-An uncertain mutation returns `CommitStateUnknownException`. The operation may have committed
-even though the response was lost or unusable. Reload metadata and reconcile the observed
-identity and properties with the intended change before retrying. A missing response does not
-mean a failed write, and replaying a sparse update can overwrite a later administrator's edit.
-Namespace transport requests have one total attempt. Callers remain responsible for their own
-retry decisions.
+Other operation failures return `500/RESTException`, including rejected stale writes and
+dependency failures. A failed write may have committed even though its response was lost or
+unusable. Read current metadata and reconcile its identity and properties with the intended
+change before submitting another write. Replaying a sparse update can overwrite a later
+administrator's edit. HouseTables namespace requests have one total transport attempt.
 
 ## Drop and table independence
 
@@ -84,8 +77,8 @@ authorization-handler change. Existing table creation, loading, updates, deletio
 listing perform zero namespace-metadata lookups.
 
 Deploy the HouseTables namespace semantic-error contract before this service. Older untyped
-errors cannot distinguish confirmed absence or rejection from a failed route or an uncertain
-mutation, so this service rejects them rather than assuming the operation's outcome.
+errors cannot establish namespace absence or duplicate creation, so this service reports
+a generic failure rather than assuming either outcome.
 
 ## Generated client and validation
 

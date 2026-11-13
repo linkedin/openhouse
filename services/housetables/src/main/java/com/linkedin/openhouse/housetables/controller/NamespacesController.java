@@ -1,16 +1,10 @@
 package com.linkedin.openhouse.housetables.controller;
 
 import com.linkedin.openhouse.common.exception.checked.AlreadyExistsException;
-import com.linkedin.openhouse.common.exception.checked.AuthenticationRequiredException;
 import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
 import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
-import com.linkedin.openhouse.common.exception.checked.MutationUncertainException;
 import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
-import com.linkedin.openhouse.common.exception.checked.PermissionDeniedException;
-import com.linkedin.openhouse.common.exception.checked.ServiceFailureException;
-import com.linkedin.openhouse.common.exception.checked.UnavailableException;
-import com.linkedin.openhouse.common.exception.checked.VersionConflictException;
 import com.linkedin.openhouse.housetables.api.handler.NamespacesApiHandler;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateNamespaceRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.request.UpdateNamespacePropertiesRequestBody;
@@ -23,7 +17,6 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import javax.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -46,12 +39,8 @@ import org.springframework.web.bind.annotation.RestController;
       description = "Invalid namespace request.",
       content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class))),
   @ApiResponse(
-      responseCode = "503",
-      description = "Namespace metadata is unavailable for this backend.",
-      content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class))),
-  @ApiResponse(
       responseCode = "500",
-      description = "Confirmed service failure, or an uncertain mutation outcome.",
+      description = "Namespace operation failed. Read current metadata before repeating a write.",
       content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class)))
 })
 public class NamespacesController {
@@ -69,7 +58,7 @@ public class NamespacesController {
     @ApiResponse(responseCode = "201", description = "Namespace metadata created."),
     @ApiResponse(
         responseCode = "409",
-        description = "Namespace name already exists, or a confirmed version conflict.",
+        description = "Namespace name already exists.",
         content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class)))
   })
   @PostMapping(consumes = "application/json")
@@ -87,10 +76,6 @@ public class NamespacesController {
     @ApiResponse(
         responseCode = "404",
         description = "Namespace metadata was not found.",
-        content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class))),
-    @ApiResponse(
-        responseCode = "409",
-        description = "Namespace metadata changed concurrently.",
         content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class)))
   })
   @GetMapping("/{namespaceName}")
@@ -114,10 +99,6 @@ public class NamespacesController {
     @ApiResponse(
         responseCode = "404",
         description = "Namespace metadata was not found.",
-        content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class))),
-    @ApiResponse(
-        responseCode = "409",
-        description = "Namespace metadata changed concurrently.",
         content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class)))
   })
   @DeleteMapping("/{namespaceName}")
@@ -138,10 +119,6 @@ public class NamespacesController {
     @ApiResponse(
         responseCode = "404",
         description = "Namespace metadata was not found.",
-        content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class))),
-    @ApiResponse(
-        responseCode = "409",
-        description = "Namespace metadata changed concurrently.",
         content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class))),
     @ApiResponse(
         responseCode = "422",
@@ -175,15 +152,6 @@ public class NamespacesController {
   }
 
   @Hidden
-  @ExceptionHandler(VersionConflictException.class)
-  public ResponseEntity<NamespaceErrorResponse> handleNamespaceConflict() {
-    return renderFailure(
-        HttpStatus.CONFLICT,
-        "VersionConflictException",
-        "Namespace metadata changed concurrently.");
-  }
-
-  @Hidden
   @ExceptionHandler(InvalidRequestException.class)
   public ResponseEntity<NamespaceErrorResponse> handleInvalidNamespaceRequest(
       InvalidRequestException exception) {
@@ -208,57 +176,24 @@ public class NamespacesController {
   }
 
   @Hidden
-  @ExceptionHandler(UnavailableException.class)
-  public ResponseEntity<NamespaceErrorResponse> handleNamespaceMetadataUnavailable(
-      UnavailableException exception) {
-    return renderFailure(
-        HttpStatus.SERVICE_UNAVAILABLE,
-        "UnavailableException",
-        "Namespace metadata service unavailable.");
-  }
-
-  @Hidden
-  @ExceptionHandler(ServiceFailureException.class)
-  public ResponseEntity<NamespaceErrorResponse> handleNamespaceMetadataStorage(
-      ServiceFailureException exception) {
-    return renderFailure(
-        HttpStatus.INTERNAL_SERVER_ERROR,
-        "ServiceFailureException",
-        "Namespace metadata operation failed.");
-  }
-
-  @Hidden
-  @ExceptionHandler(MutationUncertainException.class)
-  public ResponseEntity<NamespaceErrorResponse> handleUncertainMutation() {
-    return renderFailure(
-        HttpStatus.INTERNAL_SERVER_ERROR,
-        "MutationUncertainException",
-        "Namespace mutation outcome is unknown. Reload metadata and reconcile before retrying.");
-  }
-
-  @Hidden
-  @ExceptionHandler({AuthenticationRequiredException.class, AuthenticationException.class})
+  @ExceptionHandler(AuthenticationException.class)
   public ResponseEntity<NamespaceErrorResponse> handleAuthenticationRequired() {
     return renderFailure(
         HttpStatus.UNAUTHORIZED, "AuthenticationRequiredException", "Authentication required.");
   }
 
   @Hidden
-  @ExceptionHandler({PermissionDeniedException.class, AccessDeniedException.class})
+  @ExceptionHandler(AccessDeniedException.class)
   public ResponseEntity<NamespaceErrorResponse> handlePermissionDenied() {
     return renderFailure(HttpStatus.FORBIDDEN, "PermissionDeniedException", "Access denied.");
   }
 
   @Hidden
-  @ExceptionHandler(RuntimeException.class)
-  public ResponseEntity<NamespaceErrorResponse> handleUnexpectedFailure(
-      HttpServletRequest request) {
-    if (!"GET".equals(request.getMethod())) {
-      return handleUncertainMutation();
-    }
+  @ExceptionHandler({NamespaceException.class, RuntimeException.class})
+  public ResponseEntity<NamespaceErrorResponse> handleNamespaceFailure() {
     return renderFailure(
         HttpStatus.INTERNAL_SERVER_ERROR,
-        "ServiceFailureException",
+        "NamespaceException",
         "Namespace metadata operation failed.");
   }
 

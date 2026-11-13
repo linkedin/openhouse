@@ -3,7 +3,6 @@ package com.linkedin.openhouse.housetables.e2e.namespace;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.linkedin.openhouse.common.exception.checked.NamespaceException;
-import com.linkedin.openhouse.common.exception.checked.VersionConflictException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.services.NamespacesService;
@@ -22,6 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.persistence.EntityManagerFactory;
+import javax.persistence.OptimisticLockException;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
 import org.hibernate.resource.jdbc.spi.StatementInspector;
@@ -30,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -187,7 +188,10 @@ class NamespaceMysqlWorkloadTest {
                                 operation.call();
                                 successes.incrementAndGet();
                               } catch (NamespaceException exception) {
-                                assertThat(exception).isInstanceOf(VersionConflictException.class);
+                                assertThat(exception.getCause())
+                                    .isInstanceOfAny(
+                                        OptimisticLockException.class,
+                                        OptimisticLockingFailureException.class);
                                 conflicts.incrementAndGet();
                               } finally {
                                 durations.add(System.nanoTime() - started);

@@ -4,8 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
-import com.linkedin.openhouse.common.exception.checked.MutationUncertainException;
-import com.linkedin.openhouse.common.exception.checked.ServiceFailureException;
+import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.model.CreateNamespaceRequestBody;
@@ -46,8 +45,7 @@ class NamespaceApiTransportTest {
   void configuredReadRejectsNumericPropertyValues() throws Exception {
     withResponse(
         "{\"namespaceUuid\":\"foo\",\"namespaceName\":\"foo\",\"properties\":{\"a\":1}}",
-        repository ->
-            assertThrows(ServiceFailureException.class, () -> repository.getByName("foo")));
+        repository -> assertThrows(NamespaceException.class, () -> repository.getByName("foo")));
   }
 
   @Test
@@ -63,12 +61,12 @@ class NamespaceApiTransportTest {
   }
 
   @Test
-  void configuredUpdateRejectsNumericAcknowledgementAsUncertain() throws Exception {
+  void configuredUpdateRejectsNumericAcknowledgement() throws Exception {
     withResponse(
         "{\"updated\":[1],\"removed\":[],\"missing\":[]}",
         repository ->
             assertThrows(
-                MutationUncertainException.class,
+                NamespaceException.class,
                 () ->
                     repository.updateProperties(
                         "foo", Collections.emptyMap(), Collections.emptySet())));
