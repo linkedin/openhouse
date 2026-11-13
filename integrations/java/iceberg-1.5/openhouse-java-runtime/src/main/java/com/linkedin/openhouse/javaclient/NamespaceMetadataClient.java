@@ -1,19 +1,18 @@
 package com.linkedin.openhouse.javaclient;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataAlreadyExistsException;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataConcurrentModificationException;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataException;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataForbiddenException;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataInvalidRequestException;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataMutationUncertainException;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataNotEmptyException;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataNotFoundException;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataResponseException;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataUnauthenticatedException;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataUnavailableException;
+import com.linkedin.openhouse.javaclient.exception.AuthenticationRequiredException;
+import com.linkedin.openhouse.javaclient.exception.CatalogOperationException;
+import com.linkedin.openhouse.javaclient.exception.DuplicateCreationException;
+import com.linkedin.openhouse.javaclient.exception.InvalidRequestException;
+import com.linkedin.openhouse.javaclient.exception.MutationUncertainException;
+import com.linkedin.openhouse.javaclient.exception.NotEmptyException;
+import com.linkedin.openhouse.javaclient.exception.NotFoundException;
+import com.linkedin.openhouse.javaclient.exception.OperationFailedException;
+import com.linkedin.openhouse.javaclient.exception.PermissionDeniedException;
+import com.linkedin.openhouse.javaclient.exception.UnavailableException;
+import com.linkedin.openhouse.javaclient.exception.VersionConflictException;
 import com.linkedin.openhouse.tables.client.api.NamespaceApi;
 import com.linkedin.openhouse.tables.client.invoker.ApiClient;
 import com.linkedin.openhouse.tables.client.model.CreateNamespaceRequest;
@@ -29,6 +28,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -60,7 +60,7 @@ final class NamespaceMetadataClient {
   }
 
   Map<String, String> create(Namespace namespace, Map<String, String> properties)
-      throws NamespaceMetadataException {
+      throws CatalogOperationException {
     validateNamespace(namespace);
     validateProperties(properties);
     ResponseEntity<NamespaceResponse> response =
@@ -76,7 +76,7 @@ final class NamespaceMetadataClient {
     return metadata(response, namespace, Operation.CREATE);
   }
 
-  Map<String, String> load(Namespace namespace) throws NamespaceMetadataException {
+  Map<String, String> load(Namespace namespace) throws CatalogOperationException {
     validateNamespace(namespace);
     return metadata(
         request(
@@ -88,7 +88,7 @@ final class NamespaceMetadataClient {
         Operation.LOAD);
   }
 
-  boolean drop(Namespace namespace) throws NamespaceMetadataException {
+  boolean drop(Namespace namespace) throws CatalogOperationException {
     validateNamespace(namespace);
     try {
       request(
@@ -97,17 +97,17 @@ final class NamespaceMetadataClient {
           60,
           Operation.DROP);
       return true;
-    } catch (NamespaceMetadataNotFoundException failure) {
+    } catch (NotFoundException failure) {
       return false;
     }
   }
 
   boolean update(Namespace namespace, Map<String, String> updates, Set<String> removals)
-      throws NamespaceMetadataException {
+      throws CatalogOperationException {
     validateNamespace(namespace);
     validateProperties(updates);
     if (removals.stream().anyMatch(Objects::isNull)) {
-      throw new NamespaceMetadataInvalidRequestException("Namespace removal keys must be strings");
+      throw new InvalidRequestException("Namespace removal keys must be strings");
     }
     ResponseEntity<UpdateNamespacePropertiesResponse> response =
         request(
@@ -120,10 +120,7 @@ final class NamespaceMetadataClient {
             Operation.UPDATE);
     UpdateNamespacePropertiesResponse requiredResponse =
         Optional.ofNullable(response.getBody())
-            .orElseThrow(
-                () ->
-                    new NamespaceMetadataMutationUncertainException(
-                        "Empty namespace update response"));
+            .orElseThrow(() -> new MutationUncertainException("Empty namespace update response"));
     List<String> updated = requiredResponse.getUpdated();
     List<String> removed = requiredResponse.getRemoved();
     List<String> missing =
@@ -134,46 +131,45 @@ final class NamespaceMetadataClient {
         || updated.size() != updates.size()
         || !removals.containsAll(accountedRemovals)
         || removed.size() + missing.size() != accountedRemovals.size()) {
-      throw new NamespaceMetadataMutationUncertainException(
-          "Namespace update response disagrees with request");
+      throw new MutationUncertainException("Namespace update response disagrees with request");
     }
     return !updated.isEmpty() || !removed.isEmpty();
   }
 
-  Map<String, String> effectiveProperties(Table table) throws NamespaceMetadataException {
+  Map<String, String> effectiveProperties(Table table) throws CatalogOperationException {
     String tableName =
         Optional.ofNullable(table.name())
-            .orElseThrow(() -> new NamespaceMetadataInvalidRequestException("Missing table name"));
+            .orElseThrow(() -> new InvalidRequestException("Missing table name"));
     String catalogPrefix = catalogName + ".";
     if (!tableName.startsWith(catalogPrefix)) {
-      throw new NamespaceMetadataInvalidRequestException(
+      throw new InvalidRequestException(
           String.format("Table name '%s' must belong to catalog '%s'", tableName, catalogName));
     }
     String[] identifier = tableName.substring(catalogPrefix.length()).split("\\.", -1);
     if (identifier.length != 2
         || !identifier[0].matches("[a-zA-Z0-9_]{1,128}")
         || !identifier[1].matches("[a-zA-Z0-9_]{1,128}")) {
-      throw new NamespaceMetadataInvalidRequestException(
+      throw new InvalidRequestException(
           String.format(
               "Table name '%s' must identify a catalog-qualified namespace and table", tableName));
     }
     Map<String, String> effective = new HashMap<>();
     try {
       effective.putAll(load(Namespace.of(identifier[0])));
-    } catch (NamespaceMetadataNotFoundException failure) {
+    } catch (NotFoundException failure) {
       // Missing optional metadata contributes an empty set of defaults.
     }
     Map<String, String> tableProperties =
         Optional.ofNullable(table.properties())
-            .orElseThrow(() -> new NamespaceMetadataResponseException("Missing table properties"));
+            .orElseThrow(() -> new OperationFailedException("Missing table properties"));
     validateProperties(tableProperties);
     effective.putAll(tableProperties);
     return Collections.unmodifiableMap(effective);
   }
 
-  private static void validateNamespace(Namespace namespace) throws NamespaceMetadataException {
+  private static void validateNamespace(Namespace namespace) throws CatalogOperationException {
     if (namespace.length() != 1 || !namespace.level(0).matches("[a-zA-Z0-9_]{1,128}")) {
-      throw new NamespaceMetadataInvalidRequestException(
+      throw new InvalidRequestException(
           String.format(
               "Namespace '%s' must contain one name of 1 to 128 letters, digits, or underscores",
               namespace));
@@ -181,35 +177,31 @@ final class NamespaceMetadataClient {
   }
 
   private static void validateProperties(Map<String, String> properties)
-      throws NamespaceMetadataException {
+      throws CatalogOperationException {
     if (properties.entrySet().stream()
         .anyMatch(
             entry ->
                 !Optional.ofNullable(entry.getKey()).isPresent()
                     || !Optional.ofNullable(entry.getValue()).isPresent())) {
-      throw new NamespaceMetadataInvalidRequestException(
-          "Namespace properties must have string keys and values");
+      throw new InvalidRequestException("Namespace properties must have string keys and values");
     }
   }
 
   private static Map<String, String> metadata(
       ResponseEntity<NamespaceResponse> response, Namespace namespace, Operation operation)
-      throws NamespaceMetadataException {
+      throws CatalogOperationException {
     NamespaceResponse requiredResponse =
         Optional.ofNullable(response.getBody())
             .orElseThrow(
                 () ->
                     operation == Operation.LOAD
-                        ? new NamespaceMetadataResponseException("Empty namespace response")
-                        : new NamespaceMetadataMutationUncertainException(
-                            "Empty namespace response"));
+                        ? new OperationFailedException("Empty namespace response")
+                        : new MutationUncertainException("Empty namespace response"));
     if (requiredResponse.getNamespace().size() != 1
         || !namespace.level(0).equalsIgnoreCase(requiredResponse.getNamespace().get(0))) {
       throw operation == Operation.LOAD
-          ? new NamespaceMetadataResponseException(
-              "Namespace response identifies a different namespace")
-          : new NamespaceMetadataMutationUncertainException(
-              "Namespace response identifies a different namespace");
+          ? new OperationFailedException("Namespace response identifies a different namespace")
+          : new MutationUncertainException("Namespace response identifies a different namespace");
     }
     Map<String, String> responseProperties =
         Optional.ofNullable(requiredResponse.getProperties()).orElseGet(Collections::emptyMap);
@@ -221,7 +213,7 @@ final class NamespaceMetadataClient {
    */
   static <T> ResponseEntity<T> request(
       Mono<ResponseEntity<T>> request, int expectedStatus, int timeoutSeconds, Operation operation)
-      throws NamespaceMetadataException {
+      throws CatalogOperationException {
     CompletableFuture<ResponseEntity<T>> pending = request.toFuture();
     try {
       ResponseEntity<T> response =
@@ -229,27 +221,25 @@ final class NamespaceMetadataClient {
               .orElseThrow(
                   () ->
                       operation == Operation.LOAD
-                          ? new NamespaceMetadataResponseException("Empty namespace response")
-                          : new NamespaceMetadataMutationUncertainException(
-                              "Empty namespace response"));
+                          ? new OperationFailedException("Empty namespace response")
+                          : new MutationUncertainException("Empty namespace response"));
       if (response.getStatusCodeValue() != expectedStatus) {
         throw operation == Operation.LOAD
-            ? new NamespaceMetadataResponseException("Unexpected namespace response status")
-            : new NamespaceMetadataMutationUncertainException(
-                "Unexpected namespace response status");
+            ? new OperationFailedException("Unexpected namespace response status")
+            : new MutationUncertainException("Unexpected namespace response status");
       }
       return response;
     } catch (InterruptedException failure) {
       pending.cancel(true);
       Thread.currentThread().interrupt();
       throw operation == Operation.LOAD
-          ? new NamespaceMetadataUnavailableException(0, failure)
-          : new NamespaceMetadataMutationUncertainException(0, failure);
-    } catch (TimeoutException failure) {
+          ? new UnavailableException(failure)
+          : new MutationUncertainException(failure);
+    } catch (TimeoutException | CancellationException failure) {
       pending.cancel(true);
       throw operation == Operation.LOAD
-          ? new NamespaceMetadataUnavailableException(0, failure)
-          : new NamespaceMetadataMutationUncertainException(0, failure);
+          ? new UnavailableException(failure)
+          : new MutationUncertainException(failure);
     } catch (ExecutionException failure) {
       Throwable cause = failure.getCause();
       int statusCode =
@@ -264,49 +254,69 @@ final class NamespaceMetadataClient {
               Optional.ofNullable(
                       new ObjectMapper()
                           .readTree(((WebClientResponseException) cause).getResponseBodyAsString()))
-                  .map(body -> body.path("error").path("type"))
-                  .filter(JsonNode::isTextual)
-                  .map(JsonNode::asText);
+                  .map(body -> body.path("error"))
+                  .filter(
+                      error ->
+                          error.isObject()
+                              && error.path("code").isIntegralNumber()
+                              && error.path("code").canConvertToInt()
+                              && error.path("code").intValue() == statusCode
+                              && error.path("message").isTextual()
+                              && error.path("type").isTextual())
+                  .map(error -> error.path("type").textValue());
         } catch (JsonProcessingException decodingFailure) {
           cause.addSuppressed(decodingFailure);
         }
       }
-      switch (statusCode) {
-        case 400:
-        case 422:
-          throw new NamespaceMetadataInvalidRequestException(statusCode, cause);
-        case 401:
-          throw new NamespaceMetadataUnauthenticatedException(cause);
-        case 403:
-          throw new NamespaceMetadataForbiddenException(cause);
-        case 404:
-          throw new NamespaceMetadataNotFoundException(cause);
-        case 409:
-          if (operation == Operation.CREATE) {
-            throw new NamespaceMetadataAlreadyExistsException(cause);
-          }
-          if (errorType.filter("NamespaceNotEmptyException"::equals).isPresent()) {
-            throw new NamespaceMetadataNotEmptyException(cause);
-          }
-          if (operation == Operation.UPDATE
-              || errorType.filter("CommitFailedException"::equals).isPresent()) {
-            throw new NamespaceMetadataConcurrentModificationException(cause);
-          }
-          throw new NamespaceMetadataResponseException(statusCode, cause);
-        case 503:
-          throw new NamespaceMetadataUnavailableException(statusCode, cause);
-        default:
-          if (operation != Operation.LOAD) {
-            throw new NamespaceMetadataMutationUncertainException(statusCode, cause);
-          }
-          if (cause instanceof WebClientRequestException
-              || cause instanceof TimeoutException
-              || statusCode == 502
-              || statusCode == 504) {
-            throw new NamespaceMetadataUnavailableException(statusCode, cause);
-          }
-          throw new NamespaceMetadataResponseException(statusCode, cause);
+      if (operation == Operation.DROP
+          && (statusCode == 400 || statusCode == 409)
+          && errorType.filter("NamespaceNotEmptyException"::equals).isPresent()) {
+        throw new NotEmptyException(cause);
       }
+      if ((statusCode == 400 && errorType.filter("BadRequestException"::equals).isPresent())
+          || (statusCode == 422
+              && operation == Operation.UPDATE
+              && errorType.filter("UnprocessableEntityException"::equals).isPresent())) {
+        throw new InvalidRequestException(cause);
+      }
+      if (statusCode == 401 && errorType.filter("NotAuthorizedException"::equals).isPresent()) {
+        throw new AuthenticationRequiredException(cause);
+      }
+      if (statusCode == 403 && errorType.filter("ForbiddenException"::equals).isPresent()) {
+        throw new PermissionDeniedException(cause);
+      }
+      if (statusCode == 404
+          && operation != Operation.CREATE
+          && errorType.filter("NoSuchNamespaceException"::equals).isPresent()) {
+        throw new NotFoundException(cause);
+      }
+      if (statusCode == 409
+          && operation == Operation.CREATE
+          && errorType.filter("AlreadyExistsException"::equals).isPresent()) {
+        throw new DuplicateCreationException(cause);
+      }
+      if (statusCode == 409 && errorType.filter("CommitFailedException"::equals).isPresent()) {
+        throw new VersionConflictException(cause);
+      }
+      if (statusCode == 500 && errorType.filter("ServiceFailureException"::equals).isPresent()) {
+        throw new OperationFailedException(cause);
+      }
+      if (statusCode == 503
+          && errorType.filter("ServiceUnavailableException"::equals).isPresent()) {
+        throw new UnavailableException(cause);
+      }
+      if (operation != Operation.LOAD) {
+        throw new MutationUncertainException(cause);
+      }
+      if (cause instanceof WebClientRequestException
+          || cause instanceof TimeoutException
+          || cause instanceof CancellationException
+          || statusCode == 502
+          || statusCode == 503
+          || statusCode == 504) {
+        throw new UnavailableException(cause);
+      }
+      throw new OperationFailedException(cause);
     }
   }
 }

@@ -2,11 +2,12 @@ package com.linkedin.openhouse.javaclient;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataException;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataMutationUncertainException;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataUnavailableException;
+import com.linkedin.openhouse.javaclient.exception.CatalogOperationException;
+import com.linkedin.openhouse.javaclient.exception.MutationUncertainException;
+import com.linkedin.openhouse.javaclient.exception.UnavailableException;
 import com.linkedin.openhouse.relocated.org.springframework.http.ResponseEntity;
 import com.linkedin.openhouse.relocated.reactor.core.publisher.Mono;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -18,6 +19,18 @@ import org.junit.jupiter.api.Test;
 
 class NamespaceCancellationTest {
   @Test
+  void cancelledMutationPreservesCheckedUncertaintyAndCause() {
+    CancellationException cause = new CancellationException("foo");
+    MutationUncertainException failure =
+        assertThrows(
+            MutationUncertainException.class,
+            () ->
+                NamespaceMetadataClient.request(
+                    Mono.error(cause), 200, 30, NamespaceMetadataClient.Operation.UPDATE));
+    assertSame(cause, failure.getCause());
+  }
+
+  @Test
   void pendingRequestIsCancelledWhenItsBudgetExpires() {
     AtomicInteger subscriptions = new AtomicInteger();
     AtomicBoolean cancelled = new AtomicBoolean();
@@ -25,13 +38,13 @@ class NamespaceCancellationTest {
         Mono.<ResponseEntity<Void>>never()
             .doOnSubscribe(subscription -> subscriptions.incrementAndGet())
             .doOnCancel(() -> cancelled.set(true));
-    NamespaceMetadataException failure =
+    CatalogOperationException failure =
         assertThrows(
-            NamespaceMetadataException.class,
+            CatalogOperationException.class,
             () ->
                 NamespaceMetadataClient.request(
                     pending, 200, 0, NamespaceMetadataClient.Operation.LOAD));
-    assertInstanceOf(NamespaceMetadataUnavailableException.class, failure);
+    assertInstanceOf(UnavailableException.class, failure);
     assertInstanceOf(TimeoutException.class, failure.getCause());
     assertEquals(1, subscriptions.get());
     assertTrue(cancelled.get());
@@ -50,7 +63,7 @@ class NamespaceCancellationTest {
                     () ->
                         NamespaceMetadataClient.request(
                             pending, 200, 0, NamespaceMetadataClient.Operation.UPDATE)));
-    assertInstanceOf(NamespaceMetadataMutationUncertainException.class, failure.getCause());
+    assertInstanceOf(MutationUncertainException.class, failure.getCause());
     assertInstanceOf(TimeoutException.class, failure.getCause().getCause());
     assertTrue(cancelled.get());
   }
@@ -61,7 +74,7 @@ class NamespaceCancellationTest {
     AtomicInteger subscriptions = new AtomicInteger();
     AtomicBoolean cancelled = new AtomicBoolean();
     AtomicBoolean interrupted = new AtomicBoolean();
-    AtomicReference<NamespaceMetadataException> failure = new AtomicReference<>();
+    AtomicReference<CatalogOperationException> failure = new AtomicReference<>();
     Mono<ResponseEntity<Void>> pending =
         Mono.<ResponseEntity<Void>>never()
             .doOnSubscribe(
@@ -76,7 +89,7 @@ class NamespaceCancellationTest {
               try {
                 NamespaceMetadataClient.request(
                     pending, 200, 30, NamespaceMetadataClient.Operation.UPDATE);
-              } catch (NamespaceMetadataException exception) {
+              } catch (CatalogOperationException exception) {
                 failure.set(exception);
                 interrupted.set(Thread.currentThread().isInterrupted());
               }
@@ -88,7 +101,7 @@ class NamespaceCancellationTest {
       worker.join(10000);
       assertFalse(worker.isAlive());
       assertNotNull(failure.get());
-      assertInstanceOf(NamespaceMetadataMutationUncertainException.class, failure.get());
+      assertInstanceOf(MutationUncertainException.class, failure.get());
       assertInstanceOf(InterruptedException.class, failure.get().getCause());
       assertTrue(interrupted.get());
       assertTrue(cancelled.get());

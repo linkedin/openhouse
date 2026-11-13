@@ -11,7 +11,7 @@ import com.linkedin.openhouse.javaclient.api.SupportsUnlock;
 import com.linkedin.openhouse.javaclient.api.UnlockTableTarget;
 import com.linkedin.openhouse.javaclient.builder.ClusteringSpecBuilder;
 import com.linkedin.openhouse.javaclient.builder.TimePartitionSpecBuilder;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataException;
+import com.linkedin.openhouse.javaclient.exception.CatalogOperationException;
 import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageException;
 import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.javaclient.mapper.Privileges;
@@ -473,11 +473,20 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     throw new UnsupportedOperationException("Openhouse supports 2-lvl namespace <schema>.<table>");
   }
 
+  /**
+   * Loads immutable namespace properties. Verified absence throws {@link NoSuchNamespaceException};
+   * an unverified error response remains a service failure.
+   */
   @Override
   public Map<String, String> loadNamespaceMetadata(Namespace namespace) {
     return NamespaceCatalogAdapter.execute(() -> namespaceMetadataClient.load(namespace));
   }
 
+  /**
+   * Drops an empty namespace, returning false only for verified absence. Nonempty responses use
+   * 400/NamespaceNotEmptyException; the recognized legacy 409 form is also accepted. Confirmed
+   * version conflicts use 409/CommitFailedException as an OpenHouse protocol extension.
+   */
   @Override
   public boolean dropNamespace(Namespace namespace) {
     return NamespaceCatalogAdapter.execute(() -> namespaceMetadataClient.drop(namespace));
@@ -498,18 +507,18 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
   /**
    * Resolves namespace properties with actual table properties taking precedence.
    *
-   * <p>Each call performs one uncached remote namespace lookup. A namespace 404 supplies empty
-   * namespace properties. The returned map is an immutable defensive copy; {@link
+   * <p>Each call performs one uncached remote namespace lookup. Verified namespace absence supplies
+   * empty namespace properties. The returned map is an immutable defensive copy; {@link
    * Table#properties()} retains the actual table properties. The table name must be qualified by
    * this catalog's exact name, followed by one namespace and one table.
    *
-   * @throws NamespaceMetadataException for invalid names, authorization, transport, service, or
+   * @throws CatalogOperationException for invalid names, authorization, transport, service, or
    *     malformed-response failures. This opt-in API declares checked failures so callers
    *     explicitly handle remote I/O; the Iceberg namespace overrides translate failures to Iceberg
    *     exceptions.
    */
   public Map<String, String> getEffectiveTableProperties(Table table)
-      throws NamespaceMetadataException {
+      throws CatalogOperationException {
     return namespaceMetadataClient.effectiveProperties(table);
   }
 

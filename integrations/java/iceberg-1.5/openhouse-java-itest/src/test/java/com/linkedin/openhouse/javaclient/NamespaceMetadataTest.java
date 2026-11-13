@@ -8,8 +8,11 @@ import static org.mockito.Mockito.*;
 import com.linkedin.openhouse.gen.client.ssl.WebClientFactory;
 import com.linkedin.openhouse.gen.tables.client.api.NamespaceApi;
 import com.linkedin.openhouse.gen.tables.client.invoker.ApiClient;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataException;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataMutationUncertainException;
+import com.linkedin.openhouse.javaclient.exception.CatalogOperationException;
+import com.linkedin.openhouse.javaclient.exception.MutationUncertainException;
+import com.linkedin.openhouse.javaclient.exception.NotFoundException;
+import com.linkedin.openhouse.javaclient.exception.OperationFailedException;
+import com.linkedin.openhouse.javaclient.exception.UnavailableException;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.JsonNode;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -150,8 +153,7 @@ class NamespaceMetadataTest {
     String namespace = "namespace".equals(component) ? identifier : "namespace";
     String tableName = "table".equals(component) ? identifier : "table";
     when(table.name()).thenReturn("openhouse.local." + namespace + "." + tableName);
-    assertThrows(
-        NamespaceMetadataException.class, () -> catalog.getEffectiveTableProperties(table));
+    assertThrows(CatalogOperationException.class, () -> catalog.getEffectiveTableProperties(table));
     assertEquals(0, tableService.getRequestCount());
   }
 
@@ -180,7 +182,11 @@ class NamespaceMetadataTest {
   @ParameterizedTest
   @ValueSource(ints = {200, 404})
   void emptyOrAbsentNamespaceMetadataPreservesActualProperties(int status) throws Exception {
-    respond(status, "{\"namespace\":[\"namespace\"],\"properties\":{}}");
+    respond(
+        status,
+        status == 200
+            ? "{\"namespace\":[\"namespace\"],\"properties\":{}}"
+            : errorBody(404, "NoSuchNamespaceException"));
     Map<String, String> effective = catalog.getEffectiveTableProperties(table);
     assertEquals(tableProperties, effective);
     assertNotSame(tableProperties, effective);
@@ -220,10 +226,13 @@ class NamespaceMetadataTest {
         "{\"error\":{\"message\":\"failure\",\"type\":\"ServiceException\",\"code\":"
             + status
             + "}}");
-    NamespaceMetadataException failure =
+    CatalogOperationException failure =
         assertThrows(
-            NamespaceMetadataException.class, () -> catalog.getEffectiveTableProperties(table));
-    assertEquals(status, failure.getStatusCode());
+            CatalogOperationException.class, () -> catalog.getEffectiveTableProperties(table));
+    assertEquals(
+        status == 503 ? UnavailableException.class : OperationFailedException.class,
+        failure.getClass());
+    assertNotNull(failure.getCause());
     assertEquals(1, tableService.getRequestCount());
   }
 
@@ -231,10 +240,11 @@ class NamespaceMetadataTest {
   void transportFailureIsCheckedAndDoesNotRetry() {
     tableService.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST));
     respond(503, "{}");
-    NamespaceMetadataException failure =
+    CatalogOperationException failure =
         assertThrows(
-            NamespaceMetadataException.class, () -> catalog.getEffectiveTableProperties(table));
-    assertEquals(0, failure.getStatusCode());
+            CatalogOperationException.class, () -> catalog.getEffectiveTableProperties(table));
+    assertInstanceOf(UnavailableException.class, failure);
+    assertNotNull(failure.getCause());
     assertEquals(1, tableService.getRequestCount());
   }
 
@@ -254,11 +264,7 @@ class NamespaceMetadataTest {
       })
   void malformedMetadataFailsRatherThanFallingBack(String body) {
     respond(200, body);
-    assertEquals(
-        0,
-        assertThrows(
-                NamespaceMetadataException.class, () -> catalog.getEffectiveTableProperties(table))
-            .getStatusCode());
+    assertThrows(OperationFailedException.class, () -> catalog.getEffectiveTableProperties(table));
     assertEquals(1, tableService.getRequestCount());
   }
 
@@ -284,7 +290,7 @@ class NamespaceMetadataTest {
     when(table.name()).thenReturn(name);
     assertTrue(
         assertThrows(
-                NamespaceMetadataException.class, () -> catalog.getEffectiveTableProperties(table))
+                CatalogOperationException.class, () -> catalog.getEffectiveTableProperties(table))
             .getMessage()
             .contains(name));
     assertEquals(0, tableService.getRequestCount());
@@ -304,8 +310,7 @@ class NamespaceMetadataTest {
   @Test
   void absentTableNameFailsBeforeRequest() {
     when(table.name()).thenReturn(null);
-    assertThrows(
-        NamespaceMetadataException.class, () -> catalog.getEffectiveTableProperties(table));
+    assertThrows(CatalogOperationException.class, () -> catalog.getEffectiveTableProperties(table));
     assertEquals(0, tableService.getRequestCount());
   }
 
@@ -370,7 +375,7 @@ class NamespaceMetadataTest {
     RecordedRequest drop = tableService.takeRequest(5, TimeUnit.SECONDS);
     assertEquals("DELETE", drop.getMethod());
     assertEquals("/v1/openhouse.local/namespaces/namespace", drop.getPath());
-    respond(404, "{}");
+    respond(404, errorBody(404, "NoSuchNamespaceException"));
     assertFalse(catalog.dropNamespace(namespace));
     assertEquals(8, tableService.getRequestCount());
   }
@@ -412,8 +417,8 @@ class NamespaceMetadataTest {
   @ParameterizedTest
   @MethodSource("namespaceFailures")
   void namespaceOverridesTranslateFailures(
-      String operation, int status, Class<? extends RuntimeException> expected) {
-    respond(status, "{}");
+      String operation, int status, String type, Class<? extends RuntimeException> expected) {
+    respond(status, errorBody(status, type));
     assertThrows(
         expected,
         () -> {
@@ -449,45 +454,115 @@ class NamespaceMetadataTest {
     respond(status, body);
     RuntimeException exception =
         assertThrows(expected, () -> catalog.dropNamespace(Namespace.of("namespace")));
-    assertInstanceOf(NamespaceMetadataException.class, exception.getCause());
+    assertInstanceOf(CatalogOperationException.class, exception.getCause());
     assertEquals(1, tableService.getRequestCount());
   }
 
   static Stream<Arguments> dropFailureTypes() {
     return Stream.of(
         Arguments.of(
-            409,
-            "{\"error\":{\"type\":\"NamespaceNotEmptyException\"}}",
-            NamespaceNotEmptyException.class),
+            400, errorBody(400, "NamespaceNotEmptyException"), NamespaceNotEmptyException.class),
         Arguments.of(
-            409, "{\"error\":{\"type\":\"CommitFailedException\"}}", CommitFailedException.class),
+            409, errorBody(409, "NamespaceNotEmptyException"), NamespaceNotEmptyException.class),
+        Arguments.of(409, errorBody(409, "CommitFailedException"), CommitFailedException.class),
         Arguments.of(
-            500,
-            "{\"error\":{\"type\":\"CommitStateUnknownException\"}}",
-            CommitStateUnknownException.class),
+            500, errorBody(500, "CommitStateUnknownException"), CommitStateUnknownException.class),
+        Arguments.of(500, errorBody(500, "ServiceFailureException"), RESTException.class),
         Arguments.of(
-            503, "{\"error\":{\"type\":\"CommitStateUnknownException\"}}", RESTException.class),
-        Arguments.of(409, "{\"error\":{\"type\":\"OtherException\"}}", RESTException.class),
-        Arguments.of(409, "{\"error\":{\"type\":42}}", RESTException.class),
-        Arguments.of(409, "{", RESTException.class));
+            503, errorBody(503, "CommitStateUnknownException"), CommitStateUnknownException.class),
+        Arguments.of(
+            409, "{\"error\":{\"type\":\"OtherException\"}}", CommitStateUnknownException.class),
+        Arguments.of(409, "{\"error\":{\"type\":42}}", CommitStateUnknownException.class),
+        Arguments.of(409, "{", CommitStateUnknownException.class));
   }
 
   static Stream<Arguments> namespaceFailures() {
     return Stream.of(
-        Arguments.of("create", 409, AlreadyExistsException.class),
-        Arguments.of("create", 400, ValidationException.class),
-        Arguments.of("create", 401, NotAuthorizedException.class),
-        Arguments.of("create", 403, ForbiddenException.class),
-        Arguments.of("load", 404, NoSuchNamespaceException.class),
-        Arguments.of("load", 500, RESTException.class),
-        Arguments.of("load", 503, RESTException.class),
-        Arguments.of("drop", 409, RESTException.class),
-        Arguments.of("drop", 403, ForbiddenException.class),
-        Arguments.of("set", 404, NoSuchNamespaceException.class),
-        Arguments.of("set", 409, CommitFailedException.class),
-        Arguments.of("set", 422, ValidationException.class),
-        Arguments.of("remove", 404, NoSuchNamespaceException.class),
-        Arguments.of("remove", 409, CommitFailedException.class));
+        Arguments.of("create", 409, "AlreadyExistsException", AlreadyExistsException.class),
+        Arguments.of("create", 409, "CommitFailedException", CommitFailedException.class),
+        Arguments.of("create", 400, "BadRequestException", ValidationException.class),
+        Arguments.of("create", 401, "NotAuthorizedException", NotAuthorizedException.class),
+        Arguments.of("create", 403, "ForbiddenException", ForbiddenException.class),
+        Arguments.of("load", 404, "NoSuchNamespaceException", NoSuchNamespaceException.class),
+        Arguments.of("load", 409, "CommitFailedException", CommitFailedException.class),
+        Arguments.of("load", 500, "ServiceFailureException", RESTException.class),
+        Arguments.of("load", 503, "ServiceUnavailableException", RESTException.class),
+        Arguments.of("drop", 409, "OtherException", CommitStateUnknownException.class),
+        Arguments.of("drop", 403, "ForbiddenException", ForbiddenException.class),
+        Arguments.of("set", 404, "NoSuchNamespaceException", NoSuchNamespaceException.class),
+        Arguments.of("set", 409, "CommitFailedException", CommitFailedException.class),
+        Arguments.of("set", 422, "UnprocessableEntityException", ValidationException.class),
+        Arguments.of("remove", 404, "NoSuchNamespaceException", NoSuchNamespaceException.class),
+        Arguments.of("remove", 409, "CommitFailedException", CommitFailedException.class),
+        Arguments.of(
+            "create", 400, "NamespaceNotEmptyException", CommitStateUnknownException.class),
+        Arguments.of("load", 400, "NamespaceNotEmptyException", RESTException.class),
+        Arguments.of("set", 400, "NamespaceNotEmptyException", CommitStateUnknownException.class));
+  }
+
+  @Test
+  void retrievalPropagatesVerifiedAbsenceWithoutDefaults() {
+    respond(404, errorBody(404, "NoSuchNamespaceException"));
+    NoSuchNamespaceException failure =
+        assertThrows(
+            NoSuchNamespaceException.class,
+            () -> catalog.loadNamespaceMetadata(Namespace.of("namespace")));
+    assertInstanceOf(NotFoundException.class, failure.getCause());
+    assertNotNull(failure.getCause().getCause());
+    assertEquals(1, tableService.getRequestCount());
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "",
+        "<html>foo</html>",
+        "{}",
+        "{\"error\":{\"message\":\"foo\",\"type\":\"RESTException\",\"code\":404}}",
+        "{\"error\":{\"message\":\"foo\",\"type\":\"NoSuchNamespaceException\",\"code\":500}}"
+      })
+  void unverifiedAbsenceFailsRetrieval(String body) {
+    respond(404, body);
+    RESTException failure =
+        assertThrows(
+            RESTException.class, () -> catalog.loadNamespaceMetadata(Namespace.of("namespace")));
+    assertInstanceOf(OperationFailedException.class, failure.getCause());
+    assertEquals(1, tableService.getRequestCount());
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "",
+        "<html>foo</html>",
+        "{}",
+        "{\"error\":{\"message\":\"foo\",\"type\":\"RESTException\",\"code\":404}}",
+        "{\"error\":{\"message\":\"foo\",\"type\":\"NoSuchNamespaceException\",\"code\":500}}"
+      })
+  void unverifiedAbsenceCannotSupplyOptionalDefaults(String body) {
+    respond(404, body);
+    assertThrows(OperationFailedException.class, () -> catalog.getEffectiveTableProperties(table));
+    assertEquals(1, tableService.getRequestCount());
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "",
+        "<html>foo</html>",
+        "{}",
+        "{\"error\":{\"message\":\"foo\",\"type\":\"RESTException\",\"code\":404}}",
+        "{\"error\":{\"message\":\"foo\",\"type\":\"NoSuchNamespaceException\",\"code\":500}}"
+      })
+  void unverifiedAbsenceLeavesDeletionUncertain(String body) {
+    respond(404, body);
+    assertThrows(
+        CommitStateUnknownException.class, () -> catalog.dropNamespace(Namespace.of("namespace")));
+    assertEquals(1, tableService.getRequestCount());
+  }
+
+  private static String errorBody(int status, String type) {
+    return "{\"error\":{\"message\":\"foo\",\"type\":\"" + type + "\",\"code\":" + status + "}}";
   }
 
   @ParameterizedTest
@@ -572,7 +647,7 @@ class NamespaceMetadataTest {
         assertThrows(
             CommitStateUnknownException.class,
             () -> catalog.createNamespace(Namespace.of("namespace")));
-    assertInstanceOf(NamespaceMetadataMutationUncertainException.class, failure.getCause());
+    assertInstanceOf(MutationUncertainException.class, failure.getCause());
     assertEquals(1, tableService.getRequestCount());
   }
 

@@ -1,14 +1,14 @@
 package com.linkedin.openhouse.javaclient;
 
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataAlreadyExistsException;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataConcurrentModificationException;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataException;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataForbiddenException;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataInvalidRequestException;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataMutationUncertainException;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataNotEmptyException;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataNotFoundException;
-import com.linkedin.openhouse.javaclient.exception.NamespaceMetadataUnauthenticatedException;
+import com.linkedin.openhouse.javaclient.exception.AuthenticationRequiredException;
+import com.linkedin.openhouse.javaclient.exception.CatalogOperationException;
+import com.linkedin.openhouse.javaclient.exception.DuplicateCreationException;
+import com.linkedin.openhouse.javaclient.exception.InvalidRequestException;
+import com.linkedin.openhouse.javaclient.exception.MutationUncertainException;
+import com.linkedin.openhouse.javaclient.exception.NotEmptyException;
+import com.linkedin.openhouse.javaclient.exception.NotFoundException;
+import com.linkedin.openhouse.javaclient.exception.PermissionDeniedException;
+import com.linkedin.openhouse.javaclient.exception.VersionConflictException;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
@@ -23,7 +23,7 @@ import org.apache.iceberg.exceptions.ValidationException;
 final class NamespaceCatalogAdapter {
   @FunctionalInterface
   interface CheckedCall<T> {
-    T execute() throws NamespaceMetadataException;
+    T execute() throws CatalogOperationException;
   }
 
   private NamespaceCatalogAdapter() {}
@@ -31,23 +31,23 @@ final class NamespaceCatalogAdapter {
   static <T> T execute(CheckedCall<T> call) {
     try {
       return call.execute();
-    } catch (NamespaceMetadataInvalidRequestException failure) {
+    } catch (InvalidRequestException failure) {
       throw new ValidationException(failure, "%s", failure.getMessage());
-    } catch (NamespaceMetadataUnauthenticatedException failure) {
+    } catch (AuthenticationRequiredException failure) {
       throw new NotAuthorizedException(failure, "Namespace authentication required");
-    } catch (NamespaceMetadataForbiddenException failure) {
+    } catch (PermissionDeniedException failure) {
       throw new ForbiddenException(failure, "Namespace access denied");
-    } catch (NamespaceMetadataNotFoundException failure) {
+    } catch (NotFoundException failure) {
       throw new NoSuchNamespaceException(failure, "Namespace metadata does not exist");
-    } catch (NamespaceMetadataAlreadyExistsException failure) {
+    } catch (DuplicateCreationException failure) {
       throw new AlreadyExistsException(failure, "Namespace already exists");
-    } catch (NamespaceMetadataNotEmptyException failure) {
+    } catch (NotEmptyException failure) {
       throw new NamespaceNotEmptyException(failure, "Namespace contains tables or views");
-    } catch (NamespaceMetadataConcurrentModificationException failure) {
+    } catch (VersionConflictException failure) {
       throw new CommitFailedException(failure, "Namespace metadata changed concurrently");
-    } catch (NamespaceMetadataMutationUncertainException failure) {
+    } catch (MutationUncertainException failure) {
       throw new CommitStateUnknownException(failure);
-    } catch (NamespaceMetadataException failure) {
+    } catch (CatalogOperationException failure) {
       throw new RESTException(failure, "Namespace request failed");
     }
   }

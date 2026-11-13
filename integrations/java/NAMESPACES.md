@@ -8,7 +8,7 @@ this API. Actual table properties keep precedence:
 Map<String, String> effective = catalog.getEffectiveTableProperties(table);
 ```
 
-The method is public on `OpenHouseCatalog` and declares `NamespaceMetadataException`.
+The method is public on `OpenHouseCatalog` and declares `CatalogOperationException`.
 It performs one explicit, uncached namespace metadata request. Namespace properties supply
 defaults; actual table properties override matching keys. The returned map is an immutable
 defensive copy. Calling `table.properties()` still returns the actual table properties.
@@ -37,8 +37,8 @@ used by other consumers.
 |---|---|
 | `createNamespace(namespace)` | It creates metadata with an empty property map. |
 | `createNamespace(namespace, properties)` | It creates metadata with the supplied properties. |
-| `loadNamespaceMetadata(namespace)` | It returns an immutable defensive property map. |
-| `dropNamespace(namespace)` | It returns true on deletion and false on HTTP 404. The service rejects a nonempty namespace. |
+| `loadNamespaceMetadata(namespace)` | It returns an immutable defensive property map and propagates verified absence as `NoSuchNamespaceException`. |
+| `dropNamespace(namespace)` | It returns true on deletion and false on verified namespace absence. The service rejects a nonempty namespace. |
 | `setProperties(namespace, updates)` | It sends sparse updates and returns whether the response acknowledges any updated keys. Unchanged values acknowledged by the service still return true. |
 | `removeProperties(namespace, removals)` | It returns true if any keys were removed and false if every requested key was already missing. |
 
@@ -53,14 +53,38 @@ namespace.
 ## Recovering from errors
 
 The effective-property method declares concrete checked failures under
-`NamespaceMetadataException`. Iceberg namespace methods expose the corresponding Iceberg runtime
+`CatalogOperationException`. Iceberg namespace methods expose the corresponding Iceberg runtime
 exceptions. Both APIs preserve the cause while distinguishing missing metadata, access failures,
 concurrent edits, and uncertain mutations.
+
+Use `loadNamespaceMetadata` to retrieve namespace properties independently of any table.
+A missing namespace fails that lookup. The effective-property helper supplies empty defaults
+only for a verified missing namespace.
+
+A status alone does not establish absence or rejection. The client validates the Iceberg error
+envelope, its code, its type, and the requested operation. Empty, HTML, mismatched, and
+unrecognized 404 responses fail retrieval and leave deletion uncertain. A confirmed service
+failure is distinct from an uncertain mutation even though both use HTTP 500.
 
 Correct invalid identifiers or property values before trying again. Reauthenticate after an
 authentication rejection, and obtain the required privilege after an access rejection. An existing
 namespace cannot be replaced by create; load it and decide whether an explicit property update
 is appropriate. After a concurrent edit, reload properties before reapplying your intended change.
+Automatic conflict retries are not performed.
+
+The service returns `400/NamespaceNotEmptyException` for a nonempty drop. This catalog also
+accepts the recognized legacy `409/NamespaceNotEmptyException` response, only for drop.
+Confirmed version conflicts use `409/CommitFailedException` as an OpenHouse extension, not a
+requirement of the [Iceberg 1.5.2 REST specification](https://github.com/apache/iceberg/blob/apache-iceberg-1.5.2/open-api/rest-catalog-open-api.yaml).
+The stock Iceberg 1.5 REST client does not preserve these distinctions: its namespace handler
+maps 400 to `BadRequestException` and 409 to `AlreadyExistsException`. Use the OpenHouse catalog
+to receive the operation-specific outcomes described here.
+
+Deploy the HouseTables namespace semantic-error contract before the Tables Service and this
+client. Older error bodies without a semantic type cannot establish reliable absence or
+rejection. Required internal listing failures and service credential or generated-request
+rejections are service failures, rather than missing caller namespaces or caller authorization
+errors.
 
 `CommitStateUnknownException` means a mutation may have completed. It includes local write
 timeouts, interrupted writes, lost connections, and unusable success responses, as well as an
