@@ -52,29 +52,25 @@ import org.springframework.web.bind.annotation.RestController;
       description = "Namespace absent",
       content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class))),
   @ApiResponse(
-      responseCode = "409",
-      description =
-          "Duplicate creation (CREATE only), or confirmed version conflict (OpenHouse extension: CommitFailedException).",
-      content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class))),
-  @ApiResponse(
       responseCode = "422",
       description = "Invalid property update",
       content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class))),
   @ApiResponse(
       responseCode = "500",
-      description =
-          "Confirmed service failure, or uncertain mutation outcome (CommitStateUnknownException).",
-      content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class))),
-  @ApiResponse(
-      responseCode = "503",
-      description = "Dependency unavailable",
+      description = "Namespace operation failed. Read current metadata before repeating a write.",
       content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class)))
 })
 public class IcebergNamespacesController {
   private final NamespacesService namespacesService;
 
   @Operation(tags = "Namespace", summary = "Create a namespace")
-  @ApiResponse(responseCode = "200", description = "Namespace created")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Namespace created"),
+    @ApiResponse(
+        responseCode = "409",
+        description = "Namespace name already exists.",
+        content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class)))
+  })
   @PostMapping
   @Secured(Privileges.Privilege.SYSTEM_ADMIN)
   public NamespaceResponse createNamespace(

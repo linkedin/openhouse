@@ -10,11 +10,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.common.exception.checked.AlreadyExistsException;
-import com.linkedin.openhouse.common.exception.checked.MutationUncertainException;
+import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
-import com.linkedin.openhouse.common.exception.checked.ServiceFailureException;
-import com.linkedin.openhouse.common.exception.checked.UnavailableException;
-import com.linkedin.openhouse.common.exception.checked.VersionConflictException;
 import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
 import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
 import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepository;
@@ -129,14 +126,14 @@ class IcebergNamespacesControllerTest {
   }
 
   @Test
-  void authorizationOutageUsesServiceUnavailableResponse() throws Exception {
+  void authorizationOutageUsesGenericFailureResponse() throws Exception {
     when(authorizationHandler.checkAccessDecision(anyString(), any(DatabaseDto.class), any()))
         .thenThrow(new AuthorizationServiceException("private upstream failure"));
     mvc.perform(get("/v1/catalog_name/namespaces/foo"))
-        .andExpect(status().isServiceUnavailable())
-        .andExpect(jsonPath("$.error.code").value(503))
-        .andExpect(jsonPath("$.error.type").value("ServiceUnavailableException"))
-        .andExpect(jsonPath("$.error.message").value("Namespace metadata service unavailable"));
+        .andExpect(status().isInternalServerError())
+        .andExpect(jsonPath("$.error.code").value(500))
+        .andExpect(jsonPath("$.error.type").value("RESTException"))
+        .andExpect(jsonPath("$.error.message").value("Namespace operation failed"));
   }
 
   @Test
@@ -304,7 +301,7 @@ class IcebergNamespacesControllerTest {
   }
 
   @Test
-  void conflictsPreserveMeaningForEveryAcceptedRoute() throws Exception {
+  void duplicateCreateRetainsConflictResponse() throws Exception {
     when(repository.create("foo", Map.of()))
         .thenThrow(new AlreadyExistsException("Namespace already exists"));
     mvc.perform(
@@ -313,40 +310,47 @@ class IcebergNamespacesControllerTest {
                 .content("{\"namespace\":[\"foo\"]}"))
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.error.type").value("AlreadyExistsException"));
+  }
+
+  @Test
+  void failedUpdateUsesGenericFailureResponse() throws Exception {
     when(repository.updateProperties("namespaces", Map.of(), Set.of()))
-        .thenThrow(new VersionConflictException("Namespace was modified concurrently"));
+        .thenThrow(new NamespaceException("Namespace was modified concurrently"));
     mvc.perform(
             post("/v1/foo/namespaces/namespaces/properties")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{}"))
-        .andExpect(status().isConflict())
-        .andExpect(jsonPath("$.error.type").value("CommitFailedException"));
-    when(repository.getByName("namespaces"))
-        .thenReturn(new NamespaceMetadata("identifier", "namespaces", Map.of()));
-    doThrow(new VersionConflictException("Namespace was modified concurrently"))
-        .when(repository)
-        .delete("namespaces");
-    mvc.perform(delete("/v1/foo/namespaces/namespaces"))
-        .andExpect(status().isConflict())
-        .andExpect(jsonPath("$.error.type").value("CommitFailedException"));
+        .andExpect(status().isInternalServerError())
+        .andExpect(jsonPath("$.error.type").value("RESTException"));
   }
 
   @Test
-  void uncertainMutationUsesReconciliationErrorRatherThanUnavailable() throws Exception {
+  void failedDeleteUsesGenericFailureResponse() throws Exception {
+    when(repository.getByName("namespaces"))
+        .thenReturn(new NamespaceMetadata("identifier", "namespaces", Map.of()));
+    doThrow(new NamespaceException("Namespace was modified concurrently"))
+        .when(repository)
+        .delete("namespaces");
+    mvc.perform(delete("/v1/foo/namespaces/namespaces"))
+        .andExpect(status().isInternalServerError())
+        .andExpect(jsonPath("$.error.type").value("RESTException"));
+  }
+
+  @Test
+  void failedCreateUsesSafeGenericResponse() throws Exception {
     when(repository.create(eq("foo"), any()))
         .thenThrow(
-            new MutationUncertainException(
-                "Namespace mutation outcome is unknown. Reload metadata and reconcile before retrying."));
+            new NamespaceException("secret property value", new IllegalStateException("secret")));
     mvc.perform(
             post("/v1/foo/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"namespace\":[\"foo\"]}"))
         .andExpect(status().isInternalServerError())
-        .andExpect(jsonPath("$.error.type").value("CommitStateUnknownException"))
         .andExpect(
-            jsonPath("$.error.message")
-                .value(
-                    "The mutation outcome is unknown. Reload namespace metadata and reconcile before retrying."));
+            content()
+                .json(
+                    "{\"error\":{\"message\":\"Namespace operation failed\",\"type\":\"RESTException\",\"code\":500}}",
+                    true));
   }
 
   @ParameterizedTest
@@ -365,28 +369,25 @@ class IcebergNamespacesControllerTest {
   }
 
   @Test
-  void upstreamStatusesRemainDistinctAndMessagesStayPrivate() throws Exception {
+  void verifiedNamespaceAbsenceRetainsNotFoundResponse() throws Exception {
     when(repository.getByName("foo")).thenThrow(new NotFoundException("Namespace does not exist"));
     mvc.perform(get("/v1/foo/namespaces/foo"))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.error.type").value("NoSuchNamespaceException"));
+  }
+
+  @Test
+  void failedReadUsesSafeGenericResponse() throws Exception {
     doThrow(
-            new UnavailableException(
+            new NamespaceException(
                 "Namespace metadata service unavailable", new IllegalStateException("secret")))
         .when(repository)
         .getByName("foo");
     mvc.perform(get("/v1/foo/namespaces/foo"))
-        .andExpect(status().isServiceUnavailable())
-        .andExpect(jsonPath("$.error.code").value(503))
+        .andExpect(status().isInternalServerError())
+        .andExpect(jsonPath("$.error.code").value(500))
+        .andExpect(jsonPath("$.error.type").value("RESTException"))
         .andExpect(content().string(not(containsString("secret"))));
-    when(repository.create(anyString(), any()))
-        .thenThrow(new AlreadyExistsException("Namespace already exists"));
-    mvc.perform(
-            post("/v1/foo/namespaces")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"namespace\":[\"foo\"]}"))
-        .andExpect(status().isConflict())
-        .andExpect(jsonPath("$.error.type").value("AlreadyExistsException"));
   }
 
   @Test
@@ -438,12 +439,12 @@ class IcebergNamespacesControllerTest {
         .thenReturn(new NamespaceMetadata("identifier", "foo", Map.of()));
     when(repository.containsEntities("foo"))
         .thenThrow(
-            new ServiceFailureException(
+            new NamespaceException(
                 "secret property value", new IllegalStateException("SQL secret")));
     mvc.perform(delete("/v1/foo/namespaces/foo"))
         .andExpect(status().isInternalServerError())
         .andExpect(jsonPath("$.error.code").value(500))
-        .andExpect(jsonPath("$.error.type").value("ServiceFailureException"))
+        .andExpect(jsonPath("$.error.type").value("RESTException"))
         .andExpect(content().string(not(containsString("secret"))));
     verify(repository, never()).delete(anyString());
   }

@@ -3,9 +3,7 @@ package com.linkedin.openhouse.internal.catalog.repository;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-import com.linkedin.openhouse.common.exception.checked.MutationUncertainException;
 import com.linkedin.openhouse.common.exception.checked.NamespaceException;
-import com.linkedin.openhouse.common.exception.checked.UnavailableException;
 import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import java.time.Duration;
@@ -14,6 +12,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.awaitility.Awaitility;
@@ -24,27 +23,22 @@ import reactor.test.scheduler.VirtualTimeScheduler;
 
 class HouseNamespaceDeadlineTest {
   @Test
-  void readDeadlineCancelsUnavailableRequest() throws Exception {
+  void readDeadlineCancelsRequest() throws Exception {
     NamespaceApi namespaceApi = mock(NamespaceApi.class);
     HouseNamespaceRepository repository =
         new HouseNamespaceRepositoryImpl(namespaceApi, mock(UserTableApi.class));
-    assertDeadline(namespaceApi, () -> repository.getByName("foo"), 30, UnavailableException.class);
+    assertDeadline(namespaceApi, () -> repository.getByName("foo"), 30);
   }
 
   @Test
-  void mutationDeadlineCancelsWithUncertainOutcome() throws Exception {
+  void mutationDeadlineCancelsRequest() throws Exception {
     NamespaceApi namespaceApi = mock(NamespaceApi.class);
     HouseNamespaceRepository repository =
         new HouseNamespaceRepositoryImpl(namespaceApi, mock(UserTableApi.class));
-    assertDeadline(
-        namespaceApi, () -> repository.delete("foo"), 60, MutationUncertainException.class);
+    assertDeadline(namespaceApi, () -> repository.delete("foo"), 60);
   }
 
-  private void assertDeadline(
-      NamespaceApi namespaceApi,
-      Executable operation,
-      int timeoutSeconds,
-      Class<? extends NamespaceException> failureType)
+  private void assertDeadline(NamespaceApi namespaceApi, Executable operation, int timeoutSeconds)
       throws Exception {
     VirtualTimeScheduler clock = VirtualTimeScheduler.getOrSet();
     ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -82,7 +76,9 @@ class HouseNamespaceDeadlineTest {
       clock.advanceTimeBy(Duration.ofSeconds(timeoutSeconds - 1));
       assertFalse(failure.isDone());
       clock.advanceTimeBy(Duration.ofSeconds(1));
-      assertEquals(failureType, failure.get(10, TimeUnit.SECONDS).getClass());
+      NamespaceException exception = failure.get(10, TimeUnit.SECONDS);
+      assertEquals(NamespaceException.class, exception.getClass());
+      assertInstanceOf(TimeoutException.class, exception.getCause());
       assertEquals(1, subscriptions.get());
       assertEquals(1, cancellations.get());
     } finally {

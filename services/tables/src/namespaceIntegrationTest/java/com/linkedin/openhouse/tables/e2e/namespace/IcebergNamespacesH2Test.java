@@ -7,7 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.linkedin.openhouse.HouseTablesSpringApplication;
-import com.linkedin.openhouse.common.exception.checked.VersionConflictException;
+import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
@@ -199,18 +199,18 @@ class IcebergNamespacesH2Test {
   }
 
   @Test
-  void createVersionConflictSurvivesBothHttpAdapters() throws Exception {
-    doThrow(new VersionConflictException("internal foo", new IllegalStateException("internal bar")))
+  void storageFailureIsSanitizedThroughBothHttpAdapters() throws Exception {
+    doThrow(new NamespaceException("internal foo", new IllegalStateException("internal bar")))
         .when(namespaceStorage)
-        .createNamespace(eq("version_conflict"), anyMap());
+        .createNamespace(eq("foo"), anyMap());
     mvc.perform(
             post("/v1/foo/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"namespace\":[\"version_conflict\"]}"))
-        .andExpect(status().isConflict())
-        .andExpect(jsonPath("$.error.code").value(409))
-        .andExpect(jsonPath("$.error.type").value("CommitFailedException"))
-        .andExpect(jsonPath("$.error.message").value("Namespace was modified concurrently"));
+                .content("{\"namespace\":[\"foo\"]}"))
+        .andExpect(status().isInternalServerError())
+        .andExpect(jsonPath("$.error.code").value(500))
+        .andExpect(jsonPath("$.error.type").value("RESTException"))
+        .andExpect(jsonPath("$.error.message").value("Namespace operation failed"));
   }
 
   @Test
@@ -232,7 +232,7 @@ class IcebergNamespacesH2Test {
     mvc.perform(delete("/v1/foo/namespaces/listing_route"))
         .andExpect(status().isInternalServerError())
         .andExpect(jsonPath("$.error.code").value(500))
-        .andExpect(jsonPath("$.error.type").value("ServiceFailureException"));
+        .andExpect(jsonPath("$.error.type").value("RESTException"));
     assertEquals(
         1,
         new JdbcTemplate(dataSource)

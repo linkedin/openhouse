@@ -13,9 +13,6 @@ import com.linkedin.openhouse.common.exception.UnsupportedClientOperationExcepti
 import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
 import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
 import com.linkedin.openhouse.common.exception.checked.NamespaceException;
-import com.linkedin.openhouse.common.exception.checked.NotEmptyException;
-import com.linkedin.openhouse.common.exception.checked.PermissionDeniedException;
-import com.linkedin.openhouse.common.exception.checked.UnavailableException;
 import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
 import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
@@ -32,6 +29,8 @@ import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
+import com.linkedin.openhouse.tables.exception.NotEmptyException;
+import com.linkedin.openhouse.tables.exception.PermissionDeniedException;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.readbridge.ClientCapabilityGate;
@@ -129,7 +128,7 @@ public class TablesServiceImpl implements TablesService, NamespacesService {
       authorizationUtils.checkDatabasePrivilege(
           namespace.toLowerCase(Locale.ROOT), principal, privilege);
     } catch (AuthorizationServiceException exception) {
-      throw new UnavailableException("Authorization service unavailable", exception);
+      throw new NamespaceException("Authorization service unavailable", exception);
     } catch (AccessDeniedException exception) {
       throw new PermissionDeniedException("Access denied", exception);
     }
