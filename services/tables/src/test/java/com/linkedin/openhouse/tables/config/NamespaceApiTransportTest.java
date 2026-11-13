@@ -4,12 +4,12 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
+import com.linkedin.openhouse.common.exception.checked.MutationUncertainException;
+import com.linkedin.openhouse.common.exception.checked.ServiceFailureException;
 import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.model.CreateNamespaceRequestBody;
 import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepository;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceMutationUncertainException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceResponseException;
 import com.sun.net.httpserver.HttpServer;
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -39,9 +39,7 @@ class NamespaceApiTransportTest {
     withResponse(
         "{\"namespaceUuid\":\"foo\",\"namespaceName\":\"foo\"}",
         repository ->
-            assertEquals(
-                Collections.emptyMap(),
-                repository.findByName("foo").orElseThrow().getProperties()));
+            assertEquals(Collections.emptyMap(), repository.getByName("foo").getProperties()));
   }
 
   @Test
@@ -49,8 +47,7 @@ class NamespaceApiTransportTest {
     withResponse(
         "{\"namespaceUuid\":\"foo\",\"namespaceName\":\"foo\",\"properties\":{\"a\":1}}",
         repository ->
-            assertThrows(
-                HouseNamespaceResponseException.class, () -> repository.findByName("foo")));
+            assertThrows(ServiceFailureException.class, () -> repository.getByName("foo")));
   }
 
   @Test
@@ -71,7 +68,7 @@ class NamespaceApiTransportTest {
         "{\"updated\":[1],\"removed\":[],\"missing\":[]}",
         repository ->
             assertThrows(
-                HouseNamespaceMutationUncertainException.class,
+                MutationUncertainException.class,
                 () ->
                     repository.updateProperties(
                         "foo", Collections.emptyMap(), Collections.emptySet())));

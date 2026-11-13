@@ -1,7 +1,7 @@
 # Managing namespace defaults
 
 Tables Service exposes independent namespace metadata through four operations from the
-[Apache Iceberg REST catalog specification](https://github.com/apache/iceberg/blob/main/open-api/rest-catalog-open-api.yaml).
+[Apache Iceberg 1.5.2 REST catalog specification](https://github.com/apache/iceberg/blob/apache-iceberg-1.5.2/open-api/rest-catalog-open-api.yaml).
 Use namespace properties for shared defaults that consumers explicitly opt into when resolving
 effective table properties. Explicit table values win. Creating or changing defaults does not
 rewrite tables, and ordinary table operations continue to work without namespace metadata.
@@ -45,10 +45,20 @@ return 401, and insufficient privileges return 403. A missing namespace returns 
 may treat that absence as having no defaults, but an unavailable dependency is an error, not
 evidence that defaults are absent.
 
+Only a verified missing-namespace response establishes absence. A failed required table or view
+listing, rejected service credentials, or rejection of a service-constructed request returns a
+service failure. These failures require investigation of the service, not changes to the caller's
+namespace or credentials.
+
 Conflicts require different actions. An existing name means creation did not replace its
 metadata. A nonempty namespace must have its tables and views moved or removed before drop.
 A concurrent property change requires reloading the current metadata and deciding whether
 the intended update still applies.
+
+Nonempty drop returns `400/NamespaceNotEmptyException`. Confirmed version conflicts return
+`409/CommitFailedException` as an OpenHouse extension to the pinned REST specification.
+The OpenHouse Java 1.5 catalog preserves these distinct outcomes; the stock Iceberg namespace
+client treats 400 as a bad request and 409 as an existing namespace.
 
 An uncertain mutation returns `CommitStateUnknownException`. The operation may have committed
 even though the response was lost or unusable. Reload metadata and reconcile the observed
@@ -72,6 +82,10 @@ Administrators must deploy the HouseTables internal namespace API and apply the
 before serving namespace requests. LinkedIn rollout also requires a separate `SYSTEM_ADMIN`
 authorization-handler change. Existing table creation, loading, updates, deletion, and database
 listing perform zero namespace-metadata lookups.
+
+Deploy the HouseTables namespace semantic-error contract before this service. Older untyped
+errors cannot distinguish confirmed absence or rejection from a failed route or an uncertain
+mutation, so this service rejects them rather than assuming the operation's outcome.
 
 ## Generated client and validation
 

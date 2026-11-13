@@ -2,16 +2,15 @@ package com.linkedin.openhouse.tables.controller;
 
 import static com.linkedin.openhouse.common.security.AuthenticationUtils.extractAuthenticatedUserPrincipal;
 
+import com.linkedin.openhouse.common.exception.checked.DomainException;
 import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
 import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException;
 import com.linkedin.openhouse.tables.api.spec.namespace.CreateNamespaceRequest;
 import com.linkedin.openhouse.tables.api.spec.namespace.NamespaceErrorResponse;
 import com.linkedin.openhouse.tables.api.spec.namespace.NamespaceResponse;
 import com.linkedin.openhouse.tables.api.spec.namespace.UpdateNamespacePropertiesRequest;
 import com.linkedin.openhouse.tables.api.spec.namespace.UpdateNamespacePropertiesResponse;
 import com.linkedin.openhouse.tables.authorization.Privileges;
-import com.linkedin.openhouse.tables.exception.NamespaceException;
 import com.linkedin.openhouse.tables.services.NamespacesService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -38,7 +37,7 @@ import org.springframework.web.bind.annotation.RestController;
 @ApiResponses({
   @ApiResponse(
       responseCode = "400",
-      description = "Invalid request",
+      description = "Invalid request, or a nonempty DROP (NamespaceNotEmptyException).",
       content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class))),
   @ApiResponse(
       responseCode = "401",
@@ -54,7 +53,8 @@ import org.springframework.web.bind.annotation.RestController;
       content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class))),
   @ApiResponse(
       responseCode = "409",
-      description = "Namespace conflict",
+      description =
+          "Duplicate creation (CREATE only), or confirmed version conflict (OpenHouse extension: CommitFailedException).",
       content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class))),
   @ApiResponse(
       responseCode = "422",
@@ -62,7 +62,8 @@ import org.springframework.web.bind.annotation.RestController;
       content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class))),
   @ApiResponse(
       responseCode = "500",
-      description = "Service failure",
+      description =
+          "Confirmed service failure, or uncertain mutation outcome (CommitStateUnknownException).",
       content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class))),
   @ApiResponse(
       responseCode = "503",
@@ -78,7 +79,7 @@ public class IcebergNamespacesController {
   @Secured(Privileges.Privilege.SYSTEM_ADMIN)
   public NamespaceResponse createNamespace(
       @PathVariable String prefix, @Valid @RequestBody CreateNamespaceRequest request)
-      throws NamespaceException, HouseNamespaceException {
+      throws DomainException {
     NamespaceMetadata result =
         namespacesService.createNamespace(
             request.getNamespace(), request.getProperties(), extractAuthenticatedUserPrincipal());
@@ -91,8 +92,7 @@ public class IcebergNamespacesController {
   @GetMapping("/{namespace}")
   @Secured(Privileges.Privilege.GET_TABLE_METADATA)
   public NamespaceResponse loadNamespaceMetadata(
-      @PathVariable String prefix, @PathVariable String namespace)
-      throws NamespaceException, HouseNamespaceException {
+      @PathVariable String prefix, @PathVariable String namespace) throws DomainException {
     NamespaceMetadata result =
         namespacesService.loadNamespaceMetadata(namespace, extractAuthenticatedUserPrincipal());
     return new NamespaceResponse(
@@ -107,7 +107,7 @@ public class IcebergNamespacesController {
       @PathVariable String prefix,
       @PathVariable String namespace,
       @Valid @RequestBody UpdateNamespacePropertiesRequest request)
-      throws NamespaceException, HouseNamespaceException {
+      throws DomainException {
     NamespacePropertyUpdate result =
         namespacesService.updateNamespaceProperties(
             namespace,
@@ -120,11 +120,14 @@ public class IcebergNamespacesController {
 
   @Operation(tags = "Namespace", summary = "Drop an empty namespace")
   @ApiResponse(responseCode = "204", description = "Namespace dropped")
+  @ApiResponse(
+      responseCode = "400",
+      description = "Invalid request or nonempty namespace (NamespaceNotEmptyException)",
+      content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class)))
   @DeleteMapping("/{namespace}")
   @Secured(Privileges.Privilege.SYSTEM_ADMIN)
   public ResponseEntity<Void> dropNamespace(
-      @PathVariable String prefix, @PathVariable String namespace)
-      throws NamespaceException, HouseNamespaceException {
+      @PathVariable String prefix, @PathVariable String namespace) throws DomainException {
     namespacesService.dropNamespace(namespace, extractAuthenticatedUserPrincipal());
     return ResponseEntity.noContent().build();
   }

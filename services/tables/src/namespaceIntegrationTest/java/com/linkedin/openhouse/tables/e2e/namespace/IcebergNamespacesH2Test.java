@@ -7,9 +7,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.linkedin.openhouse.HouseTablesSpringApplication;
+import com.linkedin.openhouse.common.exception.checked.VersionConflictException;
 import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
+import com.linkedin.openhouse.housetables.services.NamespacesService;
 import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepositoryImpl;
 import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
@@ -26,6 +28,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
@@ -55,7 +58,9 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 class IcebergNamespacesH2Test {
   @LocalServerPort private int port;
   @Autowired private DataSource dataSource;
+  @SpyBean private NamespacesService namespaceStorage;
   private MockMvc mvc;
+  private TablesServiceImpl service;
   private AuthorizationHandler authorizationHandler;
 
   @BeforeEach
@@ -67,7 +72,7 @@ class IcebergNamespacesH2Test {
         .thenReturn(true);
     AuthorizationUtils authorizationUtils = new AuthorizationUtils();
     ReflectionTestUtils.setField(authorizationUtils, "authorizationHandler", authorizationHandler);
-    TablesServiceImpl service = new TablesServiceImpl();
+    service = new TablesServiceImpl();
     ReflectionTestUtils.setField(service, "authorizationUtils", authorizationUtils);
     ReflectionTestUtils.setField(
         service,
@@ -92,7 +97,9 @@ class IcebergNamespacesH2Test {
             post("/v1/foo/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"namespace\":[\"ROUNDTRIP\"]}"))
-        .andExpect(status().isConflict());
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.error.code").value(409))
+        .andExpect(jsonPath("$.error.type").value("AlreadyExistsException"));
     mvc.perform(
             post("/v1/foo/namespaces/ROUNDTRIP/properties")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -108,7 +115,10 @@ class IcebergNamespacesH2Test {
                     "{\"namespace\":[\"RoundTrip\"],\"properties\":{\"a\":\"1\",\"c\":\"3\"}}",
                     true));
     mvc.perform(delete("/v1/foo/namespaces/roundtrip")).andExpect(status().isNoContent());
-    mvc.perform(get("/v1/foo/namespaces/roundtrip")).andExpect(status().isNotFound());
+    mvc.perform(get("/v1/foo/namespaces/roundtrip"))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.error.code").value(404))
+        .andExpect(jsonPath("$.error.type").value("NoSuchNamespaceException"));
   }
 
   @ParameterizedTest
@@ -166,7 +176,8 @@ class IcebergNamespacesH2Test {
         namespace,
         entityType);
     mvc.perform(delete("/v1/foo/namespaces/" + namespace))
-        .andExpect(status().isConflict())
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.error.code").value(400))
         .andExpect(jsonPath("$.error.type").value("NamespaceNotEmptyException"));
     mvc.perform(get("/v1/foo/namespaces/" + namespace)).andExpect(status().isOk());
     assertEquals(
@@ -185,5 +196,48 @@ class IcebergNamespacesH2Test {
         1,
         database.queryForObject(
             "SELECT COUNT(*) FROM user_table_row WHERE database_id = 'legacy'", Integer.class));
+  }
+
+  @Test
+  void createVersionConflictSurvivesBothHttpAdapters() throws Exception {
+    doThrow(new VersionConflictException("internal foo", new IllegalStateException("internal bar")))
+        .when(namespaceStorage)
+        .createNamespace(eq("version_conflict"), anyMap());
+    mvc.perform(
+            post("/v1/foo/namespaces")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"namespace\":[\"version_conflict\"]}"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.error.code").value(409))
+        .andExpect(jsonPath("$.error.type").value("CommitFailedException"))
+        .andExpect(jsonPath("$.error.message").value("Namespace was modified concurrently"));
+  }
+
+  @Test
+  void wrongListingRoutePreventsDropWithServiceFailure() throws Exception {
+    mvc.perform(
+            post("/v1/foo/namespaces")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"namespace\":[\"listing_route\"]}"))
+        .andExpect(status().isOk());
+    ApiClient namespaceClient = new ApiClient();
+    namespaceClient.setBasePath("http://localhost:" + port);
+    ApiClient listingClient = new ApiClient();
+    listingClient.setBasePath("http://localhost:" + port + "/foo");
+    ReflectionTestUtils.setField(
+        service,
+        "namespaceRepository",
+        new HouseNamespaceRepositoryImpl(
+            new NamespaceApi(namespaceClient), new UserTableApi(listingClient)));
+    mvc.perform(delete("/v1/foo/namespaces/listing_route"))
+        .andExpect(status().isInternalServerError())
+        .andExpect(jsonPath("$.error.code").value(500))
+        .andExpect(jsonPath("$.error.type").value("ServiceFailureException"));
+    assertEquals(
+        1,
+        new JdbcTemplate(dataSource)
+            .queryForObject(
+                "SELECT COUNT(*) FROM catalog_namespaces WHERE namespace_name = 'listing_route'",
+                Integer.class));
   }
 }

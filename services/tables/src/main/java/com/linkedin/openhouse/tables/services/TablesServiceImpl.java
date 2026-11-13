@@ -10,13 +10,17 @@ import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
+import com.linkedin.openhouse.common.exception.checked.DomainException;
+import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
+import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
+import com.linkedin.openhouse.common.exception.checked.NotEmptyException;
+import com.linkedin.openhouse.common.exception.checked.PermissionDeniedException;
+import com.linkedin.openhouse.common.exception.checked.UnavailableException;
 import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
 import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepository;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceNotFoundException;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
@@ -28,12 +32,6 @@ import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
-import com.linkedin.openhouse.tables.exception.InvalidNamespaceException;
-import com.linkedin.openhouse.tables.exception.InvalidNamespacePropertiesException;
-import com.linkedin.openhouse.tables.exception.NamespaceAccessDeniedException;
-import com.linkedin.openhouse.tables.exception.NamespaceAuthorizationUnavailableException;
-import com.linkedin.openhouse.tables.exception.NamespaceException;
-import com.linkedin.openhouse.tables.exception.NamespaceNotEmptyException;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.readbridge.ClientCapabilityGate;
@@ -83,9 +81,9 @@ public class TablesServiceImpl implements TablesService, NamespacesService {
   @Override
   public NamespaceMetadata createNamespace(
       List<String> namespace, Map<String, String> properties, String principal)
-      throws NamespaceException, HouseNamespaceException {
+      throws DomainException {
     if (namespace.size() != 1) {
-      throw new InvalidNamespaceException(
+      throw new InvalidRequestException(
           String.format("Namespace '%s' must contain exactly one level", namespace));
     }
     authorizeNamespace(namespace.get(0), principal, Privileges.SYSTEM_ADMIN);
@@ -94,39 +92,36 @@ public class TablesServiceImpl implements TablesService, NamespacesService {
 
   @Override
   public NamespaceMetadata loadNamespaceMetadata(String namespace, String principal)
-      throws NamespaceException, HouseNamespaceException {
+      throws DomainException {
     authorizeNamespace(namespace, principal, Privileges.GET_TABLE_METADATA);
-    return namespaceRepository
-        .findByName(namespace)
-        .orElseThrow(HouseNamespaceNotFoundException::new);
+    return namespaceRepository.getByName(namespace);
   }
 
   @Override
   public NamespacePropertyUpdate updateNamespaceProperties(
       String namespace, Map<String, String> updates, Set<String> removals, String principal)
-      throws NamespaceException, HouseNamespaceException {
+      throws DomainException {
     authorizeNamespace(namespace, principal, Privileges.SYSTEM_ADMIN);
     if (!Collections.disjoint(updates.keySet(), removals)) {
-      throw new InvalidNamespacePropertiesException("Updates and removals must use disjoint keys");
+      throw new InvalidPropertyUpdateException("Updates and removals must use disjoint keys");
     }
     return namespaceRepository.updateProperties(namespace, updates, removals);
   }
 
   @Override
-  public void dropNamespace(String namespace, String principal)
-      throws NamespaceException, HouseNamespaceException {
+  public void dropNamespace(String namespace, String principal) throws DomainException {
     authorizeNamespace(namespace, principal, Privileges.SYSTEM_ADMIN);
-    namespaceRepository.findByName(namespace).orElseThrow(HouseNamespaceNotFoundException::new);
+    namespaceRepository.getByName(namespace);
     if (namespaceRepository.containsEntities(namespace)) {
-      throw new NamespaceNotEmptyException("Namespace contains tables or views");
+      throw new NotEmptyException("Namespace contains tables or views");
     }
     namespaceRepository.delete(namespace);
   }
 
   private void authorizeNamespace(String namespace, String principal, Privileges privilege)
-      throws NamespaceException {
+      throws DomainException {
     if (!namespace.matches("[a-zA-Z0-9_]{1,128}")) {
-      throw new InvalidNamespaceException(
+      throw new InvalidRequestException(
           String.format(
               "Namespace '%s' must contain 1 to 128 letters, digits, or underscores", namespace));
     }
@@ -134,10 +129,9 @@ public class TablesServiceImpl implements TablesService, NamespacesService {
       authorizationUtils.checkDatabasePrivilege(
           namespace.toLowerCase(Locale.ROOT), principal, privilege);
     } catch (AuthorizationServiceException exception) {
-      throw new NamespaceAuthorizationUnavailableException(
-          "Authorization service unavailable", exception);
+      throw new UnavailableException("Authorization service unavailable", exception);
     } catch (AccessDeniedException exception) {
-      throw new NamespaceAccessDeniedException("Access denied", exception);
+      throw new PermissionDeniedException("Access denied", exception);
     }
   }
 

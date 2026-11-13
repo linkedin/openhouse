@@ -58,7 +58,11 @@ public class NamespaceErrorFilter extends OncePerRequestFilter {
           wrapped.getOutputStream(),
           new NamespaceErrorResponse(
               new NamespaceError(
-                  "Namespace request failed", "RESTException", wrapped.getStatus())));
+                  "Namespace request failed",
+                  wrapped.getStatus() == 401
+                      ? "NotAuthorizedException"
+                      : wrapped.getStatus() == 403 ? "ForbiddenException" : "RESTException",
+                  wrapped.getStatus())));
     }
     wrapped.copyBodyToResponse();
   }

@@ -2,10 +2,10 @@ package com.linkedin.openhouse.housetables.e2e.namespace;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.linkedin.openhouse.common.exception.checked.DomainException;
+import com.linkedin.openhouse.common.exception.checked.VersionConflictException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.UserTableHtsJdbcRepository;
-import com.linkedin.openhouse.housetables.services.NamespaceConcurrentModificationException;
-import com.linkedin.openhouse.housetables.services.NamespaceMetadataException;
 import com.linkedin.openhouse.housetables.services.NamespacesService;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -186,9 +186,8 @@ class NamespaceMysqlWorkloadTest {
                               try {
                                 operation.call();
                                 successes.incrementAndGet();
-                              } catch (NamespaceMetadataException exception) {
-                                assertThat(exception)
-                                    .isInstanceOf(NamespaceConcurrentModificationException.class);
+                              } catch (DomainException exception) {
+                                assertThat(exception).isInstanceOf(VersionConflictException.class);
                                 conflicts.incrementAndGet();
                               } finally {
                                 durations.add(System.nanoTime() - started);
