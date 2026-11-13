@@ -4,12 +4,12 @@ import static com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsCons
 import static com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsConstant.VIEW_METADATA_RETRIEVAL_LATENCY;
 import static com.linkedin.openhouse.internal.catalog.InternalCatalogMetricsConstant.VIEW_METADATA_UPDATE_LATENCY;
 import static com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils.getCanonicalFieldName;
+import static com.linkedin.openhouse.internal.catalog.view.ViewSystemProperties.isSystemProperty;
 
 import com.linkedin.openhouse.cluster.metrics.micrometer.MetricsReporter;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.internal.catalog.CatalogConstants;
 import com.linkedin.openhouse.internal.catalog.fileio.FileIOManager;
-import com.linkedin.openhouse.internal.catalog.mapper.HouseTableSerdeUtils;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.internal.catalog.repository.exception.HouseTableConcurrentUpdateException;
@@ -59,8 +59,6 @@ import org.apache.iceberg.view.ViewVersion;
 @Slf4j
 public class ViewCommitEngineImpl implements ViewCommitEngine {
 
-  private static final String SOURCE_DIALECT_SUMMARY_KEY = "sourceDialect";
-
   private static final String OPERATION_SUMMARY_KEY = "operation";
   private static final String CREATE_OPERATION = "create";
   private static final String REPLACE_OPERATION = "replace";
@@ -84,15 +82,17 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
 
   private ViewCommitResult commitInternal(ViewCommitIntent intent) {
     requireCreateFlag(intent);
-    rejectServerOwnedProperties(intent);
+    // Create rejects supplied system fields; updates must echo them unchanged.
+    if (intent.getIsCreate()) {
+      rejectServerOwnedProperties(intent);
+    }
     rejectDuplicateDialects(intent);
     return intent.getIsCreate() ? create(intent) : replace(intent);
   }
 
   private void rejectServerOwnedProperties(ViewCommitIntent intent) {
-    for (String key : getUserPropertiesOrEmpty(intent).keySet()) {
-      if (HouseTableSerdeUtils.IS_OH_PREFIXED.test(key)
-          || ViewProperties.REPLACE_DROP_DIALECT_ALLOWED.equals(key)) {
+    for (String key : getPropertiesOrEmpty(intent).keySet()) {
+      if (isSystemProperty(key)) {
         throw new BadRequestException(
             "Property %s is owned by OpenHouse and cannot be set by a caller", key);
       }
@@ -133,7 +133,8 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     String newMetadataLocation = generateMetadataFileLocation(viewLocation, 1);
     String now = String.valueOf(nowMillis());
 
-    Map<String, String> properties = new LinkedHashMap<>(getUserPropertiesOrEmpty(intent));
+    Map<String, String> properties = new LinkedHashMap<>(getPropertiesOrEmpty(intent));
+    properties.put(ViewSystemProperties.SOURCE_DIALECT, intent.getSourceDialect());
     properties.put(ViewProperties.REPLACE_DROP_DIALECT_ALLOWED, "false");
     properties.put(getCanonicalFieldName("tableUUID"), viewUuid);
     properties.put(getCanonicalFieldName("tableId"), intent.getViewId());
@@ -215,8 +216,7 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
   }
 
   private static void requireSourceDialectMatches(ViewCommitIntent intent, ViewMetadata current) {
-    String currentSourceDialect =
-        current.currentVersion().summary().get(SOURCE_DIALECT_SUMMARY_KEY);
+    String currentSourceDialect = current.properties().get(ViewSystemProperties.SOURCE_DIALECT);
     if (isBlank(currentSourceDialect)) {
       throw new IllegalStateException(
           String.format(
@@ -245,10 +245,12 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
             () -> viewMetadataCodec.read(fileIO.newInputFile(capturedBase)),
             VIEW_METADATA_RETRIEVAL_LATENCY);
     requireSourceDialectMatches(intent, current);
+    checkSystemPropertiesUnchanged(intent, current);
 
-    Map<String, String> currentUserProperties = extractUserPropertiesFromMetadata(current);
+    Map<String, String> currentUserProperties = extractUserProperties(current.properties());
+    // Existing merge semantics retain omitted user keys; ALTER UNSET needs a follow-up.
     Map<String, String> userProperties = new LinkedHashMap<>(currentUserProperties);
-    userProperties.putAll(getUserPropertiesOrEmpty(intent));
+    userProperties.putAll(extractUserProperties(getPropertiesOrEmpty(intent)));
 
     if (isUnchanged(intent, current, userProperties, currentUserProperties)) {
       return ViewCommitResult.builder()
@@ -308,8 +310,6 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     return current.schema().sameSchema(intent.getSchema())
         && buildSortedRepresentationKeys(version)
             .equals(buildSortedRepresentationKeys(intent.getRepresentations()))
-        && Objects.equals(
-            version.summary().get(SOURCE_DIALECT_SUMMARY_KEY), intent.getSourceDialect())
         && Objects.equals(version.defaultCatalog(), intent.getDefaultCatalog())
         // Match the normalization used when building metadata.
         && Objects.equals(
@@ -401,9 +401,6 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
     if (intent.getDefaultCatalog() != null) {
       builder.defaultCatalog(intent.getDefaultCatalog());
     }
-    if (intent.getSourceDialect() != null) {
-      builder.putSummary(SOURCE_DIALECT_SUMMARY_KEY, intent.getSourceDialect());
-    }
     return builder.build();
   }
 
@@ -423,22 +420,41 @@ public class ViewCommitEngineImpl implements ViewCommitEngine {
         .build();
   }
 
-  private static Map<String, String> getUserPropertiesOrEmpty(ViewCommitIntent intent) {
+  private static Map<String, String> getPropertiesOrEmpty(ViewCommitIntent intent) {
     return intent.getViewProperties() == null ? Collections.emptyMap() : intent.getViewProperties();
   }
 
-  /** Excludes OpenHouse fields and the server-owned dialect policy. */
-  private static Map<String, String> extractUserPropertiesFromMetadata(ViewMetadata metadata) {
+  private static void checkSystemPropertiesUnchanged(
+      ViewCommitIntent intent, ViewMetadata current) {
+    if (!systemProperties(current.properties())
+        .equals(systemProperties(getPropertiesOrEmpty(intent)))) {
+      throw new ViewSystemPropertiesMismatchException();
+    }
+  }
+
+  private static Map<String, String> systemProperties(Map<String, String> properties) {
+    Map<String, String> result = new LinkedHashMap<>();
+    properties.forEach(
+        (key, value) -> {
+          if (isSystemProperty(key)) {
+            String normalized = key.toLowerCase(Locale.ROOT);
+            if (result.containsKey(normalized)) {
+              throw new ViewSystemPropertiesMismatchException();
+            }
+            result.put(normalized, value);
+          }
+        });
+    return result;
+  }
+
+  private static Map<String, String> extractUserProperties(Map<String, String> properties) {
     Map<String, String> userProperties = new LinkedHashMap<>();
-    metadata
-        .properties()
-        .forEach(
-            (key, value) -> {
-              if (!HouseTableSerdeUtils.IS_OH_PREFIXED.test(key)
-                  && !ViewProperties.REPLACE_DROP_DIALECT_ALLOWED.equals(key)) {
-                userProperties.put(key, value);
-              }
-            });
+    properties.forEach(
+        (key, value) -> {
+          if (!isSystemProperty(key)) {
+            userProperties.put(key, value);
+          }
+        });
     return userProperties;
   }
 

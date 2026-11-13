@@ -378,6 +378,95 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertTrue(harness.metadataFiles().isEmpty());
   }
 
+  @ParameterizedTest
+  @MethodSource("systemPropertyEdits")
+  void replaceRejectsSystemPropertyEditsBeforeNoOpDetection(String key, String edit) {
+    harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
+    HouseTable base = captureNeutral();
+    Map<String, String> properties =
+        ViewTestFixtures.replacementProperties(base, ViewTestFixtures.userProperties("a", "1"));
+    if ("empty".equals(edit)) {
+      properties.clear();
+    } else if ("remove".equals(edit)) {
+      properties.remove(key);
+    } else {
+      properties.put(key, "private-value");
+    }
+    int files = harness.metadataFiles().size();
+    int saves = harness.getHouseTableRepository().getSaveViewCalls();
+    int writes = harness.codecWrites();
+    Map<String, String> submitted = "null".equals(edit) ? null : properties;
+
+    ViewSystemPropertiesMismatchException failure =
+        Assertions.assertThrows(
+            ViewSystemPropertiesMismatchException.class,
+            () ->
+                harness
+                    .getViewCommitEngine()
+                    .commit(
+                        ViewTestFixtures.baseIntent(root, false, base)
+                            .viewProperties(submitted)
+                            .build()));
+
+    Assertions.assertEquals(
+        "System view properties cannot be added, changed or removed", failure.getMessage());
+    Assertions.assertEquals(files, harness.metadataFiles().size());
+    Assertions.assertEquals(saves, harness.getHouseTableRepository().getSaveViewCalls());
+    Assertions.assertEquals(writes, harness.codecWrites());
+    Assertions.assertEquals(base, captureNeutral());
+  }
+
+  private static Stream<Arguments> systemPropertyEdits() {
+    return Stream.of(
+        Arguments.of("openhouse.tableUUID", "change"),
+        Arguments.of("openhouse.tableCreator", "change"),
+        Arguments.of("openhouse.lastModifiedTime", "change"),
+        Arguments.of("openhouse.tableLocation", "remove"),
+        Arguments.of("replace.drop-dialect.allowed", "change"),
+        Arguments.of("replace.drop-dialect.allowed", "remove"),
+        Arguments.of("openhouse.extra", "add"),
+        Arguments.of("policies", "add"),
+        Arguments.of("PoLiCiEs", "add"),
+        Arguments.of("OpenHouse.tableUUID", "change"),
+        Arguments.of("Replace.Drop-Dialect.Allowed", "change"),
+        Arguments.of("", "empty"),
+        Arguments.of("", "null"));
+  }
+
+  @ParameterizedTest
+  @org.junit.jupiter.params.provider.ValueSource(
+      strings = {"OpenHouse.tableUUID", "PoLiCiEs", "Replace.Drop-Dialect.Allowed"})
+  void createRejectsSystemPropertyCaseVariants(String key) {
+    Assertions.assertThrows(
+        BadRequestException.class,
+        () ->
+            harness
+                .getViewCommitEngine()
+                .commit(
+                    ViewTestFixtures.baseIntent(root, true, null)
+                        .viewProperties(Collections.singletonMap(key, "value"))
+                        .build()));
+    Assertions.assertTrue(harness.metadataFiles().isEmpty());
+    Assertions.assertEquals(0, harness.getHouseTableRepository().getSaveViewCalls());
+  }
+
+  @Test
+  void replaceComparesSystemNamesIgnoringCaseButValuesExactly() {
+    harness.getViewCommitEngine().commit(ViewTestFixtures.createIntent(root, null));
+    HouseTable base = captureNeutral();
+    Map<String, String> properties = new LinkedHashMap<>();
+    ViewTestFixtures.replacementProperties(base, Collections.emptyMap())
+        .forEach((key, value) -> properties.put(key.toUpperCase(java.util.Locale.ROOT), value));
+    ViewCommitIntent intent =
+        ViewTestFixtures.baseIntent(root, false, base).viewProperties(properties).build();
+    Assertions.assertFalse(harness.getViewCommitEngine().commit(intent).isMetadataChanged());
+    properties.put(
+        "OPENHOUSE.TABLECREATOR", ViewTestFixtures.CREATOR.toUpperCase(java.util.Locale.ROOT));
+    Assertions.assertThrows(
+        ViewSystemPropertiesMismatchException.class,
+        () -> harness.getViewCommitEngine().commit(intent));
+  }
+
   @Test
   void createWithoutTheSuppliedIdentityFailsInsteadOfMintingOne() {
     assertCreateRejectsMissing(builder -> builder.viewUuid(null), "viewUuid");
@@ -644,9 +733,8 @@ public class ViewCommitEngineCommitTest {
         writesAfterCreate, harness.codecWrites(), "neither replay may ask the codec to write");
   }
 
-  /** Neither null nor empty properties may be read as an instruction to clear stored ones. */
   @Test
-  void nullAndEmptyViewPropertiesAreTheSameSubmissionAndPreserveStoredOnes() {
+  void omittingUserPropertiesPreservesStoredOnes() {
     Map<String, String> initial = new LinkedHashMap<>();
     initial.put("a", "1");
     initial.put("keep", "yes");
@@ -667,18 +755,19 @@ public class ViewCommitEngineCommitTest {
             .getViewCommitEngine()
             .commit(
                 ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
-                    .viewProperties(null)
+                    .viewProperties(
+                        ViewTestFixtures.replacementProperties(base, Collections.emptyMap()))
                     .build());
     Assertions.assertFalse(
-        replayedWithNull.isMetadataChanged(),
-        "omitting properties is not a change; it certainly is not a request to delete them");
+        replayedWithNull.isMetadataChanged(), "omitting user properties preserves them");
 
     ViewCommitResult replayedWithEmpty =
         harness
             .getViewCommitEngine()
             .commit(
                 ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
-                    .viewProperties(Collections.emptyMap())
+                    .viewProperties(
+                        ViewTestFixtures.replacementProperties(base, Collections.emptyMap()))
                     .build());
     Assertions.assertFalse(
         replayedWithEmpty.isMetadataChanged(), "an empty map means exactly what null meant");
@@ -737,7 +826,9 @@ public class ViewCommitEngineCommitTest {
             .getViewCommitEngine()
             .commit(
                 ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
-                    .viewProperties(ViewTestFixtures.userProperties("a", "2"))
+                    .viewProperties(
+                        ViewTestFixtures.replacementProperties(
+                            base, ViewTestFixtures.userProperties("a", "2")))
                     .build());
 
     Assertions.assertFalse(updated.isCreated());
@@ -768,7 +859,9 @@ public class ViewCommitEngineCommitTest {
             .getViewCommitEngine()
             .commit(
                 ViewTestFixtures.baseIntent(root, Boolean.FALSE, base)
-                    .viewProperties(ViewTestFixtures.userProperties("a", "2"))
+                    .viewProperties(
+                        ViewTestFixtures.replacementProperties(
+                            base, ViewTestFixtures.userProperties("a", "2")))
                     .build());
 
     Map<String, String> properties =
@@ -851,7 +944,7 @@ public class ViewCommitEngineCommitTest {
         "the persisted schema must be the submitted one after changing " + changedField);
     Assertions.assertEquals(
         intent.getSourceDialect(),
-        persisted.currentVersion().summary().get(ViewTestFixtures.SOURCE_DIALECT_SUMMARY_KEY),
+        persisted.properties().get(ViewTestFixtures.SOURCE_DIALECT_KEY),
         "the persisted source dialect must be the submitted one after changing " + changedField);
     Assertions.assertEquals(
         intent.getDefaultCatalog(),
@@ -1027,9 +1120,8 @@ public class ViewCommitEngineCommitTest {
         source,
         harness
             .readMetadata(created.getPointer().getMetadataLocation())
-            .currentVersion()
-            .summary()
-            .get(ViewTestFixtures.SOURCE_DIALECT_SUMMARY_KEY),
+            .properties()
+            .get(ViewTestFixtures.SOURCE_DIALECT_KEY),
         "CREATE persists the source verbatim");
     HouseTable base = captureNeutral();
     int savesAfterCreate = harness.getHouseTableRepository().getSaveViewCalls();
@@ -1108,8 +1200,8 @@ public class ViewCommitEngineCommitTest {
 
   /**
    * Writes real metadata through the codec and seeds its pointer without engine CREATE. The
-   * definition matches {@link ViewTestFixtures#replaceIntent} except the source summary key, which
-   * is omitted when {@code storedSource} is null.
+   * definition matches {@link ViewTestFixtures#replaceIntent} except the source property, which is
+   * omitted when {@code storedSource} is null.
    */
   private HouseTable seedViewWithStoredSourceDialect(String storedSource) {
     String location =
@@ -1131,11 +1223,10 @@ public class ViewCommitEngineCommitTest {
                         .sql(ViewTestFixtures.SQL_V1)
                         .dialect(ViewTestFixtures.SPARK_DIALECT)
                         .build()));
-    if (storedSource != null) {
-      version.putSummary(ViewTestFixtures.SOURCE_DIALECT_SUMMARY_KEY, storedSource);
-    }
-
     Map<String, String> properties = new LinkedHashMap<>(ViewTestFixtures.userProperties("a", "1"));
+    if (storedSource != null) {
+      properties.put(ViewTestFixtures.SOURCE_DIALECT_KEY, storedSource);
+    }
     properties.put(ViewProperties.REPLACE_DROP_DIALECT_ALLOWED, "false");
     properties.put(getCanonicalFieldName("tableUUID"), ViewTestFixtures.VIEW_UUID);
     properties.put(getCanonicalFieldName("tableId"), VIEW);
@@ -1156,14 +1247,13 @@ public class ViewCommitEngineCommitTest {
     harness.getCodec().write(metadata, harness.getFileIO().newOutputFile(metadataLocation));
     harness.getHouseTableRepository().seed(ViewTestFixtures.viewRow(metadataLocation));
 
-    Map<String, String> storedSummary =
-        harness.readMetadata(metadataLocation).currentVersion().summary();
+    Map<String, String> storedProperties = harness.readMetadata(metadataLocation).properties();
     Assertions.assertEquals(
         storedSource != null,
-        storedSummary.containsKey(ViewTestFixtures.SOURCE_DIALECT_SUMMARY_KEY),
+        storedProperties.containsKey(ViewTestFixtures.SOURCE_DIALECT_KEY),
         "the fixture must persist exactly the intended malformed source, or this proves nothing");
     Assertions.assertEquals(
-        storedSource, storedSummary.get(ViewTestFixtures.SOURCE_DIALECT_SUMMARY_KEY));
+        storedSource, storedProperties.get(ViewTestFixtures.SOURCE_DIALECT_KEY));
     return captureNeutral();
   }
 
@@ -1464,10 +1554,7 @@ public class ViewCommitEngineCommitTest {
 
     Assertions.assertEquals(
         ViewTestFixtures.SPARK_DIALECT,
-        createdMetadata
-            .currentVersion()
-            .summary()
-            .get(ViewTestFixtures.SOURCE_DIALECT_SUMMARY_KEY));
+        createdMetadata.properties().get(ViewTestFixtures.SOURCE_DIALECT_KEY));
 
     // Must survive verbatim: they feed structural equality, so a lossy round trip breaks no-op
     // detection too.
@@ -1664,7 +1751,7 @@ public class ViewCommitEngineCommitTest {
     Assertions.assertEquals(Namespace.of(DB), metadata.currentVersion().defaultNamespace());
     Assertions.assertEquals(
         ViewTestFixtures.SPARK_DIALECT,
-        metadata.currentVersion().summary().get(ViewTestFixtures.SOURCE_DIALECT_SUMMARY_KEY));
+        metadata.properties().get(ViewTestFixtures.SOURCE_DIALECT_KEY));
 
     // The whole mapping, not its size: one dialect persisted twice fails inside persistedByDialect.
     Map<String, String> submitted = new LinkedHashMap<>();
@@ -2288,7 +2375,14 @@ public class ViewCommitEngineCommitTest {
     UncheckedIOException thrown =
         Assertions.assertThrows(
             UncheckedIOException.class,
-            () -> harness.getViewCommitEngine().commit(changedReplaceOf(corruptRow)));
+            () ->
+                harness
+                    .getViewCommitEngine()
+                    .commit(
+                        ViewTestFixtures.intentBuilderWithoutCreateFlag(root)
+                            .isCreate(false)
+                            .baseRow(corruptRow)
+                            .build()));
     Assertions.assertTrue(
         thrown.getMessage() != null && thrown.getMessage().contains("Failed to read json file"),
         "the failure is the real json read error: " + thrown.getMessage());

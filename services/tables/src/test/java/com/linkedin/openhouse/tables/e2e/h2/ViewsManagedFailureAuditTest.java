@@ -537,8 +537,8 @@ public class ViewsManagedFailureAuditTest {
 
   /**
    * The server-owned {@code replace.drop-dialect.allowed} view property is rejected by the API
-   * validator as a sanitized 400 on create and replace, before the service is entered: no House
-   * Table capture, authorization, storage allocation or engine commit. Validation runs inside the
+   * validator as a sanitized 400 on POST and PUT-create, before the service is entered: no House
+   * Table capture, authorization, storage allocation, or engine commit. Validation runs inside the
    * handler, so its one FAILED operation event carries the validator's code.
    */
   @ParameterizedTest
@@ -549,7 +549,10 @@ public class ViewsManagedFailureAuditTest {
         ViewModelConstants.fullyPopulatedRequest()
             .toBuilder()
             .baseMetadataLocation(
-                "POST".equals(method) ? null : ViewModelConstants.METADATA_LOCATION)
+                "POST".equals(method)
+                    ? null
+                    : com.linkedin.openhouse.common.api.validator.ValidatorConstants
+                        .INITIAL_TABLE_VERSION)
             .viewProperties(
                 Collections.singletonMap("replace.drop-dialect.allowed", DROP_DIALECT_SENTINEL))
             .build()
@@ -595,10 +598,7 @@ public class ViewsManagedFailureAuditTest {
     verify(opaHandler, never()).checkAccessDecision(any(), any(DatabaseDto.class), any());
     Mockito.verifyNoInteractions(houseTableRepository, viewCommitEngine);
     verify(storageSelector, never()).selectStorage(any(), any());
-    assertFailedOperationAudit(
-        "POST".equals(method) ? ViewOperationType.CREATE : ViewOperationType.REPLACE,
-        "INVALID_VIEW_DEFINITION",
-        "Bad Request");
+    assertFailedOperationAudit(ViewOperationType.CREATE, "INVALID_VIEW_DEFINITION", "Bad Request");
   }
 
   /**
