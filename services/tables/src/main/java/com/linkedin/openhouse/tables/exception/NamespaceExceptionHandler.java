@@ -1,13 +1,16 @@
 package com.linkedin.openhouse.tables.exception;
 
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceAlreadyExistsException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceConcurrentModificationException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceInvalidPropertiesException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceInvalidRequestException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceMutationUncertainException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceNotFoundException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceUnavailableException;
+import com.linkedin.openhouse.common.exception.checked.AlreadyExistsException;
+import com.linkedin.openhouse.common.exception.checked.AuthenticationRequiredException;
+import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
+import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
+import com.linkedin.openhouse.common.exception.checked.MutationUncertainException;
+import com.linkedin.openhouse.common.exception.checked.NotEmptyException;
+import com.linkedin.openhouse.common.exception.checked.NotFoundException;
+import com.linkedin.openhouse.common.exception.checked.PermissionDeniedException;
+import com.linkedin.openhouse.common.exception.checked.ServiceFailureException;
+import com.linkedin.openhouse.common.exception.checked.UnavailableException;
+import com.linkedin.openhouse.common.exception.checked.VersionConflictException;
 import com.linkedin.openhouse.tables.api.spec.namespace.NamespaceErrorResponse;
 import com.linkedin.openhouse.tables.api.spec.namespace.NamespaceErrorResponse.NamespaceError;
 import com.linkedin.openhouse.tables.controller.IcebergNamespacesController;
@@ -30,23 +33,13 @@ public class NamespaceExceptionHandler {
   public static final String RENDERED_ERROR_ATTRIBUTE =
       NamespaceExceptionHandler.class.getName() + ".rendered";
 
-  @ExceptionHandler(InvalidNamespaceException.class)
+  @ExceptionHandler(InvalidRequestException.class)
   public ResponseEntity<NamespaceErrorResponse> handleInvalidNamespace(
-      InvalidNamespaceException exception, HttpServletRequest request) {
+      InvalidRequestException exception, HttpServletRequest request) {
     return respond(HttpStatus.BAD_REQUEST, "BadRequestException", exception.getMessage(), request);
   }
 
-  @ExceptionHandler(HouseNamespaceInvalidRequestException.class)
-  public ResponseEntity<NamespaceErrorResponse> handleInvalidUpstreamRequest(
-      HttpServletRequest request) {
-    return respond(
-        HttpStatus.BAD_REQUEST, "BadRequestException", "Invalid namespace request", request);
-  }
-
-  @ExceptionHandler({
-    InvalidNamespacePropertiesException.class,
-    HouseNamespaceInvalidPropertiesException.class
-  })
+  @ExceptionHandler(InvalidPropertyUpdateException.class)
   public ResponseEntity<NamespaceErrorResponse> handleInvalidProperties(
       HttpServletRequest request) {
     return respond(
@@ -56,28 +49,28 @@ public class NamespaceExceptionHandler {
         request);
   }
 
-  @ExceptionHandler(NamespaceNotEmptyException.class)
+  @ExceptionHandler(NotEmptyException.class)
   public ResponseEntity<NamespaceErrorResponse> handleNotEmpty(HttpServletRequest request) {
     return respond(
-        HttpStatus.CONFLICT,
+        HttpStatus.BAD_REQUEST,
         "NamespaceNotEmptyException",
         "Namespace contains tables or views",
         request);
   }
 
-  @ExceptionHandler(HouseNamespaceNotFoundException.class)
+  @ExceptionHandler(NotFoundException.class)
   public ResponseEntity<NamespaceErrorResponse> handleMissing(HttpServletRequest request) {
     return respond(
         HttpStatus.NOT_FOUND, "NoSuchNamespaceException", "Namespace does not exist", request);
   }
 
-  @ExceptionHandler(HouseNamespaceAlreadyExistsException.class)
+  @ExceptionHandler(AlreadyExistsException.class)
   public ResponseEntity<NamespaceErrorResponse> handleDuplicate(HttpServletRequest request) {
     return respond(
         HttpStatus.CONFLICT, "AlreadyExistsException", "Namespace already exists", request);
   }
 
-  @ExceptionHandler(HouseNamespaceConcurrentModificationException.class)
+  @ExceptionHandler(VersionConflictException.class)
   public ResponseEntity<NamespaceErrorResponse> handleConcurrentChange(HttpServletRequest request) {
     return respond(
         HttpStatus.CONFLICT,
@@ -86,7 +79,7 @@ public class NamespaceExceptionHandler {
         request);
   }
 
-  @ExceptionHandler(HouseNamespaceMutationUncertainException.class)
+  @ExceptionHandler(MutationUncertainException.class)
   public ResponseEntity<NamespaceErrorResponse> handleUncertainMutation(
       HttpServletRequest request) {
     return respond(
@@ -96,7 +89,7 @@ public class NamespaceExceptionHandler {
         request);
   }
 
-  @ExceptionHandler(HouseNamespaceUnavailableException.class)
+  @ExceptionHandler(UnavailableException.class)
   public ResponseEntity<NamespaceErrorResponse> handleUnavailable(HttpServletRequest request) {
     return respond(
         HttpStatus.SERVICE_UNAVAILABLE,
@@ -105,7 +98,7 @@ public class NamespaceExceptionHandler {
         request);
   }
 
-  @ExceptionHandler({HouseNamespaceException.class, NamespaceException.class})
+  @ExceptionHandler(ServiceFailureException.class)
   public ResponseEntity<NamespaceErrorResponse> handleDomainFailure(HttpServletRequest request) {
     return respond(
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -140,10 +133,7 @@ public class NamespaceExceptionHandler {
         HttpStatus.BAD_REQUEST, "BadRequestException", "Invalid namespace request", request);
   }
 
-  @ExceptionHandler({
-    AuthorizationServiceException.class,
-    NamespaceAuthorizationUnavailableException.class
-  })
+  @ExceptionHandler(AuthorizationServiceException.class)
   public ResponseEntity<NamespaceErrorResponse> handleAuthorizationService(
       HttpServletRequest request) {
     return respond(
@@ -153,12 +143,12 @@ public class NamespaceExceptionHandler {
         request);
   }
 
-  @ExceptionHandler({AccessDeniedException.class, NamespaceAccessDeniedException.class})
+  @ExceptionHandler({AccessDeniedException.class, PermissionDeniedException.class})
   public ResponseEntity<NamespaceErrorResponse> handleForbidden(HttpServletRequest request) {
     return respond(HttpStatus.FORBIDDEN, "ForbiddenException", "Access denied", request);
   }
 
-  @ExceptionHandler(AuthenticationException.class)
+  @ExceptionHandler({AuthenticationException.class, AuthenticationRequiredException.class})
   public ResponseEntity<NamespaceErrorResponse> handleUnauthenticated(HttpServletRequest request) {
     return respond(
         HttpStatus.UNAUTHORIZED, "NotAuthorizedException", "Authentication required", request);
@@ -167,6 +157,9 @@ public class NamespaceExceptionHandler {
   @ExceptionHandler(RuntimeException.class)
   public ResponseEntity<NamespaceErrorResponse> handleUnexpectedFailure(
       HttpServletRequest request) {
+    if (!"GET".equals(request.getMethod())) {
+      return handleUncertainMutation(request);
+    }
     return respond(
         HttpStatus.INTERNAL_SERVER_ERROR,
         "ServiceFailureException",

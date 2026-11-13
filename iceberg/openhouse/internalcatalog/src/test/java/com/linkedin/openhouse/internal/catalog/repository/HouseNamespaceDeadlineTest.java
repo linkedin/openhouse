@@ -3,11 +3,11 @@ package com.linkedin.openhouse.internal.catalog.repository;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import com.linkedin.openhouse.common.exception.checked.DomainException;
+import com.linkedin.openhouse.common.exception.checked.MutationUncertainException;
+import com.linkedin.openhouse.common.exception.checked.UnavailableException;
 import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceMutationUncertainException;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceUnavailableException;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -28,11 +28,7 @@ class HouseNamespaceDeadlineTest {
     NamespaceApi namespaceApi = mock(NamespaceApi.class);
     HouseNamespaceRepository repository =
         new HouseNamespaceRepositoryImpl(namespaceApi, mock(UserTableApi.class));
-    assertDeadline(
-        namespaceApi,
-        () -> repository.findByName("foo"),
-        30,
-        HouseNamespaceUnavailableException.class);
+    assertDeadline(namespaceApi, () -> repository.getByName("foo"), 30, UnavailableException.class);
   }
 
   @Test
@@ -41,17 +37,14 @@ class HouseNamespaceDeadlineTest {
     HouseNamespaceRepository repository =
         new HouseNamespaceRepositoryImpl(namespaceApi, mock(UserTableApi.class));
     assertDeadline(
-        namespaceApi,
-        () -> repository.delete("foo"),
-        60,
-        HouseNamespaceMutationUncertainException.class);
+        namespaceApi, () -> repository.delete("foo"), 60, MutationUncertainException.class);
   }
 
   private void assertDeadline(
       NamespaceApi namespaceApi,
       Executable operation,
       int timeoutSeconds,
-      Class<? extends HouseNamespaceException> failureType)
+      Class<? extends DomainException> failureType)
       throws Exception {
     VirtualTimeScheduler clock = VirtualTimeScheduler.getOrSet();
     ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -70,11 +63,11 @@ class HouseNamespaceDeadlineTest {
     when(namespaceApi.deleteNamespaceWithHttpInfo("foo")).thenReturn(pending.then(Mono.empty()));
     when(namespaceApi.getNamespace("foo")).thenReturn(pending.then(Mono.empty()));
     try {
-      Future<HouseNamespaceException> failure =
+      Future<DomainException> failure =
           executor.submit(
               () ->
                   assertThrows(
-                      HouseNamespaceException.class,
+                      DomainException.class,
                       () -> {
                         worker.set(Thread.currentThread());
                         operation.execute();

@@ -8,9 +8,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.linkedin.openhouse.cluster.storage.StorageManager;
+import com.linkedin.openhouse.common.exception.checked.UnavailableException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepository;
-import com.linkedin.openhouse.internal.catalog.repository.exception.HouseNamespaceUnavailableException;
 import com.linkedin.openhouse.tables.services.NamespacesService;
 import com.linkedin.openhouse.tables.services.TablesService;
 import org.junit.jupiter.api.Test;
@@ -42,8 +42,8 @@ class NamespaceTableIsolationTest {
 
   @Test
   void legacyTableLifecycleAndListingNeverReadNamespaceMetadata() throws Exception {
-    when(namespaceRepository.findByName(anyString()))
-        .thenThrow(new HouseNamespaceUnavailableException());
+    when(namespaceRepository.getByName(anyString()))
+        .thenThrow(new UnavailableException("Namespace metadata service unavailable"));
     RequestAndValidateHelper.createTableAndValidateResponse(
         GET_TABLE_RESPONSE_BODY, mvc, storageManager);
     mvc.perform(
