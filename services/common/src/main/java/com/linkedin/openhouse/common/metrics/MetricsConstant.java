@@ -14,6 +14,12 @@ public final class MetricsConstant {
   public static final String REPO_TABLE_UNSUPPORTED_PARTITIONSPEC_EVOLUTION =
       "repo_table_unsupported_partitionspec_evolution";
   public static final String REPO_TABLE_ACCEPT_SNAPSHOT_CTR = "repo_table_snapshot_accepted";
+  public static final String REPO_TABLE_COUNT_LIMIT_REJECTED_CTR =
+      "repo_table_count_limit_rejected";
+  public static final String REPO_TABLE_COUNT_LIMIT_BYPASSED_CTR =
+      "repo_table_count_limit_bypassed";
+  public static final String REPO_TABLE_COUNT_DB_TOTAL_COUNT = "repo_table_count_db_total_count";
+  public static final String REPO_TABLE_COUNT_LIMIT = "repo_table_count_limit";
 
   // Components sections
   public static final String JOBS_SERVICE = "jobs";
@@ -22,6 +28,7 @@ public final class MetricsConstant {
 
   // Common metric constants section
   public static final String ACTION_TAG = "action";
+  public static final String DATABASE_TAG = "database";
   public static final String CANCEL = "cancel";
   public static final String GET = "get";
   public static final String SUBMIT = "submit";

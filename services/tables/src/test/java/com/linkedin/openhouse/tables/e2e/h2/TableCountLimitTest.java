@@ -13,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.linkedin.openhouse.common.exception.TableCountLimitExceededException;
+import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -26,6 +27,8 @@ import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.toggle.model.TableToggleStatus;
 import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -64,6 +67,7 @@ public class TableCountLimitTest {
   @Autowired private HouseTableRepository houseTableRepository;
   @Autowired private ToggleStatusesRepository toggleStatusesRepository;
   @Autowired private MockMvc mvc;
+  @Autowired private MeterRegistry meterRegistry;
 
   private final List<TableDtoPrimaryKey> tablesToClean = new ArrayList<>();
   private final List<TableToggleStatus> togglesToClean = new ArrayList<>();
@@ -105,6 +109,15 @@ public class TableCountLimitTest {
     assertTrue(e.getMessage().contains(db), e.getMessage());
     assertFalse(openHouseInternalRepository.existsById(key(db, "t_over")));
     assertEquals(LIMIT, liveTableCount(db));
+    assertEquals(1.0, limitCounter(MetricsConstant.REPO_TABLE_COUNT_LIMIT_REJECTED_CTR, db));
+    assertEquals(0.0, limitCounter(MetricsConstant.REPO_TABLE_COUNT_LIMIT_BYPASSED_CTR, db));
+    assertEquals(
+        LIMIT,
+        meterRegistry
+            .get(MetricsConstant.REPO_TABLE_COUNT_DB_TOTAL_COUNT)
+            .tag(MetricsConstant.DATABASE_TAG, db)
+            .gauge()
+            .value());
   }
 
   @Test
@@ -152,6 +165,8 @@ public class TableCountLimitTest {
 
     assertDoesNotThrow(() -> openHouseInternalRepository.save(dto(db, "t_exempt", true)));
     assertEquals(LIMIT + 1, liveTableCount(db));
+    assertEquals(1.0, limitCounter(MetricsConstant.REPO_TABLE_COUNT_LIMIT_BYPASSED_CTR, db));
+    assertEquals(0.0, limitCounter(MetricsConstant.REPO_TABLE_COUNT_LIMIT_REJECTED_CTR, db));
   }
 
   @Test
@@ -313,5 +328,11 @@ public class TableCountLimitTest {
 
   private long liveTableCount(String db) {
     return houseTableRepository.findAllByDatabaseId(db, PageRequest.of(0, 100)).getTotalElements();
+  }
+
+  /** A table-count limit counter for {@code db}; zero when never incremented. */
+  private double limitCounter(String metric, String db) {
+    Counter counter = meterRegistry.find(metric).tag(MetricsConstant.DATABASE_TAG, db).counter();
+    return counter == null ? 0 : counter.count();
   }
 }

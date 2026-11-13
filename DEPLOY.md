@@ -171,6 +171,16 @@ WHERE feature = 'bypass_table_count_limit'
   AND database_pattern = 'my_database' AND table_pattern = '*';
 ```
 
+While the limit is enabled, the tables service reports these metrics; the `database` tag carries the
+database ID as sent by the caller:
+
+- `repo_table_count_db_total_count` (gauge, `database`): live tables counted by the instance's latest
+  create or restore check in that database.
+- `repo_table_count_limit` (gauge): the configured `cluster.tables.max-tables-per-database`.
+- `repo_table_count_limit_rejected` (counter, `database`): creates and restores rejected at the limit.
+- `repo_table_count_limit_bypassed` (counter, `database`): creates and restores admitted at the limit
+  by a bypass rule.
+
 #### MySQL for HouseTables Service
 
 To use MySQL, update [cluster.yaml](infra/recipes/k8s/config/housetables/minikube/housetables.yaml). Sample
