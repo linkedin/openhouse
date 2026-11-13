@@ -1,7 +1,6 @@
 package com.linkedin.openhouse.housetables.services;
 
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
-import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.housetables.model.NamespaceMetadata;
 import com.linkedin.openhouse.housetables.model.NamespacePropertyUpdate;
@@ -18,5 +17,5 @@ public interface NamespacesService {
 
   NamespacePropertyUpdate updateNamespaceProperties(
       String namespaceName, Map<String, String> updates, Set<String> removals)
-      throws NotFoundException, InvalidPropertyUpdateException;
+      throws NotFoundException;
 }

@@ -6,7 +6,9 @@ table properties take precedence over defaults.
 
 Administrators manage defaults through the public namespace API. Creating, updating, and
 dropping metadata require SYSTEM_ADMIN; metadata reads use GET_TABLE_METADATA. The internal
-House Tables API persists the metadata and is intended for service callers.
+House Tables API persists metadata supplied by trusted service callers. Tables Service
+validates public namespace names and properties, including disjoint updates and removals,
+before calling House Tables.
 
 ## Names and property changes
 
@@ -19,8 +21,9 @@ properties. Property names are case-sensitive. A namespace keeps its UUID across
 dropping and recreating it creates a new UUID. Version checks reject stale concurrent edits,
 including an empty update.
 
-Create, update, and removal keys must contain well-formed Unicode and at most 512 UTF-16 code
-units. Empty keys, spaces, accents, case differences, and supplementary characters round-trip.
+The public API requires create, update, and removal keys to contain well-formed Unicode and
+at most 512 UTF-16 code units. Empty keys, spaces, accents, case differences, and supplementary
+characters round-trip.
 
 ## Deletion and recovery
 

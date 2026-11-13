@@ -2,7 +2,6 @@ package com.linkedin.openhouse.housetables.services;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
-import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.housetables.config.db.DatabaseConfiguration.SupportedDbTypes;
 import com.linkedin.openhouse.housetables.model.NamespaceMetadata;
@@ -156,11 +155,7 @@ public class NamespacesServiceImpl implements NamespacesService {
   @Override
   public NamespacePropertyUpdate updateNamespaceProperties(
       String namespaceName, Map<String, String> updates, Set<String> removals)
-      throws NotFoundException, InvalidPropertyUpdateException {
-    if (!Collections.disjoint(updates.keySet(), removals)) {
-      throw new InvalidPropertyUpdateException(
-          "Property updates and removals must have disjoint keys.");
-    }
+      throws NotFoundException {
     if (SupportedDbTypes.ICEBERG
         .name()
         .equals(clusterProperties.getClusterHouseTablesDatabaseType())) {

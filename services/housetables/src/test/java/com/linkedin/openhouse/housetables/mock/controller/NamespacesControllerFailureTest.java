@@ -8,8 +8,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
-import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
-import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.housetables.api.handler.NamespacesApiHandler;
 import com.linkedin.openhouse.housetables.api.spec.response.NamespaceMetadataResponse;
@@ -39,8 +37,6 @@ class NamespacesControllerFailureTest {
     NamespacesApiHandler handler = mock(NamespacesApiHandler.class);
     if (expectedStatus == 409) {
       when(handler.createNamespace(any())).thenThrow(exception);
-    } else if (expectedStatus == 422) {
-      when(handler.updateNamespaceProperties(eq("foo"), any())).thenThrow(exception);
     } else {
       when(handler.getNamespace("foo")).thenThrow(exception);
     }
@@ -52,11 +48,7 @@ class NamespacesControllerFailureTest {
                 ? post("/hts/namespaces")
                     .contentType("application/json")
                     .content("{\"namespaceName\":\"foo\"}")
-                : expectedStatus == 422
-                    ? post("/hts/namespaces/foo/properties")
-                        .contentType("application/json")
-                        .content("{\"updates\":{},\"removals\":[]}")
-                    : get("/hts/namespaces/foo"))
+                : get("/hts/namespaces/foo"))
         .andExpect(status().is(expectedStatus))
         .andExpect(jsonPath("$.message").value(expectedMessage))
         .andExpect(jsonPath("$.type").value(expectedType))
@@ -77,16 +69,6 @@ class NamespacesControllerFailureTest {
             409,
             "AlreadyExistsException",
             "Namespace name already exists."),
-        Arguments.of(
-            new InvalidRequestException("message", cause),
-            400,
-            "InvalidRequestException",
-            "message"),
-        Arguments.of(
-            new InvalidPropertyUpdateException("message", cause),
-            422,
-            "InvalidPropertyUpdateException",
-            "Property updates and removals must have disjoint keys."),
         Arguments.of(
             new DataAccessResourceFailureException("message", cause),
             500,
