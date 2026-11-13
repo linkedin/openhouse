@@ -191,6 +191,25 @@ public class OptimizerDataServiceImpl implements OptimizerDataService {
   }
 
   @Override
+  @Transactional
+  public void deleteTableData(String tableUuid) {
+    // Purge every table of per-table state keyed by UUID. All four deletes are idempotent (0 rows
+    // when nothing is held) and run in one transaction so a dropped table leaves no partial state.
+    // No analysis is triggered: the table is gone, so there is nothing to optimize.
+    int stats = statsRepository.deleteByTableUuid(tableUuid);
+    int statsHistory = statsHistoryRepository.deleteByTableUuid(tableUuid);
+    int operations = operationsRepository.deleteByTableUuid(tableUuid);
+    int operationsHistory = historyRepository.deleteByTableUuid(tableUuid);
+    log.info(
+        "Deleted optimizer data for tableUuid {}: stats={}, statsHistory={}, operations={}, operationsHistory={}",
+        tableUuid,
+        stats,
+        statsHistory,
+        operations,
+        operationsHistory);
+  }
+
+  @Override
   public List<TableStatsDto> listTableStats(
       Optional<String> databaseName,
       Optional<String> tableName,

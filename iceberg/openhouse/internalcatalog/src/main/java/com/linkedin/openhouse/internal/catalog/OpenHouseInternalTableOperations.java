@@ -428,6 +428,9 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     int version = currentVersion() + 1;
     CommitStatus commitStatus = CommitStatus.FAILURE;
     Optional<TableMetadata> committedMetadata = Optional.empty();
+    // CREATE when there is no prior metadata; otherwise UPDATE unless the commit turns out to be a
+    // rename (set in the rename branch below). Read in the finally block to tag post-commit ops.
+    CommitType commitType = base == null ? CommitType.CREATE : CommitType.UPDATE;
 
     /* This method adds no fs scheme, and it persists in HTS that way. */
     final String newMetadataLocation = rootMetadataFileLocation(metadata, version);
@@ -559,6 +562,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
                   && !properties
                       .get(CatalogConstants.OPENHOUSE_DATABASEID_KEY)
                       .equalsIgnoreCase(this.tableIdentifier.namespace().toString()))) {
+        commitType = CommitType.RENAME;
         houseTableRepository.rename(
             this.tableIdentifier.namespace().toString(),
             this.tableIdentifier.name(),
@@ -651,7 +655,7 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
           metricsReporter.count(InternalCatalogMetricsConstant.COMMIT_STATE_UNKNOWN);
           break;
         case SUCCESS:
-          runPostCommitOperations(committedMetadata);
+          runPostCommitOperations(committedMetadata, commitType);
           break;
         default:
           break; /*should never happen, kept to silence SpotBugs*/
@@ -757,14 +761,16 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    * switch. Never throws: the commit has already durably succeeded and post-commit work must not
    * affect its outcome.
    */
-  private void runPostCommitOperations(Optional<TableMetadata> committedMetadata) {
+  private void runPostCommitOperations(
+      Optional<TableMetadata> committedMetadata, CommitType commitType) {
     if (postCommitOperationRunner == null || !postCommitOperationRunner.isEnabled()) {
       return;
     }
     try {
       committedMetadata.ifPresent(
           metadata ->
-              postCommitOperationRunner.runAll(new PostCommitContext(tableIdentifier, metadata)));
+              postCommitOperationRunner.runAll(
+                  new PostCommitContext(tableIdentifier, metadata, commitType)));
     } catch (Throwable t) {
       log.error(
           "Failed to dispatch post-commit operations for table {} (nonfatal)", tableIdentifier, t);

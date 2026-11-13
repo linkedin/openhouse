@@ -19,4 +19,11 @@ public class PostCommitContext {
 
   /** The table metadata as committed. */
   TableMetadata committedMetadata;
+
+  /**
+   * What kind of commit this was ({@link CommitType#CREATE}, {@link CommitType#UPDATE}, or {@link
+   * CommitType#RENAME}). Derived by the committer, which has the signals (prior metadata, identity
+   * changes) in-process; operations use it instead of re-deriving. Never null.
+   */
+  CommitType commitType;
 }

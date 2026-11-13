@@ -62,6 +62,14 @@ public interface OptimizerDataService {
   Optional<TableStatsDto> getTableStats(String tableUuid);
 
   /**
+   * Delete all optimizer data for {@code tableUuid} — its stats, stats history, queued/active
+   * operations, and operations history. Idempotent: deleting a table with no rows is a no-op.
+   * Called when a table is dropped so no orphaned per-table rows (or scheduling of a vanished
+   * table) remain. Does <em>not</em> trigger analysis.
+   */
+  void deleteTableData(String tableUuid);
+
+  /**
    * List stats rows matching the given filters, capped at {@code limit} rows. Every filter
    * parameter is optional — pass {@link Optional#empty()} to skip that filter.
    */

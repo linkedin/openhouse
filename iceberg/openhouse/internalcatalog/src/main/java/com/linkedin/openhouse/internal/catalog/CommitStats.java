@@ -34,6 +34,14 @@ public class CommitStats {
   /** Stable Iceberg table UUID (from {@code openhouse.tableUUID}). Never null. */
   String tableUuid;
 
+  /**
+   * What kind of commit produced these stats ({@link CommitType#CREATE}, {@link CommitType#UPDATE},
+   * or {@link CommitType#RENAME}). Lets the publisher react per kind — e.g. a {@link
+   * CommitType#RENAME} carries the new identity so the stats row is re-keyed to the new name. Never
+   * null.
+   */
+  CommitType commitType;
+
   /** Database (namespace) name. */
   String databaseName;
 

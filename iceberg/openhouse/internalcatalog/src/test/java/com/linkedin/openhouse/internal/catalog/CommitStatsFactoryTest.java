@@ -50,20 +50,22 @@ public class CommitStatsFactoryTest {
   @Test
   void extractReturnsEmptyWithoutUuid() {
     Assertions.assertFalse(
-        CommitStatsFactory.extract(ID, metadataWith(ImmutableMap.of())).isPresent());
-    Assertions.assertFalse(CommitStatsFactory.extract(ID, null).isPresent());
+        CommitStatsFactory.extract(ID, metadataWith(ImmutableMap.of()), CommitType.UPDATE)
+            .isPresent());
+    Assertions.assertFalse(CommitStatsFactory.extract(ID, null, CommitType.UPDATE).isPresent());
   }
 
   @Test
   void extractPopulatesIdentityAndPropertiesOnlyWhenNoSnapshot() {
     TableMetadata md =
         metadataWith(ImmutableMap.of(getCanonicalFieldName("tableUUID"), "uuid-123"));
-    Optional<CommitStats> stats = CommitStatsFactory.extract(ID, md);
+    Optional<CommitStats> stats = CommitStatsFactory.extract(ID, md, CommitType.CREATE);
     Assertions.assertTrue(stats.isPresent());
     CommitStats cs = stats.get();
     Assertions.assertEquals("uuid-123", cs.getTableUuid());
     Assertions.assertEquals("db", cs.getDatabaseName());
     Assertions.assertEquals("tbl", cs.getTableName());
+    Assertions.assertEquals(CommitType.CREATE, cs.getCommitType());
     Assertions.assertEquals("file:/tmp/db/tbl", cs.getTableLocation());
     // No current snapshot => current totals and delta are null (properties-only publish).
     Assertions.assertNull(cs.getNumCurrentFiles());
@@ -83,7 +85,9 @@ public class CommitStatsFactoryTest {
             .put(SnapshotSummary.ADDED_FILE_SIZE_PROP, "500")
             .put(SnapshotSummary.REMOVED_FILE_SIZE_PROP, "200")
             .build();
-    CommitStats cs = CommitStatsFactory.extract(ID, mockMetadataWithSummary(summary)).orElseThrow();
+    CommitStats cs =
+        CommitStatsFactory.extract(ID, mockMetadataWithSummary(summary), CommitType.UPDATE)
+            .orElseThrow();
     Assertions.assertEquals(42L, cs.getNumCurrentFiles());
     Assertions.assertEquals(1000L, cs.getTableSizeBytes());
     Assertions.assertNotNull(cs.getDelta());
@@ -95,10 +99,33 @@ public class CommitStatsFactoryTest {
   }
 
   @Test
+  void extractPrefersCommittedIdentityPropertiesOverIdentifierOnRename() {
+    // On a rename the ops identifier still holds the OLD name, while the committed
+    // openhouse.databaseId/tableId properties carry the NEW name. Extraction must use the new one
+    // so
+    // the stats row (keyed by the unchanged UUID) is re-labelled, not left stale.
+    TableMetadata md =
+        metadataWith(
+            ImmutableMap.of(
+                getCanonicalFieldName("tableUUID"),
+                "uuid-123",
+                getCanonicalFieldName("databaseId"),
+                "newdb",
+                getCanonicalFieldName("tableId"),
+                "newtbl"));
+    CommitStats cs = CommitStatsFactory.extract(ID, md, CommitType.RENAME).orElseThrow();
+    Assertions.assertEquals("newdb", cs.getDatabaseName());
+    Assertions.assertEquals("newtbl", cs.getTableName());
+    Assertions.assertEquals(CommitType.RENAME, cs.getCommitType());
+  }
+
+  @Test
   void extractToleratesMalformedOrMissingSummaryValues() {
     Map<String, String> summary =
         ImmutableMap.of(SnapshotSummary.TOTAL_DATA_FILES_PROP, "not-a-number");
-    CommitStats cs = CommitStatsFactory.extract(ID, mockMetadataWithSummary(summary)).orElseThrow();
+    CommitStats cs =
+        CommitStatsFactory.extract(ID, mockMetadataWithSummary(summary), CommitType.UPDATE)
+            .orElseThrow();
     Assertions.assertNull(cs.getNumCurrentFiles());
     Assertions.assertNull(cs.getTableSizeBytes());
   }

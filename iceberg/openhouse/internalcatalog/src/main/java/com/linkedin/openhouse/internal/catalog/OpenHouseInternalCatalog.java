@@ -210,7 +210,27 @@ public class OpenHouseInternalCatalog extends BaseMetastoreCatalog {
             "Drop table is supported only with a fileIO instance that SupportsPrefixOperations");
       }
     }
+    runPostDropOperations(identifier, houseTable);
     return true;
+  }
+
+  /**
+   * Fires best-effort post-drop operations for a successfully dropped table, gated by the same
+   * server-side switch as post-commit operations. Never throws: the drop has already durably
+   * succeeded and post-drop work (e.g. purging the optimizer's per-table rows) must not affect its
+   * outcome. Unlike a commit, a drop produces no {@link org.apache.iceberg.TableMetadata}, so the
+   * dropped table's identity and UUID are carried directly.
+   */
+  private void runPostDropOperations(TableIdentifier identifier, HouseTable houseTable) {
+    if (postCommitOperationRunner == null || !postCommitOperationRunner.isEnabled()) {
+      return;
+    }
+    try {
+      postCommitOperationRunner.runAllOnDrop(
+          new PostDropContext(identifier, houseTable.getTableUUID()));
+    } catch (Throwable t) {
+      log.error("Failed to dispatch post-drop operations for table {} (nonfatal)", identifier, t);
+    }
   }
 
   /**

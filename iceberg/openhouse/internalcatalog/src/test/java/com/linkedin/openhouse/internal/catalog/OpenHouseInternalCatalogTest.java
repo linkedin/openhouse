@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.mockito.ArgumentCaptor;
 
 public class OpenHouseInternalCatalogTest {
 
@@ -132,6 +133,57 @@ public class OpenHouseInternalCatalogTest {
     Assertions.assertThrows(IllegalStateException.class, () -> catalog.dropTable(IDENTIFIER, true));
     verify(repo, never()).deleteById(any(), anyBoolean());
     verify((SupportsPrefixOperations) fileIO, never()).deletePrefix(any());
+  }
+
+  @Test
+  void dropTableDispatchesPostDropOperationsWithTableUuid() {
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    HouseTable row =
+        HouseTable.builder()
+            .databaseId(DB)
+            .tableId(TABLE)
+            .tableUUID("uuid-123")
+            .tableLocation(METADATA_LOCATION)
+            .build();
+    when(repo.findById(any(HouseTablePrimaryKey.class))).thenReturn(Optional.of(row));
+    FileIO fileIO =
+        mock(FileIO.class, withSettings().extraInterfaces(SupportsPrefixOperations.class));
+    PostCommitOperationRunner runner = mock(PostCommitOperationRunner.class);
+    when(runner.isEnabled()).thenReturn(true);
+    OpenHouseInternalCatalog catalog = new FixedFileIOCatalog(fileIO);
+    catalog.houseTableRepository = repo;
+    catalog.postCommitOperationRunner = runner;
+
+    Assertions.assertTrue(catalog.dropTable(IDENTIFIER, true));
+
+    ArgumentCaptor<PostDropContext> captor = ArgumentCaptor.forClass(PostDropContext.class);
+    verify(runner).runAllOnDrop(captor.capture());
+    Assertions.assertEquals("uuid-123", captor.getValue().getTableUUID());
+    Assertions.assertEquals(IDENTIFIER, captor.getValue().getTableIdentifier());
+  }
+
+  @Test
+  void dropTableSwallowsPostDropDispatchFailure() {
+    HouseTableRepository repo = mock(HouseTableRepository.class);
+    HouseTable row =
+        HouseTable.builder()
+            .databaseId(DB)
+            .tableId(TABLE)
+            .tableUUID("uuid-123")
+            .tableLocation(METADATA_LOCATION)
+            .build();
+    when(repo.findById(any(HouseTablePrimaryKey.class))).thenReturn(Optional.of(row));
+    FileIO fileIO =
+        mock(FileIO.class, withSettings().extraInterfaces(SupportsPrefixOperations.class));
+    PostCommitOperationRunner runner = mock(PostCommitOperationRunner.class);
+    when(runner.isEnabled()).thenReturn(true);
+    // A failure dispatching post-drop work must never fail the (already durable) drop.
+    org.mockito.Mockito.doThrow(new RuntimeException("boom")).when(runner).runAllOnDrop(any());
+    OpenHouseInternalCatalog catalog = new FixedFileIOCatalog(fileIO);
+    catalog.houseTableRepository = repo;
+    catalog.postCommitOperationRunner = runner;
+
+    Assertions.assertTrue(catalog.dropTable(IDENTIFIER, true));
   }
 
   @Test

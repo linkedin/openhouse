@@ -375,6 +375,7 @@ public class OpenHouseInternalTableOperationsTest {
           .runAll(contextCaptor.capture());
       PostCommitContext context = contextCaptor.getValue();
       Assertions.assertEquals(TEST_TABLE_IDENTIFIER, context.getTableIdentifier());
+      Assertions.assertEquals(CommitType.UPDATE, context.getCommitType());
       Assertions.assertNotNull(context.getCommittedMetadata());
       Assertions.assertTrue(
           context

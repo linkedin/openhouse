@@ -5,12 +5,23 @@ import com.linkedin.openhouse.optimizer.db.TableOperationsHistoryRow;
 import java.util.List;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 /** Repository for reading {@code table_operations_history}. */
 public interface TableOperationsHistoryRepository
     extends JpaRepository<TableOperationsHistoryRow, String> {
+
+  /**
+   * Delete all operations-history rows for {@code tableUuid}. Returns the number of rows removed.
+   * Used to purge a table's history when it is dropped.
+   */
+  @Transactional
+  @Modifying(flushAutomatically = true, clearAutomatically = true)
+  @Query("DELETE FROM TableOperationsHistoryRow r WHERE r.tableUuid = :tableUuid")
+  int deleteByTableUuid(@Param("tableUuid") String tableUuid);
 
   /**
    * Return history rows for a single {@code tableUuid}, newest first. {@code pageable} is required;
