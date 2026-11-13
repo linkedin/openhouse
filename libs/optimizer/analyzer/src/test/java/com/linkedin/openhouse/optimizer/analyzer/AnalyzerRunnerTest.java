@@ -88,6 +88,71 @@ class AnalyzerRunnerTest {
   }
 
   @Test
+  void analyzeTable_skipsMaintenanceAnalyzer_forReplicaTable() {
+    // Replica tables are maintained by their primary; a mutating op (OFD) must not be scheduled
+    // even though it is opted-in and triggered. runsOnReplica() defaults to false on the mock.
+    TableDto replica =
+        TableDto.builder()
+            .tableUuid("uuid-1")
+            .databaseName(DB)
+            .tableId("tbl1")
+            .tableProperties(java.util.Map.of(TableDto.TABLE_TYPE_PROPERTY, "REPLICA_TABLE"))
+            .build();
+    when(operationsRepo.find(
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.of("uuid-1")),
+            eq(Optional.of(DB)),
+            eq(Optional.of("tbl1")),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            any()))
+        .thenReturn(Collections.emptyList());
+    when(historyRepo.find(eq("uuid-1"), any())).thenReturn(Collections.emptyList());
+    when(analyzer.triggersOnCommit(replica)).thenReturn(true);
+
+    runner.analyze(AnalyzeRequest.builder().table(replica).build());
+
+    // Skipped before isEnabled/shouldSchedule are consulted, and nothing is scheduled.
+    verify(analyzer, never()).isEnabled(any());
+    verify(analyzer, never())
+        .shouldSchedule(any(), any(), any(), org.mockito.ArgumentMatchers.anyInt());
+    verify(operationsRepo, never()).save(any());
+  }
+
+  @Test
+  void analyzeTable_runsReadOnlyAnalyzer_forReplicaTable() {
+    // A read-only op (e.g. stats collection) opts in via runsOnReplica()=true, so a replica still
+    // gets it scheduled.
+    TableDto replica =
+        TableDto.builder()
+            .tableUuid("uuid-1")
+            .databaseName(DB)
+            .tableId("tbl1")
+            .tableProperties(java.util.Map.of(TableDto.TABLE_TYPE_PROPERTY, "REPLICA_TABLE"))
+            .build();
+    when(operationsRepo.find(
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            eq(Optional.of("uuid-1")),
+            eq(Optional.of(DB)),
+            eq(Optional.of("tbl1")),
+            eq(Optional.empty()),
+            eq(Optional.empty()),
+            any()))
+        .thenReturn(Collections.emptyList());
+    when(historyRepo.find(eq("uuid-1"), any())).thenReturn(Collections.emptyList());
+    when(analyzer.triggersOnCommit(replica)).thenReturn(true);
+    when(analyzer.runsOnReplica()).thenReturn(true);
+    when(analyzer.isEnabled(replica)).thenReturn(true);
+    when(analyzer.shouldSchedule(replica, Optional.empty(), Optional.empty(), 0)).thenReturn(true);
+
+    runner.analyze(AnalyzeRequest.builder().table(replica).build());
+
+    verify(operationsRepo).save(any(TableOperationsRow.class));
+  }
+
+  @Test
   void analyzeTable_skipsLoadAndSave_whenNoAnalyzerTriggersOnCommit() {
     TableDto table =
         TableDto.builder().tableUuid("uuid-1").databaseName(DB).tableId("tbl1").build();

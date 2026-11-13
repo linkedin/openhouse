@@ -47,6 +47,16 @@ class CadenceBasedOrphanFilesDeletionAnalyzerTest {
     assertThat(analyzer.isEnabled(table)).isFalse();
   }
 
+  // --- replica policy ---
+
+  @Test
+  void runsOnReplica_isTrue_soOfdRunsOnReplicaTablesLikeLegacy() {
+    // OFD must run on replicas (it only deletes unreferenced storage files, and the primary's OFD
+    // cleans only the primary's storage). This mirrors the legacy jobs scheduler, where OFD is not
+    // gated by isPrimary(). Guards against a regression back to the default (skip on replica).
+    assertThat(analyzer.runsOnReplica()).isTrue();
+  }
+
   // --- shouldSchedule: no existing op ---
 
   @Test

@@ -47,6 +47,24 @@ public interface OperationAnalyzer {
   }
 
   /**
+   * Whether this operation may run on a replica table. A replica mirrors a primary in another
+   * cluster via replication, so any operation that would change the replica's committed Iceberg
+   * metadata or snapshots (e.g. snapshot expiration, retention, compaction, data-layout) must not
+   * run on it — it would diverge the replica from its primary. Operations that don't touch
+   * committed metadata are safe: read-only ones like stats collection, and orphan-file deletion
+   * (which only removes storage files not referenced by any snapshot, and must run on the replica
+   * since the primary's OFD cleans only the primary's storage).
+   *
+   * <p>Defaults to {@code false} so the metadata/snapshot-mutating maintenance case is primary-only
+   * by default; an operation that is safe on a replica opts in by overriding to {@code true}.
+   * Enforced centrally by {@code AnalyzerRunner} on both the commit-driven and full-scan paths, so
+   * a replica is skipped before {@link #isEnabled}/{@link #shouldSchedule} are consulted.
+   */
+  default boolean runsOnReplica() {
+    return false;
+  }
+
+  /**
    * Whether the given active op is a submitted job that has timed out — exceeded the stale-timeout
    * with no success. This "logical timeout" is derived, never persisted; the per-table retry
    * backoff counts it as a non-success alongside explicitly FAILED history.
