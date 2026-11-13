@@ -182,11 +182,14 @@ class ViewsDockerE2eTest(unittest.TestCase):
         metadata = self.metadata(response)
         self.assertIn(metadata['view-uuid'], row['pointer'])
         self.assertEqual(metadata['view-uuid'], metadata['properties']['openhouse.tableUUID'])
-        version = next(version for version in metadata['versions']
-                       if version['version-id'] == metadata['current-version-id'])
-        self.assertEqual('spark', version['summary']['sourceDialect'])
-        self.assertNotIn(SOURCE_DIALECT, metadata['properties'])
+        self.assertEqual('spark', metadata['properties'][SOURCE_DIALECT])
         return row
+
+    def replacement_body(self, response):
+        body = self.body()
+        body['baseMetadataLocation'] = response['metadataLocation']
+        body['viewProperties'] = self.metadata(response)['properties']
+        return body
 
     def test_lifecycle_noop_stale_write_and_metadata_response(self):
         body = self.body()
@@ -200,7 +203,7 @@ class ViewsDockerE2eTest(unittest.TestCase):
         files = self.file_count()
         self.http('POST', self.collection(), 409, body)
         self.assertEqual(before, self.row())
-        body['baseMetadataLocation'] = created['metadataLocation']
+        body = self.replacement_body(created)
         unchanged = self.http('PUT', self.item(), 200, body)
         self.assertEqual(before, self.persisted(unchanged))
         self.assertEqual(files, self.file_count())
@@ -351,8 +354,7 @@ class ViewsDockerE2eTest(unittest.TestCase):
         created = self.http('POST', self.collection(), 201, self.body())
         before = self.persisted(created)
         files = self.file_count()
-        body = self.body()
-        body['baseMetadataLocation'] = created['metadataLocation']
+        body = self.replacement_body(created)
         body['viewProperties'][SOURCE_DIALECT] = 'trino'
         body['representations'].append({
             'type': 'sql', 'dialect': 'trino', 'sql': 'SELECT id FROM source_table',
@@ -364,10 +366,10 @@ class ViewsDockerE2eTest(unittest.TestCase):
     def test_concurrent_replaces_publish_one_winner(self):
         created = self.http('POST', self.collection(), 201, self.body())
         before = self.persisted(created)
+        replacement = self.replacement_body(created)
 
         def replace(writer):
-            body = self.body()
-            body['baseMetadataLocation'] = created['metadataLocation']
+            body = copy.deepcopy(replacement)
             body['viewProperties']['writer'] = str(writer)
             return requests.put(
                 self.tables + self.item(), json=body, headers=self.headers, timeout=30)

@@ -44,8 +44,9 @@ name reuse, invalid definitions, missing authentication, and simultaneous
 enabled/disabled database feature gates, and source-dialect property validation
 and immutability. View requests supply the required authoring dialect as
 `viewProperties["openhouse.view.sourceDialect"]`, not a top-level `sourceDialect`
-field. Tests verify the value is persisted in the metadata version summary rather
-than as a user property, and invalid or changed values leave persistence unchanged.
+field. Tests verify the value is persisted in metadata properties and carried
+forward unchanged with the other server-managed properties on replacement.
+Invalid or changed source dialects leave persistence unchanged.
 Assertions compare HTS reads with
 physical MySQL rows queried using the container's MySQL client, and parse actual
 metadata JSON from inside the Tables container. Rejected/no-op writes check
@@ -100,7 +101,8 @@ credentials, or manually provisioned database is required.
 The suite covers POST and PUT creation, GET, changed and unchanged replacement,
 listing, deletion, repeated deletion, duplicate creation, stale updates,
 concurrent creates and replacements, name reuse, case-insensitive identity,
-namespace resolution, multiple SQL dialects, schema evolution, property merge,
+namespace metadata pass-through (including nonexistent namespaces), missing route
+database rejection, multiple SQL dialects, schema evolution, property replacement,
 table/view isolation and collisions, continuation tokens across HTS source
 pages, invalid requests, exact schema/SQL byte limits, identifier limits, the
 database feature gate (including simultaneous enabled/disabled database isolation),

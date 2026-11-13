@@ -149,8 +149,7 @@ public class ViewsDockerE2eTest {
     ViewMetadata first = metadata(created);
     assertEquals(1, first.currentVersionId());
     assertEquals(SQL, sql(first));
-    assertEquals("spark", first.currentVersion().summary().get("sourceDialect"));
-    assertFalse(first.properties().containsKey(SOURCE_DIALECT));
+    assertEquals("spark", first.properties().get(SOURCE_DIALECT));
     assertEquals("create", first.currentVersion().summary().get("operation"));
     assertEquals("openhouse", first.currentVersion().defaultCatalog());
     assertEquals(
@@ -173,8 +172,7 @@ public class ViewsDockerE2eTest {
     assertEquals(created.path("metadataLocation"), fetched.path("metadataLocation"));
     assertEquals(created.path("creationTime"), fetched.path("creationTime"));
 
-    ObjectNode changed = payload(database, VIEW);
-    changed.put("baseMetadataLocation", pointer(created));
+    ObjectNode changed = replacementPayload(created);
     ((ObjectNode) changed.withArray("representations").get(0))
         .put("sql", "SELECT name FROM source_table");
     JsonNode updated = request(HttpMethod.PUT, viewPath(database, VIEW), changed, 200);
@@ -221,8 +219,7 @@ public class ViewsDockerE2eTest {
   void creatorAndModificationMetadataSurviveRealHtsReadsAndReplacement() throws Exception {
     JsonNode created = create(VIEW, payload(database, VIEW), 201);
     JsonNode fetched = request(HttpMethod.GET, viewPath(database, VIEW), null, 200);
-    ObjectNode update = payload(database, VIEW);
-    update.put("baseMetadataLocation", pointer(created));
+    ObjectNode update = replacementPayload(created);
     update.with("viewProperties").put("description", "changed");
     headers.setBearerAuth(
         new DummyTokenInterceptor.DummySecurityJWT("views-e2e-editor").buildNoopJWT());
@@ -267,7 +264,7 @@ public class ViewsDockerE2eTest {
     JsonNode created = create(VIEW, payload(database, VIEW), 201);
     Map<String, Object> before = assertViewPersisted(database, VIEW, created);
     long files = metadataFileCount();
-    ObjectNode unchanged = payload(database, VIEW).put("baseMetadataLocation", pointer(created));
+    ObjectNode unchanged = replacementPayload(created);
     JsonNode first = request(HttpMethod.PUT, viewPath(database, VIEW), unchanged, 200);
     JsonNode second = request(HttpMethod.PUT, viewPath(database, VIEW), unchanged, 200);
     assertEquals(pointer(created), pointer(first));
@@ -293,13 +290,12 @@ public class ViewsDockerE2eTest {
   }
 
   @Test
-  void propertyMergeAndSchemaEvolutionPreserveUuidAndEarlierMetadata() throws Exception {
+  void propertyReplacementAndSchemaEvolutionPreserveUuidAndEarlierMetadata() throws Exception {
     JsonNode created = create(VIEW, payload(database, VIEW), 201);
     ViewMetadata first = metadata(created);
-    ObjectNode update = payload(database, VIEW).put("baseMetadataLocation", pointer(created));
-    update.set(
-        "viewProperties",
-        mapper.createObjectNode().put(SOURCE_DIALECT, "spark").put("new_property", "new_value"));
+    ObjectNode update = replacementPayload(created);
+    update.with("viewProperties").remove("description");
+    update.with("viewProperties").put("new_property", "new_value");
     update.put(
         "schema",
         "{\"type\":\"struct\",\"fields\":["
@@ -312,7 +308,8 @@ public class ViewsDockerE2eTest {
     assertEquals(first.uuid(), second.uuid());
     assertEquals(3, second.schema().columns().size());
     assertEquals(2, second.schemas().size());
-    assertEquals("initial", second.properties().get("description"));
+    assertFalse(second.properties().containsKey("description"));
+    assertEquals("initial", metadata(created).properties().get("description"));
     assertEquals("new_value", second.properties().get("new_property"));
     assertEquals(2, metadata(created).schema().columns().size());
     assertFalse(metadata(created).properties().containsKey("new_property"));
@@ -331,7 +328,7 @@ public class ViewsDockerE2eTest {
     JsonNode created = create(VIEW, body, 201);
     assertEquals(2, metadata(created).currentVersion().representations().size());
     Map<String, Object> before = assertViewPersisted(database, VIEW, created);
-    ObjectNode dropping = payload(database, VIEW).put("baseMetadataLocation", pointer(created));
+    ObjectNode dropping = replacementPayload(created);
     long files = metadataFileCount();
     JsonNode error = request(HttpMethod.PUT, viewPath(database, VIEW), dropping, 500);
     assertFalse(error.hasNonNull("cause"));
@@ -346,7 +343,7 @@ public class ViewsDockerE2eTest {
     JsonNode created = create(VIEW, payload(database, VIEW), 201);
     Map<String, Object> before = assertViewPersisted(database, VIEW, created);
     long files = metadataFileCount();
-    ObjectNode update = payload(database, VIEW).put("baseMetadataLocation", pointer(created));
+    ObjectNode update = replacementPayload(created);
     update.with("viewProperties").put(SOURCE_DIALECT, "trino");
     update
         .withArray("representations")
@@ -355,7 +352,7 @@ public class ViewsDockerE2eTest {
     assertEquals(before, assertViewPersisted(database, VIEW, created));
     assertEquals(
         pointer(created), pointer(request(HttpMethod.GET, viewPath(database, VIEW), null, 200)));
-    assertEquals("spark", metadata(created).currentVersion().summary().get("sourceDialect"));
+    assertEquals("spark", metadata(created).properties().get(SOURCE_DIALECT));
     assertEquals(files, metadataFileCount());
   }
 
@@ -600,19 +597,32 @@ public class ViewsDockerE2eTest {
   }
 
   @Test
-  void missingDatabaseAndDefaultNamespaceAreRejectedBeforeAllocating() throws Exception {
+  void missingRouteDatabaseIsRejectedBeforeAllocating() throws Exception {
     views.add(VIEW);
     String absent = database + "_missing";
     ObjectNode body = payload(absent, VIEW);
     enableViews(absent);
+    long files = metadataFileCount();
     request(HttpMethod.POST, collection(absent), body, 404);
     assertAbsent(absent, VIEW);
-    body = payload(database, VIEW);
-    body.putArray("defaultNamespace").add(absent);
-    long files = metadataFileCount();
-    request(HttpMethod.POST, collection(database), body, 404);
-    assertAbsent(database, VIEW);
     assertEquals(files, metadataFileCount());
+  }
+
+  @Test
+  void unknownDefaultNamespaceIsAcceptedAndPreservedInMetadata() throws Exception {
+    String absent = database + "_missing";
+    ObjectNode body = payload(database, VIEW);
+    body.putArray("defaultNamespace").add(absent);
+    JsonNode created = create(VIEW, body, 201);
+    Map<String, Object> before = assertViewPersisted(database, VIEW, created);
+    assertEquals(
+        Collections.singletonList(absent),
+        Arrays.asList(metadata(created).currentVersion().defaultNamespace().levels()));
+    JsonNode readBack = request(HttpMethod.GET, viewPath(database, VIEW), null, 200);
+    assertEquals(before, assertViewPersisted(database, VIEW, readBack));
+    assertEquals(
+        Collections.singletonList(absent),
+        Arrays.asList(metadata(readBack).currentVersion().defaultNamespace().levels()));
   }
 
   @Test
@@ -723,7 +733,7 @@ public class ViewsDockerE2eTest {
     List<Future<ResponseEntity<String>>> futures = new ArrayList<>();
     try {
       for (int index = 0; index < 2; index++) {
-        ObjectNode body = payload(database, VIEW).put("baseMetadataLocation", pointer(created));
+        ObjectNode body = replacementPayload(created);
         body.with("viewProperties").put("winner", "writer_" + round + "_" + index);
         futures.add(
             executor.submit(
@@ -960,12 +970,20 @@ public class ViewsDockerE2eTest {
     assertEquals(null, metadata.currentVersion().defaultCatalog());
     assertTrue(metadata.currentVersion().defaultNamespace().isEmpty());
     assertFalse(metadata.properties().containsKey("description"));
-    assertFalse(metadata.properties().containsKey(SOURCE_DIALECT));
-    assertEquals("spark", metadata.currentVersion().summary().get("sourceDialect"));
+    assertEquals("spark", metadata.properties().get(SOURCE_DIALECT));
     Map<String, Object> before = assertViewPersisted(database, VIEW, created);
     body.put("baseMetadataLocation", pointer(created));
+    body.set("viewProperties", mapper.valueToTree(metadata.properties()));
     JsonNode unchanged = request(HttpMethod.PUT, viewPath(database, VIEW), body, 200);
     assertEquals(before, assertViewPersisted(database, VIEW, unchanged));
+  }
+
+  private ObjectNode replacementPayload(JsonNode created) throws Exception {
+    ObjectNode body =
+        payload(created.path("databaseId").asText(), created.path("viewId").asText());
+    body.put("baseMetadataLocation", pointer(created));
+    body.set("viewProperties", mapper.valueToTree(metadata(created).properties()));
+    return body;
   }
 
   private ObjectNode payload(String db, String view) throws Exception {
