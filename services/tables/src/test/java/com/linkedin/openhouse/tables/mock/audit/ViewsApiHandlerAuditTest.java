@@ -346,7 +346,7 @@ public class ViewsApiHandlerAuditTest {
           }
           return original;
         };
-    double failedViewAuditsBefore = failedAudits("view_audit_failed_service_audit");
+    double failedViewAuditsBefore = failedAudits("view_audit_failed_view_audit");
     double failedServiceAuditsBefore = failedAudits("service_audit_failed_service_audit");
 
     String logs;
@@ -371,7 +371,7 @@ public class ViewsApiHandlerAuditTest {
         handlerFails ? OperationStatus.FAILED : OperationStatus.SUCCESS,
         singleEvent().getOperationStatus(),
         "Exactly one delivery attempt, never a second FAILED event for the sink's own failure.");
-    assertEquals(failedViewAuditsBefore + 1, failedAudits("view_audit_failed_service_audit"));
+    assertEquals(failedViewAuditsBefore + 1, failedAudits("view_audit_failed_view_audit"));
     assertEquals(failedServiceAuditsBefore, failedAudits("service_audit_failed_service_audit"));
     assertTrue(logs.contains(SINK_FAILURE_DIAGNOSTIC), logs);
     assertFalse(logs.contains("secret"), logs);

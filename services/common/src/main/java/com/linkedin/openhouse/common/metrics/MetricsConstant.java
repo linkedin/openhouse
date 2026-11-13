@@ -33,6 +33,7 @@ public final class MetricsConstant {
 
   // Metrics for auditing
   public static final String FAILED_SERVICE_AUDIT = "failed_service_audit";
+  public static final String FAILED_VIEW_AUDIT = "failed_view_audit";
   public static final String FAILED_PARSING_REQUEST_PAYLOAD = "failed_parsing_request_payload";
 
   // Performance metrics

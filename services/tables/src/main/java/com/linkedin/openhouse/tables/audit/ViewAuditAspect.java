@@ -223,7 +223,7 @@ public class ViewAuditAspect {
       log.error(
           "View operation audit emission failed; status={} (cause suppressed for redaction)",
           status);
-      METRICS_REPORTER.count(MetricsConstant.FAILED_SERVICE_AUDIT);
+      METRICS_REPORTER.count(MetricsConstant.FAILED_VIEW_AUDIT);
     }
   }
 }
