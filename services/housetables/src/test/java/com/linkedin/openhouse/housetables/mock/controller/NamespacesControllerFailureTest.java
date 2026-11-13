@@ -9,10 +9,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.common.exception.checked.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.checked.AuthenticationRequiredException;
-import com.linkedin.openhouse.common.exception.checked.DomainException;
 import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
 import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
 import com.linkedin.openhouse.common.exception.checked.MutationUncertainException;
+import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.common.exception.checked.PermissionDeniedException;
 import com.linkedin.openhouse.common.exception.checked.ServiceFailureException;
@@ -38,7 +38,7 @@ class NamespacesControllerFailureTest {
   @ParameterizedTest
   @MethodSource("checkedFailures")
   void testCheckedFailuresHaveExplicitHttpStatuses(
-      DomainException exception, int expectedStatus, String expectedType, String expectedMessage)
+      NamespaceException exception, int expectedStatus, String expectedType, String expectedMessage)
       throws Exception {
     NamespacesApiHandler handler = mock(NamespacesApiHandler.class);
     when(handler.getNamespace("foo")).thenThrow(exception);

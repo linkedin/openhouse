@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.common.exception.checked;
 
-public class AlreadyExistsException extends DomainException {
+public class AlreadyExistsException extends NamespaceException {
   public AlreadyExistsException(String message) {
     super(message);
   }

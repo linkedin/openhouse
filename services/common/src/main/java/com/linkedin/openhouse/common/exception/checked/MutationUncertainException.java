@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.common.exception.checked;
 
-public class MutationUncertainException extends DomainException {
+public class MutationUncertainException extends NamespaceException {
   public MutationUncertainException(String message) {
     super(message);
   }

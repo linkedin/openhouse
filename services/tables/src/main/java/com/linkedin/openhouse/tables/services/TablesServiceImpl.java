@@ -10,9 +10,9 @@ import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
-import com.linkedin.openhouse.common.exception.checked.DomainException;
 import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
 import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
+import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.common.exception.checked.NotEmptyException;
 import com.linkedin.openhouse.common.exception.checked.PermissionDeniedException;
 import com.linkedin.openhouse.common.exception.checked.UnavailableException;
@@ -81,7 +81,7 @@ public class TablesServiceImpl implements TablesService, NamespacesService {
   @Override
   public NamespaceMetadata createNamespace(
       List<String> namespace, Map<String, String> properties, String principal)
-      throws DomainException {
+      throws NamespaceException {
     if (namespace.size() != 1) {
       throw new InvalidRequestException(
           String.format("Namespace '%s' must contain exactly one level", namespace));
@@ -92,7 +92,7 @@ public class TablesServiceImpl implements TablesService, NamespacesService {
 
   @Override
   public NamespaceMetadata loadNamespaceMetadata(String namespace, String principal)
-      throws DomainException {
+      throws NamespaceException {
     authorizeNamespace(namespace, principal, Privileges.GET_TABLE_METADATA);
     return namespaceRepository.getByName(namespace);
   }
@@ -100,7 +100,7 @@ public class TablesServiceImpl implements TablesService, NamespacesService {
   @Override
   public NamespacePropertyUpdate updateNamespaceProperties(
       String namespace, Map<String, String> updates, Set<String> removals, String principal)
-      throws DomainException {
+      throws NamespaceException {
     authorizeNamespace(namespace, principal, Privileges.SYSTEM_ADMIN);
     if (!Collections.disjoint(updates.keySet(), removals)) {
       throw new InvalidPropertyUpdateException("Updates and removals must use disjoint keys");
@@ -109,7 +109,7 @@ public class TablesServiceImpl implements TablesService, NamespacesService {
   }
 
   @Override
-  public void dropNamespace(String namespace, String principal) throws DomainException {
+  public void dropNamespace(String namespace, String principal) throws NamespaceException {
     authorizeNamespace(namespace, principal, Privileges.SYSTEM_ADMIN);
     namespaceRepository.getByName(namespace);
     if (namespaceRepository.containsEntities(namespace)) {
@@ -119,7 +119,7 @@ public class TablesServiceImpl implements TablesService, NamespacesService {
   }
 
   private void authorizeNamespace(String namespace, String principal, Privileges privilege)
-      throws DomainException {
+      throws NamespaceException {
     if (!namespace.matches("[a-zA-Z0-9_]{1,128}")) {
       throw new InvalidRequestException(
           String.format(

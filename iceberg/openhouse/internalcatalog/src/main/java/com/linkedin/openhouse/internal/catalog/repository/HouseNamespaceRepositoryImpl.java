@@ -4,10 +4,10 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.common.exception.checked.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.checked.AuthenticationRequiredException;
-import com.linkedin.openhouse.common.exception.checked.DomainException;
 import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
 import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
 import com.linkedin.openhouse.common.exception.checked.MutationUncertainException;
+import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.common.exception.checked.PermissionDeniedException;
 import com.linkedin.openhouse.common.exception.checked.ServiceFailureException;
@@ -63,7 +63,7 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
 
   @Override
   public NamespaceMetadata create(String namespaceName, Map<String, String> properties)
-      throws DomainException {
+      throws NamespaceException {
     try {
       NamespaceMetadataResponse result =
           execute(
@@ -94,7 +94,7 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
   }
 
   @Override
-  public NamespaceMetadata getByName(String namespaceName) throws DomainException {
+  public NamespaceMetadata getByName(String namespaceName) throws NamespaceException {
     try {
       NamespaceMetadataResponse result =
           execute(() -> namespaceApi.getNamespace(namespaceName), READ_TIMEOUT, Operation.LOAD)
@@ -115,7 +115,7 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
   }
 
   @Override
-  public void delete(String namespaceName) throws DomainException {
+  public void delete(String namespaceName) throws NamespaceException {
     try {
       execute(
               () -> namespaceApi.deleteNamespaceWithHttpInfo(namespaceName),
@@ -138,7 +138,7 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
   @Override
   public NamespacePropertyUpdate updateProperties(
       String namespaceName, Map<String, String> updates, Set<String> removals)
-      throws DomainException {
+      throws NamespaceException {
     try {
       UpdateNamespacePropertiesResponseBody result =
           execute(
@@ -179,7 +179,7 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
   }
 
   @Override
-  public boolean containsEntities(String namespaceName) throws DomainException {
+  public boolean containsEntities(String namespaceName) throws NamespaceException {
     Map<String, String> filters = Collections.singletonMap("databaseId", namespaceName);
     // Each query returns at most one HouseTables row, without loading Iceberg metadata files.
     try {
@@ -213,15 +213,15 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
   }
 
   private <T> Optional<T> execute(Supplier<Mono<T>> request, Duration timeout, Operation operation)
-      throws DomainException {
-    Function<Throwable, DomainException> unavailable =
+      throws NamespaceException {
+    Function<Throwable, NamespaceException> unavailable =
         operation == Operation.LOAD || operation == Operation.LIST
             ? cause -> new UnavailableException("Namespace metadata service unavailable", cause)
             : cause ->
                 new MutationUncertainException(
                     "Namespace mutation outcome is unknown. Reload metadata and reconcile before retrying.",
                     cause);
-    Function<Throwable, DomainException> unusable =
+    Function<Throwable, NamespaceException> unusable =
         operation == Operation.LOAD || operation == Operation.LIST
             ? cause -> new ServiceFailureException("Namespace metadata response is unusable", cause)
             : cause ->

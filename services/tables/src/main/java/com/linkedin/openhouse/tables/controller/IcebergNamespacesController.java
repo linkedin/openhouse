@@ -2,7 +2,7 @@ package com.linkedin.openhouse.tables.controller;
 
 import static com.linkedin.openhouse.common.security.AuthenticationUtils.extractAuthenticatedUserPrincipal;
 
-import com.linkedin.openhouse.common.exception.checked.DomainException;
+import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
 import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
 import com.linkedin.openhouse.tables.api.spec.namespace.CreateNamespaceRequest;
@@ -79,7 +79,7 @@ public class IcebergNamespacesController {
   @Secured(Privileges.Privilege.SYSTEM_ADMIN)
   public NamespaceResponse createNamespace(
       @PathVariable String prefix, @Valid @RequestBody CreateNamespaceRequest request)
-      throws DomainException {
+      throws NamespaceException {
     NamespaceMetadata result =
         namespacesService.createNamespace(
             request.getNamespace(), request.getProperties(), extractAuthenticatedUserPrincipal());
@@ -92,7 +92,7 @@ public class IcebergNamespacesController {
   @GetMapping("/{namespace}")
   @Secured(Privileges.Privilege.GET_TABLE_METADATA)
   public NamespaceResponse loadNamespaceMetadata(
-      @PathVariable String prefix, @PathVariable String namespace) throws DomainException {
+      @PathVariable String prefix, @PathVariable String namespace) throws NamespaceException {
     NamespaceMetadata result =
         namespacesService.loadNamespaceMetadata(namespace, extractAuthenticatedUserPrincipal());
     return new NamespaceResponse(
@@ -107,7 +107,7 @@ public class IcebergNamespacesController {
       @PathVariable String prefix,
       @PathVariable String namespace,
       @Valid @RequestBody UpdateNamespacePropertiesRequest request)
-      throws DomainException {
+      throws NamespaceException {
     NamespacePropertyUpdate result =
         namespacesService.updateNamespaceProperties(
             namespace,
@@ -127,7 +127,7 @@ public class IcebergNamespacesController {
   @DeleteMapping("/{namespace}")
   @Secured(Privileges.Privilege.SYSTEM_ADMIN)
   public ResponseEntity<Void> dropNamespace(
-      @PathVariable String prefix, @PathVariable String namespace) throws DomainException {
+      @PathVariable String prefix, @PathVariable String namespace) throws NamespaceException {
     namespacesService.dropNamespace(namespace, extractAuthenticatedUserPrincipal());
     return ResponseEntity.noContent().build();
   }

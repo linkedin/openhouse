@@ -8,9 +8,9 @@ import static org.mockito.Mockito.reset;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.exception.checked.AlreadyExistsException;
-import com.linkedin.openhouse.common.exception.checked.DomainException;
 import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
 import com.linkedin.openhouse.common.exception.checked.MutationUncertainException;
+import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.common.exception.checked.ServiceFailureException;
 import com.linkedin.openhouse.common.exception.checked.UnavailableException;
@@ -73,7 +73,7 @@ class NamespacesServiceTest {
   }
 
   @Test
-  void testIndependentIdentityAndExactPropertyKeysPersist() throws DomainException {
+  void testIndependentIdentityAndExactPropertyKeysPersist() throws NamespaceException {
     Map<String, String> properties =
         Map.of(
             "foo",
@@ -112,7 +112,7 @@ class NamespacesServiceTest {
   }
 
   @Test
-  void testSparseUpdatePreservesIdentityAndOmittedProperties() throws DomainException {
+  void testSparseUpdatePreservesIdentityAndOmittedProperties() throws NamespaceException {
     NamespaceMetadata created =
         namespacesService.createNamespace(
             "Namespace_Foo", Map.of("foo", "one", "bar", "two", "keep", "three", "FOO", "four"));
@@ -141,7 +141,7 @@ class NamespacesServiceTest {
   }
 
   @Test
-  void testOverlapFailsWithoutMutation() throws DomainException {
+  void testOverlapFailsWithoutMutation() throws NamespaceException {
     NamespaceMetadata created =
         namespacesService.createNamespace("namespace_foo", Map.of("foo", "one"));
     assertThatThrownBy(
@@ -153,7 +153,7 @@ class NamespacesServiceTest {
   }
 
   @Test
-  void testEmptyUpdatePreservesMetadata() throws DomainException {
+  void testEmptyUpdatePreservesMetadata() throws NamespaceException {
     NamespaceMetadata created =
         namespacesService.createNamespace("namespace_foo", Map.of("foo", "one"));
     NamespacePropertyUpdate response =
@@ -165,7 +165,7 @@ class NamespacesServiceTest {
   }
 
   @Test
-  void testEmptyDocumentPersistsAcrossPropertyChanges() throws DomainException {
+  void testEmptyDocumentPersistsAcrossPropertyChanges() throws NamespaceException {
     NamespaceMetadata created = namespacesService.createNamespace("namespace_foo", Map.of());
     assertThat(namespacesService.getNamespace("namespace_foo")).isEqualTo(created);
     namespacesService.updateNamespaceProperties("namespace_foo", Map.of("foo", "one"), Set.of());
@@ -176,7 +176,7 @@ class NamespacesServiceTest {
   }
 
   @Test
-  void testDeletionRemovesOnlyNamespaceMetadata() throws DomainException {
+  void testDeletionRemovesOnlyNamespaceMetadata() throws NamespaceException {
     JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
     jdbcTemplate.update(
         "INSERT INTO user_table_row "
@@ -307,7 +307,7 @@ class NamespacesServiceTest {
   }
 
   @Test
-  void testUnsupportedBackendRejectionsPreserveStoredMetadata() throws DomainException {
+  void testUnsupportedBackendRejectionsPreserveStoredMetadata() throws NamespaceException {
     NamespaceMetadata created =
         namespacesService.createNamespace("Namespace_Foo", Map.of("foo", "one"));
     doReturn("ICEBERG").when(clusterProperties).getClusterHouseTablesDatabaseType();
@@ -330,7 +330,7 @@ class NamespacesServiceTest {
   }
 
   @Test
-  void testStorageFailureRollsBackSparseChanges() throws DomainException {
+  void testStorageFailureRollsBackSparseChanges() throws NamespaceException {
     assertThat(transactionManager).isInstanceOf(JpaTransactionManager.class);
     NamespaceMetadata created =
         namespacesService.createNamespace("namespace_foo", Map.of("foo", "one", "bar", "two"));
@@ -345,7 +345,7 @@ class NamespacesServiceTest {
   }
 
   @Test
-  void committedJpaMutationWithLostAcknowledgementRemainsUncertain() throws DomainException {
+  void committedJpaMutationWithLostAcknowledgementRemainsUncertain() throws NamespaceException {
     assertThat(transactionManager).isInstanceOf(JpaTransactionManager.class);
     TransactionSystemException failure = new TransactionSystemException("foo");
     JpaTransactionManager failingCompletion =
@@ -382,17 +382,17 @@ class NamespacesServiceTest {
         .when(repository)
         .findByNamespaceName("namespace_foo");
     ExecutorService executor = Executors.newFixedThreadPool(2);
-    Optional<Class<? extends DomainException>> firstOutcome;
-    Optional<Class<? extends DomainException>> secondOutcome;
+    Optional<Class<? extends NamespaceException>> firstOutcome;
+    Optional<Class<? extends NamespaceException>> secondOutcome;
     try {
-      List<Callable<Optional<Class<? extends DomainException>>>> mutations =
+      List<Callable<Optional<Class<? extends NamespaceException>>>> mutations =
           Arrays.asList(
               () -> {
                 try {
                   namespacesService.updateNamespaceProperties(
                       "namespace_foo", emptyUpdates ? Map.of() : Map.of("foo", "two"), Set.of());
                   return Optional.empty();
-                } catch (DomainException exception) {
+                } catch (NamespaceException exception) {
                   return Optional.of(exception.getClass());
                 }
               },
@@ -401,11 +401,11 @@ class NamespacesServiceTest {
                   namespacesService.updateNamespaceProperties(
                       "namespace_foo", emptyUpdates ? Map.of() : Map.of("bar", "three"), Set.of());
                   return Optional.empty();
-                } catch (DomainException exception) {
+                } catch (NamespaceException exception) {
                   return Optional.of(exception.getClass());
                 }
               });
-      List<Future<Optional<Class<? extends DomainException>>>> results =
+      List<Future<Optional<Class<? extends NamespaceException>>>> results =
           executor.invokeAll(mutations, 20, TimeUnit.SECONDS);
       firstOutcome = results.get(0).get();
       secondOutcome = results.get(1).get();

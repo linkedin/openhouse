@@ -3,8 +3,8 @@ package com.linkedin.openhouse.internal.catalog.repository;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-import com.linkedin.openhouse.common.exception.checked.DomainException;
 import com.linkedin.openhouse.common.exception.checked.MutationUncertainException;
+import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.common.exception.checked.UnavailableException;
 import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
@@ -44,7 +44,7 @@ class HouseNamespaceDeadlineTest {
       NamespaceApi namespaceApi,
       Executable operation,
       int timeoutSeconds,
-      Class<? extends DomainException> failureType)
+      Class<? extends NamespaceException> failureType)
       throws Exception {
     VirtualTimeScheduler clock = VirtualTimeScheduler.getOrSet();
     ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -63,11 +63,11 @@ class HouseNamespaceDeadlineTest {
     when(namespaceApi.deleteNamespaceWithHttpInfo("foo")).thenReturn(pending.then(Mono.empty()));
     when(namespaceApi.getNamespace("foo")).thenReturn(pending.then(Mono.empty()));
     try {
-      Future<DomainException> failure =
+      Future<NamespaceException> failure =
           executor.submit(
               () ->
                   assertThrows(
-                      DomainException.class,
+                      NamespaceException.class,
                       () -> {
                         worker.set(Thread.currentThread());
                         operation.execute();

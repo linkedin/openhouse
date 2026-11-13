@@ -1,7 +1,7 @@
 package com.linkedin.openhouse.housetables.api.handler;
 
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
-import com.linkedin.openhouse.common.exception.checked.DomainException;
+import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateNamespaceRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.request.UpdateNamespacePropertiesRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.response.NamespaceMetadataResponse;
@@ -9,12 +9,13 @@ import com.linkedin.openhouse.housetables.api.spec.response.UpdateNamespacePrope
 
 public interface NamespacesApiHandler {
   ApiResponse<NamespaceMetadataResponse> createNamespace(CreateNamespaceRequestBody request)
-      throws DomainException;
+      throws NamespaceException;
 
-  ApiResponse<NamespaceMetadataResponse> getNamespace(String namespaceName) throws DomainException;
+  ApiResponse<NamespaceMetadataResponse> getNamespace(String namespaceName)
+      throws NamespaceException;
 
-  ApiResponse<Void> deleteNamespace(String namespaceName) throws DomainException;
+  ApiResponse<Void> deleteNamespace(String namespaceName) throws NamespaceException;
 
   ApiResponse<UpdateNamespacePropertiesResponseBody> updateNamespaceProperties(
-      String namespaceName, UpdateNamespacePropertiesRequestBody request) throws DomainException;
+      String namespaceName, UpdateNamespacePropertiesRequestBody request) throws NamespaceException;
 }
