@@ -46,9 +46,9 @@ The test starts the service on an empty database, and on one that holds the real
 with seeded rows. Both must end up with the same optimizer tables, and HouseTables' table
 definitions and rows must not change.
 
-Hibernate validates the schema during each startup, so a mapped table or column missing from the
-migrations, or an incompatible column type, fails the test. It does not check indexes, nullability,
-column lengths, or extra database objects; review those in each migration.
+Hibernate validates the schema after each migration run, so a mapped table or column missing from
+the migrations, or an incompatible column type, fails the test. Validation does not check indexes,
+nullability, column lengths, or extra database objects.
 
 The test grants access through its own `OPTIMIZER_TABLES` list, not one derived from the
 migrations. Add each new optimizer table to it. Never replace it with a database-wide grant.
@@ -58,13 +58,22 @@ paths that depend on production-only data or configuration. It cannot protect a 
 skips the checked migrations. Production credentials are unchanged. Review the SQL and require
 `:services:optimizer:test` to pass before deploying.
 
+The same test also starts the service on another database with Flyway off and Hibernate's
+`ddl-auto=create` on. Hibernate creates the tables the entities define there. Each table's
+`SHOW CREATE TABLE` must match the migrated table line for line, so this check covers indexes,
+nullability, column lengths, and extra tables. Column order doesn't count. An entity change without
+its migration fails the test. So does a migration without its entity change. Neither check covers
+triggers or stored routines; review those in each migration.
+
 ## Changing the Schema
 
 1. Write the migration in `libs/optimizer/optimizer-common/src/main/resources/db/migration/`. Name
    it `V<UTC timestamp>__<description>.sql`. An example is `V20261020000000__add_job_attempts.sql`.
    Flyway applies migrations in version order. A timestamp keeps two branches from taking the same
    version.
-2. Edit the entities in `com.linkedin.openhouse.optimizer.db` to match.
+2. Edit the entities in `com.linkedin.openhouse.optimizer.db` to match. Declare what Hibernate can't
+   infer. Set a column type with `columnDefinition`, as the `TIMESTAMP(6)` columns do. Set a default
+   with `@ColumnDefault`.
 3. Review the SQL:
    - Prefer one DDL statement per migration. MySQL commits each statement separately. A failure
      leaves earlier statements in place. The service will not start until someone fixes the
@@ -75,7 +84,8 @@ skips the checked migrations. Production credentials are unchanged. Review the S
    - The service waits for migrations before it becomes ready. A long `ALTER TABLE` can delay
      startup on a large table. Set the startup probe to allow enough time for it to finish.
      See [What Happens at Startup](#what-happens-at-startup).
-4. Run the tests:
+4. Run the tests. `OptimizerSchemaMigrationsTest` fails until the entities and the migrations define
+   the same tables:
    ```bash
    ./gradlew :libs:optimizer:optimizer-common:test :services:optimizer:test
    ```
