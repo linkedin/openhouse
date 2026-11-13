@@ -63,10 +63,12 @@ is a directory. This excludes only hook installation, not tests. MySQL tests are
 PR-gating CI. The unit and controller-routing tests remain in the regular `test` task.
 Testcontainers supplies its own disposable MySQL instance; local runs need Docker,
 not a preinstalled MySQL server.
-GitHub Actions retains the separate MySQL-backed Compose deployment and Python
-integration suites.
+GitHub Actions runs the existing `integration_test.py` against the unchanged `oh-only`
+stack. The deployed HTS Python suite runs in a separate job against `oh-only-mysql`,
+which initializes MySQL directly from `services/housetables/ddl/`.
 The Python deployment suite uses `/v1/hts/views/query` and reads every view page before cleanup;
-its offline helper tests and deployed multi-page regression also run in Actions.
+its offline helper tests run with the regular build job, while the deployed multi-page
+regression runs with the isolated HTS MySQL E2E job.
 The image defaults to `mysql:8.4.11`; use `-PmysqlIndexImage=mysql:<version>` to check another
 supported MySQL 8 version.
 
