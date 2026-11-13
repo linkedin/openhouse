@@ -392,3 +392,63 @@ def test_udf_in_projection_with_select_star_projects_needed_columns():
     )
     assert plan.source_columns == ["memberId", "policyField", "unknownField"]
     assert isinstance(plan.row_filter, AlwaysTrue)
+
+
+# --- Table identifier casing ---
+
+
+@pytest.mark.parametrize("sql_table", ["myTable", "mytable", "MYTABLE"])
+def test_table_spelling_in_sql_is_preserved_and_reported(sql_table):
+    """View SQL may spell the table differently from the requested identifier; the SQL's spelling is kept."""
+    sql = f'SELECT "a", "b" FROM (SELECT * FROM "myDb"."{sql_table}") AS _t'
+
+    plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b", "c"])
+
+    assert plan.source_columns == ["a", "b"]
+    assert f'"myDb"."{sql_table}"' in plan.sql
+    assert (plan.sql_table.database, plan.sql_table.table) == ("myDb", sql_table)
+
+
+def test_table_spelling_unquoted_view_sql_reports_emitted_spelling():
+    sql = 'SELECT "a" FROM (SELECT * FROM mydb.mytable) AS _t'
+
+    plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])
+
+    assert plan.source_columns == ["a"]
+    assert f'"{plan.sql_table.database}"."{plan.sql_table.table}"' in plan.sql
+    assert (plan.sql_table.database, plan.sql_table.table) == ("mydb", "mytable")
+
+
+def test_table_spelling_leaves_qualifiers_and_aliases_untouched():
+    sql = 'SELECT t."a" FROM (SELECT mytable.a FROM mydb.mytable WHERE mytable.b > 1) AS t'
+
+    plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])
+
+    assert plan.source_columns == ["a", "b"]
+    assert plan.sql.count('"mytable"."a"') == 1
+    assert '"mydb"."mytable" AS "mytable"' in plan.sql
+    assert (plan.sql_table.database, plan.sql_table.table) == ("mydb", "mytable")
+
+
+def test_table_spelling_does_not_rename_outer_subquery_alias():
+    sql = 'SELECT mytable.a FROM (SELECT a FROM "mydb"."mytable") AS mytable'
+
+    plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a"])
+
+    assert plan.source_columns == ["a"]
+    assert (plan.sql_table.database, plan.sql_table.table) == ("mydb", "mytable")
+
+
+def test_matching_requested_spelling_reports_same_identifier():
+    sql = 'SELECT "a" FROM (SELECT * FROM "myDb"."myTable") AS _t'
+
+    plan = _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a"])
+
+    assert (plan.sql_table.database, plan.sql_table.table) == ("myDb", "myTable")
+
+
+def test_different_table_with_similar_name_is_still_rejected():
+    sql = 'SELECT "a" FROM (SELECT * FROM "myDb"."myTable_other") AS _t'
+
+    with pytest.raises(ValueError, match="does not match expected"):
+        _optimize_scan(sql, _DIALECT, database="myDb", table="myTable", column_names=["a", "b"])

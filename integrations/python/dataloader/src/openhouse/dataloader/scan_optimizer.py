@@ -32,6 +32,7 @@ from openhouse.dataloader.filters import (
     Or,
     always_true,
 )
+from openhouse.dataloader.table_identifier import TableIdentifier
 
 
 @dataclass
@@ -42,11 +43,15 @@ class ScanPlan:
         sql: Optimized SQL for DataFusion execution.
         source_columns: Columns for Iceberg scan, or None for all.
         row_filter: Extracted predicates for Iceberg row_filter.
+        sql_table: Database and table exactly as spelled in ``sql``. Matches the requested table case-insensitively
+            and is the name the batch must be bound to for the SQL to resolve; it does not replace the catalog
+            identifier.
     """
 
     sql: str
     source_columns: list[str]
     row_filter: Filter
+    sql_table: TableIdentifier
 
 
 def optimize_scan(sql: str, dialect: str, *, database: str, table: str, column_names: Sequence[str]) -> ScanPlan:
@@ -73,16 +78,19 @@ def optimize_scan(sql: str, dialect: str, *, database: str, table: str, column_n
     """
     if not column_names:
         raise ValueError("column_names must not be empty")
-    # Type is arbitrary — qualify only uses column names to expand SELECT *, not types.
-    schema = {database: {table: {c: "VARCHAR" for c in column_names}}}
     ast = sqlglot.parse_one(sql, dialect=dialect)
+    # View SQL can spell the table differently from the requested identifier (Hive Metastore lower-cases view text),
+    # so match case-insensitively and key the schema by the spelling the SQL uses.
+    source_table = _find_single_table(ast, sql)
+    _check_table_matches(source_table, database, table)
+    # Type is arbitrary — qualify only uses column names to expand SELECT *, not types.
+    schema = {source_table.db: {source_table.name: {c: "VARCHAR" for c in column_names}}}
     ast = qualify.qualify(ast, dialect=dialect, schema=schema)
     ast = pushdown_predicates.pushdown_predicates(ast, dialect=dialect)
     ast = pushdown_projections.pushdown_projections(ast, dialect=dialect)
 
     table_node = _find_single_table(ast, sql)
-    if table_node.db != database or table_node.name != table:
-        raise ValueError(f"Table in SQL ({table_node.db}.{table_node.name}) does not match expected {database}.{table}")
+    _check_table_matches(table_node, database, table)
     table_select = table_node.find_ancestor(exp.Select)
     if table_select is None:
         raise ValueError(f"Table has no enclosing SELECT in: {sql}")
@@ -95,7 +103,13 @@ def optimize_scan(sql: str, dialect: str, *, database: str, table: str, column_n
         sql=ast.sql(dialect=dialect),
         source_columns=sorted(source_columns),
         row_filter=row_filter,
+        sql_table=TableIdentifier(table_node.db, table_node.name),
     )
+
+
+def _check_table_matches(table_node: exp.Table, database: str, table: str) -> None:
+    if table_node.db.lower() != database.lower() or table_node.name.lower() != table.lower():
+        raise ValueError(f"Table in SQL ({table_node.db}.{table_node.name}) does not match expected {database}.{table}")
 
 
 def _find_single_table(ast: exp.Expression, original_sql: str) -> exp.Table:

@@ -40,6 +40,7 @@ RUN git clone https://github.com/apache/incubator-livy \
     && git checkout 4d8a912699683b973eee76d4e91447d769a0cb0d \
     && git apply /livy_spark3_hadoop3.patch \
     && rm /livy_spark3_hadoop3.patch \
+    && sed -i 's#apache-incubator-disclaimer-resource-bundle:1.2-SNAPSHOT#apache-incubator-disclaimer-resource-bundle:1.5#' pom.xml \
     && /opt/maven/bin/mvn clean package -B -V -e -Pspark-3.0 -Pthriftserver -DskipTests -DskipITs -Dmaven.javadoc.skip=true \
     && unzip -qq ./assembly/target/${ARCHIVE_FILENAME}.zip -d /opt \
     && mv "/opt/${ARCHIVE_FILENAME}" "${LIVY_HOME}" \
