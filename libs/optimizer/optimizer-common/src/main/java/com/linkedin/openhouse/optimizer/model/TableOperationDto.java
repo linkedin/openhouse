@@ -49,8 +49,17 @@ public class TableOperationDto {
   /** Job ID returned by the Jobs Service after the scheduler submitted; null until SCHEDULED. */
   private String jobId;
 
+  /**
+   * Attempt number in the current retry sequence; 1 for the first attempt and after each success.
+   */
+  private int attempts;
+
+  /** Earliest time this (table, op) may be (re)scheduled; {@code null} means available now. */
+  private Instant availableAt;
+
   /** Create a new PENDING operation for the given table and operation type. */
-  public static TableOperationDto pending(TableDto table, OperationTypeDto operationType) {
+  public static TableOperationDto pending(
+      TableDto table, OperationTypeDto operationType, int attempts) {
     return TableOperationDto.builder()
         .id(UUID.randomUUID().toString())
         .tableUuid(table.getTableUuid())
@@ -59,6 +68,7 @@ public class TableOperationDto {
         .operationType(operationType)
         .status(OperationStatusDto.PENDING)
         .createdAt(Instant.now())
+        .attempts(attempts)
         .build();
   }
 
@@ -81,6 +91,8 @@ public class TableOperationDto {
         .createdAt(createdAt)
         .scheduledAt(scheduledAt)
         .jobId(jobId)
+        .attempts(attempts)
+        .availableAt(availableAt)
         .build();
   }
 
@@ -99,6 +111,8 @@ public class TableOperationDto {
         .createdAt(row.getCreatedAt())
         .scheduledAt(row.getScheduledAt())
         .jobId(row.getJobId())
+        .attempts(row.getAttempts())
+        .availableAt(row.getAvailableAt())
         .build();
   }
 }

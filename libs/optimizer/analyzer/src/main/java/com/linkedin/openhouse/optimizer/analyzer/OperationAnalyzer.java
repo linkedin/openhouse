@@ -4,6 +4,7 @@ import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import com.linkedin.openhouse.optimizer.model.TableDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
+import java.time.Instant;
 import java.util.Optional;
 
 /**
@@ -54,6 +55,13 @@ public interface OperationAnalyzer {
    * @param op an existing operation record for this (table, type)
    */
   boolean isActiveOpTimedOut(TableOperationDto op);
+
+  /**
+   * Earliest time to retry after an outcome observed at {@code from}: the success cadence on
+   * success, otherwise the failure backoff for {@code attempts}. Persisted to {@code available_at}
+   * on completion or expiry so retry timing no longer depends on the stale-timeout.
+   */
+  Instant nextAvailableAt(Instant from, boolean succeeded, int attempts);
 
   /**
    * Returns {@code true} if a new or refreshed operation record should be upserted.

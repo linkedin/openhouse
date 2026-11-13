@@ -247,6 +247,54 @@ class CadenceBasedStatsCollectionAnalyzerTest {
         .isFalse();
   }
 
+  // --- shouldSchedule: available_at gate is authoritative when set ---
+
+  @Test
+  void shouldSchedule_availableAtInFuture_returnsFalse() {
+    Instant future = Instant.now().plus(Duration.ofHours(5));
+    // A future available_at blocks even a dead (past-stale-timeout) op that history would release.
+    assertThat(
+            analyzer.shouldSchedule(
+                tableWithProperty(true),
+                Optional.of(
+                    opScheduledAtAvailableAt(
+                        OperationStatusDto.SCHEDULED,
+                        Instant.now().minus(Duration.ofHours(10)),
+                        future)),
+                Optional.of(
+                    historyWithStatus(
+                        HistoryStatusDto.FAILED, Instant.now().minus(Duration.ofHours(10)))),
+                0))
+        .isFalse();
+  }
+
+  @Test
+  void shouldSchedule_availableAtInPast_returnsTrue() {
+    Instant past = Instant.now().minus(Duration.ofMinutes(1));
+    // A past available_at releases the op even though it is still SCHEDULED within the stale
+    // window.
+    assertThat(
+            analyzer.shouldSchedule(
+                tableWithProperty(true),
+                Optional.of(
+                    opScheduledAtAvailableAt(OperationStatusDto.SCHEDULED, Instant.now(), past)),
+                Optional.empty(),
+                0))
+        .isTrue();
+  }
+
+  @Test
+  void nextAvailableAt_success_usesSuccessInterval() {
+    Instant from = Instant.now();
+    assertThat(analyzer.nextAvailableAt(from, true, 1)).isEqualTo(from.plus(SUCCESS_INTERVAL));
+  }
+
+  @Test
+  void nextAvailableAt_failure_usesFailureInterval() {
+    Instant from = Instant.now();
+    assertThat(analyzer.nextAvailableAt(from, false, 1)).isEqualTo(from.plus(FAILURE_INTERVAL));
+  }
+
   // --- helpers ---
 
   private TableDto tableWithProperty(boolean enabled) {
@@ -267,6 +315,15 @@ class CadenceBasedStatsCollectionAnalyzerTest {
 
   private TableOperationDto opScheduledAt(OperationStatusDto status, Instant scheduledAt) {
     return TableOperationDto.builder().status(status).scheduledAt(scheduledAt).build();
+  }
+
+  private TableOperationDto opScheduledAtAvailableAt(
+      OperationStatusDto status, Instant scheduledAt, Instant availableAt) {
+    return TableOperationDto.builder()
+        .status(status)
+        .scheduledAt(scheduledAt)
+        .availableAt(availableAt)
+        .build();
   }
 
   private TableOperationsHistoryDto historyWithStatus(
