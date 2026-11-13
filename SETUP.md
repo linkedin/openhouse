@@ -41,45 +41,73 @@ This single command:
 | `./gradlew dockerUp -Precipe=<recipe>` | Build everything and start containers |
 | `./gradlew dockerDown -Precipe=<recipe>` | Stop and remove containers |
 
-## HTS index regression tests (no load generator)
+## HouseTables MySQL tests and index regression tests
+
+The default HouseTables (HTS) tests run against a real, disposable MySQL container, so
+**Docker is required** for `./gradlew test`, `./gradlew :services:housetables:test` and
+`./gradlew build`. There is no H2 fallback, backend flag or skip: if Docker or MySQL cannot start,
+or the DDL fails to load, the run fails.
+
+- All Spring-based HTS tests share one MySQL 8.4.11 container per test JVM (Testcontainers, database
+  `hts_test`, container-assigned port). Its schema is built from the canonical
+  `services/housetables/ddl/` files (`0000__baseline.sql`, then
+  `0001__add_entity_type_to_user_table_row.sql`), which Gradle copies onto the test classpath under
+  `hts-mysql/ddl/`. Neither Hibernate nor `schema.sql` creates tables, and `data.sql` is not run
+  by Spring; the shared test base resets the four HTS tables around each test and loads
+  the five test toggle rules before each one.
+- `HtsHttpIntegrationTest` starts the real service on a random port and drives it over actual HTTP
+  (including `PATCH`) against that MySQL instance. It covers the former Python deployment suite's
+  24 scenarios, including the multi-page view cleanup, soft-delete/restore/purge lifecycle, and
+  the legacy `NULL` and corrupt `entity_type` rows, which are inserted directly through JDBC
+  because the API cannot express them. `HtsHttpTestClientTest` covers the HTTP helper's pagination
+  and cleanup rules without Docker.
+- The default `test` task runs in a single fork with JUnit parallelism off. Tests tagged
+  `mysql-index` are excluded and run only through `mysqlIndexTest`.
+
+Not covered by these in-JVM tests: the packaged boot JAR, Docker image and entrypoint, Compose
+startup, mounted cluster configuration and deployed credentials. They also run with Spring SQL
+initialization disabled, so the main `src/main/resources/schema.sql` and `data.sql` bootstrap
+scripts (the `CREATE TABLE IF NOT EXISTS` no-op over canonical tables and the default demo rule) are
+not exercised against MySQL. A deployed-service check, for example in `OpenHouseSparkITest`, remains
+separate follow-up work.
 
 The HTS index tests live in
 `services/housetables/src/test/java/com/linkedin/openhouse/housetables/index`.
-They test the **current checkout** against real MySQL. Unlike the Python deployment suite,
-they need no service Docker image or HTTP listener. Neither suite needs staging access or Spark.
+They test the **current checkout** against real MySQL, with no service Docker image or
+HTTP listener. Neither suite needs staging access or Spark.
 
 ```bash
-# Java 17; fast unit contracts, controller dispatch, and plan-detector tests (no Docker).
-./gradlew :services:housetables:test --tests 'com.linkedin.openhouse.housetables.index.*'
+# Java 17. Everything in the HTS module, including the MySQL-backed tests (Docker required).
+./gradlew :services:housetables:test
+
+# Fast, Docker-free unit contracts, controller dispatch, plan-detector and HTTP-helper tests.
+./gradlew :services:housetables:test \
+  --tests 'com.linkedin.openhouse.housetables.index.*' \
+  --tests 'com.linkedin.openhouse.housetables.e2e.fixture.HtsHttpTestClientTest'
 
 # Docker required. Real controllers/services/repositories in-process via MockMvc + MySQL.
 ./gradlew :services:housetables:mysqlIndexTest
 ```
 
-For a Git worktree, add `-x CopyGitHooksTask`: the existing hook-copy task assumes `.git`
-is a directory. This excludes only hook installation, not tests. MySQL tests are tagged
-`mysql-index` and run **only** through `mysqlIndexTest`; ordinary unit runs do not start Docker.
-`mysqlIndexTest` is an on-demand local task, not part of the normal Gradle build or
-PR-gating CI. The unit and controller-routing tests remain in the regular `test` task.
-Testcontainers supplies its own disposable MySQL instance; local runs need Docker,
-not a preinstalled MySQL server.
-GitHub Actions runs the existing `integration_test.py` against the unchanged `oh-only`
-stack. The deployed HTS Python suite runs in a separate job against `oh-only-mysql`,
-which initializes MySQL directly from `services/housetables/ddl/`.
-The Python deployment suite uses `/v1/hts/views/query` and reads every view page before cleanup;
-its offline helper tests run with the regular build job, while the deployed multi-page
-regression runs with the isolated HTS MySQL E2E job.
+In an isolated Git worktree, add `-x CopyGitHooksTask` to avoid writing the shared Git hooks
+directory. This excludes only hook installation, not tests. The index MySQL tests are tagged
+`mysql-index` and run **only** through `mysqlIndexTest`, an on-demand local task that is not part of
+the normal Gradle build or PR-gating CI. The index unit and controller-routing tests remain in the
+regular `test` task. Testcontainers supplies its own disposable MySQL instance; local runs need
+Docker, not a preinstalled MySQL server.
+GitHub Actions runs `./gradlew clean build`, which includes the MySQL-backed HTS tests, and then
+the existing `integration_test.py` against the unchanged `oh-only` stack.
 The image defaults to `mysql:8.4.11`; use `-PmysqlIndexImage=mysql:<version>` to check another
-supported MySQL 8 version.
+supported MySQL 8 version with `mysqlIndexTest`.
 
 The isolated, disposable MySQL container has a 1 CPU / 512 MiB limit and 128 MiB InnoDB
 buffer pool. It executes the **byte-identical source-of-truth DDL**, in order:
 `0000__baseline.sql` then `0001__add_entity_type_to_user_table_row.sql`. The files are
-copied from `services/housetables/ddl/` at commit
-`970c87aaae748edb2bcafdb5d4f3e47495e91ac5` on
-`ruolin59:rufan-linkedin-combine-entitytype-and-index-fix`, into
-`services/housetables/src/test/resources/mysql-production/`. Their SHA-256 hashes are
-verified before execution and recorded in `fixture.json`. Both A/B revisions use this
+loaded from the classpath copy of `services/housetables/ddl/` (`hts-mysql/ddl/`), whose
+content matches commit `970c87aaae748edb2bcafdb5d4f3e47495e91ac5` on
+`ruolin59:rufan-linkedin-combine-entitytype-and-index-fix`. Their SHA-256 hashes are
+verified before execution and recorded in `fixture.json`; a deliberate DDL revision must update
+the expected hashes and provenance. Both A/B revisions use this
 same schema, including the entity-type migration; the tested service code is the variable.
 Neither `schema.sql` nor H2 `data.sql` is executed, and **no test-specific indexes are added**.
 There are 10,000 rows in **each** of the four HTS tables.
@@ -211,7 +239,6 @@ Recipes for setting up OpenHouse in local docker are available [here](infra/reci
 | Config | Recipe | Notes |
 |--------|--------|-------|
 | Run OpenHouse Services Only | `oh-only` | Stores data on local filesystem within the application container, with in-memory database. Least resource consuming. |
-| Run OpenHouse Services Only, on MySQL | `oh-only-mysql` | As `oh-only`, but House Tables runs against a MySQL container bootstrapped from `services/housetables/ddl`. Use when House Tables persistence behaviour matters. Used by CI. |
 | Run OpenHouse Services on HDFS | `oh-hadoop` | Stores data on locally running Hadoop HDFS containers, with iceberg-backed database. |
 | Run OpenHouse Services on HDFS with Spark | `oh-hadoop-spark` | Stores data on locally running Hadoop HDFS containers, with MySQL database. Spark available for end to end testing. Most resource consuming. Starts Livy server. |
 
