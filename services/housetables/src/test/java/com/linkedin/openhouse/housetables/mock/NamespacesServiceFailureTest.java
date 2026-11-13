@@ -8,10 +8,7 @@ import static org.mockito.Mockito.*;
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.exception.checked.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
-import com.linkedin.openhouse.common.exception.checked.MutationUncertainException;
-import com.linkedin.openhouse.common.exception.checked.ServiceFailureException;
-import com.linkedin.openhouse.common.exception.checked.UnavailableException;
-import com.linkedin.openhouse.common.exception.checked.VersionConflictException;
+import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.housetables.model.NamespaceRow;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.NamespaceHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.services.NamespacesService;
@@ -45,15 +42,15 @@ class NamespacesServiceFailureTest {
   void testIcebergBackendReportsNamespaceMetadataUnavailable() {
     when(clusterProperties.getClusterHouseTablesDatabaseType()).thenReturn("ICEBERG");
     assertThatThrownBy(() -> namespacesService.createNamespace("foo", Map.of()))
-        .isInstanceOf(UnavailableException.class);
+        .isInstanceOf(NamespaceException.class);
     assertThatThrownBy(() -> namespacesService.getNamespace("foo"))
-        .isInstanceOf(UnavailableException.class);
+        .isInstanceOf(NamespaceException.class);
     assertThatThrownBy(() -> namespacesService.deleteNamespace("foo"))
-        .isInstanceOf(UnavailableException.class);
+        .isInstanceOf(NamespaceException.class);
     assertThatThrownBy(
             () ->
                 namespacesService.updateNamespaceProperties("foo", Map.of("bar", "one"), Set.of()))
-        .isInstanceOf(UnavailableException.class);
+        .isInstanceOf(NamespaceException.class);
   }
 
   @Test
@@ -63,19 +60,19 @@ class NamespacesServiceFailureTest {
     when(repository.findByNamespaceName("foo"))
         .thenThrow(new DataAccessResourceFailureException("storage unavailable"));
     assertThatThrownBy(() -> namespacesService.getNamespace("foo"))
-        .isInstanceOf(ServiceFailureException.class)
+        .isInstanceOf(NamespaceException.class)
         .hasMessage("Namespace metadata storage failed.")
         .hasCauseInstanceOf(DataAccessResourceFailureException.class);
     verify(transactionManager).rollback(any());
   }
 
   @Test
-  void testCommitFailureLeavesMutationUncertain() {
+  void testCommitFailureReportsFailure() {
     when(clusterProperties.getClusterHouseTablesDatabaseType()).thenReturn("IN_MEMORY");
     when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
     doThrow(new TransactionSystemException("commit failed")).when(transactionManager).commit(any());
     assertThatThrownBy(() -> namespacesService.createNamespace("foo", Map.of()))
-        .isInstanceOf(MutationUncertainException.class)
+        .isInstanceOf(NamespaceException.class)
         .hasCauseInstanceOf(TransactionSystemException.class);
   }
 
@@ -89,13 +86,13 @@ class NamespacesServiceFailureTest {
     doThrow(failure).when(transactionManager).commit(any());
 
     assertThatThrownBy(() -> namespacesService.getNamespace("foo"))
-        .isInstanceOf(ServiceFailureException.class)
+        .isInstanceOf(NamespaceException.class)
         .hasMessage("Namespace metadata storage failed.")
         .hasCause(failure);
   }
 
   @Test
-  void testDeleteCommitFailureLeavesMutationUncertain() {
+  void testDeleteCommitFailureReportsFailure() {
     when(clusterProperties.getClusterHouseTablesDatabaseType()).thenReturn("IN_MEMORY");
     when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
     when(repository.findByNamespaceName("foo"))
@@ -104,8 +101,8 @@ class NamespacesServiceFailureTest {
     doThrow(failure).when(transactionManager).commit(any());
 
     assertThatThrownBy(() -> namespacesService.deleteNamespace("foo"))
-        .isInstanceOf(MutationUncertainException.class)
-        .hasMessage("Namespace mutation outcome is unknown.")
+        .isInstanceOf(NamespaceException.class)
+        .hasMessage("Namespace metadata storage failed.")
         .hasCause(failure);
   }
 
@@ -125,8 +122,8 @@ class NamespacesServiceFailureTest {
     assertThatThrownBy(
             () ->
                 namespacesService.updateNamespaceProperties("foo", Map.of("bar", "one"), Set.of()))
-        .isInstanceOf(ServiceFailureException.class)
-        .hasMessage("Namespace metadata could not be persisted.")
+        .isInstanceOf(NamespaceException.class)
+        .hasMessage("Namespace metadata storage failed.")
         .hasCause(failure);
     verify(transactionManager).rollback(any());
   }
@@ -163,68 +160,68 @@ class NamespacesServiceFailureTest {
                 "constraint failed", new SQLException(), "other_constraint"));
     doThrow(otherConstraint).when(repository).flush();
     assertThatThrownBy(() -> namespacesService.createNamespace("foo", Map.of()))
-        .isInstanceOf(ServiceFailureException.class)
+        .isInstanceOf(NamespaceException.class)
         .hasCause(otherConstraint);
     verify(transactionManager, times(2)).rollback(any());
   }
 
   @Test
-  void acquisitionFailureIsConfirmedBeforeExecution() {
+  void acquisitionFailurePreventsExecution() {
     CannotCreateTransactionException failure = new CannotCreateTransactionException("foo");
     when(transactionManager.getTransaction(any())).thenThrow(failure);
     assertThatThrownBy(() -> namespacesService.createNamespace("foo", Map.of()))
-        .isInstanceOf(ServiceFailureException.class)
+        .isInstanceOf(NamespaceException.class)
         .hasCause(failure);
     verify(entityManager, never()).persist(any());
   }
 
   @Test
-  void unexpectedRollbackIsConfirmedFailure() {
+  void unexpectedRollbackPreservesCause() {
     when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
     UnexpectedRollbackException failure = new UnexpectedRollbackException("foo");
     doThrow(failure).when(transactionManager).commit(any());
     assertThatThrownBy(() -> namespacesService.createNamespace("foo", Map.of()))
-        .isInstanceOf(ServiceFailureException.class)
+        .isInstanceOf(NamespaceException.class)
         .hasCause(failure);
   }
 
   @Test
-  void optimisticCallbackRejectionRequiresSuccessfulRollback() {
+  void optimisticCallbackRejectionRollsBackAndPreservesCause() {
     when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
     OptimisticLockingFailureException failure = new OptimisticLockingFailureException("foo");
     doThrow(failure).when(repository).flush();
     assertThatThrownBy(() -> namespacesService.createNamespace("foo", Map.of()))
-        .isInstanceOf(VersionConflictException.class)
+        .isInstanceOf(NamespaceException.class)
         .hasCause(failure);
     verify(transactionManager).rollback(any());
   }
 
   @Test
-  void failedRollbackPreservesCallbackCauseAndUncertainty() {
+  void failedRollbackPreservesCallbackCause() {
     when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
     OptimisticLockingFailureException failure = new OptimisticLockingFailureException("foo");
     doThrow(failure).when(repository).flush();
     TransactionSystemException rollback = new TransactionSystemException("bar", failure);
     doThrow(rollback).when(transactionManager).rollback(any());
     assertThatThrownBy(() -> namespacesService.createNamespace("foo", Map.of()))
-        .isInstanceOf(MutationUncertainException.class)
+        .isInstanceOf(NamespaceException.class)
         .hasCause(rollback)
         .satisfies(exception -> assertThat(exception.getCause().getSuppressed()).contains(failure));
     verify(transactionManager).rollback(any());
   }
 
   @Test
-  void translatedDataAccessCommitFailureIsUncertain() {
+  void translatedDataAccessCommitFailurePreservesCause() {
     when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
     DataAccessResourceFailureException failure = new DataAccessResourceFailureException("foo");
     doThrow(failure).when(transactionManager).commit(any());
     assertThatThrownBy(() -> namespacesService.createNamespace("foo", Map.of()))
-        .isInstanceOf(MutationUncertainException.class)
+        .isInstanceOf(NamespaceException.class)
         .hasCause(failure);
   }
 
   @Test
-  void nestedOptimisticCommitFailurePreservesUncertaintyAndApplicationCause() {
+  void nestedOptimisticCommitFailurePreservesApplicationCause() {
     when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
     OptimisticLockingFailureException applicationFailure =
         new OptimisticLockingFailureException("foo");
@@ -232,13 +229,13 @@ class NamespacesServiceFailureTest {
     completionFailure.initApplicationException(applicationFailure);
     doThrow(completionFailure).when(transactionManager).commit(any());
     assertThatThrownBy(() -> namespacesService.createNamespace("foo", Map.of()))
-        .isInstanceOf(MutationUncertainException.class)
+        .isInstanceOf(NamespaceException.class)
         .hasCause(completionFailure);
     assertThat(completionFailure.getSuppressed()).contains(applicationFailure);
   }
 
   @Test
-  void updateCommitFailureIsUncertain() {
+  void updateCommitFailurePreservesCause() {
     when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
     when(repository.findByNamespaceName("foo"))
         .thenReturn(Optional.of(new NamespaceRow("foo", Map.of())));
@@ -247,25 +244,25 @@ class NamespacesServiceFailureTest {
     assertThatThrownBy(
             () ->
                 namespacesService.updateNamespaceProperties("foo", Map.of("bar", "one"), Set.of()))
-        .isInstanceOf(MutationUncertainException.class)
+        .isInstanceOf(NamespaceException.class)
         .hasCause(failure);
   }
 
   @Test
-  void missingDeleteTargetHasConfirmedFailureWhenReadCompletionFails() {
+  void missingDeleteTargetReportsFailureWhenReadCompletionFails() {
     when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
     when(repository.findByNamespaceName("foo")).thenReturn(Optional.empty());
     TransactionSystemException failure = new TransactionSystemException("foo");
     doThrow(failure).when(transactionManager).commit(any());
 
     assertThatThrownBy(() -> namespacesService.deleteNamespace("foo"))
-        .isInstanceOf(ServiceFailureException.class)
+        .isInstanceOf(NamespaceException.class)
         .hasCause(failure);
     verify(repository, never()).delete(any());
   }
 
   @Test
-  void missingUpdateTargetHasConfirmedFailureWhenReadCompletionFails() {
+  void missingUpdateTargetReportsFailureWhenReadCompletionFails() {
     when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
     when(repository.findByNamespaceName("foo")).thenReturn(Optional.empty());
     TransactionSystemException failure = new TransactionSystemException("foo");
@@ -274,13 +271,13 @@ class NamespacesServiceFailureTest {
     assertThatThrownBy(
             () ->
                 namespacesService.updateNamespaceProperties("foo", Map.of("bar", "one"), Set.of()))
-        .isInstanceOf(ServiceFailureException.class)
+        .isInstanceOf(NamespaceException.class)
         .hasCause(failure);
     verify(entityManager, never()).lock(any(), any());
   }
 
   @Test
-  void failedPrerequisiteLookupRemainsConfirmedWhenRollbackFails() {
+  void failedPrerequisiteLookupPreservesCauseWhenRollbackFails() {
     when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
     DataAccessResourceFailureException lookupFailure =
         new DataAccessResourceFailureException("foo");
@@ -289,19 +286,19 @@ class NamespacesServiceFailureTest {
     doThrow(completionFailure).when(transactionManager).rollback(any());
 
     assertThatThrownBy(() -> namespacesService.deleteNamespace("foo"))
-        .isInstanceOf(ServiceFailureException.class)
+        .isInstanceOf(NamespaceException.class)
         .hasCause(completionFailure);
     assertThat(completionFailure.getSuppressed()).contains(lookupFailure);
     verify(repository, never()).delete(any());
   }
 
   @Test
-  void optimisticReadRejectionRetainsConflict() {
+  void optimisticReadRejectionPreservesCause() {
     when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
     OptimisticLockingFailureException failure = new OptimisticLockingFailureException("foo");
     when(repository.findByNamespaceName("foo")).thenThrow(failure);
     assertThatThrownBy(() -> namespacesService.getNamespace("foo"))
-        .isInstanceOf(VersionConflictException.class)
+        .isInstanceOf(NamespaceException.class)
         .hasCause(failure);
     verify(transactionManager).rollback(any());
   }

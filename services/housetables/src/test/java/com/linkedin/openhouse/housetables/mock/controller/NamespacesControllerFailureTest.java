@@ -8,16 +8,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
 import com.linkedin.openhouse.common.exception.checked.AlreadyExistsException;
-import com.linkedin.openhouse.common.exception.checked.AuthenticationRequiredException;
 import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
 import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
-import com.linkedin.openhouse.common.exception.checked.MutationUncertainException;
 import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
-import com.linkedin.openhouse.common.exception.checked.PermissionDeniedException;
-import com.linkedin.openhouse.common.exception.checked.ServiceFailureException;
-import com.linkedin.openhouse.common.exception.checked.UnavailableException;
-import com.linkedin.openhouse.common.exception.checked.VersionConflictException;
 import com.linkedin.openhouse.housetables.api.handler.NamespacesApiHandler;
 import com.linkedin.openhouse.housetables.api.spec.response.NamespaceMetadataResponse;
 import com.linkedin.openhouse.housetables.api.spec.response.UpdateNamespacePropertiesResponseBody;
@@ -31,14 +25,16 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 class NamespacesControllerFailureTest {
   @ParameterizedTest
-  @MethodSource("checkedFailures")
-  void testCheckedFailuresHaveExplicitHttpStatuses(
-      NamespaceException exception, int expectedStatus, String expectedType, String expectedMessage)
+  @MethodSource("failures")
+  void testFailuresHaveExplicitHttpStatuses(
+      Exception exception, int expectedStatus, String expectedType, String expectedMessage)
       throws Exception {
     NamespacesApiHandler handler = mock(NamespacesApiHandler.class);
     when(handler.getNamespace("foo")).thenThrow(exception);
@@ -53,7 +49,7 @@ class NamespacesControllerFailureTest {
         .andExpect(jsonPath("$.cause").doesNotExist());
   }
 
-  static Stream<Arguments> checkedFailures() {
+  static Stream<Arguments> failures() {
     Throwable cause = new IllegalStateException("internal storage details");
     return Stream.of(
         Arguments.of(
@@ -77,39 +73,29 @@ class NamespacesControllerFailureTest {
             "InvalidPropertyUpdateException",
             "Property updates and removals must have disjoint keys."),
         Arguments.of(
-            new VersionConflictException("message", cause),
-            409,
-            "VersionConflictException",
-            "Namespace metadata changed concurrently."),
-        Arguments.of(
-            new UnavailableException("message", cause),
-            503,
-            "UnavailableException",
-            "Namespace metadata service unavailable."),
-        Arguments.of(
-            new ServiceFailureException("message", cause),
+            new NamespaceException("message", cause),
             500,
-            "ServiceFailureException",
+            "NamespaceException",
             "Namespace metadata operation failed."),
         Arguments.of(
-            new MutationUncertainException("message", cause),
+            new IllegalStateException("message", cause),
             500,
-            "MutationUncertainException",
-            "Namespace mutation outcome is unknown. Reload metadata and reconcile before retrying."),
+            "NamespaceException",
+            "Namespace metadata operation failed."),
         Arguments.of(
-            new AuthenticationRequiredException("message", cause),
+            new BadCredentialsException("message", cause),
             401,
             "AuthenticationRequiredException",
             "Authentication required."),
         Arguments.of(
-            new PermissionDeniedException("message", cause),
+            new AccessDeniedException("message", cause),
             403,
             "PermissionDeniedException",
             "Access denied."));
   }
 
   @Test
-  void unexpectedMutationFailureCannotClaimConfirmedRejection() throws Exception {
+  void unexpectedMutationFailureUsesSafeGenericResponse() throws Exception {
     NamespacesApiHandler handler = mock(NamespacesApiHandler.class);
     when(handler.createNamespace(any()))
         .thenThrow(new IllegalStateException("secret property value"));
@@ -121,11 +107,8 @@ class NamespacesControllerFailureTest {
                 .contentType("application/json")
                 .content("{\"namespaceName\":\"foo\"}"))
         .andExpect(status().isInternalServerError())
-        .andExpect(jsonPath("$.type").value("MutationUncertainException"))
-        .andExpect(
-            jsonPath("$.message")
-                .value(
-                    "Namespace mutation outcome is unknown. Reload metadata and reconcile before retrying."))
+        .andExpect(jsonPath("$.type").value("NamespaceException"))
+        .andExpect(jsonPath("$.message").value("Namespace metadata operation failed."))
         .andExpect(jsonPath("$.cause").doesNotExist());
   }
 

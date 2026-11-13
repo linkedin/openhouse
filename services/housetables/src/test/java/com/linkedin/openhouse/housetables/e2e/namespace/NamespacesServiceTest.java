@@ -9,12 +9,8 @@ import static org.mockito.Mockito.reset;
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.exception.checked.AlreadyExistsException;
 import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
-import com.linkedin.openhouse.common.exception.checked.MutationUncertainException;
 import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
-import com.linkedin.openhouse.common.exception.checked.ServiceFailureException;
-import com.linkedin.openhouse.common.exception.checked.UnavailableException;
-import com.linkedin.openhouse.common.exception.checked.VersionConflictException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.model.NamespaceMetadata;
 import com.linkedin.openhouse.housetables.model.NamespacePropertyUpdate;
@@ -39,6 +35,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import javax.persistence.EntityManager;
+import javax.persistence.OptimisticLockException;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -48,6 +45,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.test.context.ContextConfiguration;
@@ -284,7 +282,8 @@ class NamespacesServiceTest {
               () ->
                   assertThatThrownBy(
                           () -> namespacesService.deleteNamespace("namespace_metadata_foo"))
-                      .isInstanceOf(VersionConflictException.class));
+                      .isExactlyInstanceOf(NamespaceException.class)
+                      .hasCauseInstanceOf(OptimisticLockingFailureException.class));
       assertThat(deleteLoaded.await(10, TimeUnit.SECONDS)).isTrue();
       namespacesService.updateNamespaceProperties(
           "namespace_metadata_foo", Map.of("foo", "two", "bar", "three"), Set.of());
@@ -313,14 +312,14 @@ class NamespacesServiceTest {
     doReturn("ICEBERG").when(clusterProperties).getClusterHouseTablesDatabaseType();
     try {
       assertThatThrownBy(() -> namespacesService.createNamespace("Namespace_Bar", Map.of()))
-          .isInstanceOf(UnavailableException.class);
+          .isInstanceOf(NamespaceException.class);
       assertThatThrownBy(
               () ->
                   namespacesService.updateNamespaceProperties(
                       "namespace_foo", Map.of("foo", "two"), Set.of()))
-          .isInstanceOf(UnavailableException.class);
+          .isInstanceOf(NamespaceException.class);
       assertThatThrownBy(() -> namespacesService.deleteNamespace("namespace_foo"))
-          .isInstanceOf(UnavailableException.class);
+          .isInstanceOf(NamespaceException.class);
     } finally {
       reset(clusterProperties);
     }
@@ -339,13 +338,13 @@ class NamespacesServiceTest {
             () ->
                 namespacesService.updateNamespaceProperties(
                     "namespace_foo", Map.of("baz", "three"), Set.of("foo")))
-        .isInstanceOf(ServiceFailureException.class);
+        .isInstanceOf(NamespaceException.class);
     reset(repository);
     assertThat(namespacesService.getNamespace("namespace_foo")).isEqualTo(created);
   }
 
   @Test
-  void committedJpaMutationWithLostAcknowledgementRemainsUncertain() throws NamespaceException {
+  void committedJpaMutationWithLostAcknowledgementReportsFailure() throws NamespaceException {
     assertThat(transactionManager).isInstanceOf(JpaTransactionManager.class);
     TransactionSystemException failure = new TransactionSystemException("foo");
     JpaTransactionManager failingCompletion =
@@ -360,7 +359,7 @@ class NamespacesServiceTest {
     NamespacesService service =
         new NamespacesServiceImpl(repository, clusterProperties, entityManager, failingCompletion);
     assertThatThrownBy(() -> service.createNamespace("namespace_foo", Map.of("foo", "bar")))
-        .isInstanceOf(MutationUncertainException.class)
+        .isInstanceOf(NamespaceException.class)
         .hasCause(failure);
     assertThat(namespacesService.getNamespace("namespace_foo").getProperties())
         .containsExactlyInAnyOrderEntriesOf(Map.of("foo", "bar"));
@@ -393,6 +392,9 @@ class NamespacesServiceTest {
                       "namespace_foo", emptyUpdates ? Map.of() : Map.of("foo", "two"), Set.of());
                   return Optional.empty();
                 } catch (NamespaceException exception) {
+                  assertThat(exception.getCause())
+                      .isInstanceOfAny(
+                          OptimisticLockException.class, OptimisticLockingFailureException.class);
                   return Optional.of(exception.getClass());
                 }
               },
@@ -402,6 +404,9 @@ class NamespacesServiceTest {
                       "namespace_foo", emptyUpdates ? Map.of() : Map.of("bar", "three"), Set.of());
                   return Optional.empty();
                 } catch (NamespaceException exception) {
+                  assertThat(exception.getCause())
+                      .isInstanceOfAny(
+                          OptimisticLockException.class, OptimisticLockingFailureException.class);
                   return Optional.of(exception.getClass());
                 }
               });
@@ -410,7 +415,7 @@ class NamespacesServiceTest {
       firstOutcome = results.get(0).get();
       secondOutcome = results.get(1).get();
       assertThat(Arrays.asList(firstOutcome, secondOutcome))
-          .containsExactlyInAnyOrder(Optional.empty(), Optional.of(VersionConflictException.class));
+          .containsExactlyInAnyOrder(Optional.empty(), Optional.of(NamespaceException.class));
     } finally {
       executor.shutdownNow();
       assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();

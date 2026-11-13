@@ -1,12 +1,12 @@
 package com.linkedin.openhouse.common.exception.checked;
 
-/** Checked failure propagated between namespace operations in this service process. */
-public abstract class NamespaceException extends Exception {
-  protected NamespaceException(String message) {
+/** Checked namespace failure. A failed write may have changed the stored metadata. */
+public class NamespaceException extends Exception {
+  public NamespaceException(String message) {
     super(message);
   }
 
-  protected NamespaceException(String message, Throwable cause) {
+  public NamespaceException(String message, Throwable cause) {
     super(message, cause);
   }
 }
