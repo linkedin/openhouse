@@ -4,7 +4,6 @@ import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.INI
 import static com.linkedin.openhouse.tables.model.TableModelConstants.TABLE_DTO;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.client.model.ToggleStatus;
 import com.linkedin.openhouse.tables.config.TblPropsToggleRegistry;
 import com.linkedin.openhouse.tables.config.TblPropsToggleRegistryBaseImpl;
@@ -12,7 +11,6 @@ import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.toggle.model.TableToggleStatus;
-import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;
 import java.util.Collections;
 import javax.annotation.PostConstruct;
 import org.junit.jupiter.api.Test;
@@ -26,7 +24,7 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
 
 @SpringBootTest
-@ContextConfiguration(initializers = PropertyOverrideContextInitializer.class)
+@ContextConfiguration(initializers = TableE2eContextInitializer.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_CLASS)
 @Import(CreateTableFeatureToggleTest.FeatureToggleTestConfig.class)
 public class CreateTableFeatureToggleTest {
@@ -35,7 +33,7 @@ public class CreateTableFeatureToggleTest {
   private static final String TABLE_ID = "create_feature_toggle_test";
 
   @Autowired private OpenHouseInternalRepository openHouseInternalRepository;
-  @Autowired private ToggleStatusesRepository toggleStatusesRepository;
+  @Autowired private TableE2eFixtures fixtures;
 
   @Test
   void testFeatureToggleAllowsPreservedPropertyDuringCreation() {
@@ -60,7 +58,7 @@ public class CreateTableFeatureToggleTest {
             .build();
 
     try {
-      toggleStatusesRepository.save(toggleStatus);
+      fixtures.seedToggle(toggleStatus);
       TableDto createdTable = openHouseInternalRepository.save(tableDto);
 
       assertEquals(TEST_VALUE, createdTable.getTableProperties().get(TEST_PROPERTY));
@@ -68,7 +66,7 @@ public class CreateTableFeatureToggleTest {
       if (openHouseInternalRepository.existsById(primaryKey)) {
         openHouseInternalRepository.deleteById(primaryKey);
       }
-      toggleStatusesRepository.delete(toggleStatus);
+      fixtures.deleteToggle(toggleStatus);
     }
   }
 
