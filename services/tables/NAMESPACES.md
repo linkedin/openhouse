@@ -67,10 +67,11 @@ Concurrent table or view creation is not serialized with metadata drop. A table 
 exist after its namespace metadata is dropped. Namespace records are optional, not mandatory
 parents. An empty namespace need not appear in the legacy table-derived database listing.
 
-Administrators deploying the service must apply the
+Administrators must deploy the HouseTables internal namespace API and apply the
 [HouseTables namespace DDL](https://github.com/linkedin/openhouse/blob/mkuchenbecker/database-properties-hts/services/housetables/ddl/0002__add_namespace_metadata.sql)
-before serving namespace requests. Existing table creation, loading, updates, deletion, and
-database listing perform zero namespace-metadata lookups.
+before serving namespace requests. LinkedIn rollout also requires a separate `SYSTEM_ADMIN`
+authorization-handler change. Existing table creation, loading, updates, deletion, and database
+listing perform zero namespace-metadata lookups.
 
 ## Generated client and validation
 
