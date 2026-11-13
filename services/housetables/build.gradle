@@ -86,12 +86,12 @@ dependencies {
 }
 
 tasks.register('namespaceMysqlTest', Test) {
-  description = 'Runs namespace persistence contracts against an explicitly supplied local MySQL schema.'
+  description = 'Bootstraps a dedicated local MySQL schema and runs namespace persistence contracts.'
   group = 'verification'
   testClassesDirs = sourceSets.test.output.classesDirs
   classpath = sourceSets.test.runtimeClasspath
   filter { includeTestsMatching '*NamespacesServiceTest' }
-  systemProperty 'spring.sql.init.mode', 'never'
+  systemProperty 'spring.sql.init.mode', 'always'
   systemProperty 'spring.jpa.hibernate.ddl-auto', 'none'
   systemProperty 'cluster.housetables.database.type', 'MYSQL'
   systemProperty 'cluster.housetables.database.url',
@@ -100,7 +100,7 @@ tasks.register('namespaceMysqlTest', Test) {
   systemProperty 'HTS_DB_PASSWORD', ''
   doFirst {
     if (!providers.gradleProperty('namespaceMysqlUrl').isPresent()) {
-      throw new GradleException('Supply -PnamespaceMysqlUrl for a dedicated local schema initialized with ddl/0000 through ddl/0002.')
+      throw new GradleException('Supply -PnamespaceMysqlUrl for a dedicated local schema.')
     }
 
   }
