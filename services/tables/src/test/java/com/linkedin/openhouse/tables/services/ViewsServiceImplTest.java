@@ -807,6 +807,7 @@ public class ViewsServiceImplTest {
 
     assertEquals("engine-kept-creator", result.getFirst().getViewCreator());
     assertEquals(COMMITTED_POINTER, result.getFirst().getMetadataLocation());
+    assertEquals(COMMITTED_POINTER, managed.getTableLocation(), "the publish mutated the held row");
     verify(houseTableRepository, times(1)).findEntityById(viewKey());
     verifyTableProbeOnly();
     verifyNoMoreInteractions(houseTableRepository);
@@ -1488,6 +1489,41 @@ public class ViewsServiceImplTest {
     assertSame(unknown, thrown.getCause());
     verify(viewCommitEngine, times(1)).commit(any(ViewCommitIntent.class));
     verify(houseTableRepository, never()).deleteViewById(any());
+  }
+
+  /**
+   * An ambiguous replace is one commit attempt with no refresh of the captured row, retry or
+   * cleanup, surfacing as COMMIT_STATE_UNKNOWN (503) with the original cause.
+   */
+  @Test
+  public void ambiguousReplaceIsOneAttemptWithoutRefreshAndKeepsTheUnknownCause() {
+    existingEnabledDatabase();
+    HouseTable captured = capturedViewRow();
+    when(houseTableRepository.findEntityById(viewKey()))
+        .thenReturn(Optional.of(captured))
+        .thenThrow(new AssertionError("an ambiguous replace must not refresh the captured row"));
+    when(privilegeMapper.forPut(true)).thenReturn(Privileges.UPDATE_TABLE_METADATA);
+    allowViewObject(captured, Privileges.UPDATE_TABLE_METADATA);
+    CommitStateUnknownException unknown =
+        new CommitStateUnknownException(new RuntimeException("raw cause stays internal"));
+    when(viewCommitEngine.commit(any(ViewCommitIntent.class))).thenThrow(unknown);
+
+    ViewApiException thrown =
+        assertThrows(
+            ViewApiException.class,
+            () ->
+                service.putView(
+                    ViewModelConstants.fullyPopulatedRequest(), ACTING_PRINCIPAL, false));
+
+    assertEquals(ViewErrorCode.COMMIT_STATE_UNKNOWN, thrown.getErrorCode());
+    assertEquals(HttpStatus.SERVICE_UNAVAILABLE, thrown.getHttpStatus());
+    assertSame(unknown, thrown.getCause());
+    verify(viewCommitEngine, times(1)).commit(any(ViewCommitIntent.class));
+    assertViewObjectAuthorization(captured, Privileges.UPDATE_TABLE_METADATA);
+    verify(houseTableRepository, times(1)).findEntityById(viewKey());
+    verifyTableProbeOnly();
+    verifyNoMoreInteractions(houseTableRepository);
+    verifyNoInteractions(storageSelector, storageManager);
   }
 
   @ParameterizedTest
