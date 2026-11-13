@@ -10,6 +10,7 @@ import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.selector.StorageSelector;
 import com.linkedin.openhouse.common.api.validator.ValidatorConstants;
+import com.linkedin.openhouse.common.audit.AuditHandler;
 import com.linkedin.openhouse.common.security.DummyTokenInterceptor;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.internal.catalog.model.HouseTable;
@@ -17,6 +18,9 @@ import com.linkedin.openhouse.internal.catalog.model.HouseTablePrimaryKey;
 import com.linkedin.openhouse.internal.catalog.repository.HouseTableRepository;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateViewRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.ViewRepresentation;
+import com.linkedin.openhouse.tables.audit.model.OperationStatus;
+import com.linkedin.openhouse.tables.audit.model.ViewAuditEvent;
+import com.linkedin.openhouse.tables.audit.model.ViewOperationType;
 import com.linkedin.openhouse.tables.exception.ViewExceptionHandler;
 import com.linkedin.openhouse.tables.mock.properties.AuthorizationPropertiesInitializer;
 import com.linkedin.openhouse.tables.model.TableDto;
@@ -29,6 +33,7 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.List;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.view.ViewMetadata;
 import org.apache.iceberg.view.ViewMetadataParser;
@@ -37,6 +42,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -77,6 +83,7 @@ public class ViewsServiceH2IntegrationTest {
   @Autowired private OpenHouseInternalRepository openHouseInternalRepository;
   @Autowired private HouseTableRepository houseTableRepository;
   @MockBean private ViewsFeatureGate viewsFeatureGate;
+  @MockBean private AuditHandler<ViewAuditEvent> viewAuditHandler;
   @SpyBean private StorageSelector storageSelector;
 
   private String jwtAccessToken;
@@ -258,6 +265,13 @@ public class ViewsServiceH2IntegrationTest {
                 .accept(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + jwtAccessToken))
         .andExpect(status().isNoContent());
+
+    ArgumentCaptor<ViewAuditEvent> events = ArgumentCaptor.forClass(ViewAuditEvent.class);
+    Mockito.verify(viewAuditHandler, Mockito.times(3)).audit(events.capture());
+    List<ViewAuditEvent> audited = events.getAllValues();
+    assertOperationAudit(audited.get(0), ViewOperationType.CREATE, baseMetadataLocation);
+    assertOperationAudit(audited.get(1), ViewOperationType.REPLACE, replacementMetadataLocation);
+    assertOperationAudit(audited.get(2), ViewOperationType.DROP, null);
   }
 
   @Test
@@ -659,6 +673,21 @@ public class ViewsServiceH2IntegrationTest {
                 .tableId(viewId)
                 .build())
         .orElseThrow(() -> new AssertionError("Expected view row to exist"));
+  }
+
+  /** A successful handler-level event: concrete operation, response pointer, server identity. */
+  private void assertOperationAudit(
+      ViewAuditEvent event, ViewOperationType operationType, String responsePointer) {
+    org.junit.jupiter.api.Assertions.assertEquals(
+        OperationStatus.SUCCESS, event.getOperationStatus());
+    org.junit.jupiter.api.Assertions.assertEquals(operationType, event.getOperationType());
+    org.junit.jupiter.api.Assertions.assertEquals(
+        ViewModelConstants.DATABASE_ID, event.getDatabaseName());
+    org.junit.jupiter.api.Assertions.assertEquals(ViewModelConstants.VIEW_ID, event.getViewName());
+    org.junit.jupiter.api.Assertions.assertEquals("DUMMY_ANONYMOUS_USER", event.getUser());
+    org.junit.jupiter.api.Assertions.assertEquals(
+        clusterProperties.getClusterName(), event.getClusterName());
+    org.junit.jupiter.api.Assertions.assertEquals(responsePointer, event.getNewMetadataLocation());
   }
 
   private long metadataFileCount() throws Exception {
