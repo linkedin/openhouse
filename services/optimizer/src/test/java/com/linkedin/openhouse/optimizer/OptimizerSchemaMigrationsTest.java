@@ -26,12 +26,24 @@ import org.testcontainers.containers.MySQLContainer;
 /**
  * Starts the service on a database that already holds HouseTables' real schema and seeded rows. The
  * database must end up with the optimizer tables that Flyway creates in an empty one, without
- * changing any HouseTables table definition or row.
+ * changing any HouseTables table definition or row. The service runs as a user that can reach only
+ * the optimizer tables, so a migration that touches any other table fails its startup.
  */
 class OptimizerSchemaMigrationsTest {
 
   private static final MySQLContainer<?> MYSQL =
       MySqlContainerInitializer.newContainer().withUsername("root");
+
+  /** The service's MySQL user, granted the optimizer tables and nothing else. */
+  private static final String SERVICE_USER = "optimizer";
+
+  private static final String[] OPTIMIZER_TABLES = {
+    "optimizer_schema_history",
+    "table_operations",
+    "table_operations_history",
+    "table_stats",
+    "table_stats_history"
+  };
 
   private static final String[] HOUSE_TABLES_SEED_SQL = {
     "INSERT INTO user_table_row (database_id, table_id, version, metadata_location) VALUES"
@@ -57,13 +69,7 @@ class OptimizerSchemaMigrationsTest {
     createDatabase("new_database");
     startService("new_database");
     emptyDatabaseTables = tables("new_database");
-    assertThat(emptyDatabaseTables)
-        .containsOnlyKeys(
-            "optimizer_schema_history",
-            "table_operations",
-            "table_operations_history",
-            "table_stats",
-            "table_stats_history");
+    assertThat(emptyDatabaseTables).containsOnlyKeys(OPTIMIZER_TABLES);
   }
 
   @AfterAll
@@ -112,7 +118,7 @@ class OptimizerSchemaMigrationsTest {
         .web(WebApplicationType.NONE)
         .run(
             "--cluster.optimizer.database.url=" + jdbcUrl(database),
-            "--spring.datasource.username=" + MYSQL.getUsername(),
+            "--spring.datasource.username=" + SERVICE_USER,
             "--spring.datasource.password=" + MYSQL.getPassword())
         .close();
   }
@@ -159,10 +165,33 @@ class OptimizerSchemaMigrationsTest {
     return tableNames;
   }
 
+  /** Creates the database and grants the service user the optimizer tables in it. */
   private static void createDatabase(String database) throws SQLException {
     try (Connection connection = connect(MYSQL.getDatabaseName());
         Statement statement = connection.createStatement()) {
       statement.execute("CREATE DATABASE " + database);
+      statement.execute(
+          "CREATE USER IF NOT EXISTS '"
+              + SERVICE_USER
+              + "'@'%' IDENTIFIED BY '"
+              + MYSQL.getPassword()
+              + "'");
+      for (String table : OPTIMIZER_TABLES) {
+        String privileges =
+            table.equals("optimizer_schema_history")
+                ? "SELECT, INSERT, UPDATE, DELETE, CREATE, INDEX"
+                : "SELECT, INSERT, UPDATE, DELETE, CREATE, INDEX, ALTER, DROP";
+        statement.execute(
+            "GRANT "
+                + privileges
+                + " ON `"
+                + database
+                + "`.`"
+                + table
+                + "` TO '"
+                + SERVICE_USER
+                + "'@'%'");
+      }
     }
   }
 
