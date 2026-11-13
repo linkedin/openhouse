@@ -2,7 +2,6 @@ package com.linkedin.openhouse.optimizer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.linkedin.openhouse.optimizer.testing.MySqlContainerInitializer;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -22,6 +21,7 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.testcontainers.containers.MySQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 /**
  * Starts the service on a database that already holds HouseTables' real schema and seeded rows. The
@@ -31,8 +31,19 @@ import org.testcontainers.containers.MySQLContainer;
  */
 class OptimizerSchemaMigrationsTest {
 
+  /** MySQL 8.0, the release line production runs. */
+  private static final DockerImageName MYSQL_IMAGE = DockerImageName.parse("mysql:8.0.46");
+
+  /**
+   * How long a connection waits for MySQL to answer before failing. Connector/J has no read timeout
+   * by default, so a server that accepts the connection and never answers would hang the build.
+   */
+  private static final int SOCKET_TIMEOUT_MILLIS = 60_000;
+
   private static final MySQLContainer<?> MYSQL =
-      MySqlContainerInitializer.newContainer().withUsername("root");
+      new MySQLContainer<>(MYSQL_IMAGE)
+          .withUsername("root")
+          .withUrlParam("socketTimeout", String.valueOf(SOCKET_TIMEOUT_MILLIS));
 
   /** The service's MySQL user, granted the optimizer tables and nothing else. */
   private static final String SERVICE_USER = "optimizer";
@@ -207,6 +218,6 @@ class OptimizerSchemaMigrationsTest {
         + "/"
         + database
         + "?useSSL=false&allowPublicKeyRetrieval=true&socketTimeout="
-        + MySqlContainerInitializer.SOCKET_TIMEOUT_MILLIS;
+        + SOCKET_TIMEOUT_MILLIS;
   }
 }
