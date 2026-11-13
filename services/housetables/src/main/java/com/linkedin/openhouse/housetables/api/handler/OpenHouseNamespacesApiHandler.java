@@ -3,8 +3,8 @@ package com.linkedin.openhouse.housetables.api.handler;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.ALPHA_NUM_UNDERSCORE_REGEX;
 
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
-import com.linkedin.openhouse.common.exception.checked.DomainException;
 import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
+import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateNamespaceRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.request.UpdateNamespacePropertiesRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.response.NamespaceMetadataResponse;
@@ -31,7 +31,7 @@ public class OpenHouseNamespacesApiHandler implements NamespacesApiHandler {
 
   @Override
   public ApiResponse<NamespaceMetadataResponse> createNamespace(CreateNamespaceRequestBody request)
-      throws DomainException {
+      throws NamespaceException {
     validateRequest(request);
     NamespaceMetadata metadata =
         namespacesService.createNamespace(request.getNamespaceName(), request.getProperties());
@@ -48,7 +48,7 @@ public class OpenHouseNamespacesApiHandler implements NamespacesApiHandler {
 
   @Override
   public ApiResponse<NamespaceMetadataResponse> getNamespace(String namespaceName)
-      throws DomainException {
+      throws NamespaceException {
     validateNamespaceName(namespaceName);
     NamespaceMetadata metadata = namespacesService.getNamespace(namespaceName);
     return ApiResponse.<NamespaceMetadataResponse>builder()
@@ -63,7 +63,7 @@ public class OpenHouseNamespacesApiHandler implements NamespacesApiHandler {
   }
 
   @Override
-  public ApiResponse<Void> deleteNamespace(String namespaceName) throws DomainException {
+  public ApiResponse<Void> deleteNamespace(String namespaceName) throws NamespaceException {
     validateNamespaceName(namespaceName);
     namespacesService.deleteNamespace(namespaceName);
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
@@ -71,7 +71,8 @@ public class OpenHouseNamespacesApiHandler implements NamespacesApiHandler {
 
   @Override
   public ApiResponse<UpdateNamespacePropertiesResponseBody> updateNamespaceProperties(
-      String namespaceName, UpdateNamespacePropertiesRequestBody request) throws DomainException {
+      String namespaceName, UpdateNamespacePropertiesRequestBody request)
+      throws NamespaceException {
     validateNamespaceName(namespaceName);
     validateRequest(request);
     NamespacePropertyUpdate result =

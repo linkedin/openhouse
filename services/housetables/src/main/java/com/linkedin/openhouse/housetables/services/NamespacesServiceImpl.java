@@ -2,9 +2,9 @@ package com.linkedin.openhouse.housetables.services;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.exception.checked.AlreadyExistsException;
-import com.linkedin.openhouse.common.exception.checked.DomainException;
 import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
 import com.linkedin.openhouse.common.exception.checked.MutationUncertainException;
+import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.common.exception.checked.ServiceFailureException;
 import com.linkedin.openhouse.common.exception.checked.UnavailableException;
@@ -63,7 +63,7 @@ public class NamespacesServiceImpl implements NamespacesService {
 
   @Override
   public NamespaceMetadata createNamespace(String namespaceName, Map<String, String> properties)
-      throws DomainException {
+      throws NamespaceException {
     if (SupportedDbTypes.ICEBERG
         .name()
         .equals(clusterProperties.getClusterHouseTablesDatabaseType())) {
@@ -109,7 +109,7 @@ public class NamespacesServiceImpl implements NamespacesService {
   }
 
   @Override
-  public NamespaceMetadata getNamespace(String namespaceName) throws DomainException {
+  public NamespaceMetadata getNamespace(String namespaceName) throws NamespaceException {
     if (SupportedDbTypes.ICEBERG
         .name()
         .equals(clusterProperties.getClusterHouseTablesDatabaseType())) {
@@ -140,7 +140,7 @@ public class NamespacesServiceImpl implements NamespacesService {
   }
 
   @Override
-  public void deleteNamespace(String namespaceName) throws DomainException {
+  public void deleteNamespace(String namespaceName) throws NamespaceException {
     if (SupportedDbTypes.ICEBERG
         .name()
         .equals(clusterProperties.getClusterHouseTablesDatabaseType())) {
@@ -183,7 +183,7 @@ public class NamespacesServiceImpl implements NamespacesService {
   @Override
   public NamespacePropertyUpdate updateNamespaceProperties(
       String namespaceName, Map<String, String> updates, Set<String> removals)
-      throws DomainException {
+      throws NamespaceException {
     if (!Collections.disjoint(updates.keySet(), removals)) {
       throw new InvalidPropertyUpdateException(
           "Property updates and removals must have disjoint keys.");
@@ -283,7 +283,7 @@ public class NamespacesServiceImpl implements NamespacesService {
     }
   }
 
-  private void commitMutation(TransactionStatus transaction) throws DomainException {
+  private void commitMutation(TransactionStatus transaction) throws NamespaceException {
     try {
       transactionManager.commit(transaction);
     } catch (UnexpectedRollbackException exception) {

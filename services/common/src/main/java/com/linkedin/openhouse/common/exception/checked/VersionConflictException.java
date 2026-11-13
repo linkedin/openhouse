@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.common.exception.checked;
 
-public class VersionConflictException extends DomainException {
+public class VersionConflictException extends NamespaceException {
   public VersionConflictException(String message) {
     super(message);
   }
