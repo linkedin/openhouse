@@ -20,18 +20,21 @@ Do not change HouseTables' schema or data.
 
 ## Tests
 
-The optimizer integration tests run on MySQL 8.0.46 in Docker. Production uses the same MySQL
-release. Start Docker before running the repository tests or the service and scheduler integration
-tests.
-
-The test modules include Flyway at runtime. `MySqlContainerInitializer` starts a new
-[MySQL container](https://java.testcontainers.org/modules/databases/mysql/) for each Spring test
-context. Flyway applies the migrations just as it does when the service starts. The initializer
-lives in the optimizer-common test fixtures. Add it to a `@SpringBootTest`:
+The optimizer repository, service, and scheduler integration tests run on MySQL 8.0.46, the release
+production runs, in Docker, so start Docker before you run them. The test modules include Flyway on
+their test runtime classpath. The shared `optimizer-mysql-testcontainers.properties` (optimizer-common
+test fixtures) points the optimizer's datasource at a Testcontainers
+[JDBC URL](https://java.testcontainers.org/modules/databases/jdbc/), `jdbc:tc:mysql:8.0.46:///...`,
+which starts a [MySQL container](https://java.testcontainers.org/modules/databases/mysql/) at the
+first connection and stops it when the context closes its datasource. Flyway migrates the database
+as the service does at startup. The URL carries a UUID that Spring resolves once per context, so
+each distinct test context gets a container of its own. The URL's `socketTimeout=60000` bounds the
+application's JDBC connections, not Testcontainers' own readiness check, which uses its defaults. Add
+the properties to a `@SpringBootTest`:
 
 ```java
 @SpringBootTest
-@ContextConfiguration(initializers = MySqlContainerInitializer.class)
+@TestPropertySource(locations = "classpath:optimizer-mysql-testcontainers.properties")
 class MyRepositoryTest { ... }
 ```
 
