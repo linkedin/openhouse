@@ -1,11 +1,11 @@
 package com.linkedin.openhouse.tables.services;
 
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
-import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
-import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
 import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
+import com.linkedin.openhouse.tables.exception.InvalidPropertyUpdateException;
+import com.linkedin.openhouse.tables.exception.InvalidRequestException;
 import com.linkedin.openhouse.tables.exception.NotEmptyException;
 import com.linkedin.openhouse.tables.exception.PermissionDeniedException;
 import java.util.List;

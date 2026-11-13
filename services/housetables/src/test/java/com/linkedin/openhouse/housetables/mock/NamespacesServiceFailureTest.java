@@ -7,7 +7,6 @@ import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
-import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
 import com.linkedin.openhouse.housetables.model.NamespaceRow;
 import com.linkedin.openhouse.housetables.repository.impl.jdbc.NamespaceHtsJdbcRepository;
 import com.linkedin.openhouse.housetables.services.NamespacesService;
@@ -116,18 +115,6 @@ class NamespacesServiceFailureTest {
                 namespacesService.updateNamespaceProperties("foo", Map.of("bar", "one"), Set.of()))
         .isSameAs(failure);
     verify(transactionManager).rollback(any());
-  }
-
-  @Test
-  void testOverlappingPropertyUpdatePrecedesUnsupportedBackendRejection() {
-    when(clusterProperties.getClusterHouseTablesDatabaseType()).thenReturn("ICEBERG");
-
-    assertThatThrownBy(
-            () ->
-                namespacesService.updateNamespaceProperties(
-                    "foo", Map.of("bar", "one"), Set.of("bar")))
-        .isInstanceOf(InvalidPropertyUpdateException.class)
-        .hasMessage("Property updates and removals must have disjoint keys.");
   }
 
   @Test

@@ -31,12 +31,14 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.AuthorizationServiceException;
@@ -175,6 +177,7 @@ class IcebergNamespacesControllerTest {
         .andExpect(jsonPath("$.error.type").value("BadRequestException"))
         .andExpect(jsonPath("$.stackTrace").doesNotExist())
         .andExpect(jsonPath("$.error.stack").doesNotExist());
+    verify(repository, never()).create(anyString(), anyMap());
   }
 
   @Test
@@ -186,13 +189,25 @@ class IcebergNamespacesControllerTest {
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.error.message").value(containsString("foo.bar")))
         .andExpect(jsonPath("$.error.message").value(not(containsString("bar_secret"))));
+    verify(repository, never()).create(anyString(), anyMap());
   }
 
-  @Test
-  void invalidPathReportsNamespace() throws Exception {
-    mvc.perform(get("/v1/foo/namespaces/foo.bar"))
+  @ParameterizedTest
+  @CsvSource({
+    "GET, /v1/foo/namespaces/foo.bar",
+    "DELETE, /v1/foo/namespaces/foo.bar",
+    "POST, /v1/foo/namespaces/foo.bar/properties"
+  })
+  void invalidPathReportsNamespaceBeforeStorageAccess(String method, String path) throws Exception {
+    mvc.perform(
+            request(HttpMethod.valueOf(method), path)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.error.message").value(containsString("'foo.bar'")));
+    verify(repository, never()).getByName(anyString());
+    verify(repository, never()).updateProperties(anyString(), anyMap(), anySet());
+    verify(repository, never()).delete(anyString());
   }
 
   @ParameterizedTest
@@ -213,6 +228,8 @@ class IcebergNamespacesControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"removals\":[\"" + key + "\"]}"))
         .andExpect(status().isBadRequest());
+    verify(repository, never()).create(anyString(), anyMap());
+    verify(repository, never()).updateProperties(anyString(), anyMap(), anySet());
   }
 
   @Test
@@ -355,8 +372,11 @@ class IcebergNamespacesControllerTest {
   @ParameterizedTest
   @ValueSource(
       strings = {
-        "{\"updates\":null}", "{\"removals\":null}",
-        "{\"updates\":{\"a\":1}}", "{\"removals\":[null]}"
+        "{\"updates\":null}",
+        "{\"removals\":null}",
+        "{\"updates\":{\"a\":1}}",
+        "{\"updates\":{\"a\":null}}",
+        "{\"removals\":[null]}"
       })
   void invalidPropertyUpdatesAreRejected(String body) throws Exception {
     mvc.perform(
@@ -365,6 +385,7 @@ class IcebergNamespacesControllerTest {
                 .content(body))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.error.code").value(400));
+    verify(repository, never()).updateProperties(anyString(), anyMap(), anySet());
   }
 
   @Test

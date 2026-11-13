@@ -1,4 +1,4 @@
-package com.linkedin.openhouse.common.exception.checked;
+package com.linkedin.openhouse.tables.exception;
 
 public class InvalidPropertyUpdateException extends Exception {
   public InvalidPropertyUpdateException(String message) {

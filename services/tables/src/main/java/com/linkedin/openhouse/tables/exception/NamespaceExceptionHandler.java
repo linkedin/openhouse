@@ -1,8 +1,6 @@
 package com.linkedin.openhouse.tables.exception;
 
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
-import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
-import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.tables.api.spec.namespace.NamespaceErrorResponse;
 import com.linkedin.openhouse.tables.api.spec.namespace.NamespaceErrorResponse.NamespaceError;

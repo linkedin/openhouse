@@ -11,8 +11,6 @@ import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownExcept
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
-import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
-import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
 import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
@@ -30,6 +28,8 @@ import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
+import com.linkedin.openhouse.tables.exception.InvalidPropertyUpdateException;
+import com.linkedin.openhouse.tables.exception.InvalidRequestException;
 import com.linkedin.openhouse.tables.exception.NotEmptyException;
 import com.linkedin.openhouse.tables.exception.PermissionDeniedException;
 import com.linkedin.openhouse.tables.model.TableDto;

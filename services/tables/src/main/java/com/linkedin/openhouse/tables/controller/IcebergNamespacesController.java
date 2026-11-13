@@ -3,8 +3,6 @@ package com.linkedin.openhouse.tables.controller;
 import static com.linkedin.openhouse.common.security.AuthenticationUtils.extractAuthenticatedUserPrincipal;
 
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
-import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
-import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
 import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
@@ -14,6 +12,8 @@ import com.linkedin.openhouse.tables.api.spec.namespace.NamespaceResponse;
 import com.linkedin.openhouse.tables.api.spec.namespace.UpdateNamespacePropertiesRequest;
 import com.linkedin.openhouse.tables.api.spec.namespace.UpdateNamespacePropertiesResponse;
 import com.linkedin.openhouse.tables.authorization.Privileges;
+import com.linkedin.openhouse.tables.exception.InvalidPropertyUpdateException;
+import com.linkedin.openhouse.tables.exception.InvalidRequestException;
 import com.linkedin.openhouse.tables.exception.NotEmptyException;
 import com.linkedin.openhouse.tables.exception.PermissionDeniedException;
 import com.linkedin.openhouse.tables.services.NamespacesService;
