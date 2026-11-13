@@ -59,8 +59,7 @@ or the DDL fails to load, the run fails.
   (including `PATCH`) against that MySQL instance. It covers the former Python deployment suite's
   24 scenarios, including the multi-page view cleanup, soft-delete/restore/purge lifecycle, and
   the legacy `NULL` and corrupt `entity_type` rows, which are inserted directly through JDBC
-  because the API cannot express them. `HtsHttpTestClientTest` covers the HTTP helper's pagination
-  and cleanup rules without Docker.
+  because the API cannot express them.
 - The default `test` task runs in a single fork with JUnit parallelism off. Tests tagged
   `mysql-index` are excluded and run only through `mysqlIndexTest`.
 
@@ -80,10 +79,8 @@ HTTP listener. Neither suite needs staging access or Spark.
 # Java 17. Everything in the HTS module, including the MySQL-backed tests (Docker required).
 ./gradlew :services:housetables:test
 
-# Fast, Docker-free unit contracts, controller dispatch, plan-detector and HTTP-helper tests.
-./gradlew :services:housetables:test \
-  --tests 'com.linkedin.openhouse.housetables.index.*' \
-  --tests 'com.linkedin.openhouse.housetables.e2e.fixture.HtsHttpTestClientTest'
+# Fast, Docker-free unit contracts, controller dispatch and plan-detector tests.
+./gradlew :services:housetables:test --tests 'com.linkedin.openhouse.housetables.index.*'
 
 # Docker required. Real controllers/services/repositories in-process via MockMvc + MySQL.
 ./gradlew :services:housetables:mysqlIndexTest
