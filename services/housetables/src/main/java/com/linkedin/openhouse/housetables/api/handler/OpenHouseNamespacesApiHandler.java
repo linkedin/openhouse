@@ -3,8 +3,10 @@ package com.linkedin.openhouse.housetables.api.handler;
 import static com.linkedin.openhouse.common.api.validator.ValidatorConstants.ALPHA_NUM_UNDERSCORE_REGEX;
 
 import com.linkedin.openhouse.common.api.spec.ApiResponse;
+import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
+import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
 import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
-import com.linkedin.openhouse.common.exception.checked.NamespaceException;
+import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateNamespaceRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.request.UpdateNamespacePropertiesRequestBody;
 import com.linkedin.openhouse.housetables.api.spec.response.NamespaceMetadataResponse;
@@ -31,7 +33,7 @@ public class OpenHouseNamespacesApiHandler implements NamespacesApiHandler {
 
   @Override
   public ApiResponse<NamespaceMetadataResponse> createNamespace(CreateNamespaceRequestBody request)
-      throws NamespaceException {
+      throws InvalidRequestException, DuplicateCreationException {
     validateRequest(request);
     NamespaceMetadata metadata =
         namespacesService.createNamespace(request.getNamespaceName(), request.getProperties());
@@ -48,7 +50,7 @@ public class OpenHouseNamespacesApiHandler implements NamespacesApiHandler {
 
   @Override
   public ApiResponse<NamespaceMetadataResponse> getNamespace(String namespaceName)
-      throws NamespaceException {
+      throws InvalidRequestException, NotFoundException {
     validateNamespaceName(namespaceName);
     NamespaceMetadata metadata = namespacesService.getNamespace(namespaceName);
     return ApiResponse.<NamespaceMetadataResponse>builder()
@@ -63,7 +65,8 @@ public class OpenHouseNamespacesApiHandler implements NamespacesApiHandler {
   }
 
   @Override
-  public ApiResponse<Void> deleteNamespace(String namespaceName) throws NamespaceException {
+  public ApiResponse<Void> deleteNamespace(String namespaceName)
+      throws InvalidRequestException, NotFoundException {
     validateNamespaceName(namespaceName);
     namespacesService.deleteNamespace(namespaceName);
     return ApiResponse.<Void>builder().httpStatus(HttpStatus.NO_CONTENT).build();
@@ -72,7 +75,7 @@ public class OpenHouseNamespacesApiHandler implements NamespacesApiHandler {
   @Override
   public ApiResponse<UpdateNamespacePropertiesResponseBody> updateNamespaceProperties(
       String namespaceName, UpdateNamespacePropertiesRequestBody request)
-      throws NamespaceException {
+      throws InvalidRequestException, NotFoundException, InvalidPropertyUpdateException {
     validateNamespaceName(namespaceName);
     validateRequest(request);
     NamespacePropertyUpdate result =

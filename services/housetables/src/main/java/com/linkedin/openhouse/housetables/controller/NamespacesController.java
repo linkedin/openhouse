@@ -1,9 +1,8 @@
 package com.linkedin.openhouse.housetables.controller;
 
-import com.linkedin.openhouse.common.exception.checked.AlreadyExistsException;
+import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
 import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
 import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
-import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.housetables.api.handler.NamespacesApiHandler;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateNamespaceRequestBody;
@@ -63,7 +62,8 @@ public class NamespacesController {
   })
   @PostMapping(consumes = "application/json")
   public ResponseEntity<NamespaceMetadataResponse> createNamespace(
-      @RequestBody CreateNamespaceRequestBody request) throws NamespaceException {
+      @RequestBody CreateNamespaceRequestBody request)
+      throws InvalidRequestException, DuplicateCreationException {
     com.linkedin.openhouse.common.api.spec.ApiResponse<NamespaceMetadataResponse> response =
         namespacesApiHandler.createNamespace(request);
     return new ResponseEntity<>(
@@ -80,7 +80,8 @@ public class NamespacesController {
   })
   @GetMapping("/{namespaceName}")
   public ResponseEntity<NamespaceMetadataResponse> getNamespace(
-      @PathVariable("namespaceName") String namespaceName) throws NamespaceException {
+      @PathVariable("namespaceName") String namespaceName)
+      throws InvalidRequestException, NotFoundException {
     com.linkedin.openhouse.common.api.spec.ApiResponse<NamespaceMetadataResponse> response =
         namespacesApiHandler.getNamespace(namespaceName);
     return new ResponseEntity<>(
@@ -103,7 +104,7 @@ public class NamespacesController {
   })
   @DeleteMapping("/{namespaceName}")
   public ResponseEntity<Void> deleteNamespace(@PathVariable("namespaceName") String namespaceName)
-      throws NamespaceException {
+      throws InvalidRequestException, NotFoundException {
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> response =
         namespacesApiHandler.deleteNamespace(namespaceName);
     return new ResponseEntity<>(
@@ -129,7 +130,7 @@ public class NamespacesController {
   public ResponseEntity<UpdateNamespacePropertiesResponseBody> updateNamespaceProperties(
       @PathVariable("namespaceName") String namespaceName,
       @RequestBody UpdateNamespacePropertiesRequestBody request)
-      throws NamespaceException {
+      throws InvalidRequestException, NotFoundException, InvalidPropertyUpdateException {
     com.linkedin.openhouse.common.api.spec.ApiResponse<UpdateNamespacePropertiesResponseBody>
         response = namespacesApiHandler.updateNamespaceProperties(namespaceName, request);
     return new ResponseEntity<>(
@@ -145,7 +146,7 @@ public class NamespacesController {
   }
 
   @Hidden
-  @ExceptionHandler(AlreadyExistsException.class)
+  @ExceptionHandler(DuplicateCreationException.class)
   public ResponseEntity<NamespaceErrorResponse> handleNamespaceDuplicate() {
     return renderFailure(
         HttpStatus.CONFLICT, "AlreadyExistsException", "Namespace name already exists.");
@@ -189,7 +190,7 @@ public class NamespacesController {
   }
 
   @Hidden
-  @ExceptionHandler({NamespaceException.class, RuntimeException.class})
+  @ExceptionHandler(RuntimeException.class)
   public ResponseEntity<NamespaceErrorResponse> handleNamespaceFailure() {
     return renderFailure(
         HttpStatus.INTERNAL_SERVER_ERROR,

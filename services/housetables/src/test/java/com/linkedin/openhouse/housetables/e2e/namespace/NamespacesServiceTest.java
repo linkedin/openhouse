@@ -7,9 +7,8 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.reset;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
-import com.linkedin.openhouse.common.exception.checked.AlreadyExistsException;
+import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
 import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
-import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.model.NamespaceMetadata;
@@ -71,7 +70,7 @@ class NamespacesServiceTest {
   }
 
   @Test
-  void testIndependentIdentityAndExactPropertyKeysPersist() throws NamespaceException {
+  void testIndependentIdentityAndExactPropertyKeysPersist() throws Exception {
     Map<String, String> properties =
         Map.of(
             "foo",
@@ -104,13 +103,13 @@ class NamespacesServiceTest {
                     Long.class))
         .isZero();
     assertThatThrownBy(() -> namespacesService.createNamespace("nAmEsPaCe_fOo", Map.of()))
-        .isInstanceOf(AlreadyExistsException.class);
+        .isInstanceOf(DuplicateCreationException.class);
     assertThat(repository.count()).isEqualTo(1);
     assertThat(namespacesService.getNamespace("namespace_foo")).isEqualTo(created);
   }
 
   @Test
-  void testSparseUpdatePreservesIdentityAndOmittedProperties() throws NamespaceException {
+  void testSparseUpdatePreservesIdentityAndOmittedProperties() throws Exception {
     NamespaceMetadata created =
         namespacesService.createNamespace(
             "Namespace_Foo", Map.of("foo", "one", "bar", "two", "keep", "three", "FOO", "four"));
@@ -139,7 +138,7 @@ class NamespacesServiceTest {
   }
 
   @Test
-  void testOverlapFailsWithoutMutation() throws NamespaceException {
+  void testOverlapFailsWithoutMutation() throws Exception {
     NamespaceMetadata created =
         namespacesService.createNamespace("namespace_foo", Map.of("foo", "one"));
     assertThatThrownBy(
@@ -151,7 +150,7 @@ class NamespacesServiceTest {
   }
 
   @Test
-  void testEmptyUpdatePreservesMetadata() throws NamespaceException {
+  void testEmptyUpdatePreservesMetadata() throws Exception {
     NamespaceMetadata created =
         namespacesService.createNamespace("namespace_foo", Map.of("foo", "one"));
     NamespacePropertyUpdate response =
@@ -163,7 +162,7 @@ class NamespacesServiceTest {
   }
 
   @Test
-  void testEmptyDocumentPersistsAcrossPropertyChanges() throws NamespaceException {
+  void testEmptyDocumentPersistsAcrossPropertyChanges() throws Exception {
     NamespaceMetadata created = namespacesService.createNamespace("namespace_foo", Map.of());
     assertThat(namespacesService.getNamespace("namespace_foo")).isEqualTo(created);
     namespacesService.updateNamespaceProperties("namespace_foo", Map.of("foo", "one"), Set.of());
@@ -174,7 +173,7 @@ class NamespacesServiceTest {
   }
 
   @Test
-  void testDeletionRemovesOnlyNamespaceMetadata() throws NamespaceException {
+  void testDeletionRemovesOnlyNamespaceMetadata() throws Exception {
     JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
     jdbcTemplate.update(
         "INSERT INTO user_table_row "
@@ -227,7 +226,7 @@ class NamespacesServiceTest {
                             start.await(10, TimeUnit.SECONDS);
                             try {
                               return Optional.of(namespacesService.createNamespace(name, Map.of()));
-                            } catch (AlreadyExistsException exception) {
+                            } catch (DuplicateCreationException exception) {
                               return Optional.empty();
                             }
                           })
@@ -282,8 +281,7 @@ class NamespacesServiceTest {
               () ->
                   assertThatThrownBy(
                           () -> namespacesService.deleteNamespace("namespace_metadata_foo"))
-                      .isExactlyInstanceOf(NamespaceException.class)
-                      .hasCauseInstanceOf(OptimisticLockingFailureException.class));
+                      .isInstanceOf(OptimisticLockingFailureException.class));
       assertThat(deleteLoaded.await(10, TimeUnit.SECONDS)).isTrue();
       namespacesService.updateNamespaceProperties(
           "namespace_metadata_foo", Map.of("foo", "two", "bar", "three"), Set.of());
@@ -306,20 +304,20 @@ class NamespacesServiceTest {
   }
 
   @Test
-  void testUnsupportedBackendRejectionsPreserveStoredMetadata() throws NamespaceException {
+  void testUnsupportedBackendRejectionsPreserveStoredMetadata() throws Exception {
     NamespaceMetadata created =
         namespacesService.createNamespace("Namespace_Foo", Map.of("foo", "one"));
     doReturn("ICEBERG").when(clusterProperties).getClusterHouseTablesDatabaseType();
     try {
       assertThatThrownBy(() -> namespacesService.createNamespace("Namespace_Bar", Map.of()))
-          .isInstanceOf(NamespaceException.class);
+          .isInstanceOf(IllegalStateException.class);
       assertThatThrownBy(
               () ->
                   namespacesService.updateNamespaceProperties(
                       "namespace_foo", Map.of("foo", "two"), Set.of()))
-          .isInstanceOf(NamespaceException.class);
+          .isInstanceOf(IllegalStateException.class);
       assertThatThrownBy(() -> namespacesService.deleteNamespace("namespace_foo"))
-          .isInstanceOf(NamespaceException.class);
+          .isInstanceOf(IllegalStateException.class);
     } finally {
       reset(clusterProperties);
     }
@@ -329,7 +327,7 @@ class NamespacesServiceTest {
   }
 
   @Test
-  void testStorageFailureRollsBackSparseChanges() throws NamespaceException {
+  void testStorageFailureRollsBackSparseChanges() throws Exception {
     assertThat(transactionManager).isInstanceOf(JpaTransactionManager.class);
     NamespaceMetadata created =
         namespacesService.createNamespace("namespace_foo", Map.of("foo", "one", "bar", "two"));
@@ -338,13 +336,13 @@ class NamespacesServiceTest {
             () ->
                 namespacesService.updateNamespaceProperties(
                     "namespace_foo", Map.of("baz", "three"), Set.of("foo")))
-        .isInstanceOf(NamespaceException.class);
+        .isInstanceOf(DataAccessResourceFailureException.class);
     reset(repository);
     assertThat(namespacesService.getNamespace("namespace_foo")).isEqualTo(created);
   }
 
   @Test
-  void committedJpaMutationWithLostAcknowledgementReportsFailure() throws NamespaceException {
+  void committedJpaMutationWithLostAcknowledgementReportsFailure() throws Exception {
     assertThat(transactionManager).isInstanceOf(JpaTransactionManager.class);
     TransactionSystemException failure = new TransactionSystemException("foo");
     JpaTransactionManager failingCompletion =
@@ -359,8 +357,7 @@ class NamespacesServiceTest {
     NamespacesService service =
         new NamespacesServiceImpl(repository, clusterProperties, entityManager, failingCompletion);
     assertThatThrownBy(() -> service.createNamespace("namespace_foo", Map.of("foo", "bar")))
-        .isInstanceOf(NamespaceException.class)
-        .hasCause(failure);
+        .isSameAs(failure);
     assertThat(namespacesService.getNamespace("namespace_foo").getProperties())
         .containsExactlyInAnyOrderEntriesOf(Map.of("foo", "bar"));
   }
@@ -381,20 +378,17 @@ class NamespacesServiceTest {
         .when(repository)
         .findByNamespaceName("namespace_foo");
     ExecutorService executor = Executors.newFixedThreadPool(2);
-    Optional<Class<? extends NamespaceException>> firstOutcome;
-    Optional<Class<? extends NamespaceException>> secondOutcome;
+    Optional<Class<? extends RuntimeException>> firstOutcome;
+    Optional<Class<? extends RuntimeException>> secondOutcome;
     try {
-      List<Callable<Optional<Class<? extends NamespaceException>>>> mutations =
+      List<Callable<Optional<Class<? extends RuntimeException>>>> mutations =
           Arrays.asList(
               () -> {
                 try {
                   namespacesService.updateNamespaceProperties(
                       "namespace_foo", emptyUpdates ? Map.of() : Map.of("foo", "two"), Set.of());
                   return Optional.empty();
-                } catch (NamespaceException exception) {
-                  assertThat(exception.getCause())
-                      .isInstanceOfAny(
-                          OptimisticLockException.class, OptimisticLockingFailureException.class);
+                } catch (OptimisticLockException | OptimisticLockingFailureException exception) {
                   return Optional.of(exception.getClass());
                 }
               },
@@ -403,19 +397,16 @@ class NamespacesServiceTest {
                   namespacesService.updateNamespaceProperties(
                       "namespace_foo", emptyUpdates ? Map.of() : Map.of("bar", "three"), Set.of());
                   return Optional.empty();
-                } catch (NamespaceException exception) {
-                  assertThat(exception.getCause())
-                      .isInstanceOfAny(
-                          OptimisticLockException.class, OptimisticLockingFailureException.class);
+                } catch (OptimisticLockException | OptimisticLockingFailureException exception) {
                   return Optional.of(exception.getClass());
                 }
               });
-      List<Future<Optional<Class<? extends NamespaceException>>>> results =
+      List<Future<Optional<Class<? extends RuntimeException>>>> results =
           executor.invokeAll(mutations, 20, TimeUnit.SECONDS);
       firstOutcome = results.get(0).get();
       secondOutcome = results.get(1).get();
-      assertThat(Arrays.asList(firstOutcome, secondOutcome))
-          .containsExactlyInAnyOrder(Optional.empty(), Optional.of(NamespaceException.class));
+      assertThat(Arrays.asList(firstOutcome.isPresent(), secondOutcome.isPresent()))
+          .containsExactlyInAnyOrder(false, true);
     } finally {
       executor.shutdownNow();
       assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();

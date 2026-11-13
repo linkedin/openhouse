@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.common.exception.checked;
 
-public class InvalidPropertyUpdateException extends NamespaceException {
+public class InvalidPropertyUpdateException extends Exception {
   public InvalidPropertyUpdateException(String message) {
     super(message);
   }

@@ -9,8 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.linkedin.openhouse.common.exception.checked.AlreadyExistsException;
-import com.linkedin.openhouse.common.exception.checked.NamespaceException;
+import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
 import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
@@ -303,7 +302,7 @@ class IcebergNamespacesControllerTest {
   @Test
   void duplicateCreateRetainsConflictResponse() throws Exception {
     when(repository.create("foo", Map.of()))
-        .thenThrow(new AlreadyExistsException("Namespace already exists"));
+        .thenThrow(new DuplicateCreationException("Namespace already exists"));
     mvc.perform(
             post("/v1/foo/namespaces/")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -315,7 +314,7 @@ class IcebergNamespacesControllerTest {
   @Test
   void failedUpdateUsesGenericFailureResponse() throws Exception {
     when(repository.updateProperties("namespaces", Map.of(), Set.of()))
-        .thenThrow(new NamespaceException("Namespace was modified concurrently"));
+        .thenThrow(new RuntimeException("Namespace was modified concurrently"));
     mvc.perform(
             post("/v1/foo/namespaces/namespaces/properties")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -328,7 +327,7 @@ class IcebergNamespacesControllerTest {
   void failedDeleteUsesGenericFailureResponse() throws Exception {
     when(repository.getByName("namespaces"))
         .thenReturn(new NamespaceMetadata("identifier", "namespaces", Map.of()));
-    doThrow(new NamespaceException("Namespace was modified concurrently"))
+    doThrow(new RuntimeException("Namespace was modified concurrently"))
         .when(repository)
         .delete("namespaces");
     mvc.perform(delete("/v1/foo/namespaces/namespaces"))
@@ -340,7 +339,7 @@ class IcebergNamespacesControllerTest {
   void failedCreateUsesSafeGenericResponse() throws Exception {
     when(repository.create(eq("foo"), any()))
         .thenThrow(
-            new NamespaceException("secret property value", new IllegalStateException("secret")));
+            new RuntimeException("secret property value", new IllegalStateException("secret")));
     mvc.perform(
             post("/v1/foo/namespaces")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -379,7 +378,7 @@ class IcebergNamespacesControllerTest {
   @Test
   void failedReadUsesSafeGenericResponse() throws Exception {
     doThrow(
-            new NamespaceException(
+            new RuntimeException(
                 "Namespace metadata service unavailable", new IllegalStateException("secret")))
         .when(repository)
         .getByName("foo");
@@ -439,8 +438,7 @@ class IcebergNamespacesControllerTest {
         .thenReturn(new NamespaceMetadata("identifier", "foo", Map.of()));
     when(repository.containsEntities("foo"))
         .thenThrow(
-            new NamespaceException(
-                "secret property value", new IllegalStateException("SQL secret")));
+            new RuntimeException("secret property value", new IllegalStateException("SQL secret")));
     mvc.perform(delete("/v1/foo/namespaces/foo"))
         .andExpect(status().isInternalServerError())
         .andExpect(jsonPath("$.error.code").value(500))

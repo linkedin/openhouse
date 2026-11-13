@@ -3,9 +3,9 @@ package com.linkedin.openhouse.internal.catalog.repository;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-import com.linkedin.openhouse.common.exception.checked.NamespaceException;
 import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
+import com.linkedin.openhouse.housetables.client.model.NamespaceMetadataResponse;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -38,6 +38,40 @@ class HouseNamespaceDeadlineTest {
     assertDeadline(namespaceApi, () -> repository.delete("foo"), 60);
   }
 
+  @Test
+  void interruptedReadCancelsRequestAndRestoresInterrupt() throws Exception {
+    NamespaceApi namespaceApi = mock(NamespaceApi.class);
+    HouseNamespaceRepository repository =
+        new HouseNamespaceRepositoryImpl(namespaceApi, mock(UserTableApi.class));
+    CountDownLatch subscribed = new CountDownLatch(1);
+    AtomicInteger cancellations = new AtomicInteger();
+    AtomicReference<Thread> worker = new AtomicReference<>();
+    when(namespaceApi.getNamespace("foo"))
+        .thenReturn(
+            Mono.<NamespaceMetadataResponse>never()
+                .doOnSubscribe(subscription -> subscribed.countDown())
+                .doOnCancel(cancellations::incrementAndGet));
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    try {
+      Future<Boolean> interrupted =
+          executor.submit(
+              () -> {
+                worker.set(Thread.currentThread());
+                IllegalStateException failure =
+                    assertThrows(IllegalStateException.class, () -> repository.getByName("foo"));
+                assertInstanceOf(InterruptedException.class, failure.getCause());
+                return Thread.currentThread().isInterrupted();
+              });
+      assertTrue(subscribed.await(10, TimeUnit.SECONDS));
+      worker.get().interrupt();
+      assertTrue(interrupted.get(10, TimeUnit.SECONDS));
+      assertEquals(1, cancellations.get());
+    } finally {
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+    }
+  }
+
   private void assertDeadline(NamespaceApi namespaceApi, Executable operation, int timeoutSeconds)
       throws Exception {
     VirtualTimeScheduler clock = VirtualTimeScheduler.getOrSet();
@@ -57,11 +91,11 @@ class HouseNamespaceDeadlineTest {
     when(namespaceApi.deleteNamespaceWithHttpInfo("foo")).thenReturn(pending.then(Mono.empty()));
     when(namespaceApi.getNamespace("foo")).thenReturn(pending.then(Mono.empty()));
     try {
-      Future<NamespaceException> failure =
+      Future<RuntimeException> failure =
           executor.submit(
               () ->
                   assertThrows(
-                      NamespaceException.class,
+                      RuntimeException.class,
                       () -> {
                         worker.set(Thread.currentThread());
                         operation.execute();
@@ -76,8 +110,7 @@ class HouseNamespaceDeadlineTest {
       clock.advanceTimeBy(Duration.ofSeconds(timeoutSeconds - 1));
       assertFalse(failure.isDone());
       clock.advanceTimeBy(Duration.ofSeconds(1));
-      NamespaceException exception = failure.get(10, TimeUnit.SECONDS);
-      assertEquals(NamespaceException.class, exception.getClass());
+      RuntimeException exception = failure.get(10, TimeUnit.SECONDS);
       assertInstanceOf(TimeoutException.class, exception.getCause());
       assertEquals(1, subscriptions.get());
       assertEquals(1, cancellations.get());

@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.common.exception.checked;
 
-public class InvalidRequestException extends NamespaceException {
+public class InvalidRequestException extends Exception {
   public InvalidRequestException(String message) {
     super(message);
   }

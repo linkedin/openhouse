@@ -1,6 +1,6 @@
 package com.linkedin.openhouse.common.exception.checked;
 
-public class NotFoundException extends NamespaceException {
+public class NotFoundException extends Exception {
   public NotFoundException(String message) {
     super(message);
   }
