@@ -1,8 +1,6 @@
 package com.linkedin.openhouse.housetables.controller;
 
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
-import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
-import com.linkedin.openhouse.common.exception.checked.InvalidRequestException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.housetables.api.handler.NamespacesApiHandler;
 import com.linkedin.openhouse.housetables.api.spec.request.CreateNamespaceRequestBody;
@@ -34,10 +32,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping(value = "/hts/namespaces", produces = "application/json")
 @ApiResponses({
   @ApiResponse(
-      responseCode = "400",
-      description = "Invalid namespace request.",
-      content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class))),
-  @ApiResponse(
       responseCode = "500",
       description = "Namespace operation failed. Read current metadata before repeating a write.",
       content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class)))
@@ -56,14 +50,17 @@ public class NamespacesController {
   @ApiResponses({
     @ApiResponse(responseCode = "201", description = "Namespace metadata created."),
     @ApiResponse(
+        responseCode = "400",
+        description = "Request body could not be decoded.",
+        content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class))),
+    @ApiResponse(
         responseCode = "409",
         description = "Namespace name already exists.",
         content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class)))
   })
   @PostMapping(consumes = "application/json")
   public ResponseEntity<NamespaceMetadataResponse> createNamespace(
-      @RequestBody CreateNamespaceRequestBody request)
-      throws InvalidRequestException, DuplicateCreationException {
+      @RequestBody CreateNamespaceRequestBody request) throws DuplicateCreationException {
     com.linkedin.openhouse.common.api.spec.ApiResponse<NamespaceMetadataResponse> response =
         namespacesApiHandler.createNamespace(request);
     return new ResponseEntity<>(
@@ -80,8 +77,7 @@ public class NamespacesController {
   })
   @GetMapping("/{namespaceName}")
   public ResponseEntity<NamespaceMetadataResponse> getNamespace(
-      @PathVariable("namespaceName") String namespaceName)
-      throws InvalidRequestException, NotFoundException {
+      @PathVariable("namespaceName") String namespaceName) throws NotFoundException {
     com.linkedin.openhouse.common.api.spec.ApiResponse<NamespaceMetadataResponse> response =
         namespacesApiHandler.getNamespace(namespaceName);
     return new ResponseEntity<>(
@@ -104,7 +100,7 @@ public class NamespacesController {
   })
   @DeleteMapping("/{namespaceName}")
   public ResponseEntity<Void> deleteNamespace(@PathVariable("namespaceName") String namespaceName)
-      throws InvalidRequestException, NotFoundException {
+      throws NotFoundException {
     com.linkedin.openhouse.common.api.spec.ApiResponse<Void> response =
         namespacesApiHandler.deleteNamespace(namespaceName);
     return new ResponseEntity<>(
@@ -118,19 +114,19 @@ public class NamespacesController {
   @ApiResponses({
     @ApiResponse(responseCode = "200", description = "Namespace properties updated."),
     @ApiResponse(
-        responseCode = "404",
-        description = "Namespace metadata was not found.",
+        responseCode = "400",
+        description = "Request body could not be decoded.",
         content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class))),
     @ApiResponse(
-        responseCode = "422",
-        description = "Property updates and removals overlap.",
+        responseCode = "404",
+        description = "Namespace metadata was not found.",
         content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class)))
   })
   @PostMapping(value = "/{namespaceName}/properties", consumes = "application/json")
   public ResponseEntity<UpdateNamespacePropertiesResponseBody> updateNamespaceProperties(
       @PathVariable("namespaceName") String namespaceName,
       @RequestBody UpdateNamespacePropertiesRequestBody request)
-      throws InvalidRequestException, NotFoundException, InvalidPropertyUpdateException {
+      throws NotFoundException {
     com.linkedin.openhouse.common.api.spec.ApiResponse<UpdateNamespacePropertiesResponseBody>
         response = namespacesApiHandler.updateNamespaceProperties(namespaceName, request);
     return new ResponseEntity<>(
@@ -153,27 +149,10 @@ public class NamespacesController {
   }
 
   @Hidden
-  @ExceptionHandler(InvalidRequestException.class)
-  public ResponseEntity<NamespaceErrorResponse> handleInvalidNamespaceRequest(
-      InvalidRequestException exception) {
-    return renderFailure(HttpStatus.BAD_REQUEST, "InvalidRequestException", exception.getMessage());
-  }
-
-  @Hidden
   @ExceptionHandler(HttpMessageNotReadableException.class)
   public ResponseEntity<NamespaceErrorResponse> handleInvalidRequestBody() {
     return renderFailure(
         HttpStatus.BAD_REQUEST, "InvalidRequestException", "Invalid namespace request.");
-  }
-
-  @Hidden
-  @ExceptionHandler(InvalidPropertyUpdateException.class)
-  public ResponseEntity<NamespaceErrorResponse> handleInvalidNamespacePropertyUpdate(
-      InvalidPropertyUpdateException exception) {
-    return renderFailure(
-        HttpStatus.UNPROCESSABLE_ENTITY,
-        "InvalidPropertyUpdateException",
-        "Property updates and removals must have disjoint keys.");
   }
 
   @Hidden

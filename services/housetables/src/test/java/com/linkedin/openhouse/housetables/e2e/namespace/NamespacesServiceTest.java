@@ -8,7 +8,6 @@ import static org.mockito.Mockito.reset;
 
 import com.linkedin.openhouse.cluster.configs.ClusterProperties;
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
-import com.linkedin.openhouse.common.exception.checked.InvalidPropertyUpdateException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.common.test.cluster.PropertyOverrideContextInitializer;
 import com.linkedin.openhouse.housetables.model.NamespaceMetadata;
@@ -135,18 +134,6 @@ class NamespacesServiceTest {
     assertThat(repeated.getUpdated()).containsExactly("foo");
     assertThat(repeated.getRemoved()).isEmpty();
     assertThat(repeated.getMissing()).containsExactly("bar");
-  }
-
-  @Test
-  void testOverlapFailsWithoutMutation() throws Exception {
-    NamespaceMetadata created =
-        namespacesService.createNamespace("namespace_foo", Map.of("foo", "one"));
-    assertThatThrownBy(
-            () ->
-                namespacesService.updateNamespaceProperties(
-                    "namespace_foo", Map.of("foo", "two"), Set.of("foo")))
-        .isInstanceOf(InvalidPropertyUpdateException.class);
-    assertThat(namespacesService.getNamespace("namespace_foo")).isEqualTo(created);
   }
 
   @Test
