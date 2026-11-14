@@ -24,10 +24,11 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * Starts the service on a database that already holds HouseTables' real schema and seeded rows. The
- * database must end up with the optimizer tables that Flyway creates in an empty one, without
- * changing any HouseTables table definition or row. The service runs as a user that can reach only
- * the optimizer tables, so a migration that touches any other table fails its startup.
+ * Checks the tables that the migrations create. They must match the tables that Hibernate creates
+ * from the entities. The service must also add them to a database that holds HouseTables' real
+ * schema and seeded rows, and HouseTables' tables and rows must stay the same. The service runs as
+ * a user that can reach only the optimizer tables, so a migration that touches any other table
+ * fails its startup.
  */
 class OptimizerSchemaMigrationsTest {
 
@@ -123,14 +124,37 @@ class OptimizerSchemaMigrationsTest {
     assertThat(tables).isEqualTo(emptyDatabaseTables);
   }
 
-  /** Starts the service on the database, which migrates it, and stops the service. */
-  private static void startService(String database) {
+  /**
+   * Fails when the entities and the migrations define different tables. Hibernate creates the
+   * entities' tables in a database of their own. Fix a failure with a migration or an entity
+   * change.
+   */
+  @Test
+  void createsTheTablesTheEntitiesDefine() throws SQLException {
+    String database = "entities";
+    createDatabase(database);
+    startService(
+        database, "--spring.flyway.enabled=false", "--spring.jpa.hibernate.ddl-auto=create");
+    Map<String, List<String>> migratedTables = new TreeMap<>(emptyDatabaseTables);
+    migratedTables.remove("optimizer_schema_history");
+    assertThat(definitionLines(migratedTables))
+        .as("The migrations' tables (actual) and the entities' tables (expected)")
+        .containsExactlyInAnyOrderElementsOf(definitionLines(tables(database)));
+  }
+
+  /**
+   * Starts the service on the database and stops it. The service migrates the database unless the
+   * settings turn Flyway off.
+   */
+  private static void startService(String database, String... settings) {
+    List<String> args = new ArrayList<>();
+    args.add("--spring.datasource.url=" + jdbcUrl(database));
+    args.add("--spring.datasource.username=" + SERVICE_USER);
+    args.add("--spring.datasource.password=" + MYSQL.getPassword());
+    args.addAll(Arrays.asList(settings));
     new SpringApplicationBuilder(OptimizerServiceApplication.class)
         .web(WebApplicationType.NONE)
-        .run(
-            "--spring.datasource.url=" + jdbcUrl(database),
-            "--spring.datasource.username=" + SERVICE_USER,
-            "--spring.datasource.password=" + MYSQL.getPassword())
+        .run(args.toArray(new String[0]))
         .close();
   }
 
@@ -147,6 +171,18 @@ class OptimizerSchemaMigrationsTest {
       }
     }
     return tables;
+  }
+
+  /**
+   * Every line of every table's SHOW CREATE TABLE, prefixed with the table's name. The test ignores
+   * column order. MySQL ends every line but the last with a comma, so the commas are dropped.
+   */
+  private static List<String> definitionLines(Map<String, List<String>> tables) {
+    List<String> lines = new ArrayList<>();
+    tables.forEach(
+        (table, definition) ->
+            definition.forEach(line -> lines.add(table + ": " + line.trim().replaceAll(",$", ""))));
+    return lines;
   }
 
   private static List<List<String>> rows(String database, String table) throws SQLException {
