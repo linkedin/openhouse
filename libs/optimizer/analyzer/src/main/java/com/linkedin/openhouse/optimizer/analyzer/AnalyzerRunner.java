@@ -263,6 +263,19 @@ public class AnalyzerRunner {
       TableDto table,
       Optional<TableOperationDto> currentOp,
       Optional<TableOperationsHistoryDto> latestHistory) {
+    if (!table.isPrimary() && !analyzer.runsOnReplica()) {
+      // Replica tables mirror their primary; skip any operation that would change the replica's
+      // committed metadata/snapshots (e.g. snapshot expiration) on both the commit-driven and
+      // full-scan paths. Operations safe on a replica (stats collection, OFD) override
+      // runsOnReplica() and are not skipped here.
+      log.debug(
+          "Skipping {} for non-primary (replica) table {}.{} (uuid={})",
+          analyzer.getOperationType(),
+          table.getDatabaseName(),
+          table.getTableId(),
+          table.getTableUuid());
+      return false;
+    }
     if (!analyzer.isEnabled(table)) {
       return false;
     }

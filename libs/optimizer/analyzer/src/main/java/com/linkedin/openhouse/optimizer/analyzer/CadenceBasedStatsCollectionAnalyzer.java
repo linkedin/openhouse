@@ -90,6 +90,15 @@ public class CadenceBasedStatsCollectionAnalyzer implements OperationAnalyzer {
     return OperationTypeDto.TABLE_STATS_COLLECTION;
   }
 
+  /**
+   * Stats collection only reads the table, so it is safe on a replica (which the primary maintains
+   * in another cluster). Opt in so replicas still get stats while maintenance operations stay off.
+   */
+  @Override
+  public boolean runsOnReplica() {
+    return true;
+  }
+
   @Override
   public boolean isEnabled(TableDto table) {
     return "true".equals(table.getTableProperties().get(STATS_ENABLED_PROPERTY));
