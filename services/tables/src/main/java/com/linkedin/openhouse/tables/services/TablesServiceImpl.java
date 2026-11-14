@@ -10,8 +10,13 @@ import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
 import com.linkedin.openhouse.common.exception.OpenHouseCommitStateUnknownException;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
+import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
+import com.linkedin.openhouse.common.exception.checked.NotFoundException;
+import com.linkedin.openhouse.internal.catalog.model.NamespaceMetadata;
+import com.linkedin.openhouse.internal.catalog.model.NamespacePropertyUpdate;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTableDto;
 import com.linkedin.openhouse.internal.catalog.model.SoftDeletedTablePrimaryKey;
+import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepository;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.UpdateAclPoliciesRequestBody;
@@ -23,6 +28,10 @@ import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
+import com.linkedin.openhouse.tables.exception.InvalidPropertyUpdateException;
+import com.linkedin.openhouse.tables.exception.InvalidRequestException;
+import com.linkedin.openhouse.tables.exception.NotEmptyException;
+import com.linkedin.openhouse.tables.exception.PermissionDeniedException;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.readbridge.ClientCapabilityGate;
@@ -32,9 +41,12 @@ import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import com.linkedin.openhouse.tables.utils.TableUUIDGenerator;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
+import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.apache.iceberg.exceptions.BadRequestException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
@@ -42,13 +54,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.util.Pair;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.access.AuthorizationServiceException;
 import org.springframework.stereotype.Component;
 
-/** Default Table Service Implementation for /tables REST endpoint. */
+/** Shared implementation for table and namespace operations. */
 @Component
-public class TablesServiceImpl implements TablesService {
+public class TablesServiceImpl implements TablesService, NamespacesService {
 
   @Autowired OpenHouseInternalRepository openHouseInternalRepository;
+
+  @Autowired HouseNamespaceRepository namespaceRepository;
 
   @Autowired TablesMapper tablesMapper;
 
@@ -62,13 +78,73 @@ public class TablesServiceImpl implements TablesService {
 
   @Autowired ClientCapabilityGate clientCapabilityGate;
 
+  @Override
+  public NamespaceMetadata createNamespace(
+      List<String> namespace, Map<String, String> properties, String principal)
+      throws InvalidRequestException, PermissionDeniedException, DuplicateCreationException {
+    if (namespace.size() != 1) {
+      throw new InvalidRequestException(
+          String.format("Namespace '%s' must contain exactly one level", namespace));
+    }
+    authorizeNamespace(namespace.get(0), principal, Privileges.SYSTEM_ADMIN);
+    return namespaceRepository.create(namespace.get(0), properties);
+  }
+
+  @Override
+  public NamespaceMetadata loadNamespaceMetadata(String namespace, String principal)
+      throws InvalidRequestException, PermissionDeniedException, NotFoundException {
+    authorizeNamespace(namespace, principal, Privileges.GET_TABLE_METADATA);
+    return namespaceRepository.getByName(namespace);
+  }
+
+  @Override
+  public NamespacePropertyUpdate updateNamespaceProperties(
+      String namespace, Map<String, String> updates, Set<String> removals, String principal)
+      throws InvalidRequestException, PermissionDeniedException, NotFoundException,
+          InvalidPropertyUpdateException {
+    authorizeNamespace(namespace, principal, Privileges.SYSTEM_ADMIN);
+    if (!Collections.disjoint(updates.keySet(), removals)) {
+      throw new InvalidPropertyUpdateException("Updates and removals must use disjoint keys");
+    }
+    return namespaceRepository.updateProperties(namespace, updates, removals);
+  }
+
+  @Override
+  public void dropNamespace(String namespace, String principal)
+      throws InvalidRequestException, PermissionDeniedException, NotFoundException,
+          NotEmptyException {
+    authorizeNamespace(namespace, principal, Privileges.SYSTEM_ADMIN);
+    namespaceRepository.getByName(namespace);
+    if (namespaceRepository.containsEntities(namespace)) {
+      throw new NotEmptyException("Namespace contains tables or views");
+    }
+    namespaceRepository.delete(namespace);
+  }
+
+  private void authorizeNamespace(String namespace, String principal, Privileges privilege)
+      throws InvalidRequestException, PermissionDeniedException {
+    if (!namespace.matches("[a-zA-Z0-9_]{1,128}")) {
+      throw new InvalidRequestException(
+          String.format(
+              "Namespace '%s' must contain 1 to 128 letters, digits, or underscores", namespace));
+    }
+    try {
+      authorizationUtils.checkDatabasePrivilege(
+          namespace.toLowerCase(Locale.ROOT), principal, privilege);
+    } catch (AuthorizationServiceException exception) {
+      throw exception;
+    } catch (AccessDeniedException exception) {
+      throw new PermissionDeniedException("Access denied", exception);
+    }
+  }
+
   /**
    * Lookup a table by databaseId and tableId in OpenHouse's Internal Catalog.
    *
    * @param databaseId
    * @param tableId
    * @return Table DTO object.
-   * @throws com.linkedin.openhouse.common.exception.NoSuchUserTableException if table is not found.
+   * @throws NoSuchUserTableException if table is not found.
    */
   @Override
   public TableDto getTable(String databaseId, String tableId, String actingPrincipal) {

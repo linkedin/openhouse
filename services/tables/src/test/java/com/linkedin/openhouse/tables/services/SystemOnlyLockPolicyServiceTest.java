@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
+import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepository;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
@@ -48,6 +49,7 @@ class SystemOnlyLockPolicyServiceTest {
   @AfterEach
   void clearRequest() {
     RequestContextHolder.resetRequestAttributes();
+    verifyNoInteractions(tables.namespaceRepository);
   }
 
   @BeforeEach
@@ -70,6 +72,7 @@ class SystemOnlyLockPolicyServiceTest {
     // No table here requires a capability, so the gate admits every request.
     ClientCapabilityGate gate = new ClientCapabilityGate(new CatalogRequestContext() {});
     tables = new TablesServiceImpl();
+    tables.namespaceRepository = mock(HouseNamespaceRepository.class);
     tables.openHouseInternalRepository = repository;
     tables.tablesMapper = mapper;
     tables.authorizationUtils = authorization;

@@ -2,15 +2,22 @@ package com.linkedin.openhouse.tables.config;
 
 import static com.linkedin.openhouse.tables.config.TablesMvcConstants.*;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.cluster.metrics.TagUtils;
 import com.linkedin.openhouse.cluster.storage.FsStorageUtils;
 import com.linkedin.openhouse.cluster.storage.StorageManager;
 import com.linkedin.openhouse.cluster.storage.StorageType;
 import com.linkedin.openhouse.common.config.BaseApplicationConfig;
 import com.linkedin.openhouse.common.provider.HttpConnectionPoolProviderConfig;
+import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.api.ToggleStatusApi;
 import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
+import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepository;
+import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepositoryImpl;
+import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceResponseModule;
+import com.linkedin.openhouse.tables.controller.TablesController;
+import com.linkedin.openhouse.tables.toggle.TableFeatureToggle;
 import com.linkedin.openhouse.tables.toggle.repository.ToggleStatusesRepository;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tag;
@@ -19,7 +26,6 @@ import java.io.UncheckedIOException;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -33,6 +39,7 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.springdoc.core.customizers.OpenApiCustomiser;
+import org.springframework.beans.factory.BeanCreationException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.autoconfigure.metrics.MeterRegistryCustomizer;
 import org.springframework.boot.actuate.metrics.web.servlet.WebMvcTagsContributor;
@@ -51,21 +58,43 @@ public class MainApplicationConfig extends BaseApplicationConfig {
   private static final int IN_MEMORY_BUFFER_SIZE = 40 * 1024 * 1024;
 
   private static final int DNS_QUERY_TIMEOUT_SECONDS = 10;
+  // Reactor Netty permits the initial send and one eligible connection-reset resend.
+  private static final int LEGACY_TOTAL_TRANSPORT_ATTEMPTS = 2;
+  private static final int NAMESPACE_TOTAL_TRANSPORT_ATTEMPTS = 1;
 
   @Autowired StorageManager storageManager;
 
   @Bean
   public UserTableApi provideApiInstance() {
-    return new UserTableApi(getHtsConfiguredApiClient());
+    return new UserTableApi(
+        getHtsConfiguredApiClient(
+            LEGACY_TOTAL_TRANSPORT_ATTEMPTS, ApiClient.createDefaultObjectMapper(null)));
+  }
+
+  @Bean
+  public NamespaceApi provideNamespaceApiInstance() {
+    return new NamespaceApi(
+        getHtsConfiguredApiClient(
+            NAMESPACE_TOTAL_TRANSPORT_ATTEMPTS,
+            ApiClient.createDefaultObjectMapper(null)
+                .registerModule(new HouseNamespaceResponseModule())));
+  }
+
+  @Bean
+  public HouseNamespaceRepository provideNamespaceRepository(
+      NamespaceApi namespaceApi, UserTableApi userTableApi) {
+    return new HouseNamespaceRepositoryImpl(namespaceApi, userTableApi);
   }
 
   /**
    * This bean is injected within {@link ToggleStatusesRepository} When HTS is used as the storage
-   * implementation for {@link com.linkedin.openhouse.tables.toggle.TableFeatureToggle}
+   * implementation for {@link TableFeatureToggle}
    */
   @Bean
   public ToggleStatusApi provideToggleApiInstance() {
-    return new ToggleStatusApi(getHtsConfiguredApiClient());
+    return new ToggleStatusApi(
+        getHtsConfiguredApiClient(
+            LEGACY_TOTAL_TRANSPORT_ATTEMPTS, ApiClient.createDefaultObjectMapper(null)));
   }
 
   /**
@@ -74,7 +103,11 @@ public class MainApplicationConfig extends BaseApplicationConfig {
    *
    * @return API instance for HTS client.
    */
-  private ApiClient getHtsConfiguredApiClient() {
+  private ApiClient getHtsConfiguredApiClient(
+      int totalTransportAttempts, ObjectMapper objectMapper) {
+    if (totalTransportAttempts != 1 && totalTransportAttempts != 2) {
+      throw new BeanCreationException("Total transport attempts must be 1 or 2 for Reactor Netty");
+    }
     String htsBasePath = clusterProperties.getClusterHouseTablesBaseUri();
     // Not able to leverage HousetablesApiClientFactory due to cyclic dependency
     // The default DNS query timeout is 5 sec for NameResolverProvider. Increasing this to 10 sec to
@@ -84,9 +117,10 @@ public class MainApplicationConfig extends BaseApplicationConfig {
         HttpClient.create(
                 HttpConnectionPoolProviderConfig.getCustomConnectionProvider(
                     "tables-hts-custom-connection-pool"))
-            .resolver(spec -> spec.queryTimeout(Duration.ofSeconds(DNS_QUERY_TIMEOUT_SECONDS)));
+            .resolver(spec -> spec.queryTimeout(Duration.ofSeconds(DNS_QUERY_TIMEOUT_SECONDS)))
+            .disableRetry(totalTransportAttempts == 1);
     WebClient webClient =
-        ApiClient.buildWebClientBuilder()
+        ApiClient.buildWebClientBuilder(objectMapper)
             .baseUrl(htsBasePath)
             .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(IN_MEMORY_BUFFER_SIZE))
             .clientConnector(new ReactorClientHttpConnector(httpClient))
@@ -173,9 +207,7 @@ public class MainApplicationConfig extends BaseApplicationConfig {
   @Bean
   OpenApiCustomiser springDocOperationIdCustomizer() {
     return openApi -> {
-      Map<String, String> pathToPostfix =
-          generatePostfix(
-              openApi.getPaths().keySet().stream().map(Paths::get).collect(Collectors.toSet()));
+      Map<String, String> pathToPostfix = generatePostfix(openApi.getPaths().keySet());
 
       openApi
           .getPaths()
@@ -199,16 +231,17 @@ public class MainApplicationConfig extends BaseApplicationConfig {
    * @return mapping between raw path to its postfix used in customized operationId.
    */
   @VisibleForTesting
-  static Map<String, String> generatePostfix(Set<java.nio.file.Path> pathKeys) {
-    Map<String, String> rawPathToMethodVer = new HashMap<>();
-    for (java.nio.file.Path path : pathKeys) {
-
-      java.nio.file.Path firstLevel = path.subpath(0, 1);
-      String version = isVersion(firstLevel.toString()) ? firstLevel.toString() : "";
-      rawPathToMethodVer.put(path.toString(), version.toUpperCase());
-    }
-
-    return rawPathToMethodVer;
+  static Map<String, String> generatePostfix(Set<String> pathKeys) {
+    return pathKeys.stream()
+        .map(Paths::get)
+        .distinct()
+        .collect(
+            Collectors.toMap(
+                path -> path.toString(),
+                path -> {
+                  String firstComponent = path.subpath(0, 1).toString();
+                  return isVersion(firstComponent) ? firstComponent.toUpperCase() : "";
+                }));
   }
 
   @VisibleForTesting
@@ -223,9 +256,8 @@ public class MainApplicationConfig extends BaseApplicationConfig {
    *
    * <p>Note that we assume only single "_" appear in the default operationId. We also don't allow
    * operationId starting with underscore. If that assumption doesn't hold, an {@link
-   * IllegalStateException} is thrown and naming in {@link
-   * com.linkedin.openhouse.tables.controller.TablesController} or other controllers will have to be
-   * fixed.
+   * IllegalStateException} is thrown and naming in {@link TablesController} or other controllers
+   * will have to be fixed.
    */
   @VisibleForTesting
   static String sanitizeOpId(String operationId) {

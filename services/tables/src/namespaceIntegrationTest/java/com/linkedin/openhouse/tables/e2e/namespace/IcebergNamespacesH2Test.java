@@ -1,0 +1,242 @@
+package com.linkedin.openhouse.tables.e2e.namespace;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+import com.linkedin.openhouse.HouseTablesSpringApplication;
+import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
+import com.linkedin.openhouse.housetables.client.api.UserTableApi;
+import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
+import com.linkedin.openhouse.housetables.services.NamespacesService;
+import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepositoryImpl;
+import com.linkedin.openhouse.tables.authorization.AuthorizationHandler;
+import com.linkedin.openhouse.tables.authorization.Privileges;
+import com.linkedin.openhouse.tables.controller.IcebergNamespacesController;
+import com.linkedin.openhouse.tables.exception.NamespaceExceptionHandler;
+import com.linkedin.openhouse.tables.model.DatabaseDto;
+import com.linkedin.openhouse.tables.services.TablesServiceImpl;
+import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
+import java.util.Map;
+import javax.sql.DataSource;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.http.MediaType;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+
+/** Exercises Tables HTTP translation through the generated HTS client and a live H2 service. */
+@SpringBootTest(
+    classes = HouseTablesSpringApplication.class,
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = {
+      "cluster.housetables.database.type=IN_MEMORY",
+      "cluster.housetables.database.url=jdbc:h2:mem:namespace_roundtrip;MODE=MYSQL;DB_CLOSE_DELAY=-1",
+      "cluster.storage.root-path=build/namespace-storage",
+      "spring.jpa.hibernate.ddl-auto=none",
+      "spring.sql.init.mode=always",
+      "spring.jpa.defer-datasource-initialization=true",
+      "spring.autoconfigure.exclude="
+          + "org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration,"
+          + "org.springframework.boot.actuate.autoconfigure.security.servlet.ManagementWebSecurityAutoConfiguration"
+    })
+@DirtiesContext
+class IcebergNamespacesH2Test {
+  @LocalServerPort private int port;
+  @Autowired private DataSource dataSource;
+  @SpyBean private NamespacesService namespaceStorage;
+  private MockMvc mvc;
+  private TablesServiceImpl service;
+  private AuthorizationHandler authorizationHandler;
+
+  @BeforeEach
+  void setUp() {
+    ApiClient client = new ApiClient();
+    client.setBasePath("http://localhost:" + port);
+    authorizationHandler = mock(AuthorizationHandler.class);
+    when(authorizationHandler.checkAccessDecision(anyString(), any(DatabaseDto.class), any()))
+        .thenReturn(true);
+    AuthorizationUtils authorizationUtils = new AuthorizationUtils();
+    ReflectionTestUtils.setField(authorizationUtils, "authorizationHandler", authorizationHandler);
+    service = new TablesServiceImpl();
+    ReflectionTestUtils.setField(service, "authorizationUtils", authorizationUtils);
+    ReflectionTestUtils.setField(
+        service,
+        "namespaceRepository",
+        new HouseNamespaceRepositoryImpl(new NamespaceApi(client), new UserTableApi(client)));
+    mvc =
+        MockMvcBuilders.standaloneSetup(new IcebergNamespacesController(service))
+            .setControllerAdvice(new NamespaceExceptionHandler())
+            .setMessageConverters(new MappingJackson2HttpMessageConverter())
+            .build();
+  }
+
+  @Test
+  void createLoadSparseUpdateAndDropRoundTrip() throws Exception {
+    mvc.perform(
+            post("/v1/foo/namespaces")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"namespace\":[\"RoundTrip\"],\"properties\":{\"a\":\"1\",\"b\":\"2\"}}"))
+        .andExpect(status().isOk());
+    mvc.perform(
+            post("/v1/foo/namespaces")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"namespace\":[\"ROUNDTRIP\"]}"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.error.code").value(409))
+        .andExpect(jsonPath("$.error.type").value("AlreadyExistsException"));
+    mvc.perform(
+            post("/v1/foo/namespaces/ROUNDTRIP/properties")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"updates\":{\"c\":\"3\"},\"removals\":[\"b\",\"d\"]}"))
+        .andExpect(status().isOk())
+        .andExpect(
+            content().json("{\"updated\":[\"c\"],\"removed\":[\"b\"],\"missing\":[\"d\"]}", true));
+    mvc.perform(get("/v1/foo/namespaces/ROUNDTRIP"))
+        .andExpect(status().isOk())
+        .andExpect(
+            content()
+                .json(
+                    "{\"namespace\":[\"RoundTrip\"],\"properties\":{\"a\":\"1\",\"c\":\"3\"}}",
+                    true));
+    mvc.perform(delete("/v1/foo/namespaces/roundtrip")).andExpect(status().isNoContent());
+    mvc.perform(get("/v1/foo/namespaces/roundtrip"))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.error.code").value(404))
+        .andExpect(jsonPath("$.error.type").value("NoSuchNamespaceException"));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"create", "update", "drop"})
+  void deniedMutationsPreserveStoredMetadata(String operation) throws Exception {
+    mvc.perform(
+            post("/v1/foo/namespaces")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"namespace\":[\"denied_" + operation + "\"],\"properties\":{\"a\":\"1\"}}"))
+        .andExpect(status().isOk());
+    JdbcTemplate database = new JdbcTemplate(dataSource);
+    Map<String, Object> before =
+        database.queryForMap(
+            "SELECT * FROM catalog_namespaces WHERE namespace_name = ?", "denied_" + operation);
+    when(authorizationHandler.checkAccessDecision(
+            anyString(), any(DatabaseDto.class), eq(Privileges.SYSTEM_ADMIN)))
+        .thenReturn(false);
+    Map<String, MockHttpServletRequestBuilder> requests =
+        Map.of(
+            "create",
+                post("/v1/foo/namespaces")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"namespace\":[\"new_denied\"]}"),
+            "update",
+                post("/v1/foo/namespaces/denied_update/properties")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"updates\":{\"a\":\"2\"}}"),
+            "drop", delete("/v1/foo/namespaces/denied_drop"));
+    mvc.perform(requests.get(operation)).andExpect(status().isForbidden());
+    assertEquals(
+        before,
+        database.queryForMap(
+            "SELECT * FROM catalog_namespaces WHERE namespace_name = ?", "denied_" + operation));
+    assertEquals(
+        0,
+        database.queryForObject(
+            "SELECT COUNT(*) FROM catalog_namespaces WHERE namespace_name = 'new_denied'",
+            Integer.class));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"TABLE", "VIEW"})
+  void occupiedNamespacesKeepMetadataAndEntityRows(String entityType) throws Exception {
+    String namespace = "occupied_" + entityType;
+    mvc.perform(
+            post("/v1/foo/namespaces")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"namespace\":[\"" + namespace + "\"]}"))
+        .andExpect(status().isOk());
+    JdbcTemplate database = new JdbcTemplate(dataSource);
+    database.update(
+        "INSERT INTO user_table_row (database_id, table_id, version, metadata_location, entity_type)"
+            + " VALUES (?, 'foo', 0, 'file:///unread-metadata', ?)",
+        namespace,
+        entityType);
+    mvc.perform(delete("/v1/foo/namespaces/" + namespace))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.error.code").value(400))
+        .andExpect(jsonPath("$.error.type").value("NamespaceNotEmptyException"));
+    mvc.perform(get("/v1/foo/namespaces/" + namespace)).andExpect(status().isOk());
+    assertEquals(
+        1,
+        database.queryForObject(
+            "SELECT COUNT(*) FROM user_table_row WHERE database_id = ?", Integer.class, namespace));
+  }
+
+  @Test
+  void legacyDatabaseWithTablesButWithoutMetadataIsMissing() throws Exception {
+    JdbcTemplate database = new JdbcTemplate(dataSource);
+    database.update(
+        "INSERT INTO user_table_row (database_id, table_id, version) VALUES ('legacy', 'foo', 0)");
+    mvc.perform(delete("/v1/foo/namespaces/legacy")).andExpect(status().isNotFound());
+    assertEquals(
+        1,
+        database.queryForObject(
+            "SELECT COUNT(*) FROM user_table_row WHERE database_id = 'legacy'", Integer.class));
+  }
+
+  @Test
+  void storageFailureIsSanitizedThroughBothHttpAdapters() throws Exception {
+    doThrow(new RuntimeException("internal foo", new IllegalStateException("internal bar")))
+        .when(namespaceStorage)
+        .createNamespace(eq("foo"), anyMap());
+    mvc.perform(
+            post("/v1/foo/namespaces")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"namespace\":[\"foo\"]}"))
+        .andExpect(status().isInternalServerError())
+        .andExpect(jsonPath("$.error.code").value(500))
+        .andExpect(jsonPath("$.error.type").value("RESTException"))
+        .andExpect(jsonPath("$.error.message").value("Namespace operation failed"));
+  }
+
+  @Test
+  void wrongListingRoutePreventsDropWithServiceFailure() throws Exception {
+    mvc.perform(
+            post("/v1/foo/namespaces")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"namespace\":[\"listing_route\"]}"))
+        .andExpect(status().isOk());
+    ApiClient namespaceClient = new ApiClient();
+    namespaceClient.setBasePath("http://localhost:" + port);
+    ApiClient listingClient = new ApiClient();
+    listingClient.setBasePath("http://localhost:" + port + "/foo");
+    ReflectionTestUtils.setField(
+        service,
+        "namespaceRepository",
+        new HouseNamespaceRepositoryImpl(
+            new NamespaceApi(namespaceClient), new UserTableApi(listingClient)));
+    mvc.perform(delete("/v1/foo/namespaces/listing_route"))
+        .andExpect(status().isInternalServerError())
+        .andExpect(jsonPath("$.error.code").value(500))
+        .andExpect(jsonPath("$.error.type").value("RESTException"));
+    assertEquals(
+        1,
+        new JdbcTemplate(dataSource)
+            .queryForObject(
+                "SELECT COUNT(*) FROM catalog_namespaces WHERE namespace_name = 'listing_route'",
+                Integer.class));
+  }
+}

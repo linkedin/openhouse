@@ -7,6 +7,7 @@ import static org.mockito.Mockito.*;
 import com.linkedin.openhouse.common.exception.RequestValidationFailureException;
 import com.linkedin.openhouse.common.exception.SystemOnlyLockAccessDeniedException;
 import com.linkedin.openhouse.common.exception.UnsupportedClientOperationException;
+import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepository;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.IcebergSnapshotsRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
@@ -95,6 +96,7 @@ class LockEvaluationServiceTest {
     when(repository.findTableRefById(any())).thenAnswer(invocation -> Optional.of(current));
     when(repository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
     tables = new TablesServiceImpl();
+    tables.namespaceRepository = mock(HouseNamespaceRepository.class);
     tables.openHouseInternalRepository = repository;
     tables.authorizationUtils = authorization;
     tables.authorizationHandler = handler;
@@ -112,6 +114,7 @@ class LockEvaluationServiceTest {
   @AfterEach
   void clearRequest() {
     RequestContextHolder.resetRequestAttributes();
+    verifyNoInteractions(tables.namespaceRepository);
   }
 
   @ParameterizedTest
