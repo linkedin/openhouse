@@ -19,7 +19,9 @@ public class PostCommitOperationRunnerTest {
 
   private static final PostCommitContext CONTEXT =
       new PostCommitContext(
-          TableIdentifier.of("db", "tbl"), Mockito.mock(TableMetadata.class), CommitType.UPDATE);
+          TableIdentifier.of("db", "tbl"),
+          Mockito.mock(TableMetadata.class),
+          CommitType.DATA_UPDATE);
 
   private static final PostDropContext DROP_CONTEXT =
       new PostDropContext(TableIdentifier.of("db", "tbl"), "uuid-123");

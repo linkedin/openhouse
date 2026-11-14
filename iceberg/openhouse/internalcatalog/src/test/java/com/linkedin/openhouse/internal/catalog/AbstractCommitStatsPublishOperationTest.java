@@ -42,14 +42,14 @@ public class AbstractCommitStatsPublishOperationTest {
     props.put(AbstractCommitStatsPublishOperation.COMMIT_STATS_COLLECTION_ENABLED_PROP, "true");
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props), CommitType.UPDATE));
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), CommitType.DATA_UPDATE));
 
     Assertions.assertEquals(1, op.publishCount);
     Assertions.assertNotNull(op.published);
     Assertions.assertEquals("uuid-123", op.published.getTableUuid());
     Assertions.assertEquals("db", op.published.getDatabaseName());
     Assertions.assertEquals("tbl", op.published.getTableName());
-    Assertions.assertEquals(CommitType.UPDATE, op.published.getCommitType());
+    Assertions.assertEquals(CommitType.DATA_UPDATE, op.published.getCommitType());
   }
 
   @Test
@@ -59,7 +59,7 @@ public class AbstractCommitStatsPublishOperationTest {
     // no opt-in property
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props), CommitType.UPDATE));
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), CommitType.DATA_UPDATE));
 
     Assertions.assertEquals(0, op.publishCount);
   }
@@ -71,7 +71,7 @@ public class AbstractCommitStatsPublishOperationTest {
     props.put(AbstractCommitStatsPublishOperation.COMMIT_STATS_COLLECTION_ENABLED_PROP, "false");
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props), CommitType.UPDATE));
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), CommitType.DATA_UPDATE));
 
     Assertions.assertEquals(0, op.publishCount);
   }
@@ -83,7 +83,7 @@ public class AbstractCommitStatsPublishOperationTest {
     props.put(AbstractCommitStatsPublishOperation.COMMIT_STATS_COLLECTION_ENABLED_PROP, "true");
 
     RecordingOperation op = new RecordingOperation();
-    op.execute(new PostCommitContext(TABLE, metadataWith(props), CommitType.UPDATE));
+    op.execute(new PostCommitContext(TABLE, metadataWith(props), CommitType.DATA_UPDATE));
 
     Assertions.assertEquals(0, op.publishCount);
   }

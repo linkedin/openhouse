@@ -428,9 +428,12 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
     int version = currentVersion() + 1;
     CommitStatus commitStatus = CommitStatus.FAILURE;
     Optional<TableMetadata> committedMetadata = Optional.empty();
-    // CREATE when there is no prior metadata; otherwise UPDATE unless the commit turns out to be a
-    // rename (set in the rename branch below). Read in the finally block to tag post-commit ops.
-    CommitType commitType = base == null ? CommitType.CREATE : CommitType.UPDATE;
+    // Classify the commit for the post-commit path: CREATE when there is no prior metadata; else a
+    // metadata-only update by default, upgraded to DATA_UPDATE below once the committed metadata is
+    // built and shown to carry a new snapshot. A rename is detected later and overrides this (set
+    // in
+    // the rename branch below). Read in the finally block to tag post-commit ops.
+    CommitType commitType = base == null ? CommitType.CREATE : CommitType.METADATA_UPDATE;
 
     /* This method adds no fs scheme, and it persists in HTS that way. */
     final String newMetadataLocation = rootMetadataFileLocation(metadata, version);
@@ -590,6 +593,11 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
       }
       if (isReplicatedTableCreate(properties)) {
         updateMetadataFieldForTable(metadata, newMetadataLocation);
+      }
+      // The committed metadata now carries any snapshots the client pushed. A plain update that
+      // produced a new snapshot is a data commit; leave a rename/create as classified above.
+      if (commitType == CommitType.METADATA_UPDATE && producedNewSnapshot(base, updatedMtDataRef)) {
+        commitType = CommitType.DATA_UPDATE;
       }
       committedMetadata = Optional.of(updatedMtDataRef);
       commitStatus = CommitStatus.SUCCESS;
@@ -761,6 +769,24 @@ public class OpenHouseInternalTableOperations extends BaseMetastoreTableOperatio
    * switch. Never throws: the commit has already durably succeeded and post-commit work must not
    * affect its outcome.
    */
+  /**
+   * Whether this commit produced a new snapshot relative to {@code base} — i.e. it is a data commit
+   * (append/overwrite/delete/replace) rather than a metadata-only commit (property/schema/policy
+   * change, which leaves the current snapshot unchanged). A snapshot expiration also leaves the
+   * current snapshot id unchanged and is therefore treated as metadata-only here.
+   *
+   * @param base the prior table metadata (non-null; the create case is handled by the caller)
+   * @param metadata the metadata being committed
+   */
+  private static boolean producedNewSnapshot(TableMetadata base, TableMetadata metadata) {
+    Snapshot current = metadata.currentSnapshot();
+    if (current == null) {
+      return false;
+    }
+    Snapshot baseCurrent = base.currentSnapshot();
+    return baseCurrent == null || baseCurrent.snapshotId() != current.snapshotId();
+  }
+
   private void runPostCommitOperations(
       Optional<TableMetadata> committedMetadata, CommitType commitType) {
     if (postCommitOperationRunner == null || !postCommitOperationRunner.isEnabled()) {

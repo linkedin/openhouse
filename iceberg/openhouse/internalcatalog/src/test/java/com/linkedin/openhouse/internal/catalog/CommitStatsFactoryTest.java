@@ -50,9 +50,10 @@ public class CommitStatsFactoryTest {
   @Test
   void extractReturnsEmptyWithoutUuid() {
     Assertions.assertFalse(
-        CommitStatsFactory.extract(ID, metadataWith(ImmutableMap.of()), CommitType.UPDATE)
+        CommitStatsFactory.extract(ID, metadataWith(ImmutableMap.of()), CommitType.DATA_UPDATE)
             .isPresent());
-    Assertions.assertFalse(CommitStatsFactory.extract(ID, null, CommitType.UPDATE).isPresent());
+    Assertions.assertFalse(
+        CommitStatsFactory.extract(ID, null, CommitType.DATA_UPDATE).isPresent());
   }
 
   @Test
@@ -86,7 +87,7 @@ public class CommitStatsFactoryTest {
             .put(SnapshotSummary.REMOVED_FILE_SIZE_PROP, "200")
             .build();
     CommitStats cs =
-        CommitStatsFactory.extract(ID, mockMetadataWithSummary(summary), CommitType.UPDATE)
+        CommitStatsFactory.extract(ID, mockMetadataWithSummary(summary), CommitType.DATA_UPDATE)
             .orElseThrow();
     Assertions.assertEquals(42L, cs.getNumCurrentFiles());
     Assertions.assertEquals(1000L, cs.getTableSizeBytes());
@@ -124,7 +125,7 @@ public class CommitStatsFactoryTest {
     Map<String, String> summary =
         ImmutableMap.of(SnapshotSummary.TOTAL_DATA_FILES_PROP, "not-a-number");
     CommitStats cs =
-        CommitStatsFactory.extract(ID, mockMetadataWithSummary(summary), CommitType.UPDATE)
+        CommitStatsFactory.extract(ID, mockMetadataWithSummary(summary), CommitType.DATA_UPDATE)
             .orElseThrow();
     Assertions.assertNull(cs.getNumCurrentFiles());
     Assertions.assertNull(cs.getTableSizeBytes());
