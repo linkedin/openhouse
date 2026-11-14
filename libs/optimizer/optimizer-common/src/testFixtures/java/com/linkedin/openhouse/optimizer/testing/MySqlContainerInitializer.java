@@ -43,7 +43,7 @@ public class MySqlContainerInitializer
     mysql.start();
     context.addApplicationListener(new StopOnClose(mysql));
     TestPropertyValues.of(
-            "cluster.optimizer.database.url=" + mysql.getJdbcUrl(),
+            "spring.datasource.url=" + mysql.getJdbcUrl(),
             "spring.datasource.username=" + mysql.getUsername(),
             "spring.datasource.password=" + mysql.getPassword())
         .applyTo(context);
