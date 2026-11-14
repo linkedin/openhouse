@@ -329,6 +329,19 @@ class NamespacesServiceTest {
   }
 
   @Test
+  void testStorageFailureRollsBackDeletion() throws Exception {
+    NamespaceMetadata created =
+        namespacesService.createNamespace("namespace_foo", Map.of("foo", "one"));
+    doThrow(new DataAccessResourceFailureException("storage unavailable")).when(repository).flush();
+
+    assertThatThrownBy(() -> namespacesService.deleteNamespace("namespace_foo"))
+        .isInstanceOf(DataAccessResourceFailureException.class);
+
+    reset(repository);
+    assertThat(namespacesService.getNamespace("namespace_foo")).isEqualTo(created);
+  }
+
+  @Test
   void committedJpaMutationWithLostAcknowledgementReportsFailure() throws Exception {
     assertThat(transactionManager).isInstanceOf(JpaTransactionManager.class);
     TransactionSystemException failure = new TransactionSystemException("foo");

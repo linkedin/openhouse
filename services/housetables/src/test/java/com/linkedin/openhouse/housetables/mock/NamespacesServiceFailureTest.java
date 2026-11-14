@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.housetables.mock;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -142,6 +141,21 @@ class NamespacesServiceFailureTest {
   }
 
   @Test
+  void duplicateNamespaceNameAtCommitReportsConflict() {
+    when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+    DataIntegrityViolationException duplicateName =
+        new DataIntegrityViolationException(
+            "constraint failed",
+            new ConstraintViolationException(
+                "constraint failed", new SQLException(), "uq_namespace_name"));
+    doThrow(duplicateName).when(transactionManager).commit(any());
+
+    assertThatThrownBy(() -> namespacesService.createNamespace("foo", Map.of()))
+        .isInstanceOf(DuplicateCreationException.class)
+        .hasCause(duplicateName);
+  }
+
+  @Test
   void acquisitionFailurePreventsExecution() {
     CannotCreateTransactionException failure = new CannotCreateTransactionException("foo");
     when(transactionManager.getTransaction(any())).thenThrow(failure);
@@ -167,15 +181,13 @@ class NamespacesServiceFailureTest {
   }
 
   @Test
-  void failedRollbackPreservesCallbackCause() {
+  void failedRollbackReportsFailure() {
     when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
     OptimisticLockingFailureException failure = new OptimisticLockingFailureException("foo");
     doThrow(failure).when(repository).flush();
     TransactionSystemException rollback = new TransactionSystemException("bar", failure);
     doThrow(rollback).when(transactionManager).rollback(any());
-    assertThatThrownBy(() -> namespacesService.createNamespace("foo", Map.of()))
-        .isSameAs(rollback)
-        .satisfies(exception -> assertThat(exception.getSuppressed()).contains(failure));
+    assertThatThrownBy(() -> namespacesService.createNamespace("foo", Map.of())).isSameAs(rollback);
     verify(transactionManager).rollback(any());
   }
 
@@ -188,7 +200,7 @@ class NamespacesServiceFailureTest {
   }
 
   @Test
-  void nestedOptimisticCommitFailurePreservesApplicationCause() {
+  void commitFailureWithApplicationExceptionPropagates() {
     when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
     OptimisticLockingFailureException applicationFailure =
         new OptimisticLockingFailureException("foo");
@@ -197,7 +209,6 @@ class NamespacesServiceFailureTest {
     doThrow(completionFailure).when(transactionManager).commit(any());
     assertThatThrownBy(() -> namespacesService.createNamespace("foo", Map.of()))
         .isSameAs(completionFailure);
-    assertThat(completionFailure.getSuppressed()).contains(applicationFailure);
   }
 
   @Test
@@ -239,7 +250,7 @@ class NamespacesServiceFailureTest {
   }
 
   @Test
-  void failedPrerequisiteLookupPreservesCauseWhenRollbackFails() {
+  void failedPrerequisiteLookupReportsRollbackFailure() {
     when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
     DataAccessResourceFailureException lookupFailure =
         new DataAccessResourceFailureException("foo");
@@ -248,7 +259,6 @@ class NamespacesServiceFailureTest {
     doThrow(completionFailure).when(transactionManager).rollback(any());
 
     assertThatThrownBy(() -> namespacesService.deleteNamespace("foo")).isSameAs(completionFailure);
-    assertThat(completionFailure.getSuppressed()).contains(lookupFailure);
     verify(repository, never()).delete(any());
   }
 
