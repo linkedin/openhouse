@@ -375,12 +375,36 @@ public class OpenHouseInternalTableOperationsTest {
           .runAll(contextCaptor.capture());
       PostCommitContext context = contextCaptor.getValue();
       Assertions.assertEquals(TEST_TABLE_IDENTIFIER, context.getTableIdentifier());
+      Assertions.assertEquals(CommitType.DATA_UPDATE, context.getCommitType());
       Assertions.assertNotNull(context.getCommittedMetadata());
       Assertions.assertTrue(
           context
               .getCommittedMetadata()
               .properties()
               .containsKey(getCanonicalFieldName("tableLocation")));
+    }
+  }
+
+  /**
+   * A commit that produces no new snapshot (a property/metadata-only change) is classified as
+   * {@link CommitType#METADATA_UPDATE}, distinguishing it from a data commit so the optimizer can
+   * react differently (e.g. policy/replication triggers vs. data analysis).
+   */
+  @Test
+  void testPostCommitClassifiesMetadataOnlyCommit() throws IOException {
+    Map<String, String> properties = new HashMap<>(BASE_TABLE_METADATA.properties());
+    try (MockedStatic<TableMetadataParser> ignoreWriteMock =
+        Mockito.mockStatic(TableMetadataParser.class)) {
+      // No SNAPSHOTS_JSON_KEY: a metadata-only commit (here, a user table-property change).
+      properties.put("user.flag", "on");
+      TableMetadata metadata = BASE_TABLE_METADATA.replaceProperties(properties);
+      openHouseInternalTableOperationsWithPostCommit.doCommit(BASE_TABLE_METADATA, metadata);
+
+      ArgumentCaptor<PostCommitContext> contextCaptor =
+          ArgumentCaptor.forClass(PostCommitContext.class);
+      Mockito.verify(mockPostCommitOperationRunner, Mockito.times(1))
+          .runAll(contextCaptor.capture());
+      Assertions.assertEquals(CommitType.METADATA_UPDATE, contextCaptor.getValue().getCommitType());
     }
   }
 

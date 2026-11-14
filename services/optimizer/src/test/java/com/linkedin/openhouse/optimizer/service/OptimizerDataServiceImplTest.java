@@ -13,6 +13,7 @@ import com.linkedin.openhouse.optimizer.model.OperationStatusDto;
 import com.linkedin.openhouse.optimizer.model.OperationTypeDto;
 import com.linkedin.openhouse.optimizer.model.TableOperationsHistoryDto;
 import com.linkedin.openhouse.optimizer.model.TableStatsDto;
+import com.linkedin.openhouse.optimizer.repository.TableOperationsHistoryRepository;
 import com.linkedin.openhouse.optimizer.repository.TableOperationsRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsHistoryRepository;
 import com.linkedin.openhouse.optimizer.repository.TableStatsRepository;
@@ -39,6 +40,7 @@ class OptimizerDataServiceImplTest {
   @Autowired TableOperationsRepository operationsRepository;
   @Autowired TableStatsRepository statsRepository;
   @Autowired TableStatsHistoryRepository statsHistoryRepository;
+  @Autowired TableOperationsHistoryRepository operationsHistoryRepository;
 
   // Replace the real analyzer so the trigger is observable and no analysis runs during these tests.
   @MockBean AnalyzerRunner analyzerRunner;
@@ -286,5 +288,73 @@ class OptimizerDataServiceImplTest {
                 100))
         .extracting(op -> op.getId())
         .containsExactly(pendingId);
+  }
+
+  // --- deleteTableData ---
+
+  @Test
+  void deleteTableData_removesAllPerTableRows() {
+    String tableUuid = UUID.randomUUID().toString();
+    statsRepository.save(
+        TableStatsDto.builder()
+            .tableUuid(tableUuid)
+            .databaseName("db1")
+            .tableName("tbl1")
+            .updatedAt(Instant.now())
+            .snapshot(TableStatsDto.SnapshotMetrics.builder().tableSizeBytes(1L).build())
+            .build()
+            .toRow());
+    statsHistoryRepository.save(
+        TableStatsHistoryRow.builder()
+            .id(UUID.randomUUID().toString())
+            .tableUuid(tableUuid)
+            .databaseName("db1")
+            .tableName("tbl1")
+            .recordedAt(Instant.now())
+            .build());
+    operationsRepository.save(
+        TableOperationsRow.builder()
+            .id(UUID.randomUUID().toString())
+            .tableUuid(tableUuid)
+            .databaseName("db1")
+            .tableName("tbl1")
+            .operationType(com.linkedin.openhouse.optimizer.db.OperationType.ORPHAN_FILES_DELETION)
+            .status(com.linkedin.openhouse.optimizer.db.OperationStatus.PENDING)
+            .createdAt(Instant.now())
+            .build());
+    operationsHistoryRepository.save(
+        TableOperationsHistoryDto.builder()
+            .id(UUID.randomUUID().toString())
+            .tableUuid(tableUuid)
+            .databaseName("db1")
+            .tableName("tbl1")
+            .operationType(OperationTypeDto.ORPHAN_FILES_DELETION)
+            .status(HistoryStatusDto.SUCCESS)
+            .completedAt(Instant.now())
+            .build()
+            .toRow());
+
+    service.deleteTableData(tableUuid);
+
+    assertThat(statsRepository.findById(tableUuid)).isEmpty();
+    assertThat(statsHistoryRepository.find(tableUuid, Optional.empty(), PageRequest.of(0, 10)))
+        .isEmpty();
+    assertThat(
+            service.listTableOperations(
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.of(tableUuid),
+                100))
+        .isEmpty();
+    assertThat(operationsHistoryRepository.find(tableUuid, PageRequest.of(0, 10))).isEmpty();
+  }
+
+  @Test
+  void deleteTableData_isIdempotentWhenNoRows() {
+    assertThat(service.getTableStats(UUID.randomUUID().toString())).isEmpty();
+    // No rows for this UUID; delete must be a safe no-op (no exception).
+    service.deleteTableData(UUID.randomUUID().toString());
   }
 }

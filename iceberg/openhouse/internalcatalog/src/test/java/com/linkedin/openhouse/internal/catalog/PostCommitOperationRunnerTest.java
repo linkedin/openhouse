@@ -18,11 +18,24 @@ import org.mockito.Mockito;
 public class PostCommitOperationRunnerTest {
 
   private static final PostCommitContext CONTEXT =
-      new PostCommitContext(TableIdentifier.of("db", "tbl"), Mockito.mock(TableMetadata.class));
+      new PostCommitContext(
+          TableIdentifier.of("db", "tbl"),
+          Mockito.mock(TableMetadata.class),
+          CommitType.DATA_UPDATE);
+
+  private static final PostDropContext DROP_CONTEXT =
+      new PostDropContext(TableIdentifier.of("db", "tbl"), "uuid-123");
 
   private static PostCommitOperationRunner newRunner(
       List<PostCommitOperation> ops, SimpleMeterRegistry registry) {
-    return new PostCommitOperationRunner(ops, registry, true, 4, 1000, 30, true, 2000);
+    return new PostCommitOperationRunner(
+        ops, Collections.emptyList(), registry, true, 4, 1000, 30, true, 2000);
+  }
+
+  private static PostCommitOperationRunner newDropRunner(
+      List<PostDropOperation> dropOps, SimpleMeterRegistry registry) {
+    return new PostCommitOperationRunner(
+        Collections.emptyList(), dropOps, registry, true, 4, 1000, 30, true, 2000);
   }
 
   /**
@@ -104,7 +117,15 @@ public class PostCommitOperationRunnerTest {
 
     PostCommitOperationRunner runner =
         new PostCommitOperationRunner(
-            Collections.singletonList(slow), registry, true, 4, 1000, 30, true, /*timeoutMs*/ 100);
+            Collections.singletonList(slow),
+            Collections.emptyList(),
+            registry,
+            true,
+            4,
+            1000,
+            30,
+            true,
+            /*timeoutMs*/ 100);
     runner.runAll(CONTEXT);
 
     Assertions.assertTrue(done.await(5, TimeUnit.SECONDS), "slow op should have been interrupted");
@@ -150,7 +171,15 @@ public class PostCommitOperationRunnerTest {
     // than 1 (running) + 100 (queued) ops. High timeout so cancellation doesn't interfere.
     PostCommitOperationRunner runner =
         new PostCommitOperationRunner(
-            Collections.nCopies(150, blocking), registry, true, 1, 1, 30, true, 60000);
+            Collections.nCopies(150, blocking),
+            Collections.emptyList(),
+            registry,
+            true,
+            1,
+            1,
+            30,
+            true,
+            60000);
     runner.runAll(CONTEXT);
     release.countDown();
 
@@ -178,7 +207,15 @@ public class PostCommitOperationRunnerTest {
 
     PostCommitOperationRunner runner =
         new PostCommitOperationRunner(
-            Collections.singletonList(op), registry, /*enabled*/ false, 4, 1000, 30, true, 10000);
+            Collections.singletonList(op),
+            Collections.emptyList(),
+            registry,
+            /*enabled*/ false,
+            4,
+            1000,
+            30,
+            true,
+            10000);
     Assertions.assertFalse(runner.isEnabled());
     runner.runAll(CONTEXT);
 
@@ -187,6 +224,66 @@ public class PostCommitOperationRunnerTest {
     Assertions.assertNull(
         registry.find(PostCommitOperationRunner.METRIC_PREFIX).counter(),
         "disabled runner must not emit operation metrics");
+  }
+
+  /** Every registered drop operation runs on drop, and success is recorded per operation name. */
+  @Test
+  void testRunsAllDropOperations() throws InterruptedException {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    AtomicInteger ran = new AtomicInteger();
+    PostDropOperation dropOp =
+        new PostDropOperation() {
+          @Override
+          public String getName() {
+            return "drop-op";
+          }
+
+          @Override
+          public void execute(PostDropContext context) {
+            ran.incrementAndGet();
+          }
+        };
+
+    newDropRunner(Collections.singletonList(dropOp), registry).runAllOnDrop(DROP_CONTEXT);
+
+    Assertions.assertEquals(1.0, awaitCounter(registry, "drop-op", "success"));
+    Assertions.assertEquals(1, ran.get());
+  }
+
+  /** Commit and drop seams are independent: runAll never dispatches drop operations. */
+  @Test
+  void testRunAllDoesNotDispatchDropOperations() throws InterruptedException {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    AtomicInteger dropRan = new AtomicInteger();
+    PostDropOperation dropOp =
+        new PostDropOperation() {
+          @Override
+          public String getName() {
+            return "drop-op";
+          }
+
+          @Override
+          public void execute(PostDropContext context) {
+            dropRan.incrementAndGet();
+          }
+        };
+    PostCommitOperation commitOp = latchOp("commit-op", null);
+
+    new PostCommitOperationRunner(
+            Collections.singletonList(commitOp),
+            Collections.singletonList(dropOp),
+            registry,
+            true,
+            4,
+            1000,
+            30,
+            true,
+            2000)
+        .runAll(CONTEXT);
+
+    Assertions.assertEquals(1.0, awaitCounter(registry, "commit-op", "success"));
+    Thread.sleep(200);
+    Assertions.assertEquals(0, dropRan.get(), "runAll must not dispatch drop operations");
   }
 
   private static PostCommitOperation latchOp(String name, RuntimeException toThrow) {
