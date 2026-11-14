@@ -2,14 +2,15 @@ name: Pull Request Validations
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
-    branches:
-      - main
-
-concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+    # edited: GitHub retargets a stacked PR when its base merges, without a new commit.
+    types: [opened, synchronize, reopened, edited]
 
 jobs:
   build-run-tests:
+    # Of the edits, only a base-branch change reruns the build. The concurrency group is on the job,
+    # so a skipped run doesn't cancel a running build.
+    if: github.event.action != 'edited' || github.event.changes.base
+    concurrency:
+      group: ci-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
     uses: ./.github/workflows/build-run-tests.yml
