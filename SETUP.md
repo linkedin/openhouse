@@ -41,13 +41,14 @@ This single command:
 | `./gradlew dockerUp -Precipe=<recipe>` | Build everything and start containers |
 | `./gradlew dockerDown -Precipe=<recipe>` | Stop and remove containers |
 
-## HouseTables MySQL tests and index regression tests
+## HouseTables database and index regression tests
 
-**Java 17 and Docker are required** for the MySQL-backed HouseTables (HTS) tests; no
-preinstalled MySQL server, staging access or Spark is needed. Container or schema
+**Java 17 and Docker are required** for the database-backed HouseTables (HTS) tests; no
+preinstalled database server, staging access or Spark is needed. Container or schema
 initialization failures fail the tests rather than falling back to H2 or skipping them.
 
-- Spring integration tests share a disposable Testcontainers MySQL instance. The schema
+- Spring integration tests share a disposable Testcontainers instance: MySQL by default,
+  or TiDB with `-PhtsBackend=tidb`. Both use the same MySQL JDBC datasource path. The schema
   comes from the canonical `services/housetables/ddl/` baseline and entity-type migration,
   not Hibernate-generated tables. Shared fixtures reset data between tests.
 - `HtsHttpIntegrationTest` starts Spring Boot on a random port and sends actual HTTP
@@ -67,6 +68,9 @@ deployed configuration/credentials, or the application's SQL bootstrap scripts.
 # All HTS tests except the opt-in optimizer suite (Docker required).
 ./gradlew :services:housetables:test
 
+# The same tests against TiDB (use -PhtsBackend=mysql for explicit MySQL selection).
+./gradlew :services:housetables:test -PhtsBackend=tidb
+
 # Real-HTTP behavioral tests only (Docker required).
 ./gradlew :services:housetables:test --tests '*HtsHttpIntegrationTest'
 
@@ -77,7 +81,11 @@ deployed configuration/credentials, or the application's SQL bootstrap scripts.
 ./gradlew :services:housetables:mysqlIndexTest
 ```
 
-The MySQL image defaults to `mysql:8.4.11`; add `-PmysqlIndexImage=mysql:<version>` to
+CI uses the default MySQL backend. TiDB runs as single-process unistore, not a distributed
+TiKV/PD cluster; this mode checks compatibility, not distributed behavior or performance.
+`mysqlIndexTest` remains MySQL-only regardless of `-PhtsBackend`.
+
+The images are pinned to MySQL 8.4.11 and TiDB 8.5.4. Add `-PmysqlIndexImage=mysql:<version>` to
 `mysqlIndexTest` to test another supported MySQL 8 image. JUnit reports are under
 `build/housetables/reports/tests/`; captured SQL and plans are under
 `build/housetables/reports/mysql-index-plans/`.
