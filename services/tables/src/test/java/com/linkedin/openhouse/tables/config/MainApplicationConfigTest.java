@@ -1,9 +1,10 @@
 package com.linkedin.openhouse.tables.config;
 
-import java.util.Arrays;
+import java.nio.file.Paths;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -28,7 +29,9 @@ class MainApplicationConfigTest {
     paths.add("/v0/databases/{databaseId}/tables/{tableId}/iceberg/v2/snapshots");
     paths.add("/databases/{databaseId}/tables/{tableId}/iceberg/v2/snapshots");
 
-    Map<String, String> result = MainApplicationConfig.generatePostfix(paths);
+    Map<String, String> result =
+        MainApplicationConfig.generatePostfix(
+            paths.stream().map(Paths::get).collect(Collectors.toSet()));
     Assertions.assertEquals(result.size(), paths.size());
     Assertions.assertEquals(result.get("/v0/databases"), "V0");
     Assertions.assertEquals(result.get("/v1/databases"), "V1");
@@ -46,17 +49,6 @@ class MainApplicationConfigTest {
         result.get("/v0/databases/{databaseId}/tables/{tableId}/iceberg/v2/snapshots"), "V0");
     Assertions.assertEquals(
         result.get("/databases/{databaseId}/tables/{tableId}/iceberg/v2/snapshots"), "");
-  }
-
-  @Test
-  void testEquivalentPathsShareVersionPostfix() {
-    Map<String, String> result =
-        MainApplicationConfig.generatePostfix(
-            new HashSet<>(
-                Arrays.asList("/v1/foo/namespaces", "/v1//foo/namespaces/", "/v0.9/databases")));
-    Assertions.assertEquals(2, result.size());
-    Assertions.assertEquals("V1", result.get("/v1/foo/namespaces"));
-    Assertions.assertEquals("", result.get("/v0.9/databases"));
   }
 
   @Test

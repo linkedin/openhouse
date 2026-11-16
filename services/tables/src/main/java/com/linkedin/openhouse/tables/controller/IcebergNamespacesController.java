@@ -13,9 +13,6 @@ import com.linkedin.openhouse.tables.api.spec.namespace.UpdateNamespacePropertie
 import com.linkedin.openhouse.tables.api.spec.namespace.UpdateNamespacePropertiesResponse;
 import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.exception.InvalidPropertyUpdateException;
-import com.linkedin.openhouse.tables.exception.InvalidRequestException;
-import com.linkedin.openhouse.tables.exception.NotEmptyException;
-import com.linkedin.openhouse.tables.exception.PermissionDeniedException;
 import com.linkedin.openhouse.tables.services.NamespacesService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -42,7 +39,7 @@ import org.springframework.web.bind.annotation.RestController;
 @ApiResponses({
   @ApiResponse(
       responseCode = "400",
-      description = "Invalid request, or a nonempty DROP (NamespaceNotEmptyException).",
+      description = "Invalid request",
       content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class))),
   @ApiResponse(
       responseCode = "401",
@@ -80,10 +77,12 @@ public class IcebergNamespacesController {
   @Secured(Privileges.Privilege.SYSTEM_ADMIN)
   public NamespaceResponse createNamespace(
       @PathVariable String prefix, @Valid @RequestBody CreateNamespaceRequest request)
-      throws InvalidRequestException, PermissionDeniedException, DuplicateCreationException {
+      throws DuplicateCreationException {
     NamespaceMetadata result =
         namespacesService.createNamespace(
-            request.getNamespace(), request.getProperties(), extractAuthenticatedUserPrincipal());
+            request.getNamespace().get(0),
+            request.getProperties(),
+            extractAuthenticatedUserPrincipal());
     return new NamespaceResponse(
         Collections.singletonList(result.getNamespaceName()), result.getProperties());
   }
@@ -93,8 +92,7 @@ public class IcebergNamespacesController {
   @GetMapping("/{namespace}")
   @Secured(Privileges.Privilege.GET_TABLE_METADATA)
   public NamespaceResponse loadNamespaceMetadata(
-      @PathVariable String prefix, @PathVariable String namespace)
-      throws InvalidRequestException, PermissionDeniedException, NotFoundException {
+      @PathVariable String prefix, @PathVariable String namespace) throws NotFoundException {
     NamespaceMetadata result =
         namespacesService.loadNamespaceMetadata(namespace, extractAuthenticatedUserPrincipal());
     return new NamespaceResponse(
@@ -109,8 +107,7 @@ public class IcebergNamespacesController {
       @PathVariable String prefix,
       @PathVariable String namespace,
       @Valid @RequestBody UpdateNamespacePropertiesRequest request)
-      throws InvalidRequestException, PermissionDeniedException, NotFoundException,
-          InvalidPropertyUpdateException {
+      throws NotFoundException, InvalidPropertyUpdateException {
     NamespacePropertyUpdate result =
         namespacesService.updateNamespaceProperties(
             namespace,
@@ -121,18 +118,12 @@ public class IcebergNamespacesController {
         result.getUpdated(), result.getRemoved(), result.getMissing());
   }
 
-  @Operation(tags = "Namespace", summary = "Drop an empty namespace")
+  @Operation(tags = "Namespace", summary = "Drop namespace metadata")
   @ApiResponse(responseCode = "204", description = "Namespace dropped")
-  @ApiResponse(
-      responseCode = "400",
-      description = "Invalid request or nonempty namespace (NamespaceNotEmptyException)",
-      content = @Content(schema = @Schema(implementation = NamespaceErrorResponse.class)))
   @DeleteMapping("/{namespace}")
   @Secured(Privileges.Privilege.SYSTEM_ADMIN)
   public ResponseEntity<Void> dropNamespace(
-      @PathVariable String prefix, @PathVariable String namespace)
-      throws InvalidRequestException, PermissionDeniedException, NotFoundException,
-          NotEmptyException {
+      @PathVariable String prefix, @PathVariable String namespace) throws NotFoundException {
     namespacesService.dropNamespace(namespace, extractAuthenticatedUserPrincipal());
     return ResponseEntity.noContent().build();
   }

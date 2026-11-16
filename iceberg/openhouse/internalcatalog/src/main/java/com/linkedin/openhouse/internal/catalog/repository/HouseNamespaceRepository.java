@@ -18,6 +18,4 @@ public interface HouseNamespaceRepository {
   NamespacePropertyUpdate updateProperties(
       String namespaceName, Map<String, String> updates, Set<String> removals)
       throws NotFoundException;
-
-  boolean containsEntities(String namespaceName);
 }

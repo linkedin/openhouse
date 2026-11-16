@@ -1,6 +1,5 @@
 package com.linkedin.openhouse.tables.api.spec.namespace;
 
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.Collections;
 import java.util.List;
@@ -21,12 +20,9 @@ public class CreateNamespaceRequest {
   @Schema(required = true, description = "Exactly one namespace name.")
   @NotNull
   @Size(min = 1, max = 1)
-  @JsonDeserialize(contentUsing = NamespaceStringDeserializer.class)
   private List<@NotNull @Pattern(regexp = "[a-zA-Z0-9_]{1,128}") String> namespace;
 
-  @NotNull
-  @Builder.Default
-  @JsonDeserialize(contentUsing = NamespaceStringDeserializer.class)
+  @NotNull @Builder.Default
   private Map<@NotNull @Size(max = 512) @Pattern(regexp = "\\P{Cs}*") String, @NotNull String>
       properties = Collections.emptyMap();
 }

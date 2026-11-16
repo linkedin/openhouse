@@ -6,7 +6,6 @@ import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.common.exception.LockConflictException;
 import com.linkedin.openhouse.common.exception.NoSuchUserTableException;
-import com.linkedin.openhouse.internal.catalog.repository.HouseNamespaceRepository;
 import com.linkedin.openhouse.tables.api.spec.v0.request.CreateUpdateLockRequestBody;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockReason;
 import com.linkedin.openhouse.tables.api.spec.v0.request.components.LockState;
@@ -17,7 +16,6 @@ import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.repository.OpenHouseInternalRepository;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
 import java.util.Optional;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -33,7 +31,6 @@ class TablesLockServiceTest {
   @BeforeEach
   void setUp() {
     service = new TablesServiceImpl();
-    service.namespaceRepository = mock(HouseNamespaceRepository.class);
     service.openHouseInternalRepository = mock(OpenHouseInternalRepository.class);
     service.authorizationUtils = mock(AuthorizationUtils.class);
     table =
@@ -48,11 +45,6 @@ class TablesLockServiceTest {
         .thenAnswer(invocation -> Optional.of(table));
     when(service.openHouseInternalRepository.save(any()))
         .thenAnswer(invocation -> invocation.getArgument(0));
-  }
-
-  @AfterEach
-  void lockOperationsUseTableRepository() {
-    verifyNoInteractions(service.namespaceRepository);
   }
 
   @ParameterizedTest

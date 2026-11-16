@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
-import com.linkedin.openhouse.housetables.client.api.UserTableApi;
 import com.linkedin.openhouse.housetables.client.model.NamespaceMetadataResponse;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
@@ -25,24 +24,21 @@ class HouseNamespaceDeadlineTest {
   @Test
   void readDeadlineCancelsRequest() throws Exception {
     NamespaceApi namespaceApi = mock(NamespaceApi.class);
-    HouseNamespaceRepository repository =
-        new HouseNamespaceRepositoryImpl(namespaceApi, mock(UserTableApi.class));
+    HouseNamespaceRepository repository = new HouseNamespaceRepositoryImpl(namespaceApi);
     assertDeadline(namespaceApi, () -> repository.getByName("foo"), 30);
   }
 
   @Test
   void mutationDeadlineCancelsRequest() throws Exception {
     NamespaceApi namespaceApi = mock(NamespaceApi.class);
-    HouseNamespaceRepository repository =
-        new HouseNamespaceRepositoryImpl(namespaceApi, mock(UserTableApi.class));
+    HouseNamespaceRepository repository = new HouseNamespaceRepositoryImpl(namespaceApi);
     assertDeadline(namespaceApi, () -> repository.delete("foo"), 60);
   }
 
   @Test
   void interruptedReadCancelsRequestAndRestoresInterrupt() throws Exception {
     NamespaceApi namespaceApi = mock(NamespaceApi.class);
-    HouseNamespaceRepository repository =
-        new HouseNamespaceRepositoryImpl(namespaceApi, mock(UserTableApi.class));
+    HouseNamespaceRepository repository = new HouseNamespaceRepositoryImpl(namespaceApi);
     CountDownLatch subscribed = new CountDownLatch(1);
     AtomicInteger cancellations = new AtomicInteger();
     AtomicReference<Thread> worker = new AtomicReference<>();
@@ -88,7 +84,7 @@ class HouseNamespaceDeadlineTest {
                   subscribed.countDown();
                 })
             .doOnCancel(cancellations::incrementAndGet);
-    when(namespaceApi.deleteNamespaceWithHttpInfo("foo")).thenReturn(pending.then(Mono.empty()));
+    when(namespaceApi.deleteNamespace("foo")).thenReturn(pending.then(Mono.empty()));
     when(namespaceApi.getNamespace("foo")).thenReturn(pending.then(Mono.empty()));
     try {
       Future<RuntimeException> failure =

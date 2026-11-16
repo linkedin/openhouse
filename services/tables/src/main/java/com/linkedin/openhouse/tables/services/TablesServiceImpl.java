@@ -29,9 +29,6 @@ import com.linkedin.openhouse.tables.authorization.Privileges;
 import com.linkedin.openhouse.tables.common.TableType;
 import com.linkedin.openhouse.tables.dto.mapper.TablesMapper;
 import com.linkedin.openhouse.tables.exception.InvalidPropertyUpdateException;
-import com.linkedin.openhouse.tables.exception.InvalidRequestException;
-import com.linkedin.openhouse.tables.exception.NotEmptyException;
-import com.linkedin.openhouse.tables.exception.PermissionDeniedException;
 import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.TableDtoPrimaryKey;
 import com.linkedin.openhouse.tables.readbridge.ClientCapabilityGate;
@@ -54,8 +51,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.util.Pair;
-import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.access.AuthorizationServiceException;
 import org.springframework.stereotype.Component;
 
 /** Shared implementation for table and namespace operations. */
@@ -80,19 +75,15 @@ public class TablesServiceImpl implements TablesService, NamespacesService {
 
   @Override
   public NamespaceMetadata createNamespace(
-      List<String> namespace, Map<String, String> properties, String principal)
-      throws InvalidRequestException, PermissionDeniedException, DuplicateCreationException {
-    if (namespace.size() != 1) {
-      throw new InvalidRequestException(
-          String.format("Namespace '%s' must contain exactly one level", namespace));
-    }
-    authorizeNamespace(namespace.get(0), principal, Privileges.SYSTEM_ADMIN);
-    return namespaceRepository.create(namespace.get(0), properties);
+      String namespace, Map<String, String> properties, String principal)
+      throws DuplicateCreationException {
+    authorizeNamespace(namespace, principal, Privileges.SYSTEM_ADMIN);
+    return namespaceRepository.create(namespace, properties);
   }
 
   @Override
   public NamespaceMetadata loadNamespaceMetadata(String namespace, String principal)
-      throws InvalidRequestException, PermissionDeniedException, NotFoundException {
+      throws NotFoundException {
     authorizeNamespace(namespace, principal, Privileges.GET_TABLE_METADATA);
     return namespaceRepository.getByName(namespace);
   }
@@ -100,8 +91,7 @@ public class TablesServiceImpl implements TablesService, NamespacesService {
   @Override
   public NamespacePropertyUpdate updateNamespaceProperties(
       String namespace, Map<String, String> updates, Set<String> removals, String principal)
-      throws InvalidRequestException, PermissionDeniedException, NotFoundException,
-          InvalidPropertyUpdateException {
+      throws NotFoundException, InvalidPropertyUpdateException {
     authorizeNamespace(namespace, principal, Privileges.SYSTEM_ADMIN);
     if (!Collections.disjoint(updates.keySet(), removals)) {
       throw new InvalidPropertyUpdateException("Updates and removals must use disjoint keys");
@@ -110,32 +100,14 @@ public class TablesServiceImpl implements TablesService, NamespacesService {
   }
 
   @Override
-  public void dropNamespace(String namespace, String principal)
-      throws InvalidRequestException, PermissionDeniedException, NotFoundException,
-          NotEmptyException {
+  public void dropNamespace(String namespace, String principal) throws NotFoundException {
     authorizeNamespace(namespace, principal, Privileges.SYSTEM_ADMIN);
-    namespaceRepository.getByName(namespace);
-    if (namespaceRepository.containsEntities(namespace)) {
-      throw new NotEmptyException("Namespace contains tables or views");
-    }
     namespaceRepository.delete(namespace);
   }
 
-  private void authorizeNamespace(String namespace, String principal, Privileges privilege)
-      throws InvalidRequestException, PermissionDeniedException {
-    if (!namespace.matches("[a-zA-Z0-9_]{1,128}")) {
-      throw new InvalidRequestException(
-          String.format(
-              "Namespace '%s' must contain 1 to 128 letters, digits, or underscores", namespace));
-    }
-    try {
-      authorizationUtils.checkDatabasePrivilege(
-          namespace.toLowerCase(Locale.ROOT), principal, privilege);
-    } catch (AuthorizationServiceException exception) {
-      throw exception;
-    } catch (AccessDeniedException exception) {
-      throw new PermissionDeniedException("Access denied", exception);
-    }
+  private void authorizeNamespace(String namespace, String principal, Privileges privilege) {
+    authorizationUtils.checkDatabasePrivilege(
+        namespace.toLowerCase(Locale.ROOT), principal, privilege);
   }
 
   /**
