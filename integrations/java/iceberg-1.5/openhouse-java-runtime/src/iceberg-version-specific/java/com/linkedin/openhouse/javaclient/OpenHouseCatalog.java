@@ -13,13 +13,6 @@ import com.linkedin.openhouse.javaclient.api.SupportsUnlock;
 import com.linkedin.openhouse.javaclient.api.UnlockTableTarget;
 import com.linkedin.openhouse.javaclient.builder.ClusteringSpecBuilder;
 import com.linkedin.openhouse.javaclient.builder.TimePartitionSpecBuilder;
-import com.linkedin.openhouse.javaclient.exception.AuthenticationRequiredException;
-import com.linkedin.openhouse.javaclient.exception.CatalogOperationException;
-import com.linkedin.openhouse.javaclient.exception.DuplicateCreationException;
-import com.linkedin.openhouse.javaclient.exception.InvalidRequestException;
-import com.linkedin.openhouse.javaclient.exception.NotEmptyException;
-import com.linkedin.openhouse.javaclient.exception.NotFoundException;
-import com.linkedin.openhouse.javaclient.exception.PermissionDeniedException;
 import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageException;
 import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.javaclient.mapper.Privileges;
@@ -82,9 +75,13 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
+import org.apache.iceberg.exceptions.ForbiddenException;
+import org.apache.iceberg.exceptions.NamespaceNotEmptyException;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.exceptions.NoSuchViewException;
+import org.apache.iceberg.exceptions.NotAuthorizedException;
+import org.apache.iceberg.exceptions.RESTException;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.io.FileIO;
@@ -467,22 +464,19 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
 
   @Override
   public void createNamespace(Namespace namespace, Map<String, String> properties) {
-    NamespaceCatalogAdapter.execute(
-        () -> {
-          validateNamespace(namespace);
-          validateNamespaceProperties(properties);
-          return namespaceProperties(
-              executeNamespaceRequest(
-                  namespaceApi.createNamespaceV1WithHttpInfo(
-                      name,
-                      new CreateNamespaceRequest()
-                          .namespace(Arrays.asList(namespace.levels()))
-                          .properties(properties)),
-                  200,
-                  60,
-                  NamespaceOperation.CREATE),
-              namespace);
-        });
+    validateNamespace(namespace);
+    validateNamespaceProperties(properties);
+    namespaceProperties(
+        executeNamespaceRequest(
+            namespaceApi.createNamespaceV1WithHttpInfo(
+                name,
+                new CreateNamespaceRequest()
+                    .namespace(Arrays.asList(namespace.levels()))
+                    .properties(properties)),
+            200,
+            60,
+            NamespaceOperation.CREATE),
+        namespace);
   }
 
   /**
@@ -525,7 +519,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
    */
   @Override
   public Map<String, String> loadNamespaceMetadata(Namespace namespace) {
-    return NamespaceCatalogAdapter.execute(() -> loadNamespaceProperties(namespace));
+    return loadNamespaceProperties(namespace);
   }
 
   /**
@@ -535,36 +529,30 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
    */
   @Override
   public boolean dropNamespace(Namespace namespace) {
-    return NamespaceCatalogAdapter.execute(
-        () -> {
-          validateNamespace(namespace);
-          try {
-            executeNamespaceRequest(
-                namespaceApi.dropNamespaceV1WithHttpInfo(name, namespace.level(0)),
-                204,
-                60,
-                NamespaceOperation.DROP);
-            return true;
-          } catch (NotFoundException failure) {
-            return false;
-          }
-        });
+    validateNamespace(namespace);
+    try {
+      executeNamespaceRequest(
+          namespaceApi.dropNamespaceV1WithHttpInfo(name, namespace.level(0)),
+          204,
+          60,
+          NamespaceOperation.DROP);
+      return true;
+    } catch (NoSuchNamespaceException failure) {
+      return false;
+    }
   }
 
   @Override
   public boolean setProperties(Namespace namespace, Map<String, String> properties) {
-    return NamespaceCatalogAdapter.execute(
-        () -> updateNamespaceProperties(namespace, properties, Collections.emptySet()));
+    return updateNamespaceProperties(namespace, properties, Collections.emptySet());
   }
 
   @Override
   public boolean removeProperties(Namespace namespace, Set<String> properties) {
-    return NamespaceCatalogAdapter.execute(
-        () -> updateNamespaceProperties(namespace, Collections.emptyMap(), properties));
+    return updateNamespaceProperties(namespace, Collections.emptyMap(), properties);
   }
 
-  private Map<String, String> loadNamespaceProperties(Namespace namespace)
-      throws CatalogOperationException {
+  private Map<String, String> loadNamespaceProperties(Namespace namespace) {
     validateNamespace(namespace);
     return namespaceProperties(
         executeNamespaceRequest(
@@ -576,12 +564,11 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
   }
 
   private boolean updateNamespaceProperties(
-      Namespace namespace, Map<String, String> updates, Set<String> removals)
-      throws CatalogOperationException {
+      Namespace namespace, Map<String, String> updates, Set<String> removals) {
     validateNamespace(namespace);
     validateNamespaceProperties(updates);
     if (removals.stream().anyMatch(Objects::isNull)) {
-      throw new InvalidRequestException("Namespace removal keys must be strings");
+      throw new ValidationException("Namespace removal keys must be strings");
     }
     ResponseEntity<UpdateNamespacePropertiesResponse> response =
         executeNamespaceRequest(
@@ -594,7 +581,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
             NamespaceOperation.UPDATE);
     UpdateNamespacePropertiesResponse requiredResponse =
         Optional.ofNullable(response.getBody())
-            .orElseThrow(() -> new CatalogOperationException("Empty namespace update response"));
+            .orElseThrow(() -> new RESTException("Empty namespace update response"));
     List<String> updated = requiredResponse.getUpdated();
     List<String> removed = requiredResponse.getRemoved();
     List<String> missing =
@@ -605,71 +592,66 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
         || updated.size() != updates.size()
         || !removals.containsAll(accountedRemovals)
         || removed.size() + missing.size() != accountedRemovals.size()) {
-      throw new CatalogOperationException("Namespace update response disagrees with request");
+      throw new RESTException("Namespace update response disagrees with request");
     }
     return !updated.isEmpty() || !removed.isEmpty();
   }
 
-  private static void validateNamespace(Namespace namespace) throws CatalogOperationException {
+  private static void validateNamespace(Namespace namespace) {
     if (namespace.length() != 1 || !namespace.level(0).matches("[a-zA-Z0-9_]{1,128}")) {
-      throw new InvalidRequestException(
+      throw new ValidationException(
           String.format(
               "Namespace '%s' must contain one name of 1 to 128 letters, digits, or underscores",
               namespace));
     }
   }
 
-  private static void validateNamespaceProperties(Map<String, String> properties)
-      throws CatalogOperationException {
+  private static void validateNamespaceProperties(Map<String, String> properties) {
     if (properties.entrySet().stream()
         .anyMatch(
             entry ->
                 !Optional.ofNullable(entry.getKey()).isPresent()
                     || !Optional.ofNullable(entry.getValue()).isPresent())) {
-      throw new InvalidRequestException("Namespace properties must have string keys and values");
+      throw new ValidationException("Namespace properties must have string keys and values");
     }
   }
 
   private static Map<String, String> namespaceProperties(
-      ResponseEntity<NamespaceResponse> response, Namespace namespace)
-      throws CatalogOperationException {
+      ResponseEntity<NamespaceResponse> response, Namespace namespace) {
     NamespaceResponse requiredResponse =
         Optional.ofNullable(response.getBody())
-            .orElseThrow(() -> new CatalogOperationException("Empty namespace response"));
+            .orElseThrow(() -> new RESTException("Empty namespace response"));
     if (requiredResponse.getNamespace().size() != 1
         || !namespace.level(0).equalsIgnoreCase(requiredResponse.getNamespace().get(0))) {
-      throw new CatalogOperationException("Namespace response identifies a different namespace");
+      throw new RESTException("Namespace response identifies a different namespace");
     }
     Map<String, String> responseProperties =
         Optional.ofNullable(requiredResponse.getProperties()).orElseGet(Collections::emptyMap);
     return Collections.unmodifiableMap(new HashMap<>(responseProperties));
   }
 
-  /**
-   * Bounds each generated request and converts asynchronous client failures to checked failures.
-   */
+  /** Bounds each generated namespace request and translates expected service failures. */
   static <T> ResponseEntity<T> executeNamespaceRequest(
       Mono<ResponseEntity<T>> request,
       int expectedStatus,
       int timeoutSeconds,
-      NamespaceOperation operation)
-      throws CatalogOperationException {
+      NamespaceOperation operation) {
     CompletableFuture<ResponseEntity<T>> pending = request.toFuture();
     try {
       ResponseEntity<T> response =
           Optional.ofNullable(pending.get(timeoutSeconds, TimeUnit.SECONDS))
-              .orElseThrow(() -> new CatalogOperationException("Empty namespace response"));
+              .orElseThrow(() -> new RESTException("Empty namespace response"));
       if (response.getStatusCodeValue() != expectedStatus) {
-        throw new CatalogOperationException("Unexpected namespace response status");
+        throw new RESTException("Unexpected namespace response status");
       }
       return response;
     } catch (InterruptedException failure) {
       pending.cancel(true);
       Thread.currentThread().interrupt();
-      throw new CatalogOperationException("Namespace operation failed", failure);
+      throw new RESTException(failure, "Namespace operation failed");
     } catch (TimeoutException | CancellationException failure) {
       pending.cancel(true);
-      throw new CatalogOperationException("Namespace operation failed", failure);
+      throw new RESTException(failure, "Namespace operation failed");
     } catch (ExecutionException failure) {
       Throwable cause = failure.getCause();
       int statusCode =
@@ -701,31 +683,31 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
       if (operation == NamespaceOperation.DROP
           && (statusCode == 400 || statusCode == 409)
           && errorType.filter("NamespaceNotEmptyException"::equals).isPresent()) {
-        throw new NotEmptyException(cause);
+        throw new NamespaceNotEmptyException(cause, "Namespace contains tables or views");
       }
       if ((statusCode == 400 && errorType.filter("BadRequestException"::equals).isPresent())
           || (statusCode == 422
               && operation == NamespaceOperation.UPDATE
               && errorType.filter("UnprocessableEntityException"::equals).isPresent())) {
-        throw new InvalidRequestException(cause);
+        throw new ValidationException(cause, "Invalid namespace request");
       }
       if (statusCode == 401 && errorType.filter("NotAuthorizedException"::equals).isPresent()) {
-        throw new AuthenticationRequiredException(cause);
+        throw new NotAuthorizedException(cause, "Namespace authentication required");
       }
       if (statusCode == 403 && errorType.filter("ForbiddenException"::equals).isPresent()) {
-        throw new PermissionDeniedException(cause);
+        throw new ForbiddenException(cause, "Namespace access denied");
       }
       if (statusCode == 404
           && operation != NamespaceOperation.CREATE
           && errorType.filter("NoSuchNamespaceException"::equals).isPresent()) {
-        throw new NotFoundException(cause);
+        throw new NoSuchNamespaceException(cause, "Namespace metadata does not exist");
       }
       if (statusCode == 409
           && operation == NamespaceOperation.CREATE
           && errorType.filter("AlreadyExistsException"::equals).isPresent()) {
-        throw new DuplicateCreationException(cause);
+        throw new AlreadyExistsException(cause, "Namespace already exists");
       }
-      throw new CatalogOperationException("Namespace operation failed", cause);
+      throw new RESTException(cause, "Namespace operation failed");
     }
   }
 

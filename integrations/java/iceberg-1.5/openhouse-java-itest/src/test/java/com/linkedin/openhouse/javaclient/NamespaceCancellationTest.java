@@ -2,7 +2,6 @@ package com.linkedin.openhouse.javaclient;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.linkedin.openhouse.javaclient.exception.CatalogOperationException;
 import com.linkedin.openhouse.relocated.org.springframework.http.ResponseEntity;
 import com.linkedin.openhouse.relocated.reactor.core.publisher.Mono;
 import java.util.concurrent.CancellationException;
@@ -17,11 +16,11 @@ import org.junit.jupiter.api.Test;
 
 class NamespaceCancellationTest {
   @Test
-  void cancelledMutationPreservesCheckedFailureAndCause() {
+  void cancelledMutationPreservesCause() {
     CancellationException cause = new CancellationException("foo");
-    CatalogOperationException failure =
+    RESTException failure =
         assertThrows(
-            CatalogOperationException.class,
+            RESTException.class,
             () ->
                 OpenHouseCatalog.executeNamespaceRequest(
                     Mono.error(cause), 200, 30, OpenHouseCatalog.NamespaceOperation.UPDATE));
@@ -36,9 +35,9 @@ class NamespaceCancellationTest {
         Mono.<ResponseEntity<Void>>never()
             .doOnSubscribe(subscription -> subscriptions.incrementAndGet())
             .doOnCancel(() -> cancelled.set(true));
-    CatalogOperationException failure =
+    RESTException failure =
         assertThrows(
-            CatalogOperationException.class,
+            RESTException.class,
             () ->
                 OpenHouseCatalog.executeNamespaceRequest(
                     pending, 200, 0, OpenHouseCatalog.NamespaceOperation.LOAD));
@@ -56,12 +55,9 @@ class NamespaceCancellationTest {
         assertThrows(
             RESTException.class,
             () ->
-                NamespaceCatalogAdapter.execute(
-                    () ->
-                        OpenHouseCatalog.executeNamespaceRequest(
-                            pending, 200, 0, OpenHouseCatalog.NamespaceOperation.UPDATE)));
-    assertInstanceOf(CatalogOperationException.class, failure.getCause());
-    assertInstanceOf(TimeoutException.class, failure.getCause().getCause());
+                OpenHouseCatalog.executeNamespaceRequest(
+                    pending, 200, 0, OpenHouseCatalog.NamespaceOperation.UPDATE));
+    assertInstanceOf(TimeoutException.class, failure.getCause());
     assertTrue(cancelled.get());
   }
 
@@ -71,7 +67,7 @@ class NamespaceCancellationTest {
     AtomicInteger subscriptions = new AtomicInteger();
     AtomicBoolean cancelled = new AtomicBoolean();
     AtomicBoolean interrupted = new AtomicBoolean();
-    AtomicReference<CatalogOperationException> failure = new AtomicReference<>();
+    AtomicReference<RESTException> failure = new AtomicReference<>();
     Mono<ResponseEntity<Void>> pending =
         Mono.<ResponseEntity<Void>>never()
             .doOnSubscribe(
@@ -86,7 +82,7 @@ class NamespaceCancellationTest {
               try {
                 OpenHouseCatalog.executeNamespaceRequest(
                     pending, 200, 30, OpenHouseCatalog.NamespaceOperation.UPDATE);
-              } catch (CatalogOperationException exception) {
+              } catch (RESTException exception) {
                 failure.set(exception);
                 interrupted.set(Thread.currentThread().isInterrupted());
               }
