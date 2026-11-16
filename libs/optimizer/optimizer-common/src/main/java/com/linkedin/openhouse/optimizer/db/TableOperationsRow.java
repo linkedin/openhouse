@@ -24,6 +24,8 @@ import lombok.NoArgsConstructor;
  * drop+recreate). The application enforces one active (PENDING / SCHEDULING / SCHEDULED) row per
  * {@code (table_uuid, operation_type)} at a time.
  *
+ * <p>Per-operation metric columns will be added here as operations are onboarded.
+ *
  * <p>Self-contained DB-layer type: enums are {@link OperationType} / {@link OperationStatus} from
  * the same package, JPA-bound as strings.
  */

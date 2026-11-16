@@ -14,8 +14,6 @@ import com.linkedin.openhouse.common.metrics.MetricsConstant;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.Collections;
-import java.util.List;
 import javax.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -44,13 +42,6 @@ public class ServiceAuditAspect {
   @Autowired private ClusterProperties clusterProperties;
 
   @Autowired private AuditHandler<ServiceAuditEvent> serviceAuditHandler;
-
-  /**
-   * Redactors contributed by the running service, if any. Left empty when the service registers
-   * none, in which case the payload is audited exactly as it was sent.
-   */
-  @Autowired(required = false)
-  private List<ServiceAuditPayloadRedactor> payloadRedactors = Collections.emptyList();
 
   private static final MetricsReporter METRICS_REPORTER =
       MetricsReporter.of(MetricsConstant.SERVICE_AUDIT);
@@ -157,11 +148,10 @@ public class ServiceAuditAspect {
       if (wrapper != null) {
         String requestPayloadStr =
             new String(wrapper.getContentAsByteArray(), StandardCharsets.UTF_8);
-        requestPayload = redactSensitiveValues(request, JsonParser.parseString(requestPayloadStr));
+        requestPayload = JsonParser.parseString(requestPayloadStr);
       }
     } catch (Exception e) {
-      // Fail closed. A payload that could not be parsed or could not be redacted is dropped rather
-      // than audited raw, so a broken redactor cannot leak the values it was meant to remove.
+      // A payload that could not be parsed is dropped from the audit event.
       log.error("Exception during parsing request payload:\n", e);
       METRICS_REPORTER.count(MetricsConstant.FAILED_PARSING_REQUEST_PAYLOAD);
     }
@@ -200,25 +190,6 @@ public class ServiceAuditAspect {
         .stacktrace(stacktrace)
         .cause(cause)
         .build();
-  }
-
-  /**
-   * Apply every registered redactor that claims this request. With no redactor registered — the
-   * case for every service that has not contributed one — the parsed payload is returned unchanged,
-   * so existing audit payloads are byte-identical.
-   */
-  private JsonElement redactSensitiveValues(
-      HttpServletRequest request, JsonElement requestPayload) {
-    if (requestPayload == null || payloadRedactors == null) {
-      return requestPayload;
-    }
-    JsonElement redacted = requestPayload;
-    for (ServiceAuditPayloadRedactor redactor : payloadRedactors) {
-      if (redactor.appliesTo(request)) {
-        redacted = redactor.redact(redacted);
-      }
-    }
-    return redacted;
   }
 
   private ServiceName getServiceNameFromRequestURI(String uri) {

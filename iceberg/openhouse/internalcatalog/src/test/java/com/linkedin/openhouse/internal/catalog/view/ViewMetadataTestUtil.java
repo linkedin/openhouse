@@ -47,7 +47,6 @@ public final class ViewMetadataTestUtil {
             .defaultCatalog("openhouse")
             .defaultNamespace(Namespace.of(ViewTestFixtures.DB))
             .putSummary("operation", "create")
-            .putSummary(ViewTestFixtures.SOURCE_DIALECT_SUMMARY_KEY, ViewTestFixtures.SPARK_DIALECT)
             .addAllRepresentations(representations)
             .build();
 

@@ -32,7 +32,7 @@ public class LoadedView {
   /** SQL definitions for each dialect supported by the current version. */
   private final List<SqlViewRepresentationIntent> representations;
 
-  /** Original source dialect recorded in the current version summary. */
+  /** Original source dialect recorded in view properties. */
   private final String sourceDialect;
 
   /** Default catalog for resolving unqualified references in the SQL definitions. */

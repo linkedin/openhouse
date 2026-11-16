@@ -29,6 +29,9 @@ dependencies {
   runtimeOnly 'mysql:mysql-connector-java:8.0.33'
   testImplementation 'org.springframework.boot:spring-boot-starter-test:2.7.8'
   testImplementation testFixtures(project(':libs:optimizer:optimizer-common'))
+  // Flyway creates the integration test's tables from the migrations, as it does for the service.
+  testRuntimeOnly 'org.flywaydb:flyway-core:8.5.13'
+  testRuntimeOnly 'org.flywaydb:flyway-mysql:8.5.13'
 }
 
 test {

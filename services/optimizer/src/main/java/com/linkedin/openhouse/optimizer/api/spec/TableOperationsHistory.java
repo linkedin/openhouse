@@ -35,6 +35,9 @@ public class TableOperationsHistory {
   /** {@code SUCCESS} or {@code FAILED}. */
   private HistoryStatus status;
 
+  /** Why the operation failed, as reported by the executor; {@code null} for SUCCESS. */
+  private String failureReason;
+
   /** Convert to the internal-model counterpart. */
   public TableOperationsHistoryDto toModel() {
     return TableOperationsHistoryDto.builder()
@@ -45,6 +48,7 @@ public class TableOperationsHistory {
         .operationType(operationType == null ? null : operationType.toModel())
         .completedAt(completedAt)
         .status(status == null ? null : status.toModel())
+        .failureReason(failureReason)
         .build();
   }
 
@@ -61,6 +65,7 @@ public class TableOperationsHistory {
         .operationType(OperationType.fromModel(h.getOperationType()))
         .completedAt(h.getCompletedAt())
         .status(HistoryStatus.fromModel(h.getStatus()))
+        .failureReason(h.getFailureReason())
         .build();
   }
 }

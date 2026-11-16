@@ -28,6 +28,7 @@ import com.linkedin.openhouse.tables.exception.ViewApiException;
 import com.linkedin.openhouse.tables.exception.ViewErrorCode;
 import com.linkedin.openhouse.tables.exception.ViewFailureTranslator;
 import com.linkedin.openhouse.tables.model.ReservedViewProperties;
+import com.linkedin.openhouse.tables.model.TableDto;
 import com.linkedin.openhouse.tables.model.ViewDto;
 import com.linkedin.openhouse.tables.model.ViewListResult;
 import com.linkedin.openhouse.tables.utils.AuthorizationUtils;
@@ -62,10 +63,10 @@ import org.springframework.stereotype.Component;
  * LIST: gate -> HTS read (no authorization)
  *
  * POST / PUT: gate -> route database existence -> prepared capture -> authorization
- *             -> resource type / base-version -> allocate (create only)
+ *             (replace: the captured view; otherwise the database) -> resource type / base-version -> allocate (create only)
  *             -> commit
  *
- * DELETE:     gate -> authorization -> prepared capture
+ * DELETE:     gate -> prepared capture -> authorization
  *             -> delete
  * </pre>
  *
@@ -168,7 +169,12 @@ public class ViewsServiceImpl implements ViewsService {
       boolean viewAlreadyExists = prepared.getViewBaseRow().isPresent();
       Privileges privilege =
           failOnExist ? privilegeMapper.forCreate() : privilegeMapper.forPut(viewAlreadyExists);
-      authorizationUtils.checkDatabasePrivilege(databaseId, actingPrincipal, privilege);
+      if (!failOnExist && viewAlreadyExists) {
+        authorizationUtils.checkTablePrivilege(
+            authorizationReference(prepared.getViewBaseRow().get()), actingPrincipal, privilege);
+      } else {
+        authorizationUtils.checkDatabasePrivilege(databaseId, actingPrincipal, privilege);
+      }
 
       if (failOnExist && viewAlreadyExists) {
         throw new ViewApiException(
@@ -199,9 +205,6 @@ public class ViewsServiceImpl implements ViewsService {
     try {
       requireEnabled(databaseId);
 
-      Privileges privilege = privilegeMapper.forDelete();
-      authorizationUtils.checkDatabasePrivilege(databaseId, actingPrincipal, privilege);
-
       PreparedViewOperation prepared =
           houseTableRepository
               .findViewById(primaryKey(databaseId, viewId))
@@ -210,10 +213,27 @@ public class ViewsServiceImpl implements ViewsService {
       if (!prepared.getViewBaseRow().isPresent()) {
         throw noSuchView(databaseId, viewId);
       }
+      authorizationUtils.checkTablePrivilege(
+          authorizationReference(prepared.getViewBaseRow().get()),
+          actingPrincipal,
+          privilegeMapper.forDelete());
       deleteCapturedView(databaseId, viewId);
     } catch (RuntimeException e) {
       throw ViewFailureTranslator.translateWriteFailureTo(e);
     }
+  }
+
+  /**
+   * The object resource of a captured view for authorization: its persisted identifiers and exact
+   * metadata pointer, with no metadata read.
+   */
+  private static TableDto authorizationReference(HouseTable viewRow) {
+    return TableDto.builder()
+        .databaseId(viewRow.getDatabaseId())
+        .tableId(viewRow.getTableId())
+        .tableUUID(viewRow.getTableUUID())
+        .tableLocation(viewRow.getTableLocation())
+        .build();
   }
 
   private void deleteCapturedView(String databaseId, String viewId) {
@@ -235,18 +255,13 @@ public class ViewsServiceImpl implements ViewsService {
       String actingPrincipal,
       boolean isCreate) {
     Map<String, String> requestProperties = requestBody.getViewProperties();
-    String sourceDialect =
-        requestProperties == null
-            ? null
-            : requestProperties.get(ReservedViewProperties.SOURCE_DIALECT);
-    // The engine rejects every openhouse.* key in user properties, so the transport-only source
-    // dialect key is stripped from a copy; the request's own map is never mutated.
-    Map<String, String> userProperties = new LinkedHashMap<>();
+    String sourceDialect = ReservedViewProperties.sourceDialect(requestProperties);
+    Map<String, String> properties = new LinkedHashMap<>();
     if (requestProperties != null) {
       requestProperties.forEach(
           (key, value) -> {
-            if (!ReservedViewProperties.SOURCE_DIALECT.equals(key)) {
-              userProperties.put(key, value);
+            if (!isCreate || !ReservedViewProperties.SOURCE_DIALECT.equalsIgnoreCase(key)) {
+              properties.put(key, value);
             }
           });
     }
@@ -266,7 +281,7 @@ public class ViewsServiceImpl implements ViewsService {
               requestBody.getViewId(),
               viewUuid,
               actingPrincipal,
-              userProperties);
+              properties);
     }
     Schema schema = IcebergSchemaHelper.getSchemaFromSchemaJson(requestBody.getSchema());
     return viewCommitEngine.commit(
@@ -278,7 +293,7 @@ public class ViewsServiceImpl implements ViewsService {
             .sourceDialect(sourceDialect)
             .defaultCatalog(requestBody.getDefaultCatalog())
             .defaultNamespace(toNamespace(requestBody.getDefaultNamespace()))
-            .viewProperties(userProperties)
+            .viewProperties(properties)
             .creator(actingPrincipal)
             .isCreate(isCreate)
             .baseRow(prepared.getViewBaseRow().orElse(null))
