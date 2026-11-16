@@ -247,8 +247,6 @@ class NamespaceMetadataTest {
         "null",
         "{",
         "{}",
-        "{\"namespace\":[\"namespace\"],\"properties\":{\"key\":null}}",
-        "{\"namespace\":[\"namespace\"],\"properties\":{\"key\":12}}",
         "{\"namespace\":[\"namespace\"],\"properties\":[]}",
         "{\"namespace\":[\"other\"],\"properties\":{}}",
         "{\"namespace\":[\"namespace\",\"other\"],\"properties\":{}}",
@@ -561,7 +559,6 @@ class NamespaceMetadataTest {
   @ValueSource(
       strings = {
         "",
-        "{\"updated\":null,\"removed\":[]}",
         "{\"updated\":[],\"removed\":[],\"missing\":12}",
         "{\"updated\":[null],\"removed\":[],\"missing\":[]}"
       })

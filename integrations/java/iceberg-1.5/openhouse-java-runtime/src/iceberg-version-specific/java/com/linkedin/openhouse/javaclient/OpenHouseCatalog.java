@@ -4,6 +4,8 @@ import static com.linkedin.openhouse.client.ssl.WebClientFactory.ACTION_TYPE_SYS
 import static com.linkedin.openhouse.client.ssl.WebClientFactory.HTTP_HEADER_ACTION_TYPE;
 import static com.linkedin.openhouse.javaclient.OpenHouseTableOperations.*;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.client.ssl.HttpConnectionStrategy;
 import com.linkedin.openhouse.client.ssl.TablesApiClientFactory;
 import com.linkedin.openhouse.javaclient.api.SupportsGrantRevoke;
@@ -11,16 +13,24 @@ import com.linkedin.openhouse.javaclient.api.SupportsUnlock;
 import com.linkedin.openhouse.javaclient.api.UnlockTableTarget;
 import com.linkedin.openhouse.javaclient.builder.ClusteringSpecBuilder;
 import com.linkedin.openhouse.javaclient.builder.TimePartitionSpecBuilder;
+import com.linkedin.openhouse.javaclient.exception.AuthenticationRequiredException;
 import com.linkedin.openhouse.javaclient.exception.CatalogOperationException;
+import com.linkedin.openhouse.javaclient.exception.DuplicateCreationException;
+import com.linkedin.openhouse.javaclient.exception.InvalidRequestException;
+import com.linkedin.openhouse.javaclient.exception.NotEmptyException;
+import com.linkedin.openhouse.javaclient.exception.NotFoundException;
+import com.linkedin.openhouse.javaclient.exception.PermissionDeniedException;
 import com.linkedin.openhouse.javaclient.exception.WebClientRequestWithMessageException;
 import com.linkedin.openhouse.javaclient.exception.WebClientResponseWithMessageException;
 import com.linkedin.openhouse.javaclient.mapper.Privileges;
 import com.linkedin.openhouse.javaclient.mapper.SparkMapper;
 import com.linkedin.openhouse.tables.client.api.DatabaseApi;
+import com.linkedin.openhouse.tables.client.api.NamespaceApi;
 import com.linkedin.openhouse.tables.client.api.SnapshotApi;
 import com.linkedin.openhouse.tables.client.api.TableApi;
 import com.linkedin.openhouse.tables.client.api.ViewApi;
 import com.linkedin.openhouse.tables.client.invoker.ApiClient;
+import com.linkedin.openhouse.tables.client.model.CreateNamespaceRequest;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateLockRequestBody.ReasonEnum;
 import com.linkedin.openhouse.tables.client.model.CreateUpdateTableRequestBody;
 import com.linkedin.openhouse.tables.client.model.GetAclPoliciesResponseBody;
@@ -28,15 +38,29 @@ import com.linkedin.openhouse.tables.client.model.GetAllDatabasesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllTablesResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetAllViewsResponseBody;
 import com.linkedin.openhouse.tables.client.model.GetTableResponseBody;
+import com.linkedin.openhouse.tables.client.model.NamespaceResponse;
 import com.linkedin.openhouse.tables.client.model.UpdateAclPoliciesRequestBody;
+import com.linkedin.openhouse.tables.client.model.UpdateNamespacePropertiesRequest;
+import com.linkedin.openhouse.tables.client.model.UpdateNamespacePropertiesResponse;
 import java.net.MalformedURLException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import javax.net.ssl.SSLException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.conf.Configurable;
@@ -72,6 +96,7 @@ import org.apache.iceberg.view.View;
 import org.apache.iceberg.view.ViewBuilder;
 import org.apache.iceberg.view.ViewOperations;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
@@ -118,7 +143,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
 
   private DatabaseApi databaseApi;
 
-  private NamespaceMetadataClient namespaceMetadataClient;
+  private NamespaceApi namespaceApi;
 
   private FileIO fileIO;
 
@@ -151,6 +176,13 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
 
   /** Catalog property that gates view support. Off by default. */
   private static final String VIEWS_ENABLED_PROPERTY = "iceberg-views-enabled";
+
+  enum NamespaceOperation {
+    CREATE,
+    LOAD,
+    DROP,
+    UPDATE
+  }
 
   /** Whether view operations are enabled for this catalog instance (set in {@link #initialize}). */
   private boolean viewsEnabled = false;
@@ -194,7 +226,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     this.viewApi = new ViewApi(apiClient);
     this.snapshotApi = new SnapshotApi(apiClient);
     this.databaseApi = new DatabaseApi(apiClient);
-    this.namespaceMetadataClient = new NamespaceMetadataClient(apiClient, name);
+    this.namespaceApi = new NamespaceApi(apiClient);
 
     this.fileIO = loadFileIO(properties);
 
@@ -436,7 +468,22 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
 
   @Override
   public void createNamespace(Namespace namespace, Map<String, String> properties) {
-    NamespaceCatalogAdapter.execute(() -> namespaceMetadataClient.create(namespace, properties));
+    NamespaceCatalogAdapter.execute(
+        () -> {
+          validateNamespace(namespace);
+          validateNamespaceProperties(properties);
+          return namespaceProperties(
+              executeNamespaceRequest(
+                  namespaceApi.createNamespaceV1WithHttpInfo(
+                      name,
+                      new CreateNamespaceRequest()
+                          .namespace(Arrays.asList(namespace.levels()))
+                          .properties(properties)),
+                  200,
+                  60,
+                  NamespaceOperation.CREATE),
+              namespace);
+        });
   }
 
   /**
@@ -479,7 +526,7 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
    */
   @Override
   public Map<String, String> loadNamespaceMetadata(Namespace namespace) {
-    return NamespaceCatalogAdapter.execute(() -> namespaceMetadataClient.load(namespace));
+    return NamespaceCatalogAdapter.execute(() -> loadNamespaceProperties(namespace));
   }
 
   /**
@@ -489,19 +536,32 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
    */
   @Override
   public boolean dropNamespace(Namespace namespace) {
-    return NamespaceCatalogAdapter.execute(() -> namespaceMetadataClient.drop(namespace));
+    return NamespaceCatalogAdapter.execute(
+        () -> {
+          validateNamespace(namespace);
+          try {
+            executeNamespaceRequest(
+                namespaceApi.dropNamespaceV1WithHttpInfo(name, namespace.level(0)),
+                204,
+                60,
+                NamespaceOperation.DROP);
+            return true;
+          } catch (NotFoundException failure) {
+            return false;
+          }
+        });
   }
 
   @Override
   public boolean setProperties(Namespace namespace, Map<String, String> properties) {
     return NamespaceCatalogAdapter.execute(
-        () -> namespaceMetadataClient.update(namespace, properties, Collections.emptySet()));
+        () -> updateNamespaceProperties(namespace, properties, Collections.emptySet()));
   }
 
   @Override
   public boolean removeProperties(Namespace namespace, Set<String> properties) {
     return NamespaceCatalogAdapter.execute(
-        () -> namespaceMetadataClient.update(namespace, Collections.emptyMap(), properties));
+        () -> updateNamespaceProperties(namespace, Collections.emptyMap(), properties));
   }
 
   /**
@@ -519,7 +579,200 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
    */
   public Map<String, String> getEffectiveTableProperties(Table table)
       throws CatalogOperationException {
-    return namespaceMetadataClient.effectiveProperties(table);
+    String tableName =
+        Optional.ofNullable(table.name())
+            .orElseThrow(() -> new InvalidRequestException("Missing table name"));
+    String catalogPrefix = name + ".";
+    if (!tableName.startsWith(catalogPrefix)) {
+      throw new InvalidRequestException(
+          String.format("Table name '%s' must belong to catalog '%s'", tableName, name));
+    }
+    String[] identifier = tableName.substring(catalogPrefix.length()).split("\\.", -1);
+    if (identifier.length != 2
+        || !identifier[0].matches("[a-zA-Z0-9_]{1,128}")
+        || !identifier[1].matches("[a-zA-Z0-9_]{1,128}")) {
+      throw new InvalidRequestException(
+          String.format(
+              "Table name '%s' must identify a catalog-qualified namespace and table", tableName));
+    }
+    Map<String, String> effective = new HashMap<>();
+    try {
+      effective.putAll(loadNamespaceProperties(Namespace.of(identifier[0])));
+    } catch (NotFoundException failure) {
+      // Missing optional metadata contributes an empty set of defaults.
+    }
+    Map<String, String> tableProperties =
+        Optional.ofNullable(table.properties())
+            .orElseThrow(() -> new CatalogOperationException("Missing table properties"));
+    validateNamespaceProperties(tableProperties);
+    effective.putAll(tableProperties);
+    return Collections.unmodifiableMap(effective);
+  }
+
+  private Map<String, String> loadNamespaceProperties(Namespace namespace)
+      throws CatalogOperationException {
+    validateNamespace(namespace);
+    return namespaceProperties(
+        executeNamespaceRequest(
+            namespaceApi.loadNamespaceMetadataV1WithHttpInfo(name, namespace.level(0)),
+            200,
+            30,
+            NamespaceOperation.LOAD),
+        namespace);
+  }
+
+  private boolean updateNamespaceProperties(
+      Namespace namespace, Map<String, String> updates, Set<String> removals)
+      throws CatalogOperationException {
+    validateNamespace(namespace);
+    validateNamespaceProperties(updates);
+    if (removals.stream().anyMatch(Objects::isNull)) {
+      throw new InvalidRequestException("Namespace removal keys must be strings");
+    }
+    ResponseEntity<UpdateNamespacePropertiesResponse> response =
+        executeNamespaceRequest(
+            namespaceApi.updateNamespacePropertiesV1WithHttpInfo(
+                name,
+                namespace.level(0),
+                new UpdateNamespacePropertiesRequest().updates(updates).removals(removals)),
+            200,
+            60,
+            NamespaceOperation.UPDATE);
+    UpdateNamespacePropertiesResponse requiredResponse =
+        Optional.ofNullable(response.getBody())
+            .orElseThrow(() -> new CatalogOperationException("Empty namespace update response"));
+    List<String> updated = requiredResponse.getUpdated();
+    List<String> removed = requiredResponse.getRemoved();
+    List<String> missing =
+        Optional.ofNullable(requiredResponse.getMissing()).orElseGet(Collections::emptyList);
+    Set<String> accountedRemovals =
+        Stream.concat(removed.stream(), missing.stream()).collect(Collectors.toSet());
+    if (!new HashSet<>(updated).equals(updates.keySet())
+        || updated.size() != updates.size()
+        || !removals.containsAll(accountedRemovals)
+        || removed.size() + missing.size() != accountedRemovals.size()) {
+      throw new CatalogOperationException("Namespace update response disagrees with request");
+    }
+    return !updated.isEmpty() || !removed.isEmpty();
+  }
+
+  private static void validateNamespace(Namespace namespace) throws CatalogOperationException {
+    if (namespace.length() != 1 || !namespace.level(0).matches("[a-zA-Z0-9_]{1,128}")) {
+      throw new InvalidRequestException(
+          String.format(
+              "Namespace '%s' must contain one name of 1 to 128 letters, digits, or underscores",
+              namespace));
+    }
+  }
+
+  private static void validateNamespaceProperties(Map<String, String> properties)
+      throws CatalogOperationException {
+    if (properties.entrySet().stream()
+        .anyMatch(
+            entry ->
+                !Optional.ofNullable(entry.getKey()).isPresent()
+                    || !Optional.ofNullable(entry.getValue()).isPresent())) {
+      throw new InvalidRequestException("Namespace properties must have string keys and values");
+    }
+  }
+
+  private static Map<String, String> namespaceProperties(
+      ResponseEntity<NamespaceResponse> response, Namespace namespace)
+      throws CatalogOperationException {
+    NamespaceResponse requiredResponse =
+        Optional.ofNullable(response.getBody())
+            .orElseThrow(() -> new CatalogOperationException("Empty namespace response"));
+    if (requiredResponse.getNamespace().size() != 1
+        || !namespace.level(0).equalsIgnoreCase(requiredResponse.getNamespace().get(0))) {
+      throw new CatalogOperationException("Namespace response identifies a different namespace");
+    }
+    Map<String, String> responseProperties =
+        Optional.ofNullable(requiredResponse.getProperties()).orElseGet(Collections::emptyMap);
+    return Collections.unmodifiableMap(new HashMap<>(responseProperties));
+  }
+
+  /**
+   * Bounds each generated request and converts asynchronous client failures to checked failures.
+   */
+  static <T> ResponseEntity<T> executeNamespaceRequest(
+      Mono<ResponseEntity<T>> request,
+      int expectedStatus,
+      int timeoutSeconds,
+      NamespaceOperation operation)
+      throws CatalogOperationException {
+    CompletableFuture<ResponseEntity<T>> pending = request.toFuture();
+    try {
+      ResponseEntity<T> response =
+          Optional.ofNullable(pending.get(timeoutSeconds, TimeUnit.SECONDS))
+              .orElseThrow(() -> new CatalogOperationException("Empty namespace response"));
+      if (response.getStatusCodeValue() != expectedStatus) {
+        throw new CatalogOperationException("Unexpected namespace response status");
+      }
+      return response;
+    } catch (InterruptedException failure) {
+      pending.cancel(true);
+      Thread.currentThread().interrupt();
+      throw new CatalogOperationException("Namespace operation failed", failure);
+    } catch (TimeoutException | CancellationException failure) {
+      pending.cancel(true);
+      throw new CatalogOperationException("Namespace operation failed", failure);
+    } catch (ExecutionException failure) {
+      Throwable cause = failure.getCause();
+      int statusCode =
+          cause instanceof WebClientResponseException
+                  && ((WebClientResponseException) cause).getRawStatusCode() >= 400
+              ? ((WebClientResponseException) cause).getRawStatusCode()
+              : 0;
+      Optional<String> errorType = Optional.empty();
+      if (cause instanceof WebClientResponseException && statusCode >= 400 && statusCode < 500) {
+        try {
+          errorType =
+              Optional.ofNullable(
+                      new ObjectMapper()
+                          .readTree(((WebClientResponseException) cause).getResponseBodyAsString()))
+                  .map(body -> body.path("error"))
+                  .filter(
+                      error ->
+                          error.isObject()
+                              && error.path("code").isIntegralNumber()
+                              && error.path("code").canConvertToInt()
+                              && error.path("code").intValue() == statusCode
+                              && error.path("message").isTextual()
+                              && error.path("type").isTextual())
+                  .map(error -> error.path("type").textValue());
+        } catch (JsonProcessingException decodingFailure) {
+          cause.addSuppressed(decodingFailure);
+        }
+      }
+      if (operation == NamespaceOperation.DROP
+          && (statusCode == 400 || statusCode == 409)
+          && errorType.filter("NamespaceNotEmptyException"::equals).isPresent()) {
+        throw new NotEmptyException(cause);
+      }
+      if ((statusCode == 400 && errorType.filter("BadRequestException"::equals).isPresent())
+          || (statusCode == 422
+              && operation == NamespaceOperation.UPDATE
+              && errorType.filter("UnprocessableEntityException"::equals).isPresent())) {
+        throw new InvalidRequestException(cause);
+      }
+      if (statusCode == 401 && errorType.filter("NotAuthorizedException"::equals).isPresent()) {
+        throw new AuthenticationRequiredException(cause);
+      }
+      if (statusCode == 403 && errorType.filter("ForbiddenException"::equals).isPresent()) {
+        throw new PermissionDeniedException(cause);
+      }
+      if (statusCode == 404
+          && operation != NamespaceOperation.CREATE
+          && errorType.filter("NoSuchNamespaceException"::equals).isPresent()) {
+        throw new NotFoundException(cause);
+      }
+      if (statusCode == 409
+          && operation == NamespaceOperation.CREATE
+          && errorType.filter("AlreadyExistsException"::equals).isPresent()) {
+        throw new DuplicateCreationException(cause);
+      }
+      throw new CatalogOperationException("Namespace operation failed", cause);
+    }
   }
 
   @Override

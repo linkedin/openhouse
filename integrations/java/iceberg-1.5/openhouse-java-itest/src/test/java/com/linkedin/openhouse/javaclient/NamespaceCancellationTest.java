@@ -23,8 +23,8 @@ class NamespaceCancellationTest {
         assertThrows(
             CatalogOperationException.class,
             () ->
-                NamespaceMetadataClient.request(
-                    Mono.error(cause), 200, 30, NamespaceMetadataClient.Operation.UPDATE));
+                OpenHouseCatalog.executeNamespaceRequest(
+                    Mono.error(cause), 200, 30, OpenHouseCatalog.NamespaceOperation.UPDATE));
     assertSame(cause, failure.getCause());
   }
 
@@ -40,8 +40,8 @@ class NamespaceCancellationTest {
         assertThrows(
             CatalogOperationException.class,
             () ->
-                NamespaceMetadataClient.request(
-                    pending, 200, 0, NamespaceMetadataClient.Operation.LOAD));
+                OpenHouseCatalog.executeNamespaceRequest(
+                    pending, 200, 0, OpenHouseCatalog.NamespaceOperation.LOAD));
     assertInstanceOf(TimeoutException.class, failure.getCause());
     assertEquals(1, subscriptions.get());
     assertTrue(cancelled.get());
@@ -58,8 +58,8 @@ class NamespaceCancellationTest {
             () ->
                 NamespaceCatalogAdapter.execute(
                     () ->
-                        NamespaceMetadataClient.request(
-                            pending, 200, 0, NamespaceMetadataClient.Operation.UPDATE)));
+                        OpenHouseCatalog.executeNamespaceRequest(
+                            pending, 200, 0, OpenHouseCatalog.NamespaceOperation.UPDATE)));
     assertInstanceOf(CatalogOperationException.class, failure.getCause());
     assertInstanceOf(TimeoutException.class, failure.getCause().getCause());
     assertTrue(cancelled.get());
@@ -84,8 +84,8 @@ class NamespaceCancellationTest {
         new Thread(
             () -> {
               try {
-                NamespaceMetadataClient.request(
-                    pending, 200, 30, NamespaceMetadataClient.Operation.UPDATE);
+                OpenHouseCatalog.executeNamespaceRequest(
+                    pending, 200, 30, OpenHouseCatalog.NamespaceOperation.UPDATE);
               } catch (CatalogOperationException exception) {
                 failure.set(exception);
                 interrupted.set(Thread.currentThread().isInterrupted());
