@@ -150,15 +150,13 @@ public class HtsHttpIntegrationTest extends HtsMysqlTestBase {
   // ---------------------------------------------------------------------------------------------
 
   /**
-   * The service's own datasource must be the disposable MySQL database built from the canonical
+   * The service's own datasource must be the selected disposable database built from the canonical
    * DDL. The widths tell canonical DDL apart from the bootstrap schema.sql and Hibernate DDL.
    */
   @Test
   public void usesCanonicalMysqlSchema() throws SQLException {
     try (Connection connection = dataSource.getConnection()) {
-      assertThat(connection.getMetaData().getDatabaseProductName())
-          .as("the service datasource backend")
-          .isEqualTo("MySQL");
+      assertSelectedBackend(connection);
     }
     assertThat(jdbc.queryForObject("SELECT DATABASE()", String.class)).isEqualTo(DATABASE);
 

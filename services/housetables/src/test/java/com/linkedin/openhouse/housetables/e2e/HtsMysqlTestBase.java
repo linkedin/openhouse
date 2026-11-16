@@ -36,6 +36,10 @@ public abstract class HtsMysqlTestBase {
 
   private static final String IMAGE = "mysql:8.4.11";
 
+  private static final String MYSQL = "mysql";
+
+  private static final String TIDB = "tidb";
+
   private static final List<String> DDL =
       Arrays.asList(
           "hts-mysql/ddl/0000__baseline.sql",
@@ -108,11 +112,38 @@ public abstract class HtsMysqlTestBase {
     }
   }
 
-  /** Refuses to delete anything unless the connection is the disposable MySQL test database. */
+  /** The backend forwarded by Gradle's -PhtsBackend; mysql when the property is absent. */
+  private static String selectedBackend() {
+    String backend = System.getProperty("hts.test.backend", MYSQL);
+    if (!MYSQL.equals(backend) && !TIDB.equals(backend)) {
+      throw new IllegalStateException(
+          "Unsupported hts.test.backend '"
+              + backend
+              + "'. Supported values are mysql and tidb; select one with -PhtsBackend.");
+    }
+    return backend;
+  }
+
+  /**
+   * Both engines report the JDBC product name MySQL, so the server version tells them apart. It
+   * pins the exact image version as well as the engine.
+   */
+  protected static void assertSelectedBackend(Connection connection) throws SQLException {
+    String backend = selectedBackend();
+    String product = connection.getMetaData().getDatabaseProductName();
+    String version = connection.getMetaData().getDatabaseProductVersion();
+    String observed = "selected " + backend + ", observed " + product + " " + version;
+    assertThat(product).as(observed).isEqualTo("MySQL");
+    if (TIDB.equals(backend)) {
+      assertThat(version).as(observed).contains("-TiDB-v8.5.4");
+    } else {
+      assertThat(version).as(observed).contains("8.4.11").doesNotContain("TiDB");
+    }
+  }
+
+  /** Refuses to delete anything unless the connection is the disposable selected test database. */
   private static void clear(Connection connection) throws SQLException {
-    assertThat(connection.getMetaData().getDatabaseProductName())
-        .as("fixture reset backend")
-        .isEqualTo("MySQL");
+    assertSelectedBackend(connection);
     assertThat(connection.getAutoCommit()).as("fixture reset runs outside transactions").isTrue();
     try (Statement statement = connection.createStatement()) {
       try (ResultSet database = statement.executeQuery("SELECT DATABASE()")) {
