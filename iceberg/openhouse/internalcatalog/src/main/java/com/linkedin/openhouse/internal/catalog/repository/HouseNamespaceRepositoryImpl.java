@@ -1,11 +1,9 @@
 package com.linkedin.openhouse.internal.catalog.repository;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.model.CreateNamespaceRequestBody;
-import com.linkedin.openhouse.housetables.client.model.NamespaceErrorResponse;
 import com.linkedin.openhouse.housetables.client.model.NamespaceMetadataResponse;
 import com.linkedin.openhouse.housetables.client.model.UpdateNamespacePropertiesRequestBody;
 import com.linkedin.openhouse.housetables.client.model.UpdateNamespacePropertiesResponseBody;
@@ -45,11 +43,7 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
                           .properties(properties)),
               WRITE_TIMEOUT);
     } catch (WebClientResponseException.Conflict exception) {
-      NamespaceErrorResponse errorResponse = decodeNamespaceErrorResponse(exception);
-      if ("AlreadyExistsException".equals(errorResponse.getType())) {
-        throw new DuplicateCreationException("Namespace already exists", exception);
-      }
-      throw exception;
+      throw new DuplicateCreationException("Namespace already exists", exception);
     }
     return new NamespaceMetadata(
         result.getNamespaceUuid(), result.getNamespaceName(), Map.copyOf(result.getProperties()));
@@ -61,11 +55,7 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
     try {
       result = execute(() -> namespaceApi.getNamespace(namespaceName), READ_TIMEOUT);
     } catch (WebClientResponseException.NotFound exception) {
-      NamespaceErrorResponse errorResponse = decodeNamespaceErrorResponse(exception);
-      if ("NotFoundException".equals(errorResponse.getType())) {
-        throw new NotFoundException("Namespace does not exist", exception);
-      }
-      throw exception;
+      throw new NotFoundException("Namespace does not exist", exception);
     }
     return new NamespaceMetadata(
         result.getNamespaceUuid(), result.getNamespaceName(), Map.copyOf(result.getProperties()));
@@ -76,11 +66,7 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
     try {
       execute(() -> namespaceApi.deleteNamespace(namespaceName), WRITE_TIMEOUT);
     } catch (WebClientResponseException.NotFound exception) {
-      NamespaceErrorResponse errorResponse = decodeNamespaceErrorResponse(exception);
-      if ("NotFoundException".equals(errorResponse.getType())) {
-        throw new NotFoundException("Namespace does not exist", exception);
-      }
-      throw exception;
+      throw new NotFoundException("Namespace does not exist", exception);
     }
   }
 
@@ -100,29 +86,12 @@ public class HouseNamespaceRepositoryImpl implements HouseNamespaceRepository {
                           .removals(removals)),
               WRITE_TIMEOUT);
     } catch (WebClientResponseException.NotFound exception) {
-      NamespaceErrorResponse errorResponse = decodeNamespaceErrorResponse(exception);
-      if ("NotFoundException".equals(errorResponse.getType())) {
-        throw new NotFoundException("Namespace does not exist", exception);
-      }
-      throw exception;
+      throw new NotFoundException("Namespace does not exist", exception);
     }
     return new NamespacePropertyUpdate(
         List.copyOf(result.getUpdated()),
         List.copyOf(result.getRemoved()),
         List.copyOf(result.getMissing()));
-  }
-
-  private NamespaceErrorResponse decodeNamespaceErrorResponse(
-      WebClientResponseException exception) {
-    try {
-      return namespaceApi
-          .getApiClient()
-          .getObjectMapper()
-          .readValue(exception.getResponseBodyAsString(), NamespaceErrorResponse.class);
-    } catch (JsonProcessingException decodingFailure) {
-      exception.addSuppressed(decodingFailure);
-      throw exception;
-    }
   }
 
   private <T> T execute(Supplier<Mono<T>> request, Duration timeout) {

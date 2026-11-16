@@ -3,14 +3,12 @@ package com.linkedin.openhouse.internal.catalog.repository;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkedin.openhouse.common.exception.checked.DuplicateCreationException;
 import com.linkedin.openhouse.common.exception.checked.NotFoundException;
 import com.linkedin.openhouse.housetables.client.api.NamespaceApi;
 import com.linkedin.openhouse.housetables.client.invoker.ApiClient;
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
@@ -87,8 +85,8 @@ class HouseNamespaceRepositoryImplTest {
   }
 
   @Test
-  void notFoundTypeBecomesNamespaceAbsence() {
-    server.enqueue(errorResponse(404, "NotFoundException"));
+  void notFoundStatusBecomesNamespaceAbsence() {
+    server.enqueue(errorResponse(404));
     NotFoundException exception =
         assertThrows(NotFoundException.class, () -> repository.getByName("foo"));
     assertInstanceOf(WebClientResponseException.NotFound.class, exception.getCause());
@@ -96,8 +94,8 @@ class HouseNamespaceRepositoryImplTest {
   }
 
   @Test
-  void deleteNotFoundTypeBecomesNamespaceAbsence() {
-    server.enqueue(errorResponse(404, "NotFoundException"));
+  void deleteNotFoundStatusBecomesNamespaceAbsence() {
+    server.enqueue(errorResponse(404));
     NotFoundException exception =
         assertThrows(NotFoundException.class, () -> repository.delete("foo"));
     assertInstanceOf(WebClientResponseException.NotFound.class, exception.getCause());
@@ -105,8 +103,8 @@ class HouseNamespaceRepositoryImplTest {
   }
 
   @Test
-  void updateNotFoundTypeBecomesNamespaceAbsence() {
-    server.enqueue(errorResponse(404, "NotFoundException"));
+  void updateNotFoundStatusBecomesNamespaceAbsence() {
+    server.enqueue(errorResponse(404));
     NotFoundException exception =
         assertThrows(
             NotFoundException.class,
@@ -116,8 +114,8 @@ class HouseNamespaceRepositoryImplTest {
   }
 
   @Test
-  void duplicateTypeBecomesDuplicateCreation() {
-    server.enqueue(errorResponse(409, "AlreadyExistsException"));
+  void conflictStatusBecomesDuplicateCreation() {
+    server.enqueue(errorResponse(409));
     DuplicateCreationException exception =
         assertThrows(DuplicateCreationException.class, () -> repository.create("foo", Map.of()));
     assertInstanceOf(WebClientResponseException.Conflict.class, exception.getCause());
@@ -126,40 +124,10 @@ class HouseNamespaceRepositoryImplTest {
 
   @Test
   void otherHttpFailuresKeepTheirGeneratedTypeAndOneAttempt() {
-    server.enqueue(errorResponse(503, "UnavailableException"));
+    server.enqueue(errorResponse(503));
     assertThrows(
         WebClientResponseException.ServiceUnavailable.class,
         () -> repository.updateProperties("foo", Map.of(), Collections.emptySet()));
-    assertEquals(1, server.getRequestCount());
-  }
-
-  @Test
-  void otherNotFoundTypeDoesNotBecomeNamespaceAbsence() {
-    server.enqueue(errorResponse(404, "VersionConflictException"));
-    assertThrows(WebClientResponseException.NotFound.class, () -> repository.getByName("foo"));
-    assertEquals(1, server.getRequestCount());
-  }
-
-  @Test
-  void otherConflictTypeDoesNotBecomeDuplicateCreation() {
-    server.enqueue(errorResponse(409, "VersionConflictException"));
-    assertThrows(
-        WebClientResponseException.Conflict.class, () -> repository.create("foo", Map.of()));
-    assertEquals(1, server.getRequestCount());
-  }
-
-  @Test
-  void malformedErrorResponseRemainsTransportFailure() {
-    server.enqueue(
-        new MockResponse()
-            .setResponseCode(404)
-            .addHeader("Content-Type", "application/json")
-            .setBody("{"));
-    WebClientResponseException.NotFound exception =
-        assertThrows(WebClientResponseException.NotFound.class, () -> repository.getByName("foo"));
-    assertTrue(
-        Arrays.stream(exception.getSuppressed())
-            .anyMatch(JsonProcessingException.class::isInstance));
     assertEquals(1, server.getRequestCount());
   }
 
@@ -175,10 +143,10 @@ class HouseNamespaceRepositoryImplTest {
     verify(namespaceApi).deleteNamespace("foo");
   }
 
-  private static MockResponse errorResponse(int status, String type) {
+  private static MockResponse errorResponse(int status) {
     return new MockResponse()
         .setResponseCode(status)
         .addHeader("Content-Type", "application/json")
-        .setBody("{\"message\":\"secret\",\"type\":\"" + type + "\"}");
+        .setBody("{}");
   }
 }
