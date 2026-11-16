@@ -36,6 +36,7 @@ import com.linkedin.openhouse.tables.client.model.UpdateAclPoliciesRequestBody;
 import com.linkedin.openhouse.tables.client.model.UpdateNamespacePropertiesRequest;
 import com.linkedin.openhouse.tables.client.model.UpdateNamespacePropertiesResponse;
 import java.net.MalformedURLException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -92,6 +93,7 @@ import org.apache.iceberg.view.View;
 import org.apache.iceberg.view.ViewBuilder;
 import org.apache.iceberg.view.ViewOperations;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -172,6 +174,10 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
 
   /** Catalog property that gates view support. Off by default. */
   private static final String VIEWS_ENABLED_PROPERTY = "iceberg-views-enabled";
+
+  private static final Duration NAMESPACE_READ_TIMEOUT = Duration.ofSeconds(30);
+
+  private static final Duration NAMESPACE_WRITE_TIMEOUT = Duration.ofSeconds(60);
 
   enum NamespaceOperation {
     CREATE,
@@ -473,8 +479,8 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
                 new CreateNamespaceRequest()
                     .namespace(Arrays.asList(namespace.levels()))
                     .properties(properties)),
-            200,
-            60,
+            HttpStatus.OK,
+            NAMESPACE_WRITE_TIMEOUT,
             NamespaceOperation.CREATE),
         namespace);
   }
@@ -533,8 +539,8 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     try {
       executeNamespaceRequest(
           namespaceApi.dropNamespaceV1WithHttpInfo(name, namespace.level(0)),
-          204,
-          60,
+          HttpStatus.NO_CONTENT,
+          NAMESPACE_WRITE_TIMEOUT,
           NamespaceOperation.DROP);
       return true;
     } catch (NoSuchNamespaceException failure) {
@@ -557,8 +563,8 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
     return namespaceProperties(
         executeNamespaceRequest(
             namespaceApi.loadNamespaceMetadataV1WithHttpInfo(name, namespace.level(0)),
-            200,
-            30,
+            HttpStatus.OK,
+            NAMESPACE_READ_TIMEOUT,
             NamespaceOperation.LOAD),
         namespace);
   }
@@ -576,8 +582,8 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
                 name,
                 namespace.level(0),
                 new UpdateNamespacePropertiesRequest().updates(updates).removals(removals)),
-            200,
-            60,
+            HttpStatus.OK,
+            NAMESPACE_WRITE_TIMEOUT,
             NamespaceOperation.UPDATE);
     UpdateNamespacePropertiesResponse requiredResponse =
         Optional.ofNullable(response.getBody())
@@ -633,15 +639,15 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
   /** Bounds each generated namespace request and translates expected service failures. */
   static <T> ResponseEntity<T> executeNamespaceRequest(
       Mono<ResponseEntity<T>> request,
-      int expectedStatus,
-      int timeoutSeconds,
+      HttpStatus expectedStatus,
+      Duration timeout,
       NamespaceOperation operation) {
     CompletableFuture<ResponseEntity<T>> pending = request.toFuture();
     try {
       ResponseEntity<T> response =
-          Optional.ofNullable(pending.get(timeoutSeconds, TimeUnit.SECONDS))
+          Optional.ofNullable(pending.get(timeout.toMillis(), TimeUnit.MILLISECONDS))
               .orElseThrow(() -> new RESTException("Empty namespace response"));
-      if (response.getStatusCodeValue() != expectedStatus) {
+      if (response.getStatusCode() != expectedStatus) {
         throw new RESTException("Unexpected namespace response status");
       }
       return response;
@@ -660,7 +666,9 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
               ? ((WebClientResponseException) cause).getRawStatusCode()
               : 0;
       Optional<String> errorType = Optional.empty();
-      if (cause instanceof WebClientResponseException && statusCode >= 400 && statusCode < 500) {
+      if (cause instanceof WebClientResponseException
+          && statusCode >= HttpStatus.BAD_REQUEST.value()
+          && statusCode < HttpStatus.INTERNAL_SERVER_ERROR.value()) {
         try {
           errorType =
               Optional.ofNullable(
@@ -681,28 +689,32 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
         }
       }
       if (operation == NamespaceOperation.DROP
-          && (statusCode == 400 || statusCode == 409)
+          && (statusCode == HttpStatus.BAD_REQUEST.value()
+              || statusCode == HttpStatus.CONFLICT.value())
           && errorType.filter("NamespaceNotEmptyException"::equals).isPresent()) {
         throw new NamespaceNotEmptyException(cause, "Namespace contains tables or views");
       }
-      if ((statusCode == 400 && errorType.filter("BadRequestException"::equals).isPresent())
-          || (statusCode == 422
+      if ((statusCode == HttpStatus.BAD_REQUEST.value()
+              && errorType.filter("BadRequestException"::equals).isPresent())
+          || (statusCode == HttpStatus.UNPROCESSABLE_ENTITY.value()
               && operation == NamespaceOperation.UPDATE
               && errorType.filter("UnprocessableEntityException"::equals).isPresent())) {
         throw new ValidationException(cause, "Invalid namespace request");
       }
-      if (statusCode == 401 && errorType.filter("NotAuthorizedException"::equals).isPresent()) {
+      if (statusCode == HttpStatus.UNAUTHORIZED.value()
+          && errorType.filter("NotAuthorizedException"::equals).isPresent()) {
         throw new NotAuthorizedException(cause, "Namespace authentication required");
       }
-      if (statusCode == 403 && errorType.filter("ForbiddenException"::equals).isPresent()) {
+      if (statusCode == HttpStatus.FORBIDDEN.value()
+          && errorType.filter("ForbiddenException"::equals).isPresent()) {
         throw new ForbiddenException(cause, "Namespace access denied");
       }
-      if (statusCode == 404
+      if (statusCode == HttpStatus.NOT_FOUND.value()
           && operation != NamespaceOperation.CREATE
           && errorType.filter("NoSuchNamespaceException"::equals).isPresent()) {
         throw new NoSuchNamespaceException(cause, "Namespace metadata does not exist");
       }
-      if (statusCode == 409
+      if (statusCode == HttpStatus.CONFLICT.value()
           && operation == NamespaceOperation.CREATE
           && errorType.filter("AlreadyExistsException"::equals).isPresent()) {
         throw new AlreadyExistsException(cause, "Namespace already exists");
