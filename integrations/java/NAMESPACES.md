@@ -1,32 +1,4 @@
-# Java namespace metadata and effective table properties
-
-The packaged Java catalog for Iceberg 1.5 resolves namespace defaults only when callers request
-effective properties. The Iceberg 1.2 catalog retains its existing behavior and does not provide
-this API. Actual table properties keep precedence:
-
-```java
-Map<String, String> effective = catalog.getEffectiveTableProperties(table);
-```
-
-The method is public on `OpenHouseCatalog` and declares `CatalogOperationException`.
-It performs one explicit, uncached namespace metadata request. Namespace properties supply
-defaults; actual table properties override matching keys. The returned map is an immutable
-defensive copy. Calling `table.properties()` still returns the actual table properties.
-Existing table operations, including `loadTable`, retain their existing request counts.
-
-Only a missing namespace error falls back to table-only properties. Successful responses
-with empty, omitted, or null properties also contribute no namespace properties.
-Authorization failures, connection failures, timeouts, malformed responses, and other service
-errors fail the call because they do not establish that defaults are absent. Callers must handle
-the checked failure rather than silently using table-only values during an outage.
-
-The supplied table name must have the form `<catalog>.<namespace>.<table>`, with an exact
-catalog-name prefix. Catalog names can contain dots. The remaining namespace and table
-identifiers each contain 1 to 128 letters, digits, or underscores. Foreign catalog names,
-extra namespace levels, metadata-table suffixes, and malformed names fail before any request.
-The method is intended for tables loaded or created by this catalog. Name validation checks the naming convention; callers supply the table from the intended catalog.
-
-## Iceberg namespace operations
+# Java namespace metadata
 
 Administrators can create and edit defaults with these `SupportsNamespaces` methods.
 Creation, property updates, removal, and drop require `SYSTEM_ADMIN`. Reads require
@@ -52,14 +24,12 @@ namespace.
 
 ## Recovering from errors
 
-The effective-property method declares `CatalogOperationException`. Supported request rejections,
-such as missing metadata and access denial, have specialized checked types. Other failures use
-the checked base directly. Iceberg namespace methods adapt those rejections to the corresponding
-Iceberg exceptions and other failures to `RESTException`. Both APIs preserve their local cause.
+Supported request rejections, such as missing metadata and access denial, are adapted to the
+corresponding Iceberg exceptions. Other failures use `RESTException`. These exceptions preserve
+their local cause.
 
 Use `loadNamespaceMetadata` to retrieve namespace properties independently of any table.
-A missing namespace fails that lookup. The effective-property helper supplies empty defaults
-only for a verified missing namespace.
+A missing namespace fails that lookup.
 
 A status alone does not establish absence or rejection. The client validates the Iceberg error
 envelope, its code, its type, and the requested operation. Empty, HTML, mismatched, and

@@ -74,7 +74,6 @@ import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.SortOrderParser;
 import org.apache.iceberg.StaticTableOperations;
-import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.Transaction;
@@ -562,51 +561,6 @@ public class OpenHouseCatalog extends BaseMetastoreViewCatalog
   public boolean removeProperties(Namespace namespace, Set<String> properties) {
     return NamespaceCatalogAdapter.execute(
         () -> updateNamespaceProperties(namespace, Collections.emptyMap(), properties));
-  }
-
-  /**
-   * Resolves namespace properties with actual table properties taking precedence.
-   *
-   * <p>Each call performs one uncached remote namespace lookup. Verified namespace absence supplies
-   * empty namespace properties. The returned map is an immutable defensive copy; {@link
-   * Table#properties()} retains the actual table properties. The table name must be qualified by
-   * this catalog's exact name, followed by one namespace and one table.
-   *
-   * @throws CatalogOperationException for invalid names, authorization, transport, service, or
-   *     malformed-response failures. This opt-in API declares checked failures so callers
-   *     explicitly handle remote I/O; the Iceberg namespace overrides translate failures to Iceberg
-   *     exceptions.
-   */
-  public Map<String, String> getEffectiveTableProperties(Table table)
-      throws CatalogOperationException {
-    String tableName =
-        Optional.ofNullable(table.name())
-            .orElseThrow(() -> new InvalidRequestException("Missing table name"));
-    String catalogPrefix = name + ".";
-    if (!tableName.startsWith(catalogPrefix)) {
-      throw new InvalidRequestException(
-          String.format("Table name '%s' must belong to catalog '%s'", tableName, name));
-    }
-    String[] identifier = tableName.substring(catalogPrefix.length()).split("\\.", -1);
-    if (identifier.length != 2
-        || !identifier[0].matches("[a-zA-Z0-9_]{1,128}")
-        || !identifier[1].matches("[a-zA-Z0-9_]{1,128}")) {
-      throw new InvalidRequestException(
-          String.format(
-              "Table name '%s' must identify a catalog-qualified namespace and table", tableName));
-    }
-    Map<String, String> effective = new HashMap<>();
-    try {
-      effective.putAll(loadNamespaceProperties(Namespace.of(identifier[0])));
-    } catch (NotFoundException failure) {
-      // Missing optional metadata contributes an empty set of defaults.
-    }
-    Map<String, String> tableProperties =
-        Optional.ofNullable(table.properties())
-            .orElseThrow(() -> new CatalogOperationException("Missing table properties"));
-    validateNamespaceProperties(tableProperties);
-    effective.putAll(tableProperties);
-    return Collections.unmodifiableMap(effective);
   }
 
   private Map<String, String> loadNamespaceProperties(Namespace namespace)

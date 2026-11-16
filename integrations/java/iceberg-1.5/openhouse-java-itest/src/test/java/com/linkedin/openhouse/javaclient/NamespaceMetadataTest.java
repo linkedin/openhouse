@@ -1,11 +1,8 @@
 package com.linkedin.openhouse.javaclient;
 
-import static org.apache.iceberg.Files.localInput;
-import static org.apache.iceberg.Files.localOutput;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-import com.linkedin.openhouse.gen.client.ssl.WebClientFactory;
 import com.linkedin.openhouse.gen.tables.client.api.NamespaceApi;
 import com.linkedin.openhouse.gen.tables.client.invoker.ApiClient;
 import com.linkedin.openhouse.javaclient.exception.CatalogOperationException;
@@ -13,15 +10,11 @@ import com.linkedin.openhouse.javaclient.exception.NotFoundException;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.JsonNode;
 import com.linkedin.openhouse.relocated.com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import okhttp3.mockwebserver.MockResponse;
@@ -29,13 +22,7 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import okhttp3.mockwebserver.SocketPolicy;
 import org.apache.iceberg.CatalogProperties;
-import org.apache.iceberg.PartitionSpec;
-import org.apache.iceberg.Schema;
-import org.apache.iceberg.Table;
-import org.apache.iceberg.TableMetadata;
-import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.catalog.Namespace;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.ForbiddenException;
 import org.apache.iceberg.exceptions.NamespaceNotEmptyException;
@@ -43,8 +30,6 @@ import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.exceptions.NotAuthorizedException;
 import org.apache.iceberg.exceptions.RESTException;
 import org.apache.iceberg.exceptions.ValidationException;
-import org.apache.iceberg.io.FileIO;
-import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -57,8 +42,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 class NamespaceMetadataTest {
   private MockWebServer tableService;
   private OpenHouseCatalog catalog;
-  private Table table;
-  private Map<String, String> tableProperties;
 
   @BeforeEach
   void setup() throws IOException {
@@ -72,12 +55,6 @@ class NamespaceMetadataTest {
     configuration.put("header.X-OpenHouse-Example", "value");
     configuration.put(CatalogProperties.APP_ID, "namespace-session");
     catalog.initialize("openhouse.local", configuration);
-    tableProperties = new HashMap<>();
-    tableProperties.put("shared", "table");
-    tableProperties.put("table-only", "value");
-    table = mock(Table.class);
-    when(table.name()).thenReturn("openhouse.local.namespace.table");
-    when(table.properties()).thenReturn(tableProperties);
   }
 
   @AfterEach
@@ -86,70 +63,14 @@ class NamespaceMetadataTest {
   }
 
   @Test
-  void effectivePropertiesInheritOverrideAndCopyWithoutCaching() throws Exception {
-    respond(
-        200,
-        "{\"namespace\":[\"namespace\"],\"properties\":{\"shared\":\"namespace\",\"namespace-only\":\"inherited\"}}");
-    Map<String, String> effective = catalog.getEffectiveTableProperties(table);
-    assertEquals("table", effective.get("shared"));
-    assertEquals("inherited", effective.get("namespace-only"));
-    assertEquals("value", effective.get("table-only"));
-    assertEquals(2, table.properties().size());
-    assertFalse(table.properties().containsKey("namespace-only"));
-    assertThrows(UnsupportedOperationException.class, () -> effective.put("other", "value"));
-    tableProperties.put("shared", "changed");
-    assertEquals("table", effective.get("shared"));
-    assertEquals(1, tableService.getRequestCount());
-    RecordedRequest request = tableService.takeRequest(5, TimeUnit.SECONDS);
-    assertNotNull(request);
-    assertEquals("GET", request.getMethod());
-    assertEquals("/v1/openhouse.local/namespaces/namespace", request.getPath());
-    assertEquals("Bearer token", request.getHeader("Authorization"));
-    assertEquals("namespace-tests", request.getHeader(WebClientFactory.HTTP_HEADER_CLIENT_NAME));
-    assertEquals("namespace-session", request.getHeader(WebClientFactory.HTTP_HEADER_SESSION_ID));
-    assertEquals("value", request.getHeader("X-OpenHouse-Example"));
-    respond(
-        200,
-        "{\"namespace\":[\"namespace\"],\"properties\":{\"shared\":\"namespace\",\"namespace-only\":\"fresh\"}}");
-    assertEquals("fresh", catalog.getEffectiveTableProperties(table).get("namespace-only"));
-    assertEquals(2, tableService.getRequestCount());
-  }
-
-  @Test
   void namespaceRequestsUseRefreshedCatalogToken() throws Exception {
     catalog.updateAuthToken("refreshed-token");
     respond(200, "{\"namespace\":[\"namespace\"],\"properties\":{}}");
-    catalog.getEffectiveTableProperties(table);
+    catalog.loadNamespaceMetadata(Namespace.of("namespace"));
     assertEquals(
         "Bearer refreshed-token",
         tableService.takeRequest(5, TimeUnit.SECONDS).getHeader("Authorization"));
     assertEquals(1, tableService.getRequestCount());
-  }
-
-  @ParameterizedTest
-  @ValueSource(strings = {"namespace", "table"})
-  void maximumLengthIdentifiersResolveEffectiveProperties(String component) throws Exception {
-    String identifier = String.join("", Collections.nCopies(128, "a"));
-    String namespace = "namespace".equals(component) ? identifier : "namespace";
-    String tableName = "table".equals(component) ? identifier : "table";
-    when(table.name()).thenReturn("openhouse.local." + namespace + "." + tableName);
-    respond(200, "{\"namespace\":[\"" + namespace + "\"],\"properties\":{}}");
-    assertEquals(tableProperties, catalog.getEffectiveTableProperties(table));
-    assertEquals(1, tableService.getRequestCount());
-    assertEquals(
-        "/v1/openhouse.local/namespaces/" + namespace,
-        tableService.takeRequest(5, TimeUnit.SECONDS).getPath());
-  }
-
-  @ParameterizedTest
-  @ValueSource(strings = {"namespace", "table"})
-  void overlengthIdentifiersFailBeforeEffectivePropertyRequests(String component) {
-    String identifier = String.join("", Collections.nCopies(129, "a"));
-    String namespace = "namespace".equals(component) ? identifier : "namespace";
-    String tableName = "table".equals(component) ? identifier : "table";
-    when(table.name()).thenReturn("openhouse.local." + namespace + "." + tableName);
-    assertThrows(CatalogOperationException.class, () -> catalog.getEffectiveTableProperties(table));
-    assertEquals(0, tableService.getRequestCount());
   }
 
   @Test
@@ -175,33 +96,6 @@ class NamespaceMetadataTest {
   }
 
   @ParameterizedTest
-  @ValueSource(ints = {200, 404})
-  void emptyOrAbsentNamespaceMetadataPreservesActualProperties(int status) throws Exception {
-    respond(
-        status,
-        status == 200
-            ? "{\"namespace\":[\"namespace\"],\"properties\":{}}"
-            : errorBody(404, "NoSuchNamespaceException"));
-    Map<String, String> effective = catalog.getEffectiveTableProperties(table);
-    assertEquals(tableProperties, effective);
-    assertNotSame(tableProperties, effective);
-    assertThrows(UnsupportedOperationException.class, () -> effective.clear());
-    assertEquals(1, tableService.getRequestCount());
-  }
-
-  @Test
-  void emptyTablePropertiesInheritNamespaceMetadata() throws Exception {
-    tableProperties.clear();
-    respond(
-        200, "{\"namespace\":[\"NAMESPACE\"],\"properties\":{\"namespace-only\":\"inherited\"}}");
-    assertEquals(
-        Collections.singletonMap("namespace-only", "inherited"),
-        catalog.getEffectiveTableProperties(table));
-    assertTrue(tableProperties.isEmpty());
-    assertEquals(1, tableService.getRequestCount());
-  }
-
-  @ParameterizedTest
   @ValueSource(
       strings = {
         "{\"namespace\":[\"namespace\"]}",
@@ -209,34 +103,7 @@ class NamespaceMetadataTest {
       })
   void optionalPropertiesDefaultToEmpty(String body) throws Exception {
     respond(200, body);
-    assertEquals(tableProperties, catalog.getEffectiveTableProperties(table));
-    assertEquals(1, tableService.getRequestCount());
-  }
-
-  @ParameterizedTest
-  @ValueSource(ints = {400, 401, 403, 409, 422, 500, 503})
-  void effectivePropertiesPropagatesEveryNon404Failure(int status) {
-    respond(
-        status,
-        "{\"error\":{\"message\":\"failure\",\"type\":\"ServiceException\",\"code\":"
-            + status
-            + "}}");
-    CatalogOperationException failure =
-        assertThrows(
-            CatalogOperationException.class, () -> catalog.getEffectiveTableProperties(table));
-    assertEquals(CatalogOperationException.class, failure.getClass());
-    assertNotNull(failure.getCause());
-    assertEquals(1, tableService.getRequestCount());
-  }
-
-  @Test
-  void transportFailureIsCheckedAndDoesNotRetry() {
-    tableService.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST));
-    respond(503, "{}");
-    CatalogOperationException failure =
-        assertThrows(
-            CatalogOperationException.class, () -> catalog.getEffectiveTableProperties(table));
-    assertNotNull(failure.getCause());
+    assertTrue(catalog.loadNamespaceMetadata(Namespace.of("namespace")).isEmpty());
     assertEquals(1, tableService.getRequestCount());
   }
 
@@ -252,38 +119,11 @@ class NamespaceMetadataTest {
         "{\"namespace\":[\"namespace\",\"other\"],\"properties\":{}}",
         "{\"namespace\":[null],\"properties\":{}}"
       })
-  void malformedMetadataFailsRatherThanFallingBack(String body) {
+  void malformedMetadataFails(String body) {
     respond(200, body);
-    assertThrows(CatalogOperationException.class, () -> catalog.getEffectiveTableProperties(table));
+    assertThrows(
+        RESTException.class, () -> catalog.loadNamespaceMetadata(Namespace.of("namespace")));
     assertEquals(1, tableService.getRequestCount());
-  }
-
-  @ParameterizedTest
-  @ValueSource(
-      strings = {
-        "namespace.table",
-        "foreign.namespace.table",
-        "openhouse.locality.namespace.table",
-        "openhouse.local.namespace.table.extra",
-        "openhouse.local..table",
-        "openhouse.local.namespace.",
-        "openhouse.local.namespace.table/name",
-        "openhouse.local.namespace.table name",
-        "openhouse.local.namespace",
-        "",
-        "openhouse.local.namespace%2Fother.table",
-        "openhouse.local.namespace\u0000.table",
-        "openhouse.local.namespace/name.table",
-        "openhouse.local.namespace name.table"
-      })
-  void invalidOrForeignTableNamesFailBeforeRequest(String name) {
-    when(table.name()).thenReturn(name);
-    assertTrue(
-        assertThrows(
-                CatalogOperationException.class, () -> catalog.getEffectiveTableProperties(table))
-            .getMessage()
-            .contains(name));
-    assertEquals(0, tableService.getRequestCount());
   }
 
   @Test
@@ -298,20 +138,12 @@ class NamespaceMetadataTest {
   }
 
   @Test
-  void absentTableNameFailsBeforeRequest() {
-    when(table.name()).thenReturn(null);
-    assertThrows(CatalogOperationException.class, () -> catalog.getEffectiveTableProperties(table));
-    assertEquals(0, tableService.getRequestCount());
-  }
-
-  @Test
   void prefixIsEncodedAsOnePathSegment() throws Exception {
     catalog.initialize(
         "catalog/with space",
         Collections.singletonMap(CatalogProperties.URI, tableService.url("/").toString()));
-    when(table.name()).thenReturn("catalog/with space.namespace.table");
     respond(200, "{\"namespace\":[\"namespace\"],\"properties\":{}}");
-    catalog.getEffectiveTableProperties(table);
+    catalog.loadNamespaceMetadata(Namespace.of("namespace"));
     assertEquals(
         "/v1/catalog%2Fwith%20space/namespaces/namespace",
         tableService.takeRequest(5, TimeUnit.SECONDS).getPath());
@@ -530,21 +362,6 @@ class NamespaceMetadataTest {
         "{\"error\":{\"message\":\"foo\",\"type\":\"RESTException\",\"code\":404}}",
         "{\"error\":{\"message\":\"foo\",\"type\":\"NoSuchNamespaceException\",\"code\":500}}"
       })
-  void unverifiedAbsenceCannotSupplyOptionalDefaults(String body) {
-    respond(404, body);
-    assertThrows(CatalogOperationException.class, () -> catalog.getEffectiveTableProperties(table));
-    assertEquals(1, tableService.getRequestCount());
-  }
-
-  @ParameterizedTest
-  @ValueSource(
-      strings = {
-        "",
-        "<html>foo</html>",
-        "{}",
-        "{\"error\":{\"message\":\"foo\",\"type\":\"RESTException\",\"code\":404}}",
-        "{\"error\":{\"message\":\"foo\",\"type\":\"NoSuchNamespaceException\",\"code\":500}}"
-      })
   void unverifiedAbsenceFailsDeletion(String body) {
     respond(404, body);
     assertThrows(RESTException.class, () -> catalog.dropNamespace(Namespace.of("namespace")));
@@ -676,48 +493,6 @@ class NamespaceMetadataTest {
             .getProperties()
             .get("key"));
     assertEquals(1, tableService.getRequestCount());
-  }
-
-  @Test
-  void actualLoadTablePreservesPropertiesAndMakesOnlyTableRequest() throws Exception {
-    Path metadataDirectory = Paths.get("build", "namespace-metadata");
-    Files.createDirectories(metadataDirectory);
-    Path metadataPath =
-        metadataDirectory.resolve(UUID.randomUUID() + ".metadata.json").toAbsolutePath();
-    TableMetadata metadata =
-        TableMetadata.newTableMetadata(
-            new Schema(Types.NestedField.required(1, "id", Types.LongType.get())),
-            PartitionSpec.unpartitioned(),
-            metadataDirectory.toAbsolutePath().toString(),
-            Collections.singletonMap("table-only", "value"));
-    TableMetadataParser.write(metadata, localOutput(metadataPath.toFile()));
-    FileIO fileOperations = mock(FileIO.class);
-    when(fileOperations.newInputFile(metadataPath.toString()))
-        .thenReturn(localInput(metadataPath.toFile()));
-    OpenHouseCatalog loadingCatalog =
-        new OpenHouseCatalog() {
-          @Override
-          protected FileIO loadFileIO(Map<String, String> properties) {
-            return fileOperations;
-          }
-        };
-    loadingCatalog.initialize(
-        "openhouse.local",
-        Collections.singletonMap(CatalogProperties.URI, tableService.url("/").toString()));
-    respond(200, "{\"tableLocation\":\"" + metadataPath + "\",\"config\":{}}");
-    Table loaded = loadingCatalog.loadTable(TableIdentifier.of("namespace", "table"));
-    assertEquals("openhouse.local.namespace.table", loaded.name());
-    assertEquals("value", loaded.properties().get("table-only"));
-    assertEquals(1, tableService.getRequestCount());
-    assertEquals(
-        "/v1/databases/namespace/tables/table",
-        tableService.takeRequest(5, TimeUnit.SECONDS).getPath());
-    respond(
-        200, "{\"namespace\":[\"namespace\"],\"properties\":{\"namespace-only\":\"inherited\"}}");
-    assertEquals(
-        "inherited", loadingCatalog.getEffectiveTableProperties(loaded).get("namespace-only"));
-    assertFalse(loaded.properties().containsKey("namespace-only"));
-    assertEquals(2, tableService.getRequestCount());
   }
 
   @Test
